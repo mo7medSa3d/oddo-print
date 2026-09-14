@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authenticateForTenant, customerSessionCookie, type CustomerIdentity } from "../../../../lib/customer-auth";
+import { authenticateForTenant, customerSessionCookie } from "../../../../lib/customer-auth";
 import { inspectAuthRateLimit, clientIpFrom, recordAuthFailure, recordAuthSuccess } from "../../../../lib/auth-rate-limit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { writeAuditEvent } from "../../../../lib/audit";
