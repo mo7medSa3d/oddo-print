@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type Member = { userId: string; email: string; role: string };
 type Invitation = { id: string; email: string; role: string; expiresAt: string };
 
 export default function TeamPage() {
+  const router = useRouter();
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [email, setEmail] = useState("");
@@ -18,7 +20,18 @@ export default function TeamPage() {
     if (membersRes.ok) setMembers((await membersRes.json()).members ?? []);
     if (invitationsRes.ok) setInvitations((await invitationsRes.json()).invitations ?? []);
   }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      fetch("/api/team/members", { credentials: "include", cache: "no-store" }),
+      fetch("/api/team/invitations", { credentials: "include", cache: "no-store" }),
+    ]).then(async ([membersRes, invitationsRes]) => {
+      if (!active) return;
+      if (membersRes.ok) setMembers((await membersRes.json()).members ?? []);
+      if (invitationsRes.ok) setInvitations((await invitationsRes.json()).invitations ?? []);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   async function invite(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setMessage("");
@@ -48,7 +61,7 @@ export default function TeamPage() {
     if (!window.confirm("Transfer workspace ownership to this member? Your current session will be signed out.")) return;
     const res = await fetch("/api/team/ownership", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ userId }) });
     const data = await res.json(); if (!res.ok) return setMessage(data.error ?? "Ownership transfer failed");
-    window.location.href = "/login";
+    router.push("/login");
   }
 
   return <main className="mx-auto max-w-5xl px-4 py-10"><h1 className="text-2xl font-bold text-ink">Team</h1><p className="mt-1 text-sm text-ink-3">Invite staff and manage workspace roles.</p>
