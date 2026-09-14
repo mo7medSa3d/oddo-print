@@ -104,52 +104,33 @@ jobs:
                 RAISE EXCEPTION 'legacy Gateway business table still exists: %', table_name_value;
               END IF;
             END LOOP;
-
             FOREACH column_name_value IN ARRAY legacy_columns LOOP
               IF EXISTS (
                 SELECT 1 FROM information_schema.columns
-                WHERE table_schema='public'
-                  AND column_name=column_name_value
+                WHERE table_schema='public' AND column_name=column_name_value
                   AND table_name IN ('agents','printers','print_jobs','api_keys','discovery_sessions','discovered_devices')
               ) THEN
                 RAISE EXCEPTION 'legacy Gateway ownership column still exists: %', column_name_value;
               END IF;
             END LOOP;
-
             IF NOT EXISTS (
-              SELECT 1 FROM pg_indexes
-              WHERE schemaname='public' AND tablename='print_jobs'
+              SELECT 1 FROM pg_indexes WHERE schemaname='public' AND tablename='print_jobs'
                 AND indexname='print_jobs_idempotency_unique'
-            ) THEN
-              RAISE EXCEPTION 'global print job idempotency index is missing';
-            END IF;
-
+            ) THEN RAISE EXCEPTION 'global print job idempotency index is missing'; END IF;
             IF NOT EXISTS (
               SELECT 1 FROM information_schema.columns
               WHERE table_schema='public' AND table_name='print_jobs' AND column_name='destination'
-            ) THEN
-              RAISE EXCEPTION 'print_jobs.destination is missing';
-            END IF;
-
-            -- Corrective migration 0026: column defaults must match the
-            -- application contract (the 0001 defaults 'thermal'/'tcp' are
-            -- forbidden by the 0006 CHECK constraints).
+            ) THEN RAISE EXCEPTION 'print_jobs.destination is missing'; END IF;
             IF EXISTS (
               SELECT 1 FROM information_schema.columns
-              WHERE table_schema='public' AND table_name='printers'
-                AND column_name='printer_type'
+              WHERE table_schema='public' AND table_name='printers' AND column_name='printer_type'
                 AND (column_default IS NULL OR column_default NOT LIKE '%physical%')
-            ) THEN
-              RAISE EXCEPTION 'printers.printer_type default does not match the application contract (physical)';
-            END IF;
+            ) THEN RAISE EXCEPTION 'printers.printer_type default does not match the application contract (physical)'; END IF;
             IF EXISTS (
               SELECT 1 FROM information_schema.columns
-              WHERE table_schema='public' AND table_name='printers'
-                AND column_name='connection_type'
+              WHERE table_schema='public' AND table_name='printers' AND column_name='connection_type'
                 AND (column_default IS NULL OR column_default NOT LIKE '%network%')
-            ) THEN
-              RAISE EXCEPTION 'printers.connection_type default does not match the application contract (network)';
-            END IF;
+            ) THEN RAISE EXCEPTION 'printers.connection_type default does not match the application contract (network)'; END IF;
           END $$;
           SQL
       - name: Run integration tests (PostgreSQL)
@@ -174,9 +155,7 @@ jobs:
 
   odoo19:
     runs-on: ubuntu-latest
-    # A hung Odoo suite must fail loudly instead of burning the 6h default
-    # timeout silently (module load + suite normally finish well within this).
-    timeout-minutes: 45
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:15-alpine
@@ -206,43 +185,37 @@ jobs:
           PGPASSWORD: odoo
         run: createdb -h 127.0.0.1 -U odoo odoo19_test
       - name: Install and test addon on Odoo 19 Community
+        shell: bash
         run: |
+          set -o pipefail
           docker pull odoo:19.0
-          # The container's exit code alone is NOT sufficient evidence: a
-          # regression that collects ZERO tests also exits 0. The log is
-          # asserted below for the unittest summary line.
-          docker run --rm --network host --name odoo19_test_run \
-            --add-host=db:127.0.0.1 \
-            -v "$GITHUB_WORKSPACE/odoo_addons:/mnt/extra-addons:ro" \
-            odoo:19.0 \
-            odoo \
-              --database=odoo19_test \
-              --db_host=127.0.0.1 \
-              --db_port=5432 \
-              --db_user=odoo \
-              --db_password=odoo \
-              --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons \
-              --without-demo=true \
-              --http-interface=127.0.0.1 \
-              --init=print_gateway \
-              --test-tags=/print_gateway \
-              --stop-after-init \
-              --log-level=test 2>&1 | tee /tmp/odoo19_test.log
+          rm -f /tmp/odoo19_test.log
+          timeout --signal=TERM --kill-after=30s 12m \
+            docker run --rm --network host --name odoo19_test_run \
+              -v "$GITHUB_WORKSPACE/odoo_addons:/mnt/extra-addons:ro" \
+              odoo:19.0 \
+              odoo \
+                --database=odoo19_test \
+                --db_host=127.0.0.1 \
+                --db_port=5432 \
+                --db_user=odoo \
+                --db_password=odoo \
+                --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons \
+                --without-demo=true \
+                --http-interface=127.0.0.1 \
+                --init=print_gateway \
+                --test-tags=/print_gateway \
+                --stop-after-init \
+                --log-level=test 2>&1 | tee /tmp/odoo19_test.log
       - name: Assert the Odoo addon tests actually ran and passed
+        shell: bash
         run: |
           set -euo pipefail
-          # Odoo 19 reports its suite as two log lines (NOT unittest's
-          # "Ran N tests" format):
-          #   odoo.tests.stats:  print_gateway: 92 tests ...
-          #   odoo.tests.result: 0 failed, 0 error(s) of 80 tests ...
-          # A tag/import regression that collects ZERO tests still exits 0,
-          # so both lines are asserted here. Missing lines or any nonzero
-          # failure/error/skip count = vacuous or broken green.
           stats_line="$(grep -E 'odoo\.tests\.stats: +print_gateway: +[0-9]+ tests' /tmp/odoo19_test.log | tail -1 || true)"
           result_line="$(grep -E 'odoo\.tests\.result: ' /tmp/odoo19_test.log | tail -1 || true)"
           if [ -z "$stats_line" ] || [ -z "$result_line" ]; then
-            echo 'ERROR: Odoo test summary lines missing - the suite did not run to completion.'
-            tail -30 /tmp/odoo19_test.log || true
+            echo 'ERROR: Odoo test summary lines missing; the suite did not complete.'
+            tail -80 /tmp/odoo19_test.log || true
             exit 1
           fi
           echo "$stats_line"
@@ -257,6 +230,6 @@ jobs:
             exit 1
           fi
           if grep -Eo 'odoo\.tests\.result:.*[1-9][0-9]* skipped' /tmp/odoo19_test.log; then
-            echo 'ERROR: the Odoo suite skipped tests; required production tests must not silently disappear.'
+            echo 'ERROR: the Odoo suite skipped required tests.'
             exit 1
           fi
