@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { authenticateForTenant, customerSessionCookie } from "../../../../../lib/customer-auth";
-import { inspectAuthRateLimit, clientIpFrom, recordAuthFailure, recordAuthSuccess } from "../../../../../lib/auth-rate-limit";
-import { hasBodyOverLimit } from "../../../../../lib/request-limits";
-import { writeAuditEvent } from "../../../../../lib/audit";
+import { authenticateForTenant, customerSessionCookie } from "../../../../lib/customer-auth";
+import { inspectAuthRateLimit, clientIpFrom, recordAuthFailure, recordAuthSuccess } from "../../../../lib/auth-rate-limit";
+import { hasBodyOverLimit } from "../../../../lib/request-limits";
+import { writeAuditEvent } from "../../../../lib/audit";
 
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 64 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
   }
   if (!identity.tenantId || !identity.role) return NextResponse.json({ error: "Workspace setup is incomplete" }, { status: 409 });
   await recordAuthSuccess(email).catch(() => undefined);
-  const session = await (await import("../../../../../lib/customer-auth")).issueCustomerSession(identity.userId, identity.tenantId, identity.role);
+  const session = await (await import("../../../../lib/customer-auth")).issueCustomerSession(identity.userId, identity.tenantId, identity.role);
   const res = NextResponse.json({ ok: true, expiresAt: session.exp.toISOString(), tenantId: identity.tenantId, role: identity.role });
   res.headers.set("Set-Cookie", customerSessionCookie(session));
   void writeAuditEvent({ tenantId: identity.tenantId, actorType: "user", actorId: identity.userId, action: "user.login.success" }).catch(() => undefined);
