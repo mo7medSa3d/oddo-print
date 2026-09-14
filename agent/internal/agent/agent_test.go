@@ -1,0 +1,754 @@
+package agent
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/odoo-print-agent/agent/internal/config"
+	"github.com/odoo-print-agent/agent/internal/printer"
+)
+
+const jobIDPrefix = "JOBID:"
+
+func makeJobPayload(jobID string) map[string]interface{} {
+	return map[string]interface{}{
+		"type":     "raw",
+		"protocol": "raw",
+		"encoding": "base64",
+		"data":     base64.StdEncoding.EncodeToString([]byte(jobIDPrefix + jobID)),
+	}
+}
+
+func jobIDFromPayload(data []byte) string {
+	text := string(data)
+	if strings.HasPrefix(text, jobIDPrefix) {
+		return strings.TrimPrefix(text, jobIDPrefix)
+	}
+	return ""
+}
+
+type fakePrinter struct {
+	mu            sync.Mutex
+	calls         int
+	callsByJob    map[string]int
+	attemptsByJob map[string]int
+	spans         []printSpan
+	failBefore    map[string]int
+	blocked       chan struct{}
+	startedCh     chan string
+	allowReturn   chan struct{}
+	status        string
+}
+
+type printSpan struct {
+	start time.Time
+	end   time.Time
+}
+
+func (f *fakePrinter) Spans() []printSpan {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]printSpan, len(f.spans))
+	copy(out, f.spans)
+	return out
+}
+
+func (f *fakePrinter) Calls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+func spansOverlap(a, b printSpan) bool {
+	return a.start.Before(b.end) && b.start.Before(a.end)
+}
+
+func (f *fakePrinter) Print(ctx context.Context, data []byte) error {
+	jobID := jobIDFromPayload(data)
+	start := time.Now()
+	f.mu.Lock()
+	if f.callsByJob == nil {
+		f.callsByJob = map[string]int{}
+	}
+	if f.attemptsByJob == nil {
+		f.attemptsByJob = map[string]int{}
+	}
+	if f.failBefore == nil {
+		f.failBefore = map[string]int{}
+	}
+	f.attemptsByJob[jobID]++
+	if n := f.failBefore[jobID]; n > 0 {
+		f.failBefore[jobID]--
+		f.mu.Unlock()
+		return context.DeadlineExceeded
+	}
+	f.calls++
+	f.callsByJob[jobID]++
+	if f.startedCh != nil {
+		select {
+		case f.startedCh <- jobID:
+		default:
+		}
+	}
+	f.mu.Unlock()
+	if f.blocked != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-f.blocked:
+		}
+	}
+	if f.allowReturn != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-f.allowReturn:
+		}
+	}
+	f.mu.Lock()
+	f.spans = append(f.spans, printSpan{start: start, end: time.Now()})
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *fakePrinter) Test(ctx context.Context) error {
+	return f.Print(ctx, []byte(jobIDPrefix+"test"))
+}
+
+func (f *fakePrinter) Status() string {
+	if f.status != "" {
+		return f.status
+	}
+	return "online"
+}
+
+func newStatusTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/agent/jobs":
+			switch r.Method {
+			case http.MethodPatch:
+				var body map[string]interface{}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					http.Error(w, "invalid json", http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"success":true}`))
+				return
+			case http.MethodGet:
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`[]`))
+				return
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func newTestAgent(t *testing.T, printerID string, p printer.Printer) *Agent {
+	t.Helper()
+	server := newStatusTestServer(t)
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_test"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = server.URL
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	ag, err := New(cfg, cfgPath)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ag.printers = map[string]printer.Printer{printerID: p}
+	ag.printerConfigs = map[string]config.PrinterConfig{printerID: {ID: printerID, Name: "Test", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"}}
+	t.Cleanup(func() {
+		server.Close()
+		if err := ag.Close(); err != nil {
+			t.Logf("Agent.Close() error: %v", err)
+		}
+	})
+	return ag
+}
+
+func assertNoInFlight(t *testing.T, ag *Agent) {
+	t.Helper()
+	ag.inFlightMu.Lock()
+	defer ag.inFlightMu.Unlock()
+	if len(ag.inFlight) != 0 {
+		t.Fatalf("jobs still in flight after completion: %v", ag.inFlight)
+	}
+}
+
+func TestPerPrinterSerialization(t *testing.T) {
+	p1 := &fakePrinter{}
+	ag := newTestAgent(t, "printer_1", p1)
+	ctx := context.Background()
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			<-start
+			job := map[string]interface{}{
+				"id":        fmt.Sprintf("serial_%d", n),
+				"printerId": "printer_1",
+				"payload":   makeJobPayload(fmt.Sprintf("serial_%d", n)),
+				"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+			}
+			ag.processJob(ctx, job)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	ag.waitForJobs()
+	assertNoInFlight(t, ag)
+	if p1.calls != 2 {
+		t.Fatalf("expected 2 calls, got %d", p1.calls)
+	}
+	spans := p1.Spans()
+	if len(spans) != 2 {
+		t.Fatalf("expected 2 recorded spans, got %d", len(spans))
+	}
+	if spansOverlap(spans[0], spans[1]) {
+		t.Fatalf("expected serialized execution, print spans overlap: %+v", spans)
+	}
+}
+
+func TestDifferentPrintersConcurrent(t *testing.T) {
+	// Provably-concurrent cross-printer execution WITHOUT wall-clock assertions.
+	//
+	// Both printers park on the SAME `barrier` channel inside Print() — but only
+	// AFTER each has signalled on its own `startedCh`. The moment both startedCh
+	// signals have been received by this test, both Print calls are guaranteed
+	// to be in flight at the same time: each is blocked inside `barrier` while
+	// the other is printing. No time.Now() comparison is needed.
+	//
+	// (The previous implementation asserted span overlap via time.Now() deltas.
+	// On 2-vCPU Windows runners Go can hand two goroutines the same wall-clock
+	// tick, so two genuinely-concurrent prints recorded BIT-IDENTICAL spans and
+	// spansOverlap()'s strict `Before` comparisons returned false — making the
+	// build fail even though the behaviour under test was correct.)
+	barrier := make(chan struct{})
+	p1 := &fakePrinter{blocked: barrier, startedCh: make(chan string, 1)}
+	p2 := &fakePrinter{blocked: barrier, startedCh: make(chan string, 1)}
+	server := newStatusTestServer(t)
+	defer server.Close()
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_test"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = server.URL
+	tmpDir := t.TempDir()
+	ag, err := New(cfg, filepath.Join(tmpDir, "config.yaml"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = ag.Close() }()
+	ag.printers = map[string]printer.Printer{"p1": p1, "p2": p2}
+	ag.printerConfigs = map[string]config.PrinterConfig{
+		"p1": {ID: "p1", Name: "P1", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
+		"p2": {ID: "p2", Name: "P2", Type: "network", Endpoint: "127.0.0.1:9101", Protocol: "raw"},
+	}
+	ctx := context.Background()
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		ag.processJob(ctx, map[string]interface{}{"id": "j1", "printerId": "p1", "payload": makeJobPayload("j1"), "expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339)})
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		ag.processJob(ctx, map[string]interface{}{"id": "j2", "printerId": "p2", "payload": makeJobPayload("j2"), "expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339)})
+	}()
+	close(start)
+
+	waitStarted := func(p *fakePrinter, name string) {
+		t.Helper()
+		select {
+		case <-p.startedCh:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s never started printing", name)
+		}
+	}
+	waitStarted(p1, "p1")
+	waitStarted(p2, "p2")
+	// Both prints are parked behind the barrier RIGHT NOW -> provably concurrent.
+	close(barrier)
+	wg.Wait()
+	ag.waitForJobs()
+	assertNoInFlight(t, ag)
+	if len(p1.Spans()) != 1 || len(p2.Spans()) != 1 {
+		t.Fatalf("expected one span per printer, got %d/%d", len(p1.Spans()), len(p2.Spans()))
+	}
+}
+
+func TestSameJobIDAcrossTenConcurrentDispatches(t *testing.T) {
+	p := &fakePrinter{}
+	ag := newTestAgent(t, "printer_1", p)
+	ctx := context.Background()
+	const workers = 10
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			job := map[string]interface{}{
+				"id":        "same_job_10",
+				"printerId": "printer_1",
+				"payload":   makeJobPayload("same_job_10"),
+				"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+			}
+			ag.dispatchJob(ctx, job)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	ag.waitForJobs()
+	assertNoInFlight(t, ag)
+	if got := p.callsByJob["same_job_10"]; got != 1 {
+		t.Fatalf("expected exactly one physical print for same jobID across 10 goroutines, got %d", got)
+	}
+}
+
+func TestSameJobIDAcrossHundredConcurrentDispatches(t *testing.T) {
+	p := &fakePrinter{}
+	ag := newTestAgent(t, "printer_1", p)
+	ctx := context.Background()
+	const workers = 100
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			job := map[string]interface{}{
+				"id":        "same_job_100",
+				"printerId": "printer_1",
+				"payload":   makeJobPayload("same_job_100"),
+				"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+			}
+			ag.dispatchJob(ctx, job)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	ag.waitForJobs()
+	assertNoInFlight(t, ag)
+	if got := p.callsByJob["same_job_100"]; got != 1 {
+		t.Fatalf("expected exactly one physical print for same jobID across 100 goroutines, got %d", got)
+	}
+}
+
+func TestWSAndPollingDuplicateDeliverySameJobID(t *testing.T) {
+	p := &fakePrinter{}
+	ag := newTestAgent(t, "printer_1", p)
+	ctx := context.Background()
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			job := map[string]interface{}{
+				"id":        "ws_poll_same_job",
+				"printerId": "printer_1",
+				"payload":   makeJobPayload("ws_poll_same_job"),
+				"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+			}
+			ag.dispatchJob(ctx, job)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	ag.waitForJobs()
+	assertNoInFlight(t, ag)
+	if got := p.callsByJob["ws_poll_same_job"]; got != 1 {
+		t.Fatalf("expected exactly one print for WS+poll duplicate delivery, got %d", got)
+	}
+}
+
+func TestDifferentJobsSamePrinterSerialized(t *testing.T) {
+	p := &fakePrinter{}
+	ag := newTestAgent(t, "printer_1", p)
+	ctx := context.Background()
+	const jobs = 25
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < jobs; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			job := map[string]interface{}{
+				"id":        fmt.Sprintf("same_printer_%d", i),
+				"printerId": "printer_1",
+				"payload":   makeJobPayload(fmt.Sprintf("same_printer_%d", i)),
+				"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+			}
+			ag.dispatchJob(ctx, job)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	ag.waitForJobs()
+	assertNoInFlight(t, ag)
+	if p.calls != jobs {
+		t.Fatalf("expected %d calls, got %d", jobs, p.calls)
+	}
+	spans := p.Spans()
+	for i := 1; i < len(spans); i++ {
+		if spansOverlap(spans[i-1], spans[i]) {
+			t.Fatalf("expected same-printer jobs to serialize; spans overlapped: %v vs %v", spans[i-1], spans[i])
+		}
+	}
+}
+
+func TestDifferentJobsAcrossThreePrintersConcurrent(t *testing.T) {
+	p1 := &fakePrinter{}
+	p2 := &fakePrinter{}
+	p3 := &fakePrinter{}
+	server := newStatusTestServer(t)
+	defer server.Close()
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_test"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = server.URL
+	tmpDir := t.TempDir()
+	ag, err := New(cfg, filepath.Join(tmpDir, "config.yaml"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = ag.Close() }()
+	ag.printers = map[string]printer.Printer{"p1": p1, "p2": p2, "p3": p3}
+	ag.printerConfigs = map[string]config.PrinterConfig{
+		"p1": {ID: "p1", Name: "P1", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
+		"p2": {ID: "p2", Name: "P2", Type: "network", Endpoint: "127.0.0.1:9101", Protocol: "raw"},
+		"p3": {ID: "p3", Name: "P3", Type: "network", Endpoint: "127.0.0.1:9102", Protocol: "raw"},
+	}
+	ctx := context.Background()
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			printerID := "p1"
+			switch i % 3 {
+			case 1:
+				printerID = "p2"
+			case 2:
+				printerID = "p3"
+			}
+			job := map[string]interface{}{
+				"id":        fmt.Sprintf("multi_%d", i),
+				"printerId": printerID,
+				"payload":   makeJobPayload(fmt.Sprintf("multi_%d", i)),
+				"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+			}
+			ag.dispatchJob(ctx, job)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	ag.waitForJobs()
+	assertNoInFlight(t, ag)
+	if got := p1.calls + p2.calls + p3.calls; got != 12 {
+		t.Fatalf("expected 12 total prints across 3 printers, got %d (%d+%d+%d)", got, p1.calls, p2.calls, p3.calls)
+	}
+	if len(p1.Spans()) == 0 || len(p2.Spans()) == 0 || len(p3.Spans()) == 0 {
+		t.Fatal("expected at least one span on each printer")
+	}
+}
+
+func TestPrintFailureThenRetry(t *testing.T) {
+	p := &fakePrinter{failBefore: map[string]int{"retry_job": 1}}
+	ag := newTestAgent(t, "printer_1", p)
+	ctx := context.Background()
+	job := map[string]interface{}{
+		"id":        "retry_job",
+		"printerId": "printer_1",
+		"payload":   makeJobPayload("retry_job"),
+		"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+	}
+	ag.processJob(ctx, job)
+	if got := p.attemptsByJob["retry_job"]; got != 1 {
+		t.Fatalf("first attempt should be recorded once even when it fails, got %d attempts", got)
+	}
+	if got := p.callsByJob["retry_job"]; got != 0 {
+		t.Fatalf("failed first attempt should not count as a successful print, got %d successful calls", got)
+	}
+	ag.processJob(ctx, job)
+	if got := p.attemptsByJob["retry_job"]; got != 2 {
+		t.Fatalf("retry after failure should create exactly one second attempt, got %d total attempts", got)
+	}
+	if got := p.callsByJob["retry_job"]; got != 1 {
+		t.Fatalf("retry after failure should succeed exactly once, got %d successful calls", got)
+	}
+	assertNoInFlight(t, ag)
+}
+
+func TestTTLExpiredSkipped(t *testing.T) {
+	p := &fakePrinter{}
+	ag := newTestAgent(t, "p1", p)
+	ctx := context.Background()
+	job := map[string]interface{}{
+		"id": "expired_job", "printerId": "p1",
+		"payload":   makeJobPayload("expired_job"),
+		"expiresAt": time.Now().Add(-time.Minute).Format(time.RFC3339),
+	}
+	ag.processJob(ctx, job)
+	if p.calls != 0 {
+		t.Fatalf("expired job should not call Print, got %d", p.calls)
+	}
+}
+
+func TestDuplicateSkippedAfterSuccess(t *testing.T) {
+	p := &fakePrinter{}
+	ag := newTestAgent(t, "p1", p)
+	ctx := context.Background()
+	job := map[string]interface{}{
+		"id": "dup_job", "printerId": "p1",
+		"payload":   makeJobPayload("dup_job"),
+		"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+	}
+	ag.processJob(ctx, job)
+	if p.calls != 1 {
+		t.Fatalf("first call expected 1, got %d", p.calls)
+	}
+	ag.processJob(ctx, job)
+	if p.calls != 1 {
+		t.Fatalf("duplicate should be skipped, got %d", p.calls)
+	}
+	assertNoInFlight(t, ag)
+}
+
+func TestSingleFlightProbeGuard(t *testing.T) {
+	ag := &Agent{}
+	state := ag.getProbeState("p1")
+	if !state.running.CompareAndSwap(false, true) {
+		t.Fatal("first CAS should succeed")
+	}
+
+	// While running, second CAS must fail (single-flight active)
+	if state.running.CompareAndSwap(false, true) {
+		t.Fatal("second CAS while running must fail")
+	}
+
+	// Release
+	state.running.Store(false)
+	if !state.running.CompareAndSwap(false, true) {
+		t.Fatal("CAS after store(false) must succeed")
+	}
+}
+
+func TestKeepAliveEchoesClaimTokens(t *testing.T) {
+	// The heartbeat keep-alive must carry (jobId, claimToken) pairs so the
+	// gateway can fence the lease refresh to the live claim. A bare job id
+	// would let a stale worker extend a reclaimed lease.
+	started := make(chan string, 1)
+	release := make(chan struct{})
+	p := &fakePrinter{blocked: release, startedCh: started}
+	ag := newTestAgent(t, "p1", p)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	job := map[string]interface{}{
+		"id":         "job-ka-1",
+		"printerId":  "p1",
+		"payload":    makeJobPayload("job-ka-1"),
+		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+		"claimToken": "tok-live-9",
+	}
+	go ag.dispatchJob(ctx, job)
+	select {
+	case got := <-started:
+		if got != "job-ka-1" {
+			t.Fatalf("unexpected job started: %q", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("job never reached the printer")
+	}
+	pairs := ag.inFlightJobIDs(64)
+	if len(pairs) != 1 || pairs[0]["jobId"] != "job-ka-1" || pairs[0]["claimToken"] != "tok-live-9" {
+		t.Fatalf("keep-alive must echo the live claim token, got %v", pairs)
+	}
+	close(release)
+	ag.waitForJobs()
+	assertNoInFlight(t, ag)
+}
+
+func TestAuthorizeDispatchAfterReportFailure(t *testing.T) {
+	now := time.Now()
+	transportErr := errors.New("connection refused")
+	cases := []struct {
+		name      string
+		received  time.Time
+		expires   time.Time
+		hasExpiry bool
+		err       error
+		want      bool
+	}{
+		{"fence rejection never proceeds", now, time.Time{}, false, ErrStaleClaim, false},
+		{"explicit gateway rejection never proceeds", now, time.Time{}, false, ErrTransitionRejected, false},
+		{"nil error proceeds (defensive: gate only runs on error)", now, time.Time{}, false, nil, true},
+		{"transport failure with fresh receipt proceeds", now.Add(-10 * time.Second), time.Time{}, false, transportErr, true},
+		{"transport failure with stale receipt refuses", now.Add(-time.Hour), time.Time{}, false, transportErr, false},
+		{"transport failure with unknown receipt refuses", time.Time{}, time.Time{}, false, transportErr, false},
+		{"transport failure past TTL refuses even when fresh", now.Add(-time.Second), now.Add(-time.Second), true, transportErr, false},
+		{"transport failure before TTL proceeds when fresh", now.Add(-time.Second), now.Add(time.Hour), true, transportErr, true},
+		{"boundary: exactly at the window refuses", now.Add(-staleClaimSafetyWindow), time.Time{}, false, transportErr, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, reason := authorizeDispatchAfterReportFailure(tc.received, tc.expires, tc.hasExpiry, now, tc.err)
+			if got != tc.want {
+				t.Fatalf("proceed = %v, want %v (reason: %s)", got, tc.want, reason)
+			}
+			if got == tc.want && !got && reason == "" {
+				t.Fatalf("refusals must carry a forensic reason")
+			}
+		})
+	}
+}
+
+func TestStaleTransportFailureHaltsBeforeHardware(t *testing.T) {
+	// Gateway unreachable AND the delivery is older than the claim-lease
+	// window: a reclaim may already have completed, so the stale attempt
+	// must not touch the printer even though the failure is "only" a
+	// transport error.
+	server := newStatusTestServer(t)
+	defer server.Close()
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_test"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = "http://127.0.0.1:1"
+	tmpDir := t.TempDir()
+	ag, err := New(cfg, filepath.Join(tmpDir, "config.yaml"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = ag.Close() }()
+	p := &fakePrinter{}
+	ag.printers = map[string]printer.Printer{"p1": p}
+	ag.printerConfigs = map[string]config.PrinterConfig{"p1": {ID: "p1", Name: "T", Type: "network", Protocol: "raw", Endpoint: "127.0.0.1:9100"}}
+	jobID := "job-stale-transport"
+	// Simulate a delivery accepted long ago: dispatch acceptance stamped
+	// the receipt time, then the gateway went dark.
+	ag.inFlightMu.Lock()
+	ag.inFlight[jobID] = struct{}{}
+	ag.inFlightTokens[jobID] = "tok-old-1"
+	ag.inFlightReceived[jobID] = time.Now().Add(-time.Hour)
+	ag.inFlightMu.Unlock()
+	ag.processJob(context.Background(), map[string]interface{}{
+		"id":         jobID,
+		"printerId":  "p1",
+		"payload":    makeJobPayload(jobID),
+		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+		"claimToken": "tok-old-1",
+	})
+	if p.calls != 0 {
+		t.Fatalf("stale attempt with unreachable gateway must print nothing, got %d calls", p.calls)
+	}
+	_, status, found, err := ag.queue.Get(jobID)
+	if err != nil || !found {
+		t.Fatalf("expected an aborted ledger row, found=%v err=%v", found, err)
+	}
+	if status == "printing" || status == "success" {
+		t.Fatalf("aborted attempt must not be left in %q", status)
+	}
+}
+
+func TestFreshTransportFailureStillPrints(t *testing.T) {
+	// The mirror case: gateway unreachable but the delivery is seconds old,
+	// so no reclaim could have completed. Offline-tolerant printing is
+	// preserved: the job prints and the ledger tracks it.
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_test"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = "http://127.0.0.1:1"
+	tmpDir := t.TempDir()
+	ag, err := New(cfg, filepath.Join(tmpDir, "config.yaml"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = ag.Close() }()
+	p := &fakePrinter{}
+	ag.printers = map[string]printer.Printer{"p1": p}
+	ag.printerConfigs = map[string]config.PrinterConfig{"p1": {ID: "p1", Name: "T", Type: "network", Protocol: "raw", Endpoint: "127.0.0.1:9100"}}
+	jobID := "job-fresh-transport"
+	ag.dispatchJob(context.Background(), map[string]interface{}{
+		"id":         jobID,
+		"printerId":  "p1",
+		"payload":    makeJobPayload(jobID),
+		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+		"claimToken": "tok-fresh-1",
+	})
+	ag.waitForJobs()
+	if p.calls != 1 {
+		t.Fatalf("fresh delivery with unreachable gateway must still print once, got %d calls", p.calls)
+	}
+}
+
+func TestAddPrinterRefreshesChangedRuntimeConfig(t *testing.T) {
+	p1 := &fakePrinter{}
+	p2 := &fakePrinter{}
+	ag := newTestAgent(t, "prt-refresh", p1)
+	stored := config.PrinterConfig{ID: "prt-refresh", Name: "Test", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"}
+
+	// Identical re-registration (every discovery sweep): no-op, no churn.
+	if ag.addPrinter("prt-refresh", p1, stored) {
+		t.Fatal("identical re-registration must be a no-op returning false")
+	}
+	if got, ok := ag.getPrinter("prt-refresh"); !ok || got != printer.Printer(p1) {
+		t.Fatal("no-op re-registration must not disturb the registered backend")
+	}
+
+	// Changed endpoint (DHCP reassignment is the classic case): both the
+	// backend object and the stored facts must move to the new config, or
+	// dispatch, capability gating, and heartbeats keep using the dead device.
+	moved := stored
+	moved.Endpoint = "192.0.2.99:9100"
+	if !ag.addPrinter("prt-refresh", p2, moved) {
+		t.Fatal("changed re-registration must refresh and return true")
+	}
+	if got, ok := ag.getPrinter("prt-refresh"); !ok || got != printer.Printer(p2) {
+		t.Fatal("runtime backend must be the newly registered object")
+	}
+	facts, ok := ag.deviceFacts("prt-refresh")
+	if !ok {
+		t.Fatal("facts must exist for the refreshed printer")
+	}
+	_ = facts
+	pc, ok := func() (config.PrinterConfig, bool) {
+		ag.printersMu.RLock()
+		defer ag.printersMu.RUnlock()
+		v, ok := ag.printerConfigs["prt-refresh"]
+		return v, ok
+	}()
+	if !ok || pc.Endpoint != "192.0.2.99:9100" {
+		t.Fatalf("stored facts must carry the new endpoint, got %+v", pc)
+	}
+}

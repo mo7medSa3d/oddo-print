@@ -1,0 +1,128 @@
+/* PRINT GATEWAY — Odoo light theme tokens
+   Mirrors the Web gateway and Desktop Manager. Odoo Bootstrap variables
+   remain untouched and every value is namespaced under --pg-*. */
+
+:root {
+    --pg-brand-50: #eff6ff;
+    --pg-brand-100: #dbeafe;
+    --pg-brand-200: #bfdbfe;
+    --pg-brand-300: #93c5fd;
+    --pg-brand-400: #60a5fa;
+    --pg-brand-500: #3b82f6;
+    --pg-brand-600: #2563eb;
+    --pg-brand-700: #1d4ed8;
+    --pg-brand-800: #1e40af;
+    --pg-brand-900: #1e3a8a;
+
+    --pg-brand: var(--pg-brand-600);
+    --pg-brand-hover: var(--pg-brand-700);
+    --pg-brand-active: var(--pg-brand-800);
+    --pg-brand-contrast: #ffffff;
+    --pg-brand-subtle: var(--pg-brand-50);
+    --pg-brand-subtle-hover: var(--pg-brand-100);
+    --pg-brand-subtle-text: var(--pg-brand-700);
+    --pg-brand-ring: rgba(37, 99, 235, 0.26);
+
+    --pg-bg: #ffffff;
+    --pg-surface: #ffffff;
+    --pg-surface-2: #f5f8fc;
+    --pg-surface-3: #e8eef7;
+    --pg-surface-accent: #eef5ff;
+    --pg-surface-accent-2: #dce9ff;
+    --pg-border: #dfe7f2;
+    --pg-border-strong: #c8d4e6;
+    --pg-border-accent: #c9ddff;
+
+    --pg-text: #0f172a;
+    --pg-text-2: #475569;
+    --pg-text-3: #64748b;
+    --pg-text-4: #94a3b8;
+
+    --pg-ok: #059669;
+    --pg-ok-solid: #10b981;
+    --pg-ok-bg: #ecfdf5;
+    --pg-ok-border: #a7f3d0;
+    --pg-warn: #d97706;
+    --pg-warn-solid: #f59e0b;
+    --pg-warn-bg: #fffbeb;
+    --pg-warn-border: #fde68a;
+    --pg-bad: #e11d48;
+    --pg-bad-solid: #f43f5e;
+    --pg-bad-bg: #fff1f2;
+    --pg-bad-border: #fecdd3;
+    --pg-info: #2563eb;
+    --pg-info-solid: #3b82f6;
+    --pg-info-bg: #eff6ff;
+    --pg-info-border: #bfdbfe;
+    --pg-neutral: #475569;
+    --pg-neutral-solid: #64748b;
+    --pg-neutral-bg: #f8fafc;
+    --pg-neutral-border: #e2e8f0;
+
+    --pg-r-sm: 6px;
+    --pg-r-md: 8px;
+    --pg-r-lg: 10px;
+    --pg-r-xl: 12px;
+    --pg-r-pill: 9999px;
+
+    --pg-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --pg-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
+    --pg-shadow-md: 0 4px 12px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+
+    --pg-space-1: 4px;
+    --pg-space-2: 8px;
+    --pg-space-3: 12px;
+    --pg-space-4: 16px;
+    --pg-space-5: 20px;
+    --pg-space-6: 24px;
+
+    --pg-fs-caption: 11px;
+    --pg-fs-small: 12px;
+    --pg-fs-body: 13px;
+    --pg-tracking-label: 0.06em;
+    --pg-dur: 150ms;
+    --pg-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Keep the add-on light even when Odoo is running with its global dark theme. */
+.o_dark_mode,
+body.o_dark_mode {
+    color-scheme: light;
+    --pg-bg: #ffffff;
+    --pg-surface: #ffffff;
+    --pg-surface-2: #f5f8fc;
+    --pg-surface-3: #e8eef7;
+    --pg-surface-accent: #eef5ff;
+    --pg-surface-accent-2: #dce9ff;
+    --pg-border: #dfe7f2;
+    --pg-border-strong: #c8d4e6;
+    --pg-border-accent: #c9ddff;
+    --pg-text: #0f172a;
+    --pg-text-2: #475569;
+    --pg-text-3: #64748b;
+    --pg-text-4: #94a3b8;
+    --pg-brand: #2563eb;
+    --pg-brand-hover: #1d4ed8;
+    --pg-brand-active: #1e40af;
+    --pg-brand-contrast: #ffffff;
+    --pg-brand-subtle: #eff6ff;
+    --pg-brand-subtle-hover: #dbeafe;
+    --pg-brand-subtle-text: #1d4ed8;
+    --pg-brand-ring: rgba(37, 99, 235, 0.26);
+}
+
+@keyframes pg-pulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.55;
+        transform: scale(1.1);
+    }
+}
+
+.pg-pulse {
+    animation: pg-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+

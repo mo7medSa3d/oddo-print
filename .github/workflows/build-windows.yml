@@ -1,0 +1,193 @@
+name: Build Windows Installer
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: agent/go.mod
+          cache: true
+          cache-dependency-path: agent/go.sum
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.98.1
+          targets: x86_64-pc-windows-msvc
+      - name: Verify Cargo.lock
+        shell: pwsh
+        run: |
+          if (-not (Test-Path src-tauri/Cargo.lock)) { throw "src-tauri/Cargo.lock is required and must be committed" }
+          Push-Location src-tauri
+          cargo metadata --locked --no-deps --format-version 1 | Out-Null
+          Pop-Location
+          Write-Host "Cargo.lock is present and Cargo accepts the manifest in --locked mode."
+      - name: Cache Rust and Tauri
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/cargo-tauri.exe
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-rust-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-
+      - name: Install Tauri CLI
+        shell: pwsh
+        run: |
+          $tauri = Get-Command cargo-tauri -ErrorAction SilentlyContinue
+          if ($tauri) {
+            cargo tauri --version
+            Write-Host "Tauri CLI restored from cache; skipping install."
+          } else {
+            Write-Host "Tauri CLI not found in cache; installing 2.11.4..."
+            cargo install tauri-cli --version "=2.11.4" --locked
+          }
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck frontend
+        run: npm run typecheck
+      - name: Lint frontend
+        run: npm run lint
+      - name: Run Vitest suite
+        run: npm run test -- --reporter=default --reporter=json --outputFile=vitest-results.json
+      - name: Report skipped (DB-gated) tests explicitly
+        shell: pwsh
+        run: |
+          $json = Get-Content vitest-results.json -Raw | ConvertFrom-Json
+          $skipped = [int]$json.numPendingTests
+          $total = [int]$json.numTotalTests
+          Write-Host "Vitest: $skipped of $total tests SKIPPED (DB-gated suites; no Postgres on this runner)."
+          if ($skipped -gt 0) {
+            Write-Host "No Postgres service on this runner — $skipped integration test(s) were skipped in the Windows build. Full integration coverage runs in the CI workflow (.github/workflows/ci.yml)."
+          }
+      - name: Go vet
+        working-directory: agent
+        shell: pwsh
+        run: go vet ./...
+      - name: Go tests
+        working-directory: agent
+        shell: pwsh
+        run: go test -count=1 -p 2 ./...
+      - name: Go race tests
+        working-directory: agent
+        shell: pwsh
+        run: go test -count=1 -race -p 2 ./...
+      - name: Build Go Agent
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go build -trimpath -ldflags="-s -w" -o OdooPrintAgent.exe ./cmd/agent
+          go build -trimpath -ldflags="-s -w" -o odoo-agent-cli.exe ./cmd/cli
+      - name: Verify Go binaries
+        shell: pwsh
+        run: |
+          $agent = "agent\OdooPrintAgent.exe"
+          $cli = "agent\odoo-agent-cli.exe"
+          if (-not (Test-Path $agent)) { throw "Missing OdooPrintAgent.exe" }
+          if (-not (Test-Path $cli)) { throw "Missing odoo-agent-cli.exe" }
+          Get-Item $agent | Select-Object FullName, Length
+          Get-Item $cli | Select-Object FullName, Length
+      - name: Verify Tauri icon assets
+        shell: pwsh
+        run: |
+          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $icons = @($conf.bundle.icon)
+          if ($icons.Count -eq 0) { throw "No bundle.icon entries in src-tauri/tauri.conf.json" }
+          foreach ($icon in $icons) {
+            $p = Join-Path "src-tauri" ($icon -replace '/', '\\')
+            if (-not (Test-Path $p)) { throw "Missing configured icon: $p" }
+            $len = (Get-Item $p).Length
+            if ($len -le 0) { throw "Empty configured icon: $p" }
+            Write-Host "OK icon $icon ($len bytes)"
+          }
+          Write-Host "All $($icons.Count) configured icons are present."
+      - name: Build desktop frontend
+        run: npm run desktop:vite:build
+      - name: Rust unit tests (desktop)
+        shell: pwsh
+        run: |
+          Push-Location src-tauri
+          cargo test --locked
+          Pop-Location
+      - name: Build Tauri Windows installer (MSI + NSIS EXE)
+        shell: pwsh
+        run: |
+          $maxAttempts = 3
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            Write-Host "Tauri installer build attempt $attempt/$maxAttempts"
+            & cargo tauri build --target x86_64-pc-windows-msvc --bundles nsis,msi
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Tauri installer build succeeded on attempt $attempt."
+              break
+            }
+            if ($attempt -eq $maxAttempts) {
+              throw "Tauri installer build failed after $maxAttempts attempts."
+            }
+            $delay = 15 * $attempt
+            Write-Warning "Tauri bundling failed (exit code $LASTEXITCODE). Retrying in $delay seconds; transient tool downloads such as WiX may have failed."
+            Start-Sleep -Seconds $delay
+          }
+      - name: Verify installer artifacts exist
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi" -ErrorAction SilentlyContinue
+          $exe = Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue
+          if (-not $msi) { throw "MSI bundle missing" }
+          if (-not $exe) { throw "NSIS EXE bundle missing" }
+          Write-Host "MSI:"
+          $msi | Select-Object FullName, Length
+          Write-Host "NSIS EXE:"
+          $exe | Select-Object FullName, Length
+      - name: Install MSI and smoke-test installed app
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "MSI bundle missing" }
+          $msiLog = Join-Path $env:RUNNER_TEMP "odoo-msi-install.log"
+          $proc = Start-Process msiexec -ArgumentList @(
+            "/i", "`"$($msi.FullName)`"", "/qn", "/norestart", "/l*v", "`"$msiLog`""
+          ) -Wait -PassThru
+          if ($proc.ExitCode -ne 0) {
+            Get-Content $msiLog -Tail 200
+            throw "MSI install failed with code $($proc.ExitCode)"
+          }
+          $installDir = Join-Path $env:ProgramFiles "Odoo Print Manager"
+          $installedExe = Join-Path $installDir "odoo-print-manager.exe"
+          if (-not (Test-Path $installedExe)) { throw "Installed EXE missing after MSI install: $installDir" }
+          & pwsh -NoProfile -File .\scripts\smoke-test-windows.ps1 -InstallDir $installDir
+          if ($LASTEXITCODE -ne 0) { throw "Windows smoke test failed" }
+      - name: Upload Windows MSI and NSIS EXE
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: Odoo-Print-Manager-Windows
+          path: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          compression-level: 9

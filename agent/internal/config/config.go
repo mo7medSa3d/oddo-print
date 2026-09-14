@@ -1,0 +1,445 @@
+package config
+
+import (
+	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"strconv"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/odoo-print-agent/agent/internal/storage"
+)
+
+const secretStoreKey = "agent_secret"
+
+type Config struct {
+	Server struct {
+		URL string `yaml:"url"`
+	} `yaml:"server"`
+	Agent struct {
+		ID                string `yaml:"id"`
+		Secret            string `yaml:"secret"`
+		Name              string `yaml:"name"`
+		ReprintAfterCrash *bool  `yaml:"reprint_after_crash,omitempty"`
+	} `yaml:"agent"`
+	Printers []PrinterConfig `yaml:"printers"`
+}
+
+type PrinterConfig struct {
+	ID             string                 `yaml:"id"`
+	Name           string                 `yaml:"name"`
+	Type           string                 `yaml:"type"`
+	Endpoint       string                 `yaml:"endpoint"`
+	Protocol       string                 `yaml:"protocol"`
+	SpoolerName    string                 `yaml:"spooler_name,omitempty"`
+	ConnectionType string                 `yaml:"connection_type,omitempty"`
+	PrinterType    string                 `yaml:"printer_type,omitempty"`
+	USBVID         string                 `yaml:"usb_vid,omitempty"`
+	USBPID         string                 `yaml:"usb_pid,omitempty"`
+	USBSerial      string                 `yaml:"usb_serial,omitempty"`
+	Capabilities   map[string]interface{} `yaml:"capabilities,omitempty"`
+	Enabled        *bool                  `yaml:"enabled,omitempty"`
+}
+
+func (c *Config) ReprintAfterCrashEnabled() bool {
+	if c == nil || c.Agent.ReprintAfterCrash == nil {
+		return false
+	}
+	return *c.Agent.ReprintAfterCrash
+}
+
+func validateServerURL(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("server.url invalid: %w", err)
+	}
+	if u.Hostname() == "" {
+		return fmt.Errorf("server.url host is empty")
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("server.url must not contain credentials, query strings, or fragments")
+	}
+	// Zero-configuration: both http and https are accepted for any valid
+	// hostname or IP (LAN, public, loopback) with no environment opt-in.
+	switch strings.ToLower(u.Scheme) {
+	case "https", "http":
+		return nil
+	default:
+		return fmt.Errorf("server.url scheme must be http or https, got %q", u.Scheme)
+	}
+}
+
+func defaultConfig() *Config {
+	cfg := &Config{}
+	cfg.Agent.ReprintAfterCrash = boolPtr(false)
+	return cfg
+}
+
+func boolPtr(v bool) *bool { return &v }
+
+func Load(path string) (*Config, error) {
+	if path == "" {
+		return defaultConfig(), nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return defaultConfig(), nil
+		}
+		return nil, err
+	}
+
+	cfg := defaultConfig()
+	decodeErr := yaml.NewDecoder(f).Decode(cfg)
+	closeErr := f.Close()
+	if decodeErr != nil {
+		return nil, decodeErr
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close config %s: %w", path, closeErr)
+	}
+	if cfg.Agent.ReprintAfterCrash == nil {
+		cfg.Agent.ReprintAfterCrash = boolPtr(false)
+	}
+
+	dir := filepath.Dir(path)
+	if dir == "" || dir == "." {
+		if d, err := ExecutableDir(); err == nil {
+			dir = d
+		}
+	}
+	store := storage.NewStore(dir)
+	if sealed, serr := store.GetSecret(secretStoreKey); serr == nil && sealed != "" {
+		cfg.Agent.Secret = sealed
+	} else if cfg.Agent.Secret != "" {
+		legacySecret := cfg.Agent.Secret
+		if merr := store.SaveSecret(secretStoreKey, legacySecret); merr != nil {
+			return nil, fmt.Errorf("migrate legacy agent secret to secure storage: %w", merr)
+		}
+		stripped := *cfg
+		stripped.Agent.Secret = ""
+		if serr := stripped.Save(path); serr != nil {
+			return nil, fmt.Errorf("remove legacy plaintext agent secret from config: %w", serr)
+		}
+	}
+	return cfg, nil
+}
+
+func Ensure(path string) error {
+	if path == "" {
+		return fmt.Errorf("config path is empty")
+	}
+	dir := filepath.Dir(path)
+	if dir == "" {
+		dir = "."
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create config dir %s: %w", dir, err)
+	}
+	if err := EnsureSecureDirectoryACL(dir); err != nil {
+		return fmt.Errorf("secure config dir %s: %w", dir, err)
+	}
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "odoo-print-agent"
+	}
+	name := "Odoo Print Agent"
+	if runtime.GOOS == "windows" {
+		name = host
+	}
+	cfg := defaultConfig()
+	cfg.Agent.Name = name
+	if err := cfg.Save(path); err != nil {
+		return fmt.Errorf("create default config %s: %w", path, err)
+	}
+	return nil
+}
+
+func (c *Config) Save(path string) error {
+	if path == "" {
+		return fmt.Errorf("config path is empty")
+	}
+	dir := filepath.Dir(path)
+	if dir == "" || dir == "." {
+		if d, err := ExecutableDir(); err == nil {
+			dir = d
+		}
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create config dir %s: %w", dir, err)
+	}
+	if err := EnsureSecureDirectoryACL(dir); err != nil {
+		return fmt.Errorf("secure config dir %s: %w", dir, err)
+	}
+
+	toSave := *c
+	if c.Agent.Secret != "" {
+		if err := storage.NewStore(dir).SaveSecret(secretStoreKey, c.Agent.Secret); err != nil {
+			return fmt.Errorf("seal agent secret: %w", err)
+		}
+		toSave.Agent.Secret = ""
+	}
+
+	data, err := yaml.Marshal(&toSave)
+	if err != nil {
+		return fmt.Errorf("encode config %s: %w", path, err)
+	}
+
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return fmt.Errorf("create temp config %s: %w", tmp, err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return fmt.Errorf("write temp config %s: %w", tmp, err)
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return fmt.Errorf("sync temp config %s: %w", tmp, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close temp config %s: %w", tmp, err)
+	}
+	// Protect the transient file itself before the atomic replace. On Windows,
+	// a restrictive parent directory does not rewrite an existing child DACL.
+	if err := EnsureSecureFileACL(tmp); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("secure temp config %s: %w", tmp, err)
+	}
+	if err := replaceFile(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("commit config %s: %w", tmp, err)
+	}
+	if err := EnsureSecureFileACL(path); err != nil {
+		return fmt.Errorf("secure config file %s: %w", path, err)
+	}
+	return nil
+}
+
+func ExecutableDir() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve executable path: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return filepath.Dir(exe), nil
+}
+
+func DefaultConfigPath() string {
+	if override := os.Getenv("ODOO_PRINT_AGENT_DATA_DIR"); override != "" {
+		return filepath.Join(override, "config.yaml")
+	}
+	if pd := os.Getenv("PROGRAMDATA"); pd != "" {
+		return filepath.Join(pd, "OdooPrintAgent", "config.yaml")
+	}
+	dir, err := ExecutableDir()
+	if err != nil {
+		return "config.yaml"
+	}
+	return filepath.Join(dir, "config.yaml")
+}
+
+func LegacyConfigPath() string {
+	dir, err := ExecutableDir()
+	if err != nil {
+		return "config.yaml"
+	}
+	return filepath.Join(dir, "config.yaml")
+}
+
+func QueueDBPath(configPath string) string {
+	dir := filepath.Dir(configPath)
+	if dir == "" || dir == "." {
+		if d, err := ExecutableDir(); err == nil {
+			dir = d
+		}
+	}
+	return filepath.Join(dir, "agent.db")
+}
+
+func DefaultLogDir(configPath string) string {
+	return filepath.Join(filepath.Dir(configPath), "logs")
+}
+
+func DefaultLogPath(configPath string) string {
+	return filepath.Join(DefaultLogDir(configPath), "agent.log")
+}
+
+func (c *Config) Validate() error {
+	if c.Server.URL != "" {
+		if err := validateServerURL(c.Server.URL); err != nil {
+			return err
+		}
+	}
+	if c.Agent.ID != "" && c.Server.URL == "" {
+		return fmt.Errorf("agent.id is set but server.url is empty; re-pair or set server.url")
+	}
+	if c.Agent.ID != "" && c.Agent.Secret == "" {
+		return fmt.Errorf("agent.id is set but agent.secret is empty; re-pair the agent")
+	}
+	for _, p := range c.Printers {
+		if err := ValidatePrinterConfig(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+var printerIDRe = regexp.MustCompile(`^[a-z0-9_][a-z0-9_-]*$`)
+
+func (p PrinterConfig) NormalizedType() string {
+	t := p.ConnectionType
+	if t == "" {
+		t = p.Type
+	}
+	t = strings.ToLower(strings.TrimSpace(t))
+	switch t {
+	case "tcp":
+		return "network"
+	case "":
+		return "network"
+	default:
+		return t
+	}
+}
+
+// NormalizedProtocol returns the EXPLICITLY declared protocol for the
+// device. An empty protocol is an error, never a silent default: inventing
+// "raw" would turn an unconfigured device into a routable byte sink and
+// would skip ESC/POS status preflight (see the strict protocol contract in
+// docs/ and src/lib/routing.ts on the gateway side, which mirrors this).
+func (p PrinterConfig) NormalizedProtocol() (string, error) {
+	proto := strings.ToLower(strings.TrimSpace(p.Protocol))
+	if proto == "" {
+		switch nt := p.NormalizedConnectionTypeStrict(); nt {
+		case "spooler":
+			// A spooler queue carries its own transport identity.
+			return "spooler", nil
+		case "ipp", "ipps":
+			return nt, nil
+		default:
+			return "", fmt.Errorf("printer %s: protocol must be declared explicitly (raw, escpos, zpl, tspl, ipp, ipps, spooler, or unknown)", p.ID)
+		}
+	}
+	if proto == "windows_spooler" {
+		return "spooler", nil
+	}
+	switch proto {
+	case "raw", "escpos", "zpl", "tspl", "ipp", "ipps", "spooler", "unknown":
+		return proto, nil
+	default:
+		return "", fmt.Errorf("printer %s: unsupported protocol %q", p.ID, p.Protocol)
+	}
+}
+
+// NormalizedProtocolOrUnknown is used by REPORTING paths (heartbeat,
+// diagnostics) that must never fail the whole agent because ONE printer has
+// an undeclared protocol: undeclared reports honestly as "unknown", which
+// the gateway capability model refuses to route to.
+func (p PrinterConfig) NormalizedProtocolOrUnknown() string {
+	proto, err := p.NormalizedProtocol()
+	if err != nil {
+		return "unknown"
+	}
+	return proto
+}
+
+// NormalizedConnectionTypeStrict returns the declared connection type
+// WITHOUT inventing one for the empty case.
+func (p PrinterConfig) NormalizedConnectionTypeStrict() string {
+	t := p.ConnectionType
+	if t == "" {
+		t = p.Type
+	}
+	t = strings.ToLower(strings.TrimSpace(t))
+	if t == "tcp" {
+		return "network"
+	}
+	return t
+}
+
+func (p PrinterConfig) IsEnabled() bool {
+	if p.Enabled != nil {
+		return *p.Enabled
+	}
+	return true
+}
+
+func ValidatePrinterConfig(p PrinterConfig) error {
+	if p.ID == "" {
+		return fmt.Errorf("printer missing id")
+	}
+	if !printerIDRe.MatchString(p.ID) {
+		return fmt.Errorf("printer %q: id must match %s", p.ID, printerIDRe.String())
+	}
+	if p.Name == "" {
+		return fmt.Errorf("printer %s: name required", p.ID)
+	}
+	nt := p.NormalizedType()
+	switch nt {
+	case "network", "usb", "spooler", "ipp", "ipps":
+	default:
+		return fmt.Errorf("printer %s: type must be network/usb/spooler/ipp/ipps, got %q", p.ID, p.Type)
+	}
+	proto, perr := p.NormalizedProtocol()
+	if perr != nil {
+		return perr
+	}
+	_ = proto
+	if nt == "network" || nt == "ipp" || nt == "ipps" {
+		ep := p.Endpoint
+		if nt == "ipp" && ep == "" {
+			return nil
+		}
+		if ep == "" {
+			return fmt.Errorf("printer %s: network endpoint required (ip:port)", p.ID)
+		}
+		if strings.HasPrefix(proto, "ipp") || strings.HasPrefix(ep, "ipp://") || strings.HasPrefix(ep, "http") {
+			return nil
+		}
+		host, portStr, err := net.SplitHostPort(ep)
+		if err != nil {
+			return fmt.Errorf("printer %s: endpoint must be ip:port, got %q", p.ID, p.Endpoint)
+		}
+		if host == "" || net.ParseIP(strings.Trim(host, "[]")) == nil {
+			if strings.Contains(host, " ") {
+				return fmt.Errorf("printer %s: invalid host %q", p.ID, host)
+			}
+		}
+		port, err := strconv.Atoi(portStr)
+		if err != nil || port < 1 || port > 65535 {
+			return fmt.Errorf("printer %s: invalid port %q", p.ID, portStr)
+		}
+	}
+	if nt == "spooler" {
+		if p.SpoolerName == "" && p.Endpoint == "" {
+			return fmt.Errorf("printer %s: spooler printer requires spooler_name or endpoint", p.ID)
+		}
+	}
+	return nil
+}
+
+func RegistryPath(configPath string) string {
+	dir := filepath.Dir(configPath)
+	if dir == "" || dir == "." {
+		if d, err := ExecutableDir(); err == nil {
+			dir = d
+		}
+	}
+	return filepath.Join(dir, "printers.json")
+}

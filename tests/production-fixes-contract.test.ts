@@ -1,0 +1,112 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const read = (file: string) => readFileSync(resolve(process.cwd(), file), "utf8");
+
+describe("production fixes contracts (2026-09)", () => {
+  it("keeps the removed Odoo branch/business-sync surface absent while retaining runtime-agent discovery", () => {
+    expect(existsSync(resolve(process.cwd(), "src/app/api/odoo/sync/route.ts"))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), "src/app/api/odoo/agents/route.ts"))).toBe(true);
+    expect(read("src/app/api/odoo/agents/route.ts")).toContain("validateOdooKey");
+    expect(read("src/app/api/odoo/printers/route.ts")).toContain("validateOdooKey");
+    expect(read("src/app/api/print/jobs/route.ts")).toContain("printerId");
+    expect(read("src/app/api/print/jobs/route.ts")).not.toContain("branchId");
+  });
+
+  it("keeps the print-job GET status response metadata-only", () => {
+    const route = read("src/app/api/print/jobs/route.ts");
+    const getSection = route.slice(route.indexOf("export async function GET"));
+    expect(getSection).toContain("validateOdooKey");
+    expect(getSection).toContain('searchParams.get("id")');
+    expect(getSection).toContain("responseForRow(row)");
+    expect(getSection).not.toContain("row.payload");
+    expect(getSection).not.toContain('json({ payload');
+  });
+
+  it("heartbeat print-lease keep-alive: bounded (jobId, claimToken) pairs, fenced to the live claim", () => {
+    const hb = read("src/app/api/agent/heartbeat/route.ts");
+    const normalized = hb.replace(/\s+/g, " ");
+    expect(normalized).toContain("const MAX_KEEP_ALIVE_JOB_IDS = 64;");
+    expect(normalized).toContain("claimToken");
+    // The refresh predicate must bind the lease to the exact live claim…
+    expect(normalized).toContain("(id, claim_token) IN");
+    // …and legacy tokenless ids may only touch rows that never got a token.
+    expect(normalized).toContain("isNull(printJobs.claimToken)");
+    expect(normalized).toContain("eq(printJobs.agentId, agent.id)");
+    expect(normalized).toContain("inArray(printJobs.status, [\"claimed\", \"printing\"])");
+    // Lease refresh mutates updatedAt only - never status, never ownership.
+    expect(normalized).toContain("UPDATE print_jobs SET updated_at = now()");
+    expect(normalized).not.toContain("db.update(printJobs) .set({ status");
+  });
+
+  it("agent rejection gate: claimed->queued only via the fenced pre-execution reasons", () => {
+    const jobs = read("src/app/api/agent/jobs/route.ts");
+    expect(jobs).toContain("AGENT_REQUEUE_REASONS");
+    expect(jobs).toContain("pre-execution rejection reason");
+    // The claim token gate makes the rejection unforgeable by a superseded attempt.
+    expect(jobs).toContain("STALE_CLAIM");
+    const status = read("src/lib/job-status.ts");
+    expect(status).toContain('AGENT_REQUEUE_REASONS = ["pending_full", "agent_shutting_down", "ledger_unavailable"]');
+  });
+
+  it("Go agent: size-aware print budget with fenced pre-execution rejection", () => {
+    const agent = read("agent/internal/agent/agent.go");
+    expect(agent).toContain("printCtx, cancel := context.WithTimeout(ctx, printDocumentTimeout(len(pl.Data)))");
+    expect(agent).toContain("func printDocumentTimeout(payloadBytes int) time.Duration {");
+    // the document layer must not clamp a size-scaled budget down to a
+    // constant (that produced mid-partial-write garbage on slow thermals)
+    const doc = read("agent/internal/printer/document.go");
+    expect(doc).toContain("if _, hasDeadline := parent.Deadline(); hasDeadline {");
+    // executor saturation / shutdown reject the job FENCED with the claim
+    // token instead of silently dropping delivered work.
+    expect(agent).toContain('a.rejectJob(jobID, jobClaimToken(job), "pending_full")');
+    expect(agent).toContain('a.rejectJob(jobID, jobClaimToken(job), "agent_shutting_down")');
+    expect(agent).toMatch(/discoverySem:\s*make\(chan struct\{\}, 1\)/);
+    const net = read("agent/internal/printer/network.go");
+    expect(net).toMatch(/dialTimeout\s*=\s*10\s*\*\s*time\.Second/);
+    expect(net).toMatch(/writeStallTimeout\s*=\s*60\s*\*\s*time\.Second/);
+    expect(net).toContain("_ = conn.SetWriteDeadline(time.Now().Add(writeStallTimeout))");
+  });
+
+  it("Go agent: interrupted jobs are reprinted, not skipped as processed", () => {
+    const agent = read("agent/internal/agent/agent.go");
+    expect(agent).toContain("recoverInterruptedJobs");
+    expect(agent).toContain("WasInterrupted");
+  });
+
+  it("job-maintenance: stale PRINTING jobs fail with an unknown physical outcome and are never requeued", () => {
+    const jm = read("src/lib/job-maintenance.ts");
+    expect(jm).toContain("AGENT_EXECUTION_TIMEOUT");
+    expect(jm).toContain("physical output is unknown");
+    expect(jm).toContain("MAX_RETRIES");
+    expect(jm).not.toContain("requeuedPrinting");
+  });
+
+  it("Odoo cron reconciliation is bounded and uses the current runtime job API", () => {
+    const jobs = read("odoo_addons/print_gateway/models/print_job.py");
+    expect(jobs).toContain("limit=50");
+    expect(jobs).toContain("limit=100");
+    expect(jobs).toContain("/api/print/jobs");
+    expect(jobs).toContain("job.gateway_job_id");
+    expect(jobs).not.toContain("/api/odoo/sync");
+    expect(jobs).not.toContain("max_branches");
+    expect(jobs).not.toContain("pending.action_sync_status()");
+  });
+
+  it("production startup refuses plaintext manager passwords", () => {
+    const server = read("server.ts");
+    expect(server).toContain("process.env.NODE_ENV === \"production\" && process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD === \"1\"");
+    expect(server).toContain("Refusing production startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1");
+    expect(server).not.toContain("ALLOW_PLAINTEXT_MANAGER_PASSWORD=1 in production: the manager password is held in the environment");
+  });
+
+  it("Tauri background stop never uses global taskkill by image name", () => {
+    const agent = read("src-tauri/src/agent.rs");
+    expect(agent).toContain("const BACKGROUND_PID_FILE: &str = \"agent.pid\";");
+    expect(agent).toContain("taskkill_pid(pid, false)");
+    expect(agent).toContain("taskkill_pid(pid, true)");
+    expect(agent).not.toContain('.args(["/IM", "OdooPrintAgent.exe"])');
+    expect(agent).not.toContain('.args(["/F", "/IM", "OdooPrintAgent.exe"])');
+  });
+});
