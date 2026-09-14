@@ -110,3 +110,49 @@ describe("production fixes contracts (2026-09)", () => {
     expect(agent).not.toContain('.args(["/F", "/IM", "OdooPrintAgent.exe"])');
   });
 });
+
+
+describe("production fixes — presence sweep and Gateway test-page HTTP path", () => {
+  it("persists stale online agents as offline without touching print history", () => {
+    const source = read("src/lib/agent-presence-maintenance.ts");
+    expect(source).toContain("status = 'offline'");
+    expect(source).toContain("last_seen_at < now() - make_interval");
+    expect(source).toContain("RETURNING id");
+    expect(source).not.toContain("UPDATE print_jobs");
+  });
+
+  it("dashboard Send Test Page uses the authenticated HTTP endpoint for stable error contracts", () => {
+    const source = read("src/app/dashboard/dashboard-client.tsx");
+    expect(source).toContain("/api/printers/${encodeURIComponent(printerId)}/test-print");
+    expect(source).toContain("response.ok");
+    expect(source).toContain('credentials: "same-origin"');
+    expect(source).toContain('"Idempotency-Key": crypto.randomUUID()');
+    expect(source).toContain('testingPrinterId === printer.id');
+    expect(source).toContain('"Sending…" : "Send Test Page"');
+    expect(source).not.toContain("createTestPrintJob(printer.id)");
+  });
+
+  it("Gateway test-page endpoint derives tenant/agent ownership and uses a bounded idempotency key", () => {
+    const route = read("src/app/api/printers/[id]/test-print/route.ts");
+    expect(route).toContain("eq(printers.tenantId, claims.tenantId)");
+    expect(route).toContain("eq(agents.tenantId, claims.tenantId)");
+    expect(route).toContain('documentType: \"test_page\"');
+    expect(route).toContain("idempotencyKey");
+    expect(route).toContain("status: 201");
+    expect(route).toContain("AGENT_UNAVAILABLE");
+  });
+
+  it("printer and agent APIs expose effective availability instead of stale raw online state", () => {
+    const printers = read("src/app/api/printers/route.ts");
+    const agent = read("src/app/api/agents/[id]/route.ts");
+    expect(printers).toContain("getEffectivePrinterStatus");
+    expect(agent).toContain("isAgentAvailableForJob");
+    expect(agent).toContain("getEffectivePrinterStatus");
+  });
+
+  it("printer connection diagnostics uses the agent heartbeat as the authoritative heartbeat timestamp", () => {
+    const source = read("src/app/api/printers/[id]/test-connection/route.ts");
+    expect(source).toContain("const lastHeartbeatAt = agent.lastSeenAt;");
+    expect(source).not.toContain("const lastHeartbeatAt = printer.lastSeenAt;");
+  });
+});

@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <!-- Branch → Runtime Agent assignments. Written by the Pair Agent wizard
-         and reconciled from active bindings; exposed read-mostly here so an
-         administrator can audit which agent serves each branch. -->
+         or created additively when a binding names a runtime target. The
+         assignment remains independent so removing one binding cannot silently
+         remove the branch's other valid agent assignments. -->
     <record id="view_print_gateway_runtime_assignment_list" model="ir.ui.view">
         <field name="name">print_gateway.runtime_agent_assignment.list</field>
         <field name="model">print_gateway.runtime_agent_assignment</field>
@@ -22,6 +23,7 @@
         <field name="arch" type="xml">
             <form string="Branch Agent Assignment" class="o_pg_view o_pg_form">
                 <sheet>
+                    <div class="alert alert-info" role="alert">Each row is one explicit Branch → Gateway Agent assignment. A branch may have multiple Agents; Agent and printer runtime state remains authoritative in the Gateway.</div>
                     <group>
                         <field name="company_id" string="Odoo Company" options="{'no_create': True}"/>
                         <field name="branch_id" string="Odoo Branch" options="{'no_create': True}" help="Empty means this assignment applies to the whole company."/>

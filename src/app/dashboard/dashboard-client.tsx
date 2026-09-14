@@ -3,7 +3,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
   createAgent,
-  createTestPrintJob,
   deleteAgent,
   getDashboardJobs,
   getDashboardState,
@@ -137,6 +136,27 @@ function formatCountdown(expiresAt: Date | string | null | undefined): { text: s
   };
 }
 
+async function sendGatewayTestPage(printerId: string): Promise<{ jobId?: string; status?: string }> {
+  const response = await fetch(`/api/printers/${encodeURIComponent(printerId)}/test-print`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "same-origin",
+  });
+  let body: unknown = null;
+  try { body = await response.json(); } catch { body = null; }
+  if (!response.ok) {
+    const obj = body && typeof body === "object" ? body as Record<string, unknown> : {};
+    const code = typeof obj.code === "string" ? obj.code : "";
+    const message = typeof obj.error === "string" ? obj.error : `Test page request failed (HTTP ${response.status}).`;
+    throw new Error(code ? `${code}: ${message}` : message);
+  }
+  const obj = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  return {
+    jobId: typeof obj.jobId === "string" ? obj.jobId : undefined,
+    status: typeof obj.status === "string" ? obj.status : undefined,
+  };
+}
+
 export default function DashboardClient({
   initialAgents,
   initialPrinters,
@@ -175,6 +195,7 @@ export default function DashboardClient({
 
   const [agentName, setAgentName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [testingPrinterId, setTestingPrinterId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; type: "ok" | "err" } | null>(null);
   const [activePairing, setActivePairing] = useState<{ id?: string; code: string; expiresAt: Date } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -406,6 +427,26 @@ export default function DashboardClient({
       return undefined;
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleGatewayTestPrint = async (printerId: string, printerName: string) => {
+    setTestingPrinterId(printerId);
+    setMessage(null);
+    try {
+      await sendGatewayTestPage(printerId);
+      setMessage({
+        text: `Test page submitted for ${printerName}. Track its delivery in Recent Print Jobs.`,
+        type: "ok",
+      });
+      void refreshData();
+    } catch (error) {
+      setMessage({
+        text: error instanceof Error ? error.message : "Test page failed. Check the agent and printer status.",
+        type: "err",
+      });
+    } finally {
+      setTestingPrinterId(null);
     }
   };
 
@@ -920,16 +961,12 @@ export default function DashboardClient({
                         <Button
                           size="sm"
                           variant="secondary"
-                          onClick={() =>
-                            void runAction(
-                              () => createTestPrintJob(printer.id),
-                              `Test page queued for ${printer.name} - watch it in the job list.`
-                            )
-                          }
-                          disabled={busy || printer.lifecycle !== "active"}
-                          icon={<CheckCircle2 className="h-3.5 w-3.5 text-ok" />}
+                          onClick={() => void handleGatewayTestPrint(printer.id, printer.name)}
+                          loading={testingPrinterId === printer.id}
+                          disabled={busy || testingPrinterId !== null || printer.lifecycle !== "active"}
+                          icon={<PlayCircle className="h-3.5 w-3.5" />}
                         >
-                          Send Test Page
+                          {testingPrinterId === printer.id ? "Sending…" : "Send Test Page"}
                         </Button>
                         {printer.lifecycle === "active" ? (
                           <Button
@@ -1016,15 +1053,11 @@ export default function DashboardClient({
                             <Button
                               size="sm"
                               variant="secondary"
-                              onClick={() =>
-                                void runAction(
-                                  () => createTestPrintJob(printer.id),
-                                  `Test page queued for ${printer.name} - watch it in the job list.`
-                                )
-                              }
-                              disabled={busy || printer.lifecycle !== "active"}
+                              onClick={() => void handleGatewayTestPrint(printer.id, printer.name)}
+                              loading={testingPrinterId === printer.id}
+                              disabled={busy || testingPrinterId !== null || printer.lifecycle !== "active"}
                             >
-                              Send Test Page
+                              {testingPrinterId === printer.id ? "Sending…" : "Send Test Page"}
                             </Button>
                           </td>
                         </tr>

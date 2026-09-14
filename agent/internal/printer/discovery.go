@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -832,33 +833,35 @@ func mergeDeviceInfo(existing, incoming DeviceInfo) DeviceInfo {
 func TestPrinter(cfg *config.Config, registryPath, printerID string) error {
 	var target *DeviceInfo
 
-	// Fast path: Check quick local sources (registry, spooler, config) which complete in <10ms
-	quickResult := DiscoverQuick(cfg, registryPath)
-	for _, p := range quickResult.Printers {
-		if p.ID == printerID || p.SpoolerName == printerID || p.Name == printerID {
-			cp := p
-			target = &cp
-			break
-		}
-	}
-
-	// Slow path fallback: Only run full discovery (including 10s network TCP 9100 sweep) if not found locally
-	if target == nil {
-		printers, err := ListPrinters(cfg, registryPath)
-		if err != nil {
-			return fmt.Errorf("list printers: %w", err)
-		}
-		for _, p := range printers {
+	// A printer test is an explicit operation against an already selected
+	// inventory record. Never invoke network discovery here: discovery has
+	// intentionally bounded LAN probes and their timeout budget must not leak
+	// into an interactive test-print action.
+	if infos, err := LoadRegistryPrinters(registryPath); err == nil {
+		for _, p := range infos {
 			if p.ID == printerID || p.SpoolerName == printerID || p.Name == printerID {
 				cp := p
 				target = &cp
 				break
 			}
 		}
-		if target == nil {
-			return fmt.Errorf("printer %q not found (discovered %d printers)", printerID, len(printers))
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("load printer registry: %w", err)
+	}
+
+	if target == nil {
+		for _, p := range discoverFromConfig(cfg) {
+			if p.ID == printerID || p.SpoolerName == printerID || p.Name == printerID {
+				cp := p
+				target = &cp
+				break
+			}
 		}
 	}
+	if target == nil {
+		return fmt.Errorf("printer %q not found in local printer inventory", printerID)
+	}
+
 	pc := config.PrinterConfig{
 		ID:          target.ID,
 		Name:        target.Name,
@@ -873,11 +876,11 @@ func TestPrinter(cfg *config.Config, registryPath, printerID string) error {
 			pc.Endpoint = target.SpoolerName
 		}
 	}
-	printer, err := New(pc)
+	prt, err := New(pc)
 	if err != nil {
 		return fmt.Errorf("printer %s backend not available: %w", printerID, err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	return printer.Test(ctx)
+	return prt.Test(ctx)
 }

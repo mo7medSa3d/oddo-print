@@ -17,3 +17,11 @@ The custom Next.js server guard checks `Content-Length` without consuming the in
 
 ## Secrets
 Never log raw API keys, Agent secrets, passwords, or pairing values. Production Manager login requires a password hash rather than plaintext configuration.
+
+## Customer SaaS identity and billing boundaries
+
+Customer accounts authenticate with email/password. Passwords use Argon2id on the required Node 24 runtime; legacy manager scrypt hashes are upgraded after successful authentication. Verification and password-reset tokens are stored only as SHA-256 hashes and consumed atomically.
+
+A customer session is still backed by the existing server-side `manager_sessions` table and signed HttpOnly cookie, preserving the current session architecture while binding the session to `userId`, `tenantId`, and role. Authorization is derived from tenant membership, never from a browser-supplied tenant ID.
+
+Stripe is only the billing provider. Stripe webhooks update `tenant_subscriptions`; runtime entitlement checks use local subscription state and reject expired periods. Billing operations require the `billing.manage` permission, while billing visibility requires `billing.read`.

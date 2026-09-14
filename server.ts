@@ -12,6 +12,7 @@ import { applyApiCors, handleApiCorsPreflight } from "./src/server/cors";
 import { isTrustedProxyRequest, trustProxyEnabled } from "./src/server/trusted-proxy";
 import { runtimeSecret } from "./src/lib/runtime-secret";
 import { pool } from "./src/db";
+import { sweepStaleAgentPresence, AGENT_PRESENCE_SWEEP_INTERVAL_MS } from "./src/lib/agent-presence-maintenance";
 
 const dev = process.env.NODE_ENV !== "production";
 const port = parseInt(process.env.PORT ?? "3000", 10);
@@ -158,6 +159,15 @@ app.prepare().then(() => {
   housekeeping();
   const housekeepingTimer = setInterval(housekeeping, HOUSEKEEPING_INTERVAL_MS);
   housekeepingTimer.unref();
+
+  const presenceSweep = () => {
+    sweepStaleAgentPresence().catch((error) => {
+      console.error("[agent-presence] stale-agent sweep failed", error);
+    });
+  };
+  presenceSweep();
+  const presenceTimer = setInterval(presenceSweep, AGENT_PRESENCE_SWEEP_INTERVAL_MS);
+  presenceTimer.unref();
 
   if (trustProxyEnabled()) {
     console.warn("[security] TRUST_PROXY enabled: only requests carrying the proxy authentication token are trusted for forwarded-client-IP handling. The bundled Caddyfile injects the token and overwrites X-Forwarded-For.");

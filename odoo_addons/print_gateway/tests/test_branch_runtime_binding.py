@@ -111,7 +111,7 @@ class TestBranchRuntimeBinding(TransactionCase):
         with self.assertRaises(ValidationError):
             self.env["print_gateway.binding"].create(self._values(destination_type="picking_type", destination_picking_type_id=picking_type.id, report_id=report.id))
 
-    def test_valid_full_binding_persists_and_creates_branch_assignment(self):
+    def test_valid_full_binding_persists_and_registers_branch_agent_assignment(self):
         with patch("odoo.addons.print_gateway.models.binding.requests.get", side_effect=self._gets()), patch("odoo.addons.print_gateway.models.gateway_config.PrintGatewayConfig._validate_gateway_host", return_value=None):
             binding = self.env["print_gateway.binding"].create(self._values())
         self.assertEqual((binding.company_id.id, binding.branch_id.id, binding.runtime_agent_id, binding.printer_id), (self.company.id, self.branch.id, "agent-a", "printer-a"))
@@ -142,37 +142,25 @@ class TestBranchRuntimeBinding(TransactionCase):
         self.assertFalse(record.printer_id)
         self.assertFalse(record.report_id)
 
-    def test_binding_unlink_reconciles_and_removes_orphaned_assignment(self):
+    def test_binding_unlink_does_not_remove_independent_branch_assignment(self):
         with patch("odoo.addons.print_gateway.models.binding.requests.get", side_effect=self._gets()), patch("odoo.addons.print_gateway.models.gateway_config.PrintGatewayConfig._validate_gateway_host", return_value=None):
             binding = self.env["print_gateway.binding"].create(self._values(priority=40))
         assignment = self.env["print_gateway.runtime_agent_assignment"].search([
-            ("company_id", "=", self.company.id), ("branch_id", "=", self.branch.id),
+            ("company_id", "=", self.company.id), ("branch_id", "=", self.branch.id), ("runtime_agent_id", "=", "agent-a"),
         ])
         self.assertTrue(assignment)
         binding.unlink()
-        remaining_assignment = self.env["print_gateway.runtime_agent_assignment"].search([
-            ("company_id", "=", self.company.id), ("branch_id", "=", self.branch.id),
-        ])
-        self.assertFalse(remaining_assignment)
+        self.assertTrue(assignment.exists())
 
-    def test_binding_disable_reconciles_and_removes_orphaned_assignment(self):
+    def test_binding_disable_does_not_remove_independent_branch_assignment(self):
         with patch("odoo.addons.print_gateway.models.binding.requests.get", side_effect=self._gets()), patch("odoo.addons.print_gateway.models.gateway_config.PrintGatewayConfig._validate_gateway_host", return_value=None):
             binding = self.env["print_gateway.binding"].create(self._values(priority=50))
         assignment = self.env["print_gateway.runtime_agent_assignment"].search([
-            ("company_id", "=", self.company.id), ("branch_id", "=", self.branch.id),
+            ("company_id", "=", self.company.id), ("branch_id", "=", self.branch.id), ("runtime_agent_id", "=", "agent-a"),
         ])
         self.assertTrue(assignment)
         binding.write({"enabled": False})
-        remaining_assignment = self.env["print_gateway.runtime_agent_assignment"].search([
-            ("company_id", "=", self.company.id), ("branch_id", "=", self.branch.id),
-        ])
-        self.assertFalse(remaining_assignment)
-        binding.write({"enabled": True})
-        restored_assignment = self.env["print_gateway.runtime_agent_assignment"].search([
-            ("company_id", "=", self.company.id), ("branch_id", "=", self.branch.id),
-        ])
-        self.assertTrue(restored_assignment)
-        self.assertEqual(restored_assignment.runtime_agent_id, "agent-a")
+        self.assertTrue(assignment.exists())
 
     def test_effective_company_id_computation(self):
         binding_branch = self.env["print_gateway.binding"].new({
@@ -188,3 +176,36 @@ class TestBranchRuntimeBinding(TransactionCase):
         })
         binding_root._compute_effective_company_id()
         self.assertEqual(binding_root.effective_company_id, self.company)
+
+
+    def test_branch_accepts_multiple_distinct_agent_assignments(self):
+        model = self.env["print_gateway.runtime_agent_assignment"]
+        first = model.create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": "agent-a",
+            "enabled": True,
+        })
+        second = model.create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": "agent-b",
+            "enabled": True,
+        })
+        self.assertEqual({first.runtime_agent_id, second.runtime_agent_id}, {"agent-a", "agent-b"})
+
+    def test_duplicate_same_agent_assignment_is_rejected(self):
+        model = self.env["print_gateway.runtime_agent_assignment"]
+        model.create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": "agent-a",
+            "enabled": True,
+        })
+        with self.assertRaises(Exception):
+            model.create({
+                "company_id": self.company.id,
+                "branch_id": self.branch.id,
+                "runtime_agent_id": "agent-a",
+                "enabled": True,
+            })

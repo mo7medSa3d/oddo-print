@@ -8,7 +8,7 @@ from odoo.exceptions import AccessError, ValidationError
 class PrintGatewayRuntimeAgentAssignment(models.Model):
     _name = "print_gateway.runtime_agent_assignment"
     _description = "Print Gateway Runtime Agent Assignment"
-    _order = "company_id, branch_id"
+    _order = "company_id, branch_id, id"
 
     company_id = fields.Many2one(
         "res.company", string="Odoo Company", required=True,
@@ -18,7 +18,7 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
     branch_id = fields.Many2one(
         "res.company", string="Odoo Branch", required=False,
         ondelete="restrict", index=True,
-        domain="['|', ('parent_id', '=', company_id), ('id', '=', company_id)]",
+        domain="[('parent_id', '=', company_id)]",
     )
     runtime_agent_id = fields.Char(
         string="Gateway Runtime Agent", required=True, copy=False, index=True,
@@ -26,9 +26,9 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
     enabled = fields.Boolean(default=True)
     name = fields.Char(compute="_compute_name", store=True)
 
-    _branch_unique = models.Constraint(
-        "UNIQUE(company_id, branch_id)",
-        "Only one runtime agent assignment is allowed for an Odoo branch.",
+    _agent_unique = models.Constraint(
+        "UNIQUE(company_id, branch_id, runtime_agent_id)",
+        "The same Gateway Runtime Agent cannot be assigned more than once to the same Odoo branch.",
     )
 
     @api.depends("company_id", "branch_id", "runtime_agent_id")

@@ -14,6 +14,7 @@ const maxPrintBytes = 5 * 1024 * 1024
 
 const (
 	dialTimeout           = 10 * time.Second
+	testPrintDialTimeout  = 3 * time.Second
 	writeStallTimeout     = 60 * time.Second
 	networkWriteChunkSize = 16 * 1024
 )
@@ -25,6 +26,14 @@ type NetworkPrinter struct {
 }
 
 func (p *NetworkPrinter) Print(ctx context.Context, data []byte) error {
+	return p.printBytes(ctx, data, true, dialTimeout)
+}
+
+// printBytes transmits bytes over a single RAW TCP connection. The optional
+// ESC/POS preflight is intentionally separate from the test-page path: a RAW
+// print stream is write-only by contract, and a diagnostic page must not wait
+// for a device status response that is not required to accept print bytes.
+func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight bool, connectTimeout time.Duration) error {
 	if len(data) == 0 {
 		return fmt.Errorf("refusing to print empty payload")
 	}
@@ -34,7 +43,7 @@ func (p *NetworkPrinter) Print(ctx context.Context, data []byte) error {
 
 	// Single connection with keepalive to eliminate connection churn and race conditions.
 	d := net.Dialer{
-		Timeout:   dialTimeout,
+		Timeout:   connectTimeout,
 		KeepAlive: 10 * time.Second,
 	}
 	conn, err := d.DialContext(ctx, "tcp", p.Address)
@@ -44,8 +53,9 @@ func (p *NetworkPrinter) Print(ctx context.Context, data []byte) error {
 	}
 	defer conn.Close()
 
-	// Active preflight on the OPEN connection before streaming raster/command bytes.
-	if strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
+	// Active preflight on the OPEN connection before normal ESC/POS document
+	// streaming. Test pages deliberately skip this optional status inquiry.
+	if preflight && strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
 		_ = conn.SetDeadline(time.Now().Add(1500 * time.Millisecond))
 		if _, err := QueryHealthStatus(conn); err != nil {
 			var netErr net.Error
@@ -146,7 +156,9 @@ func (p *NetworkPrinter) Test(ctx context.Context) error {
 	if !strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
 		return CapabilityMismatchf("local test pages are only supported for ESC/POS TCP devices (device protocol %q); send a protocol-matched test page from the Gateway console", p.Protocol)
 	}
-	return p.Print(ctx, []byte("\x1b\x40Hello from Odoo Agent!\n\n\x1d\x56\x01"))
+	testCtx, cancel := context.WithTimeout(ctx, testPrintDialTimeout)
+	defer cancel()
+	return p.printBytes(testCtx, []byte("\x1b\x40Hello from Odoo Agent!\n\n\x1d\x56\x01"), false, testPrintDialTimeout)
 }
 
 // Status differentiates transport reachability from device health:

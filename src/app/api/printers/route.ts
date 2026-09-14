@@ -8,6 +8,7 @@ import { nanoid } from "nanoid";
 import { parsePrinterInput, validateConnectionConfig } from "../../../lib/printer-model";
 import { writeAuditEvent } from "../../../lib/audit";
 import { enforceTenantResourceEntitlement, TenantEntitlementError } from "../../../lib/entitlements";
+import { getEffectivePrinterStatus } from "../../../lib/agent-availability";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +16,19 @@ export async function GET(req: Request) {
   const claims = await validateManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "printers.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
-  const rows = await db.select().from(printers).where(eq(printers.tenantId, claims.tenantId)).orderBy(desc(printers.createdAt));
-  return NextResponse.json(rows);
+  const rows = await db
+    .select({ printer: printers, agent: agents })
+    .from(printers)
+    .leftJoin(agents, and(eq(agents.id, printers.agentId), eq(agents.tenantId, claims.tenantId)))
+    .where(eq(printers.tenantId, claims.tenantId))
+    .orderBy(desc(printers.createdAt));
+  const now = new Date();
+  return NextResponse.json(
+    rows.map(({ printer, agent }) => ({
+      ...printer,
+      status: getEffectivePrinterStatus(printer, agent, now),
+    })),
+  );
 }
 
 export async function POST(req: Request) {

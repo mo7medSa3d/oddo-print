@@ -106,6 +106,26 @@ class PrintGatewayRouter(models.AbstractModel):
         )
 
     @api.model
+    def _assert_branch_agent_assignment(self, gateway_company, branch, runtime_agent_id):
+        """Fail closed if a branch-scoped print target is not explicitly assigned.
+
+        Gateway Agent records are authoritative runtime identities; this Odoo mapping
+        only decides whether the current branch is allowed to route to that identity.
+        """
+        if not branch or not runtime_agent_id:
+            return
+        assigned = self.env["print_gateway.runtime_agent_assignment"].sudo().search_count([
+            ("company_id", "=", gateway_company.id),
+            ("branch_id", "=", branch.id),
+            ("runtime_agent_id", "=", runtime_agent_id),
+            ("enabled", "=", True),
+        ])
+        if not assigned:
+            raise ValidationError(
+                _("Gateway Runtime Agent '%s' is not assigned to the current Odoo Branch.") % runtime_agent_id
+            )
+
+    @api.model
     @api.private
     def resolve_binding(self, *, report=None, record=None, document_type=None, company=None, explicit_destination=None, raise_if_not_found=True):
         current_company = self.env.company
@@ -147,6 +167,7 @@ class PrintGatewayRouter(models.AbstractModel):
                 _("Gateway printing is enabled, but no Print Binding exists for %s (%s) in %s.")
                 % (destination.display_name, dtype, branch.display_name if branch else gateway_company.display_name)
             )
+        self._assert_branch_agent_assignment(gateway_company, branch, binding.runtime_agent_id)
         return {
             "gateway_enabled": True,
             "native": False,
@@ -395,7 +416,9 @@ class PrintGatewayRouter(models.AbstractModel):
         self._validate_jpeg_base64(image_base64)
         route = self.resolve_binding(record=order, company=self.env.company, document_type="receipt")
         if route.get("native"):
-            return route
+            raise ValidationError(
+                _("Gateway printing is enabled for this POS, but no Gateway Receipt binding is configured for the current branch/POS.")
+            )
         return self._submit_route(
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},
             company=self.env.company, source_model=order._name, source_record_id=order.id,
@@ -415,7 +438,9 @@ class PrintGatewayRouter(models.AbstractModel):
             record=order, company=company, document_type="kitchen", explicit_destination=native_printer,
         )
         if route.get("native"):
-            return route
+            raise ValidationError(
+                _("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for the selected Odoo printer.")
+            )
         stable_key = "%s:%s" % (idempotency_key or uuid.uuid4().hex, native_printer.id)
         return self._submit_route(
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},
@@ -434,7 +459,9 @@ class PrintGatewayRouter(models.AbstractModel):
             explicit_destination=session.config_id,
         )
         if route.get("native"):
-            return route
+            raise ValidationError(
+                _("Gateway printing is enabled for this POS, but no Gateway Sale Details binding is configured.")
+            )
         return self._submit_route(
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},
             company=self.env.company, source_model=session._name, source_record_id=session.id,
@@ -571,6 +598,8 @@ class PrintGatewayRouter(models.AbstractModel):
                 raise ValidationError(_("Print binding '%s' has no Gateway Runtime Printer assigned.") % binding.display_name)
             if binding.branch_id and not binding.runtime_agent_id:
                 raise ValidationError(_("Print binding '%s' has no Gateway Runtime Agent assigned.") % binding.display_name)
+            if binding.branch_id and binding.runtime_agent_id:
+                self._assert_branch_agent_assignment(binding.company_id, binding.branch_id, binding.runtime_agent_id)
 
             target_binding = binding
             target_destination = binding.destination_ref or destination

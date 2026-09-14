@@ -25,6 +25,7 @@ export const users = pgTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  emailVerifiedAt: timestamp("email_verified_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -133,6 +134,60 @@ export const managerSessions = pgTable("manager_sessions", {
   tenantIdx: index("manager_sessions_tenant_idx").on(table.tenantId),
   userIdx: index("manager_sessions_user_idx").on(table.userId),
   roleCheck: check("manager_sessions_role_check", sql`${table.role} in ('owner','admin','operator','viewer','integration_admin','billing_admin')`),
+}));
+
+export const emailVerificationTokens = pgTable("email_verification_tokens", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id).notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("email_verification_tokens_user_idx").on(table.userId),
+  expiresIdx: index("email_verification_tokens_expires_idx").on(table.expiresAt),
+}));
+
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id).notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("password_reset_tokens_user_idx").on(table.userId),
+  expiresIdx: index("password_reset_tokens_expires_idx").on(table.expiresAt),
+}));
+
+export const tenantInvitations = pgTable("tenant_invitations", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id).notNull(),
+  inviterUserId: text("inviter_user_id").references(() => users.id).notNull(),
+  email: text("email").notNull(),
+  role: text("role").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  acceptedAt: timestamp("accepted_at"),
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantIdx: index("tenant_invitations_tenant_idx").on(table.tenantId),
+  emailIdx: index("tenant_invitations_email_idx").on(table.email),
+  expiresIdx: index("tenant_invitations_expires_idx").on(table.expiresAt),
+  roleCheck: check("tenant_invitations_role_check", sql`${table.role} in ('admin','operator','viewer','integration_admin','billing_admin')`),
+}));
+
+export const billingEvents = pgTable("billing_events", {
+  eventId: text("event_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  tenantId: text("tenant_id").references(() => tenants.id),
+  payload: jsonb("payload").default({}).notNull(),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+  processedAt: timestamp("processed_at"),
+}, (table) => ({
+  tenantIdx: index("billing_events_tenant_idx").on(table.tenantId, table.receivedAt),
+  typeIdx: index("billing_events_type_idx").on(table.eventType),
 }));
 
 export const authRateLimits = pgTable("auth_rate_limits", {
@@ -293,6 +348,9 @@ export const plans = pgTable("plans", {
   id: text("id").primaryKey(),
   name: text("name").notNull().unique(),
   entitlements: jsonb("entitlements").$type<Record<string, number | boolean | string>>().default({}).notNull(),
+  stripePriceId: text("stripe_price_id").unique(),
+  currency: text("currency"),
+  interval: text("interval"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -300,8 +358,13 @@ export const plans = pgTable("plans", {
 export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   tenantId: text("tenant_id").references(() => tenants.id).primaryKey(),
   planId: text("plan_id").references(() => plans.id).notNull(),
+  stripeCustomerId: text("stripe_customer_id").unique(),
+  stripeSubscriptionId: text("stripe_subscription_id").unique(),
   status: text("status").notNull().default("active"),
   currentPeriodEnd: timestamp("current_period_end"),
+  trialStartedAt: timestamp("trial_started_at"),
+  stripeLastEventCreatedAt: timestamp("stripe_last_event_created_at"),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({

@@ -218,8 +218,8 @@ class PrintGatewayPairAgentWizard(models.TransientModel):
     company_id = fields.Many2one("res.company", related="config_id.company_id", readonly=True)
     branch_id = fields.Many2one(
         "res.company", string="Target Branch",
-        domain="['|', ('parent_id', '=', company_id), ('id', '=', company_id)]",
-        default=lambda self: self.env.company,
+        domain="[('parent_id', '=', company_id)]",
+        default=False,
         required=False,
     )
     agent_id = fields.Char(
@@ -266,27 +266,36 @@ class PrintGatewayPairAgentWizard(models.TransientModel):
                     % (matched.get("name") or target, matched.get("lifecycle"))
                 )
             resolved_agent_id = matched["id"]
-            target_branch = self.branch_id or self.company_id or config.company_id
+            # A branch may intentionally have multiple assigned Agents.
+            # Company-level assignment is represented with branch_id=False.
+            if self.branch_id:
+                if self.branch_id.parent_id != config.company_id:
+                    raise ValidationError(
+                        _("The selected Target Branch must belong directly to the configured Odoo Company.")
+                    )
+                target_branch = self.branch_id
+            else:
+                target_branch = False
             assignment_model = self.env["print_gateway.runtime_agent_assignment"]
             existing = assignment_model.search([
                 ("company_id", "=", config.company_id.id),
-                ("branch_id", "=", target_branch.id),
+                ("branch_id", "=", target_branch.id if target_branch else False),
+                ("runtime_agent_id", "=", resolved_agent_id),
             ], limit=1)
-            if existing:
-                existing.write({"runtime_agent_id": resolved_agent_id, "enabled": True})
-            else:
+            if not existing:
                 assignment_model.create({
                     "company_id": config.company_id.id,
-                    "branch_id": target_branch.id,
+                    "branch_id": target_branch.id if target_branch else False,
                     "runtime_agent_id": resolved_agent_id,
                     "enabled": True,
                 })
+            target_scope = target_branch.display_name if target_branch else config.company_id.display_name
             return {
                 "type": "ir.actions.client",
                 "tag": "display_notification",
                 "params": {
                     "title": _("Agent Assigned Successfully"),
-                    "message": _("Agent %s assigned to %s.") % (resolved_agent_id, target_branch.name),
+                    "message": _("Agent %s assigned to %s.") % (resolved_agent_id, target_scope),
                     "type": "success",
                     "sticky": False,
                 },

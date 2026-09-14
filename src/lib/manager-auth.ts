@@ -3,6 +3,7 @@ import { managerSessions, tenants, tenantDomains, tenantUsers, users } from "../
 import { and, eq, sql } from "drizzle-orm";
 import { createHmac, randomBytes, scrypt, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
+import { hashPassword, verifyPassword, normalizeEmail } from "./password";
 
 const COOKIE_NAME = "mgr_session";
 const MAX_AGE_SECONDS = 8 * 60 * 60;
@@ -251,15 +252,23 @@ export async function verifyScryptPasswordHash(input: string, stored: string | n
 }
 
 export async function authenticateManagerUser(username: string, password: string, tenantId: string): Promise<{ userId: string; role: ManagerRole } | null> {
-  const normalized = username.trim().toLowerCase();
+  const normalized = normalizeEmail(username);
   if (!normalized || typeof password !== "string") return null;
   const row = await db.query.users.findFirst({
     where: eq(users.email, normalized),
-    columns: { id: true, passwordHash: true },
+    columns: { id: true, passwordHash: true, emailVerifiedAt: true },
   });
   if (!row) return null;
-  const valid = await verifyScryptPasswordHash(password, row.passwordHash);
+  const valid = row.passwordHash.startsWith("argon2id$")
+    ? await verifyPassword(password, row.passwordHash)
+    : await verifyScryptPasswordHash(password, row.passwordHash);
   if (!valid) return null;
+  if (!row.passwordHash.startsWith("argon2id$")) {
+    // Safe password migration: upgrade legacy scrypt credentials only after
+    // the old verifier has positively authenticated the user.
+    const upgraded = await hashPassword(password);
+    await db.update(users).set({ passwordHash: upgraded, updatedAt: new Date() }).where(eq(users.id, row.id));
+  }
   const membership = await db.query.tenantUsers.findFirst({
     where: and(eq(tenantUsers.userId, row.id), eq(tenantUsers.tenantId, tenantId)),
     columns: { role: true },
@@ -267,6 +276,28 @@ export async function authenticateManagerUser(username: string, password: string
   if (!membership) return null;
   if (!( ["owner", "admin", "operator", "viewer", "integration_admin", "billing_admin"] as string[]).includes(membership.role)) return null;
   return { userId: row.id, role: membership.role as ManagerRole };
+}
+
+export async function authenticateCustomer(email: string, password: string): Promise<{ userId: string; email: string } | null> {
+  const normalized = normalizeEmail(email);
+  const row = await db.query.users.findFirst({
+    where: eq(users.email, normalized),
+    columns: { id: true, email: true, passwordHash: true, emailVerifiedAt: true },
+  });
+  if (!row || !row.emailVerifiedAt) return null;
+  const valid = row.passwordHash.startsWith("argon2id$")
+    ? await verifyPassword(password, row.passwordHash)
+    : await verifyScryptPasswordHash(password, row.passwordHash);
+  if (!valid) return null;
+  if (!row.passwordHash.startsWith("argon2id$")) {
+    const upgraded = await hashPassword(password);
+    await db.update(users).set({ passwordHash: upgraded, updatedAt: new Date() }).where(eq(users.id, row.id));
+  }
+  return { userId: row.id, email: row.email };
+}
+
+export async function getAuthenticatedUserClaims(req: Request): Promise<ManagerClaims | null> {
+  return validateManager(req);
 }
 
 export function getManagerUsername(): string | null {

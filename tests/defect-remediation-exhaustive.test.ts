@@ -200,3 +200,43 @@ describe("DEFECT #7 — Local Agent Test Print Latency Optimization", () => {
     expect(discoverySource).toContain("// Slow path fallback: Only run full discovery (including 10s network TCP 9100 sweep) if not found locally");
   });
 });
+
+describe("DEFECT #8 — current agent presence is offline when heartbeat is stale", () => {
+  it("uses offline semantics rather than an online warning when heartbeat freshness expires", () => {
+    const source = fs.readFileSync(path.resolve(__dirname, "../src/shared/job-vocabulary.ts"), "utf-8");
+    expect(source).toContain('return { tone: "bad", label: "Offline — heartbeat lost" };');
+    expect(source).not.toContain('label: "Online (heartbeat lost)"');
+  });
+
+  it("server agent inventory resolves status from current heartbeat availability", () => {
+    const source = fs.readFileSync(path.resolve(__dirname, "../src/app/api/agents/route.ts"), "utf-8");
+    expect(source).toContain("isAgentAvailableForJob");
+    expect(source).toContain('status: isAgentAvailableForJob(agent, now) ? "online" : "offline"');
+  });
+});
+
+describe("DEFECT #9 — selected printer test never falls through to LAN discovery", () => {
+  it("resolves selected printers from local registry/config only", () => {
+    const source = fs.readFileSync(path.resolve(__dirname, "../agent/internal/printer/discovery.go"), "utf-8");
+    const block = source.slice(source.indexOf("func TestPrinter("));
+    expect(block).toContain("LoadRegistryPrinters(registryPath)");
+    expect(block).toContain("discoverFromConfig(cfg)");
+    expect(block).not.toContain("ListPrinters(cfg, registryPath)");
+    expect(block).not.toContain("DiscoverQuick(cfg, registryPath)");
+  });
+});
+
+describe("DEFECT #6 — Agent test-print fast path", () => {
+  it("does not use discovery or the ESC/POS health preflight for the local test print", () => {
+    const discovery = fs.readFileSync(path.resolve(__dirname, "../agent/internal/printer/discovery.go"), "utf-8");
+    const network = fs.readFileSync(path.resolve(__dirname, "../agent/internal/printer/network.go"), "utf-8");
+    const testSource = fs.readFileSync(path.resolve(__dirname, "../agent/internal/printer/network_test_fastpath_test.go"), "utf-8");
+    const testPrinter = discovery.slice(discovery.indexOf("func TestPrinter"));
+    expect(testPrinter).toContain("LoadRegistryPrinters(registryPath)");
+    expect(testPrinter).not.toContain("DiscoverQuick(cfg, registryPath)");
+    expect(network).toContain("return p.printBytes(testCtx, []byte(\"\\x1b\\x40Hello from Odoo Agent!\\n\\n\\x1d\\x56\\x01\"), false, testPrintDialTimeout)");
+    expect(network).toContain("testPrintDialTimeout  = 3 * time.Second");
+    expect(testSource).toContain("healthy test print took");
+    expect(testSource).toContain("refused printer test took");
+  });
+});

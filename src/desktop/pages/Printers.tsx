@@ -1,5 +1,5 @@
 import React from "react";
-import { Eye, Plus, Printer as PrinterIcon, RefreshCw, Search, Zap } from "lucide-react";
+import { Eye, Plus, Printer as PrinterIcon, RefreshCw, Search, Play } from "lucide-react";
 import {
   Button,
   Card,
@@ -200,7 +200,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                           size="sm"
                           variant="secondary"
                           onClick={() => s.handleTest(p.id)}
-                          icon={<Zap className="h-4 w-4" />}
+                          icon={<Play className="h-4 w-4" />}
                         >
                           Test
                         </Button>

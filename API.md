@@ -63,3 +63,13 @@ Gateway APIs for Branches, business destinations, business document catalogs and
 ## Reliability contract
 
 The Odoo addon commits a durable outbox row before making the HTTP submission. The same idempotency key is reused for retry attempts of that logical operation. Network timeouts are recorded as an unknown physical outcome instead of a definite failure. Gateway-side idempotency is installation-scoped for Odoo keys, while the durable database uniqueness constraint prevents duplicate logical jobs within one installation.
+
+## Customer SaaS authentication and billing
+
+Customer authentication uses `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/verify-email`, `POST /api/auth/resend-verification`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`, and `POST /api/auth/select-tenant`. Legacy manager bootstrap endpoints remain under `/api/auth/manager/*`.
+
+Workspace lifecycle uses `POST /api/onboarding`. Team lifecycle uses `GET/POST/DELETE /api/team/invitations`, `POST /api/team/invitations/accept`, `GET/PATCH/DELETE /api/team/members`, and `POST /api/team/ownership`.
+
+Billing uses `GET /api/billing/plans`, `POST /api/billing/checkout`, `POST /api/billing/portal`, `POST /api/billing/cancel`, `POST /api/billing/resume`, and `POST /api/billing/webhook`. Stripe webhook events are signature-verified and persisted by provider event ID before processing; the application database remains the local subscription/entitlement source of truth.
+
+The public plan catalog is provisioned with `npm run db:provision-plans` using operator-supplied `STRIPE_PLAN_CATALOG` JSON. No Stripe Price IDs or commercial limits are hardcoded in the repository.

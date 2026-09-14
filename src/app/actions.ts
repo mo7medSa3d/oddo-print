@@ -7,7 +7,6 @@ import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { generatePairingCode, hashPairingCode } from "../lib/agent-auth";
-import { buildTestPrintPayloadForPrinter } from "../lib/payload";
 import { getManagerCookieName, verifyManagerToken, validateManagerClaims } from "../lib/manager-auth";
 import { createPrintJobForPrinter } from "../lib/print-job-service";
 import {
@@ -24,6 +23,7 @@ import { ActionError } from "../lib/action-error";
 import { writeAuditEvent } from "../lib/audit";
 import { requireManagerPermission } from "../lib/authorization";
 import { enforceTenantResourceEntitlement, TenantEntitlementError } from "../lib/entitlements";
+import { isAgentAvailableForJob } from "../lib/agent-availability";
 
 async function requireManager() {
   const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
@@ -152,33 +152,6 @@ export async function createPrintJob(printerId: string, payload: unknown) {
   return { id: result.id };
 }
 
-export async function createTestPrintJob(printerId: string) {
-  const manager = await requireManager();
-  requireManagerPermission(manager, "printers.test");
-  const printer = await db.query.printers.findFirst({ where: and(eq(printers.id, printerId), eq(printers.tenantId, manager.tenantId)) });
-  if (!printer) throw new ActionError("Printer not found", 404);
-  const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, manager.tenantId)) });
-  if (!agent) throw new ActionError("The agent that owns this printer is missing.", 500);
-  try {
-    const payload = buildTestPrintPayloadForPrinter(printer.name, agent.name ?? printer.agentId, {
-      protocol: printer.protocol,
-      connectionType: printer.connectionType,
-      capabilities: printer.capabilities,
-    });
-    const result = await createPrintJobForPrinter(printerId, payload, {
-      requestedBy: "manager-test",
-      documentType: "test_page",
-      tenantId: manager.tenantId,
-    });
-    revalidatePath("/dashboard");
-    return { id: result.id };
-  } catch (error) {
-    if (error instanceof ActionError) throw error;
-    const msg = error instanceof Error ? error.message : "Failed to generate or queue test page";
-    throw new ActionError(msg, 400);
-  }
-}
-
 /**
  * Deliberate operator reprint of an ORIGINAL document after a terminal,
  * possibly-printed outcome. This re-queues the job's stored payload — it is
@@ -300,7 +273,9 @@ export async function getDashboardState() {
     .orderBy(desc(printJobs.createdAt))
     .limit(50);
 
-  return { agents: allAgents, printers: allPrinters, jobs: allJobs };
+  const now = new Date();
+  const agentsForClient = allAgents.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" }));
+  return { agents: agentsForClient, printers: allPrinters, jobs: allJobs };
 }
 
 export async function getDashboardJobs(options?: {

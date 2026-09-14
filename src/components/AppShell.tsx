@@ -6,7 +6,7 @@ import { HeaderNav } from "./HeaderNav";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const isAuthScreen = pathname === "/login";
+  const isAuthScreen = ["/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/invite"].some((path) => pathname === path || pathname.startsWith(`${path}/`));
 
   if (isAuthScreen) {
     return <main className="min-h-screen">{children}</main>;

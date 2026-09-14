@@ -7,11 +7,6 @@ export class TenantEntitlementError extends Error {
   }
 }
 
-/**
- * Enforces only configured subscription limits. Tenants without a subscription
- * record are deliberately not subject to invented plan limits; billing setup
- * remains an explicit control-plane operation.
- */
 export type EntitlementTx = { execute: (query: SQL) => Promise<{ rows: Record<string, unknown>[] }> };
 
 export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: string, key: string): Promise<number | null> {
@@ -21,6 +16,7 @@ export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: str
     JOIN plans p ON p.id = ts.plan_id
     WHERE ts.tenant_id = ${tenantId}
       AND ts.status IN ('trialing','active','past_due')
+      AND (ts.current_period_end IS NULL OR ts.current_period_end > now())
     LIMIT 1
   `);
   const entitlements = (result.rows[0]?.entitlements ?? {}) as Record<string, unknown>;
@@ -36,7 +32,7 @@ export async function enforceTenantResourceEntitlement(tx: EntitlementTx, tenant
   if (count >= limit) throw new TenantEntitlementError(key, limit);
 }
 
-export async function enforceTenantJobEntitlements(tx: { execute: (query: SQL) => Promise<{ rows: Record<string, unknown>[] }> }, tenantId: string): Promise<void> {
+export async function enforceTenantJobEntitlements(tx: EntitlementTx, tenantId: string): Promise<void> {
   const minuteLimit = await getTenantEntitlementLimit(tx, tenantId, "max_jobs_per_minute");
   if (minuteLimit !== null) {
     const recent = await tx.execute(sql`

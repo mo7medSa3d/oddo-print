@@ -85,3 +85,12 @@ class TestPrintGatewayMigrationUpgrade(TransactionCase):
         table_row = self.env.cr.fetchone()
         if table_row:
             self.assertTrue(row, "Column runtime_agent_id must exist in print_gateway_gateway_config")
+
+
+    def test_multiple_agent_assignment_migration_exists(self):
+        from pathlib import Path
+        addon = Path(__file__).resolve().parents[1]
+        migration = addon / "migrations" / "19.0.2.3.0" / "post-migrate.py"
+        self.assertTrue(migration.exists())
+        source = migration.read_text(encoding="utf-8")
+        self.assertIn("company_branch_agent_uniq", source)

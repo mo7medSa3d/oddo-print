@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Odoo Print Gateway',
-    'version': '19.0.2.2.0',
+    'version': '19.0.2.3.0',
     'summary': 'Silent Odoo 19 printing through an external Gateway and runtime Agent',
     'description': """
 Odoo Print Gateway — Integration Only

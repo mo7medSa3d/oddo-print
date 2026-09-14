@@ -44,9 +44,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: e instanceof Error ? e.message : "Test page not supported for this printer", code: "CAPABILITY_MISMATCH", retryable: false }, { status: 422 });
   }
 
+  const idempotencyKey = req.headers.get("Idempotency-Key")?.trim() || null;
+  if (idempotencyKey && (idempotencyKey.length < 8 || idempotencyKey.length > 200)) {
+    return NextResponse.json({ error: "invalid Idempotency-Key", code: "INVALID_REQUEST", retryable: false }, { status: 400 });
+  }
+
   try {
     const result = await createPrintJobForPrinter(printer.id, payload, {
       requestedBy: "manager-test",
+      documentType: "test_page",
+      idempotencyKey,
       tenantId: claims.tenantId,
       requestId: requestIdFrom(req),
     });

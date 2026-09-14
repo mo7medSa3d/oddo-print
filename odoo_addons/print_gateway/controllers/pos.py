@@ -25,6 +25,15 @@ class PrintGatewayPosController(PosController):
             document_type='report:point_of_sale.sale_details_report',
             context_values={'date_start': date_start, 'date_stop': date_stop},
         )
+        if result.get('native'):
+            return request.make_response(
+                json.dumps({
+                    'error': 'gateway_binding_missing',
+                    'message': 'Gateway printing is enabled, but no Sale Details binding is configured for this POS.',
+                }),
+                headers=[('Content-Type', 'application/json'), ('Cache-Control', 'no-store')],
+                status=422,
+            )
         response = request.make_response(
             json.dumps(result, default=str),
             headers=[

@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { getManagerCookieName, verifyManagerToken, validateManagerClaims } from "../../lib/manager-auth";
 import DashboardClient from "./dashboard-client";
 import { JobCleanupButton } from "../../components/JobCleanupButton";
+import { isAgentAvailableForJob } from "../../lib/agent-availability";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +89,9 @@ export default async function DashboardPage() {
     databaseError = "PostgreSQL unavailable";
   }
 
+  const now = new Date();
+  const visibleAgents = allAgents.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" }));
+
   return (
     <div className="mx-auto w-full max-w-[1440px] px-4 py-7 sm:px-6 lg:py-8">
       <header className="mb-7 flex flex-col gap-4 border-b border-edge pb-6 sm:flex-row sm:items-start sm:justify-between">
@@ -112,7 +116,7 @@ export default async function DashboardPage() {
           <p className="mt-1 text-ink-2">PostgreSQL could not be reached. The console is not displaying an empty healthy state.</p>
         </div>
       ) : (
-        <DashboardClient initialAgents={allAgents} initialPrinters={allPrinters} initialJobs={allJobs} databaseError={null} />
+        <DashboardClient initialAgents={visibleAgents} initialPrinters={allPrinters} initialJobs={allJobs} databaseError={null} />
       )}
     </div>
   );

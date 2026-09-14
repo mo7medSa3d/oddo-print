@@ -131,6 +131,50 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("branch = company if company.parent_id else False", source)
         self.assertIn('"binding"', source)
 
+
+    def test_runtime_assignment_allows_multiple_agents_per_branch(self):
+        source = (MODELS / "runtime_assignment.py").read_text(encoding="utf-8")
+        self.assertIn('UNIQUE(company_id, branch_id, runtime_agent_id)', source)
+        self.assertNotIn('UNIQUE(company_id, branch_id)', source.replace('UNIQUE(company_id, branch_id, runtime_agent_id)', ''))
+
+    def test_pairing_wizard_does_not_default_root_company_as_branch(self):
+        source = (MODELS / "gateway_config.py").read_text(encoding="utf-8")
+        self.assertIn('string="Target Branch"', source)
+        self.assertIn('default=False', source)
+        self.assertIn('The selected Target Branch must belong directly to the configured Odoo Company.', source)
+        self.assertIn('target_scope = target_branch.display_name if target_branch else config.company_id.display_name', source)
+
+    def test_binding_validation_requires_explicit_branch_agent_assignment(self):
+        source = (MODELS / "binding.py").read_text(encoding="utf-8")
+        self.assertIn('runtime_agent_assignment', source)
+        self.assertIn('The selected Gateway Runtime Agent is not assigned to the current Odoo Branch.', source)
+
+    def test_runtime_printers_requires_agent_branch_assignment(self):
+        source = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
+        self.assertIn('runtime_agent_assignment', source)
+        self.assertIn('is not assigned to this Odoo Branch', source)
+
+    def test_agent_widget_clears_previous_printer_on_agent_change(self):
+        source = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
+        self.assertIn('updateData.printer_id = false', source)
+
+    def test_runtime_agent_api_has_no_ai_status_emojis(self):
+        source = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
+        self.assertNotIn('🟢', source)
+        self.assertNotIn('🔴', source)
+
+
+    def test_physical_pos_paths_fail_closed_when_gateway_binding_is_missing(self):
+        source = (MODELS / "print_router.py").read_text(encoding="utf-8")
+        self.assertIn("Gateway printing is enabled for this POS, but no Gateway Receipt binding is configured", source)
+        self.assertIn("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured", source)
+        self.assertIn("Gateway printing is enabled for this POS, but no Gateway Sale Details binding is configured", source)
+
+    def test_sale_details_http_route_never_returns_fake_gateway_success(self):
+        source = (CONTROLLERS / "pos.py").read_text(encoding="utf-8")
+        self.assertIn("gateway_binding_missing", source)
+        self.assertIn("status=422", source)
+
     def test_gateway_config_keeps_legacy_agent_reference_non_authoritative(self):
         source = (MODELS / "gateway_config.py").read_text(encoding="utf-8")
         self.assertIn("gateway_url", source)

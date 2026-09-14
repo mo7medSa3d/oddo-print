@@ -11,7 +11,6 @@ import {
   RefreshCw,
   Server,
   Settings,
-  Zap,
 } from "lucide-react";
 import {
   Button,
@@ -319,7 +318,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
                           variant="secondary"
                           onClick={() => s.handleTest(p.id)}
                           disabled={s.busy}
-                          icon={<Zap className="h-3.5 w-3.5 text-brand" />}
+                          icon={<Activity className="h-3.5 w-3.5 text-brand" />}
                           title={`Send test print to ${p.name}`}
                         >
                           Test
@@ -513,7 +512,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3.5">
                 <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-edge-accent bg-brand-subtle text-brand">
-                  <Zap className="h-[22px] w-[22px]" aria-hidden />
+                  <Activity className="h-[22px] w-[22px]" aria-hidden />
                 </span>
                 <div className="min-w-0">
                   <div className="text-[16px] font-semibold text-ink">
@@ -530,7 +529,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
                   <Button
                     variant="secondary"
                     onClick={() => s.handleTest(thermal.id)}
-                    icon={<Zap className="h-4 w-4 text-brand" />}
+                    icon={<Activity className="h-4 w-4 text-brand" />}
                   >
                     Test ESC/POS
                   </Button>
@@ -539,7 +538,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
                   <Button
                     variant="secondary"
                     onClick={() => s.handleTest(label.id)}
-                    icon={<Zap className="h-4 w-4 text-brand" />}
+                    icon={<Activity className="h-4 w-4 text-brand" />}
                   >
                     Test ZPL Label
                   </Button>
@@ -548,7 +547,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
                   <Button
                     variant="secondary"
                     onClick={() => s.handleTest(spooler.id)}
-                    icon={<Zap className="h-4 w-4 text-brand" />}
+                    icon={<Activity className="h-4 w-4 text-brand" />}
                   >
                     Test Spooler
                   </Button>
@@ -558,7 +557,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
                     variant="secondary"
                     className="shrink-0"
                     onClick={() => s.handleTest(shownPrinters[0].id)}
-                    icon={<Zap className="h-4 w-4" />}
+                    icon={<Play className="h-4 w-4" />}
                   >
                     Test {shownPrinters[0].name.length > 18
                       ? `${shownPrinters[0].name.slice(0, 18)}…`

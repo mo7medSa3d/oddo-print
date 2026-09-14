@@ -142,7 +142,7 @@ export function agentLiveView(agent: { status?: string | null; lastSeenAt?: Date
   const seen = agent.lastSeenAt ? new Date(agent.lastSeenAt).getTime() : 0;
   const fresh = Number.isFinite(seen) && nowMs - seen <= AGENT_HEARTBEAT_STALE_SECONDS * 1000;
   if (agent.status === "online" && !fresh) {
-    return { tone: "warn", label: "Online (heartbeat lost)" };
+    return { tone: "bad", label: "Offline — heartbeat lost" };
   }
   if (agent.status === "online") return { tone: "ok", label: "Online" };
   return { tone: "bad", label: "Offline" };

@@ -13,7 +13,7 @@ import {
   Settings as SettingsIcon,
   Square,
   X,
-  Zap,
+  Play,
 } from "lucide-react";
 import {
   Button,
@@ -793,7 +793,7 @@ export default function App() {
               <Button
                 variant="primary"
                 onClick={() => handleTest(selectedPrinter.id)}
-                icon={<Zap className="h-4 w-4" />}
+                icon={<Play className="h-4 w-4" />}
               >
                 Local test page
               </Button>

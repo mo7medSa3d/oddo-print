@@ -3,13 +3,16 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Menu, X, Home, LogOut, KeyRound } from "lucide-react";
+import { LayoutDashboard, Menu, X, Home, LogOut, KeyRound, Users, CreditCard, Settings } from "lucide-react";
 import { BrandMark } from "./brand";
 
 const authenticatedNavLinks = [
   { href: "/", label: "Home", icon: Home },
   { href: "/dashboard", label: "Console", icon: LayoutDashboard },
   { href: "/api-keys", label: "API Keys", icon: KeyRound },
+  { href: "/team", label: "Team", icon: Users },
+  { href: "/billing", label: "Billing", icon: CreditCard },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function HeaderNav() {
@@ -21,7 +24,7 @@ export function HeaderNav() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/auth/manager/me", { method: "GET", credentials: "include", cache: "no-store" })
+    fetch("/api/auth/me", { method: "GET", credentials: "include", cache: "no-store" })
       .then((res) => { if (!cancelled) setAuthenticated(res.ok); })
       .catch(() => { if (!cancelled) setAuthenticated(false); });
     return () => { cancelled = true; };
@@ -32,7 +35,7 @@ export function HeaderNav() {
     setLoggingOut(true);
     setMobileOpen(false);
     try {
-      await fetch("/api/auth/manager/logout", { method: "POST", credentials: "include", cache: "no-store" });
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include", cache: "no-store" });
     } finally {
       router.replace("/login");
       router.refresh();
@@ -40,7 +43,7 @@ export function HeaderNav() {
     }
   }
 
-  if (pathname === "/login") return null;
+  if (["/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/invite"].some((path) => pathname === path || pathname.startsWith(`${path}/`))) return null;
   const navLinks = authenticated ? authenticatedNavLinks : [];
 
   return (

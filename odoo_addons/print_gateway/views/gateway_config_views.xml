@@ -65,7 +65,7 @@
                     <div class="o_pg_wizard_header text-center mb-4">
                         <i class="fa fa-plug fa-3x text-primary mb-2" title="Assign Agent" role="img" aria-label="Assign Agent"/>
                         <h3 class="fw-bold">Assign Runtime Agent</h3>
-                        <p class="text-muted">Select the target branch, then enter the ID of an active agent shown on the Gateway Agents page.</p>
+                        <p class="text-muted">Select the target Branch, then enter the ID of an active Gateway Agent. Multiple Agents can be assigned to the same Branch.</p>
                     </div>
                     <group>
                         <field name="config_id" invisible="1"/>

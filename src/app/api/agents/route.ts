@@ -8,6 +8,7 @@ import { z } from "zod";
 import { createAgent } from "../../actions";
 import { ActionError } from "../../../lib/action-error";
 import { logError } from "../../../lib/log";
+import { isAgentAvailableForJob } from "../../../lib/agent-availability";
 
 export const dynamic = "force-dynamic";
 const createAgentSchema = z.object({ name: z.string().trim().min(1).max(200) }).strict();
@@ -20,7 +21,8 @@ export async function GET(req: Request) {
     id: agents.id, name: agents.name, status: agents.status, lifecycle: agents.lifecycle,
     metadata: agents.metadata, lastSeenAt: agents.lastSeenAt, createdAt: agents.createdAt,
   }).from(agents).where(eq(agents.tenantId, claims.tenantId)).orderBy(desc(agents.createdAt));
-  return NextResponse.json(rows);
+  const now = new Date();
+  return NextResponse.json(rows.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" })));
 }
 
 export async function POST(req: Request) {

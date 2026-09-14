@@ -20,14 +20,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const printer = await db.query.printers.findFirst({ where: and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId)) });
   if (!printer) return NextResponse.json({ error: "Printer not found" }, { status: 404 });
 
-  const lastHeartbeatAt = printer.lastSeenAt;
-
   if (printer.lifecycle !== "active") {
     return NextResponse.json({
       reachable: false,
       latencyMs: null,
       live: false,
-      lastHeartbeatAt,
+      lastHeartbeatAt: null,
       agentOnline: false,
       error: "printer disabled",
     });
@@ -38,11 +36,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     reachable: false,
     latencyMs: null,
     live: false,
-    lastHeartbeatAt,
+    lastHeartbeatAt: null,
     agentOnline: false,
     error: "agent not found",
   }, { status: 404 });
 
+  const lastHeartbeatAt = agent.lastSeenAt;
   const cfg = (printer.config ?? {}) as Record<string, unknown>;
   if (printer.connectionType === "network" && (!cfg.ip || !cfg.port)) {
     return NextResponse.json({
