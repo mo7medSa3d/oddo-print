@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { db } from "../../../../../db";
-import { tenantUsers } from "../../../../../db/schema";
+import { db } from "../../../../db";
+import { tenantUsers } from "../../../../db/schema";
 import { and, eq } from "drizzle-orm";
-import { validateManager, revokeManagerSession, managerCookieHeader } from "../../../../../lib/manager-auth";
-import { issueCustomerSession } from "../../../../../lib/customer-auth";
-import { writeAuditEvent } from "../../../../../lib/audit";
+import { validateManager, revokeManagerSession, managerCookieHeader } from "../../../../lib/manager-auth";
+import { issueCustomerSession } from "../../../../lib/customer-auth";
+import { writeAuditEvent } from "../../../../lib/audit";
 
 export async function POST(req: Request) {
   const claims = await validateManager(req);
