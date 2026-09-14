@@ -192,14 +192,14 @@ jobs:
           rm -f /tmp/odoo19_test.log
           timeout --signal=TERM --kill-after=30s 12m \
             docker run --rm --network host --name odoo19_test_run \
+              -e PGHOST=127.0.0.1 \
+              -e PGPORT=5432 \
+              -e PGUSER=odoo \
+              -e PGPASSWORD=odoo \
               -v "$GITHUB_WORKSPACE/odoo_addons:/mnt/extra-addons:ro" \
               odoo:19.0 \
               odoo \
                 --database=odoo19_test \
-                --db_host=127.0.0.1 \
-                --db_port=5432 \
-                --db_user=odoo \
-                --db_password=odoo \
                 --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons \
                 --without-demo=true \
                 --http-interface=127.0.0.1 \
@@ -220,16 +220,12 @@ jobs:
           fi
           echo "$stats_line"
           echo "$result_line"
-          collected="$(echo "$stats_line" | grep -oE '[0-9]+ tests' | grep -oE '[0-9]+')"
-          if [ "$collected" -lt 80 ]; then
-            echo "ERROR: only $collected Odoo tests collected; expected the full print_gateway suite (>=80)."
+          test_count="$(printf '%s\n' "$stats_line" | grep -oE '[0-9]+ tests' | awk '{print $1}' || true)"
+          if [ -z "$test_count" ] || [ "$test_count" -lt 80 ]; then
+            echo "ERROR: Expected at least 80 Odoo addon tests, found ${test_count:-0}."
             exit 1
           fi
-          if ! grep -Eq 'odoo\.tests\.result: 0 failed, 0 error\(s\)' /tmp/odoo19_test.log; then
-            echo 'ERROR: Odoo test suite reported failures or errors.'
-            exit 1
-          fi
-          if grep -Eo 'odoo\.tests\.result:.*[1-9][0-9]* skipped' /tmp/odoo19_test.log; then
-            echo 'ERROR: the Odoo suite skipped required tests.'
+          if printf '%s\n' "$result_line" | grep -Eiq 'failed|error|skipped'; then
+            echo 'ERROR: Odoo addon test result contains failures, errors, or skips.'
             exit 1
           fi
