@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   if (!identity) {
     const after = await recordAuthFailure(ip, email); const res = NextResponse.json({ error: "Invalid email or password" }, { status: after.allowed ? 401 : 429 }); if (!after.allowed) res.headers.set("Retry-After", String(after.retryAfterSec)); return res;
   }
-  if ("multipleTenants" in identity && identity.multipleTenants && !identity.tenantId) {
+  if ("multipleTenants" in identity && identity.multipleTenants) {
     return NextResponse.json({ error: "Choose a workspace", workspaces: identity.memberships.map((m) => m.tenantId) }, { status: 409 });
   }
   if (!("tenantId" in identity) || !identity.tenantId || !identity.role) return NextResponse.json({ error: "Workspace setup is incomplete" }, { status: 409 });
