@@ -9,11 +9,6 @@ DECLARE
 BEGIN
   SELECT COUNT(*) INTO tenant_count FROM tenants;
   SELECT id INTO known_tenant FROM tenants ORDER BY created_at LIMIT 1;
-  IF tenant_count = 0 THEN
-    INSERT INTO tenants (id, name) VALUES ('legacy_default', 'Legacy installation');
-    known_tenant := 'legacy_default';
-    tenant_count := 1;
-  END IF;
 
   SELECT COUNT(*) INTO unowned_count FROM (
     SELECT 1 FROM agents WHERE tenant_id IS NULL
@@ -24,6 +19,12 @@ BEGIN
     UNION ALL SELECT 1 FROM discovered_devices WHERE tenant_id IS NULL
     UNION ALL SELECT 1 FROM applications WHERE tenant_id IS NULL
   ) x;
+
+  IF tenant_count = 0 AND unowned_count > 0 THEN
+    INSERT INTO tenants (id, name) VALUES ('legacy_default', 'Legacy installation');
+    known_tenant := 'legacy_default';
+    tenant_count := 1;
+  END IF;
 
   IF unowned_count > 0 THEN
     IF tenant_count > 1 THEN

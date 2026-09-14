@@ -220,7 +220,7 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'print_job_rate_limits_api_key_id_api_keys_id_fk'
   ) THEN
-    ALTER TABLE "print_job_rate_limits" ADD CONSTRAINT "print_job_rate_limits_api_key_id_api_keys_id_fk" FOREIGN KEY ("api_key_id") REFERENCES "public"."api_keys"("id") ON DELETE no action ON UPDATE no action;
+    ALTER TABLE "print_job_rate_limits" ADD CONSTRAINT "print_job_rate_limits_api_key_id_api_keys_id_fk" FOREIGN KEY ("api_key_id") REFERENCES "public"."api_keys"("id") ON DELETE cascade ON UPDATE no action;
   END IF;
 END $$;
 --> statement-breakpoint

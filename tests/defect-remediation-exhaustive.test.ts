@@ -193,11 +193,11 @@ describe("DEFECT #6 — Odoo PDF Download vs Gateway Silent Printing", () => {
 });
 
 describe("DEFECT #7 — Local Agent Test Print Latency Optimization", () => {
-  it("TestPrinter checks DiscoverQuick first to avoid 10-second network TCP 9100 scan", () => {
+  it("TestPrinter checks registry and config first to avoid network scans", () => {
     const discoverySource = fs.readFileSync(path.resolve(__dirname, "../agent/internal/printer/discovery.go"), "utf-8");
-    expect(discoverySource).toContain("quickResult := DiscoverQuick(cfg, registryPath)");
-    expect(discoverySource).toContain("// Fast path: Check quick local sources (registry, spooler, config) which complete in <10ms");
-    expect(discoverySource).toContain("// Slow path fallback: Only run full discovery (including 10s network TCP 9100 sweep) if not found locally");
+    expect(discoverySource).toContain("if infos, err := LoadRegistryPrinters(registryPath)");
+    expect(discoverySource).toContain("for _, p := range discoverFromConfig(cfg)");
+    expect(discoverySource).toContain("Never invoke network discovery here");
   });
 });
 

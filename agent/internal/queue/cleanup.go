@@ -63,15 +63,3 @@ func (q *Queue) PurgeOutcomeUnknown() (int, error) {
 	}
 	return int(count), nil
 }
-
-// CleanupTerminalJobs opens the agent's durable queue, removes provable
-// terminal local records (unknown-outcome evidence is preserved), and closes
-// the database again. It is used by the CLI/Tauri command.
-func CleanupTerminalJobs(dbPath string) (int, error) {
-	q, err := New(dbPath)
-	if err != nil {
-		return 0, err
-	}
-	defer q.Close()
-	return q.CleanupTerminal()
-}

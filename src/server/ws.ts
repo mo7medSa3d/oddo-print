@@ -15,6 +15,7 @@ import {
   releaseUndeliveredClaim,
   type ClaimedJobRow,
 } from "../lib/job-delivery";
+import { logInfo, logWarn } from "../lib/log";
 
 type AgentSocket = WebSocket & { agentId?: string; isAlive?: boolean };
 
@@ -336,11 +337,24 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
     }
     if (notification.channel !== PG_NOTIFY_CHANNEL) return;
     try {
-      const message = JSON.parse(notification.payload) as { jobId?: unknown; agentId?: unknown };
+      const message = JSON.parse(notification.payload) as { jobId?: unknown; agentId?: unknown; requestId?: unknown };
       if (typeof message.jobId !== "string" || typeof message.agentId !== "string") return;
       if (!hasOpenAgentSocket(message.agentId)) return;
-      void claimAndPushJobToAgent({ id: message.jobId, agentId: message.agentId }).catch((error) => {
+      void claimAndPushJobToAgent({ id: message.jobId, agentId: message.agentId }).then((pushOutcome) => {
+        logInfo("print.job.dispatch_boundary", {
+          requestId: typeof message.requestId === "string" ? message.requestId : null,
+          jobId: message.jobId,
+          agentId: message.agentId,
+          dispatchOutcome: pushOutcome,
+        });
+      }).catch((error) => {
         console.warn(`[ws] cross-instance job delivery failed for ${message.jobId}:`, error);
+        logWarn("print.job.ws_push_deferred", {
+          requestId: typeof message.requestId === "string" ? message.requestId : null,
+          jobId: message.jobId,
+          agentId: message.agentId,
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
     } catch {
       console.warn("[ws] ignored malformed PostgreSQL job notification");

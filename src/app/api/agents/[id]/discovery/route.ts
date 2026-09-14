@@ -4,7 +4,7 @@ import { agents, discoverySessions } from "../../../../../db/schema";
 import { validateManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { eq, and, desc } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { nanoid } from "../../../../../lib/nanoid";
 import { validateDiscoveryRequest } from "../../../../../lib/discovery";
 
 export const dynamic = "force-dynamic";
@@ -33,10 +33,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     tenantId: claims.tenantId,
     agentId,
     status: "running",
-    config: {
-      ...(v.cidr ? { cidr: v.cidr } : {}),
-      ...((body && typeof body === "object" && !Array.isArray(body)) ? body as Record<string, unknown> : {}),
-    },
+    config: v.data,
     stats: {},
     startedAt: new Date(),
   });

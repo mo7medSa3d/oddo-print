@@ -89,7 +89,7 @@ export async function POST(req: Request) {
       }
       await tx.update(billingEvents).set({ tenantId: tenantId ?? null, processedAt: new Date() }).where(eq(billingEvents.eventId, eventId));
     });
-    if (tenantId) void writeAuditEvent({ tenantId, actorType: "platform", actorId: "stripe", action: `billing.${eventType}`, resourceType: "billing_event", resourceId: eventId }).catch(() => undefined);
+    if (tenantId) await writeAuditEvent({ tenantId, actorType: "platform", actorId: "stripe", action: `billing.${eventType}`, resourceType: "billing_event", resourceId: eventId }).catch(() => undefined);
     return NextResponse.json({ received: true });
   } catch {
     return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });

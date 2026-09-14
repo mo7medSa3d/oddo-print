@@ -188,14 +188,16 @@ export async function releaseUndeliveredClaim(jobId: string, agentId: string, cl
         claimed_at = NULL,
         claim_token = NULL,
         updated_at = now(),
-        error = ${reason}
+        error = ${reason},
+        retries = print_jobs.retries + 1,
+        delivery_attempts = GREATEST(0, print_jobs.delivery_attempts - 1)
     WHERE id = ${jobId}
       AND agent_id = ${agentId}
       AND status = 'claimed'
       AND claim_token IS NOT DISTINCT FROM ${claimToken}
       AND delivered_at IS NULL
       AND acked_at IS NULL
-      AND delivery_attempts < ${MAX_DELIVERY_ATTEMPTS}
+      AND retries < ${MAX_RETRIES}
     RETURNING id
   `);
   if (requeued.rows.length > 0) return "requeued";
@@ -204,14 +206,15 @@ export async function releaseUndeliveredClaim(jobId: string, agentId: string, cl
     UPDATE print_jobs
     SET status = 'failed',
         updated_at = now(),
-        error = ${`${reason} (giving up after ${MAX_DELIVERY_ATTEMPTS} delivery attempts)`}
+        error = ${`${reason} (giving up after ${MAX_RETRIES} retries)`},
+        delivery_attempts = GREATEST(0, print_jobs.delivery_attempts - 1)
     WHERE id = ${jobId}
       AND agent_id = ${agentId}
       AND status = 'claimed'
       AND claim_token IS NOT DISTINCT FROM ${claimToken}
       AND delivered_at IS NULL
       AND acked_at IS NULL
-      AND delivery_attempts >= ${MAX_DELIVERY_ATTEMPTS}
+      AND retries >= ${MAX_RETRIES}
     RETURNING id
   `);
   if (failed.rows.length > 0) return "failed";

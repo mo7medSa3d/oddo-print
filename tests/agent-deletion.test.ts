@@ -89,7 +89,7 @@ suite("permanent agent deletion lifecycle & invariants", () => {
 
     // Verify agent was NOT deleted
     const row = (await pool().query(`SELECT id FROM agents WHERE id = $1`, [agentId])).rows[0];
-    expect(row).toBeTruthy();
+    expect(row).toBeDefined();
   });
 
   it("rejects deletion of a retired agent to preserve audit history", async () => {
@@ -106,7 +106,7 @@ suite("permanent agent deletion lifecycle & invariants", () => {
 
     // Verify agent was NOT deleted
     const row = (await pool().query(`SELECT id FROM agents WHERE id = $1`, [agentId])).rows[0];
-    expect(row).toBeTruthy();
+    expect(row).toBeDefined();
   });
 
   it("rejects deletion of an agent that has historical print jobs (audit retention)", async () => {
@@ -137,9 +137,9 @@ suite("permanent agent deletion lifecycle & invariants", () => {
     const a = (await pool().query(`SELECT id FROM agents WHERE id = $1`, [agentId])).rows[0];
     const p = (await pool().query(`SELECT id FROM printers WHERE id = $1`, [printerId])).rows[0];
     const j = (await pool().query(`SELECT id FROM print_jobs WHERE id = $1`, [jobId])).rows[0];
-    expect(a).toBeTruthy();
-    expect(p).toBeTruthy();
-    expect(j).toBeTruthy();
+    expect(a).toBeDefined();
+    expect(p).toBeDefined();
+    expect(j).toBeDefined();
   });
 
   it("deletes an eligible offline agent with no print jobs and cleans up removable runtime records", async () => {
@@ -254,7 +254,7 @@ suite("permanent agent deletion lifecycle & invariants", () => {
 
     // 4. Customer installs fresh Windows Agent app; Administrator creates new Agent
     const freshAgent = await createAgent("Reception PC Reinstalled");
-    expect(freshAgent.id).toBeTruthy();
+    expect(typeof freshAgent.id).toBe("string");
     expect(freshAgent.id).not.toBe(agentId1);
     expect(freshAgent.pairingCode).toHaveLength(6);
 
@@ -271,7 +271,7 @@ suite("permanent agent deletion lifecycle & invariants", () => {
     expect(registerRes.status).toBe(200);
     const registerBody = await registerRes.json();
     expect(registerBody.agentId).toBe(freshAgent.id);
-    expect(registerBody.secret).toBeTruthy();
+    expect(typeof registerBody.secret).toBe("string");
 
     // 6. Verify fresh agent is active, online, with new secret, decoupled from old agent
     const check2 = (await pool().query(`SELECT status, lifecycle, secret FROM agents WHERE id = $1`, [freshAgent.id])).rows[0];

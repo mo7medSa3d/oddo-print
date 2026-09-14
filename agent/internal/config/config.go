@@ -254,32 +254,6 @@ func DefaultConfigPath() string {
 	return filepath.Join(dir, "config.yaml")
 }
 
-func LegacyConfigPath() string {
-	dir, err := ExecutableDir()
-	if err != nil {
-		return "config.yaml"
-	}
-	return filepath.Join(dir, "config.yaml")
-}
-
-func QueueDBPath(configPath string) string {
-	dir := filepath.Dir(configPath)
-	if dir == "" || dir == "." {
-		if d, err := ExecutableDir(); err == nil {
-			dir = d
-		}
-	}
-	return filepath.Join(dir, "agent.db")
-}
-
-func DefaultLogDir(configPath string) string {
-	return filepath.Join(filepath.Dir(configPath), "logs")
-}
-
-func DefaultLogPath(configPath string) string {
-	return filepath.Join(DefaultLogDir(configPath), "agent.log")
-}
-
 func (c *Config) Validate() error {
 	if c.Server.URL != "" {
 		if err := validateServerURL(c.Server.URL); err != nil {
@@ -442,4 +416,8 @@ func RegistryPath(configPath string) string {
 		}
 	}
 	return filepath.Join(dir, "printers.json")
+}
+
+func QueueDBPath(configPath string) string {
+	return filepath.Join(filepath.Dir(configPath), "queue.db")
 }

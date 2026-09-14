@@ -92,7 +92,6 @@ describe("architecture hardening", () => {
     expect(block).toContain("db.transaction");
     expect(block).toContain("FOR UPDATE");
     expect(block).toContain("tx.delete(agents)");
-    expect(block).toContain("closeAgentSockets");
-    expect(block).toContain("publishAgentSessionClose");
+    expect(block).toContain("pg_notify('print_gateway_agent_sessions'");
   });
 });

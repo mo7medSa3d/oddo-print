@@ -139,7 +139,10 @@ function formatCountdown(expiresAt: Date | string | null | undefined): { text: s
 async function sendGatewayTestPage(printerId: string): Promise<{ jobId?: string; status?: string }> {
   const response = await fetch(`/api/printers/${encodeURIComponent(printerId)}/test-print`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "Idempotency-Key": crypto.randomUUID(),
+    },
     credentials: "same-origin",
   });
   let body: unknown = null;
@@ -335,8 +338,11 @@ export default function DashboardClient({
           return currentPairing;
         });
       }
-    } catch {
-      // background polling error ignored
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("session has expired")) {
+        window.location.href = "/login";
+      }
+      // other background polling errors ignored
     }
   }, []);
 
@@ -715,6 +721,8 @@ export default function DashboardClient({
                   onChange={(e) => setAgentName(e.target.value)}
                   placeholder="e.g. Warehouse-Windows-PC"
                   disabled={busy || databaseError !== null}
+                  required
+                  maxLength={200}
                 />
                 <Button
                   type="submit"

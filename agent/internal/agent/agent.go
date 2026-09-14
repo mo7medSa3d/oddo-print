@@ -904,6 +904,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("PANIC while executing job %s: %v", jobID, r)
+				a.updateJobStatus(jobID, "failed", fmt.Sprintf("AGENT_PANIC: %v", r), jobClaimToken(job))
 			}
 		}()
 

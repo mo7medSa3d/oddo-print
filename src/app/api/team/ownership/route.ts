@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     if (error instanceof Error && error.message === "Ownership has already changed") return NextResponse.json({ error: "Ownership has already changed. Refresh and try again." }, { status: 409 });
     throw error;
   }
-  void import("../../../../lib/audit").then(({ writeAuditEvent }) => writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: currentUserId, action: "team.ownership.transferred", resourceType: "user", resourceId: newOwnerId })).catch(() => undefined);
+  await import("../../../../lib/audit").then(({ writeAuditEvent }) => writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: currentUserId, action: "team.ownership.transferred", resourceType: "user", resourceId: newOwnerId })).catch(() => undefined);
   const res = NextResponse.json({ ok: true, next: "/login" });
   res.headers.set("Set-Cookie", clearManagerCookieHeader());
   return res;

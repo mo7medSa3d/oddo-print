@@ -76,7 +76,7 @@ export async function POST(req: Request) {
     tenantId: manager.tenantId,
   });
 
-  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "api_key.created", resourceType: "api_key", resourceId: id, metadata: { scope: parsed.data.scope } }).catch(() => undefined);
+  await writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "api_key.created", resourceType: "api_key", resourceId: id, metadata: { scope: parsed.data.scope } }).catch(() => undefined);
   return NextResponse.json({
     id,
     name,
@@ -124,6 +124,6 @@ export async function DELETE(req: Request) {
     .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId)))
     .returning({ id: apiKeys.id, revokedAt: apiKeys.revokedAt });
   if (!revoked.length) return NextResponse.json({ error: "API key not found" }, { status: 404 });
-  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "api_key.revoked", resourceType: "api_key", resourceId: id }).catch(() => undefined);
+  await writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "api_key.revoked", resourceType: "api_key", resourceId: id }).catch(() => undefined);
   return NextResponse.json(revoked[0], { status: 200 });
 }

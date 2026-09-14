@@ -90,7 +90,7 @@ export async function POST(req: Request) {
   }
 
   logInfo("auth.login.success", { requestId, ip });
-  void writeAuditEvent({ tenantId, actorType: identity ? "user" : "system", actorId: identity?.userId ?? "legacy-manager", action: "user.login.success", requestId, metadata: { desktopClient } }).catch((error) => logWarn("audit.write_failed", { requestId, error: error instanceof Error ? error.message : "unknown" }));
+  await writeAuditEvent({ tenantId, actorType: identity ? "user" : "system", actorId: identity?.userId ?? "legacy-manager", action: "user.login.success", requestId, metadata: { desktopClient } }).catch((error) => logWarn("audit.write_failed", { requestId, error: error instanceof Error ? error.message : "unknown" }));
   const bodyOut: { ok: true; expiresAt: string; accessToken?: string } = {
     ok: true,
     expiresAt: sess.exp.toISOString(),

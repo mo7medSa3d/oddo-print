@@ -42,7 +42,7 @@ export default function Home() {
             <FeatureCard icon={<ShieldCheck className="h-5 w-5" />} title="Secure customer access" description="Email/password accounts, server-side sessions, tenant membership and role-based permissions." />
             <FeatureCard icon={<Activity className="h-5 w-5" />} title="Retry-safe delivery" description="Atomic claims, leases, idempotency and reconnect-safe WebSocket plus polling delivery." />
             <FeatureCard icon={<Globe className="h-5 w-5" />} title="Multi-branch routing" description="Branch-aware Odoo routing with tenant-scoped agents, printers and print jobs." />
-            <FeatureCard icon={<Cpu className="h-5 w-5" />} title="Native Windows agent" description="Go Windows service with local persistence and bounded print workers." />
+            <FeatureCard icon={<Cpu className="h-5 w-5" />} title="Native Windows agent" description="Go Windows service with local persistence and bounded print queues." />
             <FeatureCard icon={<Printer className="h-5 w-5" />} title="Real printer transports" description="Windows Spooler, RAW TCP and other supported printer transports without browser dialogs." />
             <FeatureCard icon={<ArrowRight className="h-5 w-5" />} title="Commercial controls" description="Plans, subscriptions, server-side entitlements and Stripe-managed billing state." />
           </div>

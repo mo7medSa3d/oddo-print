@@ -48,7 +48,7 @@ suite("agent registration contract", () => {
       [f.agentId],
     )).rows[0];
     expect(row.pairing_code_hash).toBeNull();
-    expect(row.secret).toBeTruthy();
+    expect(typeof row.secret).toBe("string");
     expect(row.secret).not.toBe(body.secret);
     expect(row.status).toBe("online");
     expect(row.metadata).toMatchObject({ hostname: "pos-01", os: "windows" });
@@ -151,7 +151,7 @@ suite("agent registration contract", () => {
       method: "POST", headers, body: JSON.stringify({ pairingCode: "BBBBBB" }),
     }));
     expect(limited.status).toBe(429);
-    expect(limited.headers.get("retry-after")).toBeTruthy();
+    expect(limited.headers.get("retry-after")).not.toBeNull();
   });
 
   it("supports unified registration payload with snake_case fields and returns agent_id and agent_secret", async () => {
@@ -185,7 +185,7 @@ suite("agent registration contract", () => {
       [f.agentId],
     )).rows[0];
     expect(row.pairing_code_hash).toBeNull();
-    expect(row.secret).toBeTruthy();
+    expect(typeof row.secret).toBe("string");
     expect(row.status).toBe("online");
     expect(row.metadata).toMatchObject({ hostname: "pos-lane-02", version: "2.1.0", os: "windows" });
   });
@@ -217,7 +217,7 @@ suite("agent registration contract", () => {
     const winnerRes = res1.status === 200 ? res1 : res2;
     const winnerBody = await winnerRes.json();
     expect(winnerBody.agent_id).toBe(f.agentId);
-    expect(winnerBody.agent_secret).toBeTruthy();
+    expect(typeof winnerBody.agent_secret).toBe("string");
   });
 });
 

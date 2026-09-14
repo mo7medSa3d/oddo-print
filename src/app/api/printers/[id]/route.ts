@@ -71,6 +71,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (err) return NextResponse.json({ error: err }, { status: 400 });
   }
   const [row] = await db.update(printers).set(update).where(and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId))).returning();
-  void writeAuditEvent({ tenantId: claims.tenantId, actorType: claims.userId ? "user" : "system", actorId: claims.userId ?? "legacy-manager", action: "printer.changed", resourceType: "printer", resourceId: id, metadata: { lifecycle: parsed.data.lifecycle ?? null } }).catch(() => undefined);
+  await writeAuditEvent({ tenantId: claims.tenantId, actorType: claims.userId ? "user" : "system", actorId: claims.userId ?? "legacy-manager", action: "printer.changed", resourceType: "printer", resourceId: id, metadata: { lifecycle: parsed.data.lifecycle ?? null } }).catch(() => undefined);
   return NextResponse.json(row);
 }

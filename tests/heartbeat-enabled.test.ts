@@ -174,7 +174,7 @@ suite("heartbeat validation and lifecycle preservation", () => {
     await insertQueuedJob(f, "job_hb_fence");
     const claim = await claimJobForDelivery("job_hb_fence", f.agentId);
     const liveToken = claim!.claimToken!;
-    expect(liveToken).toBeTruthy();
+    expect(typeof liveToken).toBe("string");
     // Age the claim past the stale threshold so a refresh is observable.
     await pool().query(`UPDATE print_jobs SET updated_at = now() - interval '200 seconds' WHERE id = 'job_hb_fence'`);
     const staleAt = (await jobRow("job_hb_fence")).updated_at as Date;

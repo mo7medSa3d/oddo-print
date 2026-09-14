@@ -4,7 +4,7 @@ import { discoverySessions, discoveredDevices } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { nanoid } from "nanoid";
+import { nanoid } from "../../../../lib/nanoid";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { isPrivateNetworkAddress } from "../../../../lib/network-address";
 

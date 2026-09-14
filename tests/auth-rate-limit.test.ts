@@ -103,7 +103,7 @@ suite("manager login rate limiting", () => {
     }
     const fifth = await login(USER, "wrong");
     expect(fifth.status).toBe(429);
-    expect(fifth.headers.get("Retry-After")).toBeTruthy();
+    expect(fifth.headers.get("Retry-After")).not.toBeNull();
     const body = await fifth.json();
     expect(body.error).toMatch(/too many/i);
   });

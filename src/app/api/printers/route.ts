@@ -4,7 +4,7 @@ import { agents, printers } from "../../../db/schema";
 import { validateManager } from "../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { nanoid } from "../../../lib/nanoid";
 import { parsePrinterInput, validateConnectionConfig } from "../../../lib/printer-model";
 import { writeAuditEvent } from "../../../lib/audit";
 import { enforceTenantResourceEntitlement, TenantEntitlementError } from "../../../lib/entitlements";
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
       if (error instanceof TenantEntitlementError) return NextResponse.json({ error: error.message, code: error.code }, { status: 429, headers: { "Retry-After": "60" } });
       throw error;
     }
-    void writeAuditEvent({ tenantId: claims.tenantId, actorType: claims.userId ? "user" : "system", actorId: claims.userId ?? "legacy-manager", action: "printer.registered", resourceType: "printer", resourceId: row.id }).catch(() => undefined);
+    await writeAuditEvent({ tenantId: claims.tenantId, actorType: claims.userId ? "user" : "system", actorId: claims.userId ?? "legacy-manager", action: "printer.registered", resourceType: "printer", resourceId: row.id }).catch(() => undefined);
     return NextResponse.json(row, { status: 201 });
   } catch (error) {
     if (error instanceof Error && /already exists|duplicate/i.test(error.message)) return NextResponse.json({ error: "printer id already exists" }, { status: 409 });

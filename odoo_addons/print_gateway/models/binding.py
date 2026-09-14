@@ -410,12 +410,30 @@ class PrintGatewayBinding(models.Model):
                 ("runtime_agent_id", "=", agent_id),
             ], limit=1)
             if not existing:
-                assignment_model.create({
-                    "company_id": record.company_id.id,
-                    "branch_id": record.branch_id.id,
-                    "runtime_agent_id": agent_id,
-                    "enabled": True,
-                })
+                try:
+                    with self.env.cr.savepoint():
+                        assignment_model.create({
+                            "company_id": record.company_id.id,
+                            "branch_id": record.branch_id.id,
+                            "runtime_agent_id": agent_id,
+                            "enabled": True,
+                        })
+                except IntegrityError:
+                    pass
+
+    def _reconcile_assignments(self, company_branch_pairs):
+        """Reconcile assignments after bindings are updated or deleted."""
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"].sudo()
+        for company_id, branch_id in company_branch_pairs:
+            assignments = assignment_model.search([("company_id", "=", company_id), ("branch_id", "=", branch_id)])
+            for assignment in assignments:
+                bindings = self.with_context(active_test=False).search_count([
+                    ("company_id", "=", company_id),
+                    ("branch_id", "=", branch_id),
+                    ("runtime_agent_id", "=", assignment.runtime_agent_id)
+                ])
+                if not bindings:
+                    assignment.unlink()
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -425,16 +443,24 @@ class PrintGatewayBinding(models.Model):
 
     def write(self, vals):
         trigger_fields = {"company_id", "branch_id", "runtime_agent_id", "enabled"}
+        old_pairs = set()
         if trigger_fields.intersection(vals):
             for record in self:
                 record._check_runtime_scope()
+                if record.branch_id:
+                    old_pairs.add((record.company_id.id, record.branch_id.id))
         result = super().write(vals)
         if trigger_fields.intersection(vals):
             self._ensure_branch_agent_assignment()
+            new_pairs = set((r.company_id.id, r.branch_id.id) for r in self if r.branch_id)
+            self._reconcile_assignments(old_pairs | new_pairs)
         return result
 
     def unlink(self):
-        return super().unlink()
+        pairs = set((r.company_id.id, r.branch_id.id) for r in self if r.branch_id)
+        result = super().unlink()
+        self._reconcile_assignments(pairs)
+        return result
     @api.model
     def destination_for(self, *, record=None, report=None, explicit_destination=None):
         if explicit_destination:

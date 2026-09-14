@@ -3,7 +3,7 @@ import { db } from "../../../../db";
 import { users } from "../../../../db/schema";
 import { generateOpaqueToken, hashPassword, hashToken, normalizeEmail, validEmail } from "../../../../lib/password";
 import { emailVerificationTokens } from "../../../../db/schema";
-import { nanoid } from "nanoid";
+import { nanoid } from "../../../../lib/nanoid";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { clientIpFrom, inspectAuthRateLimit, recordAuthSuccess } from "../../../../lib/auth-rate-limit";
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
       text: `Verify your Print Gateway account: ${url}\nThis link expires in 30 minutes.`,
     });
   } catch {
-    // Delivery can be retried via the resend-verification endpoint.
+    
   }
   await recordAuthSuccess(email);
   return NextResponse.json(GENERIC, { status: 202 });

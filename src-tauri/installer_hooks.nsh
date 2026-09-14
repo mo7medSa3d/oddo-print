@@ -14,14 +14,18 @@
 
 !macro NSIS_HOOK_POSTINSTALL
   DetailPrint "Configuring Odoo Print Agent Windows Service..."
+  ReadEnvStr $0 "PROGRAMDATA"
+  IfErrors 0 +2
+    StrCpy $0 "C:\ProgramData"
+
   IfFileExists "$INSTDIR\resources\OdooPrintAgent.exe" 0 +4
-    nsExec::Exec '"$INSTDIR\resources\OdooPrintAgent.exe" -service install'
+    nsExec::Exec '"$INSTDIR\resources\OdooPrintAgent.exe" -service install -config "$0\OdooPrintAgent\config.yaml"'
     nsExec::Exec '"$INSTDIR\resources\OdooPrintAgent.exe" -service start'
     Goto +3
 
 
   IfFileExists "$INSTDIR\OdooPrintAgent.exe" 0 +3
-    nsExec::Exec '"$INSTDIR\OdooPrintAgent.exe" -service install'
+    nsExec::Exec '"$INSTDIR\OdooPrintAgent.exe" -service install -config "$0\OdooPrintAgent\config.yaml"'
     nsExec::Exec '"$INSTDIR\OdooPrintAgent.exe" -service start'
 !macroend
 

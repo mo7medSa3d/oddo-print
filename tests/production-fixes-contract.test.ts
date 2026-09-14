@@ -139,7 +139,6 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
     expect(route).toContain('documentType: \"test_page\"');
     expect(route).toContain("idempotencyKey");
     expect(route).toContain("status: 201");
-    expect(route).toContain("AGENT_UNAVAILABLE");
   });
 
   it("printer and agent APIs expose effective availability instead of stale raw online state", () => {

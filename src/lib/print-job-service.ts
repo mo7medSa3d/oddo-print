@@ -3,10 +3,8 @@ import { db } from "../db";
 import { isVirtualPrinterRecord } from "./printer-virtual";
 import { validatePayloadForPrinter } from "./routing";
 import { validatePrintJobPayload } from "./payload";
-import { claimAndPushJobToAgent } from "../server/ws";
-import { logInfo, logWarn } from "./log";
 import { and, eq, sql } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { nanoid } from "./nanoid";
 import { canonicalize } from "./canonicalize";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "./job-delivery";
 import { isAgentAvailableForJob } from "./agent-availability";
@@ -232,6 +230,8 @@ async function insertQueuedJobAtomically({
       expiresAt,
     });
 
+    await tx.execute(sql`SELECT pg_notify('print_gateway_agent_jobs', ${JSON.stringify({ jobId, agentId, requestId: requestId ?? null })})`);
+
     return {
       jobId,
       status: "queued",
@@ -296,14 +296,5 @@ export async function createPrintJobForPrinter(
     return { id: result.jobId, printerId: result.printerId, agentId: result.agentId, status: result.status, isReused: true };
   }
 
-  try {
-    const pushOutcome = await claimAndPushJobToAgent({ id: result.jobId, agentId: ownerAgent.id });
-    logInfo("print.job.dispatch_boundary", {
-      requestId: options.requestId ?? null, jobId: result.jobId, agentId: ownerAgent.id,
-      dispatchOutcome: pushOutcome,
-    });
-  } catch (error) {
-    logWarn("print.job.ws_push_deferred", { requestId: options.requestId ?? null, jobId: result.jobId, agentId: ownerAgent.id, error: error instanceof Error ? error.message : String(error) });
-  }
   return { id: result.jobId, printerId: printer.id, agentId: ownerAgent.id, status: "queued", isReused: false };
 }

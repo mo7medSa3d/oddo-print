@@ -23,6 +23,6 @@ export async function POST(req: Request) {
     if (error instanceof Error && error.message === "Reset token already consumed") return NextResponse.json({error:"Reset link expired or invalid"},{status:400});
     throw error;
   }
-  void db.query.tenantUsers.findFirst({ where: (tu, { eq }) => eq(tu.userId, row.userId), columns: { tenantId: true } }).then((membership) => membership ? import("../../../../lib/audit").then(({ writeAuditEvent }) => writeAuditEvent({ tenantId: membership.tenantId, actorType: "user", actorId: row.userId, action: "user.password_reset_completed" })) : undefined).catch(() => undefined);
+  await db.query.tenantUsers.findFirst({ where: (tu, { eq }) => eq(tu.userId, row.userId), columns: { tenantId: true } }).then((membership) => membership ? import("../../../../lib/audit").then(({ writeAuditEvent }) => writeAuditEvent({ tenantId: membership.tenantId, actorType: "user", actorId: row.userId, action: "user.password_reset_completed" })) : undefined).catch(() => undefined);
   return NextResponse.json({ok:true});
 }

@@ -371,33 +371,6 @@ export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   statusCheck: check("tenant_subscriptions_status_check", sql`${table.status} in ('trialing','active','past_due','paused','cancelled')`),
 }));
 
-export const deploymentStamps = pgTable("deployment_stamps", {
-  id: text("id").primaryKey(),
-  region: text("region").notNull(),
-  tier: text("tier").notNull().default("shared"),
-  capacityClass: text("capacity_class").notNull().default("standard"),
-  state: text("state").notNull().default("active"),
-  version: text("version").notNull(),
-  health: text("health").notNull().default("unknown"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-}, (table) => ({
-  regionStateIdx: index("deployment_stamps_region_state_idx").on(table.region, table.state),
-  tierCheck: check("deployment_stamps_tier_check", sql`${table.tier} in ('shared','bridge','dedicated')`),
-  stateCheck: check("deployment_stamps_state_check", sql`${table.state} in ('provisioning','active','draining','degraded','retired')`),
-}));
-
-export const tenantDeploymentAssignments = pgTable("tenant_deployment_assignments", {
-  tenantId: text("tenant_id").references(() => tenants.id).primaryKey(),
-  deploymentId: text("deployment_id").references(() => deploymentStamps.id).notNull(),
-  state: text("state").notNull().default("active"),
-  desiredVersion: text("desired_version"),
-  assignedAt: timestamp("assigned_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-}, (table) => ({
-  deploymentIdx: index("tenant_deployment_assignments_deployment_idx").on(table.deploymentId),
-  stateCheck: check("tenant_deployment_assignments_state_check", sql`${table.state} in ('pending','active','draining','migrating','failed')`),
-}));
 
 export const printJobRateLimits = pgTable("print_job_rate_limits", {
   apiKeyId: text("api_key_id").references(() => apiKeys.id).primaryKey(),

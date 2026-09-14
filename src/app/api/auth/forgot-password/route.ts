@@ -6,7 +6,7 @@ import { generateOpaqueToken, hashToken, normalizeEmail } from "../../../../lib/
 import { clientIpFrom, inspectAuthRateLimit } from "../../../../lib/auth-rate-limit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
-import { nanoid } from "nanoid";
+import { nanoid } from "../../../../lib/nanoid";
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   const generic = { ok: true, message: "If the account exists, a password reset email will be sent." };

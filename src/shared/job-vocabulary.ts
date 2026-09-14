@@ -120,20 +120,11 @@ export function printerLabel(status: string): string {
   }
 }
 
-/** Agent RUNTIME states. "Online/Offline" belongs to gateway connectivity;
- *  the local agent service is Running/Stopped. Never mix the two words for
- *  one concept. */
-export function agentServiceLabel(running: boolean): string {
-  return running ? "Running" : "Stopped";
-}
 
-export function agentGatewayLabel(connected: boolean): string {
-  return connected ? "Connected to Gateway" : "Disconnected from Gateway";
-}
 
 /** Heartbeat-derived truth: an agent that stopped reporting is NOT online,
  *  regardless of the last status row. Mirrors src/lib/agent-availability.ts. */
-export const AGENT_HEARTBEAT_STALE_SECONDS = 90;
+const AGENT_HEARTBEAT_STALE_SECONDS = 90;
 
 export function agentLiveView(agent: { status?: string | null; lastSeenAt?: Date | string | null; lifecycle?: string | null }, nowMs = Date.now()): { tone: Tone; label: string } {
   if (agent.lifecycle && agent.lifecycle !== "active") {

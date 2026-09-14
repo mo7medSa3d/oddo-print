@@ -25,6 +25,6 @@ export async function PATCH(req: Request) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (name.length < 2 || name.length > 120) return NextResponse.json({ error: "Workspace name must be 2-120 characters" }, { status: 400 });
   await db.update(tenants).set({ name, updatedAt: new Date() }).where(eq(tenants.id, claims.tenantId));
-  void writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "tenant.updated", resourceType: "tenant", resourceId: claims.tenantId }).catch(() => undefined);
+  await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "tenant.updated", resourceType: "tenant", resourceId: claims.tenantId }).catch(() => undefined);
   return NextResponse.json({ ok: true, name });
 }

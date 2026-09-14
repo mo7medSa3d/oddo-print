@@ -6,7 +6,7 @@ import { validateManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { generateOpaqueToken, hashToken, normalizeEmail } from "../../../../lib/password";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
-import { nanoid } from "nanoid";
+import { nanoid } from "../../../../lib/nanoid";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
     await db.update(tenantInvitations).set({ revokedAt: new Date() }).where(eq(tenantInvitations.id, id));
     return NextResponse.json({ error: "Invitation delivery is temporarily unavailable" }, { status: 503 });
   }
-  void writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "team.invitation.created", resourceType: "tenant_invitation", resourceId: id }).catch(() => undefined);
+  await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "team.invitation.created", resourceType: "tenant_invitation", resourceId: id }).catch(() => undefined);
   return NextResponse.json({ ok: true, id });
 }
 

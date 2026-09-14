@@ -187,7 +187,7 @@ jobs:
       - name: Install and test addon on Odoo 19 Community
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
           docker pull odoo:19.0
           rm -f /tmp/odoo19_test.log
           timeout --signal=TERM --kill-after=30s 12m \

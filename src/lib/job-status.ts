@@ -125,7 +125,10 @@ export interface TransitionOptions {
 
 export function canTransition(from: JobStatus, to: JobStatus, options: TransitionOptions = {}): boolean {
   if (isTerminal(from)) {
-    return options.allowLateSuccess === true && from === "failed" && to === "success";
+    if (options.allowLateSuccess === true && to === "success") {
+      return from === "failed" || from === "expired";
+    }
+    return false;
   }
   return ALLOWED_TRANSITIONS[from]?.has(to) ?? false;
 }

@@ -3,7 +3,7 @@
 import { db } from "../db";
 import { agents, printers, printJobs, discoverySessions, discoveredDevices } from "../db/schema";
 import { eq, count, or, and, inArray, sql, desc } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { nanoid } from "../lib/nanoid";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { generatePairingCode, hashPairingCode } from "../lib/agent-auth";
@@ -18,7 +18,6 @@ import {
 } from "../lib/job-status";
 import { canTransitionLifecycle } from "../lib/lifecycle";
 import { transitionAgentLifecycle, LifecycleConflict } from "../lib/agent-lifecycle";
-import { hasOpenAgentSocket, closeAgentSockets, publishAgentSessionClose } from "../server/ws";
 import { ActionError } from "../lib/action-error";
 import { writeAuditEvent } from "../lib/audit";
 import { requireManagerPermission } from "../lib/authorization";
@@ -86,11 +85,6 @@ export async function deleteAgent(id: string) {
   if (typeof id !== "string" || !id.trim()) throw new ActionError("agent id is required", 400);
   const agentId = id.trim();
 
-  // In-memory WebSocket guard: if the agent is actively connected, refuse deletion
-  if (hasOpenAgentSocket(agentId)) {
-    throw new ActionError("This agent is still connected. Stop the agent service first, then delete it.", 409);
-  }
-
   await db.transaction(async (tx) => {
     // Acquire row-level lock to prevent concurrent state transitions or reconnect races
     const locked = await tx.execute(sql`
@@ -133,11 +127,10 @@ export async function deleteAgent(id: string) {
 
     // Permanently delete the agent
     await tx.delete(agents).where(and(eq(agents.id, agent.id), eq(agents.tenantId, manager.tenantId)));
+    
+    // Notify all instances to close any remaining sockets
+    await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ agentId })}::text)`);
   });
-
-  // Terminate any remaining socket connections and publish revocation across cluster
-  try { closeAgentSockets(agentId); } catch {}
-  void publishAgentSessionClose(agentId).catch(() => { /* best-effort revocation */ });
 
   void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.deleted", resourceType: "agent", resourceId: agentId }).catch(() => undefined);
   revalidatePath("/dashboard");

@@ -31,3 +31,4 @@ DELETE FROM "manager_sessions";
 ALTER TABLE "manager_sessions" ALTER COLUMN "tenant_id" SET NOT NULL;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "manager_sessions_tenant_idx" ON "manager_sessions" USING btree ("tenant_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "tenant_domains_primary_unique" ON "tenant_domains" USING btree ("tenant_id") WHERE is_primary = true;

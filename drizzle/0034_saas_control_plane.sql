@@ -36,31 +36,3 @@ CREATE TABLE IF NOT EXISTS "tenant_subscriptions" (
   "updated_at" timestamp DEFAULT now() NOT NULL,
   CONSTRAINT "tenant_subscriptions_status_check" CHECK (status IN ('trialing','active','past_due','paused','cancelled'))
 );
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "deployment_stamps" (
-  "id" text PRIMARY KEY NOT NULL,
-  "region" text NOT NULL,
-  "tier" text NOT NULL DEFAULT 'shared',
-  "capacity_class" text NOT NULL DEFAULT 'standard',
-  "state" text NOT NULL DEFAULT 'active',
-  "version" text NOT NULL,
-  "health" text NOT NULL DEFAULT 'unknown',
-  "created_at" timestamp DEFAULT now() NOT NULL,
-  "updated_at" timestamp DEFAULT now() NOT NULL,
-  CONSTRAINT "deployment_stamps_tier_check" CHECK (tier IN ('shared','bridge','dedicated')),
-  CONSTRAINT "deployment_stamps_state_check" CHECK (state IN ('provisioning','active','draining','degraded','retired'))
-);
---> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "deployment_stamps_region_state_idx" ON "deployment_stamps" USING btree ("region", "state");
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "tenant_deployment_assignments" (
-  "tenant_id" text PRIMARY KEY NOT NULL REFERENCES "tenants"("id"),
-  "deployment_id" text NOT NULL REFERENCES "deployment_stamps"("id"),
-  "state" text NOT NULL DEFAULT 'active',
-  "desired_version" text,
-  "assigned_at" timestamp DEFAULT now() NOT NULL,
-  "updated_at" timestamp DEFAULT now() NOT NULL,
-  CONSTRAINT "tenant_deployment_assignments_state_check" CHECK (state IN ('pending','active','draining','migrating','failed'))
-);
---> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "tenant_deployment_assignments_deployment_idx" ON "tenant_deployment_assignments" USING btree ("deployment_id");

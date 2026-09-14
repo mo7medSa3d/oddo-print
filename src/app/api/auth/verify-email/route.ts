@@ -4,7 +4,7 @@ import { db } from "../../../../db";
 import { emailVerificationTokens, tenantUsers, tenants, users } from "../../../../db/schema";
 import { and, eq, isNull, gt } from "drizzle-orm";
 import { hashToken } from "../../../../lib/password";
-import { nanoid } from "nanoid";
+import { nanoid } from "../../../../lib/nanoid";
 import { issueCustomerSession, customerSessionCookie } from "../../../../lib/customer-auth";
 
 export async function POST(req: Request) {
@@ -36,6 +36,6 @@ export async function POST(req: Request) {
     throw error;
   }
   const session = await issueCustomerSession(user.id, tenantId!, role);
-  void import("../../../../lib/audit").then(({ writeAuditEvent }) => writeAuditEvent({ tenantId: tenantId!, actorType: "user", actorId: user.id, action: "user.email_verified" })).catch(() => undefined);
+  await import("../../../../lib/audit").then(({ writeAuditEvent }) => writeAuditEvent({ tenantId: tenantId!, actorType: "user", actorId: user.id, action: "user.email_verified" })).catch(() => undefined);
   return NextResponse.json({ ok: true, next: "/onboarding" }, { headers: { "Set-Cookie": customerSessionCookie(session) } });
 }

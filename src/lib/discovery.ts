@@ -33,13 +33,13 @@ export function isPrivateCIDR(cidr: string): boolean {
   return false;
 }
 
-export function validateDiscoveryRequest(body: unknown): { ok: true; cidr?: string } | { ok: false; error: string } {
+export function validateDiscoveryRequest(body: unknown): { ok: true; data: z.infer<typeof discoveryStartSchema> } | { ok: false; error: string } {
   const parsed = discoveryStartSchema.safeParse(body ?? {});
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid discovery request" };
   if (parsed.data.cidr && !isPrivateCIDR(parsed.data.cidr)) {
     return { ok: false, error: "CIDR must be private (10/8, 172.16/12, 192.168/16) and /16-/30" };
   }
-  return { ok: true, cidr: parsed.data.cidr };
+  return { ok: true, data: parsed.data };
 }
 
 export function confidenceFor(source: string[], verification: string, hasModel: boolean): string {

@@ -1,5 +1,5 @@
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { db } from "../src/db";
+import { db, pool } from "../src/db";
 
 async function main() {
   const hasDatabaseSettings = Boolean(
@@ -14,9 +14,12 @@ async function main() {
   }
   await migrate(db, { migrationsFolder: "./drizzle" });
   console.log("PostgreSQL migrations applied successfully");
+  await pool.end();
+  process.exit(0);
 }
 
-main().catch((e) => {
+main().catch(async (e) => {
   console.error(e);
+  await pool.end().catch(() => {});
   process.exit(1);
 });

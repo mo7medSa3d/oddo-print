@@ -4,7 +4,7 @@ import { agents, discoveredDevices, printers } from "../../../../../../../db/sch
 import { validateManager } from "../../../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../../../lib/authorization";
 import { and, eq, sql } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { nanoid } from "../../../../../../../lib/nanoid";
 
 export const dynamic = "force-dynamic";
 

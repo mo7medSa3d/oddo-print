@@ -95,7 +95,7 @@ suite("WS claim-before-delivery", () => {
   it("a forged ack cannot stamp delivery evidence onto a live claim", async () => {
     await insertQueuedJob(f, "job_ack_forged");
     const claim = await claimJobForDelivery("job_ack_forged", f.agentId);
-    expect(claim!.claimToken).toBeTruthy();
+    expect(typeof claim!.claimToken).toBe("string");
     expect(await recordJobAck("job_ack_forged", f.agentId, "forged-token")).toBe(false);
     expect(await recordJobAck("job_ack_forged", f.agentId)).toBe(false);
     const row = await jobRow("job_ack_forged");
@@ -182,7 +182,7 @@ suite("WS claim-before-delivery", () => {
     const lost = first.find((r: any) => r.id === "job_lost_poll");
     expect(lost).toBeDefined();
     expect(lost.status).toBe("claimed");
-    expect(lost.claimToken).toBeTruthy();
+    expect(typeof lost.claimToken).toBe("string");
     // ... the response is lost here: the agent never sees it ...
     let row = await jobRow("job_lost_poll");
     expect(row.delivered_at).toBeNull();
@@ -198,7 +198,7 @@ suite("WS claim-before-delivery", () => {
     const second = await (await agentJobsGET(agentRequest(f, "GET"))).json();
     const reclaimed = second.find((r: any) => r.id === "job_lost_poll");
     expect(reclaimed).toBeDefined();
-    expect(reclaimed.claimToken).toBeTruthy();
+    expect(typeof reclaimed.claimToken).toBe("string");
     expect(reclaimed.claimToken).not.toBe(lost.claimToken);
     expect((await jobRow("job_lost_poll")).delivered_at).toBeNull();
   });
@@ -226,7 +226,7 @@ suite("WS claim-before-delivery", () => {
     const next = await (await agentJobsGET(agentRequest(f, "GET"))).json();
     const reclaimed = next.find((r: any) => r.id === "job_reject_evidence");
     expect(reclaimed).toBeDefined();
-    expect(reclaimed.claimToken).toBeTruthy();
+    expect(typeof reclaimed.claimToken).toBe("string");
   });
 
   it("stale claimed job is reclaimed by the poll path", async () => {
@@ -288,13 +288,13 @@ suite("WS claim-before-delivery", () => {
     // the DB ownership predicate, while the new holder remains authoritative.
     await insertQueuedJob(f, "job_fence");
     const claimA = await claimJobForDelivery("job_fence", f.agentId);
-    expect(claimA?.claimToken).toBeTruthy();
+    expect(typeof claimA?.claimToken).toBe("string");
     await pool().query(`UPDATE print_jobs SET claimed_at = now() - interval '200 seconds', updated_at = now() - interval '200 seconds' WHERE id = 'job_fence'`);
     const pollRes = await agentJobsGET(agentRequest(f, "GET"));
     const rows = await pollRes.json();
     const reclaimed = rows.find((r: any) => r.id === "job_fence");
     expect(reclaimed).toBeDefined();
-    expect(reclaimed.claimToken).toBeTruthy();
+    expect(typeof reclaimed.claimToken).toBe("string");
     expect(reclaimed.claimToken).not.toBe(claimA!.claimToken);
     // The dead attempt reports success -> rejected, and it does not move the job.
     const stale = await agentJobsPATCH(agentRequest(f, "PATCH", { jobId: "job_fence", status: "printing", claimToken: claimA!.claimToken }));
@@ -320,7 +320,7 @@ suite("WS claim-before-delivery", () => {
     // The marker is what keeps Odoo/desktop from ever calling this "definitely
     // not printed": it must be terminal and unknown-outcome.
     expect(row.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY/);
-    expect(claim?.claimToken).toBeTruthy();
+    expect(typeof claim?.claimToken).toBe("string");
     // And the poll path must not re-deliver it either.
     const poll = await (await agentJobsGET(agentRequest(f, "GET"))).json();
     expect(poll.find((r: any) => r.id === "job_del_stale")).toBeUndefined();
@@ -586,7 +586,7 @@ suite("WS claim-before-delivery", () => {
       expect(after.claim_token).toBeNull();
     }
     // Unrelated eligible jobs are still claimable by the same poll.
-    expect(rows.find((r: any) => r.id === "job_ceiling_other")).toBeTruthy();
+    expect(rows.find((r: any) => r.id === "job_ceiling_other")).toBeDefined();
   });
 
   it("a ceiling-exhausted stale claim terminates via requeue then expiry, never stuck invisible", async () => {

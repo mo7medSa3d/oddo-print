@@ -1,10 +1,10 @@
+import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { agents, printers } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import { canTransitionLifecycle } from "./lifecycle";
 import { generatePairingCode, hashPairingCode } from "./agent-auth";
 import { logWarn } from "./log";
-import { closeAgentSockets, publishAgentSessionClose } from "../server/ws";
 
 export type AgentLifecycleResult = {
   changed: boolean;
@@ -69,14 +69,7 @@ export async function transitionAgentLifecycle(agentId: string, next: "active" |
     if (next !== "active") {
       await tx.update(printers).set({ lifecycle: "disabled", updatedAt: now }).where(and(eq(printers.agentId, agentId), eq(printers.tenantId, tenantId)));
     }
-  });
-
-  // The secret was just nullified; an established WS socket would otherwise
-  // keep receiving jobs until its next reconnect. Teardown runs on EVERY
-  // credential-rotating transition, regardless of the target lifecycle.
-  try { closeAgentSockets(agentId); } catch { /* sockets already gone */ }
-  void publishAgentSessionClose(agentId).catch((error) => {
-    logWarn("agent.session_close_publish_failed", { agentId, error: error instanceof Error ? error.message : String(error) });
+    await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ agentId })}::text)`);
   });
 
   return { changed: true, lifecycle: next, pairingCode };

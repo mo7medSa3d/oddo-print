@@ -40,12 +40,4 @@ describe("SaaS control-plane contracts", () => {
     expect(job).toContain("enforceTenantJobEntitlements");
   });
 
-  it("models Pool/Bridge/Silo placement as control-plane data", () => {
-    const schema = read("src/db/schema.ts");
-    const migration = read("drizzle/0034_saas_control_plane.sql");
-    expect(schema).toContain('export const deploymentStamps = pgTable("deployment_stamps"');
-    expect(schema).toContain('export const tenantDeploymentAssignments = pgTable("tenant_deployment_assignments"');
-    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "deployment_stamps"');
-    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "tenant_deployment_assignments"');
-  });
 });

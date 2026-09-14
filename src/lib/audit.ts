@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { auditEvents } from "../db/schema";
-import { nanoid } from "nanoid";
+import { nanoid } from "./nanoid";
 
 export type AuditActor = "user" | "odoo" | "agent" | "desktop" | "system" | "platform";
 

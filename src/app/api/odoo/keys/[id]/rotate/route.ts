@@ -59,7 +59,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (rotated.kind === "not_found") return NextResponse.json({ error: "API key not found" }, { status: 404 });
     if (rotated.kind === "revoked") return NextResponse.json({ error: "Only an active API key can be rotated" }, { status: 409 });
 
-    void writeAuditEvent({
+    await writeAuditEvent({
       tenantId: manager.tenantId,
       actorType: manager.userId ? "user" : "system",
       actorId: manager.userId ?? "legacy-manager",

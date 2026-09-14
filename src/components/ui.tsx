@@ -29,7 +29,7 @@ export const toneBg: Record<Tone, string> = {
 
 /* Dots use the `-solid` fills: saturated enough to read at 8px,
    while the text tokens above stay AA-legible on tinted surfaces. */
-export const toneDot: Record<Tone, string> = {
+const toneDot: Record<Tone, string> = {
   ok: "bg-ok-solid",
   warn: "bg-warn-solid",
   bad: "bg-bad-solid",
@@ -76,7 +76,7 @@ const buttonVariants: Record<ButtonVariant, string> = {
     "bg-ok-solid text-white border border-transparent shadow-xs hover:brightness-95 active:brightness-90",
 };
 
-export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
   size?: "sm" | "md" | "lg";
   loading?: boolean;
