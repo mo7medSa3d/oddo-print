@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { db } from "../../../../../db";
-import { users } from "../../../../../db/schema";
-import { generateOpaqueToken, hashPassword, hashToken, normalizeEmail, validEmail } from "../../../../../lib/password";
-import { emailVerificationTokens } from "../../../../../db/schema";
+import { db } from "../../../../db";
+import { users } from "../../../../db/schema";
+import { generateOpaqueToken, hashPassword, hashToken, normalizeEmail, validEmail } from "../../../../lib/password";
+import { emailVerificationTokens } from "../../../../db/schema";
 import { nanoid } from "nanoid";
-import { sendTransactionalEmail, appBaseUrl } from "../../../../../lib/email";
-import { hasBodyOverLimit } from "../../../../../lib/request-limits";
-import { clientIpFrom, inspectAuthRateLimit, recordAuthSuccess } from "../../../../../lib/auth-rate-limit";
+import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
+import { hasBodyOverLimit } from "../../../../lib/request-limits";
+import { clientIpFrom, inspectAuthRateLimit, recordAuthSuccess } from "../../../../lib/auth-rate-limit";
 
 const GENERIC = { ok: true, message: "If the account can be created, a verification email will be sent." };
 
