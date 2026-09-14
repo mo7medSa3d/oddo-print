@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { hasBodyOverLimit } from "../../../../../lib/request-limits";
-import { db } from "../../../../../db";
-import { managerSessions, passwordResetTokens, tenantUsers, users } from "../../../../../db/schema";
+import { hasBodyOverLimit } from "../../../../lib/request-limits";
+import { db } from "../../../../db";
+import { managerSessions, passwordResetTokens, tenantUsers, users } from "../../../../db/schema";
 import { and, eq, isNull, gt } from "drizzle-orm";
-import { hashPassword, hashToken } from "../../../../../lib/password";
+import { hashPassword, hashToken } from "../../../../lib/password";
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({error:"Request body too large"},{status:413});
   let body: { token?: unknown; password?: unknown }; try { body=await req.json(); } catch { return NextResponse.json({error:"Invalid JSON"},{status:400}); }
@@ -23,6 +23,6 @@ export async function POST(req: Request) {
     if (error instanceof Error && error.message === "Reset token already consumed") return NextResponse.json({error:"Reset link expired or invalid"},{status:400});
     throw error;
   }
-  void db.query.tenantUsers.findFirst({ where: (tu, { eq }) => eq(tu.userId, row.userId), columns: { tenantId: true } }).then((membership) => membership ? import("../../../../../lib/audit").then(({ writeAuditEvent }) => writeAuditEvent({ tenantId: membership.tenantId, actorType: "user", actorId: row.userId, action: "user.password_reset_completed" })) : undefined).catch(() => undefined);
+  void db.query.tenantUsers.findFirst({ where: (tu, { eq }) => eq(tu.userId, row.userId), columns: { tenantId: true } }).then((membership) => membership ? import("../../../../lib/audit").then(({ writeAuditEvent }) => writeAuditEvent({ tenantId: membership.tenantId, actorType: "user", actorId: row.userId, action: "user.password_reset_completed" })) : undefined).catch(() => undefined);
   return NextResponse.json({ok:true});
 }
