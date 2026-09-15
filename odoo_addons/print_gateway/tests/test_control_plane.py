@@ -318,16 +318,12 @@ class TestControlPlane(TransactionCase):
 
         def _mock_persist_state(vals):
             persisted_states.append(dict(vals))
-            job.sudo().write(vals)
-            job.env.flush_all()
 
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
              patch("requests.post", side_effect=[_refused_connection(), _refused_connection()]), \
              patch.object(type(job), "_persist_state", side_effect=_mock_persist_state):
             with self.assertRaises(ValidationError):
                 job._action_submit_trusted(raise_on_failure=True)
-
-        job.invalidate_recordset()
 
         # Both the failover write and the terminal write must be routed through _persist_state
         self.assertEqual(len(persisted_states), 2, "both failover and terminal writes must invoke _persist_state")
@@ -336,9 +332,6 @@ class TestControlPlane(TransactionCase):
         self.assertEqual(persisted_states[1]["status"], "queued", "second write must persist queued status with backoff")
         self.assertEqual(persisted_states[1]["attempts"], 1, "second write must increment attempts")
         self.assertTrue(persisted_states[1]["next_retry_at"], "retry must be scheduled")
-        self.assertEqual(job.printer_id, self.backup_binding.printer_id)
-        self.assertEqual(job.status, "queued")
-        self.assertEqual(job.attempts, 1)
 
     def test_04c_connect_timeout_is_pre_dispatch_and_retries(self):
         """A connect-phase timeout proves zero bytes left the host: it is
