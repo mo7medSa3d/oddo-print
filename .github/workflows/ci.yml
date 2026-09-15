@@ -229,7 +229,7 @@ jobs:
             echo "ERROR: Expected at least 80 Odoo addon tests, found ${test_count:-0}."
             exit 1
           fi
-          if printf '%s\n' "$result_line" | grep -Eiq 'failed|error|skipped'; then
+          if printf '%s\n' "$result_line" | grep -Eiq '[1-9][0-9]* (failed|error|skipped)' || ! printf '%s\n' "$result_line" | grep -Eiq '0 failed, 0 error\(s\)'; then
             echo 'ERROR: Odoo addon test result contains failures, errors, or skips.'
             exit 1
           fi
