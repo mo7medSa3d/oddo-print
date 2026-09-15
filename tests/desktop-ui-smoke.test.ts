@@ -151,9 +151,18 @@ describe("desktop manager", () => {
     document.body.appendChild(root);
 
     await import("../src/desktop/main");
-    await new Promise((r) => setTimeout(r, 300));
-
+    
     const text = () => document.body.textContent ?? "";
+    const waitUntil = async (pred: () => boolean, ms = 3000) => {
+      const deadline = Date.now() + ms;
+      while (Date.now() < deadline) {
+        if (pred()) return;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(pred()).toBe(true);
+    };
+
+    await waitUntil(() => text().includes("HP LaserJet Pro M404"));
 
     expect(text()).toContain("Print Gateway");
     expect(text()).toContain("Odoo Print Manager");
