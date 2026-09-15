@@ -302,32 +302,33 @@ class TestControlPlane(TransactionCase):
         # module data (always committed); the config/binding/job below are
         # created + committed here and cleaned up at the end. The fallback
         # binding is root-scoped (branch_id=False) so it stays
-        # company-compatible with the root-company job.
+        suffix = uuid.uuid4().hex[:8]
         report = (
             self.env.ref("account.account_invoices", raise_if_not_found=False)
             or self.env.ref("sale.action_report_saleorder", raise_if_not_found=False)
             or self.env["ir.actions.report"].search([], limit=1)
         )
         wcr = self.env.registry.cursor()
+        created_company_id = False
         created_config_id = False
         job_id = False
         binding_id = False
-        config_id = False
         try:
             wenv = api.Environment(wcr, self.env.uid, dict(self.env.context))
-            wconfig = wenv["print_gateway.gateway_config"].search(
-                [("company_id", "=", self.company.id)], limit=1)
-            if not wconfig:
-                wconfig = wenv["print_gateway.gateway_config"].create({
-                    "company_id": self.company.id,
-                    "gateway_url": "https://gateway.example.com",
-                    "enabled": True,
-                    "gateway_api_key": "test_api_key_deadlock_fixture",
-                })
-                created_config_id = wconfig.id
+            wcompany = wenv["res.company"].create({
+                "name": "Failover Deadlock Test Company %s" % suffix,
+            })
+            created_company_id = wcompany.id
+            wconfig = wenv["print_gateway.gateway_config"].create({
+                "company_id": wcompany.id,
+                "gateway_url": "https://gateway.example.com",
+                "enabled": True,
+                "gateway_api_key": "test_api_key_deadlock_fixture_%s" % suffix,
+            })
+            created_config_id = wconfig.id
             wbinding = wenv["print_gateway.binding"].create({
                 "branch_id": False,
-                "company_id": self.company.id,
+                "company_id": wcompany.id,
                 "destination_type": "report",
                 "destination_report_id": report.id if report else False,
                 "report_id": report.id if report else False,
@@ -341,19 +342,18 @@ class TestControlPlane(TransactionCase):
                 "priority": 20,
             })
             wjob = wenv["print_gateway.print_job"].create({
-                "company_id": self.company.id,
+                "company_id": wcompany.id,
                 "gateway_config_id": wconfig.id,
                 "printer_id": "printer-primary-04b2",
                 "destination": "Primary Destination",
                 "document_type": "invoice",
                 "status": "queued",
                 "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-                "idempotency_key": "test_failover_deadlock_key_01",
+                "idempotency_key": "test_failover_deadlock_key_%s" % suffix,
                 "fallback_binding_id": wbinding.id,
             })
             job_id = wjob.id
             binding_id = wbinding.id
-            config_id = wconfig.id
             wcr.commit()
         finally:
             wcr.close()
@@ -392,10 +392,14 @@ class TestControlPlane(TransactionCase):
             wcr = self.env.registry.cursor()
             try:
                 wenv = api.Environment(wcr, self.env.uid, dict(self.env.context))
-                wenv["print_gateway.print_job"].browse(job_id).exists().unlink()
-                wenv["print_gateway.binding"].browse(binding_id).exists().unlink()
+                if job_id:
+                    wenv["print_gateway.print_job"].browse(job_id).exists().unlink()
+                if binding_id:
+                    wenv["print_gateway.binding"].browse(binding_id).exists().unlink()
                 if created_config_id:
                     wenv["print_gateway.gateway_config"].browse(created_config_id).exists().unlink()
+                if created_company_id:
+                    wenv["res.company"].browse(created_company_id).exists().write({"active": False})
                 wcr.commit()
             finally:
                 wcr.close()
