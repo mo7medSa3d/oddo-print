@@ -296,7 +296,7 @@ BEGIN
     ALTER TABLE "agents" ADD CONSTRAINT "agents_tenant_id_unique" UNIQUE("tenant_id","id");
   END IF;
 END $$;
-
+--> statement-breakpoint
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -305,7 +305,7 @@ BEGIN
     ALTER TABLE "api_keys" ADD CONSTRAINT "api_keys_tenant_id_unique" UNIQUE("tenant_id","id");
   END IF;
 END $$;
-
+--> statement-breakpoint
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -314,7 +314,7 @@ BEGIN
     ALTER TABLE "print_jobs" ADD CONSTRAINT "print_jobs_tenant_id_unique" UNIQUE("tenant_id","id");
   END IF;
 END $$;
-
+--> statement-breakpoint
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -323,7 +323,7 @@ BEGIN
     ALTER TABLE "printers" ADD CONSTRAINT "printers_tenant_id_unique" UNIQUE("tenant_id","id");
   END IF;
 END $$;
-
+--> statement-breakpoint
 DO $$
 BEGIN
   IF NOT EXISTS (
