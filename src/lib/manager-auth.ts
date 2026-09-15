@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { createHmac, randomBytes, scrypt, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
 import { hashPassword, verifyPassword, normalizeEmail } from "./password";
+import { requireActiveTenant, TenantSuspendedError, TenantDeletedError } from "./tenant-guard";
 
 const COOKIE_NAME = "mgr_session";
 const MAX_AGE_SECONDS = 8 * 60 * 60;
@@ -103,6 +104,15 @@ export async function validateManagerClaims(claims: ManagerClaims | null): Promi
       columns: { role: true },
     });
     if (!membership || membership.role !== row.role) return null;
+  }
+  // Tenant lifecycle gate: suspended/deleted tenants cannot perform
+  // manager operations. Throws TenantSuspendedError or TenantDeletedError
+  // which callers (API routes) must map to 403.
+  try {
+    await requireActiveTenant(claims.tenantId);
+  } catch (e) {
+    if (e instanceof TenantSuspendedError || e instanceof TenantDeletedError) return null;
+    throw e;
   }
   return claims;
 }

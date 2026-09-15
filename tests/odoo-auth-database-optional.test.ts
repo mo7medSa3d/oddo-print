@@ -11,6 +11,12 @@ vi.mock("../src/db", () => ({
   },
 }));
 
+vi.mock("../src/lib/tenant-guard", () => ({
+  requireActiveTenant: vi.fn().mockResolvedValue("active"),
+  TenantSuspendedError: class TenantSuspendedError extends Error {},
+  TenantDeletedError: class TenantDeletedError extends Error {},
+}));
+
 import { isOdooKeyAllowedForDocumentType, validateOdooKey } from "../src/lib/odoo-auth";
 
 // Odoo Gateway authentication is based on the Odoo installation API key.

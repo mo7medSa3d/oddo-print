@@ -70,15 +70,18 @@ suite("manager login rate limiting", () => {
     process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD = "1";
     process.env.GATEWAY_JWT_SECRET = process.env.GATEWAY_JWT_SECRET || "x".repeat(32);
     process.env.TRUST_PROXY = "1";
+    process.env.MANAGER_TENANT_ID = "tenant_rate_limit_test";
   });
 
   afterAll(async () => {
     delete process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD;
+    delete process.env.MANAGER_TENANT_ID;
     await closePool();
   });
 
   beforeEach(async () => {
     await truncateAll();
+    await pool().query(`INSERT INTO tenants (id, name) VALUES ($1, $2)`, ["tenant_rate_limit_test", "Rate Limit Test Tenant"]);
   });
 
   function login(username: string, password: string, ip = "198.51.100.10") {

@@ -26,6 +26,7 @@ export const integrationTestFiles = [
   "tests/routing-availability.test.ts",
   "tests/runtime-constraints.test.ts",
   "tests/tenant-isolation.test.ts",
+  "tests/tenant-lifecycle.integration.test.ts",
   "tests/ws-claim-delivery.test.ts",
   "tests/ws-listener-setup-race.test.ts",
   "tests/ws-socket-cap.test.ts",

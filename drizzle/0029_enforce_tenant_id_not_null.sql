@@ -1,6 +1,5 @@
--- Safe legacy migration for the effectively single-tenant installation.
--- Null ownership is backfilled ONLY when the database has zero or one known tenant.
--- If multiple tenants already exist while rows are unowned, abort rather than guessing.
+ALTER TABLE "print_jobs" DROP CONSTRAINT IF EXISTS "print_jobs_payload_contract_check";
+--> statement-breakpoint
 DO $$
 DECLARE
   known_tenant text;
@@ -32,14 +31,26 @@ BEGIN
     END IF;
 
     UPDATE agents SET tenant_id = known_tenant WHERE tenant_id IS NULL;
+    UPDATE printers SET tenant_id = known_tenant WHERE tenant_id IS NULL;
     UPDATE api_keys SET tenant_id = known_tenant WHERE tenant_id IS NULL;
     UPDATE print_jobs SET tenant_id = known_tenant WHERE tenant_id IS NULL;
-    UPDATE printers SET tenant_id = known_tenant WHERE tenant_id IS NULL;
     UPDATE discovery_sessions SET tenant_id = known_tenant WHERE tenant_id IS NULL;
     UPDATE discovered_devices SET tenant_id = known_tenant WHERE tenant_id IS NULL;
     UPDATE applications SET tenant_id = known_tenant WHERE tenant_id IS NULL;
   END IF;
 END $$;
+--> statement-breakpoint
+ALTER TABLE "print_jobs"
+  ADD CONSTRAINT "print_jobs_payload_contract_check"
+  CHECK (
+    jsonb_typeof(payload) = 'object'
+    AND (
+      (payload->>'type' = 'raw' AND COALESCE(payload->>'protocol', '') IN ('raw', 'escpos', 'zpl', 'tspl'))
+      OR (payload->>'type' = 'escpos' AND COALESCE(payload->>'protocol', '') = 'escpos')
+      OR (payload->>'type' = 'pdf' AND COALESCE(payload->>'protocol', '') = '')
+      OR (payload->>'type' = 'image' AND COALESCE(payload->>'protocol', '') = '')
+    )
+  ) NOT VALID;
 --> statement-breakpoint
 ALTER TABLE "agents" ALTER COLUMN "tenant_id" SET NOT NULL;
 --> statement-breakpoint

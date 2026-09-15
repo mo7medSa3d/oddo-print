@@ -2,6 +2,7 @@ import { db } from "../db";
 import { apiKeys } from "../db/schema";
 import { and, eq } from "drizzle-orm";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
+import { requireActiveTenant } from "./tenant-guard";
 
 function hashKey(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
@@ -54,5 +55,11 @@ export async function validateOdooKey(req: Request) {
   if (!row || row.revokedAt || !timingSafeEqualStr(row.hashedKey, hashed)) return null;
 
   await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(and(eq(apiKeys.id, row.id), eq(apiKeys.tenantId, row.tenantId))).catch(() => undefined);
+  // Tenant lifecycle gate: suspended/deleted tenants cannot submit jobs via Odoo.
+  try {
+    await requireActiveTenant(row.tenantId);
+  } catch {
+    return null;
+  }
   return row;
 }

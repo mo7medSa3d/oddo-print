@@ -31,7 +31,13 @@ const GLOBAL_PG_LOCK = 727727;
 function rewriteMigrationForSchema(sql: string, schema: string | null): string {
   if (!schema) return sql;
   const quotedSchema = quoteIdent(schema);
-  return sql.replaceAll('"public".', `${quotedSchema}.`).replaceAll(/\bpublic\./g, `${schema}.`);
+  return sql
+    .replaceAll('"public".', `${quotedSchema}.`)
+    .replaceAll(/\bpublic\./g, `${schema}.`)
+    .replaceAll(
+      /FROM pg_constraint WHERE conname =/g,
+      `FROM pg_constraint WHERE connamespace = (SELECT oid FROM pg_namespace WHERE nspname = '${schema}') AND conname =`
+    );
 }
 
 async function applyMigrationsOnce(): Promise<void> {

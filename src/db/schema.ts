@@ -4,9 +4,16 @@ import { sql } from "drizzle-orm";
 export const tenants = pgTable("tenants", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  lifecycle: text("lifecycle").notNull().default("active"),
+  suspendedAt: timestamp("suspended_at"),
+  deletedAt: timestamp("deleted_at"),
+  lifecycleReason: text("lifecycle_reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  lifecycleIdx: index("tenants_lifecycle_idx").on(table.lifecycle),
+  lifecycleCheck: check("tenants_lifecycle_check", sql`${table.lifecycle} in ('active','suspended','deleted')`),
+}));
 
 export const tenantDomains = pgTable("tenant_domains", {
   id: text("id").primaryKey(),

@@ -281,6 +281,13 @@
       "when": 1790000000039,
       "tag": "0039_billing_event_ordering",
       "breakpoints": false
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790000000040,
+      "tag": "0040_tenant_lifecycle",
+      "breakpoints": false
     }
   ]
 }

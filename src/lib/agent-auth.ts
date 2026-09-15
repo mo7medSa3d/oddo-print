@@ -2,6 +2,7 @@ import { db } from "../db";
 import { agents } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "crypto";
+import { requireActiveTenant } from "./tenant-guard";
 
 /**
  * Public pairing contract shared by Gateway, Go agent and Tauri manager.
@@ -68,5 +69,11 @@ export async function validateAgent(authHeader: string | null) {
 
   const providedHash = hashSecret(secret);
   if (!timingSafeStringEqual(agent.secret, providedHash)) return null;
+  // Tenant lifecycle gate: agents of suspended/deleted tenants cannot connect.
+  try {
+    await requireActiveTenant(agent.tenantId);
+  } catch {
+    return null;
+  }
   return agent;
 }

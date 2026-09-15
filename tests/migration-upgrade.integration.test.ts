@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdtemp, cp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, cp, mkdir, rm, readFile, writeFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -39,26 +39,7 @@ suite("production-like PostgreSQL migration upgrade", () => {
     await mkdir(join(oldDir, "meta"), { recursive: true });
     await mkdir(join(currentDir, "meta"), { recursive: true });
 
-    const migrations = [
-      "0000_simple_tigra.sql", "0001_phase1_branch_foundation.sql", "0002_add_document_types.sql",
-      "0003_add_idempotency_key.sql", "0004_add_job_delivery_tracking.sql", "0005_auth_rate_limits.sql",
-      "0006_architecture_hardening.sql", "0007_auth_rate_limit_retention.sql", "0008_remove_pcl_contract.sql",
-      "0009_runtime_invariant_guard.sql", "0010_discovery.sql", "0011_worker_schema_fk_hardening.sql",
-      "0012_runtime_state_checks.sql", "0013_runtime_state_constraint_scope_fix.sql", "0014_discovery_state_checks.sql",
-      "0015_metrics_and_agent_notifications.sql", "0016_print_job_rate_limits.sql", "0017_notify_requeued_jobs.sql",
-      "0018_global_print_job_idempotency.sql", "0019_drop_legacy_print_destination_fk.sql", "0020_remove_gateway_business_ownership.sql",
-      "0021_scope_print_jobs_to_api_key.sql", "0022_pairing_code_hash.sql",
-      "0023_internal_print_job_idempotency.sql",
-      "0024_claim_fencing_and_payload_contract.sql",
-      "0025_constraint_scope_and_protocol_contract_fix.sql",
-      "0026_printer_type_default_alignment.sql",
-      "0027_printers_protocol_check_windows_spooler.sql",
-      "0028_add_multi_tenancy.sql",
-      "0029_enforce_tenant_id_not_null.sql",
-      "0030_tenant_domains_and_manager_sessions.sql",
-      "0031_enforce_tenant_cross_table_foreign_keys.sql",
-      "0032_pairing_code_hash_unique.sql",
-    ];
+    const migrations = (await readdir("drizzle")).filter((f) => f.endsWith(".sql")).sort();
     const journal = JSON.parse(await readFile("drizzle/meta/_journal.json", "utf8"));
     const oldEntries = journal.entries.slice(0, 17);
     await writeFile(join(oldDir, "meta", "_journal.json"), JSON.stringify({ ...journal, entries: oldEntries }));

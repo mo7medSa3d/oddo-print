@@ -31,7 +31,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
   const requeuedClaims = await db.execute(sql`
     UPDATE print_jobs SET status='queued', claimed_at=NULL, claim_token=NULL,
       delivered_at=NULL, acked_at=NULL,
-      retries=retries+1, delivery_attempts=GREATEST(0, delivery_attempts - 1), updated_at=now()
+      retries=retries+1, updated_at=now()
     WHERE status='claimed' AND delivered_at IS NULL AND acked_at IS NULL
       AND updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS})
       AND retries < ${MAX_RETRIES} AND expires_at > now() ${agentFilter}
@@ -63,8 +63,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
 
   const exhaustedClaims = await db.execute(sql`
     UPDATE print_jobs SET status='failed',
-      error='exceeded max retries after a stale claim (agent likely crashed or lost connection)', updated_at=now(),
-      delivery_attempts=GREATEST(0, delivery_attempts - 1)
+      error='exceeded max retries after a stale claim (agent likely crashed or lost connection)', updated_at=now()
     WHERE status='claimed' AND delivered_at IS NULL AND acked_at IS NULL
       AND updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS})
       AND retries >= ${MAX_RETRIES} ${agentFilter}

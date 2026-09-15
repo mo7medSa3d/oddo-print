@@ -1,0 +1,172 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { db } from "../src/db";
+import { tenants } from "../src/db/schema";
+import { eq } from "drizzle-orm";
+import { hasTestDatabase, applyMigrations, closePool } from "./helpers/pg";
+import { transitionTenantLifecycle, TenantLifecycleError } from "../src/lib/tenant-lifecycle";
+import { requireActiveTenant, TenantSuspendedError, TenantDeletedError } from "../src/lib/tenant-guard";
+import { nanoid } from "../src/lib/nanoid";
+
+const suite = describe.skipIf(!hasTestDatabase);
+
+function tenantId() {
+  return `tenant_lifecycle_test_${nanoid(8)}`;
+}
+
+async function createTestTenant(id: string, name = "Test Tenant") {
+  await db.insert(tenants).values({ id, name });
+}
+
+suite("Tenant Lifecycle", () => {
+  beforeAll(async () => {
+    await applyMigrations();
+  });
+
+  afterAll(async () => {
+    await closePool();
+  });
+
+  describe("transitionTenantLifecycle", () => {
+    it("suspends an active tenant", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+
+      const result = await transitionTenantLifecycle(id, "suspended", "Billing overdue", { type: "platform", id: "admin1" });
+      expect(result.changed).toBe(true);
+      expect(result.lifecycle).toBe("suspended");
+      expect(result.previousLifecycle).toBe("active");
+
+      const row = await db.query.tenants.findFirst({ where: eq(tenants.id, id) });
+      expect(row).toBeDefined();
+      expect(row!.lifecycle).toBe("suspended");
+      expect(row!.suspendedAt).toBeInstanceOf(Date);
+      expect(row!.lifecycleReason).toBe("Billing overdue");
+    });
+
+    it("reactivates a suspended tenant", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+      await transitionTenantLifecycle(id, "suspended", "Test suspension", { type: "platform", id: "admin1" });
+
+      const result = await transitionTenantLifecycle(id, "active", "Payment received", { type: "platform", id: "admin1" });
+      expect(result.changed).toBe(true);
+      expect(result.lifecycle).toBe("active");
+      expect(result.previousLifecycle).toBe("suspended");
+
+      const row = await db.query.tenants.findFirst({ where: eq(tenants.id, id) });
+      expect(row!.lifecycle).toBe("active");
+      expect(row!.suspendedAt).toBeNull();
+      expect(row!.lifecycleReason).toBe("Payment received");
+    });
+
+    it("soft-deletes an active tenant", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+
+      const result = await transitionTenantLifecycle(id, "deleted", "Account closed by user", { type: "platform", id: "admin1" });
+      expect(result.changed).toBe(true);
+      expect(result.lifecycle).toBe("deleted");
+
+      const row = await db.query.tenants.findFirst({ where: eq(tenants.id, id) });
+      expect(row!.lifecycle).toBe("deleted");
+      expect(row!.deletedAt).toBeInstanceOf(Date);
+    });
+
+    it("soft-deletes a suspended tenant", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+      await transitionTenantLifecycle(id, "suspended", "Test", { type: "platform", id: "admin1" });
+
+      const result = await transitionTenantLifecycle(id, "deleted", "Account removal", { type: "platform", id: "admin1" });
+      expect(result.changed).toBe(true);
+      expect(result.lifecycle).toBe("deleted");
+      expect(result.previousLifecycle).toBe("suspended");
+    });
+
+    it("rejects transition from deleted (terminal state)", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+      await transitionTenantLifecycle(id, "deleted", "Closed", { type: "platform", id: "admin1" });
+
+      await expect(
+        transitionTenantLifecycle(id, "active", "Attempted reactivation", { type: "platform", id: "admin1" })
+      ).rejects.toThrow(TenantLifecycleError);
+
+      await expect(
+        transitionTenantLifecycle(id, "suspended", "Attempted suspension", { type: "platform", id: "admin1" })
+      ).rejects.toThrow(TenantLifecycleError);
+    });
+
+    it("is a no-op when target equals current state", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+
+      const result = await transitionTenantLifecycle(id, "active", "Already active", { type: "platform", id: "admin1" });
+      expect(result.changed).toBe(false);
+      expect(result.lifecycle).toBe("active");
+    });
+
+    it("rejects non-existent tenant", async () => {
+      await expect(
+        transitionTenantLifecycle("nonexistent_tenant_9999", "suspended", "Test", { type: "platform", id: "admin1" })
+      ).rejects.toThrow(TenantLifecycleError);
+    });
+
+    it("rejects empty reason", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+
+      await expect(
+        transitionTenantLifecycle(id, "suspended", "", { type: "platform", id: "admin1" })
+      ).rejects.toThrow(TenantLifecycleError);
+    });
+  });
+
+  describe("requireActiveTenant", () => {
+    it("passes for an active tenant", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+
+      const result = await requireActiveTenant(id);
+      expect(result).toBe("active");
+    });
+
+    it("throws TenantSuspendedError for suspended tenant", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+      await transitionTenantLifecycle(id, "suspended", "Test", { type: "platform", id: "admin1" });
+
+      await expect(requireActiveTenant(id)).rejects.toThrow(TenantSuspendedError);
+    });
+
+    it("throws TenantDeletedError for deleted tenant", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+      await transitionTenantLifecycle(id, "deleted", "Test", { type: "platform", id: "admin1" });
+
+      await expect(requireActiveTenant(id)).rejects.toThrow(TenantDeletedError);
+    });
+
+    it("throws TenantDeletedError for non-existent tenant", async () => {
+      await expect(requireActiveTenant("totally_nonexistent_tenant")).rejects.toThrow(TenantDeletedError);
+    });
+  });
+
+  describe("cross-tenant lifecycle isolation", () => {
+    it("suspending tenant A does not affect tenant B", async () => {
+      const idA = tenantId();
+      const idB = tenantId();
+      await createTestTenant(idA, "Tenant A");
+      await createTestTenant(idB, "Tenant B");
+
+      await transitionTenantLifecycle(idA, "suspended", "Only A", { type: "platform", id: "admin1" });
+
+      // B should still be active
+      const resultB = await requireActiveTenant(idB);
+      expect(resultB).toBe("active");
+
+      // A should be suspended
+      await expect(requireActiveTenant(idA)).rejects.toThrow(TenantSuspendedError);
+    });
+  });
+});
