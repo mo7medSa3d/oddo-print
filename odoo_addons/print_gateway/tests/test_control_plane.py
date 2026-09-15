@@ -319,6 +319,7 @@ class TestControlPlane(TransactionCase):
         def _mock_persist_state(vals):
             persisted_states.append(dict(vals))
             job.write(vals)
+            job.flush_recordset()
 
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
              patch("requests.post", side_effect=[_refused_connection(), _refused_connection()]), \
