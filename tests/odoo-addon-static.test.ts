@@ -194,11 +194,12 @@ describe("Odoo addon static contracts", () => {
     expect(jobs).toContain("def action_force_reprint");
   });
 
-  it("reconciles stale runtime agent assignments on binding write and unlink", () => {
+  it("ensures branch agent assignment additively and preserves independent assignments on unlink", () => {
     const binding = read("models/binding.py");
-    expect(binding).toContain("def _reconcile_assignments(self, company_branch_pairs):");
+    expect(binding).toContain("def _ensure_branch_agent_assignment(self):");
+    expect(binding).toContain("records._ensure_branch_agent_assignment()");
     expect(binding).toContain("def unlink(self):");
-    expect(binding).toContain("assignment.unlink()");
+    expect(binding).toContain("return super().unlink()");
   });
 });
 
