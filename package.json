@@ -26,6 +26,7 @@
     "test:unit": "vitest run --config vitest.unit.config.mts",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:e2e": "vitest run --config vitest.integration.config.mts --run tests/e2e-job-flow.test.ts",
+    "test:odoo:static": "pytest tests/test_odoo19_printing_static.py",
     "build": "next build",
     "db:provision-plans": "tsx scripts/provision-plans.ts"
   },

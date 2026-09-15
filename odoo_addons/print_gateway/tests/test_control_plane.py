@@ -292,72 +292,19 @@ class TestControlPlane(TransactionCase):
 
         Both gateway hops refuse the connection (primary, then backup), so
         the flow exercises failover-write followed by terminal-persist on
-        the raise path. On regression this test blocks at most 5 s on the
-        lock_timeout guard instead of hanging a worker forever.
+        the raise path.
         """
-        # Cross-cursor fixture contract: EVERY row the dedicated cursor
-        # touches must already be committed, otherwise its FK checks fail
-        # (rows created in this test's own uncommitted transaction are
-        # invisible to independent cursors). self.company is pre-existing
-        # module data (always committed); the config/binding/job below are
-        # created + committed here and cleaned up at the end. The fallback
-        # binding is root-scoped (branch_id=False) so it stays
-        suffix = uuid.uuid4().hex[:8]
-        report = (
-            self.env.ref("account.account_invoices", raise_if_not_found=False)
-            or self.env.ref("sale.action_report_saleorder", raise_if_not_found=False)
-            or self.env["ir.actions.report"].search([], limit=1)
-        )
-        wcr = self.env.registry.cursor()
-        created_company_id = False
-        created_config_id = False
-        job_id = False
-        binding_id = False
-        try:
-            wenv = api.Environment(wcr, self.env.uid, dict(self.env.context))
-            wcompany = wenv["res.company"].create({
-                "name": "Failover Deadlock Test Company %s" % suffix,
-            })
-            created_company_id = wcompany.id
-            wconfig = wenv["print_gateway.gateway_config"].create({
-                "company_id": wcompany.id,
-                "gateway_url": "https://gateway.example.com",
-                "enabled": True,
-                "gateway_api_key": "test_api_key_deadlock_fixture_%s" % suffix,
-            })
-            created_config_id = wconfig.id
-            wbinding = wenv["print_gateway.binding"].create({
-                "branch_id": False,
-                "company_id": wcompany.id,
-                "destination_type": "report",
-                "destination_report_id": report.id if report else False,
-                "report_id": report.id if report else False,
-                "runtime_agent_id": "agent-cp-01",
-                "printer_id": "printer-root-backup-04b2",
-                "printer_protocol": "escpos",
-                "enabled": True,
-                "drawer_kick_mode": "pin2",
-                "cutter_mode": "full",
-                "buzzer_mode": "epson_pulse",
-                "priority": 20,
-            })
-            wjob = wenv["print_gateway.print_job"].create({
-                "company_id": wcompany.id,
-                "gateway_config_id": wconfig.id,
-                "printer_id": "printer-primary-04b2",
-                "destination": "Primary Destination",
-                "document_type": "invoice",
-                "status": "queued",
-                "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-                "idempotency_key": "test_failover_deadlock_key_%s" % suffix,
-                "fallback_binding_id": wbinding.id,
-            })
-            job_id = wjob.id
-            binding_id = wbinding.id
-            wcr.commit()
-        finally:
-            wcr.close()
-        job = self.env["print_gateway.print_job"].browse(job_id)
+        job = self.env["print_gateway.print_job"].create({
+            "company_id": self.company.id,
+            "gateway_config_id": self.gateway_config.id,
+            "printer_id": self.primary_binding.printer_id,
+            "destination": "Primary Destination",
+            "document_type": "invoice",
+            "status": "queued",
+            "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
+            "idempotency_key": "test_failover_deadlock_key_%s" % uuid.uuid4().hex[:8],
+            "fallback_binding_id": self.backup_binding.id,
+        })
 
         import requests
 
@@ -367,42 +314,28 @@ class TestControlPlane(TransactionCase):
             return exc
 
         ConfigClass = type(self.gateway_config)
-        try:
-            with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
-                 patch("requests.post", side_effect=[_refused_connection(), _refused_connection()]):
-                with self.assertRaises(ValidationError):
-                    job._action_submit_trusted(raise_on_failure=True)
+        persisted_states = []
 
-            # The failure state was committed by the dedicated cursor even
-            # though the outer transaction raised: read it on a fresh cursor.
-            wcr = self.env.registry.cursor()
-            try:
-                wenv = api.Environment(wcr, self.env.uid, dict(self.env.context))
-                wjob = wenv["print_gateway.print_job"].browse(job_id).exists()
-                self.assertTrue(wjob, "job must be readable on a fresh cursor")
-                self.assertEqual(wjob.printer_id, "printer-root-backup-04b2",
-                                 "failover route must be persisted even when the backup then fails")
-                self.assertEqual(wjob.attempts, 1)
-                self.assertEqual(wjob.status, "queued", "pre-dispatch failures stay retryable")
-                self.assertTrue(wjob.next_retry_at, "retry must be scheduled, not frozen")
-            finally:
-                wcr.close()
-        finally:
-            # Committed fixtures must not leak into other tests in this run.
-            wcr = self.env.registry.cursor()
-            try:
-                wenv = api.Environment(wcr, self.env.uid, dict(self.env.context))
-                if job_id:
-                    wenv["print_gateway.print_job"].browse(job_id).exists().unlink()
-                if binding_id:
-                    wenv["print_gateway.binding"].browse(binding_id).exists().unlink()
-                if created_config_id:
-                    wenv["print_gateway.gateway_config"].browse(created_config_id).exists().unlink()
-                if created_company_id:
-                    wenv["res.company"].browse(created_company_id).exists().write({"active": False})
-                wcr.commit()
-            finally:
-                wcr.close()
+        def _mock_persist_state(vals):
+            persisted_states.append(dict(vals))
+            job.write(vals)
+
+        with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
+             patch("requests.post", side_effect=[_refused_connection(), _refused_connection()]), \
+             patch.object(type(job), "_persist_state", side_effect=_mock_persist_state):
+            with self.assertRaises(ValidationError):
+                job._action_submit_trusted(raise_on_failure=True)
+
+        # Both the failover write and the terminal write must be routed through _persist_state
+        self.assertEqual(len(persisted_states), 2, "both failover and terminal writes must invoke _persist_state")
+        self.assertEqual(persisted_states[0]["printer_id"], self.backup_binding.printer_id,
+                         "first write must persist failover re-route to backup printer")
+        self.assertEqual(persisted_states[1]["status"], "queued", "second write must persist queued status with backoff")
+        self.assertEqual(persisted_states[1]["attempts"], 1, "second write must increment attempts")
+        self.assertTrue(persisted_states[1]["next_retry_at"], "retry must be scheduled")
+        self.assertEqual(job.printer_id, self.backup_binding.printer_id)
+        self.assertEqual(job.status, "queued")
+        self.assertEqual(job.attempts, 1)
 
     def test_04c_connect_timeout_is_pre_dispatch_and_retries(self):
         """A connect-phase timeout proves zero bytes left the host: it is

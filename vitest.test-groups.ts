@@ -11,6 +11,7 @@ export const integrationVitestTestFiles = [
   "tests/architecture-pg.test.ts",
   "tests/auth-rate-limit.test.ts",
   "tests/batch-status.test.ts",
+  "tests/billing-webhook.test.ts",
   "tests/dashboard-payload-projection.test.ts",
   "tests/discovery-approval.test.ts",
   "tests/e2e-job-flow.test.ts",

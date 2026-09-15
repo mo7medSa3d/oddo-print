@@ -76,6 +76,10 @@ jobs:
             echo 'Odoo 19 incompatibility detected.'
             exit 1
           fi
+      - name: Run Odoo static contract tests (Python)
+        run: |
+          pip install pytest
+          pytest tests/test_odoo19_printing_static.py
       - name: Build Next.js
         run: npm run build
       - name: Run unit tests (no DB)
