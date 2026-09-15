@@ -295,7 +295,7 @@ class TestControlPlane(TransactionCase):
         the raise path.
         """
         job = self.env["print_gateway.print_job"].create({
-            "company_id": self.company.id,
+            "company_id": self.branch.id,
             "gateway_config_id": self.gateway_config.id,
             "printer_id": self.primary_binding.printer_id,
             "destination": "Primary Destination",
