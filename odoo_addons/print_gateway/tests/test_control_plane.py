@@ -318,14 +318,16 @@ class TestControlPlane(TransactionCase):
 
         def _mock_persist_state(vals):
             persisted_states.append(dict(vals))
-            job.write(vals)
-            job.flush_recordset()
+            job.sudo().write(vals)
+            job.env.flush_all()
 
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
              patch("requests.post", side_effect=[_refused_connection(), _refused_connection()]), \
              patch.object(type(job), "_persist_state", side_effect=_mock_persist_state):
             with self.assertRaises(ValidationError):
                 job._action_submit_trusted(raise_on_failure=True)
+
+        job.invalidate_recordset()
 
         # Both the failover write and the terminal write must be routed through _persist_state
         self.assertEqual(len(persisted_states), 2, "both failover and terminal writes must invoke _persist_state")
