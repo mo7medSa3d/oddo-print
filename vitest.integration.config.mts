@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
-import { integrationTestFiles } from "./vitest.test-groups.mts";
+import { integrationTestFiles } from "./vitest.test-groups";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 

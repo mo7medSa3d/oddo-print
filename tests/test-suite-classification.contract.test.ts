@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { integrationTestFiles, integrationVitestTestFiles } from "../vitest.test-groups.mts";
+import { integrationTestFiles, integrationVitestTestFiles } from "../vitest.test-groups";
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 
