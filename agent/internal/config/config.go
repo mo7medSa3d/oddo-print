@@ -65,8 +65,8 @@ func validateServerURL(raw string) error {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return fmt.Errorf("server.url must not contain credentials, query strings, or fragments")
 	}
-	// Zero-configuration: both http and https are accepted for any valid
-	// hostname or IP (LAN, public, loopback) with no environment opt-in.
+	// HTTPS is the production/default transport. Plain HTTP is only permitted
+	// when explicitly opted into for isolated development or test environments.
 	switch strings.ToLower(u.Scheme) {
 	case "https":
 		return nil
@@ -410,51 +410,44 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 			}
 			ip := net.ParseIP(strings.Trim(u.Hostname(), "[]"))
 			if ip == nil || !isAllowedPrinterIP(ip) {
-				return fmt.Errorf("printer %s: endpoint host must be a private or link-local IP address", p.ID)
+				return fmt.Errorf("printer %s: IPP endpoint host must be a private or link-local IP", p.ID)
 			}
-			if port := u.Port(); port != "" {
-				n, portErr := strconv.Atoi(port)
-				if portErr != nil || n < 1 || n > 65535 || (n != 80 && n != 443 && n != 631) {
-					return fmt.Errorf("printer %s: IPP endpoint port must be 80, 443, or 631", p.ID)
+			port := 631
+			if u.Port() != "" {
+				parsed, err := strconv.Atoi(u.Port())
+				if err != nil || parsed < 1 || parsed > 65535 {
+					return fmt.Errorf("printer %s: invalid IPP endpoint port", p.ID)
 				}
+				port = parsed
 			}
-			return nil
+			if port != 80 && port != 443 && port != 631 {
+				return fmt.Errorf("printer %s: IPP endpoint port must be 80, 443, or 631", p.ID)
+			}
+		} else {
+			host, port, err := net.SplitHostPort(ep)
+			if err != nil {
+				return fmt.Errorf("printer %s: network endpoint must be host:port", p.ID)
+			}
+			ip := net.ParseIP(strings.Trim(host, "[]"))
+			if ip == nil || !isAllowedPrinterIP(ip) {
+				return fmt.Errorf("printer %s: network endpoint host must be a private or link-local IP", p.ID)
+			}
+			parsed, err := strconv.Atoi(port)
+			// RAW TCP normally uses 9100, but the transport is a plain TCP byte
+			// stream and can legitimately target an explicitly configured private
+			// port. LPR remains a separate, unsupported protocol.
+			if err != nil || parsed < 1 || parsed > 65535 {
+				return fmt.Errorf("printer %s: network endpoint port must be 1-65535", p.ID)
+			}
 		}
-		host, portStr, err := net.SplitHostPort(ep)
-		if err != nil {
-			return fmt.Errorf("printer %s: endpoint must be ip:port, got %q", p.ID, p.Endpoint)
-		}
-		ip := net.ParseIP(strings.Trim(host, "[]"))
-		if ip == nil || !isAllowedPrinterIP(ip) {
-			return fmt.Errorf("printer %s: endpoint host must be a private or link-local IP address", p.ID)
-		}
-		port, err := strconv.Atoi(portStr)
-		if err != nil || port < 1 || port > 65535 {
-			return fmt.Errorf("printer %s: invalid port %q", p.ID, portStr)
-		}
-		// RAW TCP is normally advertised on 9100, but the transport is a
-		// plain TCP byte stream and can legitimately use an explicitly
-		// configured private-network port. LPR remains a separate protocol
-		// and is intentionally not accepted by NormalizedProtocol().
 	}
-	if nt == "spooler" {
-		if p.SpoolerName == "" && p.Endpoint == "" {
-			return fmt.Errorf("printer %s: spooler printer requires spooler_name or endpoint", p.ID)
+	if nt == "usb" {
+		if p.USBVID == "" || p.USBPID == "" {
+			return fmt.Errorf("printer %s: usb_vid and usb_pid are required", p.ID)
 		}
+	}
+	if nt == "spooler" && strings.TrimSpace(p.SpoolerName) == "" {
+		return fmt.Errorf("printer %s: spooler_name required", p.ID)
 	}
 	return nil
-}
-
-func RegistryPath(configPath string) string {
-	dir := filepath.Dir(configPath)
-	if dir == "" || dir == "." {
-		if d, err := ExecutableDir(); err == nil {
-			dir = d
-		}
-	}
-	return filepath.Join(dir, "printers.json")
-}
-
-func QueueDBPath(configPath string) string {
-	return filepath.Join(filepath.Dir(configPath), "queue.db")
 }
