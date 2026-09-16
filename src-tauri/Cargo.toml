@@ -5,7 +5,7 @@ description = "Odoo Print Manager — lightweight management for Odoo Local Prin
 authors = ["Odoo Print Agent"]
 license = "MIT"
 repository = "https://github.com/mo7medSa3d/oddo-print"
-edition = "2021"
+edition = "2024"
 rust-version = "1.90"
 
 [build-dependencies]
