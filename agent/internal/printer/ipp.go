@@ -26,9 +26,10 @@ import (
 // capability model (capability.go / src/lib/routing.ts) rejects it pre
 // dispatch.
 type IPPPrinter struct {
-	URL   string // normalized http(s) URL, safe to log (no credentials)
-	Name  string
-	creds *url.Userinfo // optional basic-auth from the configured URL
+	URL        string // normalized http(s) transport URL, always credential-free
+	PrinterURI string // credential-free URI carried in the IPP printer-uri attribute
+	Name       string
+	creds      *url.Userinfo // optional basic-auth from the configured URL
 }
 
 func NewIPPPrinter(rawURL, name string) (*IPPPrinter, error) {
@@ -39,7 +40,32 @@ func NewIPPPrinter(rawURL, name string) (*IPPPrinter, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &IPPPrinter{URL: u.Redacted(), creds: u.User}, nil
+
+	creds := u.User
+	transport := *u
+	transport.User = nil
+
+	printerURI := transport.String()
+	lowerRaw := strings.ToLower(strings.TrimSpace(rawURL))
+	if strings.HasPrefix(lowerRaw, "ipp://") {
+		transport.Scheme = "ipp"
+		printerURI = transport.String()
+	} else if strings.HasPrefix(lowerRaw, "ipps://") {
+		transport.Scheme = "ipps"
+		printerURI = transport.String()
+	}
+
+	return &IPPPrinter{
+		URL:        uWithoutUser(transport).String(),
+		PrinterURI: printerURI,
+		Name:       name,
+		creds:      creds,
+	}, nil
+}
+
+func uWithoutUser(u url.URL) url.URL {
+	u.User = nil
+	return u
 }
 
 func normalizeIPPURL(raw string) (*url.URL, error) {
@@ -88,9 +114,7 @@ func (p *IPPPrinter) requestURL() string {
 	if err != nil {
 		return p.URL
 	}
-	if p.creds != nil {
-		u.User = p.creds
-	}
+	u.User = nil
 	return u.String()
 }
 
@@ -154,7 +178,7 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 		return ctx.Err()
 	default:
 	}
-	ippReq := buildIPPPrintJobWithFormat(p.URL, data, documentFormat)
+	ippReq := buildIPPPrintJobWithFormat(p.PrinterURI, data, documentFormat)
 	req, err := http.NewRequestWithContext(ctx, "POST", p.requestURL(), bytes.NewReader(ippReq))
 	if err != nil {
 		return fmt.Errorf("IPP create request for %s: %w", p.URL, err)
@@ -272,7 +296,7 @@ func (p *IPPPrinter) Status() string {
 var errIPPStatusUnsupported = errors.New("get-printer-attributes unsupported")
 
 func (p *IPPPrinter) getPrinterAttributes(ctx context.Context) (map[string]string, error) {
-	ippReq := buildIPPGetPrinterAttributes(p.URL)
+	ippReq := buildIPPGetPrinterAttributes(p.PrinterURI)
 	req, err := http.NewRequestWithContext(ctx, "POST", p.requestURL(), bytes.NewReader(ippReq))
 	if err != nil {
 		return nil, err
