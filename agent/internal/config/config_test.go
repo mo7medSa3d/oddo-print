@@ -76,20 +76,51 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
-func TestConfigValidateAcceptsHTTPAndHTTPSByDefault(t *testing.T) {
-	// Zero-configuration: both http and https are accepted for any valid
-	// hostname or IP (LAN, public, loopback) with no environment opt-in.
-	for _, url := range []string{
+func TestConfigValidateRequiresHTTPSByDefault(t *testing.T) {
+	// Production/default behavior is fail-closed: HTTP is rejected unless
+	// explicitly opted into for isolated development/test environments.
+	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "")
+	for _, raw := range []string{
 		"http://127.0.0.1:3000",
 		"http://192.168.1.50:3000",
 		"http://10.0.0.5:3000",
 		"http://gateway.example.com",
+	} {
+		c := &Config{}
+		c.Server.URL = raw
+		if err := c.Validate(); err == nil {
+			t.Fatalf("expected HTTP URL %q to be rejected without explicit opt-in", raw)
+		}
+	}
+}
+
+func TestConfigValidateAcceptsHTTPWithExplicitDevelopmentOptIn(t *testing.T) {
+	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "1")
+	for _, raw := range []string{
+		"http://127.0.0.1:3000",
+		"http://192.168.1.50:3000",
+		"http://10.0.0.5:3000",
+		"http://gateway.example.com",
+	} {
+		c := &Config{}
+		c.Server.URL = raw
+		if err := c.Validate(); err != nil {
+			t.Fatalf("expected explicit development opt-in to permit %q, got %v", raw, err)
+		}
+	}
+}
+
+func TestConfigValidateAcceptsHTTPSByDefault(t *testing.T) {
+	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "")
+	for _, raw := range []string{
+		"https://127.0.0.1:3000",
+		"https://192.168.1.50:3000",
 		"https://gateway.example.com",
 	} {
 		c := &Config{}
-		c.Server.URL = url
+		c.Server.URL = raw
 		if err := c.Validate(); err != nil {
-			t.Fatalf("expected %q to be valid, got %v", url, err)
+			t.Fatalf("expected HTTPS URL %q to be valid, got %v", raw, err)
 		}
 	}
 }
