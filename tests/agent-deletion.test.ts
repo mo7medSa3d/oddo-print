@@ -52,6 +52,15 @@ suite("permanent agent deletion lifecycle & invariants", () => {
   beforeEach(async () => {
     await truncateAll();
     await pool().query(`INSERT INTO tenants (id, name) VALUES ($1, $2)`, [TENANT_ID, "Agent Deletion Test Tenant"]);
+    // Agent creation enforces entitlements fail-closed, so the fixture tenant
+    // needs an eligible subscription like any real workspace.
+    await pool().query(
+      `INSERT INTO plans (id, name, entitlements) VALUES ('plan_agent_deletion', 'Test', '{"max_agents":"unlimited","max_printers":"unlimited","max_jobs_per_minute":"unlimited","max_concurrent_jobs":"unlimited"}'::jsonb) ON CONFLICT (id) DO NOTHING`,
+    );
+    await pool().query(
+      `INSERT INTO tenant_subscriptions (tenant_id, plan_id, status, current_period_end) VALUES ($1, 'plan_agent_deletion', 'active', NULL) ON CONFLICT (tenant_id) DO UPDATE SET plan_id = 'plan_agent_deletion', status = 'active', current_period_end = NULL`,
+      [TENANT_ID],
+    );
     const session = await createManagerSession(TENANT_ID);
     currentManagerToken = session.token;
   });

@@ -114,6 +114,18 @@ export async function seedFixture(opts?: { printerCapabilities?: unknown }): Pro
       await client.query("BEGIN");
       const tenantId = `tenant_${suffix}`;
       await client.query(`INSERT INTO tenants (id, name) VALUES ($1, $2)`, [tenantId, `Tenant ${suffix}`]);
+      // Entitlement enforcement is fail-closed: every print-job admission
+      // requires an eligible subscription with canonical limits. Fixtures
+      // carry an active unlimited plan so job/print tests exercise delivery,
+      // not entitlement rejection (dedicated entitlement tests cover 403/429).
+      await client.query(
+        `INSERT INTO plans (id, name, entitlements) VALUES ($1, $2, $3::jsonb) ON CONFLICT (id) DO NOTHING`,
+        [`plan_${suffix}`, `Plan ${suffix}`, JSON.stringify({ max_agents: "unlimited", max_printers: "unlimited", max_jobs_per_minute: "unlimited", max_concurrent_jobs: "unlimited" })],
+      );
+      await client.query(
+        `INSERT INTO tenant_subscriptions (tenant_id, plan_id, status, current_period_end) VALUES ($1, $2, 'active', NULL) ON CONFLICT (tenant_id) DO UPDATE SET plan_id = EXCLUDED.plan_id, status = 'active', current_period_end = NULL`,
+        [tenantId, `plan_${suffix}`],
+      );
       await client.query(`INSERT INTO agents (id, tenant_id, name, secret, status, lifecycle, last_seen_at) VALUES ($1, $2, $3, $4, 'online', 'active', now())`, [agentId, tenantId, `Agent ${suffix}`, sha256(agentSecret)]);
       await client.query(`INSERT INTO printers (id, tenant_id, agent_id, name, printer_type, device_class, connection_type, protocol, status, lifecycle, config, capabilities) VALUES ($1, $2, $3, $4, 'physical', 'other', 'spooler', 'spooler', 'online', 'active', '{}'::jsonb, $5::jsonb)`, [printerId, tenantId, agentId, `Printer ${suffix}`, JSON.stringify(opts?.printerCapabilities ?? { supported_protocols: ["raw", "escpos", "pdf", "image"] })]);
       await client.query(`INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key) VALUES ($1, $2, 'standard', 'test key', $3)`, [`key_${suffix}`, tenantId, sha256(odooKey)]);

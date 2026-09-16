@@ -140,7 +140,10 @@ suite("agent registration contract", () => {
     await seedFixture();
     const headers = { "content-type": "application/json", "x-real-ip": "127.0.0.60" };
 
-    for (let i = 0; i < 5; i++) {
+    // Atomic reservation counts every attempt: the first four failures are
+    // plain 400s, the fifth exhausts the pairing budget (the reservation
+    // itself carries the lock) so a failed fifth attempt already reports 429.
+    for (let i = 0; i < 4; i++) {
       const response = await registerPOST(new Request("http://gateway.test/api/agent/register", {
         method: "POST", headers, body: JSON.stringify({ pairingCode: "AAAAAA" }),
       }));

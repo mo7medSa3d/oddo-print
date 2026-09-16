@@ -56,18 +56,21 @@ describe("auth rate limiter (pure)", () => {
 describe("atomic rate-limit reservation contract", () => {
   it("uses atomic reservation for all public authentication entrypoints", async () => {
     const { readFile } = await import("node:fs/promises");
-    const files = [
+    const authFiles = [
       "src/app/api/auth/login/route.ts",
       "src/app/api/auth/manager/login/route.ts",
       "src/app/api/auth/register/route.ts",
       "src/app/api/auth/forgot-password/route.ts",
-      "src/app/api/agent/register/route.ts",
     ];
-    for (const file of files) {
+    for (const file of authFiles) {
       const source = await readFile(file, "utf8");
       expect(source).toContain("reserveAuthAttempt");
-      if (file.endsWith("agent/register/route.ts")) expect(source).toContain("reservePairingAttempt");
     }
+    // Agent pairing has its own brute-force budget independent of the
+    // account/user limiter, so it reserves from the pairing bucket only.
+    const pairingSource = await readFile("src/app/api/agent/register/route.ts", "utf8");
+    expect(pairingSource).toContain("reservePairingAttempt");
+    expect(pairingSource).not.toContain("reserveAuthAttempt");
     const authRateSource = await readFile("src/lib/auth-rate-limit.ts", "utf8");
     expect(authRateSource).toContain("FOR UPDATE");
     expect(authRateSource).toContain("ON CONFLICT (key) DO NOTHING");
