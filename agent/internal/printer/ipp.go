@@ -42,30 +42,27 @@ func NewIPPPrinter(rawURL, name string) (*IPPPrinter, error) {
 	}
 
 	creds := u.User
-	transport := *u
-	transport.User = nil
+	transportURL := *u
+	transportURL.User = nil
 
-	printerURI := transport.String()
+	printerURI := transportURL.String()
 	lowerRaw := strings.ToLower(strings.TrimSpace(rawURL))
 	if strings.HasPrefix(lowerRaw, "ipp://") {
-		transport.Scheme = "ipp"
-		printerURI = transport.String()
+		printerURIURL := transportURL
+		printerURIURL.Scheme = "ipp"
+		printerURI = printerURIURL.String()
 	} else if strings.HasPrefix(lowerRaw, "ipps://") {
-		transport.Scheme = "ipps"
-		printerURI = transport.String()
+		printerURIURL := transportURL
+		printerURIURL.Scheme = "ipps"
+		printerURI = printerURIURL.String()
 	}
 
 	return &IPPPrinter{
-		URL:        uWithoutUser(transport).String(),
+		URL:        transportURL.String(),
 		PrinterURI: printerURI,
 		Name:       name,
 		creds:      creds,
 	}, nil
-}
-
-func uWithoutUser(u url.URL) url.URL {
-	u.User = nil
-	return u
 }
 
 func normalizeIPPURL(raw string) (*url.URL, error) {
