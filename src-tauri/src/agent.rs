@@ -68,7 +68,7 @@ fn resolve_executable(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, Str
 fn sc_query() -> Option<String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let sc = system32_exe("sc.exe")?;
+    let sc = system32_exe("sc.exe").ok()?;
     let out = Command::new(sc)
         .args(["query", SERVICE_NAME])
         .creation_flags(CREATE_NO_WINDOW)
@@ -101,7 +101,7 @@ fn is_running(_app: &tauri::AppHandle) -> bool {
 fn is_process_running(_app: &tauri::AppHandle) -> bool {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let tasklist = system32_exe("tasklist.exe")?;
+    let Ok(tasklist) = system32_exe("tasklist.exe") else { return false; };
     let out = Command::new(tasklist)
         .args(["/FI", "IMAGENAME eq OdooPrintAgent.exe", "/FO", "CSV", "/NH"])
         .creation_flags(CREATE_NO_WINDOW)

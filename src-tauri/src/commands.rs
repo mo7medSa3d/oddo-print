@@ -706,7 +706,7 @@ fn is_valid_printer_for_ui(p: &PrinterInfo) -> bool {
 }
 
 #[tauri::command]
-pub async fn get_printers(app: tauri::AppHandle) -> Result<Vec<PrinterInfo>, String> {
+pub async fn get_printers(_app: tauri::AppHandle) -> Result<Vec<PrinterInfo>, String> {
     run_blocking(move || {
         let path = paths::agent_data_root().join("printers.json");
         if !path.exists() {
