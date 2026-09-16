@@ -49,7 +49,7 @@ pub fn is_running_as_admin() -> bool {
         const TOKEN_QUERY: DWORD = 0x0008;
         const TOKEN_ELEVATION_TYPE: DWORD = 20;
 
-        extern "system" {
+        unsafe extern "system" {
             fn GetCurrentProcess() -> HANDLE;
             fn OpenProcessToken(process: HANDLE, desired_access: DWORD, token: *mut HANDLE) -> BOOL;
             fn GetTokenInformation(

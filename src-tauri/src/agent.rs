@@ -410,6 +410,7 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
 #[cfg(all(test, windows))]
 mod spawn_tests {
     use super::spawn_persist_or_reconcile;
+    use super::system32_exe;
     use std::process::Command;
     use std::time::{Duration, Instant};
 
