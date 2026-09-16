@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Odoo Print Manager — lightweight management for Odoo Local Print Agent (Tauri 2.x, no Python)"
 authors = ["Odoo Print Agent"]
 license = "MIT"
-repository = "https://github.com/mo7medSa3d/printer-repo"
+repository = "https://github.com/mo7medSa3d/oddo-print"
 edition = "2021"
 rust-version = "1.90"
 
