@@ -432,9 +432,10 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 		if err != nil || port < 1 || port > 65535 {
 			return fmt.Errorf("printer %s: invalid port %q", p.ID, portStr)
 		}
-		if port != 9100 {
-			return fmt.Errorf("printer %s: network printer port must be 9100", p.ID)
-		}
+		// RAW TCP is normally advertised on 9100, but the transport is a
+		// plain TCP byte stream and can legitimately use an explicitly
+		// configured private-network port. LPR remains a separate protocol
+		// and is intentionally not accepted by NormalizedProtocol().
 	}
 	if nt == "spooler" {
 		if p.SpoolerName == "" && p.Endpoint == "" {
