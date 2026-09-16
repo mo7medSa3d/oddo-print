@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   createAgent,
   deleteAgent,
@@ -176,6 +177,7 @@ export default function DashboardClient({
   const [kpiJobs, setKpiJobs] = useState<Job[]>(initialJobs);
   const [jobs, setJobs] = useState<Job[]>(initialJobs);
   const [jobsLoading, setJobsLoading] = useState(false);
+  const router = useRouter();
 
   const [prevAgents, setPrevAgents] = useState(initialAgents);
   if (prevAgents !== initialAgents) {
@@ -340,11 +342,11 @@ export default function DashboardClient({
       }
     } catch (error) {
       if (error instanceof Error && error.message.includes("session has expired")) {
-        window.location.href = "/login";
+        router.push("/login");
       }
       // other background polling errors ignored
     }
-  }, []);
+  }, [router]);
 
   // Periodic background state reconciliation: 3s during active pairing, 6s otherwise when tab is visible
   useEffect(() => {
