@@ -6,10 +6,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-
-	"github.com/odoo-print-agent/agent/internal/config"
 	"sync"
 	"time"
+
+	"github.com/odoo-print-agent/agent/internal/config"
 )
 
 // registryMu serializes every read-modify-write of printers.json within this
@@ -55,6 +55,12 @@ func loadRegistryPartitioned(registryPath string) (production, hidden []DeviceIn
 func loadRegistryPartitionedLocked(registryPath string) (production, hidden []DeviceInfo, removed int, err error) {
 	data, err := os.ReadFile(registryPath)
 	if err != nil {
+		// An absent registry is the normal first-run state. Do not turn
+		// os.IsNotExist into a discovery error; the registry will be created
+		// atomically on the first successful registration/discovery persist.
+		if os.IsNotExist(err) {
+			return nil, nil, 0, nil
+		}
 		return nil, nil, 0, err
 	}
 	if len(data) == 0 {
