@@ -135,18 +135,16 @@ func TestFactoryIPP(t *testing.T) {
 
 func TestParseIPPAttributesRealistic(t *testing.T) {
 	var buf bytes.Buffer
-	buf.Write([]byte{0x02, 0x00})                   // version 2.0
-	binary.Write(&buf, binary.BigEndian, uint16(0)) // successful-ok
-	binary.Write(&buf, binary.BigEndian, uint32(1)) // request id
-	buf.WriteByte(0x01)                             // operation attributes
+	buf.Write([]byte{0x02, 0x00})
+	binary.Write(&buf, binary.BigEndian, uint16(0))
+	binary.Write(&buf, binary.BigEndian, uint32(1))
+	buf.WriteByte(0x01)
 	writeIPPAttribute(&buf, 0x47, "attributes-charset", "utf-8")
 	writeIPPAttribute(&buf, 0x48, "attributes-natural-language", "en")
 	writeIPPAttribute(&buf, 0x41, "status-message", "successful-ok")
-	buf.WriteByte(0x04) // printer attributes
+	buf.WriteByte(0x04)
 	writeIPPIntAttr(&buf, 0x23, "printer-state", 3)
 	writeIPPAttribute(&buf, 0x44, "printer-state-reasons", "none")
-	// Additional value for printer-state-reasons (name-length 0) MUST follow
-	// the named attribute immediately, per RFC 8010.
 	buf.WriteByte(0x44)
 	binary.Write(&buf, binary.BigEndian, uint16(0))
 	media := "media-low"
@@ -157,7 +155,6 @@ func TestParseIPPAttributesRealistic(t *testing.T) {
 	writeIPPAttribute(&buf, 0x45, "printer-uri", "ipp://192.168.1.60/ipp/print")
 	writeIPPAttribute(&buf, 0x41, "printer-info", "Front desk")
 	writeIPPIntAttr(&buf, 0x21, "copies-default", 1)
-	// Unknown attribute with a text tag should still be captured.
 	writeIPPAttribute(&buf, 0x41, "vendor-extension", "ok")
 	buf.WriteByte(0x03)
 
@@ -202,8 +199,8 @@ func TestParseIPPAttributesMalformedNeverPanics(t *testing.T) {
 		{0x02, 0x00},
 		{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 		append([]byte{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x04, 0x21}, bytes.Repeat([]byte{0xff}, 8)...),
-		{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x41, 0x00, 0x20},                  // truncated name
-		{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x41, 0x00, 0x01, 'a', 0xFF, 0xFF}, // huge value length
+		{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x41, 0x00, 0x20},
+		{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x41, 0x00, 0x01, 'a', 0xFF, 0xFF},
 		{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x99, 0x00, 0x03, 'f', 'o', 'o', 0x00, 0x01, 0x01},
 	}
 	for i, c := range cases {
@@ -263,6 +260,33 @@ func TestIPPStatusUsesParsedPrinterState(t *testing.T) {
 	}
 }
 
+func TestIPPPrintJobDoesNotEmbedHTTPBasicAuthCredentials(t *testing.T) {
+	p, err := NewIPPPrinter("ipp://printuser:printpass@192.168.1.60/ipp/print", "Front Desk")
+	if err != nil {
+		t.Fatalf("NewIPPPrinter: %v", err)
+	}
+	if p.URL != "http://192.168.1.60/ipp/print" {
+		t.Fatalf("normalized transport URL leaked or retained credentials: %q", p.URL)
+	}
+	if p.PrinterURI != "ipp://192.168.1.60/ipp/print" {
+		t.Fatalf("normalized IPP printer URI leaked or retained credentials: %q", p.PrinterURI)
+	}
+	if p.creds == nil {
+		t.Fatal("expected parsed credentials for HTTP Basic authentication")
+	}
+	if got := p.requestURL(); got != "http://192.168.1.60/ipp/print" {
+		t.Fatalf("request URL retained credentials: %q", got)
+	}
+	payload := []byte("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+	job := buildIPPPrintJobWithFormat(p.PrinterURI, payload, ippFormatPDF)
+	if bytes.Contains(job, []byte("printuser")) || bytes.Contains(job, []byte("printpass")) {
+		t.Fatal("IPP printer-uri payload must never contain HTTP Basic Auth credentials")
+	}
+	if !bytes.Contains(job, []byte("ipp://192.168.1.60/ipp/print")) {
+		t.Fatal("IPP payload should retain the credential-free IPP printer URI")
+	}
+}
+
 func writeIPPIntAttr(buf *bytes.Buffer, tag byte, name string, value int32) {
 	buf.WriteByte(tag)
 	binary.Write(buf, binary.BigEndian, uint16(len(name)))
@@ -291,12 +315,14 @@ func containsBytes(b, sub []byte) bool {
 	}
 	return false
 }
+
 func bytesHasSuffix(b, suffix []byte) bool {
 	if len(suffix) > len(b) {
 		return false
 	}
 	return string(b[len(b)-len(suffix):]) == string(suffix)
 }
+
 func readAll(r interface{ Read([]byte) (int, error) }) []byte {
 	buf := make([]byte, 0, 512)
 	tmp := make([]byte, 512)
@@ -317,25 +343,4 @@ func readAll(r interface{ Read([]byte) (int, error) }) []byte {
 
 func validTestPDFBytes() []byte {
 	return []byte("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
-}
-
-func TestIPPPrintJobDoesNotEmbedHTTPBasicAuthCredentials(t *testing.T) {
-	p, err := NewIPPPrinter("ipp://printuser:printpass@192.168.1.60/ipp/print", "Front Desk")
-	if err != nil {
-		t.Fatalf("NewIPPPrinter: %v", err)
-	}
-	if p.URL != "http://192.168.1.60/ipp/print" {
-		t.Fatalf("normalized URL leaked or retained credentials: %q", p.URL)
-	}
-	if p.creds == nil {
-		t.Fatal("expected parsed credentials for HTTP Basic authentication")
-	}
-	payload := []byte("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
-	job := buildIPPPrintJobWithFormat(p.URL, payload, ippFormatPDF)
-	if bytes.Contains(job, []byte("printuser")) || bytes.Contains(job, []byte("printpass")) {
-		t.Fatal("IPP printer-uri payload must never contain HTTP Basic Auth credentials")
-	}
-	if !bytes.Contains(job, []byte("ipp://192.168.1.60/ipp/print")) {
-		t.Fatal("IPP payload should retain the credential-free printer URI")
-	}
 }
