@@ -5,10 +5,7 @@ The system has three runtime components: Gateway, Windows Agent/Desktop Manager,
 
 ### Gateway connection
 
-The Odoo addon is zero-configuration: no extra Python libraries and no
-server environment variables are required. The `gateway_api_key` is stored
-as entered (masked in the UI) and both `http://` and `https://` Gateway URLs
-work with any hostname or IP (LAN, public, or loopback) with no opt-in.
+The Odoo addon uses HTTPS for Gateway communication by default. The `gateway_api_key` is stored as authenticated AES-256-GCM ciphertext using a deployment-managed key that is external to the Odoo database. Plain HTTP is an explicitly opt-in development mode only via `ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP=1`; do not use it for production credentials.
 
 
 ## 1. Gateway
@@ -95,3 +92,16 @@ Odoo: run `-u print_gateway`.
 ## 7. Release validation
 
 A production release is not complete until CI, Odoo 19 installation/upgrade, Gateway/Agent integration, and physical-printer staging tests are green. The repository does not claim physical E2E from source inspection alone.
+
+## Credential encryption prerequisite
+
+Before installing or upgrading `print_gateway` to `19.0.2.4.0`, provision the deployment-managed credential encryption root outside the repository:
+
+```text
+ODOO_PRINT_GATEWAY_CREDENTIAL_ACTIVE_VERSION=1
+ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64=<base64 of a random 32-byte key>
+# Or use a protected mounted secret file instead:
+# ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64_FILE=/run/secrets/odoo_print_gateway_credential_key_v1
+```
+
+The key must come from the deployment's protected secret-management mechanism (for example a KMS/Vault/secret-manager-backed secret injection). Do not commit it to source or place it in the PostgreSQL database. The addon fails closed if key material is missing or invalid. Existing `gateway_api_key` values are migrated to AES-256-GCM ciphertext by the `19.0.2.4.0` post-migration step.

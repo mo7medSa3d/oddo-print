@@ -81,7 +81,8 @@ patch(PosStore.prototype, {
                 return super.printReceipt({ order: currentOrder, basic, printBillActionTriggered });
             }
 
-            // Decoupled order sync: attempt non-blocking sync if needed, but never stall or throw
+            // The Gateway path requires a persisted server-side order id; synchronize an unsynced order
+            // before rendering/submitting so the print request has a durable Odoo record.
             if (!currentOrder.isSynced) {
                 try {
                     await this.syncAllOrders({ orders: [currentOrder], force: false, throw: false });

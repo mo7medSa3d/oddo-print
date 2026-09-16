@@ -21,7 +21,7 @@ import { transitionAgentLifecycle, LifecycleConflict } from "../lib/agent-lifecy
 import { ActionError } from "../lib/action-error";
 import { writeAuditEvent } from "../lib/audit";
 import { requireManagerPermission } from "../lib/authorization";
-import { enforceTenantResourceEntitlement, TenantEntitlementError } from "../lib/entitlements";
+import { enforceTenantResourceEntitlement, TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../lib/entitlements";
 import { isAgentAvailableForJob } from "../lib/agent-availability";
 
 async function requireManager() {
@@ -72,6 +72,7 @@ export async function createAgent(name: string) {
     });
   } catch (error) {
     if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
+    if (error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError) throw new ActionError(error.message, 403);
     throw error;
   }
   void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.paired", resourceType: "agent", resourceId: id }).catch(() => undefined);
@@ -140,9 +141,15 @@ export async function deleteAgent(id: string) {
 export async function createPrintJob(printerId: string, payload: unknown) {
   const manager = await requireManager();
   requireManagerPermission(manager, "jobs.create");
-  const result = await createPrintJobForPrinter(printerId, payload, { requestedBy: "manager", tenantId: manager.tenantId });
-  revalidatePath("/dashboard");
-  return { id: result.id };
+  try {
+    const result = await createPrintJobForPrinter(printerId, payload, { requestedBy: "manager", tenantId: manager.tenantId });
+    revalidatePath("/dashboard");
+    return { id: result.id };
+  } catch (error) {
+    if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
+    if (error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError) throw new ActionError(error.message, 403);
+    throw error;
+  }
 }
 
 /**
@@ -168,15 +175,21 @@ export async function reprintJob(jobId: string) {
     .from(printJobs)
     .where(and(eq(printJobs.tenantId, manager.tenantId), sql`idempotency_key LIKE ${`gw-reprint:${job.id}:%`}`));
   const derivedKey = `gw-reprint:${job.id}:${Number(attempts?.c ?? 0) + 1}`;
-  const result = await createPrintJobForPrinter(job.printerId, job.payload, {
-    requestedBy: "manager-reprint",
-    idempotencyKey: derivedKey,
-    destination: job.destination,
-    documentType: job.documentType ?? undefined,
-    tenantId: manager.tenantId,
-  });
-  revalidatePath("/dashboard");
-  return { id: result.id, reused: result.isReused === true };
+  try {
+    const result = await createPrintJobForPrinter(job.printerId, job.payload, {
+      requestedBy: "manager-reprint",
+      idempotencyKey: derivedKey,
+      destination: job.destination,
+      documentType: job.documentType ?? undefined,
+      tenantId: manager.tenantId,
+    });
+    revalidatePath("/dashboard");
+    return { id: result.id, reused: result.isReused === true };
+  } catch (error) {
+    if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
+    if (error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError) throw new ActionError(error.message, 403);
+    throw error;
+  }
 }
 
 export async function setPrinterLifecycle(id: string, lifecycle: "active" | "disabled" | "retired") {

@@ -5,7 +5,7 @@ import type { PoolClient } from "pg";
 import { isIP } from "node:net";
 import { pool } from "../db";
 import { validateAgent } from "../lib/agent-auth";
-import { inspectWsUpgradeRateLimit, recordWsUpgradeFailure } from "../lib/ws-rate-limit";
+import { reserveWsUpgradeAttempt } from "../lib/ws-rate-limit";
 import { isTrustedProxyUpgrade, trustProxyEnabled } from "./trusted-proxy";
 import { incrementMetric } from "../lib/metrics";
 import {
@@ -22,11 +22,15 @@ type AgentSocket = WebSocket & { agentId?: string; isAlive?: boolean };
 type WritableSocket = Pick<Duplex, "end" | "destroy">;
 
 const agentSockets = new Map<string, Set<AgentSocket>>();
+let totalAgentSockets = 0;
+const wsMessageInFlightByAgentId = new Map<string, number>();
 // A rogue or wedged agent must not grow one entry without bound: sockets are
 // cheap, but each holds buffers and timers. Agents normally hold exactly one;
 // 8 leaves ample headroom for rolling reconnect overlap.
 const MAX_AGENT_SOCKETS = 8;
+const MAX_TOTAL_AGENT_SOCKETS = 4096;
 const MAX_WS_MESSAGE_BYTES = 64 * 1024;
+const MAX_WS_INFLIGHT_MESSAGES_PER_AGENT = 16;
 const MAX_WS_BUFFERED_BYTES = 1 * 1024 * 1024;
 const PG_NOTIFY_CHANNEL = "print_gateway_agent_jobs";
 const PG_SESSIONS_CHANNEL = "print_gateway_agent_sessions";
@@ -109,6 +113,7 @@ export function __pruneIdleWsBucketsForTests(nowMs?: number): number {
 
 export function __clearWsBucketsForTests(): void {
   wsMessageBucketsByAgentId.clear();
+  wsMessageInFlightByAgentId.clear();
 }
 
 export function closeAgentSockets(agentId: string): void {
@@ -185,9 +190,11 @@ function trackAgentSocket(agentId: string, ws: AgentSocket) {
     set.delete(oldest);
   }
   set.add(ws);
+  totalAgentSockets += 1;
   void incrementMetric("websocket_connections_opened_total");
   ws.on("close", () => {
     set!.delete(ws);
+    totalAgentSockets = Math.max(0, totalAgentSockets - 1);
     void incrementMetric("websocket_connections_closed_total");
     // Identity guard: a terminated-but-late-closing evicted socket must
     // never delete a replacement Set that a newer connection created after
@@ -281,12 +288,21 @@ export function buildJobEnvelope(job: ClaimedJobRow): JobDeliveryEnvelope {
 export type PushOutcome = "delivered" | "no_socket" | "not_claimable" | "requeued" | "failed";
 
 export async function claimAndPushJobToAgent(job: { id: string; agentId: string }): Promise<PushOutcome> {
+  const startedAt = Date.now();
   if (!hasOpenAgentSocket(job.agentId)) return "no_socket";
+  const claimStartedAt = Date.now();
   const claimed = await claimJobForDelivery(job.id, job.agentId);
-  if (!claimed) return "not_claimable";
+  const claimLatencyMs = Date.now() - claimStartedAt;
+  if (!claimed) {
+    logInfo("print.trace.gateway_claim", { jobId: job.id, agentId: job.agentId, claimLatencyMs, outcome: "not_claimable" });
+    return "not_claimable";
+  }
+  const sendStartedAt = Date.now();
   const delivered = sendToAgent(job.agentId, buildJobEnvelope(claimed));
+  const sendLatencyMs = Date.now() - sendStartedAt;
   if (!delivered) {
     const outcome = await releaseUndeliveredClaim(job.id, job.agentId, claimed.claimToken, "websocket delivery failed after claim; job requeued for redelivery");
+    logWarn("print.trace.gateway_send", { jobId: job.id, agentId: job.agentId, claimLatencyMs, sendLatencyMs, totalLatencyMs: Date.now() - startedAt, outcome: outcome === "failed" ? "failed" : "requeued" });
     return outcome === "failed" ? "failed" : "requeued";
   }
   // "Delivered" is a DATABASE fact, not a socket fact: only when the
@@ -294,15 +310,19 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
   // consider the job handed over. A socket success whose evidence write
   // misses (row expired, terminal, or reclaimed mid-send) falls back to the
   // undelivered-release path instead of stranding a phantom delivery.
+  const evidenceStartedAt = Date.now();
   const evidenced = await markJobDelivered(job.id, job.agentId, claimed.claimToken);
+  const evidenceLatencyMs = Date.now() - evidenceStartedAt;
   if (!evidenced) {
     const outcome = await releaseUndeliveredClaim(job.id, job.agentId, claimed.claimToken, "websocket delivery evidence did not persist; job requeued for redelivery");
     // "noop" here means the row left the claimable states entirely between
     // claim and evidence (expired/terminal/cascade-deleted): there is
     // nothing left to deliver or requeue.
+    logWarn("print.trace.gateway_delivery", { jobId: job.id, agentId: job.agentId, claimLatencyMs, sendLatencyMs, evidenceLatencyMs, totalLatencyMs: Date.now() - startedAt, outcome: outcome === "failed" ? "failed" : outcome === "noop" ? "not_claimable" : "requeued" });
     if (outcome === "noop") return "not_claimable";
     return outcome === "failed" ? "failed" : "requeued";
   }
+  logInfo("print.trace.gateway_delivery", { jobId: job.id, agentId: job.agentId, printerId: claimed.printerId, requestId: claimed.requestId, claimLatencyMs, sendLatencyMs, evidenceLatencyMs, totalLatencyMs: Date.now() - startedAt, outcome: "delivered" });
   return "delivered";
 }
 
@@ -485,8 +505,9 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
       }
 
       const clientKey = websocketClientKey(req);
+      let decision: Awaited<ReturnType<typeof reserveWsUpgradeAttempt>>;
       try {
-        const decision = await inspectWsUpgradeRateLimit(clientKey);
+        decision = await reserveWsUpgradeAttempt(clientKey);
         if (!decision.allowed) {
           writeWsHttpError(socket, 429, "Too many failed WebSocket authentication attempts", decision.retryAfterSec);
           return;
@@ -507,8 +528,16 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         agent = null;
       }
       if (!agent) {
-        try { await recordWsUpgradeFailure(clientKey); } catch (error) { logUpgradeError(error); }
+        if (decision.retryAfterSec) {
+          writeWsHttpError(socket, 429, "Too many failed WebSocket authentication attempts", decision.retryAfterSec);
+          return;
+        }
         writeWsHttpError(socket, 401, "Unauthorized");
+        return;
+      }
+
+      if (totalAgentSockets >= MAX_TOTAL_AGENT_SOCKETS) {
+        writeWsHttpError(socket, 503, "WebSocket connection capacity reached", 1);
         return;
       }
 
@@ -544,7 +573,20 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         try { ws.close(4429, "message rate limit exceeded"); } catch {}
         return;
       }
-      handleAgentMessage(agentId, raw).catch((e) => console.warn(`[ws] failed to handle message from agent ${agentId}:`, e));
+      const inFlight = wsMessageInFlightByAgentId.get(agentId) ?? 0;
+      if (inFlight >= MAX_WS_INFLIGHT_MESSAGES_PER_AGENT) {
+        void incrementMetric("websocket_messages_inflight_limited_total");
+        try { ws.close(4429, "too many messages in flight"); } catch {}
+        return;
+      }
+      wsMessageInFlightByAgentId.set(agentId, inFlight + 1);
+      void handleAgentMessage(agentId, raw)
+        .catch((e) => console.warn(`[ws] failed to handle message from agent ${agentId}:`, e))
+        .finally(() => {
+          const remaining = (wsMessageInFlightByAgentId.get(agentId) ?? 1) - 1;
+          if (remaining <= 0) wsMessageInFlightByAgentId.delete(agentId);
+          else wsMessageInFlightByAgentId.set(agentId, remaining);
+        });
     });
     ws.on("error", () => { try { ws.close(); } catch {} });
   });

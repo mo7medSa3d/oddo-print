@@ -4,6 +4,8 @@
 import base64
 import binascii
 import hashlib
+import logging
+import time
 import uuid
 
 from odoo import api, fields, models, _
@@ -17,6 +19,7 @@ REPORT_DOCUMENT_TYPES = {
     "pos.order": "receipt",
 }
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+_logger = logging.getLogger(__name__)
 
 
 def _zpl_text(value):
@@ -333,6 +336,8 @@ class PrintGatewayRouter(models.AbstractModel):
                     payload.pop("peripherals", None)
             else:
                 payload.pop("peripherals", None)
+        route_start = time.monotonic()
+        persist_start = time.monotonic()
         job_id = self._persist_durable_job({
             "company": company,
 
@@ -347,7 +352,18 @@ class PrintGatewayRouter(models.AbstractModel):
             "fallback_binding": route["binding"].fallback_binding_id if route.get("binding") else None,
             "idempotency_key": idempotency_key or uuid.uuid4().hex,
         })
+        persist_ms = int((time.monotonic() - persist_start) * 1000)
+        submit_start = time.monotonic()
         status = self._submit_durable_job(job_id)
+        submit_ms = int((time.monotonic() - submit_start) * 1000)
+        _logger.info(
+            "print.trace odoo_route job_id=%s printer_id=%s persist_ms=%d gateway_submit_ms=%d total_ms=%d",
+            job_id,
+            route["binding"].printer_id,
+            persist_ms,
+            submit_ms,
+            int((time.monotonic() - route_start) * 1000),
+        )
         return {
             "gateway_enabled": True,
             "native": False,

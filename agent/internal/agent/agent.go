@@ -38,8 +38,9 @@ import (
 //	                    and naturally re-delivered by the gateway after the
 //	                    claim lease expires (see src/app/api/agent/jobs).
 const (
-	maxConcurrentJobs = 8
-	maxPendingJobs    = 64
+	maxConcurrentJobs        = 8
+	maxPendingJobs           = 64
+	maxPendingJobsPerPrinter = 8
 )
 
 // shutdownGrace bounds how long Run waits for in-flight jobs after the agent
@@ -91,6 +92,10 @@ type Agent struct {
 	// attempt, under the same mutex. Heartbeat keep-alives echo the token
 	// so the gateway can fence the lease refresh to the live claim.
 	inFlightTokens map[string]string
+	// pendingByPrinter bounds waiting goroutines for a single printer so one
+	// slow/unreachable device cannot consume the entire global pending budget.
+	pendingByPrinter map[string]int
+	inFlightPrinters map[string]string
 	// inFlightReceived records when each delivery was accepted, under the
 	// same mutex. It bounds the physical-dispatch race: the gateway sweep
 	// can only reclaim a claim observed stale for a full lease window, so
@@ -242,6 +247,8 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 		pendingSlots:     make(chan struct{}, maxPendingJobs),
 		inFlight:         make(map[string]struct{}),
 		inFlightTokens:   make(map[string]string),
+		pendingByPrinter: make(map[string]int),
+		inFlightPrinters: make(map[string]string),
 		inFlightReceived: make(map[string]time.Time),
 		shutdownCh:       make(chan struct{}),
 		discoverySem:     make(chan struct{}, 1),
@@ -866,6 +873,16 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 		log.Printf("Job %s is already in flight; duplicate delivery ignored (latest claim token adopted).", jobID)
 		return
 	}
+	pendingPrinter := ""
+	if rawPrinter, ok := job["printerId"].(string); ok {
+		pendingPrinter = rawPrinter
+	}
+	if pendingPrinter != "" && a.pendingByPrinter[pendingPrinter] >= maxPendingJobsPerPrinter {
+		a.inFlightMu.Unlock()
+		log.Printf("Job %s dropped: printer %s has reached the per-printer pending ceiling (%d); handing it back to the gateway queue.", jobID, pendingPrinter, maxPendingJobsPerPrinter)
+		a.rejectJob(jobID, jobClaimToken(job), "printer_pending_full")
+		return
+	}
 	a.inFlight[jobID] = struct{}{}
 	if a.inFlightTokens == nil {
 		a.inFlightTokens = make(map[string]string)
@@ -873,7 +890,14 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 	if a.inFlightReceived == nil {
 		a.inFlightReceived = make(map[string]time.Time)
 	}
+	if a.pendingByPrinter == nil {
+		a.pendingByPrinter = make(map[string]int)
+	}
+	if pendingPrinter != "" {
+		a.pendingByPrinter[pendingPrinter]++
+	}
 	a.inFlightTokens[jobID] = jobClaimToken(job)
+	a.inFlightPrinters[jobID] = pendingPrinter
 	a.inFlightReceived[jobID] = time.Now()
 	a.wg.Add(1)
 	a.inFlightMu.Unlock()
@@ -907,19 +931,6 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 				a.updateJobStatus(jobID, "failed", fmt.Sprintf("AGENT_PANIC: %v", r), jobClaimToken(job))
 			}
 		}()
-
-		select {
-		case a.execSem <- struct{}{}:
-			defer func() { <-a.execSem }()
-		case <-ctx.Done():
-			// Shutdown (or cancellation) reached this backlog job before an
-			// execution slot freed up: nothing was dispatched, so it is
-			// provably pre-execution. Tell the gateway (fenced rejection,
-			// not counted against retries) instead of silently dropping the
-			// job and waiting out the 90s lease reclaim.
-			a.rejectJob(jobID, jobClaimToken(job), "agent_shutting_down")
-			return
-		}
 
 		a.processJob(ctx, job)
 	}()
@@ -990,6 +1001,18 @@ func (a *Agent) forgetJob(id string) {
 	delete(a.inFlight, id)
 	delete(a.inFlightTokens, id)
 	delete(a.inFlightReceived, id)
+	if printerID := a.inFlightPrinters[id]; printerID != "" {
+		if count := a.pendingByPrinter[printerID] - 1; count > 0 {
+			a.pendingByPrinter[printerID] = count
+		} else {
+			delete(a.pendingByPrinter, printerID)
+		}
+	}
+	delete(a.inFlightPrinters, id)
+	// Decrement the per-printer pending count by recovering the printer ID from
+	// the dispatch bookkeeping only when the job is still represented by the
+	// executor map. The dedicated helper below is used by the normal goroutine
+	// path before the map entry disappears.
 	a.inFlightMu.Unlock()
 }
 
@@ -1562,11 +1585,14 @@ func (a *Agent) pollJobs(ctx context.Context) {
 // Callers should normally schedule it through dispatchJob; the tests drive
 // it directly.
 func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
-	receivedAt := time.Now()
 	requestID, _ := job["requestId"].(string)
 	jobID, _ := job["id"].(string)
 	printerID, _ := job["printerId"].(string)
-	log.Printf("print.trace agent_receive request_id=%s job_id=%s printer_id=%s latency_agent_receive_ms=%d", requestID, jobID, printerID, time.Since(receivedAt).Milliseconds())
+	receivedAt := a.deliveryReceivedAt(jobID)
+	if receivedAt.IsZero() {
+		receivedAt = time.Now()
+	}
+	log.Printf("print.trace agent_receive request_id=%s job_id=%s printer_id=%s queue_wait_ms=%d received_unix_ms=%d", requestID, jobID, printerID, time.Since(receivedAt).Milliseconds(), receivedAt.UnixMilli())
 	expiresAtStr, _ := job["expiresAt"].(string)
 	claimToken := jobClaimToken(job)
 
@@ -1680,8 +1706,10 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// bookkeeping. Gateway status callbacks (network I/O) are done outside the
 	// critical section so a slow/unresponsive gateway never blocks other jobs
 	// queued for the same printer.
+	resolutionStart := time.Now()
 	lock := a.getPrinterLock(printerID)
 	lock.Lock()
+	log.Printf("print.trace printer_lock_acquired request_id=%s job_id=%s printer_id=%s wait_ms=%d", requestID, jobID, printerID, time.Since(resolutionStart).Milliseconds())
 	// Re-check idempotency now that we hold the lock, in case a racing
 	// delivery (WS + poll fallback both firing) got here first.
 	if a.queue.IsProcessed(jobID) {
@@ -1698,6 +1726,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// If the write fails outright, we could never prove after a crash
 	// whether this job physically printed, so we refuse BEFORE sending a
 	// single byte (LAW: no dispatch without durable local evidence).
+	ledgerStart := time.Now()
 	if err := a.queue.BeginPrint(jobID, printerID, pl.Data, claimToken, a.cfg.ReprintAfterCrashEnabled()); err != nil {
 		lock.Unlock()
 		if errors.Is(err, queue.ErrTerminalState) {
@@ -1723,10 +1752,12 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		a.rejectJob(jobID, claimToken, "ledger_unavailable")
 		return
 	}
+	log.Printf("print.trace local_ledger_ready request_id=%s job_id=%s printer_id=%s ledger_latency_ms=%d", requestID, jobID, printerID, time.Since(ledgerStart).Milliseconds())
 	lock.Unlock()
 
 	// Report printing outside the per-printer lock (network I/O must not
 	// hold mutex) - AND gate physical dispatch on the gateway's answer.
+	reportStart := time.Now()
 	if err := a.updateJobStatus(jobID, "printing", "", claimToken); err != nil {
 		if proceed, reason := a.authorizeDispatchAfterReportFailure(jobID, expiresAtStr, err); !proceed {
 			log.Printf("Job %s: physical dispatch refused (%s); aborting before any byte is sent", jobID, reason)
@@ -1738,6 +1769,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 			log.Printf("Job %s: printing report unacknowledged (%v); ownership still provable, proceeding with ledger-tracked outcome", jobID, err)
 		}
 	}
+	log.Printf("print.trace printing_report request_id=%s job_id=%s printer_id=%s report_latency_ms=%d", requestID, jobID, printerID, time.Since(reportStart).Milliseconds())
 
 	// The document budget scales with size: a 5MB payload on a slow thermal
 	// legitimately needs minutes to transfer. Transports enforce finer
@@ -1752,6 +1784,17 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// "printing" or waiting for the printer lock. Local queue updates are kept
 	// inside the critical section so a waiter sees the terminal state.
 	lock.Lock()
+	// Only physical execution consumes a global worker slot. Jobs waiting for
+	// the same printer lock must not occupy all worker slots and starve jobs
+	// destined for unrelated printers.
+	select {
+	case a.execSem <- struct{}{}:
+		defer func() { <-a.execSem }()
+	case <-ctx.Done():
+		lock.Unlock()
+		a.rejectJob(jobID, jobClaimToken(job), "agent_shutting_down")
+		return
+	}
 	if a.queue.IsProcessed(jobID) {
 		lock.Unlock()
 		log.Printf("Job %s was already processed while waiting for printer %s. Skipping duplicate print.", jobID, printerID)

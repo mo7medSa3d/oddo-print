@@ -5,9 +5,7 @@ import { and, eq, gt, isNotNull } from "drizzle-orm";
 import { generateSecret, hashPairingCode, hashSecret, isValidPairingCode } from "../../../../lib/agent-auth";
 import {
   clientIpFrom,
-  inspectPairingRateLimit,
-  recordPairingFailure,
-  recordPairingSuccess,
+  reservePairingAttempt,
 } from "../../../../lib/auth-rate-limit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { z } from "zod";
@@ -75,8 +73,9 @@ export async function POST(req: Request) {
     const hashedCode = hashPairingCode(normalizedCode);
     const ip = clientIpFrom(req);
 
+    let decision: Awaited<ReturnType<typeof reservePairingAttempt>>;
     try {
-      const decision = await inspectPairingRateLimit(ip);
+      decision = await reservePairingAttempt(ip);
       if (!decision.allowed) {
         const response = NextResponse.json({ error: "Too many pairing attempts. Try again later." }, { status: 429 });
         response.headers.set("Retry-After", String(decision.retryAfterSec));
@@ -97,7 +96,11 @@ export async function POST(req: Request) {
 
     const agent = await db.query.agents.findFirst({ where: and(...conditions) });
     if (!agent) {
-      try { await recordPairingFailure(ip); } catch {}
+      if (decision.retryAfterSec) {
+        const response = NextResponse.json({ error: "Too many pairing attempts. Try again later." }, { status: 429 });
+        response.headers.set("Retry-After", String(decision.retryAfterSec));
+        return response;
+      }
       return NextResponse.json({ error: "Unknown, disabled, retired, or expired agent registration" }, { status: 400 });
     }
 
@@ -127,11 +130,16 @@ export async function POST(req: Request) {
     )).returning({ id: agents.id });
 
     if (!updated.length) {
-      try { await recordPairingFailure(ip); } catch {}
+      if (decision.retryAfterSec) {
+        const response = NextResponse.json({ error: "Too many pairing attempts. Try again later." }, { status: 429 });
+        response.headers.set("Retry-After", String(decision.retryAfterSec));
+        return response;
+      }
       return NextResponse.json({ error: "Pairing code was consumed or expired; retry with a fresh code" }, { status: 409 });
     }
 
-    try { await recordPairingSuccess(ip); } catch {}
+    // Do not clear the IP pairing limiter after success. A valid pairing
+    // should not reset the brute-force budget for subsequent codes.
     return NextResponse.json({
       agentId: agent.id,
       agent_id: agent.id,

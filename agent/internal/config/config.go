@@ -68,8 +68,13 @@ func validateServerURL(raw string) error {
 	// Zero-configuration: both http and https are accepted for any valid
 	// hostname or IP (LAN, public, loopback) with no environment opt-in.
 	switch strings.ToLower(u.Scheme) {
-	case "https", "http":
+	case "https":
 		return nil
+	case "http":
+		if os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
+			return nil
+		}
+		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development")
 	default:
 		return fmt.Errorf("server.url scheme must be http or https, got %q", u.Scheme)
 	}
@@ -354,6 +359,21 @@ func (p PrinterConfig) IsEnabled() bool {
 	return true
 }
 
+func isAllowedPrinterIP(ip net.IP) bool {
+	if ip == nil || ip.IsUnspecified() || ip.IsLoopback() || ip.IsMulticast() {
+		return false
+	}
+	// Cloud metadata services commonly bind to these link-local/ULA addresses;
+	// printer destinations must never be usable as a metadata proxy.
+	if ip4 := ip.To4(); ip4 != nil && ip4.Equal(net.IPv4(169, 254, 169, 254)) {
+		return false
+	}
+	if strings.EqualFold(ip.String(), "fd00:ec2::254") {
+		return false
+	}
+	return ip.IsPrivate() || ip.IsLinkLocalUnicast()
+}
+
 func ValidatePrinterConfig(p PrinterConfig) error {
 	if p.ID == "" {
 		return fmt.Errorf("printer missing id")
@@ -376,28 +396,44 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 	}
 	_ = proto
 	if nt == "network" || nt == "ipp" || nt == "ipps" {
-		ep := p.Endpoint
-		if nt == "ipp" && ep == "" {
-			return nil
-		}
+		ep := strings.TrimSpace(p.Endpoint)
 		if ep == "" {
-			return fmt.Errorf("printer %s: network endpoint required (ip:port)", p.ID)
+			return fmt.Errorf("printer %s: network endpoint required", p.ID)
 		}
-		if strings.HasPrefix(proto, "ipp") || strings.HasPrefix(ep, "ipp://") || strings.HasPrefix(ep, "http") {
+		if nt == "ipp" || nt == "ipps" || strings.HasPrefix(proto, "ipp") || strings.HasPrefix(strings.ToLower(ep), "ipp://") || strings.HasPrefix(strings.ToLower(ep), "ipps://") || strings.HasPrefix(strings.ToLower(ep), "http://") || strings.HasPrefix(strings.ToLower(ep), "https://") {
+			u, err := url.Parse(ep)
+			if err != nil || u.Hostname() == "" {
+				return fmt.Errorf("printer %s: invalid IPP endpoint %q", p.ID, p.Endpoint)
+			}
+			if u.RawQuery != "" || u.Fragment != "" {
+				return fmt.Errorf("printer %s: IPP endpoint must not contain query strings or fragments", p.ID)
+			}
+			ip := net.ParseIP(strings.Trim(u.Hostname(), "[]"))
+			if ip == nil || !isAllowedPrinterIP(ip) {
+				return fmt.Errorf("printer %s: endpoint host must be a private or link-local IP address", p.ID)
+			}
+			if port := u.Port(); port != "" {
+				n, portErr := strconv.Atoi(port)
+				if portErr != nil || n < 1 || n > 65535 || (n != 80 && n != 443 && n != 631) {
+					return fmt.Errorf("printer %s: IPP endpoint port must be 80, 443, or 631", p.ID)
+				}
+			}
 			return nil
 		}
 		host, portStr, err := net.SplitHostPort(ep)
 		if err != nil {
 			return fmt.Errorf("printer %s: endpoint must be ip:port, got %q", p.ID, p.Endpoint)
 		}
-		if host == "" || net.ParseIP(strings.Trim(host, "[]")) == nil {
-			if strings.Contains(host, " ") {
-				return fmt.Errorf("printer %s: invalid host %q", p.ID, host)
-			}
+		ip := net.ParseIP(strings.Trim(host, "[]"))
+		if ip == nil || !isAllowedPrinterIP(ip) {
+			return fmt.Errorf("printer %s: endpoint host must be a private or link-local IP address", p.ID)
 		}
 		port, err := strconv.Atoi(portStr)
 		if err != nil || port < 1 || port > 65535 {
 			return fmt.Errorf("printer %s: invalid port %q", p.ID, portStr)
+		}
+		if port != 9100 {
+			return fmt.Errorf("printer %s: network printer port must be 9100", p.ID)
 		}
 	}
 	if nt == "spooler" {

@@ -85,7 +85,7 @@ export async function POST(req: Request) {
     allowedDocumentTypes: parsed.data.allowedDocumentTypes ?? null,
     apiKey: raw,
     note: "Copy this key now. The raw key will never be shown again.",
-  }, { status: 201 });
+  }, { status: 201, headers: { "Cache-Control": "no-store" } });
 }
 
 export async function DELETE(req: Request) {

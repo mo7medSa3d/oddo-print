@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { createManagerSession, managerCookieHeader, verifyManagerPassword, getManagerUsername, resolveManagerTenantId, authenticateManagerUser } from "../../../../../lib/manager-auth";
 import {
   clientIpFrom,
-  inspectAuthRateLimit,
-  recordAuthFailure,
+  reserveAuthAttempt,
   recordAuthSuccess,
 } from "../../../../../lib/auth-rate-limit";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
@@ -39,8 +38,9 @@ export async function POST(req: Request) {
   const desktopClient = req.headers.get("x-odoo-print-desktop") === "1";
   const ip = clientIpFrom(req);
 
+  let pre: Awaited<ReturnType<typeof reserveAuthAttempt>>;
   try {
-    const pre = await inspectAuthRateLimit(ip, username);
+    pre = await reserveAuthAttempt(ip, username);
     if (!pre.allowed) {
       logWarn("auth.login.rate_limited", { requestId, ip, retryAfterSec: pre.retryAfterSec });
       return tooMany(pre.retryAfterSec);
@@ -63,20 +63,13 @@ export async function POST(req: Request) {
   }
   const legacyValid = expectedUser && legacyTenantPinned ? await verifyManagerPassword(username, password) : false;
   if (!identity && !legacyValid) {
-    let locked: { allowed: false; retryAfterSec: number } | null = null;
-    try {
-      const after = await recordAuthFailure(ip, username);
-      if (!after.allowed) locked = after;
-    } catch (e) {
-      logWarn("auth.login.rate_limit_record_failed", { requestId, error: e instanceof Error ? e.message : "unknown" });
-    }
     logWarn("auth.login.failed", { requestId, ip });
-    if (locked) return tooMany(locked.retryAfterSec);
+    if (pre.retryAfterSec) return tooMany(pre.retryAfterSec);
     return NextResponse.json({ error: INVALID }, { status: 401 });
   }
 
   try {
-    await recordAuthSuccess(username);
+    await recordAuthSuccess(ip, username);
   } catch (e) {
     logWarn("auth.login.rate_limit_clear_failed", { requestId, error: e instanceof Error ? e.message : "unknown" });
   }

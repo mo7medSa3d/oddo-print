@@ -19,21 +19,21 @@ class TestPrintGatewayURLTransport(TransactionCase):
         config = self._config('https://gateway.example.com')
         self.assertEqual(config.gateway_url, 'https://gateway.example.com')
 
-    def test_http_gateway_url_is_accepted_for_any_host(self):
-        # Zero-configuration: plain HTTP works for LAN IPs, public hosts,
-        # and loopback with no environment opt-in. Validated directly
-        # without DB writes (gateway configs are UNIQUE per company).
-        for url in (
-            'http://gateway.example.com',
-            'http://192.168.1.50:3000',
-            'http://10.0.0.5:3000',
-            'http://localhost:3000',
-            'http://127.0.0.1:3000',
-        ):
-            with self.subTest(url=url):
-                self.assertEqual(
-                    PrintGatewayConfig._validate_gateway_url(url), url.rstrip('/')
-                )
+    def test_http_gateway_url_is_rejected_by_default(self):
+        with self.assertRaises(ValidationError):
+            PrintGatewayConfig._validate_gateway_url("http://gateway.example.com")
+
+    def test_http_gateway_url_requires_explicit_development_opt_in(self):
+        with patch.dict("os.environ", {"ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP": "1"}, clear=False):
+            for url in (
+                "http://gateway.example.com",
+                "http://192.168.1.50:3000",
+                "http://10.0.0.5:3000",
+            ):
+                with self.subTest(url=url):
+                    self.assertEqual(
+                        PrintGatewayConfig._validate_gateway_url(url), url.rstrip("/")
+                    )
 
     def test_unsupported_gateway_url_scheme_is_rejected(self):
         with self.assertRaises(ValidationError):

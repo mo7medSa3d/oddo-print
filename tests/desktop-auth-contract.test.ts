@@ -21,6 +21,13 @@ describe("desktop manager authentication contract", () => {
     expect(source).not.toContain('credentials: "include"');
   });
 
+  it("rejects remote HTTP Gateway URLs because manager bearer tokens must use encrypted transport", () => {
+    const source = read("src/desktop/lib/ipc.ts");
+    expect(source).toContain('parsed.protocol === "http:"');
+    expect(source).toContain('"localhost", "127.0.0.1", "[::1]", "::1"');
+    expect(source).toContain("Gateway URL must use HTTPS unless the Gateway is local to this machine");
+  });
+
   it("gateway CORS is explicit and never wildcarded", () => {
     const source = read("src/server/cors.ts");
     expect(source).toContain("DESKTOP_CORS_ORIGINS");

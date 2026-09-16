@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -272,5 +273,105 @@ func TestWaitForJobsNeverBlocksShutdownForever(t *testing.T) {
 	}
 	if err := ag.Close(); err != nil {
 		t.Fatalf("Close after bounded wait must succeed: %v", err)
+	}
+}
+
+// TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots protects the fairness
+// invariant introduced in the print executor: jobs blocked on one printer's
+// per-printer mutex must not occupy all global execution slots and starve an
+// unrelated printer. The test uses the existing fake printer's barrier plus
+// the Gateway status callback as a deterministic phase boundary: once all
+// eight printing reports have been accepted, the first printer owns the
+// physical slot and the other seven are known to be waiting for that printer.
+func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
+	const blockedJobs = maxConcurrentJobs
+
+	var mu sync.Mutex
+	printingReports := make(map[string]struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/agent/jobs" && r.Method == http.MethodPatch {
+			var body map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "invalid json", http.StatusBadRequest)
+				return
+			}
+			if body["status"] == "printing" {
+				if id, ok := body["jobId"].(string); ok {
+					mu.Lock()
+					printingReports[id] = struct{}{}
+					mu.Unlock()
+				}
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"success":true}`))
+			return
+		}
+		if r.URL.Path == "/api/agent/jobs" && r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	p1 := &fakePrinter{blocked: make(chan struct{}), startedCh: make(chan string, 1)}
+	p2 := &fakePrinter{startedCh: make(chan string, 1)}
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_test"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = srv.URL
+	ag, err := New(cfg, filepath.Join(t.TempDir(), "config.yaml"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = ag.Close() }()
+	ag.printers = map[string]printer.Printer{"p1": p1, "p2": p2}
+	ag.printerConfigs = map[string]config.PrinterConfig{
+		"p1": {ID: "p1", Name: "Slow", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
+		"p2": {ID: "p2", Name: "Fast", Type: "network", Endpoint: "127.0.0.1:9101", Protocol: "raw"},
+	}
+
+	for i := 0; i < blockedJobs; i++ {
+		id := fmt.Sprintf("slow_%d", i)
+		ag.dispatchJob(context.Background(), dispatchTestJob(id, "p1"))
+	}
+
+	select {
+	case <-p1.startedCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("slow printer did not reach physical execution")
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		count := len(printingReports)
+		mu.Unlock()
+		if count == blockedJobs {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected %d printing reports before probing unrelated printer, got %d", blockedJobs, count)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// With the corrected executor, the unrelated printer can start immediately
+	// even though p1 has maxConcurrentJobs jobs in-flight at the agent level.
+	ag.dispatchJob(context.Background(), dispatchTestJob("fast_1", "p2"))
+	select {
+	case <-p2.startedCh:
+		// Expected: p2 was not starved by p1's per-printer waiters.
+	case <-time.After(2 * time.Second):
+		t.Fatal("unrelated printer was starved while same-printer jobs waited")
+	}
+
+	close(p1.blocked)
+	ag.waitForJobs()
+	if got := p2.Calls(); got != 1 {
+		t.Fatalf("expected unrelated printer to execute exactly once, got %d", got)
 	}
 }

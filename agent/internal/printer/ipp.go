@@ -154,7 +154,7 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 		return ctx.Err()
 	default:
 	}
-	ippReq := buildIPPPrintJobWithFormat(p.requestURL(), data, documentFormat)
+	ippReq := buildIPPPrintJobWithFormat(p.URL, data, documentFormat)
 	req, err := http.NewRequestWithContext(ctx, "POST", p.requestURL(), bytes.NewReader(ippReq))
 	if err != nil {
 		return fmt.Errorf("IPP create request for %s: %w", p.URL, err)
@@ -272,7 +272,7 @@ func (p *IPPPrinter) Status() string {
 var errIPPStatusUnsupported = errors.New("get-printer-attributes unsupported")
 
 func (p *IPPPrinter) getPrinterAttributes(ctx context.Context) (map[string]string, error) {
-	ippReq := buildIPPGetPrinterAttributes(p.requestURL())
+	ippReq := buildIPPGetPrinterAttributes(p.URL)
 	req, err := http.NewRequestWithContext(ctx, "POST", p.requestURL(), bytes.NewReader(ippReq))
 	if err != nil {
 		return nil, err

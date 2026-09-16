@@ -3,11 +3,13 @@ import { db } from "../../../db";
 import { plans, tenantSubscriptions, tenants } from "../../../db/schema";
 import { eq } from "drizzle-orm";
 import { validateManager } from "../../../lib/manager-auth";
+import { hasManagerPermission } from "../../../lib/authorization";
 import { hasBodyOverLimit } from "../../../lib/request-limits";
 
 export async function GET(req: Request) {
   const claims = await validateManager(req);
   if (!claims?.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasManagerPermission(claims, "billing.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const rows = await db.select({
     id: plans.id, name: plans.name, entitlements: plans.entitlements, currency: plans.currency, interval: plans.interval, stripePriceId: plans.stripePriceId,
   }).from(plans);
@@ -23,11 +25,13 @@ export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   const claims = await validateManager(req);
   if (!claims?.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasManagerPermission(claims, "tenant.update")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let body: { workspaceName?: unknown; planId?: unknown; trial?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const name = typeof body.workspaceName === "string" ? body.workspaceName.trim() : "";
   const planId = typeof body.planId === "string" ? body.planId.trim() : "";
   const trial = body.trial === true;
+  if (trial && !hasManagerPermission(claims, "billing.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (name.length < 2 || name.length > 120 || !planId) return NextResponse.json({ error: "Workspace name and plan are required" }, { status: 400 });
   const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, claims.tenantId), columns: { id: true } });
   if (!tenant) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });

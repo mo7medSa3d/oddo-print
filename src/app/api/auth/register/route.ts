@@ -6,7 +6,7 @@ import { emailVerificationTokens } from "../../../../db/schema";
 import { nanoid } from "../../../../lib/nanoid";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
-import { clientIpFrom, inspectAuthRateLimit, recordAuthSuccess } from "../../../../lib/auth-rate-limit";
+import { clientIpFrom, reserveAuthAttempt } from "../../../../lib/auth-rate-limit";
 
 const GENERIC = { ok: true, message: "If the account can be created, a verification email will be sent." };
 
@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   const password = typeof body.password === "string" ? body.password : "";
   if (!validEmail(email) || password.length < 12 || password.length > 4096) return NextResponse.json({ error: "Enter a valid email and a password of at least 12 characters." }, { status: 400 });
   const ip = clientIpFrom(req);
-  const rate = await inspectAuthRateLimit(ip, email);
+  const rate = await reserveAuthAttempt(ip, email);
   if (!rate.allowed) { const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 }); res.headers.set("Retry-After", String(rate.retryAfterSec)); return res; }
   const existing = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.email, email), columns: { id: true, emailVerifiedAt: true } });
   if (existing) return NextResponse.json(GENERIC, { status: 202 });
@@ -53,6 +53,7 @@ export async function POST(req: Request) {
   } catch {
     
   }
-  await recordAuthSuccess(email);
+  // Registration success must not clear the authentication limiter; otherwise
+  // an attacker could recycle the limiter with disposable account creations.
   return NextResponse.json(GENERIC, { status: 202 });
 }

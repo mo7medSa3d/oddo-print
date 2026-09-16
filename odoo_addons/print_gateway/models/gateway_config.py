@@ -3,7 +3,18 @@
 
 from urllib.parse import urlparse
 
+import os
 import requests
+
+from .crypto import (
+    CredentialDecryptError,
+    CredentialKeyUnavailable,
+    active_gateway_api_key_version,
+    decrypt_gateway_api_key,
+    encrypt_gateway_api_key,
+    gateway_api_key_version,
+    is_encrypted_gateway_api_key,
+)
 
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, ValidationError
@@ -23,7 +34,11 @@ class PrintGatewayConfig(models.Model):
     enabled = fields.Boolean(string="Gateway Printing Enabled", default=False)
     gateway_url = fields.Char(string="Gateway URL", required=True)
     gateway_api_key = fields.Char(
-        string="API Key", copy=False, groups="base.group_system",
+        string="API Key",
+        copy=False,
+        exportable=False,
+        groups="base.group_system",
+        help="Gateway installation credential. Restricted to system administrators and excluded from exports; database-at-rest encryption requires the deployment's secret-management boundary.",
     )
     runtime_agent_id = fields.Char(
         string="Legacy Runtime Agent Reference",
@@ -62,6 +77,8 @@ class PrintGatewayConfig(models.Model):
         scheme = parsed.scheme.lower()
         if scheme not in ("http", "https") or not parsed.hostname:
             raise ValidationError(_("Gateway URL must use HTTP or HTTPS and include a host."))
+        if scheme == "http" and os.environ.get("ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP") != "1":
+            raise ValidationError(_("Gateway URL must use HTTPS. Plain HTTP is allowed only for explicitly opted-in isolated development."))
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValidationError(_("Gateway URL must not contain credentials, query parameters, or fragments."))
         if parsed.path not in ("", "/"):
@@ -92,11 +109,38 @@ class PrintGatewayConfig(models.Model):
         self.ensure_one()
         return self._validate_gateway_url(self.gateway_url, resolve_host=for_request)
 
-    def _gateway_headers(self):
+    @staticmethod
+    def _protected_gateway_api_key(value):
+        if not value:
+            return value
+        if is_encrypted_gateway_api_key(value):
+            version = gateway_api_key_version(value)
+            active = active_gateway_api_key_version()
+            if version != active:
+                return encrypt_gateway_api_key(decrypt_gateway_api_key(value))
+            # Validate that the active key can actually authenticate the stored value.
+            decrypt_gateway_api_key(value)
+            return value
+        return encrypt_gateway_api_key(value)
+
+    def _gateway_api_key_plaintext(self):
         self.ensure_one()
         if not self.gateway_api_key:
             raise ValidationError(_("Gateway API key is not configured."))
-        api_key = self.gateway_api_key
+        try:
+            protected = self._protected_gateway_api_key(self.gateway_api_key)
+            if protected != self.gateway_api_key:
+                self.sudo().write({"gateway_api_key": protected})
+                self.invalidate_recordset(["gateway_api_key"])
+            return decrypt_gateway_api_key(self.gateway_api_key)
+        except (CredentialKeyUnavailable, CredentialDecryptError, ValueError) as exc:
+            raise ValidationError(
+                _("Gateway credential protection is unavailable or invalid. Configure the deployment-managed credential encryption key before using Gateway printing.")
+            ) from exc
+
+    def _gateway_headers(self):
+        self.ensure_one()
+        api_key = self._gateway_api_key_plaintext()
         return {
             "Authorization": "Bearer %s" % api_key,
             "Accept": "application/json",
@@ -111,6 +155,14 @@ class PrintGatewayConfig(models.Model):
     def write(self, vals):
         if set(vals).intersection({"gateway_url", "gateway_api_key", "enabled", "company_id", "runtime_agent_id"}):
             self._check_admin()
+        vals = dict(vals)
+        if "gateway_api_key" in vals and vals["gateway_api_key"]:
+            try:
+                vals["gateway_api_key"] = self._protected_gateway_api_key(vals["gateway_api_key"])
+            except (CredentialKeyUnavailable, CredentialDecryptError, ValueError) as exc:
+                raise ValidationError(
+                    _("Gateway credential protection is unavailable. Configure the deployment-managed credential encryption key before saving an API key.")
+                ) from exc
         return super().write(vals)
 
     @api.model_create_multi
@@ -121,6 +173,13 @@ class PrintGatewayConfig(models.Model):
             vals = dict(original)
             vals.setdefault("company_id", (self.env.company.parent_id or self.env.company).id)
             self._validate_gateway_url(vals.get("gateway_url"))
+            if vals.get("gateway_api_key"):
+                try:
+                    vals["gateway_api_key"] = self._protected_gateway_api_key(vals["gateway_api_key"])
+                except (CredentialKeyUnavailable, CredentialDecryptError, ValueError) as exc:
+                    raise ValidationError(
+                        _("Gateway credential protection is unavailable. Configure the deployment-managed credential encryption key before creating a Gateway configuration.")
+                    ) from exc
             normalized.append(vals)
         return super().create(normalized)
 
@@ -138,19 +197,34 @@ class PrintGatewayConfig(models.Model):
                 timeout=(5, 10),
                 allow_redirects=False,
             )
-            body = response.json() if response.content else {}
+            # Authentication failure semantics are deterministic and must not
+            # depend on the Gateway returning a JSON body. Check 401 before
+            # parsing the response so malformed/error HTML cannot erase the
+            # explicit revoked state.
             if response.status_code == 401:
                 # The installation API key was revoked or deleted on the
-                # Gateway. Mark it explicitly, explain it, and disable
-                # printing immediately so no further jobs are attempted
-                # with a dead credential.
+                # Gateway. Keep the explicit revoked state; the generic
+                # ValidationError handler below must not overwrite it with
+                # the less-specific failed state.
+                message = _("API Key has been revoked or deleted from the Gateway. Printing is disabled. Paste a new key or press Clear / Remove Key, then test again.")
                 self.write({
                     "last_test_at": fields.Datetime.now(),
                     "last_test_status": "revoked",
-                    "last_test_error": _("API Key has been revoked or deleted from the Gateway. Printing is disabled. Paste a new key or press Clear / Remove Key, then test again."),
+                    "last_test_error": message,
                     "enabled": False,
                 })
-                raise ValidationError(_("API Key has been revoked or deleted from the Gateway."))
+                # Do not raise after persisting the state: an Odoo exception
+                # rolls back the transaction, which would erase the revoked
+                # marker we just stored. Return a warning notification instead.
+                return {
+                    "type": "ir.actions.client",
+                    "tag": "display_notification",
+                    "params": {"title": _("Gateway Connection"), "message": message, "type": "warning", "sticky": True},
+                }
+
+            # Only successful/other non-auth responses need JSON decoding.
+            # A malformed success response is handled by the ValueError path.
+            body = response.json() if response.content else {}
             if response.status_code != 200 or not isinstance(body, dict) or body.get("ok") is not True:
                 raise ValidationError(_("Gateway connection test failed (HTTP %s).") % response.status_code)
             self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "success", "last_test_error": False})

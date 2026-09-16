@@ -48,3 +48,47 @@ def test_company_gateway_secret_is_server_side_only_in_runtime_controllers():
     source = read("controllers/runtime_printers.py")
     assert "gateway_api_key" not in source
     assert "_gateway_headers" in source
+
+
+def test_gateway_config_preserves_revoked_status_on_401():
+    source = read("models/gateway_config.py")
+    assert '"last_test_status": "revoked"' in source
+    assert 'message = _("API Key has been revoked or deleted from the Gateway.' in source
+    revoked_at = source.index('"last_test_status": "revoked"')
+    return_at = source.index('"tag": "display_notification"', revoked_at)
+    assert '"type": "warning"' in source[revoked_at:return_at + 1000]
+    assert 'raise ValidationError(message)' not in source[revoked_at:return_at + 1000]
+
+
+def test_gateway_api_key_is_admin_only_and_not_exportable():
+    source = read("models/gateway_config.py")
+    field_start = source.index("gateway_api_key = fields.Char(")
+    field_end = source.index(")", field_start) + 1
+    field = source[field_start:field_end]
+    assert "copy=False" in field
+    assert "exportable=False" in field
+    assert 'groups="base.group_system"' in field
+
+
+def test_gateway_401_is_checked_before_response_json_parsing():
+    source = read("models/gateway_config.py")
+    status_idx = source.index("if response.status_code == 401:")
+    json_idx = source.index("body = response.json() if response.content else {}")
+    assert status_idx < json_idx
+
+
+def test_gateway_api_key_view_is_password_masked_and_system_admin_only():
+    source = read("views/gateway_config_views.xml")
+    field_idx = source.index('field name="gateway_api_key"')
+    field_tail = source[field_idx:field_idx + 280]
+    assert 'password="True"' in field_tail
+    button_idx = source.index('name="action_clear_api_key"')
+    button_tail = source[button_idx:button_idx + 220]
+    assert 'groups="base.group_system"' in button_tail
+
+
+def test_gateway_http_requires_explicit_development_opt_in():
+    source = read("models/gateway_config.py")
+    assert 'scheme == "http"' in source
+    assert 'ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP' in source
+    assert "Plain HTTP is allowed only for explicitly opted-in isolated development." in source

@@ -7,7 +7,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { nanoid } from "../../../lib/nanoid";
 import { parsePrinterInput, validateConnectionConfig } from "../../../lib/printer-model";
 import { writeAuditEvent } from "../../../lib/audit";
-import { enforceTenantResourceEntitlement, TenantEntitlementError } from "../../../lib/entitlements";
+import { enforceTenantResourceEntitlement, TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../../../lib/entitlements";
 import { getEffectivePrinterStatus } from "../../../lib/agent-availability";
 
 export const dynamic = "force-dynamic";
@@ -65,12 +65,14 @@ export async function POST(req: Request) {
       });
     } catch (error) {
       if (error instanceof TenantEntitlementError) return NextResponse.json({ error: error.message, code: error.code }, { status: 429, headers: { "Retry-After": "60" } });
+      if (error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
       throw error;
     }
     await writeAuditEvent({ tenantId: claims.tenantId, actorType: claims.userId ? "user" : "system", actorId: claims.userId ?? "legacy-manager", action: "printer.registered", resourceType: "printer", resourceId: row.id }).catch(() => undefined);
     return NextResponse.json(row, { status: 201 });
   } catch (error) {
     if (error instanceof Error && /already exists|duplicate/i.test(error.message)) return NextResponse.json({ error: "printer id already exists" }, { status: 409 });
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid printer payload" }, { status: 400 });
+    console.error("[printers] create failed", error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: "Internal server error", code: "INTERNAL_ERROR" }, { status: 500 });
   }
 }

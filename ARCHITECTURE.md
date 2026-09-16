@@ -1,6 +1,6 @@
 # Odoo Print Gateway — Architecture
 
-> **Version**: 19.0.2.3.0 | **Node**: ≥24.15 | **Go**: 1.24 | **Odoo**: 19 CE
+> **Version**: 19.0.2.4.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
 
 ## 1. System Overview
 

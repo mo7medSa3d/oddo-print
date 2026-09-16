@@ -77,7 +77,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       allowedDocumentTypes: rotated.allowedDocumentTypes,
       apiKey: rotated.raw,
       note: "Update the Odoo installation with this new key now. The previous key has been revoked and the raw key will never be shown again.",
-    }, { status: 201 });
+    }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("[odoo] API key rotation failed", error instanceof Error ? error.message : error);
     return NextResponse.json({ error: "Internal server error", code: "INTERNAL_ERROR" }, { status: 500 });

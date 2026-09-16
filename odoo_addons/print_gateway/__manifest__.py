@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Odoo Print Gateway',
-    'version': '19.0.2.3.0',
+    'version': '19.0.2.4.0',
     'summary': 'Silent Odoo 19 printing through an external Gateway and runtime Agent',
     'description': """
 Odoo Print Gateway — Integration Only
@@ -18,7 +18,7 @@ Odoo printing occurs only when Gateway printing is explicitly disabled.
     'website': 'https://github.com/mo7medSa3d/printer-repo',
     'category': 'Tools',
     'depends': ['base', 'web', 'sale', 'account', 'stock', 'purchase', 'point_of_sale'],
-    'external_dependencies': {'python': ['requests']},
+    'external_dependencies': {'python': ['requests', 'cryptography']},
     'data': [
         'security/ir.model.access.csv',
         'security/security.xml',

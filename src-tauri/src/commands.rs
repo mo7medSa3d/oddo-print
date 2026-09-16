@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
 use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use tauri::Emitter;
 
 use crate::agent;
@@ -153,13 +154,18 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     }
     let parsed = url.parse::<url::Url>().map_err(|e| format!("invalid gateway URL: {e}"))?;
     let scheme = parsed.scheme();
-    // Both http and https are accepted: LAN appliances and local ports are
-    // commonly served over plain HTTP (e.g. http://192.0.2.10:3000). The
-    // desktop UI (ipc.ts) enforces the same rule; keeping the Rust guard in
-    // parity closes the bypass where the URL is entered or edited outside
-    // the WebView form.
     if scheme != "https" && scheme != "http" {
         return Err("gateway URL must use http:// or https://".into());
+    }
+    // Manager bearer tokens may be sent by gateway_request, so remote HTTP
+    // would disclose credentials on the network. Keep plaintext HTTP strictly
+    // local to the same machine; remote Gateways must use HTTPS.
+    if scheme == "http" {
+        let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
+        let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");
+        if !local {
+            return Err("Gateway URL must use HTTPS unless the Gateway is local to this machine".into());
+        }
     }
     if parsed.username() != "" || parsed.password().is_some() {
         return Err("gateway URL cannot include embedded credentials".into());
@@ -231,6 +237,44 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
     Ok(stdout)
 }
 
+#[derive(Clone)]
+struct ManagerSession {
+    access_token: String,
+}
+
+static MANAGER_SESSION: OnceLock<Mutex<Option<ManagerSession>>> = OnceLock::new();
+
+fn manager_session_store() -> &'static Mutex<Option<ManagerSession>> {
+    MANAGER_SESSION.get_or_init(|| Mutex::new(None))
+}
+
+fn clear_manager_session_inner() {
+    if let Ok(mut guard) = manager_session_store().lock() {
+        *guard = None;
+    }
+}
+
+fn current_manager_token() -> Option<String> {
+    manager_session_store()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|s| s.access_token.clone()))
+}
+
+fn is_public_gateway_path(path: &str) -> bool {
+    path == "/api/health" || path == "/api/auth/manager/login"
+}
+
+#[tauri::command]
+pub fn clear_manager_session() {
+    clear_manager_session_inner();
+}
+
+#[tauri::command]
+pub fn has_manager_session() -> bool {
+    current_manager_token().is_some()
+}
+
 #[derive(Deserialize)]
 pub struct GatewayRequestArgs {
     pub path: String,
@@ -269,6 +313,32 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     if target.scheme() != origin.scheme() || target.host_str() != origin.host_str() || target.port_or_known_default() != origin.port_or_known_default() {
         return Err("gateway request must stay on the configured Gateway origin".into());
     }
+
+    // The renderer cannot supply its own Authorization header. Manager bearer
+    // credentials are held only in Rust process memory for the packaged app.
+    if args.headers.keys().any(|name| {
+        name.eq_ignore_ascii_case("authorization")
+            || name.eq_ignore_ascii_case("cookie")
+            || name.eq_ignore_ascii_case("host")
+            || name.eq_ignore_ascii_case("x-forwarded-for")
+            || name.eq_ignore_ascii_case("x-forwarded-host")
+            || name.eq_ignore_ascii_case("x-forwarded-proto")
+            || name.eq_ignore_ascii_case("x-real-ip")
+    }) {
+        return Err("restricted authentication/proxy headers are managed by the desktop authentication boundary".into());
+    }
+    let manager_token = if is_public_gateway_path(path) {
+        None
+    } else {
+        current_manager_token()
+    };
+    if !is_public_gateway_path(path) && manager_token.is_none() {
+        return Ok(GatewayResponse {
+            status: 401,
+            body: "{\"error\":\"manager_authentication_required\"}".into(),
+        });
+    }
+
     let method = method_from_str(&args.method)?;
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(5))
@@ -283,6 +353,9 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
         }
         request = request.header(name, value);
     }
+    if let Some(token) = manager_token {
+        request = request.bearer_auth(token);
+    }
     if let Some(body) = args.body {
         if body.len() > 8 * 1024 * 1024 {
             return Err("gateway request body exceeds 8 MiB".into());
@@ -294,6 +367,24 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     let body = response.text().await.map_err(|e| format!("read Gateway response: {e}"))?;
     if body.len() > 8 * 1024 * 1024 {
         return Err("Gateway response exceeds 8 MiB".into());
+    }
+
+    if status == 401 || status == 403 {
+        clear_manager_session_inner();
+    } else if path == "/api/auth/manager/login" && (200..300).contains(&status) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) {
+            let login_ok = value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+            let token = value.get("accessToken").and_then(|v| v.as_str()).filter(|v| !v.is_empty());
+            if login_ok {
+                if let Some(access_token) = token {
+                    if let Ok(mut guard) = manager_session_store().lock() {
+                        *guard = Some(ManagerSession {
+                            access_token: access_token.to_string(),
+                        });
+                    }
+                }
+            }
+        }
     }
     Ok(GatewayResponse { status, body })
 }
@@ -1041,5 +1132,32 @@ mod autostart_choice_tests {
         let err = record_autostart_choice(&marker).expect_err("write onto a directory must surface an error");
         assert!(err.contains("write marker"), "error must identify the failed persistence: {err}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::{is_public_gateway_path, is_valid_code, normalize_gateway_url};
+
+    #[test]
+    fn only_health_and_manager_login_are_public_gateway_paths() {
+        assert!(is_public_gateway_path("/api/health"));
+        assert!(is_public_gateway_path("/api/auth/manager/login"));
+        assert!(!is_public_gateway_path("/api/auth/manager/me"));
+        assert!(!is_public_gateway_path("/api/jobs"));
+    }
+
+    #[test]
+    fn remote_http_gateway_is_rejected() {
+        assert!(normalize_gateway_url("http://gateway.example.com").is_err());
+        assert!(normalize_gateway_url("http://127.0.0.1:3000").is_ok());
+        assert!(normalize_gateway_url("https://gateway.example.com").is_ok());
+    }
+
+    #[test]
+    fn pairing_code_contract_remains_strict() {
+        assert!(is_valid_code("ABCD23"));
+        assert!(!is_valid_code("ABC123")); // digit 1 is excluded by contract.
+        assert!(!is_valid_code("ABCDEF7"));
     }
 }

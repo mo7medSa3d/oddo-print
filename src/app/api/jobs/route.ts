@@ -14,6 +14,8 @@ export const dynamic = "force-dynamic";
 
 const TERMINAL_JOB_STATUSES = ["success", "failed", "expired"] as const;
 const MAX_CLEANUP_ROWS = 5000;
+const MAX_LIST_OFFSET = 10_000;
+const MAX_SEARCH_LENGTH = 64;
 
 export async function GET(req: Request) {
   const claims = await validateManager(req);
@@ -27,6 +29,12 @@ export async function GET(req: Request) {
   const agentId = url.searchParams.get("agentId");
   const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50", 10) || 50, 200);
   const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10) || 0, 0);
+  if (offset > MAX_LIST_OFFSET) {
+    return NextResponse.json({ error: `offset must be <= ${MAX_LIST_OFFSET}` }, { status: 400 });
+  }
+  if (searchParam && (searchParam.length < 2 || searchParam.length > MAX_SEARCH_LENGTH)) {
+    return NextResponse.json({ error: `search must be between 2 and ${MAX_SEARCH_LENGTH} characters` }, { status: 400 });
+  }
 
   if (statusParam && !isJobFilterStatus(statusParam)) {
     return NextResponse.json({ error: "invalid status filter" }, { status: 400 });

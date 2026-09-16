@@ -467,11 +467,14 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 	// spooler RPC must not wedge the caller before the worker machinery
 	// below even starts. Single-flight (see boundedPreflight) additionally
 	// guarantees repeated timeouts cannot accumulate stuck helpers.
+	preflightStart := time.Now()
 	if err := p.boundedPreflight(ctx, preflightTimeout, func() error {
 		return preFlightSpoolerCheck(p.SpoolerName)
 	}); err != nil {
+		log.Printf("print.trace spooler_preflight printer=%s latency_ms=%d success=false", p.SpoolerName, time.Since(preflightStart).Milliseconds())
 		return fmt.Errorf("pre-flight spooler check failed: %w", err)
 	}
+	log.Printf("print.trace spooler_preflight printer=%s latency_ms=%d success=true", p.SpoolerName, time.Since(preflightStart).Milliseconds())
 
 	select {
 	case <-ctx.Done():
@@ -485,6 +488,7 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 	}
 	defer p.endSession()
 
+	printStart := time.Now()
 	resultCh := make(chan spoolerTaskResult, 1)
 	cancelNotice := make(chan struct{})
 
@@ -509,8 +513,10 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 		}
 	case res := <-resultCh:
 		if res.err != nil {
+			log.Printf("print.trace spooler_session printer=%s latency_ms=%d success=false", p.SpoolerName, time.Since(printStart).Milliseconds())
 			return res.err
 		}
+		log.Printf("print.trace spooler_session printer=%s latency_ms=%d success=true", p.SpoolerName, time.Since(printStart).Milliseconds())
 		log.Printf("Spooler printed %d bytes to %s (job %d)", res.written, p.SpoolerName, res.jobID)
 		return nil
 	}

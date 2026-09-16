@@ -17,6 +17,21 @@ fn current_exe_dir() -> Option<PathBuf> {
     std::env::current_exe().ok()?.parent().map(|p| p.to_path_buf())
 }
 
+#[cfg(windows)]
+fn system32_exe(name: &str) -> Result<PathBuf, String> {
+    if name.is_empty() || name.contains('\\') || name.contains('/') {
+        return Err("invalid Windows system executable name".into());
+    }
+    let root = std::env::var_os("SystemRoot")
+        .or_else(|| std::env::var_os("WINDIR"))
+        .ok_or_else(|| "Windows SystemRoot is unavailable".to_string())?;
+    let path = PathBuf::from(root).join("System32").join(name);
+    if !path.is_file() {
+        return Err(format!("Windows system executable not found: {}", path.display()));
+    }
+    Ok(path)
+}
+
 pub fn agent_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     resolve_executable(app, "OdooPrintAgent.exe")
 }
@@ -53,7 +68,8 @@ fn resolve_executable(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, Str
 fn sc_query() -> Option<String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let out = Command::new("sc")
+    let sc = system32_exe("sc.exe")?;
+    let out = Command::new(sc)
         .args(["query", SERVICE_NAME])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
@@ -85,7 +101,8 @@ fn is_running(_app: &tauri::AppHandle) -> bool {
 fn is_process_running(_app: &tauri::AppHandle) -> bool {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let out = Command::new("tasklist")
+    let tasklist = system32_exe("tasklist.exe")?;
+    let out = Command::new(tasklist)
         .args(["/FI", "IMAGENAME eq OdooPrintAgent.exe", "/FO", "CSV", "/NH"])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
@@ -104,7 +121,8 @@ fn is_process_running(_app: &tauri::AppHandle) -> bool {
 fn run_net(action: &str) -> Result<String, String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let out = Command::new("net")
+    let net = system32_exe("net.exe")?;
+    let out = Command::new(net)
         .args([action, SERVICE_NAME])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
@@ -171,7 +189,8 @@ fn taskkill_pid(pid: u32, force: bool) -> Result<std::process::Output, String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let pid_arg = pid.to_string();
-    let mut cmd = Command::new("taskkill");
+    let taskkill = system32_exe("taskkill.exe")?;
+    let mut cmd = Command::new(taskkill);
     if force {
         cmd.args(["/PID", &pid_arg, "/T", "/F"]);
     } else {
@@ -405,7 +424,11 @@ mod spawn_tests {
 
     fn pid_alive(pid: u32) -> bool {
         use std::os::windows::process::CommandExt;
-        let out = Command::new("tasklist")
+        let tasklist = match system32_exe("tasklist.exe") {
+            Ok(path) => path,
+            Err(_) => return false,
+        };
+        let out = Command::new(tasklist)
             .args(["/FI", &format!("PID eq {pid}"), "/NH"])
             .creation_flags(0x0800_0000)
             .output()
@@ -444,5 +467,18 @@ mod spawn_tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         assert!(!pid_alive(pid), "spawned child must be terminated and reaped when its PID write fails");
+    }
+}
+
+#[cfg(all(windows, test))]
+mod tests {
+    use super::system32_exe;
+
+    #[test]
+    fn system_commands_are_resolved_from_system32() {
+        for name in ["sc.exe", "net.exe", "tasklist.exe", "taskkill.exe"] {
+            let path = system32_exe(name).expect("Windows system executable must exist");
+            assert!(path.ends_with(["System32", name].iter().collect::<std::path::PathBuf>()));
+        }
     }
 }

@@ -7,6 +7,20 @@ export class TenantEntitlementError extends Error {
   }
 }
 
+export class TenantSubscriptionRequiredError extends Error {
+  readonly code = "TENANT_SUBSCRIPTION_REQUIRED" as const;
+  constructor() {
+    super("An active subscription is required for this operation");
+  }
+}
+
+export class TenantEntitlementConfigError extends Error {
+  readonly code = "TENANT_ENTITLEMENT_UNAVAILABLE" as const;
+  constructor(public readonly entitlement: string) {
+    super(`Tenant entitlement ${entitlement} is unavailable`);
+  }
+}
+
 export type EntitlementTx = { execute: (query: SQL) => Promise<{ rows: Record<string, unknown>[] }> };
 
 export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: string, key: string): Promise<number | null> {
@@ -19,9 +33,12 @@ export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: str
       AND (ts.current_period_end IS NULL OR ts.current_period_end > now())
     LIMIT 1
   `);
-  const entitlements = (result.rows[0]?.entitlements ?? {}) as Record<string, unknown>;
+  if (!result.rows[0]) throw new TenantSubscriptionRequiredError();
+  const entitlements = (result.rows[0].entitlements ?? {}) as Record<string, unknown>;
   const value = entitlements[key];
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+  if (value === "unlimited") return null;
+  if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) return value;
+  throw new TenantEntitlementConfigError(key);
 }
 
 export async function enforceTenantResourceEntitlement(tx: EntitlementTx, tenantId: string, key: string, currentCountSql: SQL): Promise<void> {

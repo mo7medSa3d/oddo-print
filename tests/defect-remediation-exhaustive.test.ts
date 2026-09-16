@@ -240,3 +240,13 @@ describe("DEFECT #6 — Agent test-print fast path", () => {
     expect(testSource).toContain("refused printer test took");
   });
 });
+
+
+describe("SECURITY — onboarding function-level authorization", () => {
+  it("onboarding endpoint enforces tenant and billing permissions server-side", () => {
+    const source = fs.readFileSync(path.resolve(__dirname, "../src/app/api/onboarding/route.ts"), "utf-8");
+    expect(source).toContain("hasManagerPermission(claims, \"tenant.update\")");
+    expect(source).toContain("hasManagerPermission(claims, \"billing.manage\")");
+    expect(source).toContain('return NextResponse.json({ error: "Forbidden" }, { status: 403 });');
+  });
+});

@@ -10,6 +10,8 @@ import { isPrivateNetworkAddress } from "../../../../lib/network-address";
 
 export const dynamic = "force-dynamic";
 const MAX_DISCOVERY_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_DISCOVERY_DEVICES = 1000;
+const DISCOVERY_INSERT_BATCH = 250;
 
 export async function GET(req: Request) {
   const agent = await validateAgent(req.headers.get("Authorization"));
@@ -49,7 +51,7 @@ export async function POST(req: Request) {
   const status = typeof bodyRecord.status === "string" ? bodyRecord.status : null;
   const devices: unknown[] = Array.isArray(bodyRecord.devices) ? bodyRecord.devices : [];
   if (!discoveryId) return NextResponse.json({ error: "discoveryId required" }, { status: 400 });
-  if (devices.length > 5000) return NextResponse.json({ error: "Too many devices in one discovery report" }, { status: 413 });
+  if (devices.length > MAX_DISCOVERY_DEVICES) return NextResponse.json({ error: `Too many devices in one discovery report; maximum is ${MAX_DISCOVERY_DEVICES}` }, { status: 413 });
 
   const session = await db.query.discoverySessions.findFirst({ where: and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId)) });
   if (!session) return NextResponse.json({ error: "Discovery not found" }, { status: 404 });
@@ -67,27 +69,29 @@ export async function POST(req: Request) {
 
   // Discovery is observation, not authorization. Approval is handled by the
   // manager endpoint before a discovered device can become a runtime printer.
-  for (const d of parsedDevices) {
-    const id = typeof d.id === "string" && d.id ? d.id : `dev_${nanoid(10)}`;
-    await db.insert(discoveredDevices).values({
-      id,
-      discoveryId,
-      agentId: agent.id,
-      source: d.source ?? [],
-      protocol: d.protocol ?? "unknown",
-      ipAddress: d.ipAddress ?? null,
-      hostname: d.hostname ?? null,
-      port: d.port ?? null,
-      deviceName: d.deviceName ?? null,
-      manufacturer: d.manufacturer ?? null,
-      model: d.model ?? null,
-      serialNumber: d.serialNumber ?? null,
-      confidence: "low",
-      verification: "candidate",
-      capabilities: d.capabilities ?? null,
-      rawMetadata: d.rawMetadata ?? null,
-      tenantId: agent.tenantId,
-    }).onConflictDoNothing();
+  // Keep the report bounded and batch writes so one authenticated Agent cannot
+  // force thousands of sequential database round trips in a single request.
+  const rows = parsedDevices.map((d) => ({
+    id: typeof d.id === "string" && d.id ? d.id : `dev_${nanoid(10)}`,
+    discoveryId,
+    agentId: agent.id,
+    source: d.source ?? [],
+    protocol: d.protocol ?? "unknown",
+    ipAddress: d.ipAddress ?? null,
+    hostname: d.hostname ?? null,
+    port: d.port ?? null,
+    deviceName: d.deviceName ?? null,
+    manufacturer: d.manufacturer ?? null,
+    model: d.model ?? null,
+    serialNumber: d.serialNumber ?? null,
+    confidence: "low" as const,
+    verification: "candidate" as const,
+    capabilities: d.capabilities ?? null,
+    rawMetadata: d.rawMetadata ?? null,
+    tenantId: agent.tenantId,
+  }));
+  for (let i = 0; i < rows.length; i += DISCOVERY_INSERT_BATCH) {
+    await db.insert(discoveredDevices).values(rows.slice(i, i + DISCOVERY_INSERT_BATCH)).onConflictDoNothing();
   }
 
   if (status && ["completed", "partial", "failed", "cancelled"].includes(status)) {

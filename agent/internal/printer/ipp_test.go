@@ -318,3 +318,24 @@ func readAll(r interface{ Read([]byte) (int, error) }) []byte {
 func validTestPDFBytes() []byte {
 	return []byte("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
 }
+
+func TestIPPPrintJobDoesNotEmbedHTTPBasicAuthCredentials(t *testing.T) {
+	p, err := NewIPPPrinter("ipp://printuser:printpass@192.168.1.60/ipp/print", "Front Desk")
+	if err != nil {
+		t.Fatalf("NewIPPPrinter: %v", err)
+	}
+	if p.URL != "http://192.168.1.60/ipp/print" {
+		t.Fatalf("normalized URL leaked or retained credentials: %q", p.URL)
+	}
+	if p.creds == nil {
+		t.Fatal("expected parsed credentials for HTTP Basic authentication")
+	}
+	payload := []byte("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+	job := buildIPPPrintJobWithFormat(p.URL, payload, ippFormatPDF)
+	if bytes.Contains(job, []byte("printuser")) || bytes.Contains(job, []byte("printpass")) {
+		t.Fatal("IPP printer-uri payload must never contain HTTP Basic Auth credentials")
+	}
+	if !bytes.Contains(job, []byte("ipp://192.168.1.60/ipp/print")) {
+		t.Fatal("IPP payload should retain the credential-free printer URI")
+	}
+}

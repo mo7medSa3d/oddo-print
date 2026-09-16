@@ -7,6 +7,21 @@ import (
 	"testing"
 )
 
+func TestValidatePrinterConfigRejectsUnsafePrinterDestinations(t *testing.T) {
+	cases := []PrinterConfig{
+		{ID: "public", Name: "Public", Type: "network", Endpoint: "8.8.8.8:9100", Protocol: "raw"},
+		{ID: "loopback", Name: "Loopback", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
+		{ID: "hostname", Name: "Hostname", Type: "network", Endpoint: "printer.local:9100", Protocol: "raw"},
+		{ID: "public-ipp", Name: "Public IPP", Type: "ipp", Endpoint: "https://8.8.8.8:631/ipp/print", Protocol: "ipp"},
+		{ID: "loopback-ipp", Name: "Loopback IPP", Type: "ipp", Endpoint: "http://127.0.0.1:631/ipp/print", Protocol: "ipp"},
+	}
+	for _, c := range cases {
+		if err := ValidatePrinterConfig(c); err == nil {
+			t.Fatalf("expected unsafe destination rejection for %+v", c)
+		}
+	}
+}
+
 func TestValidatePrinterConfig(t *testing.T) {
 	ok := PrinterConfig{ID: "printer_kitchen", Name: "Kitchen", Type: "network", Endpoint: "192.168.1.50:9100", Protocol: "escpos"}
 	if err := ValidatePrinterConfig(ok); err != nil {

@@ -8,9 +8,11 @@ import { nanoid } from "./nanoid";
 import { canonicalize } from "./canonicalize";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "./job-delivery";
 import { isAgentAvailableForJob } from "./agent-availability";
-import { enforceTenantJobEntitlements, TenantEntitlementError } from "./entitlements";
+import { enforceTenantJobEntitlements } from "./entitlements";
+import { logInfo } from "./log";
 
-export const MAX_AGENT_QUEUED_JOBS = 1000;
+export const MAX_AGENT_QUEUED_JOBS = 256;
+export const MAX_AGENT_QUEUED_PAYLOAD_BYTES = 128 * 1024 * 1024;
 export const PRINT_JOB_RATE_LIMIT_PER_MINUTE = 60;
 export const PRINT_JOB_RATE_LIMIT_PER_HOUR = 1000;
 
@@ -172,13 +174,21 @@ async function insertQueuedJobAtomically({
     const counts = await tx.execute(sql`
       SELECT
         COUNT(*) FILTER (WHERE agent_id = ${agentId} AND status = 'queued' AND expires_at > now())::int AS agent_queued,
+        COALESCE(SUM(pg_column_size(payload)) FILTER (WHERE agent_id = ${agentId} AND status = 'queued' AND expires_at > now()), 0)::bigint AS agent_queued_payload_bytes,
         COUNT(*) FILTER (WHERE agent_id = ${agentId} AND status IN ('claimed', 'printing') AND expires_at > now())::int AS agent_in_flight
       FROM print_jobs WHERE tenant_id = ${tenantId} AND agent_id = ${agentId}
     `);
-    const row = counts.rows[0] as { agent_queued?: number | string; agent_in_flight?: number | string } | undefined;
+    const row = counts.rows[0] as {
+      agent_queued?: number | string;
+      agent_queued_payload_bytes?: number | string;
+      agent_in_flight?: number | string;
+    } | undefined;
     const agentQueued = Number(row?.agent_queued ?? 0);
+    const queuedPayloadBytes = Number(row?.agent_queued_payload_bytes ?? 0);
     const inFlight = Number(row?.agent_in_flight ?? 0);
-    if (agentQueued >= MAX_AGENT_QUEUED_JOBS) throw new AgentQueuedJobsFullError(agentId, agentQueued);
+    if (agentQueued >= MAX_AGENT_QUEUED_JOBS || queuedPayloadBytes + Buffer.byteLength(JSON.stringify(validatedPayload), "utf8") >= MAX_AGENT_QUEUED_PAYLOAD_BYTES) {
+      throw new AgentQueuedJobsFullError(agentId, agentQueued);
+    }
     if (inFlight >= MAX_AGENT_IN_FLIGHT_JOBS) throw new AgentQueueFullError(agentId, inFlight);
 
     if (rateLimitKeyId) {
@@ -277,6 +287,7 @@ export async function createPrintJobForPrinter(
     throw new PrintJobInputError("expiresAt must be in the future", "INVALID_REQUEST", 400);
   }
 
+  const enqueueStartedAt = Date.now();
   const result = await insertQueuedJobAtomically({
     jobId: id,
     printerId: printer.id,
@@ -290,6 +301,14 @@ export async function createPrintJobForPrinter(
     rateLimitKeyId: options.rateLimitKeyId ?? null,
     requestId: options.requestId ?? null,
     tenantId: options.tenantId,
+  });
+  logInfo("print.trace.gateway_enqueue", {
+    requestId: options.requestId ?? null,
+    jobId: result.jobId,
+    agentId: result.agentId,
+    printerId: result.printerId,
+    enqueueLatencyMs: Date.now() - enqueueStartedAt,
+    reused: result.isReused,
   });
 
   if (result.isReused) {

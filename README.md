@@ -48,6 +48,8 @@ Managers can generate an Odoo API key, copy the raw value once, and revoke it. G
 ## Development
 
 ```bash
+Node.js 24.21.0 is the project runtime baseline.
+
 npm ci
 npm run typecheck
 npm run lint

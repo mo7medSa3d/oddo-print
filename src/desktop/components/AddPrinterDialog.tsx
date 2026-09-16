@@ -214,7 +214,7 @@ export function AddPrinterDialog({
                 id="pp-host"
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
-                placeholder="192.168.1.50"
+                placeholder="192.168.1.50 (LAN IP)"
               />
             </Field>
             <Field label="Port" htmlFor="pp-port">
@@ -264,7 +264,7 @@ export function AddPrinterDialog({
           <Field
             label="IPP endpoint"
             htmlFor="pp-ipp"
-            hint="Examples: ipp://192.168.1.60/ipp/print or http://host:631/ipp/print"
+            hint="Use a private/link-local printer IP, e.g. ipp://192.168.1.60/ipp/print"
           >
             <Input
               id="pp-ipp"

@@ -15,7 +15,7 @@ Internet → Caddy (TLS + reverse proxy) → Gateway (Node.js) → PostgreSQL 16
 |-----------|----------------|
 | Node.js | ≥ 24.15.0 |
 | PostgreSQL | 16+ |
-| Go | 1.24+ (agent build only) |
+| Go | 1.26 (agent build) |
 | Caddy | 2.x (or any reverse proxy) |
 
 ## Environment Variables
@@ -25,9 +25,9 @@ Internet → Caddy (TLS + reverse proxy) → Gateway (Node.js) → PostgreSQL 16
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string |
-| `SESSION_SECRET` | ≥ 32 chars, random, for cookie signing |
+| `GATEWAY_JWT_SECRET` | ≥ 32 chars, random, for manager/customer session signing |
 | `TRUST_PROXY_SECRET` | ≥ 32 chars, shared with reverse proxy |
-| `NEXT_PUBLIC_APP_URL` | Public-facing URL of the Gateway |
+| `APP_BASE_URL` | Public-facing Gateway URL used by email/billing callbacks |
 
 ### Billing (Optional)
 
@@ -97,7 +97,7 @@ The `docker-compose.yml` includes Gateway, PostgreSQL, and Caddy services.
 
 ## Security Checklist
 
-- [ ] `SESSION_SECRET` is random, ≥ 32 chars, not a placeholder
+- [ ] `GATEWAY_JWT_SECRET` is random, ≥ 32 chars, not a placeholder
 - [ ] `TRUST_PROXY_SECRET` is random, ≥ 32 chars, not a placeholder
 - [ ] `DATABASE_URL` uses SSL in production (`?sslmode=require`)
 - [ ] Caddy/proxy terminates TLS with a valid certificate

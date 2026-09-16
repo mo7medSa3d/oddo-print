@@ -16,66 +16,54 @@ export function isWsUpgradeLocallyLocked(key: string, now = Date.now()): boolean
   return true;
 }
 
-export async function inspectWsUpgradeRateLimit(key: string): Promise<{ allowed: true } | { allowed: false; retryAfterSec: number }> {
-  const now = Date.now();
-  if (isWsUpgradeLocallyLocked(key, now)) {
-    const until = localLockedUntil.get(key) ?? now + LOCK_MS;
-    return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((until - now) / 1000)) };
-  }
-
-  const result = await db.execute(sql`
-    SELECT failures, window_started_at, locked_until
-    FROM auth_rate_limits
-    WHERE key = ${`ws-upgrade:${key}`}
-  `);
-  const row = result.rows[0] as { failures?: number | string; window_started_at?: Date | string; locked_until?: Date | string | null } | undefined;
-  if (!row) return { allowed: true };
-
-  const lockedUntil = row.locked_until ? new Date(row.locked_until).getTime() : 0;
-  if (lockedUntil > now) {
-    localLockedUntil.set(key, lockedUntil);
-    return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((lockedUntil - now) / 1000)) };
-  }
-
-  const windowStart = new Date(row.window_started_at ?? now).getTime();
-  if (windowStart <= now - WINDOW_MS) return { allowed: true };
-  if (Number(row.failures ?? 0) >= MAX_FAILURES) {
-    const until = now + LOCK_MS;
-    localLockedUntil.set(key, until);
-    return { allowed: false, retryAfterSec: 60 };
-  }
-  return { allowed: true };
-}
-
-export async function recordWsUpgradeFailure(key: string): Promise<void> {
+export async function reserveWsUpgradeAttempt(key: string): Promise<{ allowed: true; retryAfterSec?: number } | { allowed: false; retryAfterSec: number }> {
   const now = new Date();
   const cutoff = new Date(now.getTime() - WINDOW_MS);
-  const until = new Date(now.getTime() + LOCK_MS);
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
+    const bucketKey = `ws-upgrade:${key}`;
     await tx.execute(sql`
       INSERT INTO auth_rate_limits (key, failures, window_started_at, locked_until, updated_at)
-      VALUES (${`ws-upgrade:${key}`}, 1, ${now}, NULL, ${now})
-      ON CONFLICT (key) DO UPDATE
-      SET failures = CASE
-          WHEN auth_rate_limits.window_started_at < ${cutoff} THEN 1
-          ELSE auth_rate_limits.failures + 1
-        END,
-        window_started_at = CASE
-          WHEN auth_rate_limits.window_started_at < ${cutoff} THEN ${now}
-          ELSE auth_rate_limits.window_started_at
-        END,
-        locked_until = CASE
-          WHEN auth_rate_limits.window_started_at < ${cutoff} THEN NULL
-          WHEN auth_rate_limits.failures + 1 >= ${MAX_FAILURES} THEN ${until}
-          ELSE NULL
-        END,
-        updated_at = ${now}
+      VALUES (${bucketKey}, 0, ${now}, NULL, ${now})
+      ON CONFLICT (key) DO NOTHING
     `);
-  });
+    const result = await tx.execute(sql`
+      SELECT failures, window_started_at, locked_until
+      FROM auth_rate_limits
+      WHERE key = ${bucketKey}
+      FOR UPDATE
+    `);
+    const row = result.rows[0] as {
+      failures?: number | string;
+      window_started_at?: Date | string;
+      locked_until?: Date | string | null;
+    } | undefined;
+    if (!row) return { allowed: true } as const;
 
-  const check = await db.execute(sql`
-    SELECT locked_until FROM auth_rate_limits WHERE key = ${`ws-upgrade:${key}`}
-  `);
-  const lockedUntil = check.rows[0]?.locked_until ? new Date(check.rows[0].locked_until as string | Date).getTime() : 0;
-  if (lockedUntil > Date.now()) localLockedUntil.set(key, lockedUntil);
+    const existingLock = row.locked_until ? new Date(row.locked_until).getTime() : 0;
+    if (existingLock > now.getTime()) {
+      localLockedUntil.set(key, existingLock);
+      return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((existingLock - now.getTime()) / 1000)) } as const;
+    }
+
+    const windowExpired = new Date(row.window_started_at ?? now).getTime() < cutoff.getTime();
+    const failures = windowExpired ? 1 : Number(row.failures ?? 0) + 1;
+    const windowStart = windowExpired ? now : new Date(row.window_started_at ?? now);
+    const lockedUntil = failures >= MAX_FAILURES ? new Date(now.getTime() + LOCK_MS) : null;
+
+    await tx.execute(sql`
+      UPDATE auth_rate_limits
+      SET failures = ${failures},
+          window_started_at = ${windowStart},
+          locked_until = ${lockedUntil},
+          updated_at = ${now}
+      WHERE key = ${bucketKey}
+    `);
+
+    if (!lockedUntil) return { allowed: true } as const;
+    const retryAfterSec = Math.max(1, Math.ceil((lockedUntil.getTime() - now.getTime()) / 1000));
+    localLockedUntil.set(key, lockedUntil.getTime());
+    // The reservation itself is allowed; a failed authentication on this
+    // attempt should return 429 and the next attempt is already blocked.
+    return { allowed: true, retryAfterSec } as const;
+  });
 }

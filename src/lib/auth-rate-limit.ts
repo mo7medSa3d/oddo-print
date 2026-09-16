@@ -88,120 +88,118 @@ function pairingIpKey(ip: string): string {
 }
 
 export type RateLimitDecision =
-  | { allowed: true }
+  | { allowed: true; retryAfterSec?: number }
   | { allowed: false; retryAfterSec: number };
 
-type BucketRow = {
-  key: string;
-  failures: number;
-  window_started_at: Date;
-  locked_until: Date | null;
-};
-
-async function readBucket(key: string): Promise<BucketRow | null> {
-  const res = await db.execute(sql`
-    SELECT key, failures, window_started_at, locked_until
-    FROM auth_rate_limits
-    WHERE key = ${key}
-  `);
-  const row = res.rows[0] as
-    | { key: string; failures: number | string; window_started_at: Date | string; locked_until: Date | string | null }
-    | undefined;
-  if (!row) return null;
-  return {
-    key: row.key,
-    failures: Number(row.failures) || 0,
-    window_started_at: new Date(row.window_started_at),
-    locked_until: row.locked_until ? new Date(row.locked_until) : null,
-  };
-}
-
-function lockedFor(row: BucketRow | null, now: number): number {
-  if (!row?.locked_until) return 0;
-  const until = row.locked_until.getTime();
-  if (until <= now) return 0;
-  return until - now;
-}
-
-export async function inspectAuthRateLimit(ip: string, username: string): Promise<RateLimitDecision> {
-  const now = Date.now();
-  const account = readBucket(accountKey(username));
-  if (!trustProxyEnabled() || ip === "unknown") {
-    warnUntrustedProxyOnce();
-    const acctRow = await account;
-    const remaining = lockedFor(acctRow, now);
-    return remaining > 0
-      ? { allowed: false, retryAfterSec: Math.max(1, Math.ceil(remaining / 1000)) }
-      : { allowed: true };
-  }
-
-  const [ipRow, acctRow] = await Promise.all([readBucket(ipKey(ip)), account]);
-  const remaining = Math.max(lockedFor(ipRow, now), lockedFor(acctRow, now));
-  if (remaining > 0) {
-    return { allowed: false, retryAfterSec: Math.max(1, Math.ceil(remaining / 1000)) };
-  }
-  return { allowed: true };
-}
-
-export async function inspectPairingRateLimit(ip: string): Promise<RateLimitDecision> {
-  const now = Date.now();
-  const row = await readBucket(pairingIpKey(ip));
-  const remaining = lockedFor(row, now);
-  return remaining > 0
-    ? { allowed: false, retryAfterSec: Math.max(1, Math.ceil(remaining / 1000)) }
-    : { allowed: true };
-}
-
-async function bumpWith(
+async function reserveBucketAttempt(
   key: string,
   windowMs: number,
-  lockFn: (failures: number) => number,
-): Promise<{ failures: number; lockedUntil: Date | null }> {
+  lockFn: (attempts: number) => number,
+): Promise<RateLimitDecision> {
   const now = new Date();
   const windowStartCutoff = new Date(now.getTime() - windowMs);
-  return await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     await tx.execute(sql`
       INSERT INTO auth_rate_limits (key, failures, window_started_at, locked_until, updated_at)
       VALUES (${key}, 0, ${now}, NULL, ${now})
-      ON CONFLICT (key) DO UPDATE SET updated_at = ${now}
+      ON CONFLICT (key) DO NOTHING
     `);
-    await tx.execute(sql`SELECT * FROM auth_rate_limits WHERE key = ${key} FOR UPDATE`);
+    const current = await tx.execute(sql`
+      SELECT failures, window_started_at, locked_until
+      FROM auth_rate_limits
+      WHERE key = ${key}
+      FOR UPDATE
+    `);
+    const row = (current.rows[0] as {
+      failures?: number | string;
+      window_started_at?: Date | string;
+      locked_until?: Date | string | null;
+    } | undefined) ?? { failures: 0, window_started_at: now, locked_until: null };
 
-    const cur = await tx.execute(sql`SELECT failures, window_started_at FROM auth_rate_limits WHERE key = ${key}`);
-    const row = (cur.rows[0] as { failures?: number | string; window_started_at?: Date | string } | undefined)
-      ?? { failures: 0, window_started_at: now };
-    const windowExpired = new Date(row.window_started_at ?? now).getTime() < windowStartCutoff.getTime();
-    const newFailures = windowExpired ? 1 : Number(row.failures ?? 0) + 1;
-    const newWindowStart = windowExpired ? now : new Date(row.window_started_at ?? now);
-    const lockMs = lockFn(newFailures);
+    const existingLock = row.locked_until ? new Date(row.locked_until) : null;
+    if (existingLock && existingLock.getTime() > now.getTime()) {
+      return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((existingLock.getTime() - now.getTime()) / 1000)) };
+    }
+
+    const oldWindow = new Date(row.window_started_at ?? now);
+    const windowExpired = oldWindow.getTime() < windowStartCutoff.getTime();
+    const attempts = windowExpired ? 1 : Number(row.failures ?? 0) + 1;
+    const newWindowStart = windowExpired ? now : oldWindow;
+    const lockMs = lockFn(attempts);
     const lockedUntil = lockMs > 0 ? new Date(now.getTime() + lockMs) : null;
 
-    const updated = await tx.execute(sql`
+    await tx.execute(sql`
       UPDATE auth_rate_limits
-      SET failures = ${newFailures},
+      SET failures = ${attempts},
           window_started_at = ${newWindowStart},
           locked_until = ${lockedUntil},
           updated_at = ${now}
       WHERE key = ${key}
-      RETURNING failures, locked_until
     `);
-    const ret = (updated.rows[0] as { failures?: number | string; locked_until?: Date | string | null } | undefined)
-      ?? { failures: newFailures, locked_until: lockedUntil };
-    return { failures: Number(ret.failures ?? newFailures), lockedUntil: ret.locked_until ? new Date(ret.locked_until) : null };
+
+    return lockedUntil
+      ? { allowed: true, retryAfterSec: Math.max(1, Math.ceil((lockedUntil.getTime() - now.getTime()) / 1000)) }
+      : { allowed: true };
   });
 }
 
-async function bump(key: string): Promise<{ failures: number; lockedUntil: Date | null }> {
-  return bumpWith(key, AUTH_RATE_WINDOW_MS, lockDurationMs);
+export async function reservePairingAttempt(ip: string): Promise<RateLimitDecision> {
+  return reserveBucketAttempt(pairingIpKey(ip), PAIRING_RATE_WINDOW_MS, pairingLockDurationMs);
 }
 
-export async function recordPairingFailure(ip: string): Promise<RateLimitDecision> {
-  const result = await bumpWith(pairingIpKey(ip), PAIRING_RATE_WINDOW_MS, pairingLockDurationMs);
-  if (!result.lockedUntil) return { allowed: true };
-  const remaining = result.lockedUntil.getTime() - Date.now();
-  return remaining > 0
-    ? { allowed: false, retryAfterSec: Math.max(1, Math.ceil(remaining / 1000)) }
-    : { allowed: true };
+export async function reserveAuthAttempt(ip: string, username: string): Promise<RateLimitDecision> {
+  const keys = [accountKey(username)];
+  if (trustProxyEnabled() && ip !== "unknown") keys.push(ipKey(ip));
+  keys.sort();
+
+  const now = new Date();
+  const windowStartCutoff = new Date(now.getTime() - AUTH_RATE_WINDOW_MS);
+  return db.transaction(async (tx) => {
+    for (const key of keys) {
+      await tx.execute(sql`
+        INSERT INTO auth_rate_limits (key, failures, window_started_at, locked_until, updated_at)
+        VALUES (${key}, 0, ${now}, NULL, ${now})
+        ON CONFLICT (key) DO NOTHING
+      `);
+    }
+
+    const rows = await tx.execute(sql`
+      SELECT key, failures, window_started_at, locked_until
+      FROM auth_rate_limits
+      WHERE key IN (${sql.join(keys.map((key) => sql`${key}`), sql`, `)})
+      ORDER BY key
+      FOR UPDATE
+    `);
+
+    for (const raw of rows.rows as Array<{ failures?: number | string; window_started_at?: Date | string; locked_until?: Date | string | null }>) {
+      const lockedUntil = raw.locked_until ? new Date(raw.locked_until) : null;
+      if (lockedUntil && lockedUntil.getTime() > now.getTime()) {
+        return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((lockedUntil.getTime() - now.getTime()) / 1000)) };
+      }
+    }
+
+    const exhaustedLocks: number[] = [];
+    for (const raw of rows.rows as Array<{ key: string; failures?: number | string; window_started_at?: Date | string }>) {
+      const oldWindow = new Date(raw.window_started_at ?? now);
+      const windowExpired = oldWindow.getTime() < windowStartCutoff.getTime();
+      const attempts = windowExpired ? 1 : Number(raw.failures ?? 0) + 1;
+      const newWindowStart = windowExpired ? now : oldWindow;
+      const lockMs = lockDurationMs(attempts);
+      const lockedUntil = lockMs > 0 ? new Date(now.getTime() + lockMs) : null;
+      if (lockedUntil) exhaustedLocks.push(lockedUntil.getTime());
+      await tx.execute(sql`
+        UPDATE auth_rate_limits
+        SET failures = ${attempts},
+            window_started_at = ${newWindowStart},
+            locked_until = ${lockedUntil},
+            updated_at = ${now}
+        WHERE key = ${raw.key}
+      `);
+    }
+    return exhaustedLocks.length > 0
+      ? { allowed: true, retryAfterSec: Math.max(1, Math.ceil((Math.max(...exhaustedLocks) - now.getTime()) / 1000)) }
+      : { allowed: true };
+  });
 }
 
 export async function cleanupAuthRateLimits(now = new Date()): Promise<number> {
@@ -214,31 +212,13 @@ export async function cleanupAuthRateLimits(now = new Date()): Promise<number> {
   return result.rows.length;
 }
 
-export async function recordAuthFailure(ip: string, username: string): Promise<RateLimitDecision> {
-  const accountBump = bump(accountKey(username));
-
-  if (!trustProxyEnabled() || ip === "unknown") {
-    warnUntrustedProxyOnce();
-    const result = await accountBump;
-    if (!result.lockedUntil) return { allowed: true };
-    const remaining = result.lockedUntil.getTime() - Date.now();
-    return remaining > 0
-      ? { allowed: false, retryAfterSec: Math.max(1, Math.ceil(remaining / 1000)) }
-      : { allowed: true };
-  }
-
-  const [ipBump, acctBump] = await Promise.all([bump(ipKey(ip)), accountBump]);
-  const until = [ipBump.lockedUntil, acctBump.lockedUntil]
-    .filter((d): d is Date => !!d)
-    .map((d) => d.getTime());
-  if (until.length === 0) return { allowed: true };
-  const remaining = Math.max(...until) - Date.now();
-  if (remaining <= 0) return { allowed: true };
-  return { allowed: false, retryAfterSec: Math.max(1, Math.ceil(remaining / 1000)) };
-}
-
-export async function recordAuthSuccess(username: string): Promise<void> {
-  await db.execute(sql`DELETE FROM auth_rate_limits WHERE key = ${accountKey(username)}`);
+export async function recordAuthSuccess(ip: string, username: string): Promise<void> {
+  const keys = [accountKey(username)];
+  if (trustProxyEnabled() && ip !== "unknown") keys.push(ipKey(ip));
+  await db.execute(sql`
+    DELETE FROM auth_rate_limits
+    WHERE key IN (${sql.join(keys.map((key) => sql`${key}`), sql`, `)})
+  `);
 }
 
 export async function recordPairingSuccess(ip: string): Promise<void> {

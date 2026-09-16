@@ -39,20 +39,67 @@ export async function POST(req: Request) {
     if (prior?.processedAt) return NextResponse.json({ received: true, idempotent: true });
   }
 
-  let tenantId: string | undefined = typeof (obj.metadata as Record<string, unknown> | undefined)?.tenant_id === "string" ? (obj.metadata as Record<string, unknown>).tenant_id as string : undefined;
-  if (!tenantId && typeof obj.client_reference_id === "string") tenantId = obj.client_reference_id;
-  if (!tenantId && typeof obj.customer === "string") {
-    const row = await db.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.stripeCustomerId, obj.customer), columns: { tenantId: true } });
-    tenantId = row?.tenantId;
+  const metadataTenantId = typeof (obj.metadata as Record<string, unknown> | undefined)?.tenant_id === "string"
+    ? String((obj.metadata as Record<string, unknown>).tenant_id)
+    : undefined;
+  const clientReferenceTenantId = typeof obj.client_reference_id === "string" ? obj.client_reference_id : undefined;
+  const candidateTenantId = metadataTenantId ?? clientReferenceTenantId;
+  const customerId = typeof obj.customer === "string" ? obj.customer : undefined;
+  const objectSubscriptionId = typeof obj.id === "string"
+    ? obj.id
+    : typeof obj.subscription === "string"
+      ? obj.subscription
+      : undefined;
+
+  // Stripe events are signed, but metadata/client_reference_id are still event
+  // data and are not an authorization source for a local tenant. Existing
+  // local Stripe identity bindings are authoritative and must agree before any
+  // tenant mutation occurs.
+  let boundTenantId: string | undefined;
+  let billingIdentityConflict = false;
+  if (objectSubscriptionId) {
+    const row = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.stripeSubscriptionId, objectSubscriptionId),
+      columns: { tenantId: true },
+    });
+    boundTenantId = row?.tenantId;
   }
+  if (customerId) {
+    const row = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.stripeCustomerId, customerId),
+      columns: { tenantId: true },
+    });
+    if (row) {
+      if (boundTenantId && boundTenantId !== row.tenantId) {
+        billingIdentityConflict = true;
+      } else {
+        boundTenantId = row.tenantId;
+      }
+    }
+  }
+
+  if (boundTenantId && candidateTenantId && boundTenantId !== candidateTenantId) billingIdentityConflict = true;
+
+  let tenantId: string | undefined = boundTenantId ?? candidateTenantId;
+
 
   try {
     await db.transaction(async (tx) => {
+      if (billingIdentityConflict) {
+        await tx.update(billingEvents).set({ tenantId: boundTenantId ?? null, processedAt: new Date() }).where(eq(billingEvents.eventId, eventId));
+        return;
+      }
       if (eventType === "checkout.session.completed") {
         const subId = typeof obj.subscription === "string" ? obj.subscription : undefined;
         if (tenantId && subId) {
           const current = await tx.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, tenantId), columns: { stripeSubscriptionId: true, stripeCustomerId: true } });
-          await tx.update(tenantSubscriptions).set({ stripeSubscriptionId: current?.stripeSubscriptionId ?? subId, stripeCustomerId: current?.stripeCustomerId ?? (typeof obj.customer === "string" ? obj.customer : null), updatedAt: new Date() }).where(eq(tenantSubscriptions.tenantId, tenantId));
+          if (current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId) {
+            throw new Error("Checkout subscription identity conflict");
+          }
+          if (current?.stripeCustomerId && customerId && current.stripeCustomerId !== customerId) {
+            throw new Error("Checkout customer identity conflict");
+          }
+          await tx.update(tenantSubscriptions).set({ stripeSubscriptionId: current?.stripeSubscriptionId ?? subId, stripeCustomerId: current?.stripeCustomerId ?? (customerId ?? null), updatedAt: new Date() }).where(eq(tenantSubscriptions.tenantId, tenantId));
         }
       } else if (eventType.startsWith("customer.subscription.")) {
         const subId = typeof obj.id === "string" ? obj.id : "";
@@ -89,6 +136,7 @@ export async function POST(req: Request) {
       }
       await tx.update(billingEvents).set({ tenantId: tenantId ?? null, processedAt: new Date() }).where(eq(billingEvents.eventId, eventId));
     });
+    if (billingIdentityConflict) return NextResponse.json({ received: true, ignored: true });
     if (tenantId) await writeAuditEvent({ tenantId, actorType: "platform", actorId: "stripe", action: `billing.${eventType}`, resourceType: "billing_event", resourceId: eventId }).catch(() => undefined);
     return NextResponse.json({ received: true });
   } catch {

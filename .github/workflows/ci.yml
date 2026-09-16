@@ -79,7 +79,7 @@ jobs:
       - name: Run Odoo static contract tests (Python)
         run: |
           pip install pytest
-          pytest tests/test_odoo19_printing_static.py
+          pytest tests/test_odoo19_printing_static.py tests/test_security_contracts.py tests/test_final_security_hardening.py
       - name: Build Next.js
         run: npm run build
       - name: Run unit tests (no DB)
@@ -192,6 +192,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          credential_key="$(python3 -c 'import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())')"
           docker pull odoo:19.0
           rm -f /tmp/odoo19_test.log
           timeout --signal=TERM --kill-after=30s 12m \
@@ -200,6 +201,8 @@ jobs:
               -e PGPORT=5432 \
               -e PGUSER=odoo \
               -e PGPASSWORD=odoo \
+              -e ODOO_PRINT_GATEWAY_CREDENTIAL_ACTIVE_VERSION=1 \
+              -e ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64="$credential_key" \
               -v "$GITHUB_WORKSPACE/odoo_addons:/mnt/extra-addons:ro" \
               odoo:19.0 \
               odoo \

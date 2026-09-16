@@ -1,6 +1,6 @@
 # Odoo Integration Guide
 
-> Module: `print_gateway` | Version: 19.0.2.3.0 | Odoo: 19 Community Edition
+> Module: `print_gateway` | Version: 19.0.2.4.0 | Odoo: 19 Community Edition
 
 ## Overview
 

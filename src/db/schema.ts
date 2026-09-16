@@ -296,6 +296,8 @@ export const printJobs = pgTable("print_jobs", {
   apiKeyTenantFk: foreignKey({ columns: [table.tenantId, table.apiKeyId], foreignColumns: [apiKeys.tenantId, apiKeys.id] }),
   tenantIdUnique: unique("print_jobs_tenant_id_unique").on(table.tenantId, table.id),
   tenantStatusIdx: index("print_jobs_tenant_status_idx").on(table.tenantId, table.status),
+  tenantCreatedIdx: index("print_jobs_tenant_created_idx").on(table.tenantId, table.createdAt),
+  tenantAgentStatusExpiryIdx: index("print_jobs_tenant_agent_status_expiry_idx").on(table.tenantId, table.agentId, table.status, table.expiresAt),
   agentStatusIdx: index("print_jobs_agent_status_idx").on(table.agentId, table.status),
   printerStatusIdx: index("print_jobs_printer_status_idx").on(table.printerId, table.status),
   statusExpiresIdx: index("print_jobs_status_expires_idx").on(table.status, table.expiresAt),

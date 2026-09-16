@@ -10,12 +10,17 @@ func TestValidateServerURLAcceptsHTTPSByDefault(t *testing.T) {
 	}
 }
 
-func TestValidateServerURLAcceptsHTTPByDefault(t *testing.T) {
-	// Plain HTTP is accepted without any development opt-in (LAN appliances
-	// and local ports are commonly served over HTTP).
-	for _, raw := range []string{"http://127.0.0.1:3000", "http://192.0.2.10:3000"} {
+func TestValidateServerURLRequiresExplicitHTTPOptIn(t *testing.T) {
+	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "")
+	for _, raw := range []string{"http://127.0.0.1:3000", "http://192.0.2.10:3000", "http://gateway.example.com"} {
+		if err := validateServerURL(raw); err == nil {
+			t.Fatalf("expected HTTP URL %q to be rejected without explicit opt-in", raw)
+		}
+	}
+	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "1")
+	for _, raw := range []string{"http://127.0.0.1:3000", "http://192.0.2.10:3000", "http://gateway.example.com"} {
 		if err := validateServerURL(raw); err != nil {
-			t.Fatalf("expected HTTP URL %q to be accepted by default, got %v", raw, err)
+			t.Fatalf("expected explicit opt-in to permit HTTP URL %q, got %v", raw, err)
 		}
 	}
 }
@@ -38,5 +43,16 @@ func TestValidateServerURLRejectsCredentialsAndQuery(t *testing.T) {
 func TestValidateServerURLRejectsEmptyHost(t *testing.T) {
 	if err := validateServerURL("http:///no-host"); err == nil {
 		t.Fatal("expected empty host to be rejected")
+	}
+}
+
+func TestValidateServerURLRequiresHTTPSByDefault(t *testing.T) {
+	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "")
+	if err := validateServerURL("http://gateway.example.com"); err == nil {
+		t.Fatal("HTTP gateway URL must be rejected unless insecure development opt-in is explicit")
+	}
+	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "1")
+	if err := validateServerURL("http://gateway.example.com"); err != nil {
+		t.Fatalf("explicit insecure development opt-in should permit HTTP: %v", err)
 	}
 }

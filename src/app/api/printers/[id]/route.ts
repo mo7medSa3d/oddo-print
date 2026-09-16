@@ -6,7 +6,7 @@ import { requireManagerPermission } from "../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { canTransitionLifecycle } from "../../../../lib/lifecycle";
-import { PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, assertPrinterMetadataLimits } from "../../../../lib/printer-model";
+import { PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, assertPrinterMetadataLimits, validateConnectionConfig } from "../../../../lib/printer-model";
 import { writeAuditEvent } from "../../../../lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -67,7 +67,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (parsed.data.connectionType || parsed.data.config) {
     const connectionType = parsed.data.connectionType ?? existing.connectionType;
     const cfg = (parsed.data.config ?? existing.config ?? {}) as Record<string, unknown>;
-    const err = connectionType === "network" && (!cfg.ip || !cfg.port) ? "network printer requires config.ip and config.port" : connectionType === "spooler" && !(cfg.spooler_name || cfg.address) ? "spooler printer requires config.spooler_name or config.address" : null;
+    const err = validateConnectionConfig(connectionType, cfg);
     if (err) return NextResponse.json({ error: err }, { status: 400 });
   }
   const [row] = await db.update(printers).set(update).where(and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId))).returning();

@@ -42,6 +42,7 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 	}
 
 	// Single connection with keepalive to eliminate connection churn and race conditions.
+	dialStart := time.Now()
 	d := net.Dialer{
 		Timeout:   connectTimeout,
 		KeepAlive: 10 * time.Second,
@@ -52,6 +53,7 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 		return fmt.Errorf("%w: dial %s: %w", ErrPrinterOffline, p.Address, err)
 	}
 	defer conn.Close()
+	log.Printf("print.trace network_connect address=%s latency_ms=%d", p.Address, time.Since(dialStart).Milliseconds())
 
 	// Active preflight on the OPEN connection before normal ESC/POS document
 	// streaming. Test pages deliberately skip this optional status inquiry.
@@ -70,6 +72,7 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 	}
 
 	written := 0
+	writeStart := time.Now()
 	for written < len(data) {
 		select {
 		case <-ctx.Done():
@@ -108,6 +111,7 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 			return MarkUnknown("failed to half-close print connection after sending %d bytes: %v", written, err)
 		}
 	}
+	log.Printf("print.trace network_write address=%s bytes=%d latency_ms=%d", p.Address, written, time.Since(writeStart).Milliseconds())
 
 	return nil
 }

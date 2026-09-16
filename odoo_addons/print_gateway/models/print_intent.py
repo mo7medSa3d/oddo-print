@@ -144,7 +144,7 @@ class PrintGatewayIntent(models.Model):
                 if manage_cr:
                     target_cr.close()
         except Exception as exc:
-            _logger.error("Failed to finalize intent %s with token %s: %s", intent_id, claim_token, exc)
+            _logger.error("Failed to finalize intent %s: %s", intent_id, exc)
             return False
 
     @classmethod

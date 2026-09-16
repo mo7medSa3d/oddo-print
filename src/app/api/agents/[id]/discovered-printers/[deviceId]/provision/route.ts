@@ -5,6 +5,7 @@ import { validateManager } from "../../../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../../../lib/authorization";
 import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "../../../../../../../lib/nanoid";
+import { validateConnectionConfig } from "../../../../../../../lib/printer-model";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +77,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
     }
 
+    const printerConfig = { ip: device.ipAddress ?? undefined, port: device.port ?? undefined, address: device.uri ?? undefined };
+    const configError = validateConnectionConfig(transport.connectionType, printerConfig);
+    if (configError) return { kind: "invalid_endpoint" as const, error: configError };
+
     const printerId = `printer_${nanoid(10)}`;
     await tx.insert(printers).values({
       id: printerId,
@@ -88,7 +93,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       protocol: transport.protocol,
       status: "unknown",
       lifecycle: "active",
-      config: { ip: device.ipAddress ?? undefined, port: device.port ?? undefined, address: device.uri ?? undefined },
+      config: printerConfig,
       capabilities: {
         ...(device.capabilities as Record<string, unknown> | null ?? {}),
       },
@@ -109,6 +114,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
   if (result.kind === "missing_endpoint") {
     return NextResponse.json({ error: "MISSING_PRINTER_ENDPOINT: network printer requires ipAddress and port", code: "MISSING_PRINTER_ENDPOINT" }, { status: 422 });
+  }
+  if (result.kind === "invalid_endpoint") {
+    return NextResponse.json({ error: `INVALID_PRINTER_ENDPOINT: ${result.error}`, code: "INVALID_PRINTER_ENDPOINT" }, { status: 422 });
   }
   if (result.kind === "already") return NextResponse.json({ printerId: result.printerId, already: true });
   return NextResponse.json({ printerId: result.printerId, already: false }, { status: 201 });

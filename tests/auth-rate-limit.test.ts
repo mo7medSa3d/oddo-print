@@ -53,6 +53,33 @@ describe("auth rate limiter (pure)", () => {
   });
 });
 
+describe("atomic rate-limit reservation contract", () => {
+  it("uses atomic reservation for all public authentication entrypoints", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const files = [
+      "src/app/api/auth/login/route.ts",
+      "src/app/api/auth/manager/login/route.ts",
+      "src/app/api/auth/register/route.ts",
+      "src/app/api/auth/forgot-password/route.ts",
+      "src/app/api/agent/register/route.ts",
+    ];
+    for (const file of files) {
+      const source = await readFile(file, "utf8");
+      expect(source).toContain("reserveAuthAttempt");
+      if (file.endsWith("agent/register/route.ts")) expect(source).toContain("reservePairingAttempt");
+    }
+    const authRateSource = await readFile("src/lib/auth-rate-limit.ts", "utf8");
+    expect(authRateSource).toContain("FOR UPDATE");
+    expect(authRateSource).toContain("ON CONFLICT (key) DO NOTHING");
+    const wsRateSource = await readFile("src/lib/ws-rate-limit.ts", "utf8");
+    const wsServerSource = await readFile("src/server/ws.ts", "utf8");
+    expect(wsRateSource).toContain("reserveWsUpgradeAttempt");
+    expect(wsRateSource).toContain("FOR UPDATE");
+    expect(wsServerSource).toContain("reserveWsUpgradeAttempt");
+    expect(wsServerSource).not.toContain("recordWsUpgradeFailure");
+  });
+});
+
 const suite = describe.skipIf(!hasTestDatabase);
 
 suite("manager login rate limiting", () => {
