@@ -115,7 +115,7 @@ export async function GET(req: Request) {
           AND pr.status = 'online'
         ORDER BY c.priority ASC, c.created_at ASC
         LIMIT ${MAX_CLAIM_BATCH}
-        FOR UPDATE OF p SKIP LOCKED
+        FOR UPDATE OF p, pr SKIP LOCKED
       )
       UPDATE print_jobs
       SET
