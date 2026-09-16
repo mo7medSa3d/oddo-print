@@ -235,13 +235,27 @@ class PrintGatewayConfig(models.Model):
             }
         except ValidationError as exc:
             self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "failed", "last_test_error": str(exc)[:4000]})
-            raise
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {"title": _("Gateway Connection"), "message": str(exc), "type": "danger", "sticky": True},
+            }
         except requests.RequestException as exc:
-            self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "failed", "last_test_error": _("Gateway is unavailable or the connection timed out.")})
-            raise ValidationError(_("Gateway is unavailable or the connection timed out.")) from exc
+            msg = _("Gateway is unavailable or the connection timed out.")
+            self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "failed", "last_test_error": msg})
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {"title": _("Gateway Connection"), "message": msg, "type": "danger", "sticky": True},
+            }
         except ValueError as exc:
-            self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "failed", "last_test_error": _("Gateway returned an invalid health response.")})
-            raise ValidationError(_("Gateway returned an invalid health response.")) from exc
+            msg = _("Gateway returned an invalid health response.")
+            self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "failed", "last_test_error": msg})
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {"title": _("Gateway Connection"), "message": msg, "type": "danger", "sticky": True},
+            }
 
     def action_clear_api_key(self):
         """Remove the stored installation API key and reset test state."""

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { validateManager, revokeManagerSession, clearManagerCookieHeader } from "../../../../../lib/manager-auth";
 import { writeAuditEvent } from "../../../../../lib/audit";
+import { logError } from "../../../../../lib/log";
 
 export async function POST(req: Request) {
   const claims = await validateManager(req);
@@ -13,7 +14,7 @@ export async function POST(req: Request) {
       action: "session.revoked",
       resourceType: "manager_session",
       resourceId: claims.jti,
-    }).catch(() => {});
+    }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   }
   const res = NextResponse.json({ ok: true });
   res.headers.set("Set-Cookie", clearManagerCookieHeader());

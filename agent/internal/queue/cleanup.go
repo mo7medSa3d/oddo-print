@@ -1,6 +1,9 @@
 package queue
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // unknownMarkerSQL builds `last_error LIKE 'X%' OR last_error LIKE 'Y%' ...`
 // from UnknownOutcomeMarkers. Keeping ONE canonical list (queue.UnknownOutcomeMarkers)
@@ -24,10 +27,14 @@ func unknownMarkerSQL(column string) string {
 // that a document may have printed once already, and deleting them would let
 // a later duplicate delivery reprint without any local protection (and would
 // destroy the operator's reconciliation record).
-func (q *Queue) CleanupTerminal() (int, error) {
-	result, err := q.db.Exec(`DELETE FROM print_jobs WHERE status = 'success'
+func (q *Queue) CleanupTerminal(retainDays int) (int, error) {
+	retainClause := ""
+	if retainDays > 0 {
+		retainClause = " AND updated_at <= datetime('now', '-" + strconv.Itoa(retainDays) + " days')"
+	}
+	result, err := q.db.Exec(`DELETE FROM print_jobs WHERE (status = 'success'
 		OR (status = 'failed' AND (last_error IS NULL
-			OR NOT (` + unknownMarkerSQL("last_error") + `)))`)
+			OR NOT (` + unknownMarkerSQL("last_error") + `))))` + retainClause)
 	if err != nil {
 		return 0, err
 	}

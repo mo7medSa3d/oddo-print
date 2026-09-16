@@ -20,7 +20,7 @@ describe("production hardening contracts", () => {
     expect(jobStatus).toContain('printing: new Set(["success", "failed"])');
     expect(route).toContain('if (requestedStatus !== "expired" && job.claimToken && claimToken !== job.claimToken)');
     expect(route).toContain('requestedStatus === "expired"');
-    expect(route).toContain('fencedJobWrite(jobId, agent.id, currentStatus, claimToken)');
+    expect(route).toContain('fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken)');
     expect(route).toContain('sql`${printJobs.expiresAt} <= now()`');
     expect(route).toContain('code: "JOB_NOT_EXPIRED_OR_STALE"');
     expect(route).toContain('JOB_EXPIRED_DURING_PRINT: physical output is unknown');

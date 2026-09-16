@@ -1,3 +1,4 @@
+import { logError, logWarn } from "./src/lib/log";
 import { createServer } from "http";
 import type { Server as HttpServer } from "http";
 import type { WebSocket, WebSocketServer } from "ws";
@@ -68,7 +69,7 @@ function shutdown(signal: string): void {
   shuttingDown = true;
   console.log(`[shutdown] ${signal}: draining connections...`);
   const hardExit = setTimeout(() => {
-    console.error("[shutdown] drain window elapsed; exiting (leases and the agent ledger make interrupted deliveries safe — jobs never silently reprint)");
+    logError("[shutdown] drain window elapsed; exiting (leases and the agent ledger make interrupted deliveries safe — jobs never silently reprint)");
     process.exit(1);
   }, SHUTDOWN_DRAIN_TIMEOUT_MS);
   hardExit.unref();
@@ -103,7 +104,7 @@ const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {
-    if (trustProxyEnabled() && req.url !== "/api/health") {
+    if (trustProxyEnabled() && req.url !== "/api/health" && req.url !== "/api/live") {
       const headers = new Headers();
       for (const [key, value] of Object.entries(req.headers)) {
         if (value == null) continue;
@@ -130,7 +131,7 @@ app.prepare().then(() => {
         handle(guarded as any, res as any);
       })
       .catch((error) => {
-        console.error("[request-guard] failed to process request", error);
+        logError("[request-guard] failed to process request", { error: error });
         if (!res.headersSent && !res.writableEnded) {
           res.statusCode = 500;
           res.setHeader("content-type", "application/json; charset=utf-8");
@@ -145,7 +146,7 @@ app.prepare().then(() => {
 
   const sweep = () => {
     sweepPrintJobs().catch((error) => {
-      console.error("[job-maintenance] sweep failed", error);
+      logError("[job-maintenance] sweep failed", { error: error });
     });
   };
   sweep();
@@ -157,7 +158,7 @@ app.prepare().then(() => {
       cleanupAuthRateLimits(),
       cleanupExpiredManagerSessions(),
     ]).catch((error) => {
-      console.error("[auth-maintenance] cleanup failed", error);
+      logError("[auth-maintenance] cleanup failed", { error: error });
     });
   };
   housekeeping();
@@ -166,7 +167,7 @@ app.prepare().then(() => {
 
   const presenceSweep = () => {
     sweepStaleAgentPresence().catch((error) => {
-      console.error("[agent-presence] stale-agent sweep failed", error);
+      logError("[agent-presence] stale-agent sweep failed", { error: error });
     });
   };
   presenceSweep();
@@ -174,7 +175,7 @@ app.prepare().then(() => {
   presenceTimer.unref();
 
   if (trustProxyEnabled()) {
-    console.warn("[security] TRUST_PROXY enabled: only requests carrying the proxy authentication token are trusted for forwarded-client-IP handling. The bundled Caddyfile injects the token and overwrites X-Forwarded-For.");
+    logWarn("[security] TRUST_PROXY enabled: only requests carrying the proxy authentication token are trusted for forwarded-client-IP handling. The bundled Caddyfile injects the token and overwrites X-Forwarded-For.");
   }
 
   server.listen(port, hostname, () => {

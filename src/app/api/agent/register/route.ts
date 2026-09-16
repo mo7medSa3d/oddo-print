@@ -1,3 +1,4 @@
+import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { agents } from "../../../../db/schema";
@@ -147,7 +148,7 @@ export async function POST(req: Request) {
       agent_secret: secret,
     }, { status: 200 });
   } catch (error) {
-    console.error("[agent/register] registration failed", error);
+    logError("[agent/register] registration failed", { error: error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

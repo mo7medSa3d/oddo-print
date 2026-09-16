@@ -17,7 +17,7 @@ import {
 } from "../lib/job-delivery";
 import { logInfo, logWarn } from "../lib/log";
 
-type AgentSocket = WebSocket & { agentId?: string; isAlive?: boolean };
+type AgentSocket = WebSocket & { agentId?: string; tenantId?: string; isAlive?: boolean };
 
 type WritableSocket = Pick<Duplex, "end" | "destroy">;
 
@@ -99,7 +99,7 @@ const wsBucketGcTimer =
         try {
           pruneIdleWsBuckets();
         } catch (error) {
-          console.warn("[ws] bucket GC failed:", error);
+          logWarn("[ws] bucket GC failed:", { error: error });
         }
       }, WS_BUCKET_GC_INTERVAL_MS)
     : null;
@@ -231,7 +231,7 @@ export function sendToAgent(agentId: string, message: unknown): boolean {
       target.send(payload);
       return true;
     } catch (e) {
-      console.warn(`[ws] send to agent ${agentId} failed; removing socket:`, e);
+      logWarn(`[ws] send to agent ${agentId} failed; removing socket:`, { error: e });
       set.delete(target);
       try { target.terminate(); } catch {}
     }
@@ -301,7 +301,7 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
   const delivered = sendToAgent(job.agentId, buildJobEnvelope(claimed));
   const sendLatencyMs = Date.now() - sendStartedAt;
   if (!delivered) {
-    const outcome = await releaseUndeliveredClaim(job.id, job.agentId, claimed.claimToken, "websocket delivery failed after claim; job requeued for redelivery");
+    const outcome = await releaseUndeliveredClaim(job.id, claimed.tenantId, job.agentId, claimed.claimToken, "websocket delivery failed after claim; job requeued for redelivery");
     logWarn("print.trace.gateway_send", { jobId: job.id, agentId: job.agentId, claimLatencyMs, sendLatencyMs, totalLatencyMs: Date.now() - startedAt, outcome: outcome === "failed" ? "failed" : "requeued" });
     return outcome === "failed" ? "failed" : "requeued";
   }
@@ -311,10 +311,10 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
   // misses (row expired, terminal, or reclaimed mid-send) falls back to the
   // undelivered-release path instead of stranding a phantom delivery.
   const evidenceStartedAt = Date.now();
-  const evidenced = await markJobDelivered(job.id, job.agentId, claimed.claimToken);
+  const evidenced = await markJobDelivered(job.id, claimed.tenantId, job.agentId, claimed.claimToken);
   const evidenceLatencyMs = Date.now() - evidenceStartedAt;
   if (!evidenced) {
-    const outcome = await releaseUndeliveredClaim(job.id, job.agentId, claimed.claimToken, "websocket delivery evidence did not persist; job requeued for redelivery");
+    const outcome = await releaseUndeliveredClaim(job.id, claimed.tenantId, job.agentId, claimed.claimToken, "websocket delivery evidence did not persist; job requeued for redelivery");
     // "noop" here means the row left the claimable states entirely between
     // claim and evidence (expired/terminal/cascade-deleted): there is
     // nothing left to deliver or requeue.
@@ -326,7 +326,7 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
   return "delivered";
 }
 
-export async function handleAgentMessage(agentId: string, raw: string): Promise<void> {
+export async function handleAgentMessage(agentId: string, tenantId: string, raw: string): Promise<void> {
   let msg: unknown;
   try { msg = JSON.parse(raw); } catch { return; }
   if (!msg || typeof msg !== "object") return;
@@ -334,8 +334,8 @@ export async function handleAgentMessage(agentId: string, raw: string): Promise<
   if (type !== "job_ack") return;
   if (typeof jobId !== "string" || !jobId) return;
   const token = typeof claimToken === "string" && claimToken ? claimToken : null;
-  const known = await recordJobAck(jobId, agentId, token);
-  if (!known) console.warn(`[ws] agent ${agentId} acked a job with no matching live claim (unknown, terminal, or superseded): ${jobId}`);
+  const known = await recordJobAck(jobId, tenantId, agentId, token);
+  if (!known) logWarn(`[ws] agent ${agentId} acked a job with no matching live claim (unknown, terminal, or superseded): ${jobId}`);
 }
 
 async function startJobNotificationListener(): Promise<() => Promise<void>> {
@@ -351,7 +351,7 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
         const message = JSON.parse(notification.payload) as { agentId?: unknown };
         if (typeof message.agentId === "string" && message.agentId) closeAgentSockets(message.agentId);
       } catch {
-        console.warn("[ws] ignored malformed agent-session notification");
+        logWarn("[ws] ignored malformed agent-session notification");
       }
       return;
     }
@@ -368,7 +368,7 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
           dispatchOutcome: pushOutcome,
         });
       }).catch((error) => {
-        console.warn(`[ws] cross-instance job delivery failed for ${message.jobId}:`, error);
+        logWarn(`[ws] cross-instance job delivery failed for ${message.jobId}:`, { error: error });
         logWarn("print.job.ws_push_deferred", {
           requestId: typeof message.requestId === "string" ? message.requestId : null,
           jobId: message.jobId,
@@ -377,7 +377,7 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
         });
       });
     } catch {
-      console.warn("[ws] ignored malformed PostgreSQL job notification");
+      logWarn("[ws] ignored malformed PostgreSQL job notification");
     }
   };
 
@@ -393,7 +393,7 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
       void connect();
     }, delay);
     void incrementMetric("postgres_notification_reconnects_total");
-    console.warn(`[ws] PostgreSQL notification listener reconnecting in ${delay}ms`);
+    logWarn(`[ws] PostgreSQL notification listener reconnecting in ${delay}ms`);
   };
 
   const disconnect = (client: PoolClient) => {
@@ -414,7 +414,7 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
       client.on("notification", handleNotification);
       client.on("error", (error) => {
         void incrementMetric("postgres_notification_errors_total");
-        console.warn("[ws] PostgreSQL notification listener error:", error);
+        logWarn("[ws] PostgreSQL notification listener error:", { error: error });
         disconnect(client);
       });
       client.on("end", () => disconnect(client));
@@ -442,7 +442,7 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
       reconnectAttempt = 0;
     } catch (error) {
       void incrementMetric("postgres_notification_failures_total");
-      console.warn("[ws] PostgreSQL notification listener unavailable; polling remains the recovery path:", error);
+      logWarn("[ws] PostgreSQL notification listener unavailable; polling remains the recovery path:", { error: error });
       scheduleReconnect();
     }
   };
@@ -483,12 +483,22 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
   }, 30_000);
   wss.on("close", () => clearInterval(interval));
 
+  let stopped = false;
   let stopNotificationListener: (() => Promise<void>) | null = null;
   if (enableJobNotifications) {
-    void startJobNotificationListener().then((stop) => { stopNotificationListener = stop; }).catch((error) => {
-      console.warn("[ws] failed to initialize PostgreSQL notification listener:", error);
+    void startJobNotificationListener().then((stop) => {
+      if (stopped) {
+        void stop();
+      } else {
+        stopNotificationListener = stop;
+      }
+    }).catch((error) => {
+      logWarn("[ws] failed to initialize PostgreSQL notification listener:", { error: error });
     });
-    wss.on("close", () => { void stopNotificationListener?.(); });
+    wss.on("close", () => {
+      stopped = true;
+      void stopNotificationListener?.();
+    });
   }
 
   server.on("upgrade", async (req: IncomingMessage, socket, head) => {
@@ -544,6 +554,7 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
       wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
         const aws = ws as AgentSocket;
         aws.isAlive = true;
+        aws.tenantId = agent!.tenantId;
         aws.on("pong", () => { aws.isAlive = true; });
         trackAgentSocket(agent!.id, aws);
         // No per-connection bucket init here: getBucketForAgent(agentId)
@@ -580,8 +591,8 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         return;
       }
       wsMessageInFlightByAgentId.set(agentId, inFlight + 1);
-      void handleAgentMessage(agentId, raw)
-        .catch((e) => console.warn(`[ws] failed to handle message from agent ${agentId}:`, e))
+      void handleAgentMessage(agentId, ws.tenantId!, raw)
+        .catch((e) => logWarn(`[ws] failed to handle message from agent ${agentId}:`, { error: e }))
         .finally(() => {
           const remaining = (wsMessageInFlightByAgentId.get(agentId) ?? 1) - 1;
           if (remaining <= 0) wsMessageInFlightByAgentId.delete(agentId);

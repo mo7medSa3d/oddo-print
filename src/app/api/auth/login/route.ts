@@ -1,3 +1,4 @@
+import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { authenticateForTenant, customerSessionCookie } from "../../../../lib/customer-auth";
 import { reserveAuthAttempt, clientIpFrom, recordAuthSuccess } from "../../../../lib/auth-rate-limit";
@@ -31,6 +32,6 @@ export async function POST(req: Request) {
   const session = await (await import("../../../../lib/customer-auth")).issueCustomerSession(identity.userId, identity.tenantId, identity.role);
   const res = NextResponse.json({ ok: true, expiresAt: session.exp.toISOString(), tenantId: identity.tenantId, role: identity.role });
   res.headers.set("Set-Cookie", customerSessionCookie(session));
-  await writeAuditEvent({ tenantId: identity.tenantId, actorType: "user", actorId: identity.userId, action: "user.login.success" }).catch(() => undefined);
+  await writeAuditEvent({ tenantId: identity.tenantId, actorType: "user", actorId: identity.userId, action: "user.login.success" }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   return res;
 }

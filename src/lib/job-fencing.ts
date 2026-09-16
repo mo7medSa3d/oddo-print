@@ -18,12 +18,14 @@ import type { JobStatus } from "./job-status";
  */
 export function fencedJobWrite(
   jobId: string,
+  tenantId: string,
   agentId: string,
   expectedStatus: JobStatus,
   claimToken: string | null,
 ): SQL {
   return and(
     eq(printJobs.id, jobId),
+    eq(printJobs.tenantId, tenantId),
     eq(printJobs.agentId, agentId),
     eq(printJobs.status, expectedStatus),
     sql`claim_token IS NOT DISTINCT FROM ${claimToken}`,
@@ -38,6 +40,7 @@ export function fencedJobWrite(
  */
 export function fencedDeliveryWrite(
   jobId: string,
+  tenantId: string,
   agentId: string,
   claimToken: string | null | undefined,
   statuses: readonly JobStatus[],
@@ -47,6 +50,7 @@ export function fencedDeliveryWrite(
     : sql`claim_token IS NULL`;
   return and(
     eq(printJobs.id, jobId),
+    eq(printJobs.tenantId, tenantId),
     eq(printJobs.agentId, agentId),
     inArray(printJobs.status, [...statuses] as [JobStatus, ...JobStatus[]]),
     tokenPred,

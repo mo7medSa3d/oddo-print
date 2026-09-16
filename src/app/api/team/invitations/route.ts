@@ -1,3 +1,4 @@
+import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantInvitations, users } from "../../../../db/schema";
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
     await db.update(tenantInvitations).set({ revokedAt: new Date() }).where(eq(tenantInvitations.id, id));
     return NextResponse.json({ error: "Invitation delivery is temporarily unavailable" }, { status: 503 });
   }
-  await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "team.invitation.created", resourceType: "tenant_invitation", resourceId: id }).catch(() => undefined);
+  await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "team.invitation.created", resourceType: "tenant_invitation", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   return NextResponse.json({ ok: true, id });
 }
 

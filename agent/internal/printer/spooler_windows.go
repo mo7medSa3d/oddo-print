@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"golang.org/x/sys/windows/registry"
 	"log"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -221,10 +223,12 @@ func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNo
 	if err != nil {
 		return spoolerTaskResult{err: fmt.Errorf("invalid document name: %w", err)}
 	}
+	defer runtime.KeepAlive(docName)
 	dataType, err := syscall.UTF16PtrFromString("RAW")
 	if err != nil {
 		return spoolerTaskResult{err: fmt.Errorf("invalid datatype: %w", err)}
 	}
+	defer runtime.KeepAlive(dataType)
 	di := docInfo1{pDocName: docName, pDatatype: dataType}
 	jobID, err := sys.startDocPrinterW(hPrinter, &di)
 	if jobID == 0 {
@@ -631,6 +635,35 @@ func utf16PtrToString(p *uint16) string {
 	return windows.UTF16PtrToString(p)
 }
 
+func fallbackRegistryPrinters() ([]DeviceInfo, error) {
+	log.Printf("[discovery] falling back to registry for spooler printers")
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion\Print\Printers`, registry.READ)
+	if err != nil {
+		return nil, fmt.Errorf("registry fallback failed to open Printers key: %w", err)
+	}
+	defer k.Close()
+
+	names, err := k.ReadSubKeyNames(-1)
+	if err != nil {
+		return nil, fmt.Errorf("registry fallback failed to read printer names: %w", err)
+	}
+
+	var out []DeviceInfo
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		out = append(out, DeviceInfo{
+			Name:           name,
+			Protocol:       "spooler",
+			ConnectionType: "spooler",
+			Endpoint:       name,
+		})
+	}
+	log.Printf("[discovery] registry fallback found %d printers", len(out))
+	return out, nil
+}
+
 func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 	const (
 		printerEnumLocal       = 0x00000002
@@ -641,7 +674,7 @@ func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 	log.Printf("[discovery] starting Windows spooler discovery (EnumPrintersW level %d, flags 0x%x)", level, flags)
 
 	var needed, returned uint32
-	procEnumPrintersW.Call(
+	ret, _, lastErr := procEnumPrintersW.Call(
 		flags,
 		0,
 		uintptr(level),
@@ -651,11 +684,17 @@ func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 		uintptr(unsafe.Pointer(&returned)),
 	)
 	if needed == 0 {
+		// If EnumPrintersW fails (e.g. RPC unavailable, spooler stopped), fallback to registry.
+		// On success with no printers, ret != 0.
+		if ret == 0 {
+			log.Printf("[discovery] EnumPrintersW sizing failed (spooler may be stopped): %v", lastErr)
+			return fallbackRegistryPrinters()
+		}
 		return nil, nil
 	}
 
 	buf := make([]byte, needed)
-	ret, _, lastErr := procEnumPrintersW.Call(
+	ret, _, lastErr = procEnumPrintersW.Call(
 		flags,
 		0,
 		uintptr(level),
@@ -678,7 +717,8 @@ func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 			)
 		}
 		if ret == 0 {
-			return nil, fmt.Errorf("EnumPrintersW failed: %v", lastErr)
+			log.Printf("[discovery] EnumPrintersW failed: %v", lastErr)
+			return fallbackRegistryPrinters()
 		}
 	}
 
@@ -702,5 +742,6 @@ func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 			Endpoint:       name,
 		})
 	}
+	runtime.KeepAlive(buf)
 	return out, nil
 }

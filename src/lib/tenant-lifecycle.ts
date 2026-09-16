@@ -2,6 +2,7 @@ import { db } from "../db";
 import { tenants } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { writeAuditEvent, type AuditActor } from "./audit";
+import { logError } from "./log";
 
 export type TenantLifecycleState = "active" | "suspended" | "deleted";
 
@@ -111,7 +112,7 @@ export async function transitionTenantLifecycle(
     resourceType: "tenant",
     resourceId: tenantId,
     metadata: { from: current, to: next, reason: reason.trim() },
-  }).catch(() => undefined);
+  }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
 
   return { changed: true, lifecycle: next, previousLifecycle: current };
 }

@@ -511,9 +511,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	heartbeatTicker := time.NewTicker(30 * time.Second)
 	pollTicker := time.NewTicker(10 * time.Second) // Fallback poll
 	discoveryTicker := time.NewTicker(30 * time.Second)
+	cleanupTicker := time.NewTicker(24 * time.Hour)
 	defer heartbeatTicker.Stop()
 	defer pollTicker.Stop()
 	defer discoveryTicker.Stop()
+	defer cleanupTicker.Stop()
 
 	// Send an immediate heartbeat/poll on startup instead of waiting a full tick.
 	go a.sendHeartbeatGuarded()
@@ -558,6 +560,15 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 		case <-discoveryTicker.C:
 			go a.pollDiscovery(ctx)
+		case <-cleanupTicker.C:
+			go func() {
+				deleted, err := a.queue.CleanupTerminal(7)
+				if err != nil {
+					log.Printf("Background queue cleanup failed: %v", err)
+				} else if deleted > 0 {
+					log.Printf("Background queue cleanup deleted %d old terminal jobs", deleted)
+				}
+			}()
 		}
 	}
 }
@@ -1706,15 +1717,9 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// bookkeeping. Gateway status callbacks (network I/O) are done outside the
 	// critical section so a slow/unresponsive gateway never blocks other jobs
 	// queued for the same printer.
-	resolutionStart := time.Now()
-	lock := a.getPrinterLock(printerID)
-	lock.Lock()
-	log.Printf("print.trace printer_lock_acquired request_id=%s job_id=%s printer_id=%s wait_ms=%d", requestID, jobID, printerID, time.Since(resolutionStart).Milliseconds())
-	// Re-check idempotency now that we hold the lock, in case a racing
-	// delivery (WS + poll fallback both firing) got here first.
+	// Re-check idempotency in case a racing delivery (WS + poll fallback both firing) got here first.
 	if a.queue.IsProcessed(jobID) {
-		lock.Unlock()
-		log.Printf("Job %s was already processed while waiting for the printer lock. Skipping.", jobID)
+		log.Printf("Job %s was already processed while waiting for dispatch. Skipping.", jobID)
 		return
 	}
 
@@ -1728,7 +1733,6 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// single byte (LAW: no dispatch without durable local evidence).
 	ledgerStart := time.Now()
 	if err := a.queue.BeginPrint(jobID, printerID, pl.Data, claimToken, a.cfg.ReprintAfterCrashEnabled()); err != nil {
-		lock.Unlock()
 		if errors.Is(err, queue.ErrTerminalState) {
 			// Primitive-level duplicate-print defense: the ledger already
 			// holds a terminal physical outcome for this job id. Re-report
@@ -1753,7 +1757,6 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		return
 	}
 	log.Printf("print.trace local_ledger_ready request_id=%s job_id=%s printer_id=%s ledger_latency_ms=%d", requestID, jobID, printerID, time.Since(ledgerStart).Milliseconds())
-	lock.Unlock()
 
 	// Report printing outside the per-printer lock (network I/O must not
 	// hold mutex) - AND gate physical dispatch on the gateway's answer.
@@ -1783,6 +1786,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// in case the same jobId was already completed while we were reporting
 	// "printing" or waiting for the printer lock. Local queue updates are kept
 	// inside the critical section so a waiter sees the terminal state.
+	lock := a.getPrinterLock(printerID)
 	lock.Lock()
 	// Only physical execution consumes a global worker slot. Jobs waiting for
 	// the same printer lock must not occupy all worker slots and starve jobs

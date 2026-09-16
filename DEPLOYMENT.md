@@ -66,7 +66,7 @@ NODE_ENV=production npm start
 ```caddyfile
 gateway.example.com {
     reverse_proxy localhost:3000 {
-        header_up X-Trust-Proxy-Secret {$TRUST_PROXY_SECRET}
+        header_up X-Gateway-Proxy-Token {$TRUST_PROXY_SECRET}
     }
 }
 ```

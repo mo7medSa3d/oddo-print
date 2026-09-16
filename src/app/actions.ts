@@ -1,4 +1,5 @@
 "use server";
+import { logError } from "../lib/log";
 
 import { db } from "../db";
 import { agents, printers, printJobs, discoverySessions, discoveredDevices } from "../db/schema";
@@ -75,7 +76,7 @@ export async function createAgent(name: string) {
     if (error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError) throw new ActionError(error.message, 403);
     throw error;
   }
-  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.paired", resourceType: "agent", resourceId: id }).catch(() => undefined);
+  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.paired", resourceType: "agent", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   revalidatePath("/dashboard");
   return { id, pairingCode, expiresAt, expires_at: expiresAt.toISOString() };
 }
@@ -133,7 +134,7 @@ export async function deleteAgent(id: string) {
     await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ agentId })}::text)`);
   });
 
-  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.deleted", resourceType: "agent", resourceId: agentId }).catch(() => undefined);
+  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.deleted", resourceType: "agent", resourceId: agentId }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   revalidatePath("/dashboard");
   return { ok: true };
 }
@@ -208,7 +209,7 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
     if (owner.lifecycle !== "active") throw new ActionError(`The agent owning this printer is ${owner.lifecycle}; reactivate the agent first.`, 409);
   }
   await db.update(printers).set({ lifecycle, updatedAt: new Date() }).where(and(eq(printers.id, id), eq(printers.tenantId, manager.tenantId)));
-  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: `printer.${lifecycle}`, resourceType: "printer", resourceId: id }).catch(() => undefined);
+  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: `printer.${lifecycle}`, resourceType: "printer", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   revalidatePath("/dashboard");
 }
 
@@ -218,7 +219,7 @@ export async function setAgentLifecycle(id: string, lifecycle: "active" | "disab
   try {
     const result = await transitionAgentLifecycle(id, lifecycle, manager.tenantId);
     if (!result) throw new ActionError("Agent not found", 404);
-    void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: `agent.${lifecycle}`, resourceType: "agent", resourceId: id }).catch(() => undefined);
+    void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: `agent.${lifecycle}`, resourceType: "agent", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
     revalidatePath("/dashboard");
     return { lifecycle: result.lifecycle, pairingCode: result.pairingCode };
   } catch (error) {

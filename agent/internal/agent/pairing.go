@@ -32,8 +32,14 @@ func validateServerURL(raw string) error {
 	if u.RawQuery != "" || u.Fragment != "" {
 		return fmt.Errorf("server URL must not contain query strings or fragments")
 	}
-	if u.Scheme == "https" || u.Scheme == "http" {
+	if u.Scheme == "https" {
 		return nil
+	}
+	if u.Scheme == "http" {
+		if os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
+			return nil
+		}
+		return fmt.Errorf("http URL %q requires explicit opt-in via ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP=1 environment variable", raw)
 	}
 	return fmt.Errorf("server URL scheme must be http or https, got %q", u.Scheme)
 }

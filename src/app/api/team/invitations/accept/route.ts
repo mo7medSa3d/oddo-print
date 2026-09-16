@@ -1,3 +1,4 @@
+import { logError } from "../../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { tenantInvitations, tenantUsers, users } from "../../../../../db/schema";
@@ -30,6 +31,6 @@ export async function POST(req: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error && error.message === "Invitation already consumed" ? "Invitation is already used" : "Invitation could not be accepted" }, { status: 409 });
   }
-  await writeAuditEvent({ tenantId: row.tenantId, actorType: "user", actorId: user.id, action: "team.invitation.accepted", resourceType: "tenant_invitation", resourceId: row.id }).catch(() => undefined);
+  await writeAuditEvent({ tenantId: row.tenantId, actorType: "user", actorId: user.id, action: "team.invitation.accepted", resourceType: "tenant_invitation", resourceId: row.id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   return NextResponse.json({ ok: true, tenantId: row.tenantId });
 }

@@ -1,3 +1,4 @@
+import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { billingEvents, plans, tenantSubscriptions } from "../../../../db/schema";
@@ -137,7 +138,7 @@ export async function POST(req: Request) {
       await tx.update(billingEvents).set({ tenantId: tenantId ?? null, processedAt: new Date() }).where(eq(billingEvents.eventId, eventId));
     });
     if (billingIdentityConflict) return NextResponse.json({ received: true, ignored: true });
-    if (tenantId) await writeAuditEvent({ tenantId, actorType: "platform", actorId: "stripe", action: `billing.${eventType}`, resourceType: "billing_event", resourceId: eventId }).catch(() => undefined);
+    if (tenantId) await writeAuditEvent({ tenantId, actorType: "platform", actorId: "stripe", action: `billing.${eventType}`, resourceType: "billing_event", resourceId: eventId }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
     return NextResponse.json({ received: true });
   } catch {
     return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });

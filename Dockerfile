@@ -33,6 +33,7 @@ COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=build /app/next.config.ts ./next.config.ts
+COPY --from=build /app/tsconfig.json ./tsconfig.json
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/package-lock.json ./package-lock.json
 
@@ -41,7 +42,7 @@ USER node
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
-  CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/live || exit 1
 
 # Migrations are a release/deployment concern and must run in a dedicated,
 # ordered migration job before application rollout. Runtime replicas must not

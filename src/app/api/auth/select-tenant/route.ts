@@ -1,3 +1,4 @@
+import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers } from "../../../../db/schema";
@@ -16,7 +17,7 @@ export async function POST(req: Request) {
   if (!membership) return NextResponse.json({ error: "Workspace not available" }, { status: 403 });
   const session = await issueCustomerSession(claims.userId, membership.tenantId, membership.role as Parameters<typeof issueCustomerSession>[2]);
   await revokeManagerSession(claims.jti);
-  await writeAuditEvent({ tenantId: membership.tenantId, actorType: "user", actorId: claims.userId, action: "tenant.selected" }).catch(() => undefined);
+  await writeAuditEvent({ tenantId: membership.tenantId, actorType: "user", actorId: claims.userId, action: "tenant.selected" }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   const res = NextResponse.json({ ok: true, tenantId: membership.tenantId, role: membership.role });
   res.headers.set("Set-Cookie", managerCookieHeader(session.token, session.exp));
   return res;

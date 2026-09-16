@@ -46,6 +46,7 @@ export const MAX_DELIVERY_ATTEMPTS = 5;
 
 export type ClaimedJobRow = {
   id: string;
+  tenantId: string;
   agentId: string;
   printerId: string;
   documentType: string | null;
@@ -62,6 +63,7 @@ export type ClaimedJobRow = {
 
 export const CLAIM_RETURNING = sql`
   print_jobs.id AS id,
+  print_jobs.tenant_id AS "tenantId",
   print_jobs.agent_id AS "agentId",
   print_jobs.printer_id AS "printerId",
   print_jobs.document_type AS "documentType",
@@ -130,7 +132,7 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND a.status = 'online'
         AND pr.lifecycle = 'active'
         AND pr.status = 'online'
-      FOR UPDATE OF p, a, pr SKIP LOCKED
+      FOR UPDATE OF p SKIP LOCKED
     `);
     if (locked.rows.length === 0) return null;
 
@@ -154,7 +156,7 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
   });
 }
 
-export async function markJobDelivered(jobId: string, agentId: string, claimToken: string | null): Promise<boolean> {
+export async function markJobDelivered(jobId: string, tenantId: string, agentId: string, claimToken: string | null): Promise<boolean> {
   // Fenced to THIS claim (the token returned by claimJobForDelivery): a
   // superseded delivery attempt can never stamp evidence onto the row of
   // the claim that replaced it. Returns whether the evidence write landed:
@@ -162,22 +164,22 @@ export async function markJobDelivered(jobId: string, agentId: string, claimToke
   // persisted, same-token delivered_at counts as delivery.
   const res = await db.update(printJobs)
     .set({ deliveredAt: new Date(), updatedAt: new Date() })
-    .where(fencedDeliveryWrite(jobId, agentId, claimToken, ["claimed", "printing"]))
+    .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed", "printing"]))
     .returning({ id: printJobs.id });
   return res.length > 0;
 }
 
-export async function recordJobAck(jobId: string, agentId: string, claimToken?: string | null): Promise<boolean> {
+export async function recordJobAck(jobId: string, tenantId: string, agentId: string, claimToken?: string | null): Promise<boolean> {
   const res = await db.update(printJobs)
     .set({ ackedAt: sql`COALESCE(${printJobs.ackedAt}, now())`, deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`, updatedAt: new Date() })
-    .where(fencedDeliveryWrite(jobId, agentId, claimToken, ["claimed", "printing"]))
+    .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed", "printing"]))
     .returning({ id: printJobs.id });
   return res.length > 0;
 }
 
 export type ReleaseOutcome = "requeued" | "failed" | "noop";
 
-export async function releaseUndeliveredClaim(jobId: string, agentId: string, claimToken: string | null, reason: string): Promise<ReleaseOutcome> {
+export async function releaseUndeliveredClaim(jobId: string, tenantId: string, agentId: string, claimToken: string | null, reason: string): Promise<ReleaseOutcome> {
   // Fenced by the claim token of the delivery attempt being released: if a
   // concurrent reclaim already produced a newer claim, neither UPDATE may
   // match it. The status='claimed' predicate alone would be re-claimable
@@ -190,6 +192,7 @@ export async function releaseUndeliveredClaim(jobId: string, agentId: string, cl
         updated_at = now(),
         error = ${reason}
     WHERE id = ${jobId}
+      AND tenant_id = ${tenantId}
       AND agent_id = ${agentId}
       AND status = 'claimed'
       AND claim_token IS NOT DISTINCT FROM ${claimToken}
@@ -206,6 +209,7 @@ export async function releaseUndeliveredClaim(jobId: string, agentId: string, cl
         updated_at = now(),
         error = ${`${reason} (giving up after ${MAX_DELIVERY_ATTEMPTS} delivery attempts)`}
     WHERE id = ${jobId}
+      AND tenant_id = ${tenantId}
       AND agent_id = ${agentId}
       AND status = 'claimed'
       AND claim_token IS NOT DISTINCT FROM ${claimToken}

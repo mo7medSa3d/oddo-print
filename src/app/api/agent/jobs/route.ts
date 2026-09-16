@@ -45,8 +45,8 @@ export async function GET(req: Request) {
     const countResult = await tx.execute(sql`
       SELECT COUNT(*)::int AS count
       FROM print_jobs p
-      JOIN agents a ON a.id = p.agent_id
-      JOIN printers pr ON pr.id = p.printer_id
+      JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
+      JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
       WHERE p.agent_id = ${agent.id}
         AND p.status IN ('claimed', 'printing')
         AND p.expires_at > now()
@@ -63,8 +63,8 @@ export async function GET(req: Request) {
       WITH stale_candidates AS (
         SELECT p.id, p.created_at, 0 AS priority
         FROM print_jobs p
-        JOIN agents a ON a.id = p.agent_id
-        JOIN printers pr ON pr.id = p.printer_id
+        JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
+        JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
         WHERE p.agent_id = ${agent.id}
           AND p.expires_at > now()
           AND p.status = 'claimed'
@@ -83,8 +83,8 @@ export async function GET(req: Request) {
       queued_candidates AS (
         SELECT p.id, p.created_at, 1 AS priority
         FROM print_jobs p
-        JOIN agents a ON a.id = p.agent_id
-        JOIN printers pr ON pr.id = p.printer_id
+        JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
+        JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
         WHERE p.agent_id = ${agent.id}
           AND p.expires_at > now()
           AND p.status = 'queued'
@@ -107,15 +107,15 @@ export async function GET(req: Request) {
         SELECT p.id
         FROM print_jobs p
         JOIN candidate_ids c ON c.id = p.id
-        JOIN agents a ON a.id = p.agent_id
-        JOIN printers pr ON pr.id = p.printer_id
+        JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
+        JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
         WHERE a.lifecycle = 'active'
           AND a.status = 'online'
           AND pr.lifecycle = 'active'
           AND pr.status = 'online'
         ORDER BY c.priority ASC, c.created_at ASC
         LIMIT ${MAX_CLAIM_BATCH}
-        FOR UPDATE OF p, a, pr SKIP LOCKED
+        FOR UPDATE OF p SKIP LOCKED
       )
       UPDATE print_jobs
       SET
@@ -201,7 +201,7 @@ export async function PATCH(req: Request) {
         deliveredAt: sql`CASE WHEN ${printJobs.status} IN ('claimed', 'printing') THEN COALESCE(${printJobs.deliveredAt}, now()) ELSE ${printJobs.deliveredAt} END`,
       })
       .where(and(
-        fencedJobWrite(jobId, agent.id, currentStatus, claimToken),
+        fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
         sql`${printJobs.expiresAt} <= now()`,
       ))
       .returning({ status: printJobs.status, error: printJobs.error });
@@ -255,7 +255,7 @@ export async function PATCH(req: Request) {
         deliveryAttempts: sql`GREATEST(${printJobs.deliveryAttempts} - 1, 0)`,
         retries: sql`${printJobs.retries} + 1`,
       })
-      .where(fencedJobWrite(jobId, agent.id, currentStatus, claimToken))
+      .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
       .returning({ status: printJobs.status, error: printJobs.error });
     if (updated.length !== 1) {
       const winner = await db.query.printJobs.findFirst({ where: whereClause });
@@ -293,7 +293,7 @@ export async function PATCH(req: Request) {
         updatedAt: new Date(),
         deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
       })
-      .where(fencedJobWrite(jobId, agent.id, currentStatus, claimToken))
+      .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
       .returning({ status: printJobs.status, error: printJobs.error });
     if (postExpired.length !== 1) {
       const winner = await db.query.printJobs.findFirst({ where: whereClause });
@@ -328,7 +328,7 @@ export async function PATCH(req: Request) {
       updatedAt: new Date(),
       deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
     })
-    .where(fencedJobWrite(jobId, agent.id, currentStatus, claimToken))
+    .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
     .returning({ status: printJobs.status, error: printJobs.error });
 
   if (updated.length !== 1) {

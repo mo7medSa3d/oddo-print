@@ -16,7 +16,7 @@
 - Scoped to tenant via `api_keys.tenant_id`
 
 ### Customer Authentication
-- Email/password with bcrypt hash
+- Email/password with Argon2id hash (legacy scrypt hashes auto-upgraded on login)
 - Email verification required before full access
 - Password reset with time-limited, single-use tokens (SHA-256 hashed)
 - Rate limiting on login attempts (per-key lockout in `auth_rate_limits`)

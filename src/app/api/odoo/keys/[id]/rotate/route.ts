@@ -1,3 +1,4 @@
+import { logError } from "../../../../../../lib/log";
 import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../../../../../db";
@@ -67,7 +68,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       resourceType: "api_key",
       resourceId: rotated.newId,
       metadata: { replacedKeyId: rotated.oldId, scope: rotated.scope },
-    }).catch(() => undefined);
+    }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
 
     return NextResponse.json({
       id: rotated.newId,
@@ -79,7 +80,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       note: "Update the Odoo installation with this new key now. The previous key has been revoked and the raw key will never be shown again.",
     }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    console.error("[odoo] API key rotation failed", error instanceof Error ? error.message : error);
+    logError("[odoo] API key rotation failed", { error: error instanceof Error ? error.message : error });
     return NextResponse.json({ error: "Internal server error", code: "INTERNAL_ERROR" }, { status: 500 });
   }
 }

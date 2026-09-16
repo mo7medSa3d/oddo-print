@@ -73,3 +73,37 @@ Workspace lifecycle uses `POST /api/onboarding`. Team lifecycle uses `GET/POST/D
 Billing uses `GET /api/billing/plans`, `POST /api/billing/checkout`, `POST /api/billing/portal`, `POST /api/billing/cancel`, `POST /api/billing/resume`, and `POST /api/billing/webhook`. Stripe webhook events are signature-verified and persisted by provider event ID before processing; the application database remains the local subscription/entitlement source of truth.
 
 The public plan catalog is provisioned with `npm run db:provision-plans` using operator-supplied `STRIPE_PLAN_CATALOG` JSON. No Stripe Price IDs or commercial limits are hardcoded in the repository.
+
+## `POST /api/print/jobs/batch-status`
+
+Authenticated with the Odoo installation key. Request a batch of print job statuses. Max 100 job IDs per request.
+
+Request:
+
+```json
+{
+  "jobIds": ["job-1", "job-2"]
+}
+```
+
+Response:
+
+```json
+{
+  "jobs": [
+    {
+      "jobId": "job-1",
+      "status": "completed",
+      "printerId": "runtime-printer-id",
+      "agentId": "agent-id",
+      "destination": "Main POS",
+      "documentType": "receipt",
+      "error": null,
+      "deliveredAt": "2026-09-07T15:00:00.000Z",
+      "ackedAt": "2026-09-07T15:00:05.000Z",
+      "updatedAt": "2026-09-07T15:00:05.000Z"
+    }
+  ]
+}
+```
+Only jobs matching the authenticated installation key and authorized document types are returned.

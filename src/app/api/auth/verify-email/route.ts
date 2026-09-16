@@ -1,3 +1,4 @@
+import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { db } from "../../../../db";
@@ -36,6 +37,6 @@ export async function POST(req: Request) {
     throw error;
   }
   const session = await issueCustomerSession(user.id, tenantId!, role);
-  await import("../../../../lib/audit").then(({ writeAuditEvent }) => writeAuditEvent({ tenantId: tenantId!, actorType: "user", actorId: user.id, action: "user.email_verified" })).catch(() => undefined);
+  await import("../../../../lib/audit").then(({ writeAuditEvent }) => writeAuditEvent({ tenantId: tenantId!, actorType: "user", actorId: user.id, action: "user.email_verified" })).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   return NextResponse.json({ ok: true, next: "/onboarding" }, { headers: { "Set-Cookie": customerSessionCookie(session) } });
 }

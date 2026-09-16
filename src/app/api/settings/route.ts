@@ -1,3 +1,4 @@
+import { logError } from "../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { tenants, users } from "../../../db/schema";
@@ -25,6 +26,6 @@ export async function PATCH(req: Request) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (name.length < 2 || name.length > 120) return NextResponse.json({ error: "Workspace name must be 2-120 characters" }, { status: 400 });
   await db.update(tenants).set({ name, updatedAt: new Date() }).where(eq(tenants.id, claims.tenantId));
-  await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "tenant.updated", resourceType: "tenant", resourceId: claims.tenantId }).catch(() => undefined);
+  await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "tenant.updated", resourceType: "tenant", resourceId: claims.tenantId }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   return NextResponse.json({ ok: true, name });
 }

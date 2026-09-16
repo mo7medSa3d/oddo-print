@@ -394,7 +394,7 @@ func TestDifferentJobsSamePrinterSerialized(t *testing.T) {
 	p := &fakePrinter{}
 	ag := newTestAgent(t, "printer_1", p)
 	ctx := context.Background()
-	const jobs = 25
+	const jobs = maxPendingJobsPerPrinter
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := 0; i < jobs; i++ {

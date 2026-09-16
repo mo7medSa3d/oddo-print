@@ -1,3 +1,4 @@
+import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, users } from "../../../../db/schema";
@@ -28,7 +29,7 @@ export async function PATCH(req: Request) {
   if (!target) return NextResponse.json({ error: "Member not found" }, { status: 404 });
   if (target.role === "owner") return NextResponse.json({ error: "Owner role must be transferred explicitly" }, { status: 409 });
   await db.update(tenantUsers).set({ role, updatedAt: new Date() }).where(and(eq(tenantUsers.tenantId, claims.tenantId), eq(tenantUsers.userId, userId)));
-  await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "team.member.role_changed", resourceType: "user", resourceId: userId, metadata: { role } }).catch(() => undefined);
+  await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "team.member.role_changed", resourceType: "user", resourceId: userId, metadata: { role } }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   return NextResponse.json({ ok: true });
 }
 
@@ -42,6 +43,6 @@ export async function DELETE(req: Request) {
   if (!target) return NextResponse.json({ error: "Member not found" }, { status: 404 });
   if (target.role === "owner") return NextResponse.json({ error: "Transfer ownership before removing the owner" }, { status: 409 });
   await db.delete(tenantUsers).where(and(eq(tenantUsers.tenantId, claims.tenantId), eq(tenantUsers.userId, userId)));
-  await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "team.member.removed", resourceType: "user", resourceId: userId }).catch(() => undefined);
+  await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "team.member.removed", resourceType: "user", resourceId: userId }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   return NextResponse.json({ ok: true });
 }

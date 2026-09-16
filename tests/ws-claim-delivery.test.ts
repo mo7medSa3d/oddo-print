@@ -15,7 +15,7 @@ import { GET as agentJobsGET, PATCH as agentJobsPATCH } from "../src/app/api/age
 // never on socket success alone. Tests redirect the evidence write here.
 // (The real implementation is stashed on globalThis because this file's own
 // static import resolves through the mock below.)
-type MarkFn = (jobId: string, agentId: string, claimToken: string | null) => Promise<boolean>;
+type MarkFn = (jobId: string, tenantId: string, agentId: string, claimToken: string | null) => Promise<boolean>;
 vi.mock("../src/lib/job-delivery", async (importOriginal) => {
   const mod = await importOriginal<typeof import("../src/lib/job-delivery")>();
   (globalThis as unknown as { __realMarkJobDelivered: MarkFn }).__realMarkJobDelivered = mod.markJobDelivered;
@@ -85,7 +85,7 @@ suite("WS claim-before-delivery", () => {
     const envelope = await delivered;
     // A tokenless ack (legacy/superseded frame) must NOT be adopted by a
     // tokenized live claim.
-    expect(await recordJobAck("job_ack", f.agentId)).toBe(false);
+    expect(await recordJobAck("job_ack", f.tenantId, f.agentId)).toBe(false);
     expect((await jobRow("job_ack")).acked_at).toBeNull();
     ws.send(JSON.stringify({ type: "job_ack", jobId: "job_ack", claimToken: envelope.claimToken }));
     await expect.poll(async () => (await jobRow("job_ack")).acked_at !== null, { timeout: 5000 }).toBe(true);
@@ -97,12 +97,12 @@ suite("WS claim-before-delivery", () => {
     const claim = await claimJobForDelivery("job_ack_forged", f.agentId);
     expect(typeof claim!.claimToken).toBe("string");
     expect(await recordJobAck("job_ack_forged", f.agentId, "forged-token")).toBe(false);
-    expect(await recordJobAck("job_ack_forged", f.agentId)).toBe(false);
+    expect(await recordJobAck("job_ack_forged", f.tenantId, f.agentId)).toBe(false);
     const row = await jobRow("job_ack_forged");
     expect(row.acked_at).toBeNull();
     expect(row.delivered_at).toBeNull();
     expect(row.status).toBe("claimed");
-    expect(await recordJobAck("job_ack_forged", f.agentId, claim!.claimToken)).toBe(true);
+    expect(await recordJobAck("job_ack_forged", f.tenantId, f.agentId, claim!.claimToken)).toBe(true);
     expect((await jobRow("job_ack_forged")).acked_at).not.toBeNull();
   });
 
@@ -110,7 +110,7 @@ suite("WS claim-before-delivery", () => {
     await insertQueuedJob(f, "job_late_ack");
     const lateClaim = await claimJobForDelivery("job_late_ack", f.agentId);
     await pool().query(`UPDATE print_jobs SET status='success', acked_at=NULL, delivered_at=NULL WHERE id='job_late_ack'`);
-    expect(await recordJobAck("job_late_ack", f.agentId, lateClaim!.claimToken)).toBe(false);
+    expect(await recordJobAck("job_late_ack", f.tenantId, f.agentId, lateClaim!.claimToken)).toBe(false);
     const row = await jobRow("job_late_ack");
     expect(row.status).toBe("success");
     expect(row.acked_at).toBeNull();
@@ -150,9 +150,9 @@ suite("WS claim-before-delivery", () => {
     const claim = await claimJobForDelivery("job_t3b", f.agentId);
     expect(claim?.status).toBe("claimed");
     // A WRONG token must not release someone else's claim.
-    expect(await releaseUndeliveredClaim("job_t3b", f.agentId, "forged-token", "websocket delivery failed after claim")).toBe("noop");
+    expect(await releaseUndeliveredClaim("job_t3b", f.tenantId, f.agentId, "forged-token", "websocket delivery failed after claim")).toBe("noop");
     expect((await jobRow("job_t3b")).status).toBe("claimed");
-    expect(await releaseUndeliveredClaim("job_t3b", f.agentId, claim!.claimToken, "websocket delivery failed after claim")).toBe("requeued");
+    expect(await releaseUndeliveredClaim("job_t3b", f.tenantId, f.agentId, claim!.claimToken, "websocket delivery failed after claim")).toBe("requeued");
     const row = await jobRow("job_t3b");
     expect(row.id).toBe("job_t3b");
     expect(row.status).toBe("queued");
@@ -164,7 +164,7 @@ suite("WS claim-before-delivery", () => {
     for (let i = 0; i < MAX_DELIVERY_ATTEMPTS; i += 1) {
       const claim = await claimJobForDelivery("job_t3c", f.agentId);
       expect(claim).not.toBeNull();
-      expect(await releaseUndeliveredClaim("job_t3c", f.agentId, claim!.claimToken, "websocket delivery failed after claim")).toBe(i === MAX_DELIVERY_ATTEMPTS - 1 ? "failed" : "requeued");
+      expect(await releaseUndeliveredClaim("job_t3c", f.tenantId, f.agentId, claim!.claimToken, "websocket delivery failed after claim")).toBe(i === MAX_DELIVERY_ATTEMPTS - 1 ? "failed" : "requeued");
     }
     const row = await jobRow("job_t3c");
     expect(row.status).toBe("failed");
@@ -211,7 +211,7 @@ suite("WS claim-before-delivery", () => {
     // reclaimable afterwards under a fresh token.
     await insertQueuedJob(f, "job_reject_evidence");
     const claim = await claimJobForDelivery("job_reject_evidence", f.agentId);
-    await realMarkJobDelivered("job_reject_evidence", f.agentId, claim!.claimToken);
+    await realMarkJobDelivered("job_reject_evidence", f.tenantId, f.agentId, claim!.claimToken);
     await pool().query(`UPDATE print_jobs SET acked_at = now() WHERE id = 'job_reject_evidence'`);
     const res = await agentJobsPATCH(agentRequest(f, "PATCH", {
       jobId: "job_reject_evidence", status: "queued", reason: "pending_full", claimToken: claim!.claimToken,
@@ -311,7 +311,7 @@ suite("WS claim-before-delivery", () => {
   it("a DELIVERED stale claim is never re-queued; it fails with an unknown-outcome marker", async () => {
     await insertQueuedJob(f, "job_del_stale");
     const claim = await claimJobForDelivery("job_del_stale", f.agentId);
-    await realMarkJobDelivered("job_del_stale", f.agentId, claim!.claimToken);
+    await realMarkJobDelivered("job_del_stale", f.tenantId, f.agentId, claim!.claimToken);
     await pool().query(`UPDATE print_jobs SET claimed_at = now() - interval '200 seconds', delivered_at = now() - interval '200 seconds', updated_at = now() - interval '200 seconds' WHERE id = 'job_del_stale'`);
     const sweep = await sweepPrintJobs({ agentId: f.agentId });
     expect(sweep.silentDeliveries).toBeGreaterThanOrEqual(1);
@@ -465,7 +465,7 @@ suite("WS claim-before-delivery", () => {
     // delivery hand-off and must burn delivery_attempts, never retries.
     await insertQueuedJob(f, "job_release");
     const claim = await claimJobForDelivery("job_release", f.agentId);
-    const outcome = await releaseUndeliveredClaim("job_release", f.agentId, claim!.claimToken, "websocket delivery failed after claim; job requeued for redelivery");
+    const outcome = await releaseUndeliveredClaim("job_release", f.tenantId, f.agentId, claim!.claimToken, "websocket delivery failed after claim; job requeued for redelivery");
     expect(outcome).toBe("requeued");
     const row = await jobRow("job_release");
     expect(row.status).toBe("queued");
@@ -482,7 +482,7 @@ suite("WS claim-before-delivery", () => {
     expect(c2).not.toBeNull();
     const c3 = await claimJobForDelivery("job_exp_ev", f.agentId);
     expect(c3).not.toBeNull();
-    await realMarkJobDelivered("job_exp_ev", f.agentId, c3!.claimToken);
+    await realMarkJobDelivered("job_exp_ev", f.tenantId, f.agentId, c3!.claimToken);
     await pool().query(`UPDATE print_jobs SET expires_at = now() - interval '1 second' WHERE id IN ('job_exp_qu','job_exp_cl','job_exp_ev')`);
     await sweepPrintJobs();
     const q = await jobRow("job_exp_qu");

@@ -1,3 +1,4 @@
+import { logError } from "../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { agents, printers } from "../../../db/schema";
@@ -68,11 +69,11 @@ export async function POST(req: Request) {
       if (error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
       throw error;
     }
-    await writeAuditEvent({ tenantId: claims.tenantId, actorType: claims.userId ? "user" : "system", actorId: claims.userId ?? "legacy-manager", action: "printer.registered", resourceType: "printer", resourceId: row.id }).catch(() => undefined);
+    await writeAuditEvent({ tenantId: claims.tenantId, actorType: claims.userId ? "user" : "system", actorId: claims.userId ?? "legacy-manager", action: "printer.registered", resourceType: "printer", resourceId: row.id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
     return NextResponse.json(row, { status: 201 });
   } catch (error) {
     if (error instanceof Error && /already exists|duplicate/i.test(error.message)) return NextResponse.json({ error: "printer id already exists" }, { status: 409 });
-    console.error("[printers] create failed", error instanceof Error ? error.message : error);
+    logError("[printers] create failed", { error: error instanceof Error ? error.message : error });
     return NextResponse.json({ error: "Internal server error", code: "INTERNAL_ERROR" }, { status: 500 });
   }
 }

@@ -211,7 +211,7 @@ func TestDispatchBoundedAndDrained(t *testing.T) {
 	p := &fakePrinter{}
 	ag := newTestAgent(t, "p1", p)
 
-	const n = 12
+	const n = 8
 	for i := 0; i < n; i++ {
 		ag.dispatchJob(context.Background(), dispatchTestJob(
 			"burst_"+string(rune('a'+i)), "p1"))
@@ -284,6 +284,7 @@ func TestWaitForJobsNeverBlocksShutdownForever(t *testing.T) {
 // eight printing reports have been accepted, the first printer owns the
 // physical slot and the other seven are known to be waiting for that printer.
 func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
+	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "1")
 	const blockedJobs = maxConcurrentJobs
 
 	var mu sync.Mutex

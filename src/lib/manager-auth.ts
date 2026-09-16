@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { managerSessions, tenants, tenantDomains, tenantUsers, users } from "../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { createHmac, randomBytes, scrypt, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
 import { hashPassword, verifyPassword, normalizeEmail } from "./password";
 import { requireActiveTenant, TenantSuspendedError, TenantDeletedError } from "./tenant-guard";
@@ -52,9 +52,7 @@ function verify(token: string): ManagerClaims | null {
 
   const data = `${h}.${p}`;
   const expected = createHmac("sha256", getSecret()).update(data).digest("base64url");
-  const a = Buffer.from(s);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  if (!compareStringsSafe(s, expected)) return null;
 
   try {
     const claims = JSON.parse(b64urlDecode(p).toString("utf8")) as Partial<ManagerClaims>;
@@ -211,9 +209,11 @@ export function clearManagerCookieHeader(): string {
 }
 
 function compareStringsSafe(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
+  // Hash both inputs to fixed-length SHA-256 digests before comparing,
+  // so no code path branches on secret length (matching agent-auth.ts).
+  const digestA = createHash("sha256").update(a, "utf8").digest();
+  const digestB = createHash("sha256").update(b, "utf8").digest();
+  return timingSafeEqual(digestA, digestB);
 }
 
 function scryptAsync(password: string, salt: string, keylen: number): Promise<Buffer> {

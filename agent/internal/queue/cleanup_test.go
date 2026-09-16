@@ -28,7 +28,7 @@ func TestCleanupTerminalRemovesOnlyTerminalJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deleted, err := q.CleanupTerminal()
+	deleted, err := q.CleanupTerminal(0)
 	if err != nil {
 		t.Fatalf("CleanupTerminal() error = %v", err)
 	}
@@ -77,7 +77,7 @@ func TestCleanupTerminalPreservesEveryUnknownOutcomeMarker(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			deleted, err := q.CleanupTerminal()
+			deleted, err := q.CleanupTerminal(0)
 			if err != nil {
 				t.Fatalf("CleanupTerminal() error = %v", err)
 			}

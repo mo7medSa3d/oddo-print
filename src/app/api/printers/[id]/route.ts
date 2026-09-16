@@ -1,3 +1,4 @@
+import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { agents, printers } from "../../../../db/schema";
@@ -71,6 +72,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (err) return NextResponse.json({ error: err }, { status: 400 });
   }
   const [row] = await db.update(printers).set(update).where(and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId))).returning();
-  await writeAuditEvent({ tenantId: claims.tenantId, actorType: claims.userId ? "user" : "system", actorId: claims.userId ?? "legacy-manager", action: "printer.changed", resourceType: "printer", resourceId: id, metadata: { lifecycle: parsed.data.lifecycle ?? null } }).catch(() => undefined);
+  await writeAuditEvent({ tenantId: claims.tenantId, actorType: claims.userId ? "user" : "system", actorId: claims.userId ?? "legacy-manager", action: "printer.changed", resourceType: "printer", resourceId: id, metadata: { lifecycle: parsed.data.lifecycle ?? null } }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   return NextResponse.json(row);
 }

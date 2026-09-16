@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { runtimeSecret } from "../lib/runtime-secret";
 
 function configuredProxySecret(): string | null {
@@ -7,9 +7,11 @@ function configuredProxySecret(): string | null {
 }
 
 function safeEqual(left: string, right: string): boolean {
-  const a = Buffer.from(left, "utf8");
-  const b = Buffer.from(right, "utf8");
-  return a.length === b.length && timingSafeEqual(a, b);
+  // Hash both inputs to fixed-length SHA-256 digests before comparing,
+  // so no code path branches on secret length (matching agent-auth.ts).
+  const digestA = createHash("sha256").update(left, "utf8").digest();
+  const digestB = createHash("sha256").update(right, "utf8").digest();
+  return timingSafeEqual(digestA, digestB);
 }
 
 export function trustProxyEnabled(): boolean {

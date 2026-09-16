@@ -111,7 +111,7 @@ suite("end-to-end job flow (Odoo -> Gateway -> agent socket -> status)", () => {
     // The fenced status report proves the agent holds this attempt, so
     // delivery evidence is stamped now (and only now).
     expect((await jobRow(created.jobId)).delivered_at).not.toBeNull();
-    await handleAgentMessage(f.agentId, JSON.stringify({ type: "job_ack", jobId: created.jobId, claimToken: jobs[0].claimToken }));
+    await handleAgentMessage(f.agentId, f.tenantId, JSON.stringify({ type: "job_ack", jobId: created.jobId, claimToken: jobs[0].claimToken }));
     const row = await jobRow(created.jobId);
     expect(row.acked_at).not.toBeNull();
     expect(row.delivered_at).not.toBeNull();

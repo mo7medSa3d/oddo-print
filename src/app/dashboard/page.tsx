@@ -1,3 +1,4 @@
+import { logError } from "../../lib/log";
 import { db } from "../../db";
 import { agents, printers, printJobs } from "../../db/schema";
 import { and, count, desc, eq, sql } from "drizzle-orm";
@@ -85,7 +86,7 @@ export default async function DashboardPage() {
       .orderBy(desc(printJobs.createdAt))
       .limit(50);
   } catch (error: unknown) {
-    console.error("[dashboard] database load failed", error);
+    logError("[dashboard] database load failed", { error: error });
     databaseError = "PostgreSQL unavailable";
   }
 

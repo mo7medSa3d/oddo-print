@@ -110,7 +110,7 @@ func cleanupJobs(dbPath string, includeUnknown bool) (int, int, int, error) {
 		return 0, 0, 0, err
 	}
 	defer q.Close()
-	deleted, err := q.CleanupTerminal()
+	deleted, err := q.CleanupTerminal(0)
 	if err != nil {
 		return 0, 0, 0, err
 	}
