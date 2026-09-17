@@ -196,20 +196,69 @@ export async function reprintJob(jobId: string) {
 export async function setPrinterLifecycle(id: string, lifecycle: "active" | "disabled" | "retired") {
   const manager = await requireManager();
   requireManagerPermission(manager, "printers.manage");
-  const printer = await db.query.printers.findFirst({ where: and(eq(printers.id, id), eq(printers.tenantId, manager.tenantId)) });
-  if (!printer) throw new ActionError("Printer not found", 404);
-  if (printer.lifecycle === lifecycle) {
-    revalidatePath("/dashboard");
-    return;
+
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${manager.tenantId} || ':' || ${id}))`);
+
+      const locked = await tx.execute(sql`
+        SELECT id, agent_id, lifecycle
+        FROM printers
+        WHERE id = ${id} AND tenant_id = ${manager.tenantId}
+        FOR UPDATE
+      `);
+      const printer = locked.rows[0] as { id?: string; agent_id?: string; lifecycle?: unknown } | undefined;
+      if (!printer?.id) throw new ActionError("Printer not found", 404);
+      if (typeof printer.lifecycle !== "string") throw new ActionError("Printer has an invalid lifecycle.", 500);
+
+      const current = printer.lifecycle as "active" | "disabled" | "retired";
+      if (current === lifecycle) return;
+
+      if (!canTransitionLifecycle(current, lifecycle)) {
+        throw new ActionError(`This printer cannot go from ${current} to ${lifecycle}.`, 409);
+      }
+
+      if (lifecycle === "active") {
+        const agent = await tx.execute(sql`
+          SELECT lifecycle
+          FROM agents
+          WHERE id = ${printer.agent_id} AND tenant_id = ${manager.tenantId}
+          FOR UPDATE
+        `);
+        const agentLifecycle = (agent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
+        if (!agentLifecycle) throw new ActionError("The agent that owns this printer no longer exists.", 404);
+        if (agentLifecycle !== "active") {
+          throw new ActionError(`The agent owning this printer is ${agentLifecycle}; reactivate the agent first.`, 409);
+        }
+      }
+
+      const [updated] = await tx.update(printers)
+        .set({
+          lifecycle,
+          managementSource: "manager",
+          desiredRevision: sql`${printers.desiredRevision} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(printers.id, id), eq(printers.tenantId, manager.tenantId), eq(printers.lifecycle, current)))
+        .returning({ id: printers.id, lifecycle: printers.lifecycle, desiredRevision: printers.desiredRevision });
+
+      if (!updated) throw new ActionError("Printer lifecycle changed concurrently; refresh and try again.", 409);
+
+      await writeAuditEvent({
+        tenantId: manager.tenantId,
+        actorType: manager.userId ? "user" : "system",
+        actorId: manager.userId ?? "legacy-manager",
+        action: `printer.lifecycle.${lifecycle}`,
+        resourceType: "printer",
+        resourceId: id,
+        metadata: { from: current, to: lifecycle, desiredRevision: updated.desiredRevision },
+      }, tx);
+    });
+  } catch (error) {
+    if (error instanceof ActionError) throw error;
+    throw error;
   }
-  if (!canTransitionLifecycle(printer.lifecycle, lifecycle)) throw new ActionError(`This printer cannot go from ${printer.lifecycle} to ${lifecycle}.`, 409);
-  if (lifecycle === "active") {
-    const owner = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, manager.tenantId)) });
-    if (!owner) throw new ActionError("The agent that owns this printer no longer exists.", 404);
-    if (owner.lifecycle !== "active") throw new ActionError(`The agent owning this printer is ${owner.lifecycle}; reactivate the agent first.`, 409);
-  }
-  await db.update(printers).set({ lifecycle, updatedAt: new Date() }).where(and(eq(printers.id, id), eq(printers.tenantId, manager.tenantId)));
-  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: `printer.${lifecycle}`, resourceType: "printer", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
+
   revalidatePath("/dashboard");
 }
 
@@ -217,7 +266,10 @@ export async function setAgentLifecycle(id: string, lifecycle: "active" | "disab
   const manager = await requireManager();
   requireManagerPermission(manager, "agents.disable");
   try {
-    const result = await transitionAgentLifecycle(id, lifecycle, manager.tenantId);
+    const result = await transitionAgentLifecycle(id, lifecycle, manager.tenantId, {
+      type: manager.userId ? "user" : "system",
+      id: manager.userId ?? "legacy-manager",
+    });
     if (!result) throw new ActionError("Agent not found", 404);
     void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: `agent.${lifecycle}`, resourceType: "agent", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
     revalidatePath("/dashboard");
