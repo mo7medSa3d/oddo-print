@@ -38,12 +38,16 @@ export async function POST(req: Request) {
       // Lock the tenant row before checking for another active invitation so
       // concurrent invitation requests for the same email cannot both pass the
       // preflight and create duplicate live tokens.
-    await tx.execute(sql`
-      SELECT id
+    const tenant = await tx.execute(sql`
+      SELECT id, lifecycle
       FROM tenants
       WHERE id = ${claims.tenantId}
       FOR UPDATE
     `);
+    const tenantRow = tenant.rows[0] as { id?: string; lifecycle?: string } | undefined;
+    if (!tenantRow?.id) throw new Error("TENANT_NOT_FOUND");
+    if (tenantRow.lifecycle !== "active") throw new Error("TENANT_NOT_ACTIVE");
+
     const existing = await tx.query.tenantInvitations.findFirst({
       where: and(
         eq(tenantInvitations.tenantId, claims.tenantId),
@@ -77,6 +81,12 @@ export async function POST(req: Request) {
   } catch (error) {
     if (error instanceof Error && error.message === "INVITATION_ALREADY_EXISTS") {
       return NextResponse.json({ error: "An active invitation already exists for this email" }, { status: 409 });
+    }
+    if (error instanceof Error && error.message === "TENANT_NOT_ACTIVE") {
+      return NextResponse.json({ error: "Workspace is suspended or unavailable" }, { status: 409 });
+    }
+    if (error instanceof Error && error.message === "TENANT_NOT_FOUND") {
+      return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
     }
     throw error;
   }
