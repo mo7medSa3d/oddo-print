@@ -312,6 +312,151 @@ export interface PrinterInfo {
   usbPid?: string;
   usbSerial?: string;
   capabilities?: Record<string, unknown> | null;
+  config?: Record<string, unknown> | null;
+  lifecycle?: "active" | "disabled" | "retired";
+  managementSource?: "agent" | "manager";
+  desiredRevision?: number;
+  appliedDesiredRevision?: number;
+  observedDesiredRevision?: number;
+  observedDeviceClass?: string | null;
+  agentId?: string;
+  agentName?: string | null;
+  agentStatus?: string | null;
+  agentLifecycle?: string | null;
+  agentLastSeenAt?: string | null;
+  configurationConverged?: boolean;
+}
+
+
+
+async function managerGatewayHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+  const token = getBrowserManagerToken();
+  if (token) headers.Authorization = "Bearer " + token;
+  return headers;
+}
+
+export async function fetchGatewayAgents(
+  gatewayUrl: string,
+): Promise<Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null }>> {
+  const base = normalizeGatewayUrl(gatewayUrl);
+  const headers = await managerGatewayHeaders();
+  const { status, body } = await gatewayRequest(base, "/api/agents", "GET", headers);
+  if (status === 401 || status === 403) await clearManagerSession();
+  if (status < 200 || status >= 300) {
+    const err: Error & { status?: number } = new Error(body || "agents fetch failed (" + status + ")");
+    err.status = status;
+    throw err;
+  }
+  return JSON.parse(body) as Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null }>;
+}
+
+export async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterInfo[]> {
+  const base = normalizeGatewayUrl(gatewayUrl);
+  const headers = await managerGatewayHeaders();
+  const { status, body } = await gatewayRequest(base, "/api/printers", "GET", headers);
+  if (status === 401 || status === 403) await clearManagerSession();
+  if (status < 200 || status >= 300) {
+    const err: Error & { status?: number } = new Error(body || "printers fetch failed (" + status + ")");
+    err.status = status;
+    throw err;
+  }
+  const rows = JSON.parse(body) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    ...row,
+    enabled: row.lifecycle === "active",
+  })) as unknown as PrinterInfo[];
+}
+
+function networkConfigFromEndpoint(endpoint: string): { ip: string; port: number } {
+  const raw = endpoint.trim();
+  if (raw.startsWith("[")) {
+    const close = raw.indexOf("]");
+    if (close <= 1 || raw.charAt(close + 1) !== ":") throw new Error("Network printer endpoint must be host:9100");
+    const ip = raw.slice(1, close);
+    const port = Number(raw.slice(close + 2));
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Network printer endpoint port is invalid");
+    return { ip, port };
+  }
+  const idx = raw.lastIndexOf(":");
+  if (idx <= 0) throw new Error("Network printer endpoint must be host:port");
+  const ip = raw.slice(0, idx);
+  const port = Number(raw.slice(idx + 1));
+  if (!ip || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Network printer endpoint is invalid");
+  return { ip, port };
+}
+
+export async function registerGatewayPrinter(
+  gatewayUrl: string,
+  req: RegisterPrinterRequest & { agentId: string },
+): Promise<PrinterInfo> {
+  const base = normalizeGatewayUrl(gatewayUrl);
+  const config: Record<string, unknown> = {};
+  const connectionType = req.connectionType.toLowerCase();
+
+  if (connectionType === "network") {
+    const network = networkConfigFromEndpoint(req.endpoint || "");
+    config.ip = network.ip;
+    config.port = network.port;
+  } else if (connectionType === "spooler") {
+    const queue = (req.spoolerName || req.endpoint || "").trim();
+    if (!queue) throw new Error("Spooler printer name is required");
+    config.spooler_name = queue;
+    config.address = queue;
+  } else if (connectionType === "usb") {
+    if (req.usbVid) config.vid = Number(req.usbVid);
+    if (req.usbPid) config.pid = Number(req.usbPid);
+    if (req.usbSerial) config.serial = req.usbSerial;
+    if (req.spoolerName) config.spooler_name = req.spoolerName;
+    if (req.endpoint) config.address = req.endpoint;
+  } else if (connectionType === "ipp" || connectionType === "ipps") {
+    const address = (req.endpoint || "").trim();
+    if (!address) throw new Error("IPP printer URL is required");
+    config.address = address;
+  } else {
+    if (req.endpoint) config.address = req.endpoint.trim();
+  }
+
+  const headers = { "Content-Type": "application/json", ...(await managerGatewayHeaders()) };
+  const payload = {
+    name: req.name.trim(),
+    agentId: req.agentId,
+    connectionType,
+    protocol: req.protocol || (connectionType === "spooler" ? "spooler" : "unknown"),
+    printerType: req.printerType || "physical",
+    config,
+  };
+  const { status, body } = await gatewayRequest(base, "/api/printers", "POST", headers, JSON.stringify(payload));
+  if (status === 401 || status === 403) await clearManagerSession();
+  if (status < 200 || status >= 300) {
+    const err: Error & { status?: number } = new Error(body || "printer registration failed (" + status + ")");
+    err.status = status;
+    throw err;
+  }
+  return JSON.parse(body) as PrinterInfo;
+}
+
+export async function updateGatewayPrinter(
+  gatewayUrl: string,
+  printerId: string,
+  patch: Record<string, unknown>,
+): Promise<PrinterInfo> {
+  const base = normalizeGatewayUrl(gatewayUrl);
+  const headers = { "Content-Type": "application/json", ...(await managerGatewayHeaders()) };
+  const { status, body } = await gatewayRequest(
+    base,
+    "/api/printers/" + encodeURIComponent(printerId),
+    "PATCH",
+    headers,
+    JSON.stringify(patch),
+  );
+  if (status === 401 || status === 403) await clearManagerSession();
+  if (status < 200 || status >= 300) {
+    const err: Error & { status?: number } = new Error(body || "printer update failed (" + status + ")");
+    err.status = status;
+    throw err;
+  }
+  return JSON.parse(body) as PrinterInfo;
 }
 
 export interface DiscoverResult {
