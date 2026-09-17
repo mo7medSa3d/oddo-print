@@ -575,7 +575,7 @@ export default function App() {
     version,
     agentStatus,
     isOnline,
-    lastHeartbeat,
+    lastStatusCheck,
     autostart,
     setAutostartState,
     refreshStatus,
