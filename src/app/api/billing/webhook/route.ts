@@ -138,7 +138,9 @@ export async function POST(req: Request) {
         if (tenantId && subId) {
           const currentResult = await tx.execute(sql`
             SELECT stripe_subscription_id AS "stripeSubscriptionId",
-                   stripe_customer_id AS "stripeCustomerId"
+                   stripe_customer_id AS "stripeCustomerId",
+                   status,
+                   stripe_last_event_created_at AS "stripeLastEventCreatedAt"
             FROM tenant_subscriptions
             WHERE tenant_id = ${tenantId}
             FOR UPDATE
@@ -146,8 +148,16 @@ export async function POST(req: Request) {
           const current = currentResult.rows[0] as {
             stripeSubscriptionId?: string | null;
             stripeCustomerId?: string | null;
+            status?: "trialing" | "active" | "past_due" | "paused" | "cancelled";
+            stripeLastEventCreatedAt?: Date | null;
           } | undefined;
-          if (current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId) throw new Error("Checkout subscription identity conflict");
+          const differentSubscription = Boolean(current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId);
+          if (differentSubscription && current?.status !== "cancelled") {
+            throw new Error("Checkout subscription identity conflict");
+          }
+          if (differentSubscription && current?.status === "cancelled" && current.stripeLastEventCreatedAt && eventCreatedAt.getTime() < current.stripeLastEventCreatedAt.getTime()) {
+            throw new Error("Stale checkout subscription identity");
+          }
           if (current?.stripeCustomerId && customerId && current.stripeCustomerId !== customerId) throw new Error("Checkout customer identity conflict");
           await tx.update(tenantSubscriptions).set({
             stripeSubscriptionId: current?.stripeSubscriptionId ?? subId,
@@ -189,6 +199,19 @@ export async function POST(req: Request) {
           if (storedTime !== null && eventCreatedAt.getTime() === storedTime) {
             const latest = await latestProcessedEventForSubscription(tx, subId);
             newerThanStored = Boolean(latest && latest.created === eventCreatedUnix && eventId > latest.eventId);
+          }
+          const differentSubscription = Boolean(tenantRow.stripeSubscriptionId && tenantRow.stripeSubscriptionId !== subId);
+          if (differentSubscription && tenantRow.status !== "cancelled" ) {
+            // The tenant is bound to a different live subscription. A
+            // delayed event from an old/new unrelated subscription must not
+            // silently steal billing identity.
+            newerThanStored = false;
+          }
+          if (differentSubscription && tenantRow.status === "cancelled" && !newerThanStored) {
+            // A cancelled tenant may legitimately start a new subscription,
+            // but only an event newer than the cancellation state may replace
+            // the previous subscription identity.
+            newerThanStored = false;
           }
           if (newerThanStored) {
             await tx.update(tenantSubscriptions).set({
