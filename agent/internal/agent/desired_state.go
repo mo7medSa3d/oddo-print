@@ -226,7 +226,7 @@ func (a *Agent) desiredStateAcksPayload() []map[string]interface{} {
 	for id, row := range a.desiredStates {
 		out = append(out, map[string]interface{}{
 			"printerId":               id,
-			"appliedDesiredRevision": row.AppliedDesiredRevision,
+			"appliedDesiredRevision":  row.AppliedDesiredRevision,
 			"observedDesiredRevision": row.ObservedDesiredRevision,
 		})
 	}
