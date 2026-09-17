@@ -2,6 +2,7 @@ import { db } from "../db";
 import { tenants, managerSessions } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { writeAuditEvent, type AuditActor } from "./audit";
+import { runtimeSecret } from "./runtime-secret";
 
 export type TenantLifecycleState = "active" | "suspended" | "deleted";
 
@@ -66,6 +67,14 @@ export async function transitionTenantLifecycle(
     const tenant = locked.rows[0] as { id?: string; lifecycle?: unknown } | undefined;
     if (!tenant?.id) {
       throw new TenantLifecycleError("Tenant not found", "TENANT_NOT_FOUND", 404);
+    }
+    const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID");
+    if (platformTenantId && tenant.id === platformTenantId) {
+      throw new TenantLifecycleError(
+        "The platform tenant is protected from lifecycle suspension or deletion.",
+        "PLATFORM_TENANT_PROTECTED",
+        409,
+      );
     }
     if (!isTenantLifecycleState(tenant.lifecycle)) {
       throw new TenantLifecycleError("Tenant has an invalid lifecycle value", "INVALID_STORED_LIFECYCLE", 500);
