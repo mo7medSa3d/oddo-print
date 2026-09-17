@@ -83,7 +83,7 @@ describe("architecture hardening", () => {
     // Agent lifecycle transitions.
     expect(block).not.toContain("tx.update(printers)");
     // No-op guard: current === next must not rotate credentials.
-    expect(block).toContain("if (agent.lifecycle === next)");
+    expect(block).toContain("if (current === next)");
     for (const consumer of ["src/app/actions.ts", "src/app/api/agents/[id]/route.ts"]) {
       expect(readFileSync(consumer, "utf8")).toContain("transitionAgentLifecycle");
     }

@@ -102,6 +102,7 @@ describe("Tenant Lifecycle Unit Tests", () => {
 
     it("rejects transition from deleted terminal state", async () => {
       tenantFindFirst.mockResolvedValue({ id: "t1", lifecycle: "deleted" });
+      transactionMock.mockImplementation(async (cb) => cb(mockTransitionTx("deleted")));
 
       await expect(
         transitionTenantLifecycle(
@@ -115,6 +116,11 @@ describe("Tenant Lifecycle Unit Tests", () => {
 
     it("rejects transition for non-existent tenant", async () => {
       tenantFindFirst.mockResolvedValue(null);
+      transactionMock.mockImplementation(async (cb) => cb({
+        execute: vi.fn().mockResolvedValue({ rows: [] }),
+        update: vi.fn(),
+        delete: vi.fn(),
+      }));
 
       await expect(
         transitionTenantLifecycle(
