@@ -144,6 +144,7 @@ type Agent struct {
 	desiredStateMu     sync.Mutex
 	desiredStates      map[string]desiredPrinterRecord
 	gatewayOwned       map[string]struct{}
+	gatewayTombstones  map[string]struct{}
 	desiredStatePath   string
 	desiredStateSynced bool
 }
