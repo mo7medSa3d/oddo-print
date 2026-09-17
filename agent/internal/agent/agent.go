@@ -443,7 +443,6 @@ func (a *Agent) RegisterManual(info printer.DeviceInfo) error {
 			return fmt.Errorf("printer ID %q is managed by the Gateway", info.ID)
 		}
 		if _, exists := a.getPrinter(info.ID); exists {
-		if _, exists := a.getPrinter(info.ID); exists {
 			return fmt.Errorf("printer ID %q already exists", info.ID)
 		}
 	}
