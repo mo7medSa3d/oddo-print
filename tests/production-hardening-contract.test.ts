@@ -156,7 +156,8 @@ describe("production hardening contracts", () => {
     expect(selectTenant).toContain("onConflictDoNothing");
     expect(selectTenant).toContain("returning({ key: authRateLimits.key })");
     expect(selectTenant).toContain("Selection token already used");
-    expect(selectTenant).not.toContain("catch {\n          throw new Error("Selection token already used")");
+    expect(selectTenant).not.toContain(`catch {
+          throw new Error("Selection token already used")`);
   });
 
   it("keeps the main governance workflow present and explicit about the external protection prerequisite", () => {
