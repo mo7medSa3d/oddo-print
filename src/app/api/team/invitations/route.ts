@@ -24,6 +24,7 @@ export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   const claims = await validateManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const inviterUserId = claims.userId;
   let body: { email?: unknown; role?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
@@ -41,7 +42,7 @@ export async function POST(req: Request) {
     await tx.insert(tenantInvitations).values({
       id,
       tenantId: claims.tenantId,
-      inviterUserId: claims.userId,
+      inviterUserId,
       email,
       role,
       tokenHash: await hashToken(raw),
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
     await writeAuditEvent({
       tenantId: claims.tenantId,
       actorType: "user",
-      actorId: claims.userId,
+      actorId: inviterUserId,
       action: "team.invitation.created",
       resourceType: "tenant_invitation",
       resourceId: id,
