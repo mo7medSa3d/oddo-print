@@ -107,7 +107,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
             </Button>
           }
         >
-          OdooPrintAgent.exe is not running.
+          YasserAgent.exe is not running.
         </StatusNotice>
       );
     }
@@ -175,8 +175,8 @@ export function OverviewPage({ s }: { s: DesktopState }) {
           sub={(s.agentStatus as Record<string, unknown> | null)?.note
             ? String((s.agentStatus as Record<string, unknown>).note)
             : s.isOnline
-            ? "OdooPrintAgent.exe is running"
-            : "OdooPrintAgent.exe is not running"}
+            ? "YasserAgent.exe is running"
+            : "YasserAgent.exe is not running"}
           tone={s.isOnline ? "ok" : "bad"}
           icon={<Activity className="h-[22px] w-[22px]" aria-hidden />}
         />

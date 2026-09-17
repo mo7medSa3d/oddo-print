@@ -63,19 +63,21 @@ Assert-Path $agentExe "Bundled agent executable"
 Assert-Path $cliExe "Bundled CLI executable"
 
 # Start from a deterministic state so the run does not create duplicates.
+Get-Process -Name "YasserAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Get-Process -Name "OdooPrintAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # 2. Desktop application process ----------------------------------------------
 $desktop = $null
 try {
   $desktop = Start-Process -FilePath $appExe -PassThru
-  Assert-NotExited $desktop "Odoo Print Manager desktop process"
+  Assert-NotExited $desktop "Yasser Manager desktop process"
 } finally {
   if ($desktop -and -not $desktop.HasExited) {
     Stop-Process -Id $desktop.Id -Force -ErrorAction SilentlyContinue
     Write-Host "PASS: desktop process stopped cleanly (forced process termination)."
   }
   # The desktop starts the agent detached; clean it up before the direct test.
+  Get-Process -Name "YasserAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
   Get-Process -Name "OdooPrintAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
@@ -83,7 +85,7 @@ try {
 Write-Host "== CLI help =="
 $cliOut = & $cliExe --help 2>&1
 if ($LASTEXITCODE -ne 0) {
-  Write-Error "FAIL: odoo-agent-cli.exe --help returned exit code $LASTEXITCODE"
+  Write-Error "FAIL: yasser-agent-cli.exe --help returned exit code $LASTEXITCODE"
   exit 1
 }
 $cliText = ($cliOut | Out-String)
@@ -96,7 +98,7 @@ Write-Host "PASS: CLI help lists -pair, -server, -config"
 # 4. Go agent first-run directory/database creation ---------------------------
 # Remove only a deliberately empty temp data dir when the caller asks for a
 # fully clean run. Never delete production ProgramData state implicitly.
-if ($env:ODOO_PRINT_AGENT_DATA_DIR -and (Test-Path $agentDataDir)) {
+if ($env:YASSER_AGENT_DATA_DIR -and (Test-Path $agentDataDir)) {
   Write-Host "Using existing overridden agent data dir: $agentDataDir"
 }
 

@@ -3,7 +3,10 @@ node_modules/
 dist/
 dist-desktop/
 src-tauri/target/
+src-tauri/gen/
 
+agent/YasserAgent.exe
+agent/yasser-agent-cli.exe
 agent/OdooPrintAgent.exe
 agent/odoo-agent-cli.exe
 

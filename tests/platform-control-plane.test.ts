@@ -108,6 +108,12 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
     expect(validated).toBeNull();
   });
 
+  it("enforces single platform owner database unique constraint", async () => {
+    await createTestUser({ isPlatformOwner: true });
+    // Attempting to create a second user with isPlatformOwner = true must throw DB unique index error
+    await expect(createTestUser({ isPlatformOwner: true })).rejects.toThrow();
+  });
+
   it("requires platform owner guard and throws PlatformUnauthorizedError on invalid request", async () => {
     const fakeReq = new Request("http://localhost/api/platform/stats");
     await expect(requirePlatformOwner(fakeReq)).rejects.toThrow(PlatformUnauthorizedError);

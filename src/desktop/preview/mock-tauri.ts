@@ -174,10 +174,10 @@ async function mockInvoke<T>(cmd: string, args: Record<string, unknown> = {}): P
     case "get_agent_status":
       return {
         running: true,
-        service: "OdooPrintAgent",
+        service: "YasserAgent",
         version: "1.0.0",
         hostname: "DESKTOP-RECEPTION",
-        note: "OdooPrintAgent.exe is running",
+        note: "YasserAgent.exe is running",
       } as unknown as T;
     case "get_app_version":
       return "1.0.0" as unknown as T;

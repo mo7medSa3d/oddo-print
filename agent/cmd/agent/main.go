@@ -303,9 +303,9 @@ func main() {
 	log.Printf("Using config file: %s", *configPath)
 
 	svcConfig := &service.Config{
-		Name:         "OdooPrintAgent",
-		DisplayName:  "Odoo Print Agent",
-		Description:  "Local print gateway for Odoo ERP — outbound HTTPS/WSS only, no inbound ports.",
+		Name:         "YasserAgent",
+		DisplayName:  "Yasser Agent",
+		Description:  "Local print gateway agent for Yasser Cloud Printing Platform — outbound HTTPS/WSS only, no inbound ports.",
 		Arguments:    []string{"-config", *configPath},
 		Dependencies: []string{"Tcpip"},
 	}

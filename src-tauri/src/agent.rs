@@ -442,7 +442,8 @@ mod spawn_tests {
         let pid = spawn_persist_or_reconcile(|| Ok(sleeper()), |_| Ok(())).expect("spawn+persist must succeed");
         assert!(pid_alive(pid), "the agent child must remain running when ownership was recorded");
         // Exact-PID cleanup of this TEST's own child (never a name kill).
-        let _ = Command::new("taskkill")
+        let taskkill = system32_exe("taskkill.exe").unwrap_or_else(|_| PathBuf::from("taskkill.exe"));
+        let _ = Command::new(taskkill)
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .output();
     }

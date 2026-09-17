@@ -1,7 +1,7 @@
 .PHONY: all build-agent build-cli release test vet clean linux
 
-BINARY_AGENT=OdooPrintAgent.exe
-BINARY_CLI=odoo-agent-cli.exe
+BINARY_AGENT=YasserAgent.exe
+BINARY_CLI=yasser-agent-cli.exe
 
 # Production flags: strip symbol/debug tables (-s -w) and remove local build
 # paths (-trimpath) so shipped binaries are smaller and leak no build topology.

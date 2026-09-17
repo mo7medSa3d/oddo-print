@@ -36,7 +36,9 @@ export const users = pgTable("users", {
   isPlatformOwner: boolean("is_platform_owner").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  singlePlatformOwnerIdx: uniqueIndex("users_single_platform_owner_idx").on(table.isPlatformOwner).where(sql`${table.isPlatformOwner} = true`),
+}));
 
 export const platformSessions = pgTable("platform_sessions", {
   jti: text("jti").primaryKey(),
