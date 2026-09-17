@@ -14,6 +14,7 @@ import {
   truncateAll,
   seedFixture,
   closePool,
+  type Fixture,
 } from "./helpers/pg";
 import { users, auditEvents } from "../src/db/schema";
 import { eq } from "drizzle-orm";
@@ -25,6 +26,7 @@ import { writeAuditEvent } from "../src/lib/audit";
 const suite = describe.skipIf(!hasTestDatabase);
 
 let prevSecret: string | undefined;
+let fixture: Fixture;
 
 suite("Platform Control Plane & Authorization Boundaries", () => {
   beforeAll(async () => {
@@ -35,7 +37,7 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
 
   beforeEach(async () => {
     await truncateAll();
-    await seedFixture();
+    fixture = await seedFixture();
   });
 
   afterAll(async () => {
@@ -188,12 +190,12 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
     const user = await createTestUser({ isPlatformOwner: true });
     await expect(
       writeAuditEvent({
-        tenantId: "tenant_fixture_1",
+        tenantId: fixture.tenantId,
         actorType: "platform",
         actorId: user.userId,
         action: "tenant.suspended",
         resourceType: "tenant",
-        resourceId: "tenant_fixture_1",
+        resourceId: fixture.tenantId,
         metadata: { reason: "Policy violation" },
       })
     ).resolves.not.toThrow();
