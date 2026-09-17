@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Button, Field, Input, Modal, Select } from "../../components/ui";
 import { updateGatewayPrinter, type PrinterInfo } from "../lib/ipc";
 
@@ -23,31 +23,37 @@ export function EditPrinterDialog({
   onSaved: () => void | Promise<void>;
   onError: (message: string) => void;
 }) {
-  const [name, setName] = useState("");
-  const [connectionType, setConnectionType] = useState<ConnectionType>("network");
-  const [protocol, setProtocol] = useState("raw");
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("9100");
-  const [address, setAddress] = useState("");
-  const [spoolerName, setSpoolerName] = useState("");
-  const [deviceClass, setDeviceClass] = useState("unknown");
-  const [printerType, setPrinterType] = useState("physical");
+  const initialConfig = useMemo(() => readConfig(printer || {
+    id: "",
+    name: "",
+    status: "unknown",
+    enabled: false,
+  }), [printer]);
+  const [name, setName] = useState(() => printer?.name ?? "");
+  const [connectionType, setConnectionType] = useState<ConnectionType>(() =>
+    (printer?.connectionType || printer?.connection_type || "network") as ConnectionType
+  );
+  const [protocol, setProtocol] = useState(() => printer?.protocol || "raw");
+  const [host, setHost] = useState(() =>
+    typeof initialConfig.ip === "string" ? initialConfig.ip : ""
+  );
+  const [port, setPort] = useState(() =>
+    typeof initialConfig.port === "number" ? String(initialConfig.port) : "9100"
+  );
+  const [address, setAddress] = useState(() =>
+    typeof initialConfig.address === "string" ? initialConfig.address : ""
+  );
+  const [spoolerName, setSpoolerName] = useState(() =>
+    typeof initialConfig.spooler_name === "string" ? initialConfig.spooler_name : ""
+  );
+  const [deviceClass, setDeviceClass] = useState(() =>
+    printer?.deviceClass || printer?.device_class || printer?.observedDeviceClass || "unknown"
+  );
+  const [printerType, setPrinterType] = useState(() =>
+    printer?.printerType || printer?.printer_type || "physical"
+  );
   const [busy, setBusy] = useState(false);
-  const config = useMemo(() => (printer ? readConfig(printer) : {}), [printer]);
-
-  useEffect(() => {
-    if (!open || !printer) return;
-    setName(printer.name);
-    setConnectionType(((printer.connectionType || printer.connection_type || "network") as ConnectionType));
-    setProtocol(printer.protocol || "raw");
-    setPrinterType(printer.printerType || printer.printer_type || "physical");
-    setDeviceClass(printer.deviceClass || printer.device_class || printer.observedDeviceClass || "unknown");
-    setHost(typeof config.ip === "string" ? config.ip : "");
-    setPort(typeof config.port === "number" ? String(config.port) : "9100");
-    setAddress(typeof config.address === "string" ? config.address : "");
-    setSpoolerName(typeof config.spooler_name === "string" ? config.spooler_name : "");
-  }, [open, printer, config]);
-
+  const config = initialConfig;
   async function save() {
     if (!printer) return;
     if (!gatewayUrl) {

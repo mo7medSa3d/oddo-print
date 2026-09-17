@@ -757,6 +757,7 @@ export default function App() {
       />
 
       <EditPrinterDialog
+        key={editingPrinter ? `edit-${editingPrinter.id}-${editingPrinter.desiredRevision ?? 0}` : "edit-none"}
         open={!!editingPrinter}
         printer={editingPrinter}
         gatewayUrl={gatewayUrl}
