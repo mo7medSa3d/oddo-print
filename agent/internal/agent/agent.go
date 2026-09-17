@@ -138,6 +138,14 @@ type Agent struct {
 	// when Win32 Spooler or network RPC calls block.
 	probeStateMu sync.Mutex
 	probeStates  map[string]*printerProbeState
+
+	// Gateway desired-state cache. Desired configuration is manager-owned;
+	// runtime status/capabilities remain agent-owned observations.
+	desiredStateMu     sync.Mutex
+	desiredStates      map[string]desiredPrinterRecord
+	gatewayOwned       map[string]struct{}
+	desiredStatePath   string
+	desiredStateSynced bool
 }
 
 type printerProbeState struct {
@@ -187,6 +195,9 @@ func (a *Agent) getProbeState(printerID string) *printerProbeState {
 func (a *Agent) addPrinter(id string, p printer.Printer, pc config.PrinterConfig) bool {
 	a.printersMu.Lock()
 	defer a.printersMu.Unlock()
+	if _, gatewayManaged := a.gatewayOwned[id]; gatewayManaged {
+		return false
+	}
 	if old, exists := a.printerConfigs[id]; exists {
 		// Rediscovery re-reports every known device on each sweep. An
 		// identical config is a no-op (no churn, no log spam). A CHANGED
@@ -277,6 +288,13 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 		inFlightReceived: make(map[string]time.Time),
 		shutdownCh:       make(chan struct{}),
 		discoverySem:     make(chan struct{}, 1),
+		desiredStates:    make(map[string]desiredPrinterRecord),
+		gatewayOwned:     make(map[string]struct{}),
+		desiredStatePath: desiredStatePath(configPath),
+	}
+
+	if err := a.loadDesiredState(); err != nil {
+		log.Printf("WARNING: failed to recover Gateway desired state: %v", err)
 	}
 
 	// 1. Load configured printers from YAML (legacy, still supported for backward compat)
@@ -1471,6 +1489,12 @@ func (a *Agent) reconcileRegistryPrinters(infos []printer.DeviceInfo) {
 	a.printersMu.Lock()
 	defer a.printersMu.Unlock()
 	for id := range a.registryOwned {
+		a.desiredStateMu.Lock()
+		_, gatewayManaged := a.gatewayOwned[id]
+		a.desiredStateMu.Unlock()
+		if gatewayManaged {
+			continue
+		}
 		if _, stillPresent := present[id]; stillPresent {
 			continue
 		}
@@ -1498,6 +1522,7 @@ func (a *Agent) sendHeartbeat() {
 	payload := map[string]interface{}{
 		"status":   "online",
 		"printers": a.printerStatusPayload(),
+		"desiredStateAcks": a.desiredStateAcksPayload(),
 	}
 	// Print-lease keep-alive: report every (jobId, claimToken) pair this
 	// agent currently holds (accepted + executing + physically printing).
@@ -1523,13 +1548,26 @@ func (a *Agent) sendHeartbeat() {
 	}
 
 	var hbResp struct {
-		Success         bool `json:"success"`
+		Success         bool                  `json:"success"`
+		DesiredState    *[]desiredPrinterWire `json:"desiredState"`
 		SkippedPrinters []struct {
 			ID     string `json:"id"`
 			Reason string `json:"reason"`
 		} `json:"skippedPrinters"`
 	}
 	if err := json.Unmarshal(body, &hbResp); err == nil {
+		if hbResp.DesiredState != nil {
+			a.reconcileGatewayDesiredState(*hbResp.DesiredState)
+			a.desiredStateMu.Lock()
+			a.desiredStateSynced = true
+			a.desiredStateMu.Unlock()
+		} else {
+			// Older gateways without the full desired-state contract are not
+			// allowed to make a manager-owned printer executable.
+			a.desiredStateMu.Lock()
+			a.desiredStateSynced = false
+			a.desiredStateMu.Unlock()
+		}
 		if len(hbResp.SkippedPrinters) > 0 {
 			for _, sp := range hbResp.SkippedPrinters {
 				log.Printf("[heartbeat] printer %q rejected by gateway: %s", sp.ID, sp.Reason)
@@ -1645,6 +1683,12 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		reason := marker + ": refusing to reprint a job whose previous attempt had an unknown outcome (agent.reprint_after_crash=false); the earlier delivery may have produced output"
 		log.Printf("Job %s: %s", jobID, reason)
 		a.updateJobStatus(jobID, "failed", reason, claimToken)
+		return
+	}
+
+	if !a.isPrinterExecutionAllowed(printerID) {
+		log.Printf("Job %s blocked: printer %s is disabled, retired, stale, or not reconciled with Gateway desired state", jobID, printerID)
+		a.rejectJob(jobID, claimToken, "printer_not_at_desired_state")
 		return
 	}
 
