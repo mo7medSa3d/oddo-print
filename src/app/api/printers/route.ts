@@ -46,9 +46,6 @@ export async function POST(req: Request) {
 
   try {
     const data = parsePrinterInput(body);
-    const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, data.agentId), eq(agents.tenantId, claims.tenantId)) });
-    if (!agent) return NextResponse.json({ error: "agentId not found" }, { status: 404 });
-    if (agent.lifecycle !== "active") return NextResponse.json({ error: `agent is ${agent.lifecycle}` }, { status: 409 });
 
     const error = validateConnectionConfig(data.connectionType, data.config);
     if (error) return NextResponse.json({ error }, { status: 400 });
@@ -57,6 +54,10 @@ export async function POST(req: Request) {
     try {
       const row = await db.transaction(async (tx) => {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printers:' || ${claims.tenantId}))`);
+        const lockedAgent = await tx.execute(sql`SELECT lifecycle FROM agents WHERE id = ${data.agentId} AND tenant_id = ${claims.tenantId} FOR UPDATE`);
+        const agentLifecycle = (lockedAgent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
+        if (!agentLifecycle) throw new Error("agentId not found");
+        if (agentLifecycle !== "active") throw new Error(`agent is ${agentLifecycle}`);
         await enforceTenantResourceEntitlement(tx, claims.tenantId, "max_printers",
           sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId} AND lifecycle <> 'retired'`);
         const inserted = await tx.insert(printers).values({
