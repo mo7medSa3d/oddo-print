@@ -236,7 +236,7 @@ export default function App() {
     } finally {
       setPrintersLoading(false);
     }
-  }, []);
+  }, [refreshPrinters]);
 
   const updatePrinterLifecycle = useCallback(async (id: string, lifecycle: "active" | "disabled" | "retired") => {
     if (!gatewayUrl) {
