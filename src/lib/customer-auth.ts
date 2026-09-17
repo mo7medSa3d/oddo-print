@@ -1,10 +1,99 @@
 import { db } from "../db";
-import { tenantUsers } from "../db/schema";
+import { tenantUsers, authRateLimits } from "../db/schema";
 import { and, eq } from "drizzle-orm";
 import { authenticateCustomer, createManagerSession, managerCookieHeader, type ManagerRole } from "./manager-auth";
 import { normalizeEmail } from "./password";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
+import { requiredRuntimeSecret } from "./runtime-secret";
+import { nanoid } from "./nanoid";
+import { requireActiveTenant } from "./tenant-guard";
+
+function getSecret(): string {
+  const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
+  if (s.length < 32) throw new Error("GATEWAY_JWT_SECRET must be >=32 chars");
+  return s;
+}
+
+function b64urlEncode(buf: Buffer | string): string {
+  return Buffer.from(buf).toString("base64url");
+}
+
+function b64urlDecode(s: string): Buffer {
+  return Buffer.from(s, "base64url");
+}
+
+function compareStringsSafe(a: string, b: string): boolean {
+  const digestA = createHash("sha256").update(a, "utf8").digest();
+  const digestB = createHash("sha256").update(b, "utf8").digest();
+  return timingSafeEqual(digestA, digestB);
+}
+
+export type TenantSelectionClaims = {
+  jti: string;
+  iat: number;
+  exp: number;
+  sub: "tenant_selection";
+  userId: string;
+  email: string;
+};
+
+export function createTenantSelectionToken(userId: string, email: string): string {
+  const now = Math.floor(Date.now() / 1000);
+  const claims: TenantSelectionClaims = {
+    jti: `tsel_${nanoid(20)}`,
+    iat: now,
+    exp: now + 5 * 60, // 5 minutes
+    sub: "tenant_selection",
+    userId,
+    email,
+  };
+  const header = b64urlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const payload = b64urlEncode(JSON.stringify(claims));
+  const data = `${header}.${payload}`;
+  const sig = createHmac("sha256", getSecret()).update(data).digest("base64url");
+  return `${data}.${sig}`;
+}
+
+export function verifyTenantSelectionToken(token: string): TenantSelectionClaims | null {
+  if (typeof token !== "string" || token.length < 40 || token.length > 4096) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [h, p, s] = parts;
+
+  try {
+    const header = JSON.parse(b64urlDecode(h).toString("utf8")) as { alg?: unknown; typ?: unknown };
+    if (header.alg !== "HS256" || header.typ !== "JWT") return null;
+  } catch {
+    return null;
+  }
+
+  const data = `${h}.${p}`;
+  const expected = createHmac("sha256", getSecret()).update(data).digest("base64url");
+  if (!compareStringsSafe(s, expected)) return null;
+
+  try {
+    const claims = JSON.parse(b64urlDecode(p).toString("utf8")) as Partial<TenantSelectionClaims>;
+    if (
+      claims.sub !== "tenant_selection" ||
+      typeof claims.jti !== "string" ||
+      !claims.jti.startsWith("tsel_") ||
+      typeof claims.userId !== "string" ||
+      typeof claims.email !== "string" ||
+      typeof claims.iat !== "number" ||
+      typeof claims.exp !== "number"
+    ) {
+      return null;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    if (claims.exp <= now || claims.iat > now + 60) return null;
+    return claims as TenantSelectionClaims;
+  } catch {
+    return null;
+  }
+}
 
 export async function issueCustomerSession(userId: string, tenantId: string, role: ManagerRole) {
+  await requireActiveTenant(tenantId);
   const session = await createManagerSession(tenantId, { userId, role });
   return session;
 }
@@ -19,11 +108,20 @@ export async function authenticateForTenant(email: string, password: string, ten
   if (tenantId) {
     const membership = await db.query.tenantUsers.findFirst({ where: and(eq(tenantUsers.userId, identity.userId), eq(tenantUsers.tenantId, tenantId)), columns: { tenantId: true, role: true } });
     if (!membership) return null;
+    await requireActiveTenant(membership.tenantId);
     return { ...identity, tenantId: membership.tenantId, role: membership.role as ManagerRole };
   }
-  const memberships = await db.select({ tenantId: tenantUsers.tenantId, role: tenantUsers.role }).from(tenantUsers).where(eq(tenantUsers.userId, identity.userId)).limit(2);
-  if (memberships.length !== 1) return { ...identity, multipleTenants: memberships.length > 1, memberships };
+  const memberships = await db.select({ tenantId: tenantUsers.tenantId, role: tenantUsers.role }).from(tenantUsers).where(eq(tenantUsers.userId, identity.userId)).limit(50);
+  if (memberships.length === 0) {
+    return { ...identity, multipleTenants: false, memberships: [] };
+  }
+  if (memberships.length > 1) {
+    const selectionToken = createTenantSelectionToken(identity.userId, identity.email);
+    return { ...identity, multipleTenants: true, selectionToken, memberships };
+  }
+  await requireActiveTenant(memberships[0].tenantId);
   return { ...identity, tenantId: memberships[0].tenantId, role: memberships[0].role as ManagerRole };
 }
 
 export { normalizeEmail };
+

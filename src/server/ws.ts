@@ -124,10 +124,29 @@ export function closeAgentSockets(agentId: string): void {
   }
 }
 
+export function closeTenantSockets(tenantId: string): void {
+  for (const [, set] of agentSockets) {
+    for (const ws of set) {
+      if (ws.tenantId === tenantId) {
+        try { ws.close(4001, "tenant suspended"); } catch { try { ws.terminate(); } catch {} }
+      }
+    }
+  }
+}
+
 export async function publishAgentSessionClose(agentId: string): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("SELECT pg_notify($1, $2)", [PG_SESSIONS_CHANNEL, JSON.stringify({ agentId })]);
+  } finally {
+    try { client.release(); } catch {}
+  }
+}
+
+export async function publishTenantSessionClose(tenantId: string): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("SELECT pg_notify($1, $2)", [PG_SESSIONS_CHANNEL, JSON.stringify({ tenantId })]);
   } finally {
     try { client.release(); } catch {}
   }
@@ -348,10 +367,11 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
     if (!notification.payload) return;
     if (notification.channel === PG_SESSIONS_CHANNEL) {
       try {
-        const message = JSON.parse(notification.payload) as { agentId?: unknown };
+        const message = JSON.parse(notification.payload) as { agentId?: unknown; tenantId?: unknown };
         if (typeof message.agentId === "string" && message.agentId) closeAgentSockets(message.agentId);
+        if (typeof message.tenantId === "string" && message.tenantId) closeTenantSockets(message.tenantId);
       } catch {
-        logWarn("[ws] ignored malformed agent-session notification");
+        logWarn("[ws] ignored malformed agent/tenant-session notification");
       }
       return;
     }

@@ -25,8 +25,12 @@ export async function POST(req: Request) {
     return res;
   }
   await recordAuthSuccess(ip, email).catch(() => undefined);
-  if ("multipleTenants" in identity && identity.multipleTenants) {
-    return NextResponse.json({ error: "Choose a workspace", workspaces: identity.memberships.map((m) => m.tenantId) }, { status: 409 });
+  if ("selectionToken" in identity && identity.multipleTenants) {
+    return NextResponse.json({
+      error: "Choose a workspace",
+      selectionToken: identity.selectionToken,
+      workspaces: identity.memberships.map((m) => m.tenantId),
+    }, { status: 409 });
   }
   if (!("tenantId" in identity) || !identity.tenantId || !identity.role) return NextResponse.json({ error: "Workspace setup is incomplete" }, { status: 409 });
   const session = await (await import("../../../../lib/customer-auth")).issueCustomerSession(identity.userId, identity.tenantId, identity.role);

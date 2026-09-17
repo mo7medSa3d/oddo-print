@@ -47,6 +47,7 @@ export async function GET(req: Request) {
       FROM print_jobs p
       JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
       JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
+      JOIN tenants t ON t.id = p.tenant_id
       WHERE p.agent_id = ${agent.id}
         AND p.status IN ('claimed', 'printing')
         AND p.expires_at > now()
@@ -54,6 +55,7 @@ export async function GET(req: Request) {
         AND a.status = 'online'
         AND pr.lifecycle = 'active'
         AND pr.status = 'online'
+        AND t.lifecycle = 'active'
     `);
     const inFlight = Number((countResult.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
     const remainingSlots = Math.max(0, MAX_AGENT_IN_FLIGHT_JOBS - inFlight);
@@ -65,6 +67,7 @@ export async function GET(req: Request) {
         FROM print_jobs p
         JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
         JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
+        JOIN tenants t ON t.id = p.tenant_id
         WHERE p.agent_id = ${agent.id}
           AND p.expires_at > now()
           AND p.status = 'claimed'
@@ -77,6 +80,7 @@ export async function GET(req: Request) {
           AND a.status = 'online'
           AND pr.lifecycle = 'active'
           AND pr.status = 'online'
+          AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${MAX_CLAIM_BATCH}
       ),
@@ -85,6 +89,7 @@ export async function GET(req: Request) {
         FROM print_jobs p
         JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
         JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
+        JOIN tenants t ON t.id = p.tenant_id
         WHERE p.agent_id = ${agent.id}
           AND p.expires_at > now()
           AND p.status = 'queued'
@@ -95,6 +100,7 @@ export async function GET(req: Request) {
           AND a.status = 'online'
           AND pr.lifecycle = 'active'
           AND pr.status = 'online'
+          AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${queuedLimit}
       ),
@@ -109,10 +115,12 @@ export async function GET(req: Request) {
         JOIN candidate_ids c ON c.id = p.id
         JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
         JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
+        JOIN tenants t ON t.id = p.tenant_id
         WHERE a.lifecycle = 'active'
           AND a.status = 'online'
           AND pr.lifecycle = 'active'
           AND pr.status = 'online'
+          AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC
         LIMIT ${MAX_CLAIM_BATCH}
         FOR UPDATE OF p, pr SKIP LOCKED

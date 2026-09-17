@@ -20,17 +20,20 @@ function sanitizeMetadata(value: Record<string, unknown>): Record<string, unknow
   return out;
 }
 
-export async function writeAuditEvent(input: {
-  tenantId: string | null;
-  actorType: AuditActor;
-  actorId?: string | null;
-  action: string;
-  resourceType?: string | null;
-  resourceId?: string | null;
-  requestId?: string | null;
-  metadata?: Record<string, unknown>;
-}): Promise<void> {
-  await db.insert(auditEvents).values({
+export async function writeAuditEvent(
+  input: {
+    tenantId: string | null;
+    actorType: AuditActor;
+    actorId?: string | null;
+    action: string;
+    resourceType?: string | null;
+    resourceId?: string | null;
+    requestId?: string | null;
+    metadata?: Record<string, unknown>;
+  },
+  runner: { insert: typeof db.insert } = db
+): Promise<void> {
+  await runner.insert(auditEvents).values({
     id: `audit_${nanoid(14)}`,
     tenantId: input.tenantId,
     actorType: input.actorType,

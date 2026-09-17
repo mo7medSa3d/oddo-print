@@ -2,28 +2,79 @@ import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { db } from "../../../../db";
-import { managerSessions, passwordResetTokens, tenantUsers, users } from "../../../../db/schema";
+import { managerSessions, platformSessions, passwordResetTokens, tenantUsers, users } from "../../../../db/schema";
 import { and, eq, isNull, gt } from "drizzle-orm";
 import { hashPassword, hashToken } from "../../../../lib/password";
+import { writeAuditEvent } from "../../../../lib/audit";
+
 export async function POST(req: Request) {
-  if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({error:"Request body too large"},{status:413});
-  let body: { token?: unknown; password?: unknown }; try { body=await req.json(); } catch { return NextResponse.json({error:"Invalid JSON"},{status:400}); }
-  const token=typeof body.token==="string"?body.token:""; const password=typeof body.password==="string"?body.password:"";
-  if(!token || password.length<12 || password.length>4096) return NextResponse.json({error:"Invalid or incomplete reset request"},{status:400});
-  const row=await db.query.passwordResetTokens.findFirst({where:and(eq(passwordResetTokens.tokenHash,await hashToken(token)),isNull(passwordResetTokens.consumedAt),gt(passwordResetTokens.expiresAt,new Date()))});
-  if(!row) return NextResponse.json({error:"Reset link expired or invalid"},{status:400});
-  const nextHash=await hashPassword(password); const now=new Date();
+  if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
+  let body: { token?: unknown; password?: unknown };
+  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  const token = typeof body.token === "string" ? body.token : "";
+  const password = typeof body.password === "string" ? body.password : "";
+  if (!token || password.length < 12 || password.length > 4096) {
+    return NextResponse.json({ error: "Invalid or incomplete reset request" }, { status: 400 });
+  }
+
+  const row = await db.query.passwordResetTokens.findFirst({
+    where: and(
+      eq(passwordResetTokens.tokenHash, await hashToken(token)),
+      isNull(passwordResetTokens.consumedAt),
+      gt(passwordResetTokens.expiresAt, new Date())
+    ),
+  });
+  if (!row) return NextResponse.json({ error: "Reset link expired or invalid" }, { status: 400 });
+
+  const nextHash = await hashPassword(password);
+  const now = new Date();
+
   try {
-    await db.transaction(async tx=>{
-      const consumed = await tx.update(passwordResetTokens).set({consumedAt:now}).where(and(eq(passwordResetTokens.id,row.id),isNull(passwordResetTokens.consumedAt))).returning({ id: passwordResetTokens.id });
+    await db.transaction(async (tx) => {
+      const consumed = await tx
+        .update(passwordResetTokens)
+        .set({ consumedAt: now })
+        .where(and(eq(passwordResetTokens.id, row.id), isNull(passwordResetTokens.consumedAt)))
+        .returning({ id: passwordResetTokens.id });
+
       if (consumed.length !== 1) throw new Error("Reset token already consumed");
-      await tx.update(users).set({passwordHash:nextHash,updatedAt:now}).where(eq(users.id,row.userId));
-      await tx.update(managerSessions).set({revokedAt:now}).where(and(eq(managerSessions.userId,row.userId),isNull(managerSessions.revokedAt)));
+
+      await tx.update(users).set({ passwordHash: nextHash, updatedAt: now }).where(eq(users.id, row.userId));
+
+      // Revoke all tenant manager sessions for this user
+      await tx
+        .update(managerSessions)
+        .set({ revokedAt: now })
+        .where(and(eq(managerSessions.userId, row.userId), isNull(managerSessions.revokedAt)));
+
+      // Revoke all platform owner sessions for this user
+      await tx
+        .update(platformSessions)
+        .set({ revokedAt: now })
+        .where(and(eq(platformSessions.userId, row.userId), isNull(platformSessions.revokedAt)));
+
+      const membership = await tx.query.tenantUsers.findFirst({
+        where: eq(tenantUsers.userId, row.userId),
+        columns: { tenantId: true },
+      });
+
+      await writeAuditEvent(
+        {
+          tenantId: membership?.tenantId ?? null,
+          actorType: membership ? "user" : "platform",
+          actorId: row.userId,
+          action: "user.password_reset_completed",
+        },
+        tx
+      );
     });
   } catch (error) {
-    if (error instanceof Error && error.message === "Reset token already consumed") return NextResponse.json({error:"Reset link expired or invalid"},{status:400});
-    throw error;
+    if (error instanceof Error && error.message === "Reset token already consumed") {
+      return NextResponse.json({ error: "Reset link expired or invalid" }, { status: 400 });
+    }
+    logError("password_reset_transaction_failed", { error: error instanceof Error ? error.message : String(error) });
+    return NextResponse.json({ error: "Password reset failed" }, { status: 500 });
   }
-  await db.query.tenantUsers.findFirst({ where: (tu, { eq }) => eq(tu.userId, row.userId), columns: { tenantId: true } }).then((membership) => membership ? import("../../../../lib/audit").then(({ writeAuditEvent }) => writeAuditEvent({ tenantId: membership.tenantId, actorType: "user", actorId: row.userId, action: "user.password_reset_completed" })) : undefined).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
-  return NextResponse.json({ok:true});
+
+  return NextResponse.json({ ok: true });
 }

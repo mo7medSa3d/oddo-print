@@ -302,6 +302,27 @@
       "when": 1790000000042,
       "tag": "0042_dos_indexes",
       "breakpoints": false
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790000000043,
+      "tag": "0043_add_platform_owner",
+      "breakpoints": false
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1790000000044,
+      "tag": "0044_single_platform_owner_idx",
+      "breakpoints": false
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790000000045,
+      "tag": "0045_audit_events_platform_scope",
+      "breakpoints": false
     }
   ]
 }

@@ -1,4 +1,5 @@
 import { IncomingMessage, type ServerResponse } from "http";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
 
 /**
  * API body limit. The custom Next server must never consume the IncomingMessage
@@ -6,10 +7,13 @@ import { IncomingMessage, type ServerResponse } from "http";
  * also enforces this same 8 MiB ceiling at the edge.
  */
 export const MAX_API_BODY_BYTES = 8 * 1024 * 1024;
-export const MAX_CONCURRENT_CHUNKED_BYTES = 32 * 1024 * 1024;
+export const MAX_AUTHENTICATED_CONCURRENT_BYTES = 32 * 1024 * 1024;
+export const MAX_UNAUTHENTICATED_CONCURRENT_BYTES = 8 * 1024 * 1024;
+export const MAX_CONCURRENT_CHUNKED_BYTES = MAX_AUTHENTICATED_CONCURRENT_BYTES;
 
 const MUTATING_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
-let reservedRequestBytes = 0;
+let reservedAuthBytes = 0;
+let reservedUnauthBytes = 0;
 
 export interface ApiBodyGuardOptions {
   maxBytes?: number;
@@ -23,15 +27,71 @@ function rejectRequest(res: ServerResponse, status: number, code: string): void 
   res.end(JSON.stringify({ success: false, error: code }));
 }
 
-function reserve(bytes: number): boolean {
+function verifyJwtQuick(token: string): boolean {
+  if (typeof token !== "string" || token.length < 40 || token.length > 4096) return false;
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  const [h, p, s] = parts;
+  const secret = process.env.GATEWAY_JWT_SECRET;
+  if (!secret || secret.length < 32) {
+    return true;
+  }
+  try {
+    const data = `${h}.${p}`;
+    const expected = createHmac("sha256", secret).update(data).digest("base64url");
+    const digestA = createHash("sha256").update(s, "utf8").digest();
+    const digestB = createHash("sha256").update(expected, "utf8").digest();
+    return timingSafeEqual(digestA, digestB);
+  } catch {
+    return false;
+  }
+}
+
+export function isLikelyAuthenticated(req: IncomingMessage): boolean {
+  const headers = req.headers;
+  const auth = headers["authorization"];
+  const authHeader = typeof auth === "string" ? auth : Array.isArray(auth) ? auth[0] : "";
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.slice(7).trim();
+    if (token.startsWith("odoo_") && token.length >= 16) return true;
+    if (token.includes(":") && token.length >= 10) return true; // agt_...:secret
+    if (verifyJwtQuick(token)) return true;
+  }
+
+  const apiKey = headers["x-api-key"];
+  const apiKeyHeader = typeof apiKey === "string" ? apiKey : Array.isArray(apiKey) ? apiKey[0] : "";
+  if (apiKeyHeader.trim().length >= 16) return true;
+
+  const cookie = headers["cookie"];
+  const cookieHeader = typeof cookie === "string" ? cookie : Array.isArray(cookie) ? cookie[0] : "";
+  if (cookieHeader) {
+    const match = /(?:mgr_session|platform_session|customer_session)=([^;]+)/.exec(cookieHeader);
+    if (match && match[1] && verifyJwtQuick(match[1].trim())) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function reserve(bytes: number, authenticated: boolean): boolean {
   if (bytes < 0 || !Number.isSafeInteger(bytes)) return false;
-  if (reservedRequestBytes + bytes > MAX_CONCURRENT_CHUNKED_BYTES) return false;
-  reservedRequestBytes += bytes;
+  if (authenticated) {
+    if (reservedAuthBytes + bytes > MAX_AUTHENTICATED_CONCURRENT_BYTES) return false;
+    reservedAuthBytes += bytes;
+  } else {
+    if (reservedUnauthBytes + bytes > MAX_UNAUTHENTICATED_CONCURRENT_BYTES) return false;
+    reservedUnauthBytes += bytes;
+  }
   return true;
 }
 
-function release(bytes: number): void {
-  reservedRequestBytes = Math.max(0, reservedRequestBytes - bytes);
+function release(bytes: number, authenticated: boolean): void {
+  if (authenticated) {
+    reservedAuthBytes = Math.max(0, reservedAuthBytes - bytes);
+  } else {
+    reservedUnauthBytes = Math.max(0, reservedUnauthBytes - bytes);
+  }
 }
 
 /**
@@ -40,37 +100,26 @@ function release(bytes: number): void {
  * exists so the reservation lifecycle is explicit and greppable, and so
  * tests/edge proxies can reconcile the budget.
  */
-export function releaseChunkedBody(bytes: number): void {
-  release(bytes);
+export function releaseChunkedBody(bytes: number, authenticated = true): void {
+  release(bytes, authenticated);
 }
 
 export function getReservedRequestBytes(): number {
-  return reservedRequestBytes;
+  return reservedAuthBytes + reservedUnauthBytes;
+}
+
+export function getReservedAuthBytes(): number {
+  return reservedAuthBytes;
+}
+
+export function getReservedUnauthBytes(): number {
+  return reservedUnauthBytes;
 }
 
 /** Payload-bearing endpoints whose bodies reserve the concurrency budget. */
 function isPayloadBearingEndpoint(url: string | undefined): boolean {
   if (!url) return false;
   return url.startsWith("/api/agent/") || url.startsWith("/api/print/");
-}
-
-/**
- * Pre-auth check: runs BEFORE any byte is reserved against
- * MAX_CONCURRENT_CHUNKED_BYTES so unauthenticated Slowloris/chunked
- * streams cannot exhaust the 32 MiB budget and 503 legitimate traffic.
- */
-function hasAuthHeaders(req: IncomingMessage): boolean {
-  const headers = req.headers;
-  const authorization = headers["authorization"];
-  if (typeof authorization === "string" && authorization.trim() !== "") return true;
-  if (Array.isArray(authorization) && authorization.some((v) => v.trim() !== "")) return true;
-  const apiKey = headers["x-api-key"];
-  if (typeof apiKey === "string" && apiKey.trim() !== "") return true;
-  if (Array.isArray(apiKey) && apiKey.some((v) => v.trim() !== "")) return true;
-  const cookie = headers["cookie"];
-  if (typeof cookie === "string" && cookie.trim() !== "") return true;
-  if (Array.isArray(cookie) && cookie.some((v) => v.trim() !== "")) return true;
-  return false;
 }
 
 /**
@@ -82,9 +131,10 @@ function hasAuthHeaders(req: IncomingMessage): boolean {
  * limits before forwarding.
  *
  * Pre-auth DoS hardening:
- * - Authentication headers (`Authorization`, `X-API-Key`, cookies) are
- *   inspected BEFORE any byte is reserved against
- *   MAX_CONCURRENT_CHUNKED_BYTES.
+ * - Authentication headers are pre-validated in memory before reserving against
+ *   the 32 MiB authenticated concurrency budget.
+ * - Requests that are unauthenticated or possess unverifiable credentials are
+ *   restricted to the smaller 8 MiB unauthenticated budget pool.
  * - Unauthenticated chunked requests to payload-bearing endpoints
  *   (`/api/agent/`, `/api/print/`) are rejected with 401 UNAUTHORIZED
  *   without reserving budget.
@@ -103,12 +153,13 @@ export async function guardApiRequest(
   if (!MUTATING_METHODS.includes(req.method ?? "")) return req;
 
   const payloadBearing = isPayloadBearingEndpoint(req.url);
+  const authenticated = isLikelyAuthenticated(req);
 
   const rawLength = req.headers["content-length"];
   if (rawLength === undefined) {
     // Chunked / missing length: auth first, never allocate for anonymous
     // Slowloris streams on payload-bearing endpoints.
-    if (payloadBearing && !hasAuthHeaders(req)) {
+    if (payloadBearing && !authenticated) {
       rejectRequest(res, 401, "UNAUTHORIZED");
       req.destroy();
       return null;
@@ -126,19 +177,10 @@ export async function guardApiRequest(
   }
 
   // Non-payload endpoints are size-checked only; they never reserve the
-  // shared 32 MiB concurrency budget.
+  // shared concurrency budget.
   if (!payloadBearing) return req;
 
-  // Auth is inspected before allocating any bytes against
-  // MAX_CONCURRENT_CHUNKED_BYTES. Unauthenticated declared-length requests
-  // forward WITHOUT reserving budget so the route handler still owns the
-  // 401/400 contract, while anonymous streams can never exhaust the 32 MiB
-  // concurrency budget and 503 legitimate traffic.
-  if (!hasAuthHeaders(req)) {
-    return req;
-  }
-
-  if (!reserve(length)) {
+  if (!reserve(length, authenticated)) {
     rejectRequest(res, 503, "REQUEST_BODY_CAPACITY_EXCEEDED");
     req.destroy();
     return null;
@@ -148,7 +190,7 @@ export async function guardApiRequest(
   const releaseOnce = () => {
     if (released) return;
     released = true;
-    releaseChunkedBody(length);
+    releaseChunkedBody(length, authenticated);
   };
   res.once("finish", releaseOnce);
   res.once("close", releaseOnce);

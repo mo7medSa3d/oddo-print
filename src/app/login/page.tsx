@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [workspaces, setWorkspaces] = useState<string[]>([]);
+  const [selectionToken, setSelectionToken] = useState("");
   const [checkingSession, setCheckingSession] = useState(true);
   const router = useRouter();
 
@@ -36,7 +37,11 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.status === 409 && Array.isArray(data.workspaces)) { setWorkspaces(data.workspaces.filter((id: unknown): id is string => typeof id === "string")); return; }
+      if (res.status === 409 && Array.isArray(data.workspaces)) {
+        if (typeof data.selectionToken === "string") setSelectionToken(data.selectionToken);
+        setWorkspaces(data.workspaces.filter((id: unknown): id is string => typeof id === "string"));
+        return;
+      }
       if (!res.ok) throw new Error(data.error ?? "Unable to sign in");
       router.replace("/dashboard");
       router.refresh();
@@ -50,7 +55,12 @@ export default function LoginPage() {
   async function chooseWorkspace(tenantId: string) {
     setLoading(true); setErr("");
     try {
-      const res = await fetch("/api/auth/select-tenant", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ tenantId }) });
+      const res = await fetch("/api/auth/select-tenant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ tenantId, selectionToken }),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Workspace selection failed");
       router.replace("/dashboard"); router.refresh();

@@ -1,8 +1,7 @@
 import { db } from "../db";
-import { tenants } from "../db/schema";
+import { tenants, managerSessions } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { writeAuditEvent, type AuditActor } from "./audit";
-import { logError } from "./log";
 
 export type TenantLifecycleState = "active" | "suspended" | "deleted";
 
@@ -41,9 +40,9 @@ export type TransitionTenantLifecycleResult = {
  * The single authoritative tenant lifecycle transition.
  *
  * Rules:
- *  - active → suspended: blocks all operations, records suspendedAt
+ *  - active → suspended: blocks all operations, revokes sessions, notifies sockets, records suspendedAt
  *  - suspended → active: restores operations, clears suspendedAt
- *  - active|suspended → deleted: terminal soft-deletion, records deletedAt
+ *  - active|suspended → deleted: terminal soft-deletion, revokes sessions, notifies sockets, records deletedAt
  *  - deleted is terminal: no transitions out
  *  - current === next is a true no-op
  */
@@ -99,20 +98,25 @@ export async function transitionTenantLifecycle(
     }
 
     await tx.update(tenants).set(updates).where(eq(tenants.id, tenantId));
-  });
 
-  // Audit event — intentionally outside the transaction so a write failure
-  // does not roll back the lifecycle change. The audit table is telemetry,
-  // not a correctness dependency.
-  await writeAuditEvent({
-    tenantId,
-    actorType: actor.type,
-    actorId: actor.id,
-    action: `tenant.lifecycle.${next}`,
-    resourceType: "tenant",
-    resourceId: tenantId,
-    metadata: { from: current, to: next, reason: reason.trim() },
-  }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
+    if (next === "suspended" || next === "deleted") {
+      await tx.delete(managerSessions).where(eq(managerSessions.tenantId, tenantId));
+      await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ tenantId })})`);
+    }
+
+    await writeAuditEvent(
+      {
+        tenantId,
+        actorType: actor.type,
+        actorId: actor.id,
+        action: `tenant.lifecycle.${next}`,
+        resourceType: "tenant",
+        resourceId: tenantId,
+        metadata: { from: current, to: next, reason: reason.trim() },
+      },
+      tx,
+    );
+  });
 
   return { changed: true, lifecycle: next, previousLifecycle: current };
 }

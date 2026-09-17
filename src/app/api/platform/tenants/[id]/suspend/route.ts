@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 import { requirePlatformOwner } from "../../../../../../lib/platform-auth";
-import { db } from "../../../../../../db";
-import { tenants, managerSessions } from "../../../../../../db/schema";
-import { eq, and, isNull } from "drizzle-orm";
 import { hasBodyOverLimit } from "../../../../../../lib/request-limits";
-import { writeAuditEvent } from "../../../../../../lib/audit";
-import { logError } from "../../../../../../lib/log";
+import { transitionTenantLifecycle, TenantLifecycleError } from "../../../../../../lib/tenant-lifecycle";
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   let claims;
@@ -36,46 +32,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ error: "A valid suspension reason (1-500 characters) is required" }, { status: 400 });
   }
 
-  const tenant = await db.query.tenants.findFirst({
-    where: eq(tenants.id, id),
-    columns: { id: true, lifecycle: true },
-  });
-
-  if (!tenant) {
-    return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+  try {
+    await transitionTenantLifecycle(id, "suspended", reason, {
+      type: "platform",
+      id: claims.userId,
+    });
+    return NextResponse.json({ ok: true, tenantId: id, lifecycle: "suspended", reason });
+  } catch (err) {
+    if (err instanceof TenantLifecycleError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: err.status });
+    }
+    return NextResponse.json({ error: "Failed to suspend tenant" }, { status: 500 });
   }
-
-  if (tenant.lifecycle === "suspended") {
-    return NextResponse.json({ error: "Tenant is already suspended" }, { status: 400 });
-  }
-
-  const now = new Date();
-  await db.transaction(async (tx) => {
-    await tx
-      .update(tenants)
-      .set({
-        lifecycle: "suspended",
-        suspendedAt: now,
-        lifecycleReason: reason,
-        updatedAt: now,
-      })
-      .where(eq(tenants.id, id));
-
-    await tx
-      .update(managerSessions)
-      .set({ revokedAt: now })
-      .where(and(eq(managerSessions.tenantId, id), isNull(managerSessions.revokedAt)));
-  });
-
-  void writeAuditEvent({
-    tenantId: id,
-    actorType: "platform",
-    actorId: claims.userId,
-    action: "tenant.suspended",
-    resourceType: "tenant",
-    resourceId: id,
-    metadata: { reason },
-  }).catch((err) => logError("audit_write_failed", { error: err?.message ?? String(err) }));
-
-  return NextResponse.json({ ok: true, tenantId: id, lifecycle: "suspended", reason });
 }

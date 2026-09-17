@@ -68,6 +68,10 @@ describe("Tenant Lifecycle Unit Tests", () => {
               where: vi.fn().mockResolvedValue(undefined),
             }),
           }),
+          delete: () => ({
+            where: vi.fn().mockResolvedValue(undefined),
+          }),
+          execute: vi.fn().mockResolvedValue({ rows: [] }),
         };
         return cb(tx);
       });

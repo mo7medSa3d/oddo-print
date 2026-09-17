@@ -102,6 +102,7 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
       FROM print_jobs p
       JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
       JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
+      JOIN tenants t ON t.id = p.tenant_id
       WHERE p.agent_id = ${agentId}
         AND p.status IN ('claimed', 'printing')
         AND p.expires_at > now()
@@ -109,6 +110,7 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND a.status = 'online'
         AND pr.lifecycle = 'active'
         AND pr.status = 'online'
+        AND t.lifecycle = 'active'
     `);
     const inFlight = Number((live.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
     // The WS push path previously had no ceiling at all: a NOTIFY fan-out or
@@ -121,6 +123,7 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
       FROM print_jobs p
       JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
       JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
+      JOIN tenants t ON t.id = p.tenant_id
       WHERE p.id = ${jobId}
         AND p.tenant_id = a.tenant_id
         AND p.agent_id = ${agentId}
@@ -132,6 +135,7 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND a.status = 'online'
         AND pr.lifecycle = 'active'
         AND pr.status = 'online'
+        AND t.lifecycle = 'active'
       FOR UPDATE OF p, pr SKIP LOCKED
     `);
     if (locked.rows.length === 0) return null;

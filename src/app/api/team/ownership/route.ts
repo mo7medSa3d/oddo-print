@@ -1,10 +1,10 @@
-import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, managerSessions } from "../../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import { clearManagerCookieHeader, validateManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
+import { writeAuditEvent } from "../../../../lib/audit";
 
 export async function POST(req: Request) {
   const claims = await validateManager(req);
@@ -22,12 +22,22 @@ export async function POST(req: Request) {
       if (demoted.length !== 1) throw new Error("Ownership has already changed");
       await tx.update(tenantUsers).set({ role: "owner", updatedAt: new Date() }).where(and(eq(tenantUsers.tenantId, claims.tenantId), eq(tenantUsers.userId, newOwnerId)));
       await tx.update(managerSessions).set({ revokedAt: new Date() }).where(and(eq(managerSessions.userId, currentUserId), eq(managerSessions.tenantId, claims.tenantId)));
+      await writeAuditEvent(
+        {
+          tenantId: claims.tenantId,
+          actorType: "user",
+          actorId: currentUserId,
+          action: "team.ownership.transferred",
+          resourceType: "user",
+          resourceId: newOwnerId,
+        },
+        tx
+      );
     });
   } catch (error) {
     if (error instanceof Error && error.message === "Ownership has already changed") return NextResponse.json({ error: "Ownership has already changed. Refresh and try again." }, { status: 409 });
     throw error;
   }
-  await import("../../../../lib/audit").then(({ writeAuditEvent }) => writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: currentUserId, action: "team.ownership.transferred", resourceType: "user", resourceId: newOwnerId })).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   const res = NextResponse.json({ ok: true, next: "/login" });
   res.headers.set("Set-Cookie", clearManagerCookieHeader());
   return res;
