@@ -55,7 +55,7 @@ suite("heartbeat validation and lifecycle preservation", () => {
 
   it("preserves manager-owned printer identity and configuration while returning desired state", async () => {
     await pool().query(
-      `UPDATE printers SET name = $1, connection_type = $2, protocol = $3, config = $4::jsonb WHERE id = $5`,
+      `UPDATE printers SET management_source = 'manager', desired_revision = 7, applied_desired_revision = 4, observed_desired_revision = 4, name = $1, connection_type = $2, protocol = $3, config = $4::jsonb WHERE id = $5`,
       ["Manager Name", "network", "raw", JSON.stringify({ ip: "10.10.10.20", port: 9100 }), f.printerId],
     );
 
@@ -83,6 +83,7 @@ suite("heartbeat validation and lifecycle preservation", () => {
     expect(row.rows[0].protocol).toBe("raw");
     expect(row.rows[0].config).toEqual({ ip: "10.10.10.20", port: 9100 });
     expect(row.rows[0].status).toBe("online");
+    expect(row.rows[0].management_source).toBe("manager");
 
     const body = await res.json();
     expect(body.desiredState).toEqual(expect.arrayContaining([
@@ -92,8 +93,88 @@ suite("heartbeat validation and lifecycle preservation", () => {
         connectionType: "network",
         protocol: "raw",
         config: { ip: "10.10.10.20", port: 9100 },
+        desiredRevision: 7,
+        appliedDesiredRevision: 4,
+        observedDesiredRevision: 4,
       }),
     ]));
+  });
+
+  it("accepts monotonic desired-state acknowledgements and fences them to the authenticated tenant and agent", async () => {
+    await pool().query(
+      `UPDATE printers
+       SET management_source = 'manager',
+           desired_revision = 9,
+           applied_desired_revision = 2,
+           observed_desired_revision = 2
+       WHERE id = $1`,
+      [f.printerId],
+    );
+
+    const beat = (ack: unknown) => heartbeatPOST(new Request("http://gateway.test/api/agent/heartbeat", {
+      method: "POST",
+      headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({ status: "online", printers: [], desiredStateAcks: [ack] }),
+    }));
+
+    expect((await beat({
+      printerId: f.printerId,
+      appliedDesiredRevision: 8,
+      observedDesiredRevision: 8,
+    })).status).toBe(200);
+
+    let row = await pool().query(
+      `SELECT desired_revision, applied_desired_revision, observed_desired_revision
+       FROM printers WHERE id = $1`,
+      [f.printerId],
+    );
+    expect(row.rows[0]).toEqual({
+      desired_revision: "9",
+      applied_desired_revision: "8",
+      observed_desired_revision: "8",
+    });
+
+    expect((await beat({
+      printerId: f.printerId,
+      appliedDesiredRevision: 7,
+      observedDesiredRevision: 7,
+    })).status).toBe(200);
+
+    row = await pool().query(
+      `SELECT desired_revision, applied_desired_revision, observed_desired_revision
+       FROM printers WHERE id = $1`,
+      [f.printerId],
+    );
+    expect(row.rows[0]).toEqual({
+      desired_revision: "9",
+      applied_desired_revision: "8",
+      observed_desired_revision: "8",
+    });
+
+    const other = await seedFixture();
+    expect((await heartbeatPOST(new Request("http://gateway.test/api/agent/heartbeat", {
+      method: "POST",
+      headers: { Authorization: other.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({
+        status: "online",
+        printers: [],
+        desiredStateAcks: [{
+          printerId: f.printerId,
+          appliedDesiredRevision: 9,
+          observedDesiredRevision: 9,
+        }],
+      }),
+    }))).status).toBe(200);
+
+    row = await pool().query(
+      `SELECT applied_desired_revision, observed_desired_revision
+       FROM printers WHERE id = $1`,
+      [f.printerId],
+    );
+    expect(row.rows[0]).toEqual({
+      applied_desired_revision: "8",
+      observed_desired_revision: "8",
+    });
   });
 
   it("refuses to update a printer owned by another agent", async () => {
