@@ -110,6 +110,7 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND a.status = 'online'
         AND pr.lifecycle = 'active'
         AND pr.status = 'online'
+        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
         AND t.lifecycle = 'active'
     `);
     const inFlight = Number((live.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
