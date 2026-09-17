@@ -1,10 +1,9 @@
-import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { agents, printers } from "../../../../db/schema";
 import { validateManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { canTransitionLifecycle } from "../../../../lib/lifecycle";
 import { PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, assertPrinterMetadataLimits, validateConnectionConfig } from "../../../../lib/printer-model";
@@ -19,9 +18,15 @@ const patchSchema = z.object({
   connectionType: z.enum(CONNECTION_TYPES).optional(),
   protocol: z.enum(PRINTER_PROTOCOLS).optional(),
   lifecycle: z.enum(["active", "disabled", "retired"]).optional(),
-  config: z.object({ ip: z.string().max(255).optional(), port: z.number().int().min(1).max(65535).optional(), vid: z.number().int().min(0).max(65535).optional(), pid: z.number().int().min(0).max(65535).optional(), serial: z.string().max(255).optional(), address: z.string().max(512).optional(), spooler_name: z.string().max(255).optional() }).strict().optional(),
-  capabilities: z.record(z.string(), z.unknown()).optional(),
-  status: z.enum(["online", "offline", "busy", "error", "unknown"]).optional(),
+  config: z.object({
+    ip: z.string().max(255).optional(),
+    port: z.number().int().min(1).max(65535).optional(),
+    vid: z.number().int().min(0).max(65535).optional(),
+    pid: z.number().int().min(0).max(65535).optional(),
+    serial: z.string().max(255).optional(),
+    address: z.string().max(512).optional(),
+    spooler_name: z.string().max(255).optional(),
+  }).strict().optional(),
 }).strict();
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -36,42 +41,92 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const claims = await validateManager(req);
-  if (claims) { try { requireManagerPermission(claims, "printers.manage"); } catch { return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { "content-type": "application/json" } }); } }
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try { requireManagerPermission(claims, "printers.manage"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+
   const { id } = await params;
-  const existing = await db.query.printers.findFirst({ where: and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId)) });
-  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
-  if (body && typeof body === "object" && ("branchId" in body || "branch_id" in body || "enabled" in body || "type" in body)) {
-    return NextResponse.json({ error: "Unsupported legacy/ownership field" }, { status: 400 });
+  if (body && typeof body === "object" && ("branchId" in body || "branch_id" in body || "enabled" in body || "type" in body || "status" in body || "capabilities" in body)) {
+    return NextResponse.json({ error: "Unsupported legacy/observed field" }, { status: 400 });
   }
+
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid body" }, { status: 400 });
-  try { assertPrinterMetadataLimits({ config: parsed.data.config ?? {}, capabilities: parsed.data.capabilities }); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "printer metadata exceeds limits" }, { status: 400 }); }
-  if (parsed.data.lifecycle && !canTransitionLifecycle(existing.lifecycle, parsed.data.lifecycle)) return NextResponse.json({ error: `invalid lifecycle transition: ${existing.lifecycle} -> ${parsed.data.lifecycle}` }, { status: 409 });
-  if (parsed.data.lifecycle === "active") {
-    const owner = await db.query.agents.findFirst({ where: and(eq(agents.id, existing.agentId), eq(agents.tenantId, claims.tenantId)) });
-    if (!owner) return NextResponse.json({ error: "Printer owner agent missing" }, { status: 500 });
-    if (owner.lifecycle !== "active") return NextResponse.json({ error: `cannot activate printer while agent is ${owner.lifecycle}` }, { status: 409 });
-  }
-  const update: Partial<typeof printers.$inferInsert> = { updatedAt: new Date() };
-  if (parsed.data.name !== undefined) update.name = parsed.data.name;
-  if (parsed.data.printerType !== undefined) update.printerType = parsed.data.printerType;
-  if (parsed.data.deviceClass !== undefined) update.deviceClass = parsed.data.deviceClass;
-  if (parsed.data.connectionType !== undefined) update.connectionType = parsed.data.connectionType;
-  if (parsed.data.protocol !== undefined) update.protocol = parsed.data.protocol;
-  if (parsed.data.config !== undefined) update.config = parsed.data.config;
-  if (parsed.data.capabilities !== undefined) update.capabilities = parsed.data.capabilities;
-  if (parsed.data.status !== undefined) update.status = parsed.data.status;
-  if (parsed.data.lifecycle !== undefined) update.lifecycle = parsed.data.lifecycle;
-  if (parsed.data.connectionType || parsed.data.config) {
+  try { assertPrinterMetadataLimits({ config: parsed.data.config ?? {} }); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "printer metadata exceeds limits" }, { status: 400 }); }
+
+  const result = await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${claims.tenantId${ || ':' || ${id${))`);
+
+    const existing = await tx.query.printers.findFirst({ where: and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId)) });
+    if (!existing) return { kind: "not_found" as const };
+
+    if (parsed.data.lifecycle && !canTransitionLifecycle(existing.lifecycle, parsed.data.lifecycle)) {
+      return { kind: "conflict" as const, message: `invalid lifecycle transition: ${existing.lifecycle${ -> ${parsed.data.lifecycle${` };
+    }
+
+    if (parsed.data.lifecycle === "active") {
+      const owner = await tx.query.agents.findFirst({ where: and(eq(agents.id, existing.agentId), eq(agents.tenantId, claims.tenantId)) });
+      if (!owner) return { kind: "error" as const, message: "Printer owner agent missing" };
+      if (owner.lifecycle !== "active") return { kind: "conflict" as const, message: `cannot activate printer while agent is ${owner.lifecycle${` };
+    }
+
     const connectionType = parsed.data.connectionType ?? existing.connectionType;
     const cfg = (parsed.data.config ?? existing.config ?? {}) as Record<string, unknown>;
-    const err = validateConnectionConfig(connectionType, cfg);
-    if (err) return NextResponse.json({ error: err }, { status: 400 });
-  }
-  const [row] = await db.update(printers).set(update).where(and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId))).returning();
-  await writeAuditEvent({ tenantId: claims.tenantId, actorType: claims.userId ? "user" : "system", actorId: claims.userId ?? "legacy-manager", action: "printer.changed", resourceType: "printer", resourceId: id, metadata: { lifecycle: parsed.data.lifecycle ?? null } }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
-  return NextResponse.json(row);
+    if (parsed.data.connectionType !== undefined || parsed.data.config !== undefined) {
+      const err = validateConnectionConfig(connectionType, cfg);
+      if (err) return { kind: "invalid" as const, message: err };
+    }
+
+    const desiredStateChanged =
+      parsed.data.name !== undefined ||
+      parsed.data.printerType !== undefined ||
+      parsed.data.deviceClass !== undefined ||
+      parsed.data.connectionType !== undefined ||
+      parsed.data.protocol !== undefined ||
+      parsed.data.config !== undefined ||
+      parsed.data.lifecycle !== undefined;
+
+    const update: Partial<typeof printers.$inferInsert> = { updatedAt: new Date() };
+    if (parsed.data.name !== undefined) update.name = parsed.data.name;
+    if (parsed.data.printerType !== undefined) update.printerType = parsed.data.printerType;
+    if (parsed.data.deviceClass !== undefined) update.deviceClass = parsed.data.deviceClass;
+    if (parsed.data.connectionType !== undefined) update.connectionType = parsed.data.connectionType;
+    if (parsed.data.protocol !== undefined) update.protocol = parsed.data.protocol;
+    if (parsed.data.config !== undefined) update.config = parsed.data.config;
+    if (parsed.data.lifecycle !== undefined) update.lifecycle = parsed.data.lifecycle;
+    if (desiredStateChanged) {
+      update.managementSource = "manager";
+      update.desiredRevision = sql`${printers.desiredRevision${ + 1`;
+    }
+
+    const [row] = await tx.update(printers)
+      .set(update)
+      .where(and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId)))
+      .returning();
+
+    await writeAuditEvent({
+      tenantId: claims.tenantId,
+      actorType: claims.userId ? "user" : "system",
+      actorId: claims.userId ?? "legacy-manager",
+      action: "printer.changed",
+      resourceType: "printer",
+      resourceId: id,
+      metadata: {
+        managementSource: row.managementSource,
+        desiredStateChanged,
+        desiredRevision: row.desiredRevision,
+        lifecycle: row.lifecycle,
+      },
+    }, tx);
+
+    return { kind: "ok" as const, row };
+  });
+
+  if (result.kind === "not_found") return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (result.kind === "conflict") return NextResponse.json({ error: result.message }, { status: 409 });
+  if (result.kind === "invalid") return NextResponse.json({ error: result.message }, { status: 400 });
+  if (result.kind === "error") return NextResponse.json({ error: result.message }, { status: 500 });
+  return NextResponse.json(result.row);
 }
