@@ -443,7 +443,7 @@ class TestControlPlane(TransactionCase):
                 "report_id": picking_report.id,
                 "runtime_agent_id": "agent-cp-01",
                 "printer_id": "printer-branch-recovery",
-                "printer_protocol": "escpos",
+                "printer_protocol": "ipp",
                 "enabled": True,
                 "priority": 5,
             })
