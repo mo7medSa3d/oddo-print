@@ -256,8 +256,6 @@ export async function POST(req: Request) {
         lifecycle: row.lifecycle,
         config: row.config,
         desiredRevision: row.desiredRevision,
-        appliedDesiredRevision: row.appliedDesiredRevision,
-        observedDesiredRevision: row.observedDesiredRevision,
       })),
     });
   } catch {
