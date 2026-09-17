@@ -153,10 +153,32 @@ export async function POST(req: Request) {
           } | undefined;
           const differentSubscription = Boolean(current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId);
           if (differentSubscription && current?.status !== "cancelled") {
-            throw new Error("Checkout subscription identity conflict");
+            await tx.update(billingEvents)
+              .set({ tenantId, processedAt: new Date() })
+              .where(eq(billingEvents.eventId, eventId));
+            await writeAuditEvent({
+              tenantId,
+              actorType: "platform",
+              actorId: "stripe",
+              action: "billing.identity_conflict",
+              resourceType: "billing_event",
+              resourceId: eventId,
+            }, tx);
+            return { kind: "ignored" as const };
           }
           if (differentSubscription && current?.status === "cancelled" && current.stripeLastEventCreatedAt && eventCreatedAt.getTime() < current.stripeLastEventCreatedAt.getTime()) {
-            throw new Error("Stale checkout subscription identity");
+            await tx.update(billingEvents)
+              .set({ tenantId, processedAt: new Date() })
+              .where(eq(billingEvents.eventId, eventId));
+            await writeAuditEvent({
+              tenantId,
+              actorType: "platform",
+              actorId: "stripe",
+              action: "billing.stale_checkout_subscription",
+              resourceType: "billing_event",
+              resourceId: eventId,
+            }, tx);
+            return { kind: "ignored" as const };
           }
           if (current?.stripeCustomerId && customerId && current.stripeCustomerId !== customerId) throw new Error("Checkout customer identity conflict");
           await tx.update(tenantSubscriptions).set({
