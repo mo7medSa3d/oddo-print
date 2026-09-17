@@ -349,8 +349,8 @@ export function OverviewPage({ s }: { s: DesktopState }) {
                   label: "Last status check",
                   value: (
                     <Mono>
-                      {s.lastHeartbeat
-                        ? new Date(s.lastHeartbeat).toLocaleTimeString()
+                      {s.lastStatusCheck
+                        ? new Date(s.lastStatusCheck).toLocaleTimeString()
                         : "—"}
                     </Mono>
                   ),
