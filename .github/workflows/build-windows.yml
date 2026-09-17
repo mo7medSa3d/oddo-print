@@ -8,7 +8,7 @@ on:
 
 concurrency:
   group: windows-build-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build-windows:
