@@ -45,7 +45,7 @@ suite("heartbeat validation and lifecycle preservation", () => {
           deviceClass: "thermal",
           connectionType: "network",
           protocol: "raw",
-          config: { ip: "192.0.2.20", port: 9100 },
+          config: { ip: "10.0.0.20", port: 9100 },
           status: "online",
         }],
       }),
