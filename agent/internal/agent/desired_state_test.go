@@ -154,6 +154,34 @@ func TestDesiredStateDeletionRemovesLocalRegistryEntry(t *testing.T) {
 	}
 }
 
+func TestGatewayOwnedPrinterIsNotReintroducedFromStaleRegistry(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	a.markGatewayOwned("printer-stale")
+
+	local := printer.DeviceInfo{
+		ID: "printer-stale",
+		Name: "Stale Gateway printer",
+		PrinterType: "thermal",
+		ConnectionType: "network",
+		Protocol: "raw",
+		Endpoint: "192.0.2.30:9100",
+		Status: "online",
+		Enabled: true,
+	}
+	if _, err := printer.RegisterManual(a.registryPath, local); err != nil {
+		t.Fatalf("RegisterManual: %v", err)
+	}
+
+	a.reloadRegistryPrinters()
+
+	if _, ok := a.printerConfigs["printer-stale"]; ok {
+		t.Fatal("Gateway-owned printer was reintroduced from stale local registry")
+	}
+	if _, ok := a.printers["printer-stale"]; ok {
+		t.Fatal("Gateway-owned printer was reintroduced into runtime registry")
+	}
+}
+
 func TestDesiredStateRestartRecovery(t *testing.T) {
 	a := newDesiredStateTestAgent(t)
 	a.desiredStateSynced = true
