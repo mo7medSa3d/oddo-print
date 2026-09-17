@@ -1,10 +1,8 @@
-import { sql } from "drizzle-orm";
+import { sql, and, eq } from "drizzle-orm";
 import { db } from "../db";
 import { agents, printers } from "../db/schema";
-import { eq, and } from "drizzle-orm";
 import { canTransitionLifecycle } from "./lifecycle";
 import { generatePairingCode, hashPairingCode } from "./agent-auth";
-import { logWarn } from "./log";
 
 export type AgentLifecycleResult = {
   changed: boolean;
@@ -13,66 +11,77 @@ export type AgentLifecycleResult = {
 };
 
 /**
- * The single authoritative agent lifecycle transition used by BOTH the
- * PATCH /api/agents/[id] route and the dashboard server action. Divergent
- * copies of this flow previously drifted (a no-op PATCH destroyed
- * credentials; socket teardown depended on the target state instead of the
- * credential change), so there is now exactly one implementation.
+ * The single authoritative agent lifecycle transition.
  *
- * Rules:
- *  - current === next is a true no-op: credentials and pairing state untouched.
- *  - every real transition nulls the agent secret (revocation first).
- *  - disabled -> active mints a fresh single-use pairing code (10 min TTL).
- *  - every real transition tears down live WebSocket sessions locally and
- *    publishes a cluster-wide close.
+ * The agent row is locked before reading its lifecycle. Claim paths lock the
+ * same agent row, so lifecycle changes and job claims serialize at the
+ * database boundary instead of relying on a stale pre-check.
  */
-export async function transitionAgentLifecycle(agentId: string, next: "active" | "disabled" | "retired", tenantId: string): Promise<AgentLifecycleResult | null> {
-  const agentWhere = and(eq(agents.id, agentId), eq(agents.tenantId, tenantId));
-  const agent = await db.query.agents.findFirst({ where: agentWhere });
-  if (!agent) return null;
-  if (agent.lifecycle === next) {
-    return { changed: false, lifecycle: next, pairingCode: null };
-  }
-  if (!canTransitionLifecycle(agent.lifecycle, next)) {
-    throw new LifecycleConflict(`invalid lifecycle transition: ${agent.lifecycle} -> ${next}`);
-  }
-  const now = new Date();
-  const reenable = agent.lifecycle === "disabled" && next === "active";
-  // Same collision rule as createAgent (migration 0032): pending
-  // pairing-code hashes are globally unique because registration resolves
-  // codes without a tenant boundary.
-  let pairingCode: string | null = null;
-  if (reenable) {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const candidate = generatePairingCode();
-      const clash = await db.query.agents.findFirst({
-        where: eq(agents.pairingCodeHash, hashPairingCode(candidate)),
-        columns: { id: true },
-      });
-      if (!clash || clash.id === agentId) {
-        pairingCode = candidate;
-        break;
-      }
+export async function transitionAgentLifecycle(
+  agentId: string,
+  next: "active" | "disabled" | "retired",
+  tenantId: string,
+): Promise<AgentLifecycleResult | null> {
+  return db.transaction(async (tx) => {
+    const locked = await tx.execute(sql`
+      SELECT id, lifecycle
+      FROM agents
+      WHERE id = ${agentId} AND tenant_id = ${tenantId}
+      FOR UPDATE
+    `);
+    const agent = locked.rows[0] as { id?: string; lifecycle?: unknown } | undefined;
+    if (!agent?.id) return null;
+    if (typeof agent.lifecycle !== "string") throw new Error("agent has an invalid lifecycle value");
+
+    const current = agent.lifecycle as "active" | "disabled" | "retired";
+    if (current === next) {
+      return { changed: false, lifecycle: next, pairingCode: null };
     }
-    if (!pairingCode) throw new Error("could not mint a unique pairing code");
-  }
-  const pairingCodeHash = pairingCode ? hashPairingCode(pairingCode) : null;
-  await db.transaction(async (tx) => {
-    await tx.update(agents).set({
+    if (!canTransitionLifecycle(current, next)) {
+      throw new LifecycleConflict(`invalid lifecycle transition: ${current} -> ${next}`);
+    }
+
+    const now = new Date();
+    const reenable = current === "disabled" && next === "active";
+    let pairingCode: string | null = null;
+
+    if (reenable) {
+      // Pairing codes are globally resolved before tenant identity is known,
+      // so collision checking stays global and uses the same transaction.
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const candidate = generatePairingCode();
+        const clash = await tx.query.agents.findFirst({
+          where: eq(agents.pairingCodeHash, hashPairingCode(candidate)),
+          columns: { id: true },
+        });
+        if (!clash || clash.id === agentId) {
+          pairingCode = candidate;
+          break;
+        }
+      }
+      if (!pairingCode) throw new Error("could not mint a unique pairing code");
+    }
+
+    const updated = await tx.update(agents).set({
       lifecycle: next,
       secret: null,
-      pairingCodeHash,
+      pairingCodeHash: pairingCode ? hashPairingCode(pairingCode) : null,
       pairingCodeExpiresAt: pairingCode ? new Date(now.getTime() + 10 * 60 * 1000) : null,
       status: "offline",
       updatedAt: now,
-    }).where(agentWhere);
+    }).where(and(eq(agents.id, agentId), eq(agents.tenantId, tenantId), eq(agents.lifecycle, current))).returning({ lifecycle: agents.lifecycle });
+
+    if (updated.length !== 1) {
+      throw new LifecycleConflict("Agent lifecycle changed concurrently; refresh and try again");
+    }
+
     if (next !== "active") {
       await tx.update(printers).set({ lifecycle: "disabled", updatedAt: now }).where(and(eq(printers.agentId, agentId), eq(printers.tenantId, tenantId)));
     }
     await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ agentId })}::text)`);
-  });
 
-  return { changed: true, lifecycle: next, pairingCode };
+    return { changed: true, lifecycle: next, pairingCode };
+  });
 }
 
 export class LifecycleConflict extends Error {}

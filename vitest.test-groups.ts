@@ -7,10 +7,12 @@
  */
 export const integrationVitestTestFiles = [
   "tests/agent-deletion.test.ts",
+  "tests/agent-lifecycle.integration.test.ts",
   "tests/agent-registration.test.ts",
   "tests/architecture-pg.test.ts",
   "tests/auth-rate-limit.test.ts",
   "tests/batch-status.test.ts",
+  "tests/billing-webhook-concurrency.integration.test.ts",
   "tests/billing-webhook.test.ts",
   "tests/dashboard-payload-projection.test.ts",
   "tests/discovery-approval.test.ts",

@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, managerSessions } from "../../../../db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { clearManagerCookieHeader, validateManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { writeAuditEvent } from "../../../../lib/audit";
+
+class OwnershipConflict extends Error {
+  readonly status = 409;
+  constructor(message: string) {
+    super(message);
+  }
+}
 
 export async function POST(req: Request) {
   const claims = await validateManager(req);
@@ -14,14 +21,50 @@ export async function POST(req: Request) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const newOwnerId = typeof body.userId === "string" ? body.userId : "";
   if (!newOwnerId || newOwnerId === currentUserId) return NextResponse.json({ error: "A different member is required" }, { status: 400 });
-  const target = await db.query.tenantUsers.findFirst({ where: and(eq(tenantUsers.tenantId, claims.tenantId), eq(tenantUsers.userId, newOwnerId)), columns: { role: true } });
-  if (!target) return NextResponse.json({ error: "Target member is not in this workspace" }, { status: 404 });
+
   try {
     await db.transaction(async (tx) => {
-      const demoted = await tx.update(tenantUsers).set({ role: "admin", updatedAt: new Date() }).where(and(eq(tenantUsers.tenantId, claims.tenantId), eq(tenantUsers.userId, currentUserId), eq(tenantUsers.role, "owner"))).returning({ userId: tenantUsers.userId });
-      if (demoted.length !== 1) throw new Error("Ownership has already changed");
-      await tx.update(tenantUsers).set({ role: "owner", updatedAt: new Date() }).where(and(eq(tenantUsers.tenantId, claims.tenantId), eq(tenantUsers.userId, newOwnerId)));
-      await tx.update(managerSessions).set({ revokedAt: new Date() }).where(and(eq(managerSessions.userId, currentUserId), eq(managerSessions.tenantId, claims.tenantId)));
+      // Lock both membership rows in a deterministic user-id order. This
+      // serializes transfers with role changes and deletions on the same rows.
+      const locked = await tx.execute(sql`
+        SELECT user_id, role
+        FROM tenant_users
+        WHERE tenant_id = ${claims.tenantId}
+          AND (user_id = ${currentUserId} OR user_id = ${newOwnerId})
+        ORDER BY user_id
+        FOR UPDATE
+      `);
+      const rows = locked.rows as Array<{ user_id: string; role: string }>;
+      const current = rows.find((row) => row.user_id === currentUserId);
+      const target = rows.find((row) => row.user_id === newOwnerId);
+      if (!target) throw new OwnershipConflict("Target member is not in this workspace");
+      if (!current || current.role !== "owner") throw new OwnershipConflict("Ownership has already changed. Refresh and try again.");
+      if (target.role === "owner") throw new OwnershipConflict("Target member is already an owner; refresh and try again.");
+
+      const demoted = await tx.update(tenantUsers)
+        .set({ role: "admin", updatedAt: new Date() })
+        .where(and(
+          eq(tenantUsers.tenantId, claims.tenantId),
+          eq(tenantUsers.userId, currentUserId),
+          eq(tenantUsers.role, "owner"),
+        ))
+        .returning({ userId: tenantUsers.userId });
+      if (demoted.length !== 1) throw new OwnershipConflict("Ownership has already changed. Refresh and try again.");
+
+      const promoted = await tx.update(tenantUsers)
+        .set({ role: "owner", updatedAt: new Date() })
+        .where(and(
+          eq(tenantUsers.tenantId, claims.tenantId),
+          eq(tenantUsers.userId, newOwnerId),
+          eq(tenantUsers.role, target.role),
+        ))
+        .returning({ userId: tenantUsers.userId });
+      if (promoted.length !== 1) throw new OwnershipConflict("Target membership changed concurrently; no ownership change was committed.");
+
+      await tx.update(managerSessions)
+        .set({ revokedAt: new Date() })
+        .where(and(eq(managerSessions.userId, currentUserId), eq(managerSessions.tenantId, claims.tenantId)));
+
       await writeAuditEvent(
         {
           tenantId: claims.tenantId,
@@ -31,13 +74,14 @@ export async function POST(req: Request) {
           resourceType: "user",
           resourceId: newOwnerId,
         },
-        tx
+        tx,
       );
     });
   } catch (error) {
-    if (error instanceof Error && error.message === "Ownership has already changed") return NextResponse.json({ error: "Ownership has already changed. Refresh and try again." }, { status: 409 });
+    if (error instanceof OwnershipConflict) return NextResponse.json({ error: error.message }, { status: error.status });
     throw error;
   }
+
   const res = NextResponse.json({ ok: true, next: "/login" });
   res.headers.set("Set-Cookie", clearManagerCookieHeader());
   return res;

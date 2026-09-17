@@ -38,7 +38,6 @@ export async function GET(req: Request) {
   const agent = await validateAgent(req.headers.get("Authorization"));
   if (!agent) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-
   const claimJobs = async (tx: { execute: typeof db.execute }) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:agent:${agent.id}`}))`);
 
@@ -123,7 +122,7 @@ export async function GET(req: Request) {
           AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC
         LIMIT ${MAX_CLAIM_BATCH}
-        FOR UPDATE OF p, pr SKIP LOCKED
+        FOR UPDATE OF p, a, pr, t SKIP LOCKED
       )
       UPDATE print_jobs
       SET
@@ -179,21 +178,11 @@ export async function PATCH(req: Request) {
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
   const currentStatus = job.status as JobStatus;
-
-  // Advisory in-memory pre-check for a clean 409 STALE_CLAIM response. It is
-  // NOT the security boundary: every lifecycle UPDATE below repeats the
-  // token inside its WHERE predicate (fencedJobWrite), so a token that
-  // changes between this read and the write matches zero rows atomically.
   if (requestedStatus !== "expired" && job.claimToken && claimToken !== job.claimToken) {
     logWarn("job.status.stale_claim", { requestId, jobId, agentId: agent.id });
     return NextResponse.json({ error: "Stale claim token: this attempt was superseded by a newer claim", code: "STALE_CLAIM", status: currentStatus }, { status: 409 });
   }
 
-  // Expiration is deliberately isolated from the generic state machine. The
-  // only authoritative expiry path is this atomic UPDATE, fenced by the
-  // current claim token and by the database clock. A live job can therefore
-  // never be terminalized early by an authenticated but stale/compromised
-  // agent.
   if (requestedStatus === "expired") {
     const expiryError = currentStatus === "printing"
       ? "JOB_EXPIRED_DURING_PRINT: physical output is unknown"
@@ -219,21 +208,10 @@ export async function PATCH(req: Request) {
       if (expiryError) incrementMetric("print_jobs_unknown_total");
       const physicalOutcome = derivePhysicalOutcome("expired", expiryError);
       logInfo("print.job.expired", { requestId, jobId, agentId: agent.id, physicalOutcome });
-      return NextResponse.json({
-        success: true,
-        status: "expired",
-        physicalOutcome,
-      });
+      return NextResponse.json({ success: true, status: "expired", physicalOutcome });
     }
 
-    // Zero-row is intentionally normalized to one conflict code. The row may
-    // still exist, but either its TTL has not elapsed, the claim was replaced,
-    // or another writer already moved it terminal. None is safe to report as a
-    // successful agent-driven expiry.
-    return NextResponse.json({
-      error: "Job has not expired or the worker claim is stale",
-      code: "JOB_NOT_EXPIRED_OR_STALE",
-    }, { status: 409 });
+    return NextResponse.json({ error: "Job has not expired or the worker claim is stale", code: "JOB_NOT_EXPIRED_OR_STALE" }, { status: 409 });
   }
 
   if (requestedStatus === "queued" && currentStatus === "claimed") {
@@ -241,17 +219,6 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Invalid status transition: claimed -> queued requires an explicit pre-execution rejection reason" }, { status: 409 });
     }
     const updated = await db.update(printJobs)
-      // A fenced pre-execution return proves nothing was dispatched, so the
-      // row must carry NO attempt-specific delivery evidence afterwards:
-      // token, delivered_at, acked_at and claimed_at are all cleared.
-      //
-      // Counter semantics (LAW 9): a rejection is NOT a physical delivery
-      // attempt - zero bytes were sent - so the claim's delivery-attempt
-      // charge is refunded. It DOES consume the retry budget (one bounded
-      // hand-back per rejection) so a saturated or misbehaving agent cannot
-      // loop a job through claim/reject forever; once retries are spent the
-      // claim gates below refuse further delivery and the job terminalizes
-      // by TTL expiry, never by a burned delivery budget.
       .set({
         status: "queued",
         claimToken: null,
@@ -283,12 +250,6 @@ export async function PATCH(req: Request) {
     lateSuccess = true;
   }
 
-  // Late physical print completed right at the TTL boundary: an agent
-  // reporting success on a recently expired job (within the physical grace
-  // window) is recorded as success with physical outcome
-  // PRINTED_POST_EXPIRATION rather than a blind 409 Conflict. The write
-  // stays fenced on id + agent + observed expired status so only the
-  // holder of the terminal row can claim the post-expiration print.
   if (currentStatus === "expired" && requestedStatus === "success") {
     if (!isExpiredLateSuccessAllowed({ status: currentStatus, expiresAt: job.expiresAt, updatedAt: job.updatedAt }, Date.now())) {
       return NextResponse.json({ error: "Invalid status transition: expired -> success (outside physical grace window)", status: currentStatus }, { status: 409 });
@@ -320,15 +281,6 @@ export async function PATCH(req: Request) {
   }
 
   const nextError = lateSuccess ? `LATE_SUCCESS: ${job.error ?? "AGENT_EXECUTION_TIMEOUT"}` : errorMessage;
-  // The authoritative write: id + agent + observed status + CLAIM TOKEN, all
-  // inside the UPDATE predicate. A stale worker whose claim was reclaimed
-  // (new token) matches zero rows here even if it passed the advisory read
-  // above - this is the TOCTOU-proof fence, not the in-memory compare.
-  //
-  // A fenced report on a claimed/printing row also proves the agent holds
-  // this delivery attempt, so delivered_at is stamped (without overwriting
-  // earlier evidence). claimed != delivered: only agent-observed possession
-  // - never the server's own claim commit - creates delivery evidence.
   const updated = await db.update(printJobs)
     .set({
       status: requestedStatus,
