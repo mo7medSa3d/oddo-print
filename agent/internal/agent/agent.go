@@ -1198,6 +1198,18 @@ func (a *Agent) deviceFacts(printerID string) (printer.TransportFacts, bool) {
 	}, true
 }
 
+func (a *Agent) gatewayOwnedPrinterIDs() []string {
+	a.printersMu.RLock()
+	defer a.printersMu.RUnlock()
+
+	ids := make([]string, 0, len(a.gatewayOwned))
+	for id := range a.gatewayOwned {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 func (a *Agent) printerStatusPayload() []map[string]interface{} {
 	// Snapshot the printer map under the read lock: the async discovery
 	// goroutine may add printers while heartbeats probe statuses.
@@ -1496,6 +1508,11 @@ func endpointToConfig(pc config.PrinterConfig) map[string]interface{} {
 }
 
 func (a *Agent) reconcileRegistryPrinters(infos []printer.DeviceInfo) {
+	// Gateway-owned printer IDs remain authoritative until the Gateway desired
+	// state explicitly removes them. A stale printers.json entry must never
+	// re-enter the runtime registry during the heartbeat preflight.
+	infos = a.filterGatewayOwned(infos)
+
 	yamlOwned := make(map[string]struct{}, len(a.cfg.Printers))
 	for _, pc := range a.cfg.Printers {
 		yamlOwned[pc.ID] = struct{}{}
@@ -1543,9 +1560,10 @@ func (a *Agent) sendHeartbeat() {
 	a.reloadRegistryPrinters()
 	reqURL := fmt.Sprintf("%s/api/agent/heartbeat", a.cfg.Server.URL)
 	payload := map[string]interface{}{
-		"status":   "online",
-		"printers": a.printerStatusPayload(),
-		"desiredStateAcks": a.desiredStateAcksPayload(),
+		"status":                 "online",
+		"printers":               a.printerStatusPayload(),
+		"desiredStateAcks":       a.desiredStateAcksPayload(),
+		"gatewayOwnedPrinterIds": a.gatewayOwnedPrinterIDs(),
 	}
 	// Print-lease keep-alive: report every (jobId, claimToken) pair this
 	// agent currently holds (accepted + executing + physically printing).
