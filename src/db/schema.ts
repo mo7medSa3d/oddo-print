@@ -247,6 +247,7 @@ export const discoverySessions = pgTable("discovery_sessions", {
   agentFk: foreignKey({ columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
   agentIdIdx: index("discovery_sessions_agent_id_idx").on(table.agentId),
   statusIdx: index("discovery_sessions_status_idx").on(table.status),
+  activeAgentUnique: uniqueIndex("discovery_sessions_active_agent_unique").on(table.tenantId, table.agentId).where(sql`${table.status} = 'running'`),
 }));
 
 export const discoveredDevices = pgTable("discovered_devices", {
