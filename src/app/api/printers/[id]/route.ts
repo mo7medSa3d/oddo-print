@@ -57,19 +57,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "printer metadata exceeds limits" }, { status: 400 }); }
 
   const result = await db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${claims.tenantId${ || ':' || ${id${))`);
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${claims.tenantId} || ':' || ${id}))`);
 
     const existing = await tx.query.printers.findFirst({ where: and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId)) });
     if (!existing) return { kind: "not_found" as const };
 
     if (parsed.data.lifecycle && !canTransitionLifecycle(existing.lifecycle, parsed.data.lifecycle)) {
-      return { kind: "conflict" as const, message: `invalid lifecycle transition: ${existing.lifecycle${ -> ${parsed.data.lifecycle${` };
+      return { kind: "conflict" as const, message: `invalid lifecycle transition: ${existing.lifecycle} -> ${parsed.data.lifecycle}` };
     }
 
     if (parsed.data.lifecycle === "active") {
       const owner = await tx.query.agents.findFirst({ where: and(eq(agents.id, existing.agentId), eq(agents.tenantId, claims.tenantId)) });
       if (!owner) return { kind: "error" as const, message: "Printer owner agent missing" };
-      if (owner.lifecycle !== "active") return { kind: "conflict" as const, message: `cannot activate printer while agent is ${owner.lifecycle${` };
+      if (owner.lifecycle !== "active") return { kind: "conflict" as const, message: `cannot activate printer while agent is ${owner.lifecycle}` };
     }
 
     const connectionType = parsed.data.connectionType ?? existing.connectionType;
@@ -98,7 +98,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (parsed.data.lifecycle !== undefined) update.lifecycle = parsed.data.lifecycle;
     if (desiredStateChanged) {
       update.managementSource = "manager";
-      update.desiredRevision = sql`${printers.desiredRevision${ + 1`;
+      update.desiredRevision = sql`${printers.desiredRevision} + 1`;
     }
 
     const [row] = await tx.update(printers)
