@@ -38,13 +38,12 @@ export async function POST(req: Request) {
   try {
     const result = await db.transaction(async (tx) => {
       if (isSelectionToken && tokenJti) {
-        try {
-          await tx.insert(authRateLimits).values({
-            key: `tsel_used_${tokenJti}`,
-            windowStartedAt: new Date(),
-            updatedAt: new Date(),
-          });
-        } catch {
+        const consumed = await tx.insert(authRateLimits).values({
+          key: `tsel_used_${tokenJti}`,
+          windowStartedAt: new Date(),
+          updatedAt: new Date(),
+        }).onConflictDoNothing({ target: authRateLimits.key }).returning({ key: authRateLimits.key });
+        if (consumed.length !== 1) {
           throw new Error("Selection token already used");
         }
       }
