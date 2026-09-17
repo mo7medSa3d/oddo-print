@@ -77,7 +77,7 @@ suite("heartbeat validation and lifecycle preservation", () => {
     }));
     expect(res.status).toBe(200);
 
-    const row = await pool().query(`SELECT name, connection_type, protocol, config, status FROM printers WHERE id = $1`, [f.printerId]);
+    const row = await pool().query(`SELECT name, connection_type, protocol, config, status, management_source FROM printers WHERE id = $1`, [f.printerId]);
     expect(row.rows[0].name).toBe("Manager Name");
     expect(row.rows[0].connection_type).toBe("network");
     expect(row.rows[0].protocol).toBe("raw");
