@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -30,8 +31,13 @@ type desiredPrinterWire struct {
 type desiredPrinterRecord struct {
 	Desired                 desiredPrinterWire `json:"desired"`
 	AppliedDesiredRevision  int64              `json:"appliedDesiredRevision"`
-	ObservedDesiredRevision int64             `json:"observedDesiredRevision"`
+	ObservedDesiredRevision int64              `json:"observedDesiredRevision"`
 	ApplyError              string             `json:"applyError,omitempty"`
+}
+
+type desiredStateDisk struct {
+	Printers                 []desiredPrinterRecord `json:"printers"`
+	DeletedGatewayPrinterIds []string               `json:"deletedGatewayPrinterIds,omitempty"`
 }
 
 func desiredStatePath(configPath string) string {
@@ -53,12 +59,30 @@ func (a *Agent) loadDesiredState() error {
 		return err
 	}
 
-	var rows []desiredPrinterRecord
-	if err := json.Unmarshal(raw, &rows); err != nil {
-		return fmt.Errorf("parse %s: %w", a.desiredStatePath, err)
+	var disk desiredStateDisk
+	if err := json.Unmarshal(raw, &disk); err != nil || disk.Printers == nil {
+		var legacy []desiredPrinterRecord
+		if legacyErr := json.Unmarshal(raw, &legacy); legacyErr != nil {
+			if err != nil {
+				return fmt.Errorf("parse %s: %w", a.desiredStatePath, err)
+			}
+			return fmt.Errorf("parse %s: desired-state printers must be an array", a.desiredStatePath)
+		}
+		disk.Printers = legacy
 	}
+	a.printersMu.Lock()
+	if a.gatewayTombstones == nil {
+		a.gatewayTombstones = make(map[string]struct{})
+	}
+	for _, id := range disk.DeletedGatewayPrinterIds {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			a.gatewayTombstones[id] = struct{}{}
+		}
+	}
+	a.printersMu.Unlock()
 
-	for _, row := range rows {
+	for _, row := range disk.Printers {
 		if row.Desired.ID == "" || row.Desired.DesiredRevision < 0 {
 			continue
 		}
@@ -93,6 +117,13 @@ func (a *Agent) loadDesiredState() error {
 
 func (a *Agent) markGatewayOwned(id string) {
 	a.printersMu.Lock()
+	if a.gatewayOwned == nil {
+		a.gatewayOwned = make(map[string]struct{})
+	}
+	if a.gatewayTombstones == nil {
+		a.gatewayTombstones = make(map[string]struct{})
+	}
+	delete(a.gatewayTombstones, id)
 	a.gatewayOwned[id] = struct{}{}
 	a.printersMu.Unlock()
 }
@@ -105,7 +136,18 @@ func (a *Agent) persistDesiredState() error {
 	}
 	a.desiredStateMu.Unlock()
 
-	data, err := json.MarshalIndent(rows, "", "  ")
+	a.printersMu.RLock()
+	tombstones := make([]string, 0, len(a.gatewayTombstones))
+	for id := range a.gatewayTombstones {
+		tombstones = append(tombstones, id)
+	}
+	a.printersMu.RUnlock()
+	sort.Strings(tombstones)
+
+	data, err := json.MarshalIndent(desiredStateDisk{
+		Printers:                 rows,
+		DeletedGatewayPrinterIds: tombstones,
+	}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -348,15 +390,24 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 	a.desiredStateMu.Unlock()
 
 	for _, id := range missing {
+		// Persist a durable deletion fence BEFORE attempting local registry
+		// cleanup. A transient filesystem failure, process restart, or stale
+		// printers.json must not turn a Gateway deletion into a new Agent-owned
+		// printer.
+		a.printersMu.Lock()
+		if a.gatewayTombstones == nil {
+			a.gatewayTombstones = make(map[string]struct{})
+		}
+		a.gatewayTombstones[id] = struct{}{}
+		delete(a.gatewayOwned, id)
+		a.printersMu.Unlock()
+
 		// Remove only the deleted Gateway-owned record. Keeping an old entry in
-		// printers.json would let the next registry reload recreate it.
+		// printers.json would otherwise let the next registry reload recreate it.
 		if err := printer.RemoveFromRegistry(a.registryPath, id); err != nil {
 			log.Printf("[desired-state] warning: failed to remove deleted Gateway printer %s from local registry: %v", id, err)
 		}
 		a.removeGatewayRuntime(id)
-		a.printersMu.Lock()
-		delete(a.gatewayOwned, id)
-		a.printersMu.Unlock()
 	}
 
 	if len(missing) > 0 {
