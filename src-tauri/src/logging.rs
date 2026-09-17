@@ -14,16 +14,16 @@ const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024; // 5 MiB
 const MAX_ROTATED_FILES: u32 = 3;
 
 /// Initialize the production file logger. Logs are written to a writable
-/// ProgramData directory, never to `C:\Program Files\Odoo Print Manager`.
+/// ProgramData directory, never to `C:\Program Files\Yasser Manager`.
 /// Returns the log path on success.
 pub fn init() -> Option<PathBuf> {
     let root = paths::ensure_manager_data_root().ok()?;
     let dir = root.join("logs");
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        eprintln!("[odoo-print-manager] unable to create log dir {}: {e}", dir.display());
+        eprintln!("[yasser-manager] unable to create log dir {}: {e}", dir.display());
         return None;
     }
-    let path = dir.join("odoo-print-manager.log");
+    let path = dir.join("yasser-manager.log");
     rotate_if_full(&path);
     let file = match OpenOptions::new()
         .create(true)
@@ -32,7 +32,7 @@ pub fn init() -> Option<PathBuf> {
     {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("[odoo-print-manager] unable to open log {}: {e}", path.display());
+            eprintln!("[yasser-manager] unable to open log {}: {e}", path.display());
             return None;
         }
     };

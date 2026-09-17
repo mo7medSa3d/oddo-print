@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/odoo-print-agent/agent/internal/printer"
+	"github.com/yasser-agent/agent/internal/printer"
 )
 
 func TestRunBoundedDiscoveryReturnsBeforeUncancellableWorkerFinishes(t *testing.T) {

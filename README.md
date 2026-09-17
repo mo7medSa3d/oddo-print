@@ -1,14 +1,13 @@
-# Odoo Print Gateway
+# Yasser — Cloud Printing Platform
 
-Silent Odoo 19 printing through a Gateway and Windows Agent.
+Silent Odoo enterprise printing through Yasser Gateway, Yasser Agent, and Yasser Manager.
 
 ```text
-Odoo 19
-  -> Gateway URL + API Key
-  -> central Print Router
-  -> Gateway
-  -> Windows Agent
-  -> Physical Printer
+Odoo ERP
+  -> Yasser Gateway (HTTPS / WSS)
+  -> Central Print Router
+  -> Yasser Agent / Yasser Manager
+  -> Physical Hardware Printers
 ```
 
 ## Ownership

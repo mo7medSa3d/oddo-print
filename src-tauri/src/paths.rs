@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 static MANAGER_DATA_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static AGENT_DATA_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
-/// Root for writable Odoo Print Manager state.
+/// Root for writable Yasser Manager state.
 ///
 /// STRICTLY `%PROGRAMDATA%\OdooPrintManager` on Windows: the desktop app and
 /// the Windows Service (LocalSystem) must read and write the SAME location,
@@ -31,6 +31,11 @@ pub fn ensure_manager_data_root() -> std::io::Result<PathBuf> {
 }
 
 fn manager_data_root_candidate() -> PathBuf {
+    if let Ok(override_dir) = std::env::var("YASSER_MANAGER_DATA_DIR") {
+        if !override_dir.trim().is_empty() {
+            return PathBuf::from(override_dir);
+        }
+    }
     if let Ok(override_dir) = std::env::var("ODOO_PRINT_MANAGER_DATA_DIR") {
         if !override_dir.trim().is_empty() {
             return PathBuf::from(override_dir);
@@ -38,26 +43,26 @@ fn manager_data_root_candidate() -> PathBuf {
     }
     if let Ok(pd) = std::env::var("PROGRAMDATA") {
         if !pd.trim().is_empty() {
-            return PathBuf::from(pd).join("OdooPrintManager");
+            return PathBuf::from(pd).join("YasserManager");
         }
     }
     #[cfg(windows)]
     {
-        PathBuf::from(r"C:\ProgramData\OdooPrintManager")
+        PathBuf::from(r"C:\ProgramData\YasserManager")
     }
     #[cfg(not(windows))]
     {
         if let Ok(home) = std::env::var("HOME") {
-            PathBuf::from(home).join(".config").join("odoo-print-manager")
+            PathBuf::from(home).join(".config").join("yasser-manager")
         } else {
-            PathBuf::from("/tmp/odoo-print-manager")
+            PathBuf::from("/tmp/yasser-manager")
         }
     }
 }
 
 /// Root for the Go agent's writable runtime data.
 ///
-/// STRICTLY `%PROGRAMDATA%\OdooPrintAgent` on Windows, for the same
+/// STRICTLY `%PROGRAMDATA%\YasserAgent` on Windows, for the same
 /// no-split-brain reason as the manager root: the desktop-spawned agent
 /// (pid file, config, queue) and the Windows Service must share one home.
 pub fn agent_data_root() -> PathBuf {
@@ -80,26 +85,31 @@ pub fn ensure_agent_data_root() -> std::io::Result<PathBuf> {
 }
 
 fn agent_data_root_candidate() -> PathBuf {
-    if let Ok(override_dir) = std::env::var("ODOO_PRINT_AGENT_DATA_DIR") {
+    if let Ok(override_dir) = std::env::var("YASSER_AGENT_DATA_DIR") {
+        if !override_dir.trim().is_empty() {
+            return PathBuf::from(override_dir);
+        }
+    }
+    if let Ok(override_dir) = std::env::var("YASSER_AGENT_DATA_DIR") {
         if !override_dir.trim().is_empty() {
             return PathBuf::from(override_dir);
         }
     }
     if let Ok(pd) = std::env::var("PROGRAMDATA") {
         if !pd.trim().is_empty() {
-            return PathBuf::from(pd).join("OdooPrintAgent");
+            return PathBuf::from(pd).join("YasserAgent");
         }
     }
     #[cfg(windows)]
     {
-        PathBuf::from(r"C:\ProgramData\OdooPrintAgent")
+        PathBuf::from(r"C:\ProgramData\YasserAgent")
     }
     #[cfg(not(windows))]
     {
         if let Ok(home) = std::env::var("HOME") {
-            PathBuf::from(home).join(".config").join("odoo-print-agent")
+            PathBuf::from(home).join(".config").join("yasser-agent")
         } else {
-            PathBuf::from("/tmp/odoo-print-agent")
+            PathBuf::from("/tmp/yasser-agent")
         }
     }
 }
@@ -117,7 +127,7 @@ pub fn manager_log_dir() -> PathBuf {
 }
 
 pub fn manager_log_path() -> PathBuf {
-    manager_log_dir().join("odoo-print-manager.log")
+    manager_log_dir().join("yasser-manager.log")
 }
 
 pub fn ensure_dir(path: &Path) -> std::io::Result<()> {

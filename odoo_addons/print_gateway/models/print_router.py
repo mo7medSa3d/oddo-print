@@ -715,7 +715,7 @@ class PrintGatewayRouter(models.AbstractModel):
         if proto == "zpl":
             ticket_raw = (
                 "^XA\n"
-                "^FO50,50^A0N,36,36^FDODOO PRINT GATEWAY DIAGNOSTIC^FS\n"
+                "^FO50,50^A0N,36,36^FDYASSER PRINT GATEWAY DIAGNOSTIC^FS\n"
                 "^FO50,100^GB700,2,2^FS\n"
                 f"^FO50,120^A0N,28,28^FDCompany : {company_name}^FS\n"
                 f"^FO50,160^A0N,28,28^FDBranch  : {branch_name}^FS\n"
@@ -732,7 +732,7 @@ class PrintGatewayRouter(models.AbstractModel):
                 "GAP 2 mm, 0 mm\n"
                 "DIRECTION 1\n"
                 "CLS\n"
-                'TEXT 50,40,"3",0,1,1,"ODOO PRINT GATEWAY DIAGNOSTIC"\n'
+                'TEXT 50,40,"3",0,1,1,"YASSER PRINT GATEWAY DIAGNOSTIC"\n'
                 f'TEXT 50,80,"2",0,1,1,"Company : {company_name}"\n'
                 f'TEXT 50,110,"2",0,1,1,"Branch  : {branch_name}"\n'
                 f'TEXT 50,140,"2",0,1,1,"Agent ID: {agent_id}"\n'
@@ -744,7 +744,7 @@ class PrintGatewayRouter(models.AbstractModel):
         elif proto == "raw":
             ticket_raw = (
                 "================================\n"
-                "  ODOO PRINT GATEWAY DIAGNOSTIC  \n"
+                "  YASSER PRINT GATEWAY DIAGNOSTIC  \n"
                 "================================\n"
                 f"Company : {company_name}\n"
                 f"Branch  : {branch_name}\n"
@@ -762,7 +762,7 @@ class PrintGatewayRouter(models.AbstractModel):
                 "\x1b\x40",  # Initialize printer
                 "\x1b\x61\x01",  # Centered
                 "================================\n",
-                "  ODOO PRINT GATEWAY DIAGNOSTIC  \n",
+                "  YASSER PRINT GATEWAY DIAGNOSTIC  \n",
                 "================================\n",
                 "\x1b\x61\x00",  # Left align
                 f"Company : {company_name}\n",

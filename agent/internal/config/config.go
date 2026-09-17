@@ -13,7 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/odoo-print-agent/agent/internal/storage"
+	"github.com/yasser-agent/agent/internal/storage"
 )
 
 const secretStoreKey = "agent_secret"
@@ -71,10 +71,10 @@ func validateServerURL(raw string) error {
 	case "https":
 		return nil
 	case "http":
-		if os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
+		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
 			return nil
 		}
-		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development")
+		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASSER_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development")
 	default:
 		return fmt.Errorf("server.url scheme must be http or https, got %q", u.Scheme)
 	}
@@ -158,9 +158,9 @@ func Ensure(path string) error {
 
 	host, err := os.Hostname()
 	if err != nil || host == "" {
-		host = "odoo-print-agent"
+		host = "yasser-agent"
 	}
-	name := "Odoo Print Agent"
+	name := "Yasser Agent"
 	if runtime.GOOS == "windows" {
 		name = host
 	}
@@ -246,11 +246,22 @@ func ExecutableDir() (string, error) {
 }
 
 func DefaultConfigPath() string {
+	if override := os.Getenv("YASSER_AGENT_DATA_DIR"); override != "" {
+		return filepath.Join(override, "config.yaml")
+	}
 	if override := os.Getenv("ODOO_PRINT_AGENT_DATA_DIR"); override != "" {
 		return filepath.Join(override, "config.yaml")
 	}
 	if pd := os.Getenv("PROGRAMDATA"); pd != "" {
-		return filepath.Join(pd, "OdooPrintAgent", "config.yaml")
+		newPath := filepath.Join(pd, "YasserAgent", "config.yaml")
+		if _, err := os.Stat(newPath); err == nil {
+			return newPath
+		}
+		legacyPath := filepath.Join(pd, "OdooPrintAgent", "config.yaml")
+		if _, err := os.Stat(legacyPath); err == nil {
+			return legacyPath
+		}
+		return newPath
 	}
 	dir, err := ExecutableDir()
 	if err != nil {

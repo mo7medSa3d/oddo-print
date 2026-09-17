@@ -17,16 +17,16 @@
   ./scripts/smoke-test-windows.ps1 -InstallDir "$env:ProgramFiles\Odoo Print Manager"
 #>
 param(
-  [string]$InstallDir = (Join-Path $env:ProgramFiles "Odoo Print Manager"),
+  [string]$InstallDir = (Join-Path $env:ProgramFiles "Yasser Manager"),
   [int]$WaitSeconds = 8,
   [switch]$KeepRunning
 )
 
 $ErrorActionPreference = "Stop"
-$agentDataDir = if ($env:ODOO_PRINT_AGENT_DATA_DIR) {
-  $env:ODOO_PRINT_AGENT_DATA_DIR
+$agentDataDir = if ($env:YASSER_AGENT_DATA_DIR) {
+  $env:YASSER_AGENT_DATA_DIR
 } else {
-  Join-Path $env:ProgramData "OdooPrintAgent"
+  Join-Path $env:ProgramData "YasserAgent"
 }
 
 function Assert-Path {
@@ -50,14 +50,14 @@ function Assert-NotExited {
 
 $ErrorActionPreference = "Continue"
 
-Write-Host "== Odoo Print Manager Windows smoke test =="
+Write-Host "== Yasser Manager Windows smoke test =="
 Write-Host "Install dir: $InstallDir"
 Write-Host "Agent data dir: $agentDataDir"
 
 # 1. Installed / bundled files -------------------------------------------------
-$appExe = Join-Path $InstallDir "odoo-print-manager.exe"
-$agentExe = Join-Path $InstallDir "resources\OdooPrintAgent.exe"
-$cliExe = Join-Path $InstallDir "resources\odoo-agent-cli.exe"
+$appExe = Join-Path $InstallDir "yasser-manager.exe"
+$agentExe = Join-Path $InstallDir "resources\YasserAgent.exe"
+$cliExe = Join-Path $InstallDir "resources\yasser-agent-cli.exe"
 Assert-Path $appExe "Installed desktop executable"
 Assert-Path $agentExe "Bundled agent executable"
 Assert-Path $cliExe "Bundled CLI executable"

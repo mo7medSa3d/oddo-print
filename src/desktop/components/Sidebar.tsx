@@ -92,10 +92,10 @@ export function Sidebar({
         {!collapsed && (
           <div className="min-w-0 flex-1">
             <div className="truncate text-[15px] font-bold leading-tight tracking-[-0.01em] text-ink">
-              Odoo Print Manager
+              Yasser Manager
             </div>
             <div className="truncate text-[12px] font-medium leading-tight text-ink-3">
-              Print Gateway
+              Yasser Gateway
             </div>
           </div>
         )}

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/odoo-print-agent/agent/internal/printer"
-	"github.com/odoo-print-agent/agent/internal/testutil"
+	"github.com/yasser-agent/agent/internal/printer"
+	"github.com/yasser-agent/agent/internal/testutil"
 )
 
 // Failure matrix via mock: refused, timeout, disconnect, retry, multi-printer, serialization, idempotent duplicate

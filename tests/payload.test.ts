@@ -60,7 +60,7 @@ describe("payload", () => {
   it("test payload is decodable and has cut command", () => {
     const p = buildTestPrintPayload("Receipt", "Main");
     const decoded = Buffer.from(p.data, "base64").toString("binary");
-    expect(decoded).toContain("Odoo Print Agent");
+    expect(decoded).toContain("Yasser Agent");
     expect(decoded).toContain("\x1d\x56\x01");
   });
   it("test payload never embeds control bytes from user-controlled names", () => {

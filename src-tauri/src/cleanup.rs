@@ -19,7 +19,7 @@ pub async fn cleanup_local_jobs(app: tauri::AppHandle) -> Result<u64, String> {
             .arg("-config")
             .arg(&config)
             .arg("--json")
-            .env("ODOO_PRINT_AGENT_DATA_DIR", paths::agent_data_root());
+            .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root());
         // Suppress the console window that would otherwise flash for each
         // cleanup invocation from the GUI app (Windows only).
         #[cfg(windows)]
@@ -29,7 +29,7 @@ pub async fn cleanup_local_jobs(app: tauri::AppHandle) -> Result<u64, String> {
         }
         let output = cmd
             .output()
-            .map_err(|e| format!("failed to run odoo-agent-cli.exe: {e}"))?;
+            .map_err(|e| format!("failed to run yasser-agent-cli.exe: {e}"))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();

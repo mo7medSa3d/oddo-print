@@ -164,8 +164,8 @@ describe("desktop manager", () => {
 
     await waitUntil(() => text().includes("HP LaserJet Pro M404"));
 
-    expect(text()).toContain("Print Gateway");
-    expect(text()).toContain("Odoo Print Manager");
+    expect(text()).toContain("Yasser Gateway");
+    expect(text()).toContain("Yasser Manager");
     for (const label of ["Overview", "Printers", "Print Jobs", "Agents", "Settings"]) {
       expect(text()).toContain(label);
     }

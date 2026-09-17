@@ -70,7 +70,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
           <Field
             label="Gateway URL"
             htmlFor="gw-url"
-            hint="Base URL of the Odoo Print Gateway, e.g. https://print.example.com"
+            hint="Base URL of the Yasser Gateway, e.g. https://print.example.com"
           >
             <Input
               id="gw-url"
@@ -270,7 +270,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
               variant="secondary"
               onClick={() => {
                 const report = [
-                  `=== Odoo Print Agent Diagnostic Export ===`,
+                  `=== Yasser Agent Diagnostic Export ===`,
                   `Generated At: ${new Date().toISOString()}`,
                   `App Version: ${s.version || "unknown"}`,
                   `Agent Running: ${s.isOnline}`,
@@ -385,7 +385,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
               ) : (
                 <p className="text-[13px] text-ink-3">Loading paths…</p>
               )}
-              <p className="mt-5 text-[13px] text-ink-3">Odoo Print Manager · v{s.version || "—"} · © 2026 Odoo Print</p>
+              <p className="mt-5 text-[13px] text-ink-3">Yasser Manager · v{s.version || "—"} · © 2026 Yasser</p>
             </div>
           </div>
         )}

@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/odoo-print-agent/agent/internal/config"
-	"github.com/odoo-print-agent/agent/internal/queue"
+	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yasser-agent/agent/internal/queue"
 )
 
 // init handles the maintenance-only `jobs cleanup` command before the legacy

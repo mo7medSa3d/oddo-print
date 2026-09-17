@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/odoo-print-agent/agent/internal/config"
+	"github.com/yasser-agent/agent/internal/config"
 )
 
 // New builds the concrete Printer backend for a configured printer.

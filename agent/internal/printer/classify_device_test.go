@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/odoo-print-agent/agent/internal/config"
+	"github.com/yasser-agent/agent/internal/config"
 )
 
 /* ============================================================

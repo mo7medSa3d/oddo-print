@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/odoo-print-agent/agent/internal/printer"
+	"github.com/yasser-agent/agent/internal/printer"
 )
 
 // pollDiscovery checks gateway for pending discovery sessions for this agent and executes them.

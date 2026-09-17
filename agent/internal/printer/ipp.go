@@ -337,7 +337,7 @@ func buildIPPPrintJobWithFormat(printerURI string, document []byte, documentForm
 	writeIPPAttribute(&buf, 0x45, "printer-uri", printerURI)
 	writeIPPAttribute(&buf, 0x42, "requesting-user-name", "odoo-agent")
 	writeIPPAttribute(&buf, 0x49, "document-format", documentFormat)
-	writeIPPAttribute(&buf, 0x42, "job-name", "Odoo Print Job")
+	writeIPPAttribute(&buf, 0x42, "job-name", "Yasser Print Job")
 	buf.WriteByte(0x03)
 	buf.Write(document)
 	return buf.Bytes()

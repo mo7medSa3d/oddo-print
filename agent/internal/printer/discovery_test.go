@@ -13,7 +13,7 @@ import (
 
 	"github.com/gosnmp/gosnmp"
 	"github.com/grandcat/zeroconf"
-	"github.com/odoo-print-agent/agent/internal/config"
+	"github.com/yasser-agent/agent/internal/config"
 )
 
 func TestStableIDDeterminism(t *testing.T) {

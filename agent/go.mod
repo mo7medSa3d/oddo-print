@@ -1,4 +1,4 @@
-module github.com/odoo-print-agent/agent
+module github.com/yasser-agent/agent
 
 go 1.26
 

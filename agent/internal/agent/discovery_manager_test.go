@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/odoo-print-agent/agent/internal/printer"
+	"github.com/yasser-agent/agent/internal/printer"
 )
 
 func TestDiscoveryVerificationDoesNotTrustWSDAsPrintVerification(t *testing.T) {

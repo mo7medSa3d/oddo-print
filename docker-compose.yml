@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       TZ: UTC
-      POSTGRES_DB: ${POSTGRES_DB:-odoo_print}
+      POSTGRES_DB: ${POSTGRES_DB:-yasser_db}
       POSTGRES_USER: ${POSTGRES_USER:-odoo_print}
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     secrets:
@@ -33,7 +33,7 @@ services:
       TZ: UTC
       PGHOST: postgres
       PGPORT: 5432
-      PGDATABASE: ${POSTGRES_DB:-odoo_print}
+      PGDATABASE: ${POSTGRES_DB:-yasser_db}
       PGUSER: ${POSTGRES_USER:-odoo_print}
       PGPASSWORD_FILE: /run/secrets/postgres_password
     secrets:
@@ -57,7 +57,7 @@ services:
       PORT: 3000
       PGHOST: postgres
       PGPORT: 5432
-      PGDATABASE: ${POSTGRES_DB:-odoo_print}
+      PGDATABASE: ${POSTGRES_DB:-yasser_db}
       PGUSER: ${POSTGRES_USER:-odoo_print}
       PGPASSWORD_FILE: /run/secrets/postgres_password
       GATEWAY_JWT_SECRET_FILE: /run/secrets/gateway_jwt_secret

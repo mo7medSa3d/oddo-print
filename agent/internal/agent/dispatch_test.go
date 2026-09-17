@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/odoo-print-agent/agent/internal/config"
-	"github.com/odoo-print-agent/agent/internal/printer"
+	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yasser-agent/agent/internal/printer"
 )
 
 // TestRedeliveryAdoptsLiveClaimTokenForReports proves the full loop of the

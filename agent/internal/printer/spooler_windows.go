@@ -219,7 +219,7 @@ func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNo
 	default:
 	}
 
-	docName, err := syscall.UTF16PtrFromString("Odoo Print Job")
+	docName, err := syscall.UTF16PtrFromString("Yasser Print Job")
 	if err != nil {
 		return spoolerTaskResult{err: fmt.Errorf("invalid document name: %w", err)}
 	}

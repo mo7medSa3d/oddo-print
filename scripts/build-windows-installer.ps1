@@ -101,12 +101,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "go tests failed with exit code $LASTEXITCODE" }
   }
 
-  Write-Step "Building OdooPrintAgent.exe (release)"
-  go build -trimpath -ldflags "-s -w" -o OdooPrintAgent.exe .\cmd\agent
+  Write-Step "Building YasserAgent.exe (release)"
+  go build -trimpath -ldflags "-s -w" -o YasserAgent.exe .\cmd\agent
   if ($LASTEXITCODE -ne 0) { throw "agent build failed with exit code $LASTEXITCODE" }
 
-  Write-Step "Building odoo-agent-cli.exe (release)"
-  go build -trimpath -ldflags "-s -w" -o odoo-agent-cli.exe .\cmd\cli
+  Write-Step "Building yasser-agent-cli.exe (release)"
+  go build -trimpath -ldflags "-s -w" -o yasser-agent-cli.exe .\cmd\cli
   if ($LASTEXITCODE -ne 0) { throw "cli build failed with exit code $LASTEXITCODE" }
 } finally {
   Pop-Location
@@ -114,7 +114,7 @@ try {
 
 # Tauri bundles these EXEs as resources — a missing file fails the bundler
 # late; fail early with a clear message instead.
-foreach ($exe in @("OdooPrintAgent.exe", "odoo-agent-cli.exe")) {
+foreach ($exe in @("YasserAgent.exe", "yasser-agent-cli.exe")) {
   $exePath = Join-Path $agentDir $exe
   if (-not (Test-Path $exePath)) { throw "Missing build output: $exePath" }
   $size = (Get-Item $exePath).Length

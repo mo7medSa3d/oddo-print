@@ -21,10 +21,10 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/odoo-print-agent/agent/internal/config"
-	"github.com/odoo-print-agent/agent/internal/payload"
-	"github.com/odoo-print-agent/agent/internal/printer"
-	"github.com/odoo-print-agent/agent/internal/queue"
+	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yasser-agent/agent/internal/payload"
+	"github.com/yasser-agent/agent/internal/printer"
+	"github.com/yasser-agent/agent/internal/queue"
 )
 
 // Job concurrency limits. Physical printing is serialized per printer, but

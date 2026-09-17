@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Odoo Print Manager",
+  "productName": "Yasser Manager",
   "version": "1.0.0",
-  "identifier": "com.odoo.printmanager",
+  "identifier": "com.yasser.manager",
   "build": {
     "beforeDevCommand": "npm run desktop:dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Odoo Print Manager",
+        "title": "Yasser Manager",
         "width": 1200,
         "height": 800,
         "resizable": true,
@@ -28,10 +28,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "publisher": "Odoo Print",
-    "copyright": "Copyright \u00a9 2026 Odoo Print",
-    "shortDescription": "Local print manager for Odoo POS/ERP",
-    "longDescription": "Odoo Print Manager pairs this Windows PC with the Odoo Print Gateway, runs the local print agent, and shows gateway/agent health from the system tray.",
+    "publisher": "Yasser",
+    "copyright": "Copyright \u00a9 2026 Yasser",
+    "shortDescription": "Desktop print manager for Yasser Agent",
+    "longDescription": "Yasser Manager pairs this Windows PC with the Yasser Gateway, manages the local print agent, and shows gateway/agent health from the system tray.",
     "icon": [
       "icons/16x16.png",
       "icons/24x24.png",
@@ -44,14 +44,14 @@
       "icons/icon.png"
     ],
     "resources": {
-      "../agent/OdooPrintAgent.exe": "resources/OdooPrintAgent.exe",
-      "../agent/odoo-agent-cli.exe": "resources/odoo-agent-cli.exe"
+      "../agent/YasserAgent.exe": "resources/YasserAgent.exe",
+      "../agent/yasser-agent-cli.exe": "resources/yasser-agent-cli.exe"
     },
     "windows": {
       "nsis": {
         "installMode": "perMachine",
         "displayLanguageSelector": false,
-        "startMenuFolder": "Odoo Print Manager",
+        "startMenuFolder": "Yasser Manager",
         "installerHooks": "./installer_hooks.nsh"
       },
       "webviewInstallMode": {

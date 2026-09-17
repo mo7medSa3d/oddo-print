@@ -93,7 +93,7 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
         .unwrap_or_else(|_| "unknown".into());
     let base = AgentStatus {
         running: false,
-        service: "OdooPrintAgent".into(),
+        service: "YasserAgent".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         hostname,
         note: String::new(),
@@ -214,7 +214,7 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
         .arg(gateway_url)
         .arg("-config")
         .arg(&config)
-        .env("ODOO_PRINT_AGENT_DATA_DIR", paths::agent_data_root());
+        .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -222,7 +222,7 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
     }
     let out = cmd
         .output()
-        .map_err(|e| format!("failed to run odoo-agent-cli.exe: {e}"))?;
+        .map_err(|e| format!("failed to run yasser-agent-cli.exe: {e}"))?;
 
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -737,7 +737,7 @@ pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, 
             .arg("--json")
             .arg("-config")
             .arg(&config)
-            .env("ODOO_PRINT_AGENT_DATA_DIR", &root);
+            .env("YASSER_AGENT_DATA_DIR", &root);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -800,7 +800,7 @@ pub async fn test_printer(printer_id: String, app: tauri::AppHandle) -> Result<S
             .arg(&pid)
             .arg("-config")
             .arg(&config)
-            .env("ODOO_PRINT_AGENT_DATA_DIR", &root);
+            .env("YASSER_AGENT_DATA_DIR", &root);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -893,7 +893,7 @@ pub async fn register_printer(request: RegisterPrinterRequest, app: tauri::AppHa
             cmd.arg("--serial").arg(arg_value("USB serial", serial)?);
         }
         cmd.arg("-config").arg(&config);
-        cmd.env("ODOO_PRINT_AGENT_DATA_DIR", &root);
+        cmd.env("YASSER_AGENT_DATA_DIR", &root);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;

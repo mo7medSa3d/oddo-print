@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/odoo-print-agent/agent/internal/config"
+	"github.com/yasser-agent/agent/internal/config"
 )
 
 func isValidDiscoveredPrinter(d DeviceInfo) bool {

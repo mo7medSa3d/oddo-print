@@ -13,7 +13,7 @@ fn main() {
     // Initialize file logging before the Tauri builder so startup failures are
     // visible in a writable ProgramData location rather than disappearing.
     if logging::init().is_none() {
-        eprintln!("[odoo-print-manager] file logging could not be initialized");
+        eprintln!("[yasser-manager] file logging could not be initialized");
     }
 
     // Release builds have no console; make panics land in the log file.

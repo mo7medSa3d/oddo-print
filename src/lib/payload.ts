@@ -72,7 +72,7 @@ export function buildTestPrintPayload(printerName: string, agentName: string): P
   const safeAgent = String(agentName ?? "").replace(/[^\x20-\x7e]/g, "").slice(0, 60);
   const lines = [
     "\x1b\x40",
-    "Odoo Print Agent\n",
+    "Yasser Agent\n",
     "Test Print\n",
     `Printer: ${safeName}\n`,
     `Agent: ${safeAgent}\n`,

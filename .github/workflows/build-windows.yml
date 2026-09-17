@@ -102,15 +102,15 @@ jobs:
         working-directory: agent
         shell: pwsh
         run: |
-          go build -trimpath -ldflags="-s -w" -o OdooPrintAgent.exe ./cmd/agent
-          go build -trimpath -ldflags="-s -w" -o odoo-agent-cli.exe ./cmd/cli
+          go build -trimpath -ldflags="-s -w" -o YasserAgent.exe ./cmd/agent
+          go build -trimpath -ldflags="-s -w" -o yasser-agent-cli.exe ./cmd/cli
       - name: Verify Go binaries
         shell: pwsh
         run: |
-          $agent = "agent\OdooPrintAgent.exe"
-          $cli = "agent\odoo-agent-cli.exe"
-          if (-not (Test-Path $agent)) { throw "Missing OdooPrintAgent.exe" }
-          if (-not (Test-Path $cli)) { throw "Missing odoo-agent-cli.exe" }
+          $agent = "agent\YasserAgent.exe"
+          $cli = "agent\yasser-agent-cli.exe"
+          if (-not (Test-Path $agent)) { throw "Missing YasserAgent.exe" }
+          if (-not (Test-Path $cli)) { throw "Missing yasser-agent-cli.exe" }
           Get-Item $agent | Select-Object FullName, Length
           Get-Item $cli | Select-Object FullName, Length
       - name: Verify Tauri icon assets
@@ -169,7 +169,7 @@ jobs:
         run: |
           $msi = Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi" | Select-Object -First 1
           if (-not $msi) { throw "MSI bundle missing" }
-          $msiLog = Join-Path $env:RUNNER_TEMP "odoo-msi-install.log"
+          $msiLog = Join-Path $env:RUNNER_TEMP "yasser-msi-install.log"
           $proc = Start-Process msiexec -ArgumentList @(
             "/i", "`"$($msi.FullName)`"", "/qn", "/norestart", "/l*v", "`"$msiLog`""
           ) -Wait -PassThru
@@ -177,15 +177,15 @@ jobs:
             Get-Content $msiLog -Tail 200
             throw "MSI install failed with code $($proc.ExitCode)"
           }
-          $installDir = Join-Path $env:ProgramFiles "Odoo Print Manager"
-          $installedExe = Join-Path $installDir "odoo-print-manager.exe"
+          $installDir = Join-Path $env:ProgramFiles "Yasser Manager"
+          $installedExe = Join-Path $installDir "yasser-manager.exe"
           if (-not (Test-Path $installedExe)) { throw "Installed EXE missing after MSI install: $installDir" }
           & pwsh -NoProfile -File .\scripts\smoke-test-windows.ps1 -InstallDir $installDir
           if ($LASTEXITCODE -ne 0) { throw "Windows smoke test failed" }
       - name: Upload Windows MSI and NSIS EXE
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: Odoo-Print-Manager-Windows
+          name: Yasser-Manager-Windows
           path: |
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe

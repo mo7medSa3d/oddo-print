@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/odoo-print-agent/agent/internal/config"
+	"github.com/yasser-agent/agent/internal/config"
 )
 
 func TestStableID_SpoolerDeterministic(t *testing.T) {

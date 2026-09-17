@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/odoo-print-agent/agent/internal/printer"
-	"github.com/odoo-print-agent/agent/internal/testutil"
+	"github.com/yasser-agent/agent/internal/printer"
+	"github.com/yasser-agent/agent/internal/testutil"
 )
 
 // TestCrashWindowSimulation proves the honest duplicate window:

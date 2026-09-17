@@ -6,7 +6,7 @@ use tauri::Manager;
 use crate::paths;
 use crate::logging;
 
-const SERVICE_NAME: &str = "OdooPrintAgent";
+const SERVICE_NAME: &str = "YasserAgent";
 const BACKGROUND_PID_FILE: &str = "agent.pid";
 
 fn resource_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
@@ -33,11 +33,11 @@ fn system32_exe(name: &str) -> Result<PathBuf, String> {
 }
 
 pub fn agent_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    resolve_executable(app, "OdooPrintAgent.exe")
+    resolve_executable(app, "YasserAgent.exe")
 }
 
 pub fn cli_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    resolve_executable(app, "odoo-agent-cli.exe")
+    resolve_executable(app, "yasser-agent-cli.exe")
 }
 
 fn resolve_executable(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String> {
@@ -103,11 +103,11 @@ fn is_process_running(_app: &tauri::AppHandle) -> bool {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let Ok(tasklist) = system32_exe("tasklist.exe") else { return false; };
     let out = Command::new(tasklist)
-        .args(["/FI", "IMAGENAME eq OdooPrintAgent.exe", "/FO", "CSV", "/NH"])
+        .args(["/FI", "IMAGENAME eq YasserAgent.exe", "/FO", "CSV", "/NH"])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
     match out {
-        Ok(o) => String::from_utf8_lossy(&o.stdout).contains("OdooPrintAgent.exe"),
+        Ok(o) => String::from_utf8_lossy(&o.stdout).contains("YasserAgent.exe"),
         Err(_) => false,
     }
 }
@@ -241,7 +241,7 @@ fn spawn_background(app: &tauri::AppHandle) -> Result<u32, String> {
 
     let mut cmd = Command::new(&path);
     cmd.arg("-config").arg(&config);
-    cmd.env("ODOO_PRINT_AGENT_DATA_DIR", &root);
+    cmd.env("YASSER_AGENT_DATA_DIR", &root);
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
     cmd.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
 
@@ -253,13 +253,13 @@ fn spawn_background(app: &tauri::AppHandle) -> Result<u32, String> {
         },
         write_background_pid,
     )?;
-    logging::info(&format!("started OdooPrintAgent.exe pid={pid} config={}", config.display()));
+    logging::info(&format!("started YasserAgent.exe pid={pid} config={}", config.display()));
     Ok(pid)
 }
 
 #[cfg(not(windows))]
 fn spawn_background(_app: &tauri::AppHandle) -> Result<u32, String> {
-    Err("OdooPrintAgent.exe can only be launched on Windows".into())
+    Err("YasserAgent.exe can only be launched on Windows".into())
 }
 
 pub fn ensure_started(app: &tauri::AppHandle) -> Result<(), String> {
@@ -294,7 +294,7 @@ pub fn stop(app: &tauri::AppHandle) -> Result<(), String> {
             #[cfg(windows)]
             {
                 let pid = read_background_pid().ok_or_else(|| {
-                    "background agent is running but its owned PID record is missing; refusing to kill arbitrary OdooPrintAgent.exe processes".to_string()
+                    "background agent is running but its owned PID record is missing; refusing to kill arbitrary YasserAgent.exe processes".to_string()
                 })?;
 
                 let out = taskkill_pid(pid, false)?;
@@ -345,7 +345,7 @@ pub fn status(app: &tauri::AppHandle) -> (bool, bool, String) {
     let note = if service_running {
         format!("Windows service {SERVICE_NAME} is running")
     } else if process_running {
-        format!("background process OdooPrintAgent.exe is running (service not detected)")
+        format!("background process YasserAgent.exe is running (service not detected)")
     } else {
         format!("agent is not running; service/process not detected")
     };
@@ -366,7 +366,7 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
                 let out = Command::new(&path)
                     .args(["-service", action, "-config"])
                     .arg(&config)
-                    .env("ODOO_PRINT_AGENT_DATA_DIR", paths::agent_data_root())
+                    .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root())
                     .creation_flags(CREATE_NO_WINDOW)
                     .output()
                     .map_err(|e| format!("failed to run {} -service {action}: {e}", path.display()))?;
@@ -387,7 +387,7 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
                 let out = Command::new(&path)
                     .args(["-service", action, "-config"])
                     .arg(&config)
-                    .env("ODOO_PRINT_AGENT_DATA_DIR", paths::agent_data_root())
+                    .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root())
                     .output()
                     .map_err(|e| format!("failed to run {} -service {action}: {e}", path.display()))?;
                 let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();

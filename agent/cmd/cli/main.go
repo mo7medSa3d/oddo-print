@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/odoo-print-agent/agent/internal/agent"
-	"github.com/odoo-print-agent/agent/internal/config"
-	"github.com/odoo-print-agent/agent/internal/printer"
+	"github.com/yasser-agent/agent/internal/agent"
+	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yasser-agent/agent/internal/printer"
 )
 
 func main() {
@@ -64,20 +64,20 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("Odoo Print Agent CLI")
+	fmt.Println("Yasser Agent CLI")
 	fmt.Println("")
 	fmt.Println("Pairing (one-time):")
-	fmt.Println("  odoo-agent-cli.exe -pair <code> -server <url> [-config <path>]")
+	fmt.Println("  yasser-agent-cli.exe -pair <code> -server <url> [-config <path>]")
 	fmt.Println("  -server is required for pairing and must be http(s).")
 	fmt.Println("  Default config path:", config.DefaultConfigPath())
 	fmt.Println("")
 	fmt.Println("Printer management:")
-	fmt.Println("  odoo-agent-cli.exe printers list [--json] [-config <path>]")
-	fmt.Println("  odoo-agent-cli.exe printers discover [--json] [-config <path>]")
-	fmt.Println("  odoo-agent-cli.exe printers test <printer-id> [-config <path>]")
-	fmt.Println("  odoo-agent-cli.exe printers add --name <name> --type <network|usb|spooler|ipp> --endpoint <ip:port|spooler_name> [--protocol raw|escpos|ipp|spooler] [--spooler-name <name>] [--id <id>] [-config <path>]")
+	fmt.Println("  yasser-agent-cli.exe printers list [--json] [-config <path>]")
+	fmt.Println("  yasser-agent-cli.exe printers discover [--json] [-config <path>]")
+	fmt.Println("  yasser-agent-cli.exe printers test <printer-id> [-config <path>]")
+	fmt.Println("  yasser-agent-cli.exe printers add --name <name> --type <network|usb|spooler|ipp> --endpoint <ip:port|spooler_name> [--protocol raw|escpos|ipp|spooler] [--spooler-name <name>] [--id <id>] [-config <path>]")
 	fmt.Println("    Optional: --device-class <thermal|laser|inkjet|label|unknown> --vid <hex> --pid <hex> --serial <serial> --enabled <true|false> --capabilities <json>")
-	fmt.Println("  odoo-agent-cli.exe printers remove <printer-id> [-config <path>]")
+	fmt.Println("  yasser-agent-cli.exe printers remove <printer-id> [-config <path>]")
 	fmt.Println("")
 	fmt.Println("Gateway inventory fields: id, name, printerType, deviceClass, connectionType, protocol, endpoint, spoolerName, status, capabilities")
 	fmt.Println("Examples:")

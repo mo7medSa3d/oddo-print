@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/odoo-print-agent/agent/internal/config"
+	"github.com/yasser-agent/agent/internal/config"
 )
 
 func TestIPPURLNormalization(t *testing.T) {

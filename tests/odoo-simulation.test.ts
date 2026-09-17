@@ -31,7 +31,7 @@ describe("Odoo simulation — POST /api/print/jobs payload contract", () => {
     const decoded = Buffer.from(p.data, "base64").toString("binary");
     expect(p.type).toBe("escpos");
     expect(p.protocol).toBe("escpos");
-    expect(decoded).toContain("Odoo Print Agent");
+    expect(decoded).toContain("Yasser Agent");
     expect(decoded).toContain("\x1d\x56\x01"); // cut
   });
 });

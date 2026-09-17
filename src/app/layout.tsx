@@ -4,8 +4,8 @@ import { AppShell } from "../components/AppShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Odoo Print Gateway",
-  description: "Cloud Print Gateway — Go Agent ↔ Gateway (WS) + Tauri Manager + Odoo (HTTPS)",
+  title: "Yasser — Cloud Printing Platform",
+  description: "Yasser Cloud Printing Platform — Agent ↔ Gateway (WS) + Manager + Odoo Integration",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

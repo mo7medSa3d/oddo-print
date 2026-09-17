@@ -2,7 +2,7 @@
 
 package config
 
-import "github.com/odoo-print-agent/agent/internal/storage"
+import "github.com/yasser-agent/agent/internal/storage"
 
 // EnsureSecureDirectoryACL forwards to storage.EnsureSecureDirectoryACL.
 func EnsureSecureDirectoryACL(path string) error {

@@ -380,7 +380,7 @@ class TestControlPlane(TransactionCase):
             self.assertTrue(route_res.get("gateway_enabled"))
             job = self.env["print_gateway.print_job"].browse(route_res.get("job_id"))
             self.assertEqual(job.protocol, "escpos")
-            self.assertIn("ODOO PRINT GATEWAY DIAGNOSTIC", job.raw_payload)
+            self.assertIn("YASSER PRINT GATEWAY DIAGNOSTIC", job.raw_payload)
 
     def test_06_intent_crash_recovery_cron(self):
         """Verify cron_recover_pending_intents recovers stale claimed or pending intents."""

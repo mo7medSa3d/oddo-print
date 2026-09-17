@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"github.com/kardianos/service"
-	"github.com/odoo-print-agent/agent/internal/agent"
-	"github.com/odoo-print-agent/agent/internal/config"
-	"github.com/odoo-print-agent/agent/internal/queue"
+	"github.com/yasser-agent/agent/internal/agent"
+	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yasser-agent/agent/internal/queue"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -214,9 +214,9 @@ func configureServiceRecovery(serviceName string) {
 
 func handleServiceControl(rawAction, configPath string) error {
 	svcConfig := &service.Config{
-		Name:         "OdooPrintAgent",
-		DisplayName:  "Odoo Print Agent",
-		Description:  "Local print gateway for Odoo ERP — outbound HTTPS/WSS only, no inbound ports.",
+		Name:         "YasserAgent",
+		DisplayName:  "Yasser Agent",
+		Description:  "Local print gateway agent for Yasser Cloud Printing Platform — outbound HTTPS/WSS only, no inbound ports.",
 		Arguments:    []string{"-config", configPath},
 		Dependencies: []string{"Tcpip"},
 	}
@@ -235,11 +235,11 @@ func handleServiceControl(rawAction, configPath string) error {
 		}
 		switch status {
 		case service.StatusRunning:
-			fmt.Println("OdooPrintAgent service is running")
+			fmt.Println("YasserAgent service is running")
 		case service.StatusStopped:
-			fmt.Println("OdooPrintAgent service is stopped")
+			fmt.Println("YasserAgent service is stopped")
 		default:
-			fmt.Println("OdooPrintAgent service status is unknown")
+			fmt.Println("YasserAgent service status is unknown")
 		}
 		return nil
 	case "install":
@@ -247,31 +247,31 @@ func handleServiceControl(rawAction, configPath string) error {
 			return fmt.Errorf("install service failed: %w", err)
 		}
 		configureServiceRecovery(svcConfig.Name)
-		fmt.Println("OdooPrintAgent service installed successfully")
+		fmt.Println("YasserAgent service installed successfully")
 		return nil
 	case "uninstall":
 		if err := s.Uninstall(); err != nil {
 			return fmt.Errorf("uninstall service failed: %w", err)
 		}
-		fmt.Println("OdooPrintAgent service uninstalled successfully")
+		fmt.Println("YasserAgent service uninstalled successfully")
 		return nil
 	case "start":
 		if err := s.Start(); err != nil {
 			return fmt.Errorf("start service failed: %w", err)
 		}
-		fmt.Println("OdooPrintAgent service started successfully")
+		fmt.Println("YasserAgent service started successfully")
 		return nil
 	case "stop":
 		if err := s.Stop(); err != nil {
 			return fmt.Errorf("stop service failed: %w", err)
 		}
-		fmt.Println("OdooPrintAgent service stopped successfully")
+		fmt.Println("YasserAgent service stopped successfully")
 		return nil
 	case "restart":
 		if err := s.Restart(); err != nil {
 			return fmt.Errorf("restart service failed: %w", err)
 		}
-		fmt.Println("OdooPrintAgent service restarted successfully")
+		fmt.Println("YasserAgent service restarted successfully")
 		return nil
 	default:
 		return fmt.Errorf("unknown service action: %q (expected install, uninstall, start, stop, restart, status)", rawAction)

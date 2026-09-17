@@ -34,7 +34,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
                 <Cpu className="w-5 h-5" />
               </div>
               <div>
-                <span className="font-bold text-white text-base tracking-tight">Odoo Print</span>
+                <span className="font-bold text-white text-base tracking-tight">Yasser</span>
                 <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 uppercase tracking-wider">
                   Control Plane
                 </span>
