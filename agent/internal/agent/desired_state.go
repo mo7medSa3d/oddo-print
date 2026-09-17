@@ -25,7 +25,7 @@ type desiredPrinterWire struct {
 	Protocol        string                 `json:"protocol"`
 	Lifecycle       string                 `json:"lifecycle"`
 	Config          map[string]interface{} `json:"config"`
-	DesiredRevision int64                `json:"desiredRevision"`
+	DesiredRevision int64                  `json:"desiredRevision"`
 }
 
 type desiredPrinterRecord struct {
