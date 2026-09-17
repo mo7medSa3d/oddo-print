@@ -171,8 +171,8 @@ describe("DEFECT #5 — Odoo POS TaxLabel & Receipt Rendering Contract", () => {
 
 describe("DEFECT #6 — Odoo PDF Download vs Gateway Silent Printing", () => {
   it("report_interceptor chooses the first populated valid ID source and normalizes scalar IDs", () => {
-    const interceptor = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/static/src/js/report_interceptor.js"), "utf-8");
-    const helpers = interceptor.match(/function normalizeIds[\s\S]*?\n}\n\nfunction firstNonEmptyIds[\s\S]*?\n}/)?.[0];
+    const interceptor = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/static/src/js/report_interceptor.js"), "utf-8").replace(/\r\n/g, "\n");
+    const helpers = interceptor.match(/function normalizeIds[\s\S]*?\n}\s*function firstNonEmptyIds[\s\S]*?\n}/)?.[0];
     expect(helpers).toBeTruthy();
     const firstNonEmptyIds = new Function(`${helpers}; return firstNonEmptyIds;`)() as (...sources: unknown[]) => number[];
 

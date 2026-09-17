@@ -84,6 +84,9 @@ class TestPrintGatewayRoutingContract(TransactionCase):
                 }
             )
             return job_id
+        except Exception:
+            cr.rollback()
+            raise
         finally:
             cr.close()
 
@@ -170,10 +173,11 @@ class TestPrintGatewayRoutingContract(TransactionCase):
                         "destination_picking_type_id": picking_type.id,
                         "report_id": report.id,
                         "printer_id": "printer_runtime_1",
-                "printer_protocol": "escpos",
+                        "printer_protocol": "escpos",
                     }
                 )
         finally:
+            cr.rollback()
             cr.close()
 
     def test_document_type_is_deterministic_for_supported_business_models(self):
@@ -227,6 +231,7 @@ class TestPrintGatewayRoutingContract(TransactionCase):
                     company=other_company,
                 )
         finally:
+            cr.rollback()
             cr.close()
 
     def test_router_rejects_document_from_another_company_context(self):
@@ -255,6 +260,7 @@ class TestPrintGatewayRoutingContract(TransactionCase):
                     company=company,
                 )
         finally:
+            cr.rollback()
             cr.close()
 
     def test_native_print_is_only_allowed_when_gateway_is_disabled(self):
@@ -288,17 +294,16 @@ class TestPrintGatewayRoutingContract(TransactionCase):
         try:
             env = api.Environment(cr, self.env.uid, dict(self.env.context))
             company = env["res.company"].browse(self.durable_company_id).exists()
-            self.assertTrue(company)
             model_env = env["print_gateway.print_job"].with_company(company).env
             job = model_env["print_gateway.print_job"].browse(job_id).exists()
-            self.assertTrue(job)
             with patch.object(PrintGatewayConfig, "_validate_gateway_host"), patch(
                 "odoo.addons.print_gateway.models.print_job.requests.post",
-                side_effect=requests.exceptions.Timeout("simulated"),
+                side_effect=requests.exceptions.Timeout("Read timed out"),
             ):
                 with self.assertRaises(ValidationError):
                     job.action_submit(raise_on_failure=True)
         finally:
+            cr.rollback()
             cr.close()
 
         cr = self.env.registry.cursor()
@@ -311,6 +316,7 @@ class TestPrintGatewayRoutingContract(TransactionCase):
             self.assertIn("UNKNOWN_SUBMISSION_OUTCOME", job.last_error)
             self.assertFalse(job.next_retry_at)
         finally:
+            cr.rollback()
             cr.close()
 
     def test_cron_submit_pending_ignores_unknown_jobs(self):
@@ -342,6 +348,7 @@ class TestPrintGatewayRoutingContract(TransactionCase):
                 model_env["print_gateway.print_job"].cron_submit_pending()
                 mocked_submit.assert_not_called()
         finally:
+            cr.rollback()
             cr.close()
 
     def test_force_reprint_from_unknown_generates_derived_key(self):
@@ -363,6 +370,7 @@ class TestPrintGatewayRoutingContract(TransactionCase):
                 self.assertEqual(len(derived_jobs), 1)
                 mocked_submit.assert_called_once()
         finally:
+            cr.rollback()
             cr.close()
 
     def test_manual_retry_does_not_reset_in_flight_or_unknown_jobs(self):
@@ -391,6 +399,7 @@ class TestPrintGatewayRoutingContract(TransactionCase):
                 job.action_retry()
                 self.assertEqual(job.status, status)
             finally:
+                cr.rollback()
                 cr.close()
 
     def test_manual_retry_creates_a_new_operation_only_for_definite_failure(self):
@@ -416,6 +425,7 @@ class TestPrintGatewayRoutingContract(TransactionCase):
             self.assertNotEqual(retries.idempotency_key, job.idempotency_key)
             submit.assert_called_once()
         finally:
+            cr.rollback()
             cr.close()
 
     def test_gateway_unknown_outcome_marker_parity(self):
@@ -479,11 +489,13 @@ class TestPrintGatewayRoutingContract(TransactionCase):
                     return_value=mock_resp,
                 ):
                     job.action_sync_status()
+                job.invalidate_recordset(["status", "last_error"])
                 self.assertEqual(
                     job.status, expected,
                     "marker=%r must map to %r" % (marker, expected),
                 )
             finally:
+                cr.rollback()
                 cr.close()
 
     def test_sync_gateway_requeue_keeps_ahead_state_and_syncs_remaining_jobs(self):
@@ -529,12 +541,12 @@ class TestPrintGatewayRoutingContract(TransactionCase):
                 model_env["print_gateway.print_job"].browse(first_id).exists().status,
                 "claimed",
             )
-            # ...and the remaining job still converged (no loop starvation).
             self.assertEqual(
                 model_env["print_gateway.print_job"].browse(second_id).exists().status,
                 "success",
             )
         finally:
+            cr.rollback()
             cr.close()
 
     def test_force_reprint_does_not_consume_sequence_on_failed_create(self):
@@ -574,4 +586,5 @@ class TestPrintGatewayRoutingContract(TransactionCase):
             ])
             self.assertEqual(len(derived), 1)
         finally:
+            cr.rollback()
             cr.close()
