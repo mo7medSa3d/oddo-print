@@ -2,7 +2,7 @@ import { logError } from "../../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { tenantInvitations, tenantUsers, users } from "../../../../../db/schema";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { hashToken, normalizeEmail } from "../../../../../lib/password";
 import { writeAuditEvent } from "../../../../../lib/audit";
 
@@ -22,15 +22,42 @@ export async function POST(req: Request) {
 
   try {
     await db.transaction(async (tx) => {
+      const tenant = await tx.execute(sql`
+        SELECT id, lifecycle
+        FROM tenants
+        WHERE id = ${row.tenantId}
+        FOR UPDATE
+      `);
+      const tenantRow = tenant.rows[0] as { id?: string; lifecycle?: string } | undefined;
+      if (!tenantRow?.id) throw new Error("TENANT_NOT_FOUND");
+      if (tenantRow.lifecycle !== "active") throw new Error("TENANT_NOT_ACTIVE");
+
       const consumed = await tx.update(tenantInvitations).set({ acceptedAt: new Date() })
         .where(and(eq(tenantInvitations.id, row.id), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt)))
         .returning({ id: tenantInvitations.id });
       if (consumed.length !== 1) throw new Error("Invitation already consumed");
       await tx.insert(tenantUsers).values({ userId: user.id, tenantId: row.tenantId, role: row.role }).onConflictDoNothing();
+      await writeAuditEvent({
+        tenantId: row.tenantId,
+        actorType: "user",
+        actorId: user.id,
+        action: "team.invitation.accepted",
+        resourceType: "tenant_invitation",
+        resourceId: row.id,
+      }, tx);
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error && error.message === "Invitation already consumed" ? "Invitation is already used" : "Invitation could not be accepted" }, { status: 409 });
+    if (error instanceof Error && error.message === "TENANT_NOT_ACTIVE") {
+      return NextResponse.json({ error: "Workspace is suspended or unavailable" }, { status: 409 });
+    }
+    if (error instanceof Error && error.message === "TENANT_NOT_FOUND") {
+      return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+    }
+    return NextResponse.json({
+      error: error instanceof Error && error.message === "Invitation already consumed"
+        ? "Invitation is already used"
+        : "Invitation could not be accepted",
+    }, { status: 409 });
   }
-  await writeAuditEvent({ tenantId: row.tenantId, actorType: "user", actorId: user.id, action: "team.invitation.accepted", resourceType: "tenant_invitation", resourceId: row.id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   return NextResponse.json({ ok: true, tenantId: row.tenantId });
 }
