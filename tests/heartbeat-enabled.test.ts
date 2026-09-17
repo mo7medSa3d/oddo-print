@@ -29,6 +29,39 @@ suite("heartbeat validation and lifecycle preservation", () => {
     f = await seedFixture();
   });
 
+  it("does not resurrect a deleted Gateway-owned printer during the heartbeat race", async () => {
+    await pool().query(`DELETE FROM printers WHERE id = $1 AND tenant_id = $2`, [f.printerId, f.tenantId]);
+
+    const res = await heartbeatPOST(new Request("http://gateway.test/api/agent/heartbeat", {
+      method: "POST",
+      headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({
+        status: "online",
+        gatewayOwnedPrinterIds: [f.printerId],
+        printers: [{
+          id: f.printerId,
+          name: "Stale Gateway printer",
+          printerType: "physical",
+          deviceClass: "thermal",
+          connectionType: "network",
+          protocol: "raw",
+          config: { ip: "192.0.2.20", port: 9100 },
+          status: "online",
+        }],
+      }),
+    }));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.skippedPrinters).toContainEqual({
+      id: f.printerId,
+      reason: "gateway_owned_deletion_pending",
+    });
+
+    const row = await pool().query(`SELECT id FROM printers WHERE id = $1 AND tenant_id = $2`, [f.printerId, f.tenantId]);
+    expect(row.rows).toHaveLength(0);
+  });
+
   it("leaves operator-disabled printers disabled", async () => {
     await pool().query(`UPDATE printers SET lifecycle = 'disabled' WHERE id = $1`, [f.printerId]);
 
