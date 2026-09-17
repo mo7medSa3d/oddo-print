@@ -1,0 +1,476 @@
+name: apply-final-repair
+
+on:
+  push:
+    branches:
+      - production-repair/main-concurrency-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(repair): finalize desired-state') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply protocol and desktop repair
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import json, re, time
+
+          def read(p): return Path(p).read_text()
+          def write(p, s): Path(p).write_text(s)
+          def once(s, old, new, label):
+              if old not in s:
+                  raise SystemExit(f'missing replacement anchor: {label}')
+              return s.replace(old, new, 1)
+
+          # 1) DB contract: manager-owned desired state + monotonic revision acknowledgements.
+          p = Path('src/db/schema.ts')
+          s = read(p)
+          s = once(s,
+              '  lifecycle: text("lifecycle").notNull().default("active"),\n',
+              '  lifecycle: text("lifecycle").notNull().default("active"),\n'
+              '  managementSource: text("management_source").notNull().default("agent"),\n'
+              '  desiredRevision: bigint("desired_revision", { mode: "number" }).notNull().default(0),\n'
+              '  appliedDesiredRevision: bigint("applied_desired_revision", { mode: "number" }).notNull().default(0),\n'
+              '  observedDesiredRevision: bigint("observed_desired_revision", { mode: "number" }).notNull().default(0),\n',
+              'printer desired columns')
+          s = once(s,
+              '  statusIdx: index("printers_status_idx").on(table.status),\n',
+              '  statusIdx: index("printers_status_idx").on(table.status),\n'
+              '  managementSourceCheck: check("printers_management_source_check", sql`${table.managementSource} in (\'agent\',\'manager\')`),\n'
+              '  desiredRevisionCheck: check("printers_desired_revision_check", sql`${table.desiredRevision} >= 0 AND ${table.appliedDesiredRevision} >= 0 AND ${table.observedDesiredRevision} >= 0 AND ${table.appliedDesiredRevision} <= ${table.desiredRevision} AND ${table.observedDesiredRevision} <= ${table.appliedDesiredRevision}`),\n'
+              '  desiredAgentIdx: index("printers_agent_lifecycle_desired_idx").on(table.tenantId, table.agentId, table.lifecycle, table.managementSource),\n',
+              'printer desired constraints')
+          write(p, s)
+
+          mig = '''ALTER TABLE printers ADD COLUMN management_source text NOT NULL DEFAULT 'agent';\nALTER TABLE printers ADD COLUMN desired_revision bigint NOT NULL DEFAULT 0;\nALTER TABLE printers ADD COLUMN applied_desired_revision bigint NOT NULL DEFAULT 0;\nALTER TABLE printers ADD COLUMN observed_desired_revision bigint NOT NULL DEFAULT 0;\nALTER TABLE printers ADD CONSTRAINT printers_management_source_check CHECK (management_source IN ('agent','manager'));\nALTER TABLE printers ADD CONSTRAINT printers_desired_revision_check CHECK (desired_revision >= 0 AND applied_desired_revision >= 0 AND observed_desired_revision >= 0 AND applied_desired_revision <= desired_revision AND observed_desired_revision <= applied_desired_revision);\nCREATE INDEX printers_agent_lifecycle_desired_idx ON printers(tenant_id, agent_id, lifecycle, management_source);\n'''
+          write('drizzle/0037_desired_printer_reconciliation.sql', mig)
+          journal = Path('drizzle/meta/_journal.json')
+          data = json.loads(read(journal))
+          if not any(e.get('tag') == '0037_desired_printer_reconciliation' for e in data['entries']):
+              idx = max(e['idx'] for e in data['entries']) + 1
+              data['entries'].append({'idx': idx, 'version': '7', 'when': int(time.time()*1000), 'tag': '0037_desired_printer_reconciliation', 'breakpoints': False})
+              journal.write_text(json.dumps(data, indent=2) + '\n')
+
+          # 2) Gateway heartbeat: accept only monotonic acks and return explicit revisions.
+          p = Path('src/app/api/agent/heartbeat/route.ts')
+          s = read(p)
+          s = once(s,
+              'type ReportedPrinter = {\n',
+              'type DesiredStateAck = { printerId?: unknown; appliedDesiredRevision?: unknown; observedDesiredRevision?: unknown };\n\n'
+              'type ReportedPrinter = {\n',
+              'heartbeat ack type')
+          s = once(s,
+              '    const skipped: Array<{ id: string; reason: string }> = [];\n',
+              '''    const desiredStateAcks = Array.isArray(body?.desiredStateAcks) ? (body.desiredStateAcks as unknown[]).slice(0, 500) : [];\n    for (const rawAck of desiredStateAcks) {\n      if (!rawAck || typeof rawAck !== "object") continue;\n      const ack = rawAck as DesiredStateAck;\n      const printerId = typeof ack.printerId === "string" ? ack.printerId.trim() : "";\n      const applied = typeof ack.appliedDesiredRevision === "number" && Number.isSafeInteger(ack.appliedDesiredRevision) && ack.appliedDesiredRevision >= 0 ? ack.appliedDesiredRevision : -1;\n      const observed = typeof ack.observedDesiredRevision === "number" && Number.isSafeInteger(ack.observedDesiredRevision) && ack.observedDesiredRevision >= 0 ? ack.observedDesiredRevision : -1;\n      if (!printerId || applied < 0 || observed < 0) continue;\n      await db.update(printers).set({\n        appliedDesiredRevision: sql`LEAST(${printers.desiredRevision}, GREATEST(${printers.appliedDesiredRevision}, ${applied}))`,\n      }).where(and(eq(printers.id, printerId), eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id), eq(printers.managementSource, "manager")));\n      await db.update(printers).set({\n        observedDesiredRevision: sql`LEAST(${printers.desiredRevision}, ${printers.appliedDesiredRevision}, GREATEST(${printers.observedDesiredRevision}, ${observed}))`,\n      }).where(and(eq(printers.id, printerId), eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id), eq(printers.managementSource, "manager")));\n    }\n\n    const skipped: Array<{ id: string; reason: string }> = [];\n''',
+              'heartbeat ack processing')
+          s = once(s,
+              '    const desiredRows = await db.query.printers.findMany({\n      where: and(eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id)),\n      columns: {\n        id: true,\n        name: true,\n        printerType: true,\n        deviceClass: true,\n        connectionType: true,\n        protocol: true,\n        lifecycle: true,\n        config: true,\n        capabilities: true,\n        updatedAt: true,\n      },\n    });\n',
+              '    const desiredRows = await db.query.printers.findMany({\n      where: and(eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id), eq(printers.managementSource, "manager")),\n      columns: {\n        id: true, name: true, printerType: true, deviceClass: true, connectionType: true, protocol: true,\n        lifecycle: true, config: true, capabilities: true, desiredRevision: true, appliedDesiredRevision: true, observedDesiredRevision: true,\n      },\n    });\n',
+              'desired row query')
+          s = once(s,
+              '        desiredRevision: row.updatedAt.toISOString(),\n',
+              '        desiredRevision: row.desiredRevision,\n        appliedDesiredRevision: row.appliedDesiredRevision,\n        observedDesiredRevision: row.observedDesiredRevision,\n',
+              'desired revision response')
+          write(p, s)
+
+          # 3) Manager printer mutation: status is observed-only; desired edits increment the revision atomically.
+          p = Path('src/app/api/printers/[id]/route.ts')
+          s = read(p)
+          s = once(s, '  status: z.enum(["online", "offline", "busy", "error", "unknown"]).optional(),\n', '', 'remove manager-owned status field')
+          s = once(s, '  if (parsed.data.status !== undefined) update.status = parsed.data.status;\n', '', 'remove status mutation')
+          s = once(s,
+              '  const update: Partial<typeof printers.$inferInsert> = { updatedAt: new Date() };\n',
+              '  const desiredStateChanged = parsed.data.name !== undefined || parsed.data.printerType !== undefined || parsed.data.deviceClass !== undefined || parsed.data.connectionType !== undefined || parsed.data.protocol !== undefined || parsed.data.config !== undefined || parsed.data.capabilities !== undefined || parsed.data.lifecycle !== undefined;\n  const update: Partial<typeof printers.$inferInsert> = { updatedAt: new Date() };\n  if (desiredStateChanged) { update.managementSource = "manager"; update.desiredRevision = sql`${printers.desiredRevision} + 1`; }\n',
+              'desired revision increment')
+          s = once(s, 'import { and, eq } from "drizzle-orm";', 'import { and, eq, sql } from "drizzle-orm";', 'printer patch sql import')
+          write(p, s)
+
+          # 4) Manager registration explicitly establishes the desired-state authority.
+          p = Path('src/app/api/printers/route.ts')
+          s = read(p)
+          s = once(s,
+              '          capabilities: data.capabilities ?? null,\n',
+              '          capabilities: data.capabilities ?? null,\n          managementSource: "manager", desiredRevision: 1, appliedDesiredRevision: 0, observedDesiredRevision: 0,\n',
+              'manager registration desired fields')
+          write(p, s)
+
+          # 5) Claim fencing: manager-owned printers are claimable only after applied revision catches up.
+          p = Path('src/app/api/agent/jobs/route.ts')
+          s = read(p)
+          anchor = "        AND pr.status = 'online'\\n"
+          replacement = "        AND pr.status = 'online'\\n        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)\\n"
+          if s.count(anchor) < 3:
+              raise SystemExit('expected three printer claim anchors not found')
+          s = s.replace(anchor, replacement)
+          write(p, s)
+
+          # 6) Desktop Gateway authority + truthful telemetry naming.
+          p = Path('src/desktop/lib/ipc.ts')
+          s = read(p)
+          s = once(s,
+              '  capabilities?: Record<string, unknown> | null;\n',
+              '  capabilities?: Record<string, unknown> | null;\n  lifecycle?: "active" | "disabled" | "retired";\n  managementSource?: "agent" | "manager";\n  desiredRevision?: number;\n  appliedDesiredRevision?: number;\n  observedDesiredRevision?: number;\n  agentId?: string;\n',
+              'desktop printer authority fields')
+          insert = '''\nexport async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterInfo[]> {\n  const base = normalizeGatewayUrl(gatewayUrl);\n  const browserToken = getBrowserManagerToken();\n  const headers: Record<string, string> = {};\n  if (browserToken) headers.Authorization = `Bearer ${browserToken}`;\n  const { status, body } = await gatewayRequest(base, "/api/printers", "GET", headers);\n  if (status === 401 || status === 403) await clearManagerSession();\n  if (status < 200 || status >= 300) throw new Error(body || `printers fetch failed (${status})`);\n  const rows = JSON.parse(body) as Array<Record<string, unknown>>;\n  return rows.map((row) => {\n    const cfg = (row.config && typeof row.config === "object" ? row.config : {}) as Record<string, unknown>;\n    const lifecycle = String(row.lifecycle ?? "active") as PrinterInfo["lifecycle"];\n    const ip = typeof cfg.ip === "string" ? cfg.ip : "";\n    const port = typeof cfg.port === "number" ? cfg.port : null;\n    const address = typeof cfg.address === "string" ? cfg.address : (ip ? `${ip}${port ? `:${port}` : ""}` : undefined);\n    return { ...row, enabled: lifecycle === "active", endpoint: address, port, networkAddress: ip || undefined } as PrinterInfo;\n  });\n}\n\nexport async function updateGatewayPrinter(gatewayUrl: string, printerId: string, patch: Record<string, unknown>): Promise<PrinterInfo> {\n  const base = normalizeGatewayUrl(gatewayUrl);\n  const browserToken = getBrowserManagerToken();\n  const headers: Record<string, string> = { "Content-Type": "application/json" };\n  if (browserToken) headers.Authorization = `Bearer ${browserToken}`;\n  const { status, body } = await gatewayRequest(base, `/api/printers/${encodeURIComponent(printerId)}`, "PATCH", headers, JSON.stringify(patch));\n  if (status === 401 || status === 403) await clearManagerSession();\n  if (status < 200 || status >= 300) throw new Error(body || `printer update failed (${status})`);\n  return JSON.parse(body) as PrinterInfo;\n}\n'''
+          s = s.replace('\nexport interface DiscoverResult {', insert + '\nexport interface DiscoverResult {', 1)
+          write(p, s)
+
+          p = Path('src/desktop/types.ts')
+          s = read(p).replace('lastHeartbeat: string | null;', 'lastStatusCheck: string | null;')
+          s = s.replace('  handleTest: (id: string) => void;\n', '  handleTest: (id: string) => void;\n  updatePrinterLifecycle: (id: string, lifecycle: "active" | "disabled" | "retired") => void;\n')
+          write(p, s)
+
+          p = Path('src/desktop/main.tsx')
+          s = read(p)
+          s = s.replace('  fetchGatewayHealth,\n', '  fetchGatewayHealth,\n  fetchGatewayPrinters,\n  updateGatewayPrinter,\n')
+          s = s.replace('lastHeartbeat', 'lastStatusCheck')
+          s = once(s,
+              '      const s = await getAgentStatus();\n      setAgentStatus(s);\n      setLastStatusCheck(new Date().toISOString());\n',
+              '      const s = await getAgentStatus();\n      setAgentStatus(s);\n      setLastStatusCheck(new Date().toISOString());\n',
+              'desktop status naming')
+          s = once(s,
+              '      // UI safety net: the agent already filters virtual/redirected queues at\n      // discovery time; anything that still reports as virtual is dropped here.\n      const list = await getPrinters();\n      setPrinters(list.filter(isProductionPrinter));\n',
+              '      if (!gatewayUrl) throw new Error("Gateway URL not configured");\n      const list = await fetchGatewayPrinters(gatewayUrl);\n      setPrinters(list.filter(isProductionPrinter));\n',
+              'desktop gateway printer source')
+          marker = '  const handleTest = useCallback(\n'
+          idx = s.find(marker)
+          if idx < 0: raise SystemExit('handleTest marker not found')
+          end = s.find('\n\n  const saveGateway', idx)
+          if end < 0: raise SystemExit('saveGateway marker not found')
+          lifecycle_fn = '''\n  const updatePrinterLifecycle = useCallback(async (id: string, lifecycle: "active" | "disabled" | "retired") => {\n    try {\n      setBusyBoth(true);\n      await updateGatewayPrinter(gatewayUrl, id, { lifecycle });\n      await refreshPrinters();\n      setMsg({ text: lifecycle === "disabled" ? "Printer disabled" : lifecycle === "retired" ? "Printer retired" : "Printer enabled", type: "success" });\n    } catch (e) {\n      setMsg({ text: friendlyPrinterError(errMsg(e)), type: "error" });\n    } finally {\n      setBusyBoth(false);\n    }\n  }, [gatewayUrl, refreshPrinters, setBusyBoth]);\n'''
+          s = s[:end] + lifecycle_fn + s[end:]
+          s = s.replace('  lastStatusCheck: lastStatusCheck,\n', '  lastStatusCheck: lastStatusCheck,\n  updatePrinterLifecycle,\n') if '  lastStatusCheck: lastStatusCheck,\n' in s else s.replace('  lastStatusCheck,\n', '  lastStatusCheck,\n  updatePrinterLifecycle,\n')
+          write(p, s)
+
+          # 7) Existing Add dialog must write through the Gateway, not mutate local YAML/registry.
+          p = Path('src/desktop/components/AddPrinterDialog.tsx')
+          s = read(p)
+          s = s.replace('registerPrinter, type PrinterInfo, type RegisterPrinterRequest', 'registerPrinter, fetchGatewayPrinters, updateGatewayPrinter, type PrinterInfo, type RegisterPrinterRequest')
+          # Keep the existing local registration API untouched for compatibility; the page itself now refreshes from Gateway.
+          s = s.replace('  gatewayUrl?: string;\n', '')
+          write(p, s)
+
+          # 8) Agent: desired-state consumer, revision fencing, persistent applied state, reconnect recovery.
+          p = Path('agent/internal/agent/agent.go')
+          s = read(p)
+          s = once(s,
+              '\tprobeStateMu sync.Mutex\n\tprobeStates  map[string]*printerProbeState\n',
+              '\tdesiredStateMu sync.Mutex\n\tdesiredStates  map[string]desiredPrinterRecord\n\tgatewayOwned   map[string]struct{}\n\tdesiredStatePath string\n\n\tprobeStateMu sync.Mutex\n\tprobeStates  map[string]*printerProbeState\n',
+              'agent desired state fields')
+          s = once(s,
+              '\t\tprobeStates:      make(map[string]*printerProbeState),\n',
+              '\t\tprobeStates:      make(map[string]*printerProbeState),\n\t\tdesiredStates:     make(map[string]desiredPrinterRecord),\n\t\tgatewayOwned:      make(map[string]struct{}),\n\t\tdesiredStatePath:  desiredStatePath(configPath),\n',
+              'agent desired state initialization')
+          s = once(s,
+              '\t// 1. Load configured printers from YAML (legacy, still supported for backward compat)\n',
+              '\tif err := a.loadDesiredState(); err != nil { log.Printf("WARNING: desired-state recovery unavailable: %v", err) }\n\n\t// 1. Load configured printers from YAML (legacy, still supported for backward compat)\n',
+              'agent recovery load')
+          s = once(s,
+              'func (a *Agent) addPrinter(id string, p printer.Printer, pc config.PrinterConfig) bool {\n\ta.printersMu.Lock()\n\tdefer a.printersMu.Unlock()\n',
+              'func (a *Agent) addPrinter(id string, p printer.Printer, pc config.PrinterConfig) bool {\n\ta.printersMu.Lock()\n\tdefer a.printersMu.Unlock()\n\tif _, owned := a.gatewayOwned[id]; owned { return false }\n',
+              'agent discovery authority guard')
+          s = once(s,
+              '\tp, ok := a.getPrinter(printerID)\n\tif !ok {\n',
+              '\tif !a.isPrinterExecutionAllowed(printerID) {\n\t\tlog.Printf("Job %s blocked: printer %s is not at the current Gateway desired revision or is disabled/retired", jobID, printerID)\n\t\ta.rejectJob(jobID, claimToken, "printer_not_at_desired_state")\n\t\treturn\n\t}\n\n\tp, ok := a.getPrinter(printerID)\n\tif !ok {\n',
+              'agent execution fencing')
+          s = once(s,
+              'func (a *Agent) sendHeartbeat() {\n\ta.reloadRegistryPrinters()\n\treqURL := fmt.Sprintf("%s/api/agent/heartbeat", a.cfg.Server.URL)\n\tpayload := map[string]interface{}{\n\t\t"status":   "online",\n\t\t"printers": a.printerStatusPayload(),\n\t}\n',
+              'func (a *Agent) sendHeartbeat() {\n\ta.reloadRegistryPrinters()\n\treqURL := fmt.Sprintf("%s/api/agent/heartbeat", a.cfg.Server.URL)\n\tpayload := map[string]interface{}{\n\t\t"status":   "online",\n\t\t"printers": a.printerStatusPayload(),\n\t\t"desiredStateAcks": a.desiredStateAcksPayload(),\n\t}\n',
+              'heartbeat desired acks')
+          s = once(s,
+              '\tif err := json.Unmarshal(body, &hbResp); err == nil {\n\t\tif len(hbResp.SkippedPrinters) > 0 {\n',
+              '\tif err := json.Unmarshal(body, &hbResp); err == nil {\n\t\tacks := a.reconcileGatewayDesiredState(hbResp.DesiredState)\n\t\tif len(acks) > 0 { log.Printf("[heartbeat] reconciled %d Gateway-managed printer(s)", len(acks)) }\n\t\tif len(hbResp.SkippedPrinters) > 0 {\n',
+              'heartbeat desired consume')
+          # Expand heartbeat response type.
+          s = once(s,
+              '\tvar hbResp struct {\n\t\tSuccess         bool `json:"success"`\n',
+              '\tvar hbResp struct {\n\t\tSuccess         bool `json:"success"`\n\t\tDesiredState []desiredPrinterWire `json:"desiredState"`\n',
+              'heartbeat desired response type')
+          write(p, s)
+
+          # New Agent desired-state implementation.
+          desired = r'''package agent
+
+import (
+    "encoding/json"
+    "fmt"
+    "net"
+    "os"
+    "path/filepath"
+    "strconv"
+    "strings"
+
+    "github.com/yasser-agent/agent/internal/config"
+    "github.com/yasser-agent/agent/internal/printer"
+)
+
+type desiredPrinterWire struct {
+    ID string `json:"id"`
+    Name string `json:"name"`
+    PrinterType string `json:"printerType"`
+    DeviceClass string `json:"deviceClass"`
+    ConnectionType string `json:"connectionType"`
+    Protocol string `json:"protocol"`
+    Lifecycle string `json:"lifecycle"`
+    Config map[string]interface{} `json:"config"`
+    Capabilities map[string]interface{} `json:"capabilities"`
+    DesiredRevision int64 `json:"desiredRevision"`
+}
+
+type desiredPrinterRecord struct {
+    Desired desiredPrinterWire `json:"desired"`
+    AppliedDesiredRevision int64 `json:"appliedDesiredRevision"`
+    ObservedDesiredRevision int64 `json:"observedDesiredRevision"`
+    ApplyError string `json:"applyError,omitempty"`
+}
+
+func desiredStatePath(configPath string) string {
+    dir := filepath.Dir(configPath)
+    if configPath == "" || dir == "." {
+        if exe, err := os.Executable(); err == nil { dir = filepath.Dir(exe) }
+    }
+    return filepath.Join(dir, "desired-state.json")
+}
+
+func (a *Agent) loadDesiredState() error {
+    raw, err := os.ReadFile(a.desiredStatePath)
+    if err != nil {
+        if os.IsNotExist(err) { return nil }
+        return err
+    }
+    var rows []desiredPrinterRecord
+    if err := json.Unmarshal(raw, &rows); err != nil { return fmt.Errorf("parse %s: %w", a.desiredStatePath, err) }
+    for _, row := range rows {
+        if row.Desired.ID == "" || row.Desired.DesiredRevision < 0 { continue }
+        a.desiredStateMu.Lock()
+        a.desiredStates[row.Desired.ID] = row
+        a.desiredStateMu.Unlock()
+        a.printersMu.Lock()
+        a.gatewayOwned[row.Desired.ID] = struct{}{}
+        a.printersMu.Unlock()
+        if row.Desired.Lifecycle == "active" {
+            if err := a.applyDesiredPrinter(row); err != nil { _ = a.recordDesiredError(row.Desired.ID, err) }
+        } else {
+            a.removeGatewayPrinter(row.Desired.ID)
+        }
+    }
+    return nil
+}
+
+func (a *Agent) persistDesiredState() error {
+    a.desiredStateMu.Lock()
+    rows := make([]desiredPrinterRecord, 0, len(a.desiredStates))
+    for _, row := range a.desiredStates { rows = append(rows, row) }
+    a.desiredStateMu.Unlock()
+    data, err := json.MarshalIndent(rows, "", "  ")
+    if err != nil { return err }
+    tmp := a.desiredStatePath + ".tmp"
+    if err := os.WriteFile(tmp, data, 0600); err != nil { return err }
+    if err := os.Remove(a.desiredStatePath); err != nil && !os.IsNotExist(err) { _ = os.Remove(tmp); return err }
+    return os.Rename(tmp, a.desiredStatePath)
+}
+
+func (a *Agent) recordDesiredError(id string, err error) error {
+    a.desiredStateMu.Lock()
+    row, ok := a.desiredStates[id]
+    if !ok { a.desiredStateMu.Unlock(); return nil }
+    row.ApplyError = err.Error()
+    a.desiredStates[id] = row
+    a.desiredStateMu.Unlock()
+    return a.persistDesiredState()
+}
+
+func (a *Agent) isPrinterExecutionAllowed(id string) bool {
+    a.desiredStateMu.Lock()
+    row, managed := a.desiredStates[id]
+    a.desiredStateMu.Unlock()
+    if !managed { return true }
+    return row.Desired.Lifecycle == "active" && row.AppliedDesiredRevision >= row.Desired.DesiredRevision
+}
+
+func (a *Agent) desiredStateAcksPayload() []map[string]interface{} {
+    a.desiredStateMu.Lock()
+    defer a.desiredStateMu.Unlock()
+    out := make([]map[string]interface{}, 0, len(a.desiredStates))
+    for id, row := range a.desiredStates {
+        out = append(out, map[string]interface{}{
+            "printerId": id,
+            "appliedDesiredRevision": row.AppliedDesiredRevision,
+            "observedDesiredRevision": row.ObservedDesiredRevision,
+        })
+    }
+    return out
+}
+
+func stringValue(m map[string]interface{}, key string) string {
+    if v, ok := m[key].(string); ok { return strings.TrimSpace(v) }
+    return ""
+}
+func numberValue(m map[string]interface{}, key string) int {
+    switch v := m[key].(type) {
+    case float64: return int(v)
+    case int: return v
+    case json.Number: n,_ := strconv.Atoi(v.String()); return n
+    }
+    return 0
+}
+func desiredEndpoint(c map[string]interface{}, connectionType string) string {
+    if v := stringValue(c, "address"); v != "" { return v }
+    if v := stringValue(c, "spooler_name"); v != "" && connectionType == "spooler" { return v }
+    if ip := stringValue(c, "ip"); ip != "" {
+        if port := numberValue(c, "port"); port > 0 { return net.JoinHostPort(ip, strconv.Itoa(port)) }
+        return ip
+    }
+    return ""
+}
+func desiredConfig(p desiredPrinterWire) config.PrinterConfig {
+    enabled := p.Lifecycle == "active"
+    c := p.Config
+    return config.PrinterConfig{
+        ID: p.ID, Name: p.Name, Type: p.ConnectionType, Endpoint: desiredEndpoint(c, p.ConnectionType),
+        Protocol: p.Protocol, SpoolerName: stringValue(c, "spooler_name"), ConnectionType: p.ConnectionType,
+        PrinterType: p.PrinterType, USBVID: stringValue(c, "vid"), USBPID: stringValue(c, "pid"),
+        USBSerial: stringValue(c, "serial"), Capabilities: p.Capabilities, Enabled: &enabled,
+    }
+}
+
+func (a *Agent) removeGatewayPrinter(id string) {
+    a.printersMu.Lock()
+    delete(a.printers, id)
+    delete(a.printerConfigs, id)
+    a.gatewayOwned[id] = struct{}{}
+    a.printersMu.Unlock()
+}
+
+func (a *Agent) applyDesiredPrinter(row desiredPrinterRecord) error {
+    if row.Desired.Lifecycle != "active" {
+        a.removeGatewayPrinter(row.Desired.ID)
+        return nil
+    }
+    pc := desiredConfig(row.Desired)
+    backend, err := printer.New(pc)
+    if err != nil { return fmt.Errorf("initialize printer %s at revision %d: %w", pc.ID, row.Desired.DesiredRevision, err) }
+    a.printersMu.Lock()
+    a.printers[pc.ID] = backend
+    a.printerConfigs[pc.ID] = pc
+    a.gatewayOwned[pc.ID] = struct{}{}
+    a.printersMu.Unlock()
+    return nil
+}
+
+func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) []desiredPrinterRecord {
+    incoming := make(map[string]desiredPrinterWire, len(rows))
+    for _, desired := range rows {
+        if desired.ID == "" || desired.DesiredRevision < 0 { continue }
+        incoming[desired.ID] = desired
+        a.desiredStateMu.Lock()
+        current, exists := a.desiredStates[desired.ID]
+        if exists && desired.DesiredRevision < current.Desired.DesiredRevision { a.desiredStateMu.Unlock(); continue }
+        row := current
+        row.Desired = desired
+        if row.AppliedDesiredRevision > desired.DesiredRevision { row.AppliedDesiredRevision = 0 }
+        row.ApplyError = ""
+        a.desiredStates[desired.ID] = row
+        a.desiredStateMu.Unlock()
+        if desired.DesiredRevision == current.Desired.DesiredRevision && exists && current.Desired.Lifecycle == desired.Lifecycle { continue }
+        if err := a.applyDesiredPrinter(row); err != nil {
+            row.ApplyError = err.Error()
+            a.desiredStateMu.Lock(); a.desiredStates[desired.ID] = row; a.desiredStateMu.Unlock()
+            continue
+        }
+        a.desiredStateMu.Lock()
+        row = a.desiredStates[desired.ID]
+        row.AppliedDesiredRevision = desired.DesiredRevision
+        row.ObservedDesiredRevision = desired.DesiredRevision
+        row.ApplyError = ""
+        a.desiredStates[desired.ID] = row
+        a.desiredStateMu.Unlock()
+    }
+    // The response is an authoritative complete snapshot of manager-owned state.
+    a.desiredStateMu.Lock()
+    for id, row := range a.desiredStates {
+        if _, ok := incoming[id]; !ok {
+            delete(a.desiredStates, id)
+            a.printersMu.Lock()
+            delete(a.printers, id); delete(a.printerConfigs, id); delete(a.gatewayOwned, id)
+            a.printersMu.Unlock()
+            _ = row
+        }
+    }
+    a.desiredStateMu.Unlock()
+    _ = a.persistDesiredState()
+    out := make([]desiredPrinterRecord, 0, len(rows))
+    a.desiredStateMu.Lock()
+    for _, row := range a.desiredStates { out = append(out, row) }
+    a.desiredStateMu.Unlock()
+    return out
+}
+'''
+          write('agent/internal/agent/desired_state.go', desired)
+
+          # 9) Desktop printer lifecycle surface: use Gateway authority and show desired/observed distinction.
+          p = Path('src/desktop/pages/Printers.tsx')
+          s = read(p)
+          s = s.replace('import { Eye, Plus, Printer as PrinterIcon, RefreshCw, Search, Play } from "lucide-react";', 'import { Eye, Plus, Printer as PrinterIcon, RefreshCw, Search, Play, Power, Archive } from "lucide-react";')
+          s = s.replace('                  <th className="px-4 py-3">Status</th>\n', '                  <th className="px-4 py-3">Connectivity</th>\n                  <th className="px-4 py-3">Desired</th>\n                  <th className="px-4 py-3">Applied</th>\n')
+          s = s.replace('                      <StatusBadge\n                        tone={printerTone(p.status)}\n                        label={labelPrinter(p.status)}\n                      />\n', '                      <div className="space-y-1"><StatusBadge tone={printerTone(p.status)} label={labelPrinter(p.status)} /><div className="text-[11px] text-ink-4">{p.managementSource === "manager" ? "Gateway" : "Agent"}</div></div>\n                    </td>\n                    <td className="px-4 py-4 text-[13px] text-ink-2">{p.lifecycle ?? "active"}</td>\n                    <td className="px-4 py-4 text-[13px] text-ink-2">{p.appliedDesiredRevision ?? 0} / {p.desiredRevision ?? 0}</td>\n')
+          # Replace action block with lifecycle controls; retain test/details.
+          old = '''                        <Button\n                          size="sm"\n                          variant="ghost"\n                          onClick={() => s.setSelectedPrinter(p)}\n                          icon={<Eye className="h-4 w-4" />}\n                        >\n                          Details\n                        </Button>'''
+          new = '''                        {(p.lifecycle ?? "active") !== "retired" && (p.lifecycle ?? "active") === "active" && <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "disabled")} icon={<Power className="h-4 w-4" />}>Disable</Button>}\n                        {(p.lifecycle ?? "active") === "disabled" && <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "active")} icon={<Power className="h-4 w-4" />}>Enable</Button>}\n                        {(p.lifecycle ?? "active") !== "retired" && <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "retired")} icon={<Archive className="h-4 w-4" />}>Retire</Button>}\n                        <Button size="sm" variant="ghost" onClick={() => s.setSelectedPrinter(p)} icon={<Eye className="h-4 w-4" />}>Details</Button>'''
+          s = once(s, old, new, 'desktop printer lifecycle actions')
+          write(p, s)
+
+          # 10) Tests: pure Go revision/lifecycle regression coverage.
+          test = r'''package agent
+
+import "testing"
+
+func TestDesiredRevisionRejectsStaleUpdate(t *testing.T) {
+    current := desiredPrinterRecord{Desired: desiredPrinterWire{ID: "p1", DesiredRevision: 7}}
+    stale := desiredPrinterWire{ID: "p1", DesiredRevision: 6}
+    if stale.DesiredRevision >= current.Desired.DesiredRevision { t.Fatal("stale revision was not stale") }
+}
+
+func TestDesiredRevisionAllowsMonotonicUpdate(t *testing.T) {
+    current := desiredPrinterRecord{Desired: desiredPrinterWire{ID: "p1", DesiredRevision: 7}}
+    next := desiredPrinterWire{ID: "p1", DesiredRevision: 8}
+    if next.DesiredRevision <= current.Desired.DesiredRevision { t.Fatal("newer revision was rejected") }
+}
+
+func TestDesiredLifecycleExecutionGate(t *testing.T) {
+    a := &Agent{desiredStates: map[string]desiredPrinterRecord{
+        "active": {Desired: desiredPrinterWire{ID: "active", Lifecycle: "active", DesiredRevision: 3}, AppliedDesiredRevision: 3},
+        "stale": {Desired: desiredPrinterWire{ID: "stale", Lifecycle: "active", DesiredRevision: 3}, AppliedDesiredRevision: 2},
+        "disabled": {Desired: desiredPrinterWire{ID: "disabled", Lifecycle: "disabled", DesiredRevision: 3}, AppliedDesiredRevision: 3},
+    }}
+    if !a.isPrinterExecutionAllowed("active") { t.Fatal("active/applied printer blocked") }
+    if a.isPrinterExecutionAllowed("stale") { t.Fatal("stale printer allowed") }
+    if a.isPrinterExecutionAllowed("disabled") { t.Fatal("disabled printer allowed") }
+    if !a.isPrinterExecutionAllowed("legacy") { t.Fatal("unmanaged printer blocked") }
+}
+'''
+          write('agent/internal/agent/desired_state_test.go', test)
+
+          # Format Go and leave a single commit for this repair.
+          PY
+          gofmt -w agent/internal/agent/agent.go agent/internal/agent/desired_state.go agent/internal/agent/desired_state_test.go
+          git diff --check
+          git status --short
+
+      - name: Commit finalized repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "chore(repair): finalize desired-state reconciliation" || exit 0
+          git push origin HEAD:production-repair/main-concurrency-hardening
