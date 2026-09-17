@@ -17,14 +17,14 @@ import (
 )
 
 type desiredPrinterWire struct {
-	ID             string                 `json:"id"`
-	Name           string                 `json:"name"`
-	PrinterType    string                 `json:"printerType"`
-	DeviceClass    string                 `json:"deviceClass"`
-	ConnectionType string                 `json:"connectionType"`
-	Protocol       string                 `json:"protocol"`
-	Lifecycle      string                 `json:"lifecycle"`
-	Config         map[string]interface{} `json:"config"`
+	ID              string                 `json:"id"`
+	Name            string                 `json:"name"`
+	PrinterType     string                 `json:"printerType"`
+	DeviceClass     string                 `json:"deviceClass"`
+	ConnectionType  string                 `json:"connectionType"`
+	Protocol        string                 `json:"protocol"`
+	Lifecycle       string                 `json:"lifecycle"`
+	Config          map[string]interface{} `json:"config"`
 	DesiredRevision int64                `json:"desiredRevision"`
 }
 
