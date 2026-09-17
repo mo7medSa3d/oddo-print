@@ -111,6 +111,8 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+        AND a.last_seen_at IS NOT NULL
+        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
         AND pr.status = 'online'
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
@@ -133,6 +135,8 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND p.retries < ${MAX_RETRIES}
         AND a.lifecycle = 'active'
         AND a.status = 'online'
+        AND a.last_seen_at IS NOT NULL
+        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
         AND pr.status = 'online'
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
