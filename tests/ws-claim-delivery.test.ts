@@ -58,6 +58,28 @@ suite("WS claim-before-delivery", () => {
     return ws;
   }
 
+  it("refuses both WS claim and polling claim for a stale agent heartbeat", async () => {
+    await pool().query(
+      `UPDATE agents
+       SET status = 'online',
+           last_seen_at = now() - interval '10 minutes'
+       WHERE id = $1 AND tenant_id = $2`,
+      [f.agentId, f.tenantId],
+    );
+    await insertQueuedJob(f, "job_stale_agent_claim");
+
+    expect(await claimJobForDelivery("job_stale_agent_claim", f.agentId)).toBeNull();
+
+    const response = await agentJobsGET(agentRequest(f, "GET"));
+    expect(response.status).toBe(200);
+    const jobs = await response.json();
+    expect(jobs.find((job: { id: string }) => job.id === "job_stale_agent_claim")).toBeUndefined();
+
+    const row = await jobRow("job_stale_agent_claim");
+    expect(row.status).toBe("queued");
+    expect(row.delivery_attempts).toBe(0);
+  });
+
   it("refuses the WebSocket claim path before manager-owned desired state converges", async () => {
     await pool().query(
       `UPDATE printers
