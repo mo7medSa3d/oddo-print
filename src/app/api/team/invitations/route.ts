@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantInvitations, users } from "../../../../db/schema";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { validateManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { generateOpaqueToken, hashToken, normalizeEmail } from "../../../../lib/password";
@@ -30,14 +30,14 @@ export async function POST(req: Request) {
   const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
   const role = typeof body.role === "string" ? body.role : "viewer";
   if (!email || !ROLES.includes(role as (typeof ROLES)[number])) return NextResponse.json({ error: "Invalid invitation" }, { status: 400 });
-  const member = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true } });
   const raw = generateOpaqueToken();
   const id = `inv_${nanoid(18)}`;
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000);
-  await db.transaction(async (tx) => {
-    // Lock the tenant row before checking for another active invitation so
-    // concurrent invitation requests for the same email cannot both pass the
-    // preflight and create duplicate live tokens.
+  try {
+    await db.transaction(async (tx) => {
+      // Lock the tenant row before checking for another active invitation so
+      // concurrent invitation requests for the same email cannot both pass the
+      // preflight and create duplicate live tokens.
     await tx.execute(sql`
       SELECT id
       FROM tenants
@@ -73,12 +73,13 @@ export async function POST(req: Request) {
       resourceType: "tenant_invitation",
       resourceId: id,
     }, tx);
-  }).catch((error) => {
+    });
+  } catch (error) {
     if (error instanceof Error && error.message === "INVITATION_ALREADY_EXISTS") {
-      throw error;
+      return NextResponse.json({ error: "An active invitation already exists for this email" }, { status: 409 });
     }
     throw error;
-  });
+  }
   const url = `${appBaseUrl(req)}/invite?token=${encodeURIComponent(raw)}`;
   try {
     await sendTransactionalEmail({ to: email, subject: "You are invited to Print Gateway", html: `<p>You have been invited to a Print Gateway workspace.</p><p><a href="${url}">Accept invitation</a></p>`, text: `Accept invitation: ${url}` });
