@@ -284,7 +284,8 @@ export async function setAgentLifecycle(id: string, lifecycle: "active" | "disab
       id: manager.userId ?? "legacy-manager",
     });
     if (!result) throw new ActionError("Agent not found", 404);
-    void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: `agent.${lifecycle}`, resourceType: "agent", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
+    // transitionAgentLifecycle persists the single authoritative lifecycle
+    // audit event inside the same transaction as the state change.
     revalidatePath("/dashboard");
     return { lifecycle: result.lifecycle, pairingCode: result.pairingCode };
   } catch (error) {
