@@ -169,20 +169,21 @@ export default function App() {
   }, []);
 
   const refreshPrinters = useCallback(async () => {
-    if (!isTauri) return;
+    if (!gatewayUrl) {
+      setPrintersError("Gateway URL not configured");
+      return;
+    }
     setPrintersLoading(true);
     setPrintersError(null);
     try {
-      // UI safety net: the agent already filters virtual/redirected queues at
-      // discovery time; anything that still reports as virtual is dropped here.
-      const list = await getPrinters();
+      const list = await fetchGatewayPrinters(gatewayUrl);
       setPrinters(list.filter(isProductionPrinter));
     } catch (e) {
       setPrintersError(friendlyPrinterError(errMsg(e)));
     } finally {
       setPrintersLoading(false);
     }
-  }, []);
+  }, [gatewayUrl]);
 
   const refreshJobs = useCallback(async (options?: { status?: string; search?: string; limit?: number }) => {
     if (!gatewayUrl) return;
@@ -227,8 +228,8 @@ export default function App() {
     try {
       const res = await discoverPrinters();
       const list = res.printers.filter(isProductionPrinter);
-      setPrinters(list);
-      setMsg({ text: `Discovery found ${list.length} printers`, type: "success" });
+      await refreshPrinters();
+      setMsg({ text: "Local discovery found " + list.length + " physical printers; Gateway inventory refreshed.", type: "success" });
       if (res.errors.length) setPrintersError(res.errors.join("; ").slice(0, 300));
     } catch (e) {
       setPrintersError(friendlyPrinterError(errMsg(e)));
