@@ -142,6 +142,23 @@ describe("production hardening contracts", () => {
     expect(route).not.toContain("destinationId");
   });
 
+  it("keeps agent lifecycle auditing single-writer and selection-token consumption conflict-safe", () => {
+    const actions = read("src/app/actions.ts");
+    const lifecycleStart = actions.indexOf("export async function setAgentLifecycle");
+    const lifecycleEnd = actions.indexOf("export async function getDashboardState");
+    expect(lifecycleStart).toBeGreaterThanOrEqual(0);
+    expect(lifecycleEnd).toBeGreaterThan(lifecycleStart);
+    const lifecycleAction = actions.slice(lifecycleStart, lifecycleEnd);
+    expect(lifecycleAction).not.toContain("writeAuditEvent");
+    expect(lifecycleAction).toContain("transitionAgentLifecycle");
+
+    const selectTenant = read("src/app/api/auth/select-tenant/route.ts");
+    expect(selectTenant).toContain("onConflictDoNothing");
+    expect(selectTenant).toContain("returning({ key: authRateLimits.key })");
+    expect(selectTenant).toContain("Selection token already used");
+    expect(selectTenant).not.toContain("catch {\n          throw new Error("Selection token already used")");
+  });
+
   it("keeps the main governance workflow present and explicit about the external protection prerequisite", () => {
     const workflow = read(".github/workflows/main-governance.yml");
     expect(workflow).toContain("Require protected main branch");
