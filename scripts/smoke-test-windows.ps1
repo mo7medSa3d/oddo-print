@@ -17,12 +17,25 @@
   ./scripts/smoke-test-windows.ps1 -InstallDir "$env:ProgramFiles\Odoo Print Manager"
 #>
 param(
-  [string]$InstallDir = (Join-Path $env:ProgramFiles "Yasser Manager"),
+  [string]$InstallDir = "",
   [int]$WaitSeconds = 8,
   [switch]$KeepRunning
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not $InstallDir) {
+  $candidateDirs = @(
+    (Join-Path $env:ProgramFiles "Yasser\Yasser Manager"),
+    (Join-Path $env:ProgramFiles "Yasser Manager"),
+    (Join-Path $env:ProgramFiles "yasser-manager")
+  )
+  $InstallDir = $candidateDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $InstallDir) {
+    $InstallDir = Join-Path $env:ProgramFiles "Yasser Manager"
+  }
+}
+
 $agentDataDir = if ($env:YASSER_AGENT_DATA_DIR) {
   $env:YASSER_AGENT_DATA_DIR
 } else {
@@ -55,9 +68,33 @@ Write-Host "Install dir: $InstallDir"
 Write-Host "Agent data dir: $agentDataDir"
 
 # 1. Installed / bundled files -------------------------------------------------
-$appExe = Join-Path $InstallDir "yasser-manager.exe"
-$agentExe = Join-Path $InstallDir "resources\YasserAgent.exe"
-$cliExe = Join-Path $InstallDir "resources\yasser-agent-cli.exe"
+$candidateAppExes = @(
+  (Join-Path $InstallDir "yasser-manager.exe"),
+  (Join-Path $InstallDir "Yasser Manager.exe")
+)
+$appExe = $candidateAppExes | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $appExe) {
+  $appExe = Join-Path $InstallDir "yasser-manager.exe"
+}
+
+$candidateAgentExes = @(
+  (Join-Path $InstallDir "resources\YasserAgent.exe"),
+  (Join-Path $InstallDir "YasserAgent.exe")
+)
+$agentExe = $candidateAgentExes | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $agentExe) {
+  $agentExe = Join-Path $InstallDir "resources\YasserAgent.exe"
+}
+
+$candidateCliExes = @(
+  (Join-Path $InstallDir "resources\yasser-agent-cli.exe"),
+  (Join-Path $InstallDir "yasser-agent-cli.exe")
+)
+$cliExe = $candidateCliExes | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $cliExe) {
+  $cliExe = Join-Path $InstallDir "resources\yasser-agent-cli.exe"
+}
+
 Assert-Path $appExe "Installed desktop executable"
 Assert-Path $agentExe "Bundled agent executable"
 Assert-Path $cliExe "Bundled CLI executable"

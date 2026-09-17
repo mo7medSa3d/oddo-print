@@ -177,9 +177,19 @@ jobs:
             Get-Content $msiLog -Tail 200
             throw "MSI install failed with code $($proc.ExitCode)"
           }
-          $installDir = Join-Path $env:ProgramFiles "Yasser Manager"
-          $installedExe = Join-Path $installDir "yasser-manager.exe"
-          if (-not (Test-Path $installedExe)) { throw "Installed EXE missing after MSI install: $installDir" }
+          $candidateDirs = @(
+            (Join-Path $env:ProgramFiles "Yasser\Yasser Manager"),
+            (Join-Path $env:ProgramFiles "Yasser Manager"),
+            (Join-Path $env:ProgramFiles "yasser-manager")
+          )
+          $installDir = $candidateDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $installDir) {
+            Write-Host "Listing Program Files:"
+            Get-ChildItem $env:ProgramFiles -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName
+            Get-Content $msiLog -Tail 100
+            throw "Installed directory missing after MSI install"
+          }
+          Write-Host "Found installed directory: $installDir"
           & pwsh -NoProfile -File .\scripts\smoke-test-windows.ps1 -InstallDir $installDir
           if ($LASTEXITCODE -ne 0) { throw "Windows smoke test failed" }
       - name: Upload Windows MSI and NSIS EXE
