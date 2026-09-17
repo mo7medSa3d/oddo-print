@@ -276,7 +276,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
                   `Agent Running: ${s.isOnline}`,
                   `Gateway URL: ${s.gatewayUrl || "Not configured"}`,
                   `Gateway Reachable: ${s.gatewayConnected}`,
-                  `Last Heartbeat: ${s.lastHeartbeat || "None"}`,
+                  `Local Status Check: ${s.lastStatusCheck || "None"}`,
                   `Printers Count: ${s.printers.length}`,
                   `Pending Jobs: ${s.pendingJobs}, Failed Jobs: ${s.failedJobs}`,
                   ``,
