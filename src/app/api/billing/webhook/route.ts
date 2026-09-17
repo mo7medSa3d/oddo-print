@@ -43,6 +43,12 @@ async function latestProcessedEventForSubscription(
   return { created: Number(row.created), eventId: row.eventId };
 }
 
+function subscriptionIdForEvent(eventType: string, object: Record<string, unknown>): string | undefined {
+  if (typeof object.subscription === "string") return object.subscription;
+  if (eventType.startsWith("customer.subscription.") && typeof object.id === "string") return object.id;
+  return undefined;
+}
+
 export async function POST(req: Request) {
   const raw = await req.text();
   const sig = req.headers.get("stripe-signature") ?? "";
@@ -64,11 +70,7 @@ export async function POST(req: Request) {
   const clientReferenceTenantId = typeof obj.client_reference_id === "string" ? obj.client_reference_id : undefined;
   const candidateTenantId = metadataTenantId ?? clientReferenceTenantId;
   const customerId = typeof obj.customer === "string" ? obj.customer : undefined;
-  const objectSubscriptionId = typeof obj.id === "string"
-    ? obj.id
-    : typeof obj.subscription === "string"
-      ? obj.subscription
-      : undefined;
+  const objectSubscriptionId = subscriptionIdForEvent(eventType, obj);
 
   try {
     const result = await db.transaction(async (tx) => {
@@ -97,9 +99,6 @@ export async function POST(req: Request) {
         if (priorRow?.processedAt) return { kind: "idempotent" as const };
       }
 
-      // Lock any local Stripe identity rows before resolving the tenant. This
-      // prevents a concurrent rebinding from changing the authorization source
-      // while this signed event is being applied.
       const identityRows = await tx.execute(sql`
         SELECT tenant_id AS "tenantId"
         FROM tenant_subscriptions
