@@ -311,6 +311,7 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 	// Phase14: Do quick local discovery synchronously (config+spooler+registry) to avoid
 	// blocking startup on 8s LAN scan. Full network/USB discovery runs asynchronously.
 	quick := printer.DiscoverQuick(cfg, registryPath)
+	quick.Printers = a.filterGatewayOwned(quick.Printers)
 	if len(quick.Errors) > 0 {
 		for _, e := range quick.Errors {
 			log.Printf("discovery warning: %s", e)
@@ -342,6 +343,7 @@ func (a *Agent) ListPrinters() []printer.DeviceInfo {
 // Discover runs discovery and refreshes the local registry + printer map.
 func (a *Agent) Discover() printer.DiscoveryResult {
 	result := printer.Discover(a.cfg, a.registryPath)
+	result.Printers = a.filterGatewayOwned(result.Printers)
 	if len(result.Printers) > 0 {
 		if merged, err := printer.UpsertRegistry(a.registryPath, result.Printers); err == nil {
 			// Refresh in-memory printers with merged registry.
@@ -379,6 +381,7 @@ func (a *Agent) runInitialAsyncDiscovery(ctx context.Context) {
 
 	log.Printf("[discovery] starting async full discovery (network+USB)")
 	full := printer.DiscoverWithContext(ctx, a.cfg, a.registryPath)
+	full.Printers = a.filterGatewayOwned(full.Printers)
 	if len(full.Errors) > 0 {
 		for _, e := range full.Errors {
 			log.Printf("discovery warning: %s", e)
@@ -414,8 +417,32 @@ func (a *Agent) runInitialAsyncDiscovery(ctx context.Context) {
 }
 
 // RegisterManual adds a manually configured printer (for when discovery cannot identify correctly).
+func (a *Agent) isGatewayOwned(id string) bool {
+	a.printersMu.RLock()
+	defer a.printersMu.RUnlock()
+	_, ok := a.gatewayOwned[id]
+	return ok
+}
+
+func (a *Agent) filterGatewayOwned(infos []printer.DeviceInfo) []printer.DeviceInfo {
+	a.printersMu.RLock()
+	defer a.printersMu.RUnlock()
+	out := make([]printer.DeviceInfo, 0, len(infos))
+	for _, info := range infos {
+		if _, ok := a.gatewayOwned[info.ID]; ok {
+			continue
+		}
+		out = append(out, info)
+	}
+	return out
+}
+
 func (a *Agent) RegisterManual(info printer.DeviceInfo) error {
 	if info.ID != "" {
+		if a.isGatewayOwned(info.ID) {
+			return fmt.Errorf("printer ID %q is managed by the Gateway", info.ID)
+		}
+		if _, exists := a.getPrinter(info.ID); exists {
 		if _, exists := a.getPrinter(info.ID); exists {
 			return fmt.Errorf("printer ID %q already exists", info.ID)
 		}
@@ -1489,10 +1516,7 @@ func (a *Agent) reconcileRegistryPrinters(infos []printer.DeviceInfo) {
 	a.printersMu.Lock()
 	defer a.printersMu.Unlock()
 	for id := range a.registryOwned {
-		a.desiredStateMu.Lock()
-		_, gatewayManaged := a.gatewayOwned[id]
-		a.desiredStateMu.Unlock()
-		if gatewayManaged {
+		if _, gatewayManaged := a.gatewayOwned[id]; gatewayManaged {
 			continue
 		}
 		if _, stillPresent := present[id]; stillPresent {
