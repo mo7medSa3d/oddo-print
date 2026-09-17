@@ -48,17 +48,17 @@ export async function POST(req: Request) {
     const data = parsePrinterInput(body);
     const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, data.agentId), eq(agents.tenantId, claims.tenantId)) });
     if (!agent) return NextResponse.json({ error: "agentId not found" }, { status: 404 });
-    if (agent.lifecycle !== "active") return NextResponse.json({ error: `agent is ${agent.lifecycle${` }, { status: 409 });
+    if (agent.lifecycle !== "active") return NextResponse.json({ error: `agent is ${agent.lifecycle}` }, { status: 409 });
 
     const error = validateConnectionConfig(data.connectionType, data.config);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
-    const id = data.id ?? `printer_${nanoid(8)${`;
+    const id = data.id ?? `printer_${nanoid(8)}`;
     try {
       const row = await db.transaction(async (tx) => {
-        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printers:' || ${claims.tenantId${))`);
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printers:' || ${claims.tenantId}))`);
         await enforceTenantResourceEntitlement(tx, claims.tenantId, "max_printers",
-          sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId${ AND lifecycle <> 'retired'`);
+          sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId} AND lifecycle <> 'retired'`);
         const inserted = await tx.insert(printers).values({
           id, tenantId: claims.tenantId, agentId: data.agentId, name: data.name,
           printerType: data.printerType, deviceClass: data.deviceClass,
