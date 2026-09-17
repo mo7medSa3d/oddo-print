@@ -1,3 +1,0 @@
-localhost {
-    respond {file./etc/hostname} 200
-}
