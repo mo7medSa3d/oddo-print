@@ -58,7 +58,7 @@ suite("control-plane concurrency invariants", () => {
       const userId = `usr_invite_${nanoid(8)}`;
       const invitationId = `inv_${nanoid(8)}`;
       const token = `token_${nanoid(24)}`;
-      const email = `${nanoid(8)}@example.test`;
+      const email = `${nanoid(8).toLowerCase()}@example.test`;
       await db.insert(tenants).values({ id: tenantId, name: "Invite Tenant" });
       await db.insert(users).values({ id: userId, email, passwordHash: "unused" });
       await db.insert(tenantInvitations).values({
