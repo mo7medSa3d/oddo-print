@@ -82,7 +82,7 @@ suite("billing webhook concurrency", () => {
     expect(subscription?.status).toBe("active");
   });
 
-  it("serializes first checkout identity binding and rejects a concurrent conflicting subscription", async () => {
+  it("serializes first checkout identity binding and ignores a concurrent conflicting subscription", async () => {
     const seeded = await seed();
     await db.update(tenantSubscriptions).set({
       stripeSubscriptionId: null,
@@ -109,7 +109,7 @@ suite("billing webhook concurrency", () => {
       POST(requestFor(base(`evt_checkout_b_${nanoid(6)}`, secondSubscriptionId), created)),
     ]);
 
-    expect([r1.status, r2.status].sort()).toEqual([200, 500]);
+    expect([r1.status, r2.status].sort()).toEqual([200, 200]);
     const subscription = await db.query.tenantSubscriptions.findFirst({
       where: eq(tenantSubscriptions.tenantId, seeded.tenantId),
     });
