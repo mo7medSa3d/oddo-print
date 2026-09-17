@@ -24,10 +24,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const { secret: _secret, pairingCodeHash: _pch, pairingCode: _pc, pairingCodeExpiresAt: _exp, ...safe } = agent as Record<string, unknown>;
   const now = new Date();
   const safeAgent = { ...safe, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" };
-  const effectivePrinters = agentPrinters.map((printer) => ({
-    ...printer,
-    status: getEffectivePrinterStatus(printer, agent, now),
-  }));
+  const effectivePrinters = agentPrinters.map((printer) => ({ ...printer, status: getEffectivePrinterStatus(printer, agent, now) }));
   return NextResponse.json({ agent: safeAgent, printers: effectivePrinters, jobCount: jobs?.c ?? 0 });
 }
 
@@ -41,13 +38,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!parsed.success) return NextResponse.json({ error: "lifecycle is required" }, { status: 400 });
   const { lifecycle } = parsed.data;
   try {
-    const result = await transitionAgentLifecycle(id, lifecycle, claims.tenantId);
+    const result = await transitionAgentLifecycle(id, lifecycle, claims.tenantId, { type: "user", id: claims.userId ?? null });
     if (!result) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ ok: true, lifecycle: result.lifecycle, pairingCode: result.pairingCode });
   } catch (error) {
-    if (error instanceof LifecycleConflict) {
-      return NextResponse.json({ error: error.message }, { status: 409 });
-    }
+    if (error instanceof LifecycleConflict) return NextResponse.json({ error: error.message }, { status: 409 });
     logError("agent.lifecycle_failed", { agentId: id, error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
