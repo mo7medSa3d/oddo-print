@@ -270,7 +270,13 @@ export default function App() {
       }
     },
     [setBusyBoth]
-  );
+  );  const handleEditSaved = useCallback(async () => {
+    setEditingPrinter(null);
+    await refreshPrinters();
+    setMsg({ text: "Printer desired configuration updated", type: "success" });
+  }, [refreshPrinters]);
+
+
 
   const saveGateway = useCallback(async () => {
     try {
@@ -748,6 +754,15 @@ export default function App() {
         gatewayUrl={gatewayUrl}
       />
 
+      <EditPrinterDialog
+        open={!!editingPrinter}
+        printer={editingPrinter}
+        gatewayUrl={gatewayUrl}
+        onClose={() => setEditingPrinter(null)}
+        onSaved={handleEditSaved}
+        onError={(message) => setMsg({ text: friendlyPrinterError(message), type: "error" })}
+      />
+
       <Modal
         open={confirmStop}
         onClose={() => setConfirmStop(false)}
@@ -805,6 +820,31 @@ export default function App() {
               <MetaRow label="Stable ID">
                 <Mono>{selectedPrinter.id}</Mono>
               </MetaRow>
+              <MetaRow label="Lifecycle">{selectedPrinter.lifecycle ?? "active"}</MetaRow>
+              <MetaRow label="Management">
+                {selectedPrinter.managementSource === "manager" ? "Gateway desired" : "Agent-owned"}
+              </MetaRow>
+              <MetaRow label="Desired revision">
+                {selectedPrinter.desiredRevision ?? 0}
+              </MetaRow>
+              <MetaRow label="Applied revision">
+                {selectedPrinter.appliedDesiredRevision ?? 0}
+                {selectedPrinter.managementSource === "manager" && (
+                  <span className="ml-2 text-ink-4">
+                    {selectedPrinter.configurationConverged ? "Applied" : "Pending"}
+                  </span>
+                )}
+              </MetaRow>
+              <MetaRow label="Observed">
+                {selectedPrinter.status} · {selectedPrinter.observedDeviceClass ?? "unknown"} · revision {selectedPrinter.observedDesiredRevision ?? 0}
+              </MetaRow>
+              <MetaRow label="Agent">
+                {selectedPrinter.agentName ?? selectedPrinter.agentId ?? "—"} · {selectedPrinter.agentStatus ?? "unknown"}
+              </MetaRow>
+              <MetaRow label="Agent heartbeat">
+                {selectedPrinter.agentLastSeenAt ? new Date(selectedPrinter.agentLastSeenAt).toLocaleString() : "—"}
+              </MetaRow>
+
               {selectedPrinter.usbVid && (
                 <MetaRow label="USB">
                   <Mono>
@@ -815,6 +855,15 @@ export default function App() {
               )}
             </div>
             <div className="grid grid-cols-2 gap-3">
+              {(selectedPrinter.managementSource === "manager" || selectedPrinter.managementSource === undefined) &&
+                selectedPrinter.lifecycle !== "retired" && (
+                <Button
+                  variant="secondary"
+                  onClick={() => setEditingPrinter(selectedPrinter)}
+                >
+                  Edit desired configuration
+                </Button>
+              )}
               <Button
                 variant="primary"
                 onClick={() => handleTest(selectedPrinter.id)}
