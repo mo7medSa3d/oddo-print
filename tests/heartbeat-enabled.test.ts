@@ -93,9 +93,6 @@ suite("heartbeat validation and lifecycle preservation", () => {
         connectionType: "network",
         protocol: "raw",
         config: { ip: "10.10.10.20", port: 9100 },
-        desiredRevision: 7,
-        appliedDesiredRevision: 4,
-        observedDesiredRevision: 4,
       }),
     ]));
   });
