@@ -10,6 +10,7 @@ import { STALE_CLAIM_SECONDS, MAX_RETRIES } from "../../../../lib/job-maintenanc
 import { CLAIM_RETURNING, MAX_DELIVERY_ATTEMPTS, MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../lib/job-delivery";
 import { fencedJobWrite } from "../../../../lib/job-fencing";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
+import { agentStaleThresholdSeconds } from "../../../../lib/agent-availability";
 
 export const dynamic = "force-dynamic";
 const MAX_CLAIM_BATCH = 20;
@@ -52,6 +53,8 @@ export async function GET(req: Request) {
         AND p.expires_at > now()
         AND a.lifecycle = 'active'
         AND a.status = 'online'
+        AND a.last_seen_at IS NOT NULL
+        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
         AND pr.status = 'online'
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
