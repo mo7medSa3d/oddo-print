@@ -21,6 +21,7 @@ export async function POST(req: Request) {
   const planId = typeof body.planId === "string" ? body.planId.trim() : "";
   const plan = await db.query.plans.findFirst({ where: eq(plans.id, planId) });
   if (!plan?.stripePriceId) return NextResponse.json({ error: "Plan is not billable" }, { status: 400 });
+  const stripePriceId = plan.stripePriceId;
 
   const result = await db.transaction(async (tx) => {
     // Serialize checkout state transitions per tenant. The same lock covers
@@ -69,6 +70,7 @@ export async function POST(req: Request) {
       sub = await tx.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, claims.tenantId) });
     }
 
+    if (!customerId) throw new Error("CUSTOMER_ID_MISSING");
     const base = (runtimeSecret("APP_BASE_URL") ?? new URL(req.url).origin).replace(/\/$/, "");
     const params = new URLSearchParams({
       mode: "subscription",
@@ -76,7 +78,7 @@ export async function POST(req: Request) {
       client_reference_id: claims.tenantId,
       success_url: `${base}/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}/billing?checkout=cancelled`,
-      "line_items[0][price]": plan.stripePriceId,
+      "line_items[0][price]": stripePriceId,
       "line_items[0][quantity]": "1",
       "subscription_data[metadata][tenant_id]": claims.tenantId,
       "subscription_data[metadata][plan_id]": plan.id,
