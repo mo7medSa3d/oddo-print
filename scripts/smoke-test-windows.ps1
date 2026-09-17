@@ -28,9 +28,35 @@ if (-not $InstallDir) {
   $candidateDirs = @(
     (Join-Path $env:ProgramFiles "Yasser\Yasser Manager"),
     (Join-Path $env:ProgramFiles "Yasser Manager"),
-    (Join-Path $env:ProgramFiles "yasser-manager")
+    (Join-Path $env:ProgramFiles "yasser-manager"),
+    (Join-Path $env:ProgramFiles "Odoo Print\Odoo Print Manager"),
+    (Join-Path $env:ProgramFiles "Odoo Print Manager"),
+    (Join-Path $env:ProgramFiles "odoo-print-manager"),
+    (Join-Path ${env:ProgramFiles(x86)} "Yasser\Yasser Manager"),
+    (Join-Path ${env:ProgramFiles(x86)} "Yasser Manager"),
+    (Join-Path ${env:ProgramFiles(x86)} "Odoo Print\Odoo Print Manager"),
+    (Join-Path ${env:ProgramFiles(x86)} "Odoo Print Manager"),
+    (Join-Path $env:LOCALAPPDATA "Programs\Yasser Manager"),
+    (Join-Path $env:LOCALAPPDATA "Programs\Odoo Print Manager"),
+    (Join-Path $env:LOCALAPPDATA "Yasser Manager"),
+    (Join-Path $env:LOCALAPPDATA "Odoo Print Manager")
   )
   $InstallDir = $candidateDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $InstallDir) {
+    $regKeys = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "Manager" -or $_.DisplayName -match "Yasser" -or $_.DisplayName -match "Odoo" }
+    foreach ($k in $regKeys) {
+      if ($k.InstallLocation -and (Test-Path $k.InstallLocation)) {
+        $InstallDir = $k.InstallLocation
+        break
+      }
+    }
+  }
+  if (-not $InstallDir) {
+    $candidateFiles = Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}, "$env:LOCALAPPDATA\Programs") -Filter "*manager*.exe" -Recurse -Depth 3 -ErrorAction SilentlyContinue
+    if ($candidateFiles) {
+      $InstallDir = $candidateFiles[0].DirectoryName
+    }
+  }
   if (-not $InstallDir) {
     $InstallDir = Join-Path $env:ProgramFiles "Yasser Manager"
   }
@@ -38,6 +64,8 @@ if (-not $InstallDir) {
 
 $agentDataDir = if ($env:YASSER_AGENT_DATA_DIR) {
   $env:YASSER_AGENT_DATA_DIR
+} elseif ($env:ODOO_PRINT_AGENT_DATA_DIR) {
+  $env:ODOO_PRINT_AGENT_DATA_DIR
 } else {
   Join-Path $env:ProgramData "YasserAgent"
 }
@@ -70,27 +98,42 @@ Write-Host "Agent data dir: $agentDataDir"
 # 1. Installed / bundled files -------------------------------------------------
 $candidateAppExes = @(
   (Join-Path $InstallDir "yasser-manager.exe"),
-  (Join-Path $InstallDir "Yasser Manager.exe")
+  (Join-Path $InstallDir "Yasser Manager.exe"),
+  (Join-Path $InstallDir "Odoo Print Manager.exe"),
+  (Join-Path $InstallDir "odoo-print-manager.exe")
 )
 $appExe = $candidateAppExes | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $appExe) {
+  $appExe = Get-ChildItem -Path $InstallDir -Filter "*manager*.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+}
 if (-not $appExe) {
   $appExe = Join-Path $InstallDir "yasser-manager.exe"
 }
 
 $candidateAgentExes = @(
   (Join-Path $InstallDir "resources\YasserAgent.exe"),
-  (Join-Path $InstallDir "YasserAgent.exe")
+  (Join-Path $InstallDir "YasserAgent.exe"),
+  (Join-Path $InstallDir "resources\OdooPrintAgent.exe"),
+  (Join-Path $InstallDir "OdooPrintAgent.exe")
 )
 $agentExe = $candidateAgentExes | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $agentExe) {
+  $agentExe = Get-ChildItem -Path $InstallDir -Filter "*Agent*.exe" -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch "cli" } | Select-Object -First 1 -ExpandProperty FullName
+}
 if (-not $agentExe) {
   $agentExe = Join-Path $InstallDir "resources\YasserAgent.exe"
 }
 
 $candidateCliExes = @(
   (Join-Path $InstallDir "resources\yasser-agent-cli.exe"),
-  (Join-Path $InstallDir "yasser-agent-cli.exe")
+  (Join-Path $InstallDir "yasser-agent-cli.exe"),
+  (Join-Path $InstallDir "resources\odoo-print-agent-cli.exe"),
+  (Join-Path $InstallDir "odoo-print-agent-cli.exe")
 )
 $cliExe = $candidateCliExes | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $cliExe) {
+  $cliExe = Get-ChildItem -Path $InstallDir -Filter "*cli*.exe" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+}
 if (-not $cliExe) {
   $cliExe = Join-Path $InstallDir "resources\yasser-agent-cli.exe"
 }

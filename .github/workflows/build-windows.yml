@@ -180,9 +180,33 @@ jobs:
           $candidateDirs = @(
             (Join-Path $env:ProgramFiles "Yasser\Yasser Manager"),
             (Join-Path $env:ProgramFiles "Yasser Manager"),
-            (Join-Path $env:ProgramFiles "yasser-manager")
+            (Join-Path $env:ProgramFiles "yasser-manager"),
+            (Join-Path $env:ProgramFiles "Odoo Print\Odoo Print Manager"),
+            (Join-Path $env:ProgramFiles "Odoo Print Manager"),
+            (Join-Path $env:ProgramFiles "odoo-print-manager"),
+            (Join-Path ${env:ProgramFiles(x86)} "Yasser\Yasser Manager"),
+            (Join-Path ${env:ProgramFiles(x86)} "Yasser Manager"),
+            (Join-Path ${env:ProgramFiles(x86)} "Odoo Print\Odoo Print Manager"),
+            (Join-Path ${env:ProgramFiles(x86)} "Odoo Print Manager"),
+            (Join-Path $env:LOCALAPPDATA "Programs\Yasser Manager"),
+            (Join-Path $env:LOCALAPPDATA "Programs\Odoo Print Manager")
           )
           $installDir = $candidateDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $installDir) {
+            $regKeys = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "Manager" -or $_.DisplayName -match "Yasser" -or $_.DisplayName -match "Odoo" }
+            foreach ($k in $regKeys) {
+              if ($k.InstallLocation -and (Test-Path $k.InstallLocation)) {
+                $installDir = $k.InstallLocation
+                break
+              }
+            }
+          }
+          if (-not $installDir) {
+            $foundExe = Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}, "$env:LOCALAPPDATA\Programs") -Filter "*manager*.exe" -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($foundExe) {
+              $installDir = $foundExe.DirectoryName
+            }
+          }
           if (-not $installDir) {
             Write-Host "Listing Program Files:"
             Get-ChildItem $env:ProgramFiles -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName
