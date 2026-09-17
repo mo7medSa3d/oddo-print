@@ -231,6 +231,50 @@ suite("heartbeat validation and lifecycle preservation", () => {
     expect(row.rows[0].name).not.toBe("Hijack");
   });
 
+  it("fences the whole heartbeat when agent lifecycle changes concurrently", async () => {
+    const client = await pool().connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`SELECT id FROM agents WHERE id = $1 FOR UPDATE`, [f.agentId]);
+
+      const heartbeat = heartbeatPOST(new Request("http://gateway.test/api/agent/heartbeat", {
+        method: "POST",
+        headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+        body: JSON.stringify({
+          status: "online",
+          printers: [],
+          desiredStateAcks: [{
+            printerId: f.printerId,
+            appliedDesiredRevision: 99,
+            observedDesiredRevision: 99,
+          }],
+        }),
+      }));
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await client.query(`UPDATE agents SET lifecycle = 'disabled', status = 'offline' WHERE id = $1`, [f.agentId]);
+      await client.query("COMMIT");
+
+      const res = await heartbeat;
+      expect(res.status).toBe(409);
+
+      const agent = await pool().query(`SELECT lifecycle, status FROM agents WHERE id = $1`, [f.agentId]);
+      expect(agent.rows[0]).toEqual({ lifecycle: "disabled", status: "offline" });
+
+      const printer = await pool().query(
+        `SELECT applied_desired_revision, observed_desired_revision FROM printers WHERE id = $1`,
+        [f.printerId],
+      );
+      expect(printer.rows[0]).toMatchObject({
+        applied_desired_revision: "0",
+        observed_desired_revision: "0",
+      });
+    } finally {
+      try { await client.query("ROLLBACK"); } catch {}
+      client.release();
+    }
+  });
+
   it("rejects an invalid agent status without mutating the existing agent", async () => {
     const before = await pool().query(`SELECT status, last_seen_at FROM agents WHERE id = $1`, [f.agentId]);
 
