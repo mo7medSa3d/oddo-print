@@ -82,6 +82,41 @@ suite("billing webhook concurrency", () => {
     expect(subscription?.status).toBe("active");
   });
 
+  it("serializes first checkout identity binding and rejects a concurrent conflicting subscription", async () => {
+    const seeded = await seed();
+    await db.update(tenantSubscriptions).set({
+      stripeSubscriptionId: null,
+      stripeCustomerId: null,
+    }).where(eq(tenantSubscriptions.tenantId, seeded.tenantId));
+
+    const created = Math.floor(Date.now() / 1000);
+    const firstSubscriptionId = `sub_first_${nanoid(8)}`;
+    const secondSubscriptionId = `sub_second_${nanoid(8)}`;
+    const base = (eventId: string, subId: string) => JSON.stringify({
+      id: eventId,
+      type: "checkout.session.completed",
+      created,
+      data: { object: {
+        subscription: subId,
+        customer: seeded.customerId,
+        client_reference_id: seeded.tenantId,
+        metadata: { tenant_id: seeded.tenantId },
+      } },
+    });
+
+    const [r1, r2] = await Promise.all([
+      POST(requestFor(base(`evt_checkout_a_${nanoid(6)}`, firstSubscriptionId), created)),
+      POST(requestFor(base(`evt_checkout_b_${nanoid(6)}`, secondSubscriptionId), created)),
+    ]);
+
+    expect([r1.status, r2.status].sort()).toEqual([200, 500]);
+    const subscription = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, seeded.tenantId),
+    });
+    expect([firstSubscriptionId, secondSubscriptionId]).toContain(subscription?.stripeSubscriptionId);
+    expect(subscription?.stripeCustomerId).toBe(seeded.customerId);
+  });
+
   it("uses event ID as a deterministic tie-breaker for equal Stripe created timestamps", async () => {
     const seeded = await seed();
     const created = Math.floor(Date.now() / 1000);
