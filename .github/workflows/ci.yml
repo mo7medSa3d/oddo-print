@@ -135,6 +135,21 @@ jobs:
               WHERE table_schema='public' AND table_name='printers' AND column_name='connection_type'
                 AND (column_default IS NULL OR column_default NOT LIKE '%network%')
             ) THEN RAISE EXCEPTION 'printers.connection_type default does not match the application contract (network)'; END IF;
+            FOREACH column_name_value IN ARRAY ARRAY['management_source','desired_revision','applied_desired_revision','observed_desired_revision','observed_device_class'] LOOP
+              IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='printers' AND column_name=column_name_value
+              ) THEN RAISE EXCEPTION 'desired-state printer column is missing: %', column_name_value; END IF;
+            END LOOP;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE schemaname='public' AND tablename='printers'
+                AND indexname='printers_agent_lifecycle_desired_idx'
+            ) THEN RAISE EXCEPTION 'desired-state printer index is missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='printers_desired_revision_check'
+            ) THEN RAISE EXCEPTION 'desired-state printer revision constraint is missing'; END IF;
           END $$;
           SQL
       - name: Run integration tests (PostgreSQL)
