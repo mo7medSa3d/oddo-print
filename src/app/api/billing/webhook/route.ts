@@ -49,6 +49,18 @@ function subscriptionIdForEvent(eventType: string, object: Record<string, unknow
   return undefined;
 }
 
+function timestampMillis(value: unknown): number | null {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isFinite(parsed.getTime()) ? parsed.getTime() : null;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 1_000_000_000_000 ? value : value * 1000;
+  }
+  return null;
+}
+
 export async function POST(req: Request) {
   const raw = await req.text();
   const sig = req.headers.get("stripe-signature") ?? "";
@@ -166,7 +178,7 @@ export async function POST(req: Request) {
             }, tx);
             return { kind: "ignored" as const };
           }
-          if (differentSubscription && current?.status === "cancelled" && current.stripeLastEventCreatedAt && eventCreatedAt.getTime() < current.stripeLastEventCreatedAt.getTime()) {
+          if (differentSubscription && current?.status === "cancelled" && current.stripeLastEventCreatedAt && eventCreatedAt.getTime() < (timestampMillis(current.stripeLastEventCreatedAt) ?? 0)) {
             await tx.update(billingEvents)
               .set({ tenantId, processedAt: new Date() })
               .where(eq(billingEvents.eventId, eventId));
@@ -216,7 +228,7 @@ export async function POST(req: Request) {
         } | undefined;
         const plan = priceId ? await tx.query.plans.findFirst({ where: eq(plans.stripePriceId, priceId), columns: { id: true } }) : undefined;
         if (tenantRow && tenantId) {
-          const storedTime = tenantRow.stripeLastEventCreatedAt?.getTime() ?? null;
+          const storedTime = timestampMillis(tenantRow.stripeLastEventCreatedAt);
           let newerThanStored = storedTime === null || eventCreatedAt.getTime() > storedTime;
           if (storedTime !== null && eventCreatedAt.getTime() === storedTime) {
             const latest = await latestProcessedEventForSubscription(tx, subId);
@@ -267,7 +279,7 @@ export async function POST(req: Request) {
               FOR UPDATE
             `);
             const current = currentResult.rows[0] as { stripeLastEventCreatedAt?: Date | null } | undefined;
-            const storedTime = current?.stripeLastEventCreatedAt?.getTime() ?? null;
+            const storedTime = timestampMillis(current?.stripeLastEventCreatedAt);
             let newerThanStored = storedTime === null || eventCreatedAt.getTime() > storedTime;
             if (storedTime !== null && eventCreatedAt.getTime() === storedTime) {
               const latest = await latestProcessedEventForSubscription(tx, subId);
