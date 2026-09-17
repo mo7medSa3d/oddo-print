@@ -25,8 +25,6 @@ type desiredPrinterWire struct {
 	Lifecycle      string                 `json:"lifecycle"`
 	Config         map[string]interface{} `json:"config"`
 	DesiredRevision int64                `json:"desiredRevision"`
-	AppliedDesiredRevision int64         `json:"appliedDesiredRevision,omitempty"`
-	ObservedDesiredRevision int64        `json:"observedDesiredRevision,omitempty"`
 }
 
 type desiredPrinterRecord struct {
@@ -72,9 +70,22 @@ func (a *Agent) loadDesiredState() error {
 		if row.Desired.Lifecycle == "active" && row.ApplyError == "" {
 			if err := a.applyDesiredPrinter(row); err != nil {
 				_ = a.recordDesiredError(row.Desired.ID, err)
+			} else {
+				row.AppliedDesiredRevision = row.Desired.DesiredRevision
+				row.ObservedDesiredRevision = row.Desired.DesiredRevision
+				a.desiredStateMu.Lock()
+				a.desiredStates[row.Desired.ID] = row
+				a.desiredStateMu.Unlock()
 			}
 		} else {
 			a.removeGatewayRuntime(row.Desired.ID)
+			if row.ApplyError == "" {
+				row.AppliedDesiredRevision = row.Desired.DesiredRevision
+				row.ObservedDesiredRevision = row.Desired.DesiredRevision
+				a.desiredStateMu.Lock()
+				a.desiredStates[row.Desired.ID] = row
+				a.desiredStateMu.Unlock()
+			}
 		}
 	}
 	return nil
