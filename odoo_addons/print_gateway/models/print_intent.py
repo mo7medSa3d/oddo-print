@@ -99,7 +99,7 @@ class PrintGatewayIntent(models.Model):
                     SET status = 'claimed', claimed_at = %s, claim_token = %s, attempts = attempts + 1
                     WHERE id = %s AND (
                         (status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= %s)) OR
-                        (status = 'claimed' AND (claimed_at IS NULL OR claimed_at <= %s)) OR
+                        (status = 'claimed' AND attempts < max_attempts AND (claimed_at IS NULL OR claimed_at <= %s)) OR
                         (status = 'failed' AND attempts < max_attempts AND (next_retry_at IS NULL OR next_retry_at <= %s))
                     )
                 """, (now, claim_token, intent_id, now, stale_threshold, now))
