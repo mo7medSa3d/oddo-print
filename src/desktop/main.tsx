@@ -29,6 +29,7 @@ import { PageHeader } from "./ui";
 import { JobTimeline } from "./components/JobTimeline";
 import { Sidebar, type NavItem } from "./components/Sidebar";
 import { AddPrinterDialog } from "./components/AddPrinterDialog";
+import { EditPrinterDialog } from "./components/EditPrinterDialog";
 import { AdminPrivilegeDialog } from "./components/AdminPrivilegeDialog";
 import { OverviewPage } from "./pages/Overview";
 import { PrintersPage } from "./pages/Printers";
@@ -43,9 +44,7 @@ import {
   getAutostart,
   isRunningAsAdmin,
   getGatewayUrl,
-  fetchGatewayAgents,
   fetchGatewayPrinters,
-  registerGatewayPrinter,
   updateGatewayPrinter,
   getRuntimePaths,
   isTauri,
@@ -151,6 +150,7 @@ export default function App() {
   const [lastStatusCheck, setLastStatusCheck] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [selectedPrinter, setSelectedPrinter] = useState<PrinterInfo | null>(null);
+  const [editingPrinter, setEditingPrinter] = useState<PrinterInfo | null>(null);
   const [selectedJob, setSelectedJob] = useState<JobRecord | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [gatewaySaving, setGatewaySaving] = useState(false);
@@ -237,6 +237,25 @@ export default function App() {
       setPrintersLoading(false);
     }
   }, []);
+
+  const updatePrinterLifecycle = useCallback(async (id: string, lifecycle: "active" | "disabled" | "retired") => {
+    if (!gatewayUrl) {
+      setMsg({ text: "Gateway URL not configured", type: "error" });
+      return;
+    }
+    if (lifecycle === "retired" && !window.confirm("Retire this printer? It cannot be re-enabled after retirement.")) return;
+    try {
+      setBusyBoth(true);
+      await updateGatewayPrinter(gatewayUrl, id, { lifecycle });
+      await refreshPrinters();
+      setSelectedPrinter((current) => current?.id === id ? null : current);
+      setMsg({ text: lifecycle === "disabled" ? "Printer disabled" : lifecycle === "retired" ? "Printer retired" : "Printer enabled", type: "success" });
+    } catch (e) {
+      setMsg({ text: friendlyPrinterError(errMsg(e)), type: "error" });
+    } finally {
+      setBusyBoth(false);
+    }
+  }, [gatewayUrl, refreshPrinters, setBusyBoth]);
 
   const handleTest = useCallback(
     async (id: string) => {
@@ -582,6 +601,7 @@ export default function App() {
     refreshPrinters,
     handleDiscover,
     handleTest,
+    updatePrinterLifecycle,
     showAdd,
     setShowAdd,
     selectedPrinter,
@@ -631,7 +651,7 @@ export default function App() {
         gatewayUrl={gatewayUrl}
         isOnline={isOnline}
         version={version}
-        lastHeartbeat={lastHeartbeat}
+        lastStatusCheck={lastStatusCheck}
       />
       {sidebarOpen && (
         <div
@@ -725,6 +745,7 @@ export default function App() {
           setMsg({ text: "Printer added", type: "success" });
         }}
         printers={printers}
+        gatewayUrl={gatewayUrl}
       />
 
       <Modal
