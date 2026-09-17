@@ -15,11 +15,12 @@ import {
   seedFixture,
   closePool,
 } from "./helpers/pg";
-import { users } from "../src/db/schema";
+import { users, auditEvents } from "../src/db/schema";
 import { eq } from "drizzle-orm";
 import { db } from "../src/db";
 import { hashPassword } from "../src/lib/password";
 import { nanoid } from "../src/lib/nanoid";
+import { writeAuditEvent } from "../src/lib/audit";
 
 const suite = describe.skipIf(!hasTestDatabase);
 
@@ -123,5 +124,69 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
     const user = await createTestUser({ isPlatformOwner: false });
     const userRow = await db.query.users.findFirst({ where: eq(users.id, user.userId) });
     expect(userRow?.isPlatformOwner).toBe(false);
+  });
+
+  it("allows platform-scoped audit events with tenantId = null", async () => {
+    const user = await createTestUser({ isPlatformOwner: true });
+    await expect(
+      writeAuditEvent({
+        tenantId: null,
+        actorType: "platform",
+        actorId: user.userId,
+        action: "platform.bootstrap",
+        resourceType: "platform_owner",
+        resourceId: user.userId,
+      })
+    ).resolves.not.toThrow();
+
+    await expect(
+      writeAuditEvent({
+        tenantId: null,
+        actorType: "platform",
+        actorId: user.userId,
+        action: "platform.login",
+        resourceType: "platform_owner",
+        resourceId: user.userId,
+      })
+    ).resolves.not.toThrow();
+
+    await expect(
+      writeAuditEvent({
+        tenantId: null,
+        actorType: "platform",
+        actorId: user.userId,
+        action: "platform.logout",
+        resourceType: "platform_owner",
+        resourceId: user.userId,
+      })
+    ).resolves.not.toThrow();
+  });
+
+  it("enforces database CHECK constraint that non-platform actors require a valid tenantId", async () => {
+    // Attempting to insert a non-platform actor with tenantId: null must violate audit_events_scope_check
+    await expect(
+      db.insert(auditEvents).values({
+        id: `audit_${nanoid(14)}`,
+        tenantId: null,
+        actorType: "user",
+        actorId: "usr_test",
+        action: "user.login.success",
+      })
+    ).rejects.toThrow();
+  });
+
+  it("allows platform actors to write tenant-scoped audit events on a real tenant", async () => {
+    const user = await createTestUser({ isPlatformOwner: true });
+    await expect(
+      writeAuditEvent({
+        tenantId: "tenant_fixture_1",
+        actorType: "platform",
+        actorId: user.userId,
+        action: "tenant.suspended",
+        resourceType: "tenant",
+        resourceId: "tenant_fixture_1",
+        metadata: { reason: "Policy violation" },
+      })
+    ).resolves.not.toThrow();
   });
 });
