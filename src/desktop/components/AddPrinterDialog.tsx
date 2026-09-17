@@ -140,7 +140,6 @@ export function AddPrinterDialog({
       onSuccess();
       onClose();
       reset();
-      setAgentId((current) => current);
     } catch (e) {
       setError(friendlyPrinterError(errMsg(e)));
     } finally {
