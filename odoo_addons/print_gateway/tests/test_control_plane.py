@@ -16,7 +16,7 @@ from unittest.mock import patch, MagicMock
 # Hard imports: this module only runs under the Odoo test runner. A fallback
 # to plain unittest previously turned every behavioral test into a silent
 # skip while the suite still exited green.
-from odoo import api
+from odoo import api, fields
 from odoo.tests.common import TransactionCase
 from odoo.exceptions import AccessError, ValidationError
 from odoo.addons.print_gateway.models.gateway_config import PrintGatewayConfig
