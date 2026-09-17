@@ -9,6 +9,7 @@ Covers:
 5. Hardware test page diagnostic dispatch
 """
 
+import datetime
 import json
 import uuid
 from unittest.mock import patch, MagicMock
