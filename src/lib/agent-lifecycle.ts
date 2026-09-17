@@ -3,6 +3,7 @@ import { db } from "../db";
 import { agents, printers } from "../db/schema";
 import { canTransitionLifecycle } from "./lifecycle";
 import { generatePairingCode, hashPairingCode } from "./agent-auth";
+import { writeAuditEvent, type AuditActor } from "./audit";
 
 export type AgentLifecycleResult = {
   changed: boolean;
@@ -15,12 +16,14 @@ export type AgentLifecycleResult = {
  *
  * The agent row is locked before reading its lifecycle. Claim paths lock the
  * same agent row, so lifecycle changes and job claims serialize at the
- * database boundary instead of relying on a stale pre-check.
+ * database boundary instead of relying on a stale pre-check. Audit persistence
+ * is part of the same transaction as the lifecycle mutation.
  */
 export async function transitionAgentLifecycle(
   agentId: string,
   next: "active" | "disabled" | "retired",
   tenantId: string,
+  actor: { type: AuditActor; id: string | null },
 ): Promise<AgentLifecycleResult | null> {
   return db.transaction(async (tx) => {
     const locked = await tx.execute(sql`
@@ -46,8 +49,6 @@ export async function transitionAgentLifecycle(
     let pairingCode: string | null = null;
 
     if (reenable) {
-      // Pairing codes are globally resolved before tenant identity is known,
-      // so collision checking stays global and uses the same transaction.
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const candidate = generatePairingCode();
         const clash = await tx.query.agents.findFirst({
@@ -78,6 +79,18 @@ export async function transitionAgentLifecycle(
     if (next !== "active") {
       await tx.update(printers).set({ lifecycle: "disabled", updatedAt: now }).where(and(eq(printers.agentId, agentId), eq(printers.tenantId, tenantId)));
     }
+    await writeAuditEvent(
+      {
+        tenantId,
+        actorType: actor.type,
+        actorId: actor.id,
+        action: `agent.lifecycle.${next}`,
+        resourceType: "agent",
+        resourceId: agentId,
+        metadata: { from: current, to: next },
+      },
+      tx,
+    );
     await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ agentId })}::text)`);
 
     return { changed: true, lifecycle: next, pairingCode };
