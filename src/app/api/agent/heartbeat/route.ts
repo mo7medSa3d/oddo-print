@@ -9,10 +9,6 @@ import { hasBodyOverLimit } from "../../../../lib/request-limits";
 const MAX_HEARTBEAT_BODY_BYTES = 512 * 1024;
 const MAX_KEEP_ALIVE_JOB_IDS = 64;
 const VALID_PRINTER_STATUSES = new Set(["online", "offline", "busy", "error", "unknown"]);
-// Union of every capability token either compatibility table can match
-// (agent/internal/printer/capability.go + src/lib/routing.ts). Anything
-// outside this vocabulary can never route; it is dropped at the trust
-// boundary instead of stored.
 const KNOWN_CAPABILITY_TOKENS = new Set([
   "raw",
   "escpos",
@@ -26,11 +22,6 @@ const KNOWN_CAPABILITY_TOKENS = new Set([
   "ipps",
 ]);
 const VALID_CONNECTION_TYPES = new Set(["network", "usb", "spooler", "ipp", "ipps"]);
-// "unknown" is the HONEST value for a device whose byte-language protocol
-// has not been declared. Per the authoritative rule (src/lib/routing.ts):
-// unknown+network/usb is inventoried but never routable; unknown+spooler/
-// ipp behaves as that document transport because the connection itself is
-// the explicit transport declaration. Nothing here ever invents raw/escpos.
 const VALID_PROTOCOLS = new Set(["raw", "escpos", "zpl", "tspl", "ipp", "ipps", "spooler", "windows_spooler", "unknown"]);
 const VALID_AGENT_STATUSES = new Set(["online", "offline"]);
 
@@ -77,32 +68,20 @@ function sanitizePrinter(p: ReportedPrinter): {
     capabilities: Record<string, unknown> | null;
   };
 } | { ok: false; reason: string } {
-  if (typeof p.id !== "string" || !p.id.trim() || p.id.length > 120) {
-    return { ok: false, reason: "invalid_id" };
-  }
-  if (typeof p.name !== "string" || !p.name.trim() || p.name.length > 100) {
-    return { ok: false, reason: "invalid_name" };
-  }
+  if (typeof p.id !== "string" || !p.id.trim() || p.id.length > 120) return { ok: false, reason: "invalid_id" };
+  if (typeof p.name !== "string" || !p.name.trim() || p.name.length > 100) return { ok: false, reason: "invalid_name" };
   const connectionType = normalizeConnectionType(p.connectionType, p.type);
-  if (!connectionType) {
-    return { ok: false, reason: "invalid_or_unsupported_connection_type" };
-  }
+  if (!connectionType) return { ok: false, reason: "invalid_or_unsupported_connection_type" };
   let printerType = typeof p.printerType === "string" ? p.printerType.trim().toLowerCase() : "";
   let deviceClass = typeof p.deviceClass === "string" ? p.deviceClass.trim().toLowerCase() : "unknown";
   if (!(PRINTER_TYPES as readonly string[]).includes(printerType) && (DEVICE_CLASSES as readonly string[]).includes(printerType)) {
     deviceClass = printerType;
     printerType = "physical";
   }
-  if (!printerType) {
-    printerType = "physical";
-  }
-  if (!(PRINTER_TYPES as readonly string[]).includes(printerType) || !(DEVICE_CLASSES as readonly string[]).includes(deviceClass)) {
-    return { ok: false, reason: "invalid_device_class_or_printer_type" };
-  }
+  if (!printerType) printerType = "physical";
+  if (!(PRINTER_TYPES as readonly string[]).includes(printerType) || !(DEVICE_CLASSES as readonly string[]).includes(deviceClass)) return { ok: false, reason: "invalid_device_class_or_printer_type" };
   const protocol = normalizeProtocol(p.protocol ?? (p.config as Record<string, unknown>)?.protocol);
-  if (!protocol) {
-    return { ok: false, reason: "invalid_or_unsupported_protocol" };
-  }
+  if (!protocol) return { ok: false, reason: "invalid_or_unsupported_protocol" };
   const config = p.config && typeof p.config === "object" ? { ...(p.config as Record<string, unknown>) } : {};
   delete config.protocol;
   let capabilities = p.capabilities && typeof p.capabilities === "object" ? { ...(p.capabilities as Record<string, unknown>) } : null;
@@ -117,33 +96,12 @@ function sanitizePrinter(p: ReportedPrinter): {
       delete capabilities.supported_protocols;
     }
   }
-  const status = typeof p.status === "string" && VALID_PRINTER_STATUSES.has(p.status.trim().toLowerCase())
-    ? p.status.trim().toLowerCase()
-    : "unknown";
-  if (JSON.stringify(config).length > PRINTER_CONFIG_MAX_BYTES) {
-    return { ok: false, reason: "config_payload_too_large" };
-  }
-  if (capabilities && JSON.stringify(capabilities).length > PRINTER_CAPABILITIES_MAX_BYTES) {
-    return { ok: false, reason: "capabilities_payload_too_large" };
-  }
+  const status = typeof p.status === "string" && VALID_PRINTER_STATUSES.has(p.status.trim().toLowerCase()) ? p.status.trim().toLowerCase() : "unknown";
+  if (JSON.stringify(config).length > PRINTER_CONFIG_MAX_BYTES) return { ok: false, reason: "config_payload_too_large" };
+  if (capabilities && JSON.stringify(capabilities).length > PRINTER_CAPABILITIES_MAX_BYTES) return { ok: false, reason: "capabilities_payload_too_large" };
   const configErr = validateConnectionConfig(connectionType, config);
-  if (configErr) {
-    return { ok: false, reason: `invalid_connection_config: ${configErr}` };
-  }
-  return {
-    ok: true,
-    printer: {
-      id: p.id.trim(),
-      name: p.name.trim(),
-      printerType,
-      deviceClass,
-      connectionType,
-      protocol,
-      status,
-      config,
-      capabilities,
-    },
-  };
+  if (configErr) return { ok: false, reason: `invalid_connection_config: ${configErr}` };
+  return { ok: true, printer: { id: p.id.trim(), name: p.name.trim(), printerType, deviceClass, connectionType, protocol, status, config, capabilities } };
 }
 
 export async function POST(req: Request) {
@@ -155,9 +113,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const rawStatus = typeof body?.status === "string" ? body.status.trim().toLowerCase() : "online";
-    if (!VALID_AGENT_STATUSES.has(rawStatus)) {
-      return NextResponse.json({ error: "status must be online or offline" }, { status: 400 });
-    }
+    if (!VALID_AGENT_STATUSES.has(rawStatus)) return NextResponse.json({ error: "status must be online or offline" }, { status: 400 });
     const status = rawStatus;
     const reportedPrinters = Array.isArray(body?.printers) ? body.printers : [];
     if (reportedPrinters.length > 500) return NextResponse.json({ error: "too many printers in heartbeat" }, { status: 400 });
@@ -173,9 +129,7 @@ export async function POST(req: Request) {
       } else if (entry && typeof entry === "object") {
         const rec = entry as Record<string, unknown>;
         const jobId = typeof rec.jobId === "string" ? rec.jobId : typeof rec.id === "string" ? rec.id : "";
-        const claimToken = typeof rec.claimToken === "string" && rec.claimToken.length > 0 && rec.claimToken.length <= 120
-          ? rec.claimToken
-          : null;
+        const claimToken = typeof rec.claimToken === "string" && rec.claimToken.length > 0 && rec.claimToken.length <= 120 ? rec.claimToken : null;
         if (jobId.length > 0 && jobId.length <= 120) pairs.push({ jobId, claimToken });
       }
       if (pairs.length >= MAX_KEEP_ALIVE_JOB_IDS) break;
@@ -195,15 +149,7 @@ export async function POST(req: Request) {
     if (tokenless.length > 0) {
       await db.update(printJobs)
         .set({ updatedAt: new Date() })
-        .where(
-          and(
-            eq(printJobs.tenantId, agent.tenantId),
-            eq(printJobs.agentId, agent.id),
-            inArray(printJobs.status, ["claimed", "printing"]),
-            inArray(printJobs.id, tokenless.map((p) => p.jobId)),
-            isNull(printJobs.claimToken),
-          ),
-        );
+        .where(and(eq(printJobs.tenantId, agent.tenantId), eq(printJobs.agentId, agent.id), inArray(printJobs.status, ["claimed", "printing"]), inArray(printJobs.id, tokenless.map((p) => p.jobId)), isNull(printJobs.claimToken)));
     }
 
     const skipped: Array<{ id: string; reason: string }> = [];
@@ -216,17 +162,10 @@ export async function POST(req: Request) {
       }
 
       const p = res.printer;
-      const printerUpdateSet = {
-        name: p.name,
-        printerType: p.printerType as typeof printers.$inferInsert.printerType,
-        deviceClass: p.deviceClass as typeof printers.$inferInsert.deviceClass,
-        connectionType: p.connectionType as typeof printers.$inferInsert.connectionType,
-        protocol: p.protocol as typeof printers.$inferInsert.protocol,
+      const observedUpdateSet = {
         status: p.status,
-        config: p.config as typeof printers.$inferInsert.config,
         capabilities: p.capabilities as typeof printers.$inferInsert.capabilities,
         lastSeenAt: new Date(),
-        updatedAt: new Date(),
       };
 
       const existing = await db.query.printers.findFirst({ where: and(eq(printers.id, p.id), eq(printers.tenantId, agent.tenantId)) });
@@ -235,7 +174,9 @@ export async function POST(req: Request) {
           skipped.push({ id: p.id, reason: `owned_by_another_agent (${existing.agentId})` });
           continue;
         }
-        await db.update(printers).set(printerUpdateSet).where(and(eq(printers.id, p.id), eq(printers.tenantId, agent.tenantId)));
+        // Heartbeats are observations. Manager-owned identity/configuration
+        // remains authoritative; the agent may update only live telemetry.
+        await db.update(printers).set(observedUpdateSet).where(and(eq(printers.id, p.id), eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id)));
       } else {
         const inserted = await db.insert(printers).values({
           id: p.id,
@@ -255,7 +196,7 @@ export async function POST(req: Request) {
         if (inserted.length === 0) {
           const raced = await db.query.printers.findFirst({ where: and(eq(printers.id, p.id), eq(printers.tenantId, agent.tenantId)) });
           if (raced && raced.agentId === agent.id) {
-            await db.update(printers).set(printerUpdateSet).where(and(eq(printers.id, p.id), eq(printers.tenantId, agent.tenantId)));
+            await db.update(printers).set(observedUpdateSet).where(and(eq(printers.id, p.id), eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id)));
           } else {
             skipped.push({ id: p.id, reason: "insert_conflict_owned_by_another_agent" });
           }
@@ -263,7 +204,38 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ success: true, skippedPrinters: skipped });
+    const desiredRows = await db.query.printers.findMany({
+      where: and(eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id)),
+      columns: {
+        id: true,
+        name: true,
+        printerType: true,
+        deviceClass: true,
+        connectionType: true,
+        protocol: true,
+        lifecycle: true,
+        config: true,
+        capabilities: true,
+        updatedAt: true,
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      skippedPrinters: skipped,
+      desiredState: desiredRows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        printerType: row.printerType,
+        deviceClass: row.deviceClass,
+        connectionType: row.connectionType,
+        protocol: row.protocol,
+        lifecycle: row.lifecycle,
+        config: row.config,
+        capabilities: row.capabilities,
+        desiredRevision: row.updatedAt.toISOString(),
+      })),
+    });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
