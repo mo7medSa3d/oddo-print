@@ -43,7 +43,10 @@ import {
   getAutostart,
   isRunningAsAdmin,
   getGatewayUrl,
-  getPrinters,
+  fetchGatewayAgents,
+  fetchGatewayPrinters,
+  registerGatewayPrinter,
+  updateGatewayPrinter,
   getRuntimePaths,
   isTauri,
   onTrayNavigate,
@@ -145,7 +148,7 @@ export default function App() {
   const [jobTab, setJobTab] = useState<JobTab>("all");
   const [jobSearch, setJobSearch] = useState("");
   const [autostart, setAutostartState] = useState<boolean | null>(null);
-  const [lastHeartbeat, setLastHeartbeat] = useState<string | null>(null);
+  const [lastStatusCheck, setLastStatusCheck] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [selectedPrinter, setSelectedPrinter] = useState<PrinterInfo | null>(null);
   const [selectedJob, setSelectedJob] = useState<JobRecord | null>(null);
@@ -159,7 +162,7 @@ export default function App() {
     try {
       const s = await getAgentStatus();
       setAgentStatus(s);
-      setLastHeartbeat(new Date().toISOString());
+      setLastStatusCheck(new Date().toISOString());
     } catch (e) {
       setAgentStatus({ error: errMsg(e) });
     }
