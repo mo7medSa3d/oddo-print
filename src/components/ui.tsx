@@ -366,6 +366,14 @@ export function LoadingState({
 
 /* ---------- Forms ---------- */
 
+type FieldContextValue = {
+  controlId: string;
+  descriptionId?: string;
+  invalid: boolean;
+};
+
+const FieldContext = React.createContext<FieldContextValue | null>(null);
+
 export function Field({
   label,
   hint,
@@ -381,22 +389,44 @@ export function Field({
   children: React.ReactNode;
   className?: string;
 }) {
+  const generatedId = useId();
+  const controlId = htmlFor ?? `field-${generatedId}`;
+  const descriptionId = error
+    ? `${controlId}-error`
+    : hint
+      ? `${controlId}-hint`
+      : undefined;
+
   return (
-    <div className={className}>
-      <label
-        htmlFor={htmlFor}
-        className="block text-[13px] font-semibold text-ink"
-      >
-        {label}
-      </label>
-      <div className="mt-2">{children}</div>
-      {error && (
-        <p className="mt-1.5 text-[13px] font-medium text-bad">{error}</p>
-      )}
-      {hint && !error && (
-        <p className="mt-2 text-[13px] leading-relaxed text-ink-3">{hint}</p>
-      )}
-    </div>
+    <FieldContext.Provider
+      value={{ controlId, descriptionId, invalid: Boolean(error) }}
+    >
+      <div className={className}>
+        <label
+          htmlFor={controlId}
+          className="block text-[13px] font-semibold text-ink"
+        >
+          {label}
+        </label>
+        <div className="mt-2">{children}</div>
+        {error && (
+          <p
+            id={descriptionId}
+            className="mt-1.5 text-[13px] font-medium text-bad"
+          >
+            {error}
+          </p>
+        )}
+        {hint && !error && (
+          <p
+            id={descriptionId}
+            className="mt-2 text-[13px] leading-relaxed text-ink-3"
+          >
+            {hint}
+          </p>
+        )}
+      </div>
+    </FieldContext.Provider>
   );
 }
 
@@ -406,12 +436,21 @@ export const inputClass =
 export function Input({
   className = "",
   error,
+  id,
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": ariaInvalid,
   ...props
 }: React.InputHTMLAttributes<HTMLInputElement> & { error?: boolean }) {
+  const field = React.useContext(FieldContext);
+  const invalid = error ?? field?.invalid ?? false;
+
   return (
     <input
+      id={id ?? field?.controlId}
+      aria-invalid={ariaInvalid ?? (invalid || undefined)}
+      aria-describedby={ariaDescribedBy ?? field?.descriptionId}
       className={`${inputClass} ${
-        error
+        invalid
           ? "border-bad-edge focus:border-bad focus:shadow-[0_0_0_3px_var(--danger-border)]"
           : ""
       } ${className}`}
@@ -424,13 +463,22 @@ export function Select({
   className = "",
   error,
   children,
+  id,
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": ariaInvalid,
   ...props
 }: React.SelectHTMLAttributes<HTMLSelectElement> & { error?: boolean }) {
+  const field = React.useContext(FieldContext);
+  const invalid = error ?? field?.invalid ?? false;
+
   return (
     <span className={`relative inline-flex items-center [&>svg]:pointer-events-none ${className}`}>
       <select
+        id={id ?? field?.controlId}
+        aria-invalid={ariaInvalid ?? (invalid || undefined)}
+        aria-describedby={ariaDescribedBy ?? field?.descriptionId}
         className={`${inputClass} w-full appearance-none pr-8 ${
-          error
+          invalid
             ? "border-bad-edge focus:border-bad focus:shadow-[0_0_0_3px_var(--danger-border)]"
             : ""
         }`}

@@ -65,6 +65,10 @@ describe("architecture hardening", () => {
     expect(src).toContain("Permissions-Policy");
     expect(src).toContain("NODE_ENV === \"production\"");
     expect(src).toContain("Strict-Transport-Security");
+    expect(src).toContain("connect-src 'self';");
+    expect(src).not.toContain("connect-src 'self' wss:");
+    expect(src).toContain("script-src 'self' 'unsafe-inline'");
+    expect(src).toContain("style-src 'self' 'unsafe-inline'");
   });
 
   it("keeps agent lifecycle changes transactional in ONE shared implementation", () => {
