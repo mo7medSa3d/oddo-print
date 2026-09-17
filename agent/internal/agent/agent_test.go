@@ -712,43 +712,106 @@ func TestFreshTransportFailureStillPrints(t *testing.T) {
 	}
 }
 
-func TestAddPrinterRefreshesChangedRuntimeConfig(t *testing.T) {
-	p1 := &fakePrinter{}
-	p2 := &fakePrinter{}
-	ag := newTestAgent(t, "prt-refresh", p1)
-	stored := config.PrinterConfig{ID: "prt-refresh", Name: "Test", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"}
+func productionNetworkDevice(id, endpoint string) printer.DeviceInfo {
+	return printer.DeviceInfo{
+		ID:             id,
+		Name:           "Test Printer",
+		PrinterType:    "thermal",
+		ConnectionType: "network",
+		Protocol:       "raw",
+		Endpoint:       endpoint,
+		Enabled:        true,
+	}
+}
 
-	// Identical re-registration (every discovery sweep): no-op, no churn.
-	if ag.addPrinter("prt-refresh", p1, stored) {
-		t.Fatal("identical re-registration must be a no-op returning false")
+func TestReloadRegistryPrintersFeedsRuntimeAndHeartbeat(t *testing.T) {
+	var heartbeat map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agent/heartbeat" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&heartbeat); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_registry_reload"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = server.URL
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	ag, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New: %v", err)
 	}
-	if got, ok := ag.getPrinter("prt-refresh"); !ok || got != printer.Printer(p1) {
-		t.Fatal("no-op re-registration must not disturb the registered backend")
+	defer func() { _ = ag.Close() }()
+
+	device := productionNetworkDevice("prt-desktop", "127.0.0.1:1")
+	if err := printer.SaveRegistry(ag.registryPath, []printer.DeviceInfo{device}); err != nil {
+		t.Fatalf("SaveRegistry: %v", err)
 	}
 
-	// Changed endpoint (DHCP reassignment is the classic case): both the
-	// backend object and the stored facts must move to the new config, or
-	// dispatch, capability gating, and heartbeats keep using the dead device.
-	moved := stored
-	moved.Endpoint = "192.0.2.99:9100"
-	if !ag.addPrinter("prt-refresh", p2, moved) {
-		t.Fatal("changed re-registration must refresh and return true")
+	ag.sendHeartbeat()
+	if _, ok := ag.getPrinter(device.ID); !ok {
+		t.Fatal("registry reload must add the printer backend to the runtime map")
 	}
-	if got, ok := ag.getPrinter("prt-refresh"); !ok || got != printer.Printer(p2) {
-		t.Fatal("runtime backend must be the newly registered object")
+	ag.printersMu.RLock()
+	pc, ok := ag.printerConfigs[device.ID]
+	ag.printersMu.RUnlock()
+	if !ok || pc.Endpoint != device.Endpoint {
+		t.Fatalf("registry reload must add printer config to the runtime map, got %+v", pc)
 	}
-	facts, ok := ag.deviceFacts("prt-refresh")
-	if !ok {
-		t.Fatal("facts must exist for the refreshed printer")
+	entries, ok := heartbeat["printers"].([]interface{})
+	if !ok || len(entries) != 1 {
+		t.Fatalf("heartbeat must contain the reloaded printer, got %#v", heartbeat["printers"])
 	}
-	_ = facts
-	pc, ok := func() (config.PrinterConfig, bool) {
-		ag.printersMu.RLock()
-		defer ag.printersMu.RUnlock()
-		v, ok := ag.printerConfigs["prt-refresh"]
-		return v, ok
-	}()
-	if !ok || pc.Endpoint != "192.0.2.99:9100" {
-		t.Fatalf("stored facts must carry the new endpoint, got %+v", pc)
+	entry, ok := entries[0].(map[string]interface{})
+	if !ok || entry["id"] != device.ID || entry["endpoint"] != device.Endpoint {
+		t.Fatalf("unexpected heartbeat printer payload: %#v", entries[0])
+	}
+}
+
+func TestMergeDiscoveredPrinterRefreshesSameIDConfiguration(t *testing.T) {
+	ag := newTestAgent(t, "seed", &fakePrinter{})
+	device := productionNetworkDevice("prt-refresh", "127.0.0.1:9100")
+	if changed, err := ag.mergeDiscoveredPrinter(device); err != nil || !changed {
+		t.Fatalf("initial merge: changed=%v err=%v", changed, err)
+	}
+	oldBackend, _ := ag.getPrinter(device.ID)
+
+	device.Endpoint = "192.0.2.99:9100"
+	if changed, err := ag.mergeDiscoveredPrinter(device); err != nil || !changed {
+		t.Fatalf("changed same-ID merge: changed=%v err=%v", changed, err)
+	}
+	newBackend, ok := ag.getPrinter(device.ID)
+	if !ok || newBackend == oldBackend {
+		t.Fatal("changed same-ID discovery must replace the runtime backend")
+	}
+	ag.printersMu.RLock()
+	pc := ag.printerConfigs[device.ID]
+	ag.printersMu.RUnlock()
+	if pc.Endpoint != device.Endpoint {
+		t.Fatalf("changed same-ID discovery must refresh runtime config, got %+v", pc)
+	}
+}
+
+func TestMergeDiscoveredPrinterIdenticalIsNoOp(t *testing.T) {
+	ag := newTestAgent(t, "seed", &fakePrinter{})
+	device := productionNetworkDevice("prt-stable", "127.0.0.1:9100")
+	if changed, err := ag.mergeDiscoveredPrinter(device); err != nil || !changed {
+		t.Fatalf("initial merge: changed=%v err=%v", changed, err)
+	}
+	backend, _ := ag.getPrinter(device.ID)
+
+	if changed, err := ag.mergeDiscoveredPrinter(device); err != nil || changed {
+		t.Fatalf("identical rediscovery must be an addPrinter no-op: changed=%v err=%v", changed, err)
+	}
+	if got, ok := ag.getPrinter(device.ID); !ok || got != backend {
+		t.Fatal("identical rediscovery must retain the existing backend")
 	}
 }

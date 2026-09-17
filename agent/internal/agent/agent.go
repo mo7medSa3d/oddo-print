@@ -218,6 +218,27 @@ func (a *Agent) printerCount() int {
 	return len(a.printers)
 }
 
+func (a *Agent) mergeDiscoveredPrinter(di printer.DeviceInfo) (bool, error) {
+	pc := config.PrinterConfig{
+		ID:           di.ID,
+		Name:         di.Name,
+		Type:         di.ConnectionType,
+		Endpoint:     di.Endpoint,
+		Protocol:     di.Protocol,
+		SpoolerName:  di.SpoolerName,
+		PrinterType:  di.PrinterType,
+		USBVID:       di.USBVID,
+		USBPID:       di.USBPID,
+		USBSerial:    di.USBSerial,
+		Capabilities: di.Capabilities,
+	}
+	p, err := printer.New(pc)
+	if err != nil {
+		return false, err
+	}
+	return a.addPrinter(di.ID, p, pc), nil
+}
+
 // New builds the agent and initializes every configured printer backend.
 // A printer that fails to initialize (bad config, unsupported type) is
 // logged and skipped rather than aborting the whole agent - other
@@ -276,28 +297,9 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 	if len(quick.Printers) > 0 {
 		if merged, err := printer.UpsertRegistry(registryPath, quick.Printers); err == nil {
 			for _, di := range merged {
-				if _, exists := a.getPrinter(di.ID); exists {
-					continue
-				}
-				pc := config.PrinterConfig{
-					ID:           di.ID,
-					Name:         di.Name,
-					Type:         di.ConnectionType,
-					Endpoint:     di.Endpoint,
-					Protocol:     di.Protocol,
-					SpoolerName:  di.SpoolerName,
-					PrinterType:  di.PrinterType,
-					USBVID:       di.USBVID,
-					USBPID:       di.USBPID,
-					USBSerial:    di.USBSerial,
-					Capabilities: di.Capabilities,
-				}
-				p, err := printer.New(pc)
-				if err != nil {
+				if _, err := a.mergeDiscoveredPrinter(di); err != nil {
 					log.Printf("WARNING: registry printer %q (%s) not initialized: %v", di.ID, di.Name, err)
-					continue
 				}
-				a.addPrinter(di.ID, p, pc)
 			}
 		} else {
 			log.Printf("WARNING: failed to persist discovery registry: %v", err)
@@ -324,27 +326,9 @@ func (a *Agent) Discover() printer.DiscoveryResult {
 	result := printer.Discover(a.cfg, a.registryPath)
 	if len(result.Printers) > 0 {
 		if merged, err := printer.UpsertRegistry(a.registryPath, result.Printers); err == nil {
-			// Refresh in-memory printers with merged registry
+			// Refresh in-memory printers with merged registry.
 			for _, di := range merged {
-				if _, exists := a.getPrinter(di.ID); exists {
-					continue
-				}
-				pc := config.PrinterConfig{
-					ID:           di.ID,
-					Name:         di.Name,
-					Type:         di.ConnectionType,
-					Endpoint:     di.Endpoint,
-					Protocol:     di.Protocol,
-					SpoolerName:  di.SpoolerName,
-					PrinterType:  di.PrinterType,
-					USBVID:       di.USBVID,
-					USBPID:       di.USBPID,
-					USBSerial:    di.USBSerial,
-					Capabilities: di.Capabilities,
-				}
-				if p, err := printer.New(pc); err == nil {
-					a.addPrinter(di.ID, p, pc)
-				} else {
+				if _, err := a.mergeDiscoveredPrinter(di); err != nil {
 					log.Printf("WARNING: discovered printer %q (%s) not initialized: %v", di.ID, di.Name, err)
 				}
 			}
@@ -397,28 +381,12 @@ func (a *Agent) runInitialAsyncDiscovery(ctx context.Context) {
 					return
 				default:
 				}
-				if _, exists := a.getPrinter(di.ID); exists {
-					continue
-				}
-				pc := config.PrinterConfig{
-					ID:           di.ID,
-					Name:         di.Name,
-					Type:         di.ConnectionType,
-					Endpoint:     di.Endpoint,
-					Protocol:     di.Protocol,
-					SpoolerName:  di.SpoolerName,
-					PrinterType:  di.PrinterType,
-					USBVID:       di.USBVID,
-					USBPID:       di.USBPID,
-					USBSerial:    di.USBSerial,
-					Capabilities: di.Capabilities,
-				}
-				p, err := printer.New(pc)
+				changed, err := a.mergeDiscoveredPrinter(di)
 				if err != nil {
 					log.Printf("WARNING: async printer %q (%s) not initialized: %v", di.ID, di.Name, err)
 					continue
 				}
-				if a.addPrinter(di.ID, p, pc) {
+				if changed {
 					log.Printf("[discovery] async added or refreshed printer: %s (%s) type=%s", di.ID, di.Name, di.ConnectionType)
 				}
 			}
@@ -1492,24 +1460,7 @@ func (a *Agent) reloadRegistryPrinters() {
 		return
 	}
 	for _, di := range infos {
-		pc := config.PrinterConfig{
-			ID:           di.ID,
-			Name:         di.Name,
-			Type:         di.ConnectionType,
-			Endpoint:     di.Endpoint,
-			Protocol:     di.Protocol,
-			SpoolerName:  di.SpoolerName,
-			PrinterType:  di.PrinterType,
-			USBVID:       di.USBVID,
-			USBPID:       di.USBPID,
-			USBSerial:    di.USBSerial,
-			Capabilities: di.Capabilities,
-		}
-		p, err := printer.New(pc)
-		if err != nil {
-			continue
-		}
-		a.addPrinter(di.ID, p, pc)
+		_, _ = a.mergeDiscoveredPrinter(di)
 	}
 }
 
