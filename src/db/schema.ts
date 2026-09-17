@@ -33,9 +33,21 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   emailVerifiedAt: timestamp("email_verified_at"),
+  isPlatformOwner: boolean("is_platform_owner").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+export const platformSessions = pgTable("platform_sessions", {
+  jti: text("jti").primaryKey(),
+  userId: text("user_id").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+}, (table) => ({
+  expiresIdx: index("platform_sessions_expires_idx").on(table.expiresAt),
+  userIdx: index("platform_sessions_user_idx").on(table.userId),
+}));
 
 export const tenantUsers = pgTable("tenant_users", {
   userId: text("user_id").references(() => users.id).notNull(),

@@ -24,6 +24,7 @@ export const integrationVitestTestFiles = [
   "tests/manager-auth.test.ts",
   "tests/migration-upgrade.integration.test.ts",
   "tests/multi-instance-gateway.test.ts",
+  "tests/platform-control-plane.test.ts",
   "tests/print-idempotency.test.ts",
   "tests/routing-availability.test.ts",
   "tests/runtime-constraints.test.ts",

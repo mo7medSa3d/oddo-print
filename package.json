@@ -28,7 +28,8 @@
     "test:e2e": "vitest run --config vitest.integration.config.mts --run tests/e2e-job-flow.test.ts",
     "test:odoo:static": "pytest tests/test_odoo19_printing_static.py",
     "build": "next build",
-    "db:provision-plans": "tsx scripts/provision-plans.ts"
+    "db:provision-plans": "tsx scripts/provision-plans.ts",
+    "platform:bootstrap": "tsx scripts/bootstrap-platform-owner.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
