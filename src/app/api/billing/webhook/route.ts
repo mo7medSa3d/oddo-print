@@ -182,7 +182,7 @@ export async function POST(req: Request) {
           }
           if (current?.stripeCustomerId && customerId && current.stripeCustomerId !== customerId) throw new Error("Checkout customer identity conflict");
           await tx.update(tenantSubscriptions).set({
-            stripeSubscriptionId: current?.stripeSubscriptionId ?? subId,
+            stripeSubscriptionId: differentSubscription ? subId : (current?.stripeSubscriptionId ?? subId),
             stripeCustomerId: current?.stripeCustomerId ?? (customerId ?? null),
             updatedAt: new Date(),
           }).where(eq(tenantSubscriptions.tenantId, tenantId));
