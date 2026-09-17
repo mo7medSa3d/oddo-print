@@ -114,7 +114,7 @@ try {
   Assert-Path $agentDataDir "Agent writable data directory"
   Assert-Path $configPath "Agent default config file"
   Assert-Path (Join-Path $agentDataDir "logs\agent.log") "Agent log file"
-  Assert-Path (Join-Path $agentDataDir "agent.db") "Agent SQLite database"
+  Assert-Path (Join-Path $agentDataDir "queue.db") "Agent SQLite database"
   Write-Host "PASS: agent first-run initialization completed without manual directory creation."
 } finally {
   if ($agent -and -not $agent.HasExited) {
