@@ -31,14 +31,31 @@ export async function POST(req: Request) {
   const role = typeof body.role === "string" ? body.role : "viewer";
   if (!email || !ROLES.includes(role as (typeof ROLES)[number])) return NextResponse.json({ error: "Invalid invitation" }, { status: 400 });
   const member = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true } });
-  if (member) {
-    const existing = await db.query.tenantInvitations.findFirst({ where: and(eq(tenantInvitations.tenantId, claims.tenantId), eq(tenantInvitations.email, email), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt), gt(tenantInvitations.expiresAt, new Date())), columns: { id: true } });
-    if (existing) return NextResponse.json({ error: "An active invitation already exists for this email" }, { status: 409 });
-  }
   const raw = generateOpaqueToken();
   const id = `inv_${nanoid(18)}`;
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000);
   await db.transaction(async (tx) => {
+    // Lock the tenant row before checking for another active invitation so
+    // concurrent invitation requests for the same email cannot both pass the
+    // preflight and create duplicate live tokens.
+    await tx.execute(sql`
+      SELECT id
+      FROM tenants
+      WHERE id = ${claims.tenantId}
+      FOR UPDATE
+    `);
+    const existing = await tx.query.tenantInvitations.findFirst({
+      where: and(
+        eq(tenantInvitations.tenantId, claims.tenantId),
+        eq(tenantInvitations.email, email),
+        isNull(tenantInvitations.acceptedAt),
+        isNull(tenantInvitations.revokedAt),
+        gt(tenantInvitations.expiresAt, new Date()),
+      ),
+      columns: { id: true },
+    });
+    if (existing) throw new Error("INVITATION_ALREADY_EXISTS");
+
     await tx.insert(tenantInvitations).values({
       id,
       tenantId: claims.tenantId,
@@ -56,6 +73,11 @@ export async function POST(req: Request) {
       resourceType: "tenant_invitation",
       resourceId: id,
     }, tx);
+  }).catch((error) => {
+    if (error instanceof Error && error.message === "INVITATION_ALREADY_EXISTS") {
+      throw error;
+    }
+    throw error;
   });
   const url = `${appBaseUrl(req)}/invite?token=${encodeURIComponent(raw)}`;
   try {
