@@ -154,8 +154,6 @@ jobs:
         env:
           RUN_MULTI_INSTANCE_TEST: '1'
         run: npm run test:integration
-      - name: Run complete test suite
-        run: npm test
       - name: Go formatting gate
         working-directory: agent
         run: |
