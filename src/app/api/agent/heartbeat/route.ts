@@ -255,7 +255,6 @@ export async function POST(req: Request) {
         protocol: row.protocol,
         lifecycle: row.lifecycle,
         config: row.config,
-        capabilities: row.capabilities,
         desiredRevision: row.desiredRevision,
         appliedDesiredRevision: row.appliedDesiredRevision,
         observedDesiredRevision: row.observedDesiredRevision,
