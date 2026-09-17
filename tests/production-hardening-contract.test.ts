@@ -146,7 +146,12 @@ describe("production hardening contracts", () => {
     const workflow = read(".github/workflows/main-governance.yml");
     expect(workflow).toContain("Require protected main branch");
     expect(workflow).toContain("Configure GitHub branch protection or a ruleset");
-    expect(workflow).toContain("security-audit");
+    expect(workflow).toContain("push:");
+    expect(workflow).toContain("branches: [main]");
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("verify-main-protection:");
+    expect(workflow).not.toContain("security-audit");
+    expect(workflow).not.toContain("npm audit");
     expect(workflow).toContain("exit 1");
   });
 });
