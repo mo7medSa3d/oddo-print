@@ -79,7 +79,9 @@ describe("architecture hardening", () => {
     const block = src.slice(src.indexOf("export async function transitionAgentLifecycle"));
     expect(block).toContain("db.transaction");
     expect(block).toContain("tx.update(agents)");
-    expect(block).toContain("tx.update(printers)");
+    // Printer desired lifecycle is manager-owned and must not be mutated by
+    // Agent lifecycle transitions.
+    expect(block).not.toContain("tx.update(printers)");
     // No-op guard: current === next must not rotate credentials.
     expect(block).toContain("if (agent.lifecycle === next)");
     for (const consumer of ["src/app/actions.ts", "src/app/api/agents/[id]/route.ts"]) {

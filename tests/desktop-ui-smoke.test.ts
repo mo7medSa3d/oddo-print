@@ -73,10 +73,29 @@ const jobs = [
   },
 ];
 
-async function invoke<T>(cmd: string): Promise<T> {
+async function invoke<T>(
+  cmd: string,
+  options?: { args?: { path?: string; method?: string } },
+): Promise<T> {
   switch (cmd) {
     case "plugin:event|listen":
       return 1 as unknown as T;
+    case "gateway_request": {
+      const path = options?.args?.path ?? "";
+      const body = path === "/api/health"
+        ? { ok: true }
+        : path === "/api/auth/manager/me"
+          ? { authenticated: true, exp: Math.floor(Date.now() / 1000) + 3600 }
+          : path === "/api/agents"
+            ? [{ id: "agent-1", name: "Reception Agent", status: "online", lifecycle: "active" }]
+            : path === "/api/printers"
+              ? printers
+              : jobs;
+      return {
+        status: 200,
+        body: JSON.stringify(body),
+      } as unknown as T;
+    }
     case "get_agent_status":
       return {
         running: true,

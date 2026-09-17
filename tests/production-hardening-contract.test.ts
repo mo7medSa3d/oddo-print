@@ -120,9 +120,9 @@ describe("production hardening contracts", () => {
     expect(dashboard).toContain("eq(agents.tenantId, claims.tenantId)");
     expect(dashboard).toContain("eq(printers.tenantId, claims.tenantId)");
     expect(dashboard).toContain("eq(printJobs.tenantId, claims.tenantId)");
-    expect(lifecycle).toContain("transitionAgentLifecycle(id, lifecycle, claims.tenantId)");
+    expect(lifecycle).toContain("transitionAgentLifecycle(id, lifecycle, claims.tenantId, {");
     expect(helper).toContain("eq(agents.tenantId, tenantId)");
-    expect(helper).toContain("eq(printers.tenantId, tenantId)");
+    expect(helper).not.toContain("tx.update(printers)");
   });
 
   it("keeps stock validation print-policy fan-out intact", () => {
