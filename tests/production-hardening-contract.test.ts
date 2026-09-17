@@ -160,6 +160,35 @@ describe("production hardening contracts", () => {
           throw new Error("Selection token already used")`);
   });
 
+  it("keeps control-plane concurrency boundaries enforced by code and schema", () => {
+    const invitation = read("src/app/api/team/invitations/accept/route.ts");
+    expect(invitation).toContain("FROM tenants");
+    expect(invitation).toContain("FOR UPDATE");
+    expect(invitation).toContain("tenantRow.lifecycle !== \"active\"");
+    expect(invitation).toContain('action: "team.invitation.accepted"');
+    expect(invitation).toContain("}, tx);");
+
+    const onboarding = read("src/app/api/onboarding/route.ts");
+    expect(onboarding).toContain("await tx.update(tenants)");
+    expect(onboarding.indexOf("await tx.update(tenants)")).toBeLessThan(onboarding.indexOf("tenantSubscriptions"));
+    expect(onboarding).toContain("Trial has already been used for this workspace");
+
+    const checkout = read("src/app/api/billing/checkout/route.ts");
+    expect(checkout).toContain("FROM tenants");
+    expect(checkout).toContain("FOR UPDATE");
+    expect(checkout).toContain("tenant-customer-");
+    expect(checkout).toContain("checkout-${claims.tenantId}-${plan.id}");
+
+    const lifecycle = read("src/lib/tenant-lifecycle.ts");
+    expect(lifecycle).toContain('PLATFORM_TENANT_PROTECTED');
+    
+    const discovery = read("src/app/api/agents/[id]/discovery/route.ts");
+    expect(discovery).toContain("FOR UPDATE");
+    expect(discovery).toContain("DISCOVERY_ALREADY_RUNNING");
+    const schema = read("src/db/schema.ts");
+    expect(schema).toContain("discovery_sessions_active_agent_unique");
+  });
+
   it("keeps the main governance workflow present and explicit about the external protection prerequisite", () => {
     const workflow = read(".github/workflows/main-governance.yml");
     expect(workflow).toContain("Require protected main branch");
