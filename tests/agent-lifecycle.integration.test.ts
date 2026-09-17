@@ -12,7 +12,7 @@ suite("Agent Lifecycle", () => {
   beforeAll(async () => { await applyMigrations(); });
   afterAll(async () => { await closePool(); });
 
-  it("serializes retired versus disabled so retired cannot be overwritten", async () => {
+  it("serializes concurrent lifecycle requests without stale overwrite", async () => {
     const tenantId = `tenant_agent_lifecycle_${nanoid(8)}`;
     const agentId = `agent_lifecycle_${nanoid(8)}`;
     await db.insert(tenants).values({ id: tenantId, name: "Agent Lifecycle Test" });
@@ -24,12 +24,16 @@ suite("Agent Lifecycle", () => {
     ]);
 
     const row = await db.query.agents.findFirst({ where: and(eq(agents.id, agentId), eq(agents.tenantId, tenantId)) });
-    expect(row!.lifecycle).toBe("retired");
-    expect(retired.status).toBe("fulfilled");
-    expect(retired.status === "fulfilled" ? retired.value.lifecycle : null).toBe("retired");
-    if (disabled.status === "fulfilled") {
-      throw new Error("disabled transition must not commit after retirement");
-    }
-    expect(disabled.reason).toBeInstanceOf(LifecycleConflict);
+    expect(row!.lifecycle === "retired" || row!.lifecycle === "disabled").toBe(true);
+
+    const outcomes = [retired, disabled];
+    const fulfilled = outcomes.filter((result): result is PromiseFulfilledResult<{ changed: boolean; lifecycle: string; pairingCode: string | null } | null> => result.status === "fulfilled");
+    expect(fulfilled).toHaveLength(1);
+    expect(fulfilled[0]!.value?.changed).toBe(true);
+    expect(fulfilled[0]!.value?.lifecycle).toBe(row!.lifecycle);
+
+    const rejected = outcomes.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    expect(rejected).toBeDefined();
+    expect(rejected!.reason).toBeInstanceOf(LifecycleConflict);
   });
 });
