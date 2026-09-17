@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../src/db";
 import { tenants, users, tenantInvitations, tenantUsers, plans, tenantSubscriptions, agents, discoverySessions } from "../src/db/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { hashToken } from "../src/lib/password";
 import { nanoid } from "../src/lib/nanoid";
 import { transitionTenantLifecycle, TenantLifecycleError } from "../src/lib/tenant-lifecycle";
