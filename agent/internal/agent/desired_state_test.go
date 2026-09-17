@@ -26,6 +26,7 @@ func newDesiredStateTestAgent(t *testing.T) *Agent {
 		printerConfigs: make(map[string]config.PrinterConfig),
 		registryOwned: make(map[string]struct{}),
 		gatewayOwned: make(map[string]struct{}),
+		gatewayTombstones: make(map[string]struct{}),
 		desiredStates: make(map[string]desiredPrinterRecord),
 		desiredStatePath: filepath.Join(dir, "desired-state.json"),
 		queue: q,
@@ -179,6 +180,48 @@ func TestGatewayOwnedPrinterIsNotReintroducedFromStaleRegistry(t *testing.T) {
 	}
 	if _, ok := a.printers["printer-stale"]; ok {
 		t.Fatal("Gateway-owned printer was reintroduced into runtime registry")
+	}
+}
+
+func TestDesiredStateDeletionTombstoneSurvivesRestart(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	a.desiredStateSynced = true
+	p := testDesiredPrinter("printer-tombstone", 2, "active")
+	a.reconcileGatewayDesiredState([]desiredPrinterWire{p})
+	a.reconcileGatewayDesiredState(nil)
+
+	if !a.isGatewayOwned(p.ID) {
+		t.Fatal("deleted Gateway printer must remain fenced by a tombstone")
+	}
+
+	// Simulate a stale registry entry reappearing after local cleanup failed.
+	local := printer.DeviceInfo{
+		ID: p.ID,
+		Name: p.Name,
+		PrinterType: "thermal",
+		ConnectionType: "network",
+		Protocol: "raw",
+		Endpoint: "192.0.2.40:9100",
+		Status: "online",
+		Enabled: true,
+	}
+	if _, err := printer.RegisterManual(a.registryPath, local); err != nil {
+		t.Fatalf("RegisterManual: %v", err)
+	}
+
+	b := newDesiredStateTestAgent(t)
+	b.desiredStatePath = a.desiredStatePath
+	b.registryPath = a.registryPath
+	if err := b.loadDesiredState(); err != nil {
+		t.Fatalf("loadDesiredState: %v", err)
+	}
+	b.reloadRegistryPrinters()
+
+	if _, ok := b.printerConfigs[p.ID]; ok {
+		t.Fatal("persisted Gateway deletion tombstone was ignored after restart")
+	}
+	if !b.isGatewayOwned(p.ID) {
+		t.Fatal("restart lost persisted Gateway printer deletion fence")
 	}
 }
 
