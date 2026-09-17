@@ -99,13 +99,14 @@ func TestDesiredStateDisablesAndRemovesRuntime(t *testing.T) {
 
 	disabled := active
 	disabled.Lifecycle = "disabled"
+	disabled.DesiredRevision = 5
 	a.reconcileGatewayDesiredState([]desiredPrinterWire{disabled})
 	if _, ok := a.printerConfigs["printer-2"]; ok {
 		t.Fatal("disabled printer remained in runtime registry")
 	}
 	row := a.desiredStates["printer-2"]
-	if row.AppliedDesiredRevision != 4 || row.ObservedDesiredRevision != 4 {
-		t.Fatalf("disable should converge revision 4, got applied=%d observed=%d", row.AppliedDesiredRevision, row.ObservedDesiredRevision)
+	if row.AppliedDesiredRevision != 5 || row.ObservedDesiredRevision != 5 {
+		t.Fatalf("disable should converge revision 5, got applied=%d observed=%d", row.AppliedDesiredRevision, row.ObservedDesiredRevision)
 	}
 	if a.isPrinterExecutionAllowed("printer-2") {
 		t.Fatal("disabled printer must not be executable")
