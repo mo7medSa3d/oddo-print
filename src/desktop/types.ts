@@ -26,7 +26,7 @@ export interface DesktopState {
   version: string;
   agentStatus: AgentStatusView | null;
   isOnline: boolean;
-  lastHeartbeat: string | null;
+  lastStatusCheck: string | null;
   autostart: boolean | null;
   setAutostartState: (v: boolean) => void;
   refreshStatus: () => void;
@@ -62,6 +62,7 @@ export interface DesktopState {
   refreshPrinters: () => void;
   handleDiscover: () => void;
   handleTest: (id: string) => void;
+  updatePrinterLifecycle: (id: string, lifecycle: "active" | "disabled" | "retired") => void;
   showAdd: boolean;
   setShowAdd: (v: boolean) => void;
   selectedPrinter: PrinterInfo | null;
