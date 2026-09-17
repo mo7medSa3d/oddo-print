@@ -330,6 +330,13 @@
       "when": 1790000000046,
       "tag": "0046_scope_internal_print_job_idempotency",
       "breakpoints": false
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1790000000047,
+      "tag": "0047_desired_printer_reconciliation",
+      "breakpoints": false
     }
   ]
 }

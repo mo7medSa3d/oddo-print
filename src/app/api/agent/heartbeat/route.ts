@@ -25,6 +25,8 @@ const VALID_CONNECTION_TYPES = new Set(["network", "usb", "spooler", "ipp", "ipp
 const VALID_PROTOCOLS = new Set(["raw", "escpos", "zpl", "tspl", "ipp", "ipps", "spooler", "windows_spooler", "unknown"]);
 const VALID_AGENT_STATUSES = new Set(["online", "offline"]);
 
+type DesiredStateAck = { printerId?: unknown; appliedDesiredRevision?: unknown; observedDesiredRevision?: unknown };
+
 type ReportedPrinter = {
   id?: unknown;
   name?: unknown;
@@ -152,6 +154,20 @@ export async function POST(req: Request) {
         .where(and(eq(printJobs.tenantId, agent.tenantId), eq(printJobs.agentId, agent.id), inArray(printJobs.status, ["claimed", "printing"]), inArray(printJobs.id, tokenless.map((p) => p.jobId)), isNull(printJobs.claimToken)));
     }
 
+    const desiredStateAcks = Array.isArray(body?.desiredStateAcks) ? (body.desiredStateAcks as unknown[]).slice(0, 500) : [];
+    for (const rawAck of desiredStateAcks) {
+      if (!rawAck || typeof rawAck !== "object") continue;
+      const ack = rawAck as DesiredStateAck;
+      const printerId = typeof ack.printerId === "string" ? ack.printerId.trim() : "";
+      const applied = typeof ack.appliedDesiredRevision === "number" && Number.isSafeInteger(ack.appliedDesiredRevision) && ack.appliedDesiredRevision >= 0 ? ack.appliedDesiredRevision : -1;
+      const observed = typeof ack.observedDesiredRevision === "number" && Number.isSafeInteger(ack.observedDesiredRevision) && ack.observedDesiredRevision >= 0 ? ack.observedDesiredRevision : -1;
+      if (!printerId || applied < 0 || observed < 0) continue;
+      await db.update(printers).set({
+        appliedDesiredRevision: sql`LEAST(${printers.desiredRevision}, GREATEST(${printers.appliedDesiredRevision}, ${applied}))`,
+        observedDesiredRevision: sql`LEAST(${printers.desiredRevision}, GREATEST(${printers.observedDesiredRevision}, LEAST(${observed}, GREATEST(${printers.appliedDesiredRevision}, ${applied}))))`,
+      }).where(and(eq(printers.id, printerId), eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id), eq(printers.managementSource, "manager")));
+    }
+
     const skipped: Array<{ id: string; reason: string }> = [];
     for (const raw of reportedPrinters) {
       const rawId = typeof raw?.id === "string" ? raw.id : "(unknown)";
@@ -164,6 +180,7 @@ export async function POST(req: Request) {
       const p = res.printer;
       const observedUpdateSet = {
         status: p.status,
+        observedDeviceClass: p.deviceClass as typeof printers.$inferInsert.observedDeviceClass,
         capabilities: p.capabilities as typeof printers.$inferInsert.capabilities,
         lastSeenAt: new Date(),
       };
@@ -189,6 +206,11 @@ export async function POST(req: Request) {
           protocol: p.protocol as typeof printers.$inferInsert.protocol,
           status: p.status,
           lifecycle: "active",
+          managementSource: "agent",
+          desiredRevision: 0,
+          appliedDesiredRevision: 0,
+          observedDesiredRevision: 0,
+          observedDeviceClass: p.deviceClass as typeof printers.$inferInsert.observedDeviceClass,
           config: p.config as typeof printers.$inferInsert.config,
           capabilities: p.capabilities as typeof printers.$inferInsert.capabilities,
           lastSeenAt: new Date(),
@@ -205,7 +227,7 @@ export async function POST(req: Request) {
     }
 
     const desiredRows = await db.query.printers.findMany({
-      where: and(eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id)),
+      where: and(eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id), eq(printers.managementSource, "manager")),
       columns: {
         id: true,
         name: true,
@@ -215,8 +237,9 @@ export async function POST(req: Request) {
         protocol: true,
         lifecycle: true,
         config: true,
-        capabilities: true,
-        updatedAt: true,
+        desiredRevision: true,
+        appliedDesiredRevision: true,
+        observedDesiredRevision: true,
       },
     });
 
@@ -233,7 +256,9 @@ export async function POST(req: Request) {
         lifecycle: row.lifecycle,
         config: row.config,
         capabilities: row.capabilities,
-        desiredRevision: row.updatedAt.toISOString(),
+        desiredRevision: row.desiredRevision,
+        appliedDesiredRevision: row.appliedDesiredRevision,
+        observedDesiredRevision: row.observedDesiredRevision,
       })),
     });
   } catch {
