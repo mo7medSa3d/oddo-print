@@ -67,9 +67,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     if (parsed.data.lifecycle === "active") {
-      const owner = await tx.query.agents.findFirst({ where: and(eq(agents.id, existing.agentId), eq(agents.tenantId, claims.tenantId)) });
-      if (!owner) return { kind: "error" as const, message: "Printer owner agent missing" };
-      if (owner.lifecycle !== "active") return { kind: "conflict" as const, message: `cannot activate printer while agent is ${owner.lifecycle}` };
+      const lockedAgent = await tx.execute(sql`SELECT lifecycle FROM agents WHERE id = ${existing.agentId} AND tenant_id = ${claims.tenantId} FOR UPDATE`);
+      const ownerLifecycle = (lockedAgent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
+      if (!ownerLifecycle) return { kind: "error" as const, message: "Printer owner agent missing" };
+      if (ownerLifecycle !== "active") return { kind: "conflict" as const, message: `cannot activate printer while agent is ${ownerLifecycle}` };
     }
 
     const connectionType = parsed.data.connectionType ?? existing.connectionType;
