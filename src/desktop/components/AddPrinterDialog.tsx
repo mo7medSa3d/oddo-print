@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import {
   Button,
@@ -39,16 +39,18 @@ export function AddPrinterDialog({
   const [agents, setAgents] = useState<Array<{ id: string; name: string; status?: string; lifecycle?: string }>>([]);
   const [agentId, setAgentId] = useState("");
 
-  useEffect(() => {
-    if (!open || !gatewayUrl) return;
-    fetchGatewayAgents(gatewayUrl)
-      .then((rows) => {
-        setAgents(rows);
-        const active = rows.find((row) => row.lifecycle === "active");
-        if (active && !rows.some((row) => row.id === agentId)) setAgentId(active.id);
-      })
-      .catch(() => setAgents([]));
-  }, [open, gatewayUrl, agentId]);
+  const loadAgents = useCallback(async () => {
+    if (!gatewayUrl || agents.length > 0) return;
+    try {
+      const rows = await fetchGatewayAgents(gatewayUrl);
+      setAgents(rows);
+      const active = rows.find((row) => row.lifecycle === "active");
+      if (active) setAgentId((current) => current || active.id);
+    } catch {
+      setAgents([]);
+    }
+  }, [gatewayUrl, agents.length]);
+
 
   // Clear any previous error when dialog transitions to open
   const [prevOpen, setPrevOpen] = useState(open);
@@ -175,7 +177,7 @@ export function AddPrinterDialog({
           htmlFor="pp-agent"
           hint="The selected Agent owns execution; the Gateway remains authoritative for configuration."
         >
-          <Select id="pp-agent" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+          <Select id="pp-agent" value={agentId} onFocus={loadAgents} onChange={(e) => setAgentId(e.target.value)}>
             <option value="">Select an active agent…</option>
             {agents.filter((a) => a.lifecycle === "active").map((a) => (
               <option key={a.id} value={a.id}>

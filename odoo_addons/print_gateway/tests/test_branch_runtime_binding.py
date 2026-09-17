@@ -213,3 +213,21 @@ class TestBranchRuntimeBinding(TransactionCase):
                     "enabled": True,
                 })
             self.assertIn("print_gateway_runtime_agent_assignment_agent_unique", str(ctx.exception))
+
+        # The expected unique violation was isolated by the savepoint; the
+        # outer transaction remains usable and the original row is intact.
+        self.assertEqual(
+            model.search_count([
+                ("company_id", "=", self.company.id),
+                ("branch_id", "=", self.branch.id),
+                ("runtime_agent_id", "=", "agent-a"),
+            ]),
+            1,
+        )
+        recovered = model.create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": "agent-b",
+            "enabled": True,
+        })
+        self.assertEqual(recovered.runtime_agent_id, "agent-b")
