@@ -132,6 +132,7 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND a.status = 'online'
         AND pr.lifecycle = 'active'
         AND pr.status = 'online'
+        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
         AND t.lifecycle = 'active'
       FOR UPDATE OF p, a, pr, t SKIP LOCKED
     `);
