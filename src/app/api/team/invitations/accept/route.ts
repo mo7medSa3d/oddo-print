@@ -1,4 +1,3 @@
-import { logError } from "../../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { tenantInvitations, tenantUsers, users } from "../../../../../db/schema";
