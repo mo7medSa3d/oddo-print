@@ -10,6 +10,10 @@ describe("production hardening contracts", () => {
     expect(hasBodyOverLimit(new Request("http://test", { headers: { "content-length": "1024" } }), 2048)).toBe(false);
     expect(hasBodyOverLimit(new Request("http://test", { headers: { "content-length": "2049" } }), 2048)).toBe(true);
     expect(hasBodyOverLimit(new Request("http://test", { headers: { "content-length": "-1" } }), 2048)).toBe(true);
+    expect(hasBodyOverLimit(new Request("http://test", { headers: { "content-length": "1e3" } }), 2048)).toBe(true);
+    expect(hasBodyOverLimit(new Request("http://test", { headers: { "content-length": "0x10" } }), 2048)).toBe(true);
+    expect(hasBodyOverLimit(new Request("http://test", { headers: { "content-length": "1.5" } }), 2048)).toBe(true);
+    expect(hasBodyOverLimit(new Request("http://test", { headers: { "content-length": "9007199254740993" } }), Number.MAX_SAFE_INTEGER)).toBe(true);
     expect(hasBodyOverLimit(new Request("http://test"), 2048)).toBe(false);
   });
 

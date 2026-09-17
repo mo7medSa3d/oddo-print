@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   }
 
   const expectedUser = getManagerUsername();
-  const legacyTenantPinned = Boolean((process.env.MANAGER_TENANT_ID ?? "").trim());
+  const legacyTenantId = (process.env.MANAGER_TENANT_ID ?? "").trim();
   const desktopClient = req.headers.get("x-odoo-print-desktop") === "1";
   const ip = clientIpFrom(req);
 
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
       logWarn("auth.login.user_lookup_failed", { requestId, error: e instanceof Error ? e.message : "unknown" });
     }
   }
-  const legacyValid = expectedUser && legacyTenantPinned ? await verifyManagerPassword(username, password) : false;
+  const legacyValid = expectedUser && legacyTenantId === tenantId ? await verifyManagerPassword(username, password) : false;
   if (!identity && !legacyValid) {
     logWarn("auth.login.failed", { requestId, ip });
     if (pre.retryAfterSec) return tooMany(pre.retryAfterSec);

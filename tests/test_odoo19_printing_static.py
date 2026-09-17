@@ -37,11 +37,48 @@ def test_project_does_not_add_parallel_browser_iot_or_epos_print_path():
     assert "ePOS" not in joined
 
 
-def test_report_controller_remains_fail_closed_for_bound_report_errors():
-    source = read("controllers/report_download_override.py")
-    assert "gateway_dispatch_failed" in source
-    assert "mixed_scope_batch" in source
-    assert "return super().report_download" in source
+def test_automatic_policy_hooks_use_root_and_exact_branch_resolver():
+    policy = read("models/print_policy.py")
+    assert "root_company = record_company.parent_id or record_company" in policy
+    assert "branch = record_company if record_company.parent_id else False" in policy
+    assert '("company_id", "=", root_company.id)' in policy
+    assert '("branch_id", "in", [False, branch.id] if branch else [False])' in policy
+    for hook in ("models/account_move.py", "models/stock_picking.py", "models/pos_order.py"):
+        source = read(hook)
+        assert "resolve_for_record(" in source
+        assert "policy_model.search([" not in source
+
+
+def test_odoo19_report_download_controller_is_left_native():
+    controllers = read("controllers/__init__.py")
+    assert "report_download_override" not in controllers
+    assert not (ADDON / "controllers" / "report_download_override.py").exists()
+    assert "report_interceptor.js" in read("__manifest__.py")
+    assert "super().report_download" not in "\n".join(
+        path.read_text(encoding="utf-8") for path in (ADDON / "controllers").glob("*.py")
+    )
+
+
+def test_lower_priority_explicit_binding_is_exact_and_separate_policy_targets_do_not_collapse():
+    router = read("models/print_router.py")
+    binding = read("models/binding.py")
+    policy = read("models/print_policy.py")
+    assert "explicit_binding=policy.binding_id or None" in router
+    assert "binding_model.resolve_explicit(" in router
+    assert "return binding" in binding[binding.index("def resolve_explicit"):binding.index("def find_for")]
+    assert ".find_for(" not in binding[binding.index("def resolve_explicit"):binding.index("def find_for")]
+    assert "binding_id = route.get(\"binding_id\") or False" in policy
+    for hook in ("models/account_move.py", "models/stock_picking.py", "models/pos_order.py"):
+        source = read(hook)
+        assert "policy.effective_target_key(" in source
+        assert "policy.binding_id.id if policy.binding_id else False" not in source
+
+
+def test_branch_owned_destinations_require_branch_specific_bindings():
+    binding = read("models/binding.py")
+    fallback = binding[binding.index("def find_for"):binding.index("def dispatch_report_action")]
+    assert "if destination_company == branch:" in fallback
+    assert "return self.browse()" in fallback
 
 
 def test_company_gateway_secret_is_server_side_only_in_runtime_controllers():

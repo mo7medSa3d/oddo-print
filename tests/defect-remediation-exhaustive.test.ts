@@ -170,25 +170,45 @@ describe("DEFECT #5 — Odoo POS TaxLabel & Receipt Rendering Contract", () => {
 });
 
 describe("DEFECT #6 — Odoo PDF Download vs Gateway Silent Printing", () => {
-  it("report_interceptor.js captures resIds from options and action context with report_id", () => {
+  it("report_interceptor chooses the first populated valid ID source and normalizes scalar IDs", () => {
     const interceptor = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/static/src/js/report_interceptor.js"), "utf-8");
-    expect(interceptor).toContain("(options && options.active_ids)");
+    const helpers = interceptor.match(/function normalizeIds[\s\S]*?\n}\n\nfunction firstNonEmptyIds[\s\S]*?\n}/)?.[0];
+    expect(helpers).toBeTruthy();
+    const firstNonEmptyIds = new Function(`${helpers}; return firstNonEmptyIds;`)() as (...sources: unknown[]) => number[];
+
+    expect(firstNonEmptyIds([], [2], [3])).toEqual([2]); // options
+    expect(firstNonEmptyIds([], [], 4, [5])).toEqual([4]); // context scalar
+    expect(firstNonEmptyIds([], [], [], null, [], [6])).toEqual([6]); // action docids
+    expect(firstNonEmptyIds([], [], [], null, [], [], [], "7")).toEqual([7]); // data docids
+    expect(firstNonEmptyIds([], [null, false, "", "bad"], [8])).toEqual([8]);
+    expect(firstNonEmptyIds([], null, false, "bad")).toEqual([]); // native fallback
     expect(interceptor).toContain("report_id: action.id");
+    expect(interceptor).toContain("data: action.data ?? null");
   });
 
-  it("resolve_binding supports raise_if_not_found=False returning native route", () => {
+  it("preserves report action data through binding dispatch and PDF rendering", () => {
+    const binding = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/models/binding.py"), "utf-8");
+    const router = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/models/print_router.py"), "utf-8");
+    expect(binding).toContain("context=None, data=None");
+    expect(binding).toContain("route_report(report, records, data=data)");
+    expect(router).toContain("_render_pdf_payload(report, records, data=data)");
+    expect(router).toContain("res_ids=records.ids, data=data");
+  });
+
+  it("resolve_binding supports native fallback and exact explicit bindings", () => {
     const routerSource = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/models/print_router.py"), "utf-8");
-    expect(routerSource).toContain("def resolve_binding(self, *, report=None, record=None, document_type=None, company=None, explicit_destination=None, raise_if_not_found=True):");
+    expect(routerSource).toContain("explicit_binding=None");
+    expect(routerSource).toContain("binding_model.resolve_explicit(");
     expect(routerSource).toContain('"native": True');
     expect(routerSource).toContain('"binding": False');
   });
 
-  it("report_download_override allows native PDF download for unbound reports and fails closed on dispatch errors", () => {
-    const downloadSource = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/controllers/report_download_override.py"), "utf-8");
-    expect(downloadSource).toContain("raise_if_not_found=False");
-    expect(downloadSource).toContain('if not route.get("native") and route.get("gateway_enabled"):');
-    expect(downloadSource).toContain("return super().report_download(data, context=context, token=token)");
-    expect(downloadSource).toContain("status=502");
+  it("leaves Odoo 19 report download native and uses the supported JS interceptor", () => {
+    const controllers = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/controllers/__init__.py"), "utf-8");
+    const manifest = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/__manifest__.py"), "utf-8");
+    expect(controllers).not.toContain("report_download_override");
+    expect(manifest).toContain("report_interceptor.js");
+    expect(fs.existsSync(path.resolve(__dirname, "../odoo_addons/print_gateway/controllers/report_download_override.py"))).toBe(false);
   });
 });
 

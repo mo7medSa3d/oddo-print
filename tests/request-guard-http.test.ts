@@ -2,6 +2,7 @@ import { createServer, type Server } from "http";
 import { connect, type AddressInfo } from "net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { guardApiRequest, MAX_API_BODY_BYTES } from "../src/server/request-guard";
+import { parseStrictContentLength } from "../src/lib/request-limits";
 
 /**
  * Real-TCP tests for the API body guard. The P0 that broke every mutating
@@ -16,6 +17,18 @@ import { guardApiRequest, MAX_API_BODY_BYTES } from "../src/server/request-guard
 function post(url: string, init?: { body?: BodyInit | null; headers?: Record<string, string> | null; duplex?: "half" }) {
   return fetch(url, { method: "POST", ...init } as RequestInit);
 }
+
+describe("strict Content-Length parser", () => {
+  it.each(["1e3", "0x10", " 10", "10 ", "1.5", "9007199254740992"])("rejects %s", (raw) => {
+    expect(parseStrictContentLength(raw)).toBeNull();
+  });
+
+  it("rejects duplicate values and accepts safe decimal digits", () => {
+    expect(parseStrictContentLength(["10", "10"])).toBeNull();
+    expect(parseStrictContentLength("0")).toBe(0);
+    expect(parseStrictContentLength("4096")).toBe(4096);
+  });
+});
 
 describe("request guard (real HTTP)", () => {
   let server: Server;

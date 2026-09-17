@@ -458,6 +458,29 @@ class PrintGatewayBinding(models.Model):
         raise ValidationError(_("A deterministic Odoo print destination is required."))
 
     @api.model
+    def resolve_explicit(self, binding, company, document_type, destination, *, report=None, branch=None, protocol=None, payload_type=None):
+        """Validate and return the exact caller-selected binding; never reprioritize it."""
+        binding = binding.exists()
+        if not binding or len(binding) != 1:
+            raise ValidationError(_("The explicitly selected print binding no longer exists."))
+        normalized = (document_type or "").strip().lower()
+        if not binding.enabled:
+            raise ValidationError(_("The explicitly selected print binding is disabled."))
+        if binding.company_id != company or binding.branch_id != branch:
+            raise ValidationError(_("The explicitly selected print binding is not scoped to the current company and branch."))
+        if binding.destination_ref != destination or binding.document_type != normalized:
+            raise ValidationError(_("The explicitly selected print binding does not match this destination and document type."))
+        if report and binding.report_id != report:
+            raise ValidationError(_("The explicitly selected print binding does not match this report action."))
+        if not binding.runtime_agent_id or not binding.printer_id:
+            raise ValidationError(_("The explicitly selected print binding has no routable runtime and printer."))
+        if protocol and binding.printer_protocol != protocol:
+            raise ValidationError(_("The explicitly selected print binding does not support protocol '%s'.") % protocol)
+        if payload_type in ("pdf", "raster_jpeg") and binding.printer_protocol not in ("spooler", "ipp", "ipps"):
+            raise ValidationError(_("The explicitly selected print binding is not capable of document printing."))
+        return binding
+
+    @api.model
     def find_for(self, company, document_type, report=None, record=None, explicit_destination=None, branch=None):
         normalized = (document_type or "").strip().lower()
         if not normalized:
@@ -475,6 +498,13 @@ class PrintGatewayBinding(models.Model):
         binding = self.search(domain, order="priority asc, id asc", limit=1)
         if binding or not branch:
             return binding
+        # POS configurations and stock operation types are branch-owned.
+        # Their root binding cannot carry the same destination_ref, so require
+        # an explicit branch binding rather than pretending a root fallback is
+        # structurally available. Root fallback remains valid for global/root
+        # report destinations.
+        if destination_company == branch:
+            return self.browse()
         return self.search([
             ("company_id", "=", company.id), ("branch_id", "=", False), ("enabled", "=", True),
             ("destination_ref", "=", "%s,%s" % (destination._name, destination.id)),
@@ -482,22 +512,23 @@ class PrintGatewayBinding(models.Model):
         ], order="priority asc, id asc", limit=1)
 
     @api.model
-    def dispatch_report_action(self, report_name=None, report_id=None, res_ids=None, context=None):
+    def dispatch_report_action(self, report_name=None, report_id=None, res_ids=None, context=None, data=None):
         context = dict(context or self.env.context)
+        binding_model = self.with_context(**context)
         report = False
         if report_id:
             try:
-                report = self.env["ir.actions.report"].browse(int(report_id)).exists()
+                report = binding_model.env["ir.actions.report"].browse(int(report_id)).exists()
             except (TypeError, ValueError):
                 report = False
         if not report and report_name:
-            report = self.env["ir.actions.report"].search([("report_name", "=", report_name)], limit=1)
+            report = binding_model.env["ir.actions.report"].search([("report_name", "=", report_name)], limit=1)
             if not report:
-                report = self.env["ir.actions.report"].search([("report_file", "=", report_name)], limit=1)
+                report = binding_model.env["ir.actions.report"].search([("report_file", "=", report_name)], limit=1)
         if not report:
             return {"dispatched": False, "has_binding": False}
 
-        records = self.env[report.model].browse(res_ids or []).exists()
+        records = binding_model.env[report.model].browse(res_ids or []).exists()
         # The rendered PDF leaves the Odoo perimeter (gateway + physical
         # print), so the caller must hold READ access on every record it
         # asked to render - exactly like the /report/download controller.
@@ -505,16 +536,16 @@ class PrintGatewayBinding(models.Model):
         # documents they are not allowed to open via RPC dispatch.
         if records:
             records.check_access("read")
-        router = self.env["print_gateway.print_router"]
-        config = router._gateway_config(self.env.company)
+        router = binding_model.env["print_gateway.print_router"]
+        config = router._gateway_config(binding_model.env.company)
         if not config:
             return {"dispatched": False, "has_binding": False}
 
         try:
-            gateway_company, branch = router._binding_scope(self.env.company)
+            gateway_company, branch = router._binding_scope(binding_model.env.company)
             dtype = router._document_type(report=report, record=records[0] if records else None)
             destination = router.destination_for(report=report, record=records[0] if records else None)
-            binding = self.find_for(
+            binding = binding_model.find_for(
                 gateway_company,
                 dtype,
                 report=report,
@@ -535,7 +566,7 @@ class PrintGatewayBinding(models.Model):
             return {"dispatched": False, "has_binding": False, "success": False}
 
         try:
-            route = router.route_report(report, records)
+            route = router.route_report(report, records, data=data)
             if route.get("native"):
                 return {"dispatched": False, "has_binding": False, "success": False}
 

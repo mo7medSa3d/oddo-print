@@ -151,7 +151,8 @@ describe("Odoo addon static contracts", () => {
     const security = read("security/security.xml");
 
     expect(router).toContain('self.env["print_gateway.gateway_config"].sudo().search');
-    expect(router).toContain('self.env["print_gateway.binding"].sudo().find_for');
+    expect(router).toContain('binding_model = self.env["print_gateway.binding"].sudo()');
+    expect(router).toContain("binding_model.find_for(");
     expect(jobs).toContain("job.gateway_config_id.sudo()");
     expect(security).toContain("('company_id.child_ids', 'in', company_ids)");
     expect(security).toContain("('branch_id', 'in', company_ids)");

@@ -196,6 +196,34 @@ suite("print idempotency (Odoo → Gateway)", () => {
     expect(await jobCount()).toBe(2);
   });
 
+  it("internal requests may reuse the same idempotency key across tenants", async () => {
+    const other = await seedFixture();
+    const key = "op-internal-cross-tenant";
+    const payload = { type: "pdf", encoding: "base64", data: pdfBase64() };
+
+    const [first, second] = await Promise.all([
+      createPrintJobForPrinter(f.printerId, payload, {
+        requestedBy: "internal-service",
+        tenantId: f.tenantId,
+        idempotencyKey: key,
+        destination: "POS",
+        documentType: "invoice",
+        rateLimitKeyId: null,
+      }),
+      createPrintJobForPrinter(other.printerId, payload, {
+        requestedBy: "internal-service",
+        tenantId: other.tenantId,
+        idempotencyKey: key,
+        destination: "POS",
+        documentType: "invoice",
+        rateLimitKeyId: null,
+      }),
+    ]);
+
+    expect(first.id).not.toBe(second.id);
+    expect(await jobCount()).toBe(2);
+  });
+
   it("internal requests (api_key_id is null) converge concurrently on one logical job", async () => {
     const key = "op-internal-concurrent";
     const payload = { type: "pdf", encoding: "base64", data: pdfBase64() };

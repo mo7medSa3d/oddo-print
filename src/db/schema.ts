@@ -319,7 +319,7 @@ export const printJobs = pgTable("print_jobs", {
   apiKeyIdIdx: index("print_jobs_api_key_id_idx").on(table.apiKeyId),
   requestIdIdx: index("print_jobs_request_id_idx").on(table.requestId),
   idempotencyUnique: uniqueIndex("print_jobs_idempotency_unique").on(table.apiKeyId, table.idempotencyKey).where(sql`idempotency_key IS NOT NULL AND api_key_id IS NOT NULL`),
-  internalIdempotencyUnique: uniqueIndex("print_jobs_internal_idempotency_unique").on(table.idempotencyKey).where(sql`idempotency_key IS NOT NULL AND api_key_id IS NULL`),
+  internalIdempotencyUnique: uniqueIndex("print_jobs_internal_idempotency_unique").on(table.tenantId, table.idempotencyKey).where(sql`idempotency_key IS NOT NULL AND api_key_id IS NULL`),
   statusCheck: check("print_jobs_status_check", sql`${table.status} in ('queued','claimed','printing','success','failed','expired')`),
   retriesCheck: check("print_jobs_retries_check", sql`${table.retries} >= 0`),
   deliveryAttemptsCheck: check("print_jobs_delivery_attempts_check", sql`${table.deliveryAttempts} >= 0`),

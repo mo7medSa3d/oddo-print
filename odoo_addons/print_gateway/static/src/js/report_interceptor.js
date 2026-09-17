@@ -26,6 +26,26 @@ function openJobsButton(env) {
     };
 }
 
+function normalizeIds(value) {
+    const values = Array.isArray(value) ? value : [value];
+    return values
+        .filter((id) =>
+            (typeof id === "number" && Number.isInteger(id) && id > 0) ||
+            (typeof id === "string" && /^\d+$/.test(id) && Number(id) > 0)
+        )
+        .map(Number);
+}
+
+function firstNonEmptyIds(...sources) {
+    for (const source of sources) {
+        const ids = normalizeIds(source);
+        if (ids.length) {
+            return ids;
+        }
+    }
+    return [];
+}
+
 async function silentPrintReportHandler(action, options, env) {
     if (action.type !== "ir.actions.report" || action.report_type !== "qweb-pdf") {
         return false;
@@ -33,15 +53,16 @@ async function silentPrintReportHandler(action, options, env) {
 
     const orm = env.services.orm;
     const notification = env.services.notification;
-    const resIds =
-        (options && options.active_ids) ||
-        (options && options.res_ids) ||
-        action.context?.active_ids ||
-        (action.context?.active_id ? [action.context.active_id] : []) ||
-        action.res_ids ||
-        action.docids ||
-        (action.data && action.data.res_ids) ||
-        [];
+    const resIds = firstNonEmptyIds(
+        options?.active_ids,
+        options?.res_ids,
+        action.context?.active_ids,
+        action.context?.active_id,
+        action.res_ids,
+        action.docids,
+        action.data?.res_ids,
+        action.data?.docids
+    );
 
     try {
         const res = await orm.call(
@@ -53,6 +74,7 @@ async function silentPrintReportHandler(action, options, env) {
                 report_id: action.id,
                 res_ids: resIds,
                 context: action.context || {},
+                data: action.data ?? null,
             }
         );
 

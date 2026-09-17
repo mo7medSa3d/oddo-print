@@ -8,6 +8,7 @@ import {
   pool,
 } from "./helpers/pg";
 import { POST as loginPOST } from "../src/app/api/auth/manager/login/route";
+import { hashPassword } from "../src/lib/password";
 
 describe("auth rate limiter (pure)", () => {
   it("has no lock below 5 failures", () => {
@@ -114,19 +115,43 @@ suite("manager login rate limiting", () => {
     await pool().query(`INSERT INTO tenants (id, name) VALUES ($1, $2)`, ["tenant_rate_limit_test", "Rate Limit Test Tenant"]);
   });
 
-  function login(username: string, password: string, ip = "198.51.100.10") {
-    return loginPOST(new Request("http://gateway.test/api/auth/manager/login", {
+  function login(username: string, password: string, ip = "198.51.100.10", host = "gateway.test") {
+    return loginPOST(new Request(`http://${host}/api/auth/manager/login`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-real-ip": ip },
+      headers: { "content-type": "application/json", "x-real-ip": ip, host },
       body: JSON.stringify({ username, password }),
     }));
   }
 
-  it("normal login succeeds", async () => {
+  it("legacy credentials mint an owner session for the exact configured tenant", async () => {
     const res = await login(USER, PASS);
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
+    const session = await pool().query(`SELECT tenant_id, user_id, role FROM manager_sessions`);
+    expect(session.rows).toEqual([{ tenant_id: "tenant_rate_limit_test", user_id: null, role: "owner" }]);
+  });
+
+  it("legacy credentials cannot mint a session for a hostname-resolved different tenant", async () => {
+    await pool().query(`INSERT INTO tenants (id, name) VALUES ('tenant_b', 'Tenant B')`);
+    await pool().query(`INSERT INTO tenant_domains (id, tenant_id, domain, verified_at) VALUES ('domain_b', 'tenant_b', 'tenant-b.test', now())`);
+
+    const res = await login(USER, PASS, "198.51.100.12", "tenant-b.test");
+    expect(res.status).toBe(401);
+    expect(res.headers.get("set-cookie")).toBeNull();
+    expect((await pool().query(`SELECT count(*)::int AS count FROM manager_sessions`)).rows[0].count).toBe(0);
+  });
+
+  it("normal tenant identity login remains available on a different tenant hostname", async () => {
+    const email = "manager-b@example.test";
+    const password = "tenant-b-password";
+    await pool().query(`INSERT INTO tenants (id, name) VALUES ('tenant_b', 'Tenant B')`);
+    await pool().query(`INSERT INTO tenant_domains (id, tenant_id, domain, verified_at) VALUES ('domain_b', 'tenant_b', 'tenant-b.test', now())`);
+    await pool().query(`INSERT INTO users (id, email, password_hash, email_verified_at) VALUES ('user_b', $1, $2, now())`, [email, await hashPassword(password)]);
+    await pool().query(`INSERT INTO tenant_users (user_id, tenant_id, role) VALUES ('user_b', 'tenant_b', 'admin')`);
+
+    const res = await login(email, password, "198.51.100.13", "tenant-b.test");
+    expect(res.status).toBe(200);
+    const session = await pool().query(`SELECT tenant_id, user_id, role FROM manager_sessions`);
+    expect(session.rows).toEqual([{ tenant_id: "tenant_b", user_id: "user_b", role: "admin" }]);
   });
 
   it("repeated failures then 429 with Retry-After", async () => {

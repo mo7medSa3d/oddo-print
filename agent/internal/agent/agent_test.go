@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -773,6 +774,87 @@ func TestReloadRegistryPrintersFeedsRuntimeAndHeartbeat(t *testing.T) {
 	entry, ok := entries[0].(map[string]interface{})
 	if !ok || entry["id"] != device.ID || entry["endpoint"] != device.Endpoint {
 		t.Fatalf("unexpected heartbeat printer payload: %#v", entries[0])
+	}
+}
+
+func TestReloadRegistryPrintersRemovesDeletedRuntimeAndHeartbeatEntry(t *testing.T) {
+	ag := newTestAgent(t, "seed", &fakePrinter{})
+	device := productionNetworkDevice("prt-deleted", "127.0.0.1:9100")
+	if err := printer.SaveRegistry(ag.registryPath, []printer.DeviceInfo{device}); err != nil {
+		t.Fatalf("SaveRegistry: %v", err)
+	}
+	ag.reloadRegistryPrinters()
+	if _, ok := ag.getPrinter(device.ID); !ok {
+		t.Fatal("registry printer was not added")
+	}
+
+	if err := printer.SaveRegistry(ag.registryPath, nil); err != nil {
+		t.Fatalf("clear registry: %v", err)
+	}
+	ag.reloadRegistryPrinters()
+	if _, ok := ag.getPrinter(device.ID); ok {
+		t.Fatal("deleted registry printer remains in runtime")
+	}
+	for _, entry := range ag.printerStatusPayload() {
+		if entry["id"] == device.ID {
+			t.Fatal("deleted registry printer remains heartbeat-reported")
+		}
+	}
+}
+
+func TestReloadRegistryPrintersPreservesYAMLOwnedPrinter(t *testing.T) {
+	ag := newTestAgent(t, "yaml-printer", &fakePrinter{})
+	ag.cfg.Printers = []config.PrinterConfig{{ID: "yaml-printer"}}
+	device := productionNetworkDevice("yaml-printer", "127.0.0.1:9100")
+	if err := printer.SaveRegistry(ag.registryPath, []printer.DeviceInfo{device}); err != nil {
+		t.Fatalf("SaveRegistry: %v", err)
+	}
+	ag.reloadRegistryPrinters()
+	if err := printer.SaveRegistry(ag.registryPath, nil); err != nil {
+		t.Fatalf("clear registry: %v", err)
+	}
+
+	ag.reloadRegistryPrinters()
+	if _, ok := ag.getPrinter("yaml-printer"); !ok {
+		t.Fatal("YAML-owned printer was removed by registry reconciliation")
+	}
+}
+
+func TestReloadRegistryPrintersDoesNotMutateResolvedBackend(t *testing.T) {
+	ag := newTestAgent(t, "seed", &fakePrinter{})
+	device := productionNetworkDevice("prt-in-flight", "127.0.0.1:9100")
+	if err := printer.SaveRegistry(ag.registryPath, []printer.DeviceInfo{device}); err != nil {
+		t.Fatalf("SaveRegistry: %v", err)
+	}
+	ag.reloadRegistryPrinters()
+	resolved, ok := ag.getPrinter(device.ID)
+	if !ok {
+		t.Fatal("registry printer was not added")
+	}
+
+	if err := printer.SaveRegistry(ag.registryPath, nil); err != nil {
+		t.Fatalf("clear registry: %v", err)
+	}
+	ag.reloadRegistryPrinters()
+	if got := resolved.Status(); got == "" {
+		t.Fatal("previously resolved backend was mutated or invalidated")
+	}
+}
+
+func TestReloadRegistryPrintersReadFailureDoesNotRemove(t *testing.T) {
+	ag := newTestAgent(t, "seed", &fakePrinter{})
+	device := productionNetworkDevice("prt-preserved", "127.0.0.1:9100")
+	if err := printer.SaveRegistry(ag.registryPath, []printer.DeviceInfo{device}); err != nil {
+		t.Fatalf("SaveRegistry: %v", err)
+	}
+	ag.reloadRegistryPrinters()
+	if err := os.WriteFile(ag.registryPath, []byte(`{"malformed"`), 0o600); err != nil {
+		t.Fatalf("write malformed registry: %v", err)
+	}
+
+	ag.reloadRegistryPrinters()
+	if _, ok := ag.getPrinter(device.ID); !ok {
+		t.Fatal("failed registry read removed a runtime printer")
 	}
 }
 

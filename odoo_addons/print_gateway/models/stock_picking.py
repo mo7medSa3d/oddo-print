@@ -22,24 +22,14 @@ class StockPickingPrintGateway(models.Model):
             if picking.state != "done":
                 continue
             try:
-                policies = policy_model.search([
-                    ("model_id.model", "=", "stock.picking"),
-                    ("event_type", "=", "picking_validated"),
-                    ("company_id", "=", picking.company_id.id),
-                    ("active", "=", True),
-                ], order="priority asc, id asc")
+                policies = policy_model.resolve_for_record(picking, "picking_validated")
 
                 # Multi-destination fan-out with same-target dedup (e.g.
                 # packing slip AND shipping label from distinct bindings).
                 executed_targets = set()
                 for policy in policies:
                     if policy.matches_record(picking):
-                        target_key = (
-                            policy.binding_id.id if policy.binding_id else False,
-                            policy.action_type,
-                            policy.report_id.id if policy.report_id else False,
-                            policy.raw_template or False,
-                        )
+                        target_key = policy.effective_target_key(picking)
                         if target_key in executed_targets:
                             continue
                         executed_targets.add(target_key)

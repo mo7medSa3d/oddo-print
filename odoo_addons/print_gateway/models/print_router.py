@@ -130,7 +130,7 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
-    def resolve_binding(self, *, report=None, record=None, document_type=None, company=None, explicit_destination=None, raise_if_not_found=True):
+    def resolve_binding(self, *, report=None, record=None, document_type=None, company=None, explicit_destination=None, explicit_binding=None, protocol=None, payload_type=None, raise_if_not_found=True):
         current_company = self.env.company
         requested_company = company or current_company
         self._assert_current_company(requested_company, record=record)
@@ -144,14 +144,27 @@ class PrintGatewayRouter(models.AbstractModel):
             record=record,
             explicit_destination=explicit_destination,
         )
-        binding = self.env["print_gateway.binding"].sudo().find_for(
-            gateway_company,
-            dtype,
-            report=report,
-            record=record,
-            explicit_destination=explicit_destination,
-            branch=branch,
-        )
+        binding_model = self.env["print_gateway.binding"].sudo()
+        if explicit_binding:
+            binding = binding_model.resolve_explicit(
+                explicit_binding,
+                gateway_company,
+                dtype,
+                destination,
+                report=report,
+                branch=branch,
+                protocol=protocol,
+                payload_type=payload_type,
+            )
+        else:
+            binding = binding_model.find_for(
+                gateway_company,
+                dtype,
+                report=report,
+                record=record,
+                explicit_destination=explicit_destination,
+                branch=branch,
+            )
         if not binding:
             if not raise_if_not_found:
                 return {
@@ -506,6 +519,8 @@ class PrintGatewayRouter(models.AbstractModel):
                 record=target_record,
                 company=company,
                 explicit_destination=policy.binding_id.destination_ref if policy.binding_id else None,
+                explicit_binding=policy.binding_id or None,
+                payload_type="pdf",
             )
             if route.get("native"):
                 return {"status": "skipped", "message": _("Policy resolved to native print.")}

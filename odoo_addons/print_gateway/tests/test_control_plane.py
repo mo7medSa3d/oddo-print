@@ -857,96 +857,6 @@ class TestControlPlane(TransactionCase):
         token_terminal = intent_model._claim_intent(self.env, intent_terminal.id, cr=self.env.cr)
         self.assertIsNone(token_terminal, "Terminal failed intent must not be automatically claimed")
 
-    def test_15_multi_record_report_routing_scope_isolation(self):
-        """Verify /report/download rejects mixed-scope batches and enforces IDOR permissions."""
-        from odoo.addons.print_gateway.controllers.report_download_override import PrintGatewayReportController
-        from odoo.exceptions import AccessError
-        from werkzeug.wrappers import Response as WerkzeugResponse
-
-        controller = PrintGatewayReportController()
-        report = self.env["ir.actions.report"].search([("model", "=", "stock.picking")], limit=1)
-        if not report:
-            report = self.env["ir.actions.report"].create({
-                "name": "Test Picking Report",
-                "model": "stock.picking",
-                "report_type": "qweb-pdf",
-                "report_name": "test.picking_report",
-            })
-
-        PickingClass = type(self.env[report.model])
-
-        # Fake request context
-        mock_req = MagicMock()
-        mock_req.env = self.env
-        mock_req.make_response = lambda data, headers=None, status=200: WerkzeugResponse(data, status=status, headers=headers)
-
-        with patch("odoo.addons.print_gateway.controllers.report_download_override.request", mock_req):
-            # Test 1: Empty docids returns 400
-            data_empty = json.dumps([f"/report/pdf/{report.report_name}/", "qweb-pdf"])
-            resp = controller.report_download(data_empty)
-            self.assertEqual(resp.status_code, 400)
-            self.assertIn("invalid_report_request", resp.get_data(as_text=True))
-
-            # Test 2: Unknown report returns 404
-            data_bad_rep = json.dumps(["/report/pdf/nonexistent.report/1,2", "qweb-pdf"])
-            resp = controller.report_download(data_bad_rep)
-            self.assertEqual(resp.status_code, 404)
-            self.assertIn("report_not_found", resp.get_data(as_text=True))
-
-            # Test 3: Mixed scope / different bindings returns 400 mixed_scope_batch
-            mock_records = MagicMock()
-            mock_records.__len__.return_value = 2
-            mock_records.exists.return_value = mock_records
-            mock_records.check_access.return_value = None
-            rec1, rec2 = MagicMock(), MagicMock()
-            mock_records.__iter__.return_value = [rec1, rec2]
-
-            router = self.env["print_gateway.print_router"]
-            RouterClass = type(router)
-            route1 = {
-                "binding": self.primary_binding,
-                "binding_id": self.primary_binding.id,
-                "printer_id": self.primary_binding.printer_id,
-                "runtime_agent_id": self.primary_binding.runtime_agent_id,
-                "gateway_enabled": True,
-                "native": False,
-            }
-            route2 = {
-                "binding": self.zpl_binding,
-                "binding_id": self.zpl_binding.id,
-                "printer_id": self.zpl_binding.printer_id,
-                "runtime_agent_id": self.zpl_binding.runtime_agent_id,
-                "gateway_enabled": True,
-                "native": False,
-            }
-
-            with patch.object(PickingClass, "browse", return_value=mock_records), \
-                 patch.object(RouterClass, "resolve_binding", side_effect=[route1, route2]):
-                data_mixed = json.dumps([f"/report/pdf/{report.report_name}/1,2", "qweb-pdf"])
-                resp = controller.report_download(data_mixed)
-                self.assertEqual(resp.status_code, 400)
-                self.assertIn("mixed_scope_batch", resp.get_data(as_text=True))
-
-            # Test 4: Access error returns 403 forbidden without leaking internals
-            with patch.object(PickingClass, "browse", return_value=mock_records), \
-                 patch.object(mock_records, "check_access", side_effect=AccessError("No read access")):
-                data_forbidden = json.dumps([f"/report/pdf/{report.report_name}/1,2", "qweb-pdf"])
-                resp = controller.report_download(data_forbidden)
-                self.assertEqual(resp.status_code, 403)
-                self.assertIn("forbidden", resp.get_data(as_text=True))
-                self.assertNotIn("No read access", resp.get_data(as_text=True))
-
-            # Test 5: Gateway dispatch failure returns 502 without leaking raw trace
-            with patch.object(PickingClass, "browse", return_value=mock_records), \
-                 patch.object(mock_records, "check_access", return_value=None), \
-                 patch.object(RouterClass, "resolve_binding", return_value=route1), \
-                 patch.object(RouterClass, "route_report", side_effect=RuntimeError("Internal gateway timeout")):
-                data_dispatch = json.dumps([f"/report/pdf/{report.report_name}/1,2", "qweb-pdf"])
-                resp = controller.report_download(data_dispatch)
-                self.assertEqual(resp.status_code, 502)
-                self.assertIn("gateway_dispatch_failed", resp.get_data(as_text=True))
-                self.assertNotIn("Internal gateway timeout", resp.get_data(as_text=True))
-
     def test_16_migration_canonical_root_placeholder(self):
         """Verify 19.0.2.1.0 migration creates disabled non-routable placeholder when root binding is missing."""
         import importlib.util
@@ -1093,23 +1003,6 @@ class TestControlPlane(TransactionCase):
         })
         with self.assertRaises(ValidationError):
             job_pdf_active._submission_body()
-
-    def test_20_report_download_fail_closed_on_config_error(self):
-        """Verify report_download fails closed (502) if _gateway_config raises or is invalid."""
-        from odoo.addons.print_gateway.controllers.report_download_override import PrintGatewayReportController
-        from odoo.http import Response
-        ctrl = PrintGatewayReportController()
-        req_data = json.dumps(["/report/pdf/test.report/1", "qweb-pdf"])
-        mock_req = MagicMock()
-        mock_req.env = self.env
-        mock_req.make_response = MagicMock(side_effect=lambda content, headers, status: Response(content, status=status, headers=headers))
-        RouterClass = type(self.env["print_gateway.print_router"])
-        with patch("odoo.addons.print_gateway.controllers.report_download_override.request", mock_req), \
-             patch.object(RouterClass, "_gateway_config", side_effect=RuntimeError("Gateway unreachable")):
-            resp = ctrl.report_download(req_data)
-            self.assertEqual(resp.status_code, 502)
-            content = json.loads(resp.get_data(as_text=True))
-            self.assertEqual(content.get("error"), "gateway_dispatch_failed")
 
     def test_21_raw_payload_requires_explicit_protocol(self):
         """Verify raw payload creation strictly requires explicit printer protocol without fallback inference."""

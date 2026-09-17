@@ -223,6 +223,47 @@ class PrintGatewayPolicy(models.Model):
                 except Exception as exc:
                     raise ValidationError(_("Invalid domain filter expression for policy '%s': %s") % (policy.name, exc)) from exc
 
+    @api.model
+    def resolve_for_record(self, record, event_type):
+        """Return branch policies plus root fallback, never sibling policies."""
+        record_company = getattr(record, "company_id", False)
+        if not record_company:
+            return self.browse()
+        root_company = record_company.parent_id or record_company
+        branch = record_company if record_company.parent_id else False
+        return self.search([
+            ("model_id.model", "=", record._name),
+            ("event_type", "=", event_type),
+            ("company_id", "=", root_company.id),
+            ("branch_id", "in", [False, branch.id] if branch else [False]),
+            ("active", "=", True),
+        ], order="priority asc, id asc")
+
+    def effective_target_key(self, record):
+        """Return the validated effective target used for policy fan-out dedup."""
+        self.ensure_one()
+        if self.action_type == "report":
+            route = self.env["print_gateway.print_router"].resolve_binding(
+                report=self.report_id,
+                record=record,
+                company=record.company_id,
+                explicit_destination=self.binding_id.destination_ref if self.binding_id else None,
+                explicit_binding=self.binding_id or None,
+                payload_type="pdf",
+            )
+            binding_id = route.get("binding_id") or False
+        else:
+            # Raw policy routing performs the same exact binding/protocol
+            # authorization immediately before dispatch. Explicit bindings are
+            # already authoritative and therefore safe as a dedup identity.
+            binding_id = self.binding_id.id if self.binding_id else False
+        return (
+            binding_id,
+            self.action_type,
+            self.report_id.id if self.report_id else False,
+            self.raw_template or False,
+        )
+
     def matches_record(self, record):
         """Evaluate whether a given record satisfies the policy filters."""
         self.ensure_one()

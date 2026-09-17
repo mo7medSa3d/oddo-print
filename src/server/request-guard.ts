@@ -1,5 +1,6 @@
 import { IncomingMessage, type ServerResponse } from "http";
 import { createHash, createHmac, timingSafeEqual } from "crypto";
+import { parseStrictContentLength } from "../lib/request-limits";
 
 /**
  * API body limit. The custom Next server must never consume the IncomingMessage
@@ -169,8 +170,8 @@ export async function guardApiRequest(
     return null;
   }
 
-  const length = Number(rawLength);
-  if (!Number.isInteger(length) || length < 0 || length > maxBytes) {
+  const length = parseStrictContentLength(rawLength);
+  if (length === null || length > maxBytes) {
     rejectRequest(res, 413, "REQUEST_BODY_TOO_LARGE");
     req.destroy();
     return null;

@@ -19,12 +19,7 @@ class AccountMovePrintGateway(models.Model):
             try:
                 if not move.is_invoice(include_receipts=True) or move.state != "posted":
                     continue
-                policies = policy_model.search([
-                    ("model_id.model", "=", "account.move"),
-                    ("event_type", "=", "invoice_posted"),
-                    ("company_id", "=", move.company_id.id),
-                    ("active", "=", True),
-                ], order="priority asc, id asc")
+                policies = policy_model.resolve_for_record(move, "invoice_posted")
 
                 # Multi-destination fan-out with same-target dedup: distinct
                 # bindings print, but two policies resolving to the identical
@@ -32,12 +27,7 @@ class AccountMovePrintGateway(models.Model):
                 executed_targets = set()
                 for policy in policies:
                     if policy.matches_record(move):
-                        target_key = (
-                            policy.binding_id.id if policy.binding_id else False,
-                            policy.action_type,
-                            policy.report_id.id if policy.report_id else False,
-                            policy.raw_template or False,
-                        )
+                        target_key = policy.effective_target_key(move)
                         if target_key in executed_targets:
                             continue
                         executed_targets.add(target_key)

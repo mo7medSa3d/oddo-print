@@ -80,9 +80,12 @@ type Agent struct {
 	printersMu     sync.RWMutex
 	printers       map[string]printer.Printer
 	printerConfigs map[string]config.PrinterConfig
-	queue          *queue.Queue
-	jobLocks       map[string]*sync.Mutex
-	locksMutex     sync.Mutex
+	// registryOwned is the runtime subset sourced only from a complete,
+	// successfully read printers.json snapshot. YAML-owned IDs are excluded.
+	registryOwned map[string]struct{}
+	queue         *queue.Queue
+	jobLocks      map[string]*sync.Mutex
+	locksMutex    sync.Mutex
 
 	// Job executor: bounded, deduplicated, and tracked for clean shutdown.
 	execSem      chan struct{}       // limits concurrently executing jobs
@@ -262,6 +265,7 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 		client:           &http.Client{Timeout: 15 * time.Second},
 		printers:         make(map[string]printer.Printer),
 		printerConfigs:   make(map[string]config.PrinterConfig),
+		registryOwned:    make(map[string]struct{}),
 		queue:            q,
 		jobLocks:         make(map[string]*sync.Mutex),
 		execSem:          make(chan struct{}, maxConcurrentJobs),
@@ -296,11 +300,7 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 	}
 	if len(quick.Printers) > 0 {
 		if merged, err := printer.UpsertRegistry(registryPath, quick.Printers); err == nil {
-			for _, di := range merged {
-				if _, err := a.mergeDiscoveredPrinter(di); err != nil {
-					log.Printf("WARNING: registry printer %q (%s) not initialized: %v", di.ID, di.Name, err)
-				}
-			}
+			a.reconcileRegistryPrinters(merged)
 		} else {
 			log.Printf("WARNING: failed to persist discovery registry: %v", err)
 		}
@@ -1451,17 +1451,45 @@ func endpointToConfig(pc config.PrinterConfig) map[string]interface{} {
 	return cfgMap
 }
 
+func (a *Agent) reconcileRegistryPrinters(infos []printer.DeviceInfo) {
+	yamlOwned := make(map[string]struct{}, len(a.cfg.Printers))
+	for _, pc := range a.cfg.Printers {
+		yamlOwned[pc.ID] = struct{}{}
+	}
+
+	present := make(map[string]struct{}, len(infos))
+	for _, di := range infos {
+		if _, ownedByYAML := yamlOwned[di.ID]; ownedByYAML {
+			continue
+		}
+		present[di.ID] = struct{}{}
+		if _, err := a.mergeDiscoveredPrinter(di); err != nil {
+			log.Printf("WARNING: registry printer %q (%s) not initialized: %v", di.ID, di.Name, err)
+		}
+	}
+
+	a.printersMu.Lock()
+	defer a.printersMu.Unlock()
+	for id := range a.registryOwned {
+		if _, stillPresent := present[id]; stillPresent {
+			continue
+		}
+		delete(a.printers, id)
+		delete(a.printerConfigs, id)
+	}
+	a.registryOwned = present
+}
+
 func (a *Agent) reloadRegistryPrinters() {
 	if a.registryPath == "" {
 		return
 	}
 	infos, err := printer.LoadRegistryPrinters(a.registryPath)
 	if err != nil {
+		log.Printf("WARNING: failed to reload printer registry: %v", err)
 		return
 	}
-	for _, di := range infos {
-		_, _ = a.mergeDiscoveredPrinter(di)
-	}
+	a.reconcileRegistryPrinters(infos)
 }
 
 func (a *Agent) sendHeartbeat() {

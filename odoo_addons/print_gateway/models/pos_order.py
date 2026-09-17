@@ -53,12 +53,7 @@ class PosOrderGatewayPrinting(models.Model):
             try:
                 if order.state not in ("paid", "done", "invoiced"):
                     continue
-                policies = policy_model.search([
-                    ("model_id.model", "=", "pos.order"),
-                    ("event_type", "=", "pos_order_paid"),
-                    ("company_id", "=", order.company_id.id),
-                    ("active", "=", True),
-                ], order="priority asc, id asc")
+                policies = policy_model.resolve_for_record(order, "pos_order_paid")
 
                 # Multi-destination fan-out with same-target dedup: distinct
                 # bindings print (counter receipt AND kitchen ticket), but two
@@ -66,12 +61,7 @@ class PosOrderGatewayPrinting(models.Model):
                 executed_targets = set()
                 for policy in policies:
                     if policy.matches_record(order):
-                        target_key = (
-                            policy.binding_id.id if policy.binding_id else False,
-                            policy.action_type,
-                            policy.report_id.id if policy.report_id else False,
-                            policy.raw_template or False,
-                        )
+                        target_key = policy.effective_target_key(order)
                         if target_key in executed_targets:
                             continue
                         executed_targets.add(target_key)
