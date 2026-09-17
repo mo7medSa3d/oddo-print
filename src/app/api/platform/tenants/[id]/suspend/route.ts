@@ -15,6 +15,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!id || typeof id !== "string") {
     return NextResponse.json({ error: "Tenant ID is required" }, { status: 400 });
   }
+  const platformTenantId = process.env.PLATFORM_TENANT_ID?.trim();
+  if (platformTenantId && id === platformTenantId) {
+    return NextResponse.json({ error: "The platform tenant cannot be suspended.", code: "PLATFORM_TENANT_PROTECTED" }, { status: 409 });
+  }
 
   if (hasBodyOverLimit(req, 16 * 1024)) {
     return NextResponse.json({ error: "Request body too large" }, { status: 413 });
