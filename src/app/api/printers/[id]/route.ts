@@ -97,13 +97,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (parsed.data.protocol !== undefined) update.protocol = parsed.data.protocol;
     if (parsed.data.config !== undefined) update.config = parsed.data.config;
     if (parsed.data.lifecycle !== undefined) update.lifecycle = parsed.data.lifecycle;
-    if (desiredStateChanged) {
-      update.managementSource = "manager";
-      update.desiredRevision = sql<number>`${printers.desiredRevision} + 1`;
-    }
+
+    const setValues = desiredStateChanged
+      ? {
+          ...update,
+          managementSource: "manager" as const,
+          desiredRevision: sql<number>`${printers.desiredRevision} + 1`,
+        }
+      : update;
 
     const [row] = await tx.update(printers)
-      .set(update)
+      .set(setValues)
       .where(and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId)))
       .returning();
 
