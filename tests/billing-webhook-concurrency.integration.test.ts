@@ -117,6 +117,69 @@ suite("billing webhook concurrency", () => {
     expect(subscription?.stripeCustomerId).toBe(seeded.customerId);
   });
 
+  it("does not let an older subscription identity steal a tenant from its current subscription", async () => {
+    const seeded = await seed();
+    const currentCreated = Math.floor(Date.now() / 1000);
+    await db.update(tenantSubscriptions)
+      .set({ status: "active", stripeLastEventCreatedAt: new Date(currentCreated * 1000) })
+      .where(eq(tenantSubscriptions.tenantId, seeded.tenantId));
+
+    const oldSubscriptionId = `sub_old_${nanoid(8)}`;
+    const stalePayload = JSON.stringify({
+      id: `evt_stale_identity_${nanoid(8)}`,
+      type: "customer.subscription.updated",
+      created: currentCreated - 30,
+      data: { object: {
+        id: oldSubscriptionId,
+        customer: seeded.customerId,
+        status: "past_due",
+        metadata: { tenant_id: seeded.tenantId },
+      } },
+    });
+
+    const res = await POST(requestFor(stalePayload, currentCreated - 30));
+    expect(res.status).toBe(200);
+
+    const subscription = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, seeded.tenantId),
+    });
+    expect(subscription?.stripeSubscriptionId).toBe(seeded.subscriptionId);
+    expect(subscription?.status).toBe("active");
+  });
+
+  it("allows a newer subscription event to replace a cancelled subscription identity", async () => {
+    const seeded = await seed();
+    const cancelledAt = Math.floor(Date.now() / 1000) - 60;
+    await db.update(tenantSubscriptions)
+      .set({ status: "cancelled", stripeLastEventCreatedAt: new Date(cancelledAt * 1000) })
+      .where(eq(tenantSubscriptions.tenantId, seeded.tenantId));
+
+    const newSubscriptionId = `sub_new_${nanoid(8)}`;
+    const created = cancelledAt + 30;
+    const payload = JSON.stringify({
+      id: `evt_new_identity_${nanoid(8)}`,
+      type: "customer.subscription.updated",
+      created,
+      data: { object: {
+        id: newSubscriptionId,
+        customer: seeded.customerId,
+        status: "active",
+        items: { data: [{ price: { id: seeded.priceId } }] },
+        metadata: { tenant_id: seeded.tenantId },
+      } },
+    });
+
+    const res = await POST(requestFor(payload, created));
+    expect(res.status).toBe(200);
+
+    const subscription = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, seeded.tenantId),
+    });
+    expect(subscription?.stripeSubscriptionId).toBe(newSubscriptionId);
+    expect(subscription?.status).toBe("active");
+    expect(subscription?.stripeLastEventCreatedAt?.getTime()).toBe(created * 1000);
+  });
+
   it("uses event ID as a deterministic tie-breaker for equal Stripe created timestamps", async () => {
     const seeded = await seed();
     const created = Math.floor(Date.now() / 1000);
