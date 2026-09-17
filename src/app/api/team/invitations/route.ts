@@ -1,4 +1,3 @@
-import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantInvitations, users } from "../../../../db/schema";
@@ -38,15 +37,44 @@ export async function POST(req: Request) {
   const raw = generateOpaqueToken();
   const id = `inv_${nanoid(18)}`;
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000);
-  await db.insert(tenantInvitations).values({ id, tenantId: claims.tenantId, inviterUserId: claims.userId, email, role, tokenHash: await hashToken(raw), expiresAt });
+  await db.transaction(async (tx) => {
+    await tx.insert(tenantInvitations).values({
+      id,
+      tenantId: claims.tenantId,
+      inviterUserId: claims.userId,
+      email,
+      role,
+      tokenHash: await hashToken(raw),
+      expiresAt,
+    });
+    await writeAuditEvent({
+      tenantId: claims.tenantId,
+      actorType: "user",
+      actorId: claims.userId,
+      action: "team.invitation.created",
+      resourceType: "tenant_invitation",
+      resourceId: id,
+    }, tx);
+  });
   const url = `${appBaseUrl(req)}/invite?token=${encodeURIComponent(raw)}`;
   try {
     await sendTransactionalEmail({ to: email, subject: "You are invited to Print Gateway", html: `<p>You have been invited to a Print Gateway workspace.</p><p><a href="${url}">Accept invitation</a></p>`, text: `Accept invitation: ${url}` });
   } catch {
-    await db.update(tenantInvitations).set({ revokedAt: new Date() }).where(eq(tenantInvitations.id, id));
+    await db.transaction(async (tx) => {
+      await tx.update(tenantInvitations)
+        .set({ revokedAt: new Date() })
+        .where(eq(tenantInvitations.id, id));
+      await writeAuditEvent({
+        tenantId: claims.tenantId,
+        actorType: "user",
+        actorId: claims.userId,
+        action: "team.invitation.delivery_failed",
+        resourceType: "tenant_invitation",
+        resourceId: id,
+      }, tx);
+    });
     return NextResponse.json({ error: "Invitation delivery is temporarily unavailable" }, { status: 503 });
   }
-  await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "team.invitation.created", resourceType: "tenant_invitation", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   return NextResponse.json({ ok: true, id });
 }
 
