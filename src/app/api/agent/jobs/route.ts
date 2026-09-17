@@ -54,6 +54,7 @@ export async function GET(req: Request) {
         AND a.status = 'online'
         AND pr.lifecycle = 'active'
         AND pr.status = 'online'
+        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
         AND t.lifecycle = 'active'
     `);
     const inFlight = Number((countResult.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
@@ -79,6 +80,7 @@ export async function GET(req: Request) {
           AND a.status = 'online'
           AND pr.lifecycle = 'active'
           AND pr.status = 'online'
+        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${MAX_CLAIM_BATCH}
@@ -99,6 +101,7 @@ export async function GET(req: Request) {
           AND a.status = 'online'
           AND pr.lifecycle = 'active'
           AND pr.status = 'online'
+        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${queuedLimit}
@@ -119,6 +122,7 @@ export async function GET(req: Request) {
           AND a.status = 'online'
           AND pr.lifecycle = 'active'
           AND pr.status = 'online'
+        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
           AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC
         LIMIT ${MAX_CLAIM_BATCH}
