@@ -117,6 +117,37 @@ suite("billing webhook concurrency", () => {
     expect(subscription?.stripeCustomerId).toBe(seeded.customerId);
   });
 
+  it("rebinds a cancelled tenant to the new Stripe subscription on checkout completion", async () => {
+    const seeded = await seed();
+    const cancelledAt = Math.floor(Date.now() / 1000) - 60;
+    await db.update(tenantSubscriptions)
+      .set({ status: "cancelled", stripeLastEventCreatedAt: new Date(cancelledAt * 1000) })
+      .where(eq(tenantSubscriptions.tenantId, seeded.tenantId));
+
+    const newSubscriptionId = `sub_checkout_new_${nanoid(8)}`;
+    const created = cancelledAt + 30;
+    const payload = JSON.stringify({
+      id: `evt_checkout_rebind_${nanoid(8)}`,
+      type: "checkout.session.completed",
+      created,
+      data: { object: {
+        subscription: newSubscriptionId,
+        customer: seeded.customerId,
+        client_reference_id: seeded.tenantId,
+        metadata: { tenant_id: seeded.tenantId },
+      } },
+    });
+
+    const res = await POST(requestFor(payload, created));
+    expect(res.status).toBe(200);
+
+    const subscription = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, seeded.tenantId),
+    });
+    expect(subscription?.stripeSubscriptionId).toBe(newSubscriptionId);
+    expect(subscription?.status).toBe("cancelled");
+  });
+
   it("does not let an older subscription identity steal a tenant from its current subscription", async () => {
     const seeded = await seed();
     const currentCreated = Math.floor(Date.now() / 1000);
