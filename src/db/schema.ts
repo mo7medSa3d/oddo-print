@@ -40,7 +40,7 @@ export const users = pgTable("users", {
 
 export const platformSessions = pgTable("platform_sessions", {
   jti: text("jti").primaryKey(),
-  userId: text("user_id").references(() => users.id).notNull(),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   expiresAt: timestamp("expires_at").notNull(),
   revokedAt: timestamp("revoked_at"),

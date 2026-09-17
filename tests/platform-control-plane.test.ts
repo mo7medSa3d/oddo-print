@@ -6,6 +6,7 @@ import {
   requirePlatformOwner,
   PlatformUnauthorizedError,
   authenticatePlatformOwner,
+  revokePlatformSession,
 } from "../src/lib/platform-auth";
 import {
   hasTestDatabase,
@@ -94,6 +95,17 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
 
     const invalidAuth = await authenticatePlatformOwner(user.email, "WrongPassword");
     expect(invalidAuth).toBeNull();
+  });
+
+  it("revokes platform session and invalidates claims", async () => {
+    const user = await createTestUser({ isPlatformOwner: true });
+    const session = await createPlatformSession(user.userId, user.email);
+    let validated = await validatePlatformClaims(verifyPlatformToken(session.token));
+    expect(validated).not.toBeNull();
+
+    await revokePlatformSession(session.jti);
+    validated = await validatePlatformClaims(verifyPlatformToken(session.token));
+    expect(validated).toBeNull();
   });
 
   it("requires platform owner guard and throws PlatformUnauthorizedError on invalid request", async () => {

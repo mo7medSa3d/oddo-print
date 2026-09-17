@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { requirePlatformOwner } from "../../../../../../lib/platform-auth";
 import { db } from "../../../../../../db";
-import { tenants } from "../../../../../../db/schema";
-import { eq } from "drizzle-orm";
+import { tenants, managerSessions } from "../../../../../../db/schema";
+import { eq, and, isNull } from "drizzle-orm";
 import { hasBodyOverLimit } from "../../../../../../lib/request-limits";
 import { writeAuditEvent } from "../../../../../../lib/audit";
 import { logError } from "../../../../../../lib/log";
@@ -50,15 +50,22 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   const now = new Date();
-  await db
-    .update(tenants)
-    .set({
-      lifecycle: "suspended",
-      suspendedAt: now,
-      lifecycleReason: reason,
-      updatedAt: now,
-    })
-    .where(eq(tenants.id, id));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(tenants)
+      .set({
+        lifecycle: "suspended",
+        suspendedAt: now,
+        lifecycleReason: reason,
+        updatedAt: now,
+      })
+      .where(eq(tenants.id, id));
+
+    await tx
+      .update(managerSessions)
+      .set({ revokedAt: now })
+      .where(and(eq(managerSessions.tenantId, id), isNull(managerSessions.revokedAt)));
+  });
 
   void writeAuditEvent({
     tenantId: id,

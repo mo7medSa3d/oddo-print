@@ -24,12 +24,12 @@ export async function GET(req: Request) {
       currentPeriodEnd: tenantSubscriptions.currentPeriodEnd,
       trialStartedAt: tenantSubscriptions.trialStartedAt,
       cancelAtPeriodEnd: tenantSubscriptions.cancelAtPeriodEnd,
-      createdAt: tenantSubscriptions.createdAt,
+      createdAt: tenants.createdAt,
     })
-    .from(tenantSubscriptions)
-    .innerJoin(tenants, eq(tenants.id, tenantSubscriptions.tenantId))
-    .innerJoin(plans, eq(plans.id, tenantSubscriptions.planId))
-    .orderBy(desc(tenantSubscriptions.createdAt));
+    .from(tenants)
+    .leftJoin(tenantSubscriptions, eq(tenantSubscriptions.tenantId, tenants.id))
+    .leftJoin(plans, eq(plans.id, tenantSubscriptions.planId))
+    .orderBy(desc(tenants.createdAt));
 
   return NextResponse.json({ subscriptions: rows });
 }

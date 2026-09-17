@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
 import { authenticatePlatformOwner, createPlatformSession, platformCookieHeader } from "../../../../../lib/platform-auth";
+import { clientIpFrom, reserveAuthAttempt, recordAuthSuccess } from "../../../../../lib/auth-rate-limit";
 import { logError } from "../../../../../lib/log";
 import { writeAuditEvent } from "../../../../../lib/audit";
 
@@ -23,10 +24,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
   }
 
+  const clientIp = clientIpFrom(req);
+  const decision = await reserveAuthAttempt(clientIp, email);
+
+  if (!decision.allowed) {
+    return NextResponse.json(
+      { error: "Too many failed attempts. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(decision.retryAfterSec) } }
+    );
+  }
+
   const user = await authenticatePlatformOwner(email, password);
   if (!user) {
     return NextResponse.json({ error: "Invalid Platform Owner credentials or unverified account" }, { status: 401 });
   }
+
+  await recordAuthSuccess(clientIp, email);
 
   const session = await createPlatformSession(user.userId, user.email);
 

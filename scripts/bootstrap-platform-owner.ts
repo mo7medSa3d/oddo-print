@@ -1,8 +1,9 @@
 import { db } from "../src/db";
 import { users } from "../src/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { hashPassword, normalizeEmail } from "../src/lib/password";
 import { nanoid } from "../src/lib/nanoid";
+import { writeAuditEvent } from "../src/lib/audit";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -39,46 +40,62 @@ async function main() {
     process.exit(1);
   }
 
-  const existingOwners = await db.query.users.findMany({
-    where: eq(users.isPlatformOwner, true),
-    columns: { id: true, email: true },
-  });
-
-  if (existingOwners.length > 0 && !force) {
-    console.log(`Platform Owner already exists (${existingOwners.length} owner(s) found). First-boot bootstrap skipped.`);
-    console.log("Use --force or set ALLOW_PLATFORM_BOOTSTRAP_FORCE=1 if you explicitly intend to promote or reset an owner.");
-    process.exit(0);
-  }
-
   const passwordHash = await hashPassword(password);
   const now = new Date();
 
-  const userRow = await db.query.users.findFirst({
-    where: eq(users.email, normalized),
-    columns: { id: true },
+  const targetUserId = await db.transaction(async (tx) => {
+    // Acquire exclusive table-level advisory or row lock to prevent race conditions during bootstrap
+    const existing = await tx.execute(sql`
+      SELECT id, email FROM users WHERE is_platform_owner = true FOR UPDATE
+    `);
+
+    if (existing.rows.length > 0 && !force) {
+      console.log(`Platform Owner already exists (${existing.rows.length} owner(s) found). First-boot bootstrap skipped.`);
+      console.log("Use --force or set ALLOW_PLATFORM_BOOTSTRAP_FORCE=1 if you explicitly intend to promote or reset an owner.");
+      return null;
+    }
+
+    const userMatch = await tx.execute(sql`
+      SELECT id FROM users WHERE email = ${normalized} FOR UPDATE
+    `);
+
+    if (userMatch.rows.length > 0) {
+      const uId = String((userMatch.rows[0] as { id: string }).id);
+      await tx
+        .update(users)
+        .set({
+          isPlatformOwner: true,
+          passwordHash,
+          emailVerifiedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(users.id, uId));
+      console.log(`Successfully promoted existing user (${normalized}) to Platform Owner.`);
+      return uId;
+    } else {
+      const uId = `usr_${nanoid(18)}`;
+      await tx.insert(users).values({
+        id: uId,
+        email: normalized,
+        passwordHash,
+        isPlatformOwner: true,
+        emailVerifiedAt: now,
+      });
+      console.log(`Successfully created new Platform Owner account (${normalized}).`);
+      return uId;
+    }
   });
 
-  if (userRow) {
-    await db
-      .update(users)
-      .set({
-        isPlatformOwner: true,
-        passwordHash,
-        emailVerifiedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(users.id, userRow.id));
-    console.log(`Successfully promoted existing user (${normalized}) to Platform Owner.`);
-  } else {
-    const userId = `usr_${nanoid(18)}`;
-    await db.insert(users).values({
-      id: userId,
-      email: normalized,
-      passwordHash,
-      isPlatformOwner: true,
-      emailVerifiedAt: now,
+  if (targetUserId) {
+    await writeAuditEvent({
+      tenantId: "platform",
+      actorType: "platform",
+      actorId: targetUserId,
+      action: "platform.bootstrap",
+      resourceType: "platform_owner",
+      resourceId: targetUserId,
+      metadata: { email: normalized, forced: force },
     });
-    console.log(`Successfully created new Platform Owner account (${normalized}).`);
   }
 
   process.exit(0);
