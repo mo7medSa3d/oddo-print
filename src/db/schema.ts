@@ -351,7 +351,7 @@ export const gatewayMetrics = pgTable("gateway_metrics", {
 
 export const auditEvents = pgTable("audit_events", {
   id: text("id").primaryKey(),
-  tenantId: text("tenant_id").references(() => tenants.id).notNull(),
+  tenantId: text("tenant_id").references(() => tenants.id),
   actorType: text("actor_type").notNull(),
   actorId: text("actor_id"),
   action: text("action").notNull(),
@@ -365,6 +365,7 @@ export const auditEvents = pgTable("audit_events", {
   actorIdx: index("audit_events_actor_idx").on(table.actorType, table.actorId),
   resourceIdx: index("audit_events_resource_idx").on(table.resourceType, table.resourceId),
   actionCheck: check("audit_events_actor_type_check", sql`${table.actorType} in ('user','odoo','agent','desktop','system','platform')`),
+  scopeCheck: check("audit_events_scope_check", sql`${table.tenantId} IS NOT NULL OR ${table.actorType} = 'platform'`),
 }));
 
 export const plans = pgTable("plans", {

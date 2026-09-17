@@ -143,7 +143,7 @@ async function main() {
     // Atomic Audit Event insertion inside the SAME transaction boundary.
     await tx.insert(auditEvents).values({
       id: `audit_${nanoid(14)}`,
-      tenantId: "platform",
+      tenantId: null,
       actorType: "platform",
       actorId: uId,
       action: "platform.bootstrap",

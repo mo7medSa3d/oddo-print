@@ -44,7 +44,7 @@ export async function POST(req: Request) {
   const session = await createPlatformSession(user.userId, user.email);
 
   void writeAuditEvent({
-    tenantId: "platform",
+    tenantId: null,
     actorType: "platform",
     actorId: user.userId,
     action: "platform.login",

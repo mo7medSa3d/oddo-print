@@ -21,7 +21,7 @@ function sanitizeMetadata(value: Record<string, unknown>): Record<string, unknow
 }
 
 export async function writeAuditEvent(input: {
-  tenantId: string;
+  tenantId: string | null;
   actorType: AuditActor;
   actorId?: string | null;
   action: string;

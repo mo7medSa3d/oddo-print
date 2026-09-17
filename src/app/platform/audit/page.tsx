@@ -5,7 +5,7 @@ import { Shield, Search, RefreshCw } from "lucide-react";
 
 type AuditEvent = {
   id: string;
-  tenantId: string;
+  tenantId: string | null;
   tenantName: string | null;
   actorType: "platform" | "user" | "system" | "agent" | "odoo" | "desktop";
   actorId: string | null;
@@ -57,7 +57,7 @@ export default function PlatformAuditPage() {
   const filtered = events.filter(
     (e) =>
       e.action.toLowerCase().includes(search.toLowerCase()) ||
-      e.tenantId.toLowerCase().includes(search.toLowerCase()) ||
+      (e.tenantId && e.tenantId.toLowerCase().includes(search.toLowerCase())) ||
       (e.tenantName && e.tenantName.toLowerCase().includes(search.toLowerCase())) ||
       (e.actorId && e.actorId.toLowerCase().includes(search.toLowerCase()))
   );
@@ -136,8 +136,8 @@ export default function PlatformAuditPage() {
                       {e.actorId || "N/A"}
                     </td>
                     <td className="px-5 py-3.5 text-slate-300">
-                      <div className="font-sans font-medium text-slate-200">{e.tenantName || e.tenantId}</div>
-                      <div className="text-[11px] text-slate-500">{e.tenantId}</div>
+                      <div className="font-sans font-medium text-slate-200">{e.tenantName || e.tenantId || "Platform (global)"}</div>
+                      <div className="text-[11px] text-slate-500">{e.tenantId ?? "—"}</div>
                     </td>
                     <td className="px-5 py-3.5 text-slate-400">
                       {e.resourceType ? `${e.resourceType}: ${e.resourceId}` : "N/A"}

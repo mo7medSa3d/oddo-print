@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     );
 
     void writeAuditEvent({
-      tenantId: "platform",
+      tenantId: null,
       actorType: "platform",
       actorId: claims.userId,
       action: "platform.logout",
