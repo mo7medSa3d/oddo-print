@@ -1,5 +1,5 @@
 import React from "react";
-import { Eye, Plus, Printer as PrinterIcon, RefreshCw, Search, Play } from "lucide-react";
+import { Eye, Plus, Printer as PrinterIcon, RefreshCw, Search, Play, Power, Archive } from "lucide-react";
 import {
   Button,
   Card,
@@ -148,7 +148,9 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                   <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Connection</th>
                   <th className="px-4 py-3">Endpoint</th>
-                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Connectivity</th>
+                  <th className="px-4 py-3">Lifecycle</th>
+                  <th className="px-4 py-3">Config</th>
                   <th className="px-6 py-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -189,10 +191,20 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                       <Mono>{printerEndpoint(p)}</Mono>
                     </td>
                     <td className="px-4 py-4">
-                      <StatusBadge
-                        tone={printerTone(p.status)}
-                        label={labelPrinter(p.status)}
-                      />
+                      <div className="space-y-1">
+                        <StatusBadge tone={printerTone(p.status)} label={labelPrinter(p.status)} />
+                        <div className="text-[11px] text-ink-4">
+                          {p.agentName || p.agentId || "Unassigned"} · {p.agentStatus || "unknown"}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-[13px] text-ink-2">
+                      {p.lifecycle || "active"}
+                    </td>
+                    <td className="px-4 py-4 text-[13px] text-ink-2">
+                      {p.managementSource === "manager"
+                        ? String(p.appliedDesiredRevision ?? 0) + " / " + String(p.desiredRevision ?? 0) + (p.configurationConverged ? " · Applied" : " · Pending")
+                        : "Agent-owned"}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
@@ -204,6 +216,21 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                         >
                           Test
                         </Button>
+                        {p.managementSource === "manager" && (p.lifecycle || "active") === "active" && (
+                          <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "disabled")} icon={<Power className="h-4 w-4" />}>
+                            Disable
+                          </Button>
+                        )}
+                        {p.managementSource === "manager" && p.lifecycle === "disabled" && (
+                          <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "active")} icon={<Power className="h-4 w-4" />}>
+                            Enable
+                          </Button>
+                        )}
+                        {p.managementSource === "manager" && p.lifecycle !== "retired" && (
+                          <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "retired")} icon={<Archive className="h-4 w-4" />}>
+                            Retire
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
