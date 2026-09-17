@@ -3,6 +3,7 @@ import { printJobs } from "../db/schema";
 import { sql } from "drizzle-orm";
 import { fencedDeliveryWrite } from "./job-fencing";
 import { STALE_CLAIM_SECONDS, MAX_RETRIES } from "./job-maintenance";
+import { agentStaleThresholdSeconds } from "./agent-availability";
 
 /**
  * Hard ceiling on live (claimed + printing, unexpired) jobs per agent.
@@ -108,6 +109,8 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND p.expires_at > now()
         AND a.lifecycle = 'active'
         AND a.status = 'online'
+        AND a.last_seen_at IS NOT NULL
+        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
         AND pr.status = 'online'
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
