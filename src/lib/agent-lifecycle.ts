@@ -1,6 +1,6 @@
 import { sql, and, eq } from "drizzle-orm";
 import { db } from "../db";
-import { agents, printers } from "../db/schema";
+import { agents } from "../db/schema";
 import { canTransitionLifecycle } from "./lifecycle";
 import { generatePairingCode, hashPairingCode } from "./agent-auth";
 import { writeAuditEvent, type AuditActor } from "./audit";
@@ -76,9 +76,6 @@ export async function transitionAgentLifecycle(
       throw new LifecycleConflict("Agent lifecycle changed concurrently; refresh and try again");
     }
 
-    if (next !== "active") {
-      await tx.update(printers).set({ lifecycle: "disabled", updatedAt: now }).where(and(eq(printers.agentId, agentId), eq(printers.tenantId, tenantId)));
-    }
     await writeAuditEvent(
       {
         tenantId,
