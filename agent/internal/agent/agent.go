@@ -421,8 +421,11 @@ func (a *Agent) runInitialAsyncDiscovery(ctx context.Context) {
 func (a *Agent) isGatewayOwned(id string) bool {
 	a.printersMu.RLock()
 	defer a.printersMu.RUnlock()
-	_, ok := a.gatewayOwned[id]
-	return ok
+	if _, ok := a.gatewayOwned[id]; ok {
+		return true
+	}
+	_, tombstoned := a.gatewayTombstones[id]
+	return tombstoned
 }
 
 func (a *Agent) filterGatewayOwned(infos []printer.DeviceInfo) []printer.DeviceInfo {
@@ -431,6 +434,9 @@ func (a *Agent) filterGatewayOwned(infos []printer.DeviceInfo) []printer.DeviceI
 	out := make([]printer.DeviceInfo, 0, len(infos))
 	for _, info := range infos {
 		if _, ok := a.gatewayOwned[info.ID]; ok {
+			continue
+		}
+		if _, tombstoned := a.gatewayTombstones[info.ID]; tombstoned {
 			continue
 		}
 		out = append(out, info)
@@ -1203,9 +1209,16 @@ func (a *Agent) gatewayOwnedPrinterIDs() []string {
 	a.printersMu.RLock()
 	defer a.printersMu.RUnlock()
 
-	ids := make([]string, 0, len(a.gatewayOwned))
+	ids := make([]string, 0, len(a.gatewayOwned)+len(a.gatewayTombstones))
+	seen := make(map[string]struct{}, len(a.gatewayOwned)+len(a.gatewayTombstones))
 	for id := range a.gatewayOwned {
 		ids = append(ids, id)
+		seen[id] = struct{}{}
+	}
+	for id := range a.gatewayTombstones {
+		if _, ok := seen[id]; !ok {
+			ids = append(ids, id)
+		}
 	}
 	sort.Strings(ids)
 	return ids
