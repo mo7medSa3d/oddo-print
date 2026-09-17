@@ -36,6 +36,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!tenantId || typeof tenantId !== "string") {
     return NextResponse.json({ error: "Tenant ID is required" }, { status: 400 });
   }
+  if (platformTenantId === tenantId) {
+    return NextResponse.json({ error: "The platform tenant cannot be suspended or deleted.", code: "PLATFORM_TENANT_PROTECTED" }, { status: 409 });
+  }
 
   let body: { lifecycle?: string; reason?: string };
   try {
