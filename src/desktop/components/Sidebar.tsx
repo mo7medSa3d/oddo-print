@@ -57,7 +57,7 @@ export function Sidebar({
   gatewayUrl,
   isOnline,
   version,
-  lastHeartbeat,
+  lastStatusCheck,
 }: {
   page: Page;
   navigate: (p: Page) => void;
@@ -70,7 +70,7 @@ export function Sidebar({
   gatewayUrl: string;
   isOnline: boolean;
   version: string;
-  lastHeartbeat: string | null;
+  lastStatusCheck: string | null;
 }) {
   return (
     <aside
@@ -181,7 +181,7 @@ export function Sidebar({
             <StatusLine
               tone={isOnline ? "ok" : "bad"}
               title={isOnline ? "Agent running" : "Agent stopped"}
-              detail={`v${version || "—"} · checked ${lastHeartbeat ? new Date(lastHeartbeat).toLocaleTimeString() : "—"}`}
+              detail={`v${version || "—"} · local service checked ${lastStatusCheck ? new Date(lastStatusCheck).toLocaleTimeString() : "—"}`}
               pulse={isOnline}
             />
           </div>
