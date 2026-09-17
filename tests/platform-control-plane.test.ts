@@ -18,14 +18,18 @@ import {
 import { users, auditEvents } from "../src/db/schema";
 import { eq } from "drizzle-orm";
 import { db } from "../src/db";
-import { hashPassword } from "../src/lib/password";
+import { hashPassword, normalizeEmail } from "../src/lib/password";
 import { nanoid } from "../src/lib/nanoid";
 import { writeAuditEvent } from "../src/lib/audit";
 
 const suite = describe.skipIf(!hasTestDatabase);
 
+let prevSecret: string | undefined;
+
 suite("Platform Control Plane & Authorization Boundaries", () => {
   beforeAll(async () => {
+    prevSecret = process.env.GATEWAY_JWT_SECRET;
+    process.env.GATEWAY_JWT_SECRET = "test-secret-that-is-at-least-32-characters-long";
     await applyMigrations();
   });
 
@@ -35,12 +39,17 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
   });
 
   afterAll(async () => {
+    if (prevSecret !== undefined) {
+      process.env.GATEWAY_JWT_SECRET = prevSecret;
+    } else {
+      delete process.env.GATEWAY_JWT_SECRET;
+    }
     await closePool();
   });
 
   async function createTestUser(opts?: { isPlatformOwner?: boolean; verified?: boolean }) {
     const userId = `usr_${nanoid(18)}`;
-    const email = `test_${nanoid(8)}@platform.local`;
+    const email = normalizeEmail(`test_${nanoid(8)}@platform.local`);
     const password = "SecurePassword123!";
     const passwordHash = await hashPassword(password);
     const now = new Date();

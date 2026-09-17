@@ -411,6 +411,7 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
 mod spawn_tests {
     use super::spawn_persist_or_reconcile;
     use super::system32_exe;
+    use std::path::PathBuf;
     use std::process::Command;
     use std::time::{Duration, Instant};
 
