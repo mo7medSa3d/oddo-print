@@ -148,6 +148,11 @@ jobs:
               SELECT 1 FROM pg_constraint
               WHERE conname='printers_desired_revision_check'
             ) THEN RAISE EXCEPTION 'desired-state printer revision constraint is missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE schemaname='public' AND tablename='discovery_sessions'
+                AND indexname='discovery_sessions_active_agent_unique'
+            ) THEN RAISE EXCEPTION 'running discovery session uniqueness index is missing'; END IF;
           END $$;
           SQL
       - name: Run integration tests (PostgreSQL)
