@@ -136,10 +136,17 @@ export async function POST(req: Request) {
       if (eventType === "checkout.session.completed") {
         const subId = typeof obj.subscription === "string" ? obj.subscription : undefined;
         if (tenantId && subId) {
-          const current = await tx.query.tenantSubscriptions.findFirst({
-            where: eq(tenantSubscriptions.tenantId, tenantId),
-            columns: { stripeSubscriptionId: true, stripeCustomerId: true },
-          });
+          const currentResult = await tx.execute(sql`
+            SELECT stripe_subscription_id AS "stripeSubscriptionId",
+                   stripe_customer_id AS "stripeCustomerId"
+            FROM tenant_subscriptions
+            WHERE tenant_id = ${tenantId}
+            FOR UPDATE
+          `);
+          const current = currentResult.rows[0] as {
+            stripeSubscriptionId?: string | null;
+            stripeCustomerId?: string | null;
+          } | undefined;
           if (current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId) throw new Error("Checkout subscription identity conflict");
           if (current?.stripeCustomerId && customerId && current.stripeCustomerId !== customerId) throw new Error("Checkout customer identity conflict");
           await tx.update(tenantSubscriptions).set({
