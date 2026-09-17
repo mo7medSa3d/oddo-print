@@ -159,7 +159,29 @@ export async function POST(req: Request) {
         const subId = typeof obj.id === "string" ? obj.id : "";
         const items = obj.items as { data?: Array<{ price?: { id?: string } }> } | undefined;
         const priceId = items?.data?.[0]?.price?.id;
-        const tenantRow = tenantId ? await tx.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, tenantId) }) : undefined;
+        const tenantRowResult = tenantId ? await tx.execute(sql`
+          SELECT tenant_id AS "tenantId",
+                 stripe_subscription_id AS "stripeSubscriptionId",
+                 stripe_customer_id AS "stripeCustomerId",
+                 status,
+                 current_period_end AS "currentPeriodEnd",
+                 cancel_at_period_end AS "cancelAtPeriodEnd",
+                 plan_id AS "planId",
+                 stripe_last_event_created_at AS "stripeLastEventCreatedAt"
+          FROM tenant_subscriptions
+          WHERE tenant_id = ${tenantId}
+          FOR UPDATE
+        `) : null;
+        const tenantRow = tenantRowResult?.rows[0] as {
+          tenantId?: string;
+          stripeSubscriptionId?: string | null;
+          stripeCustomerId?: string | null;
+          status?: "trialing" | "active" | "past_due" | "paused" | "cancelled";
+          currentPeriodEnd?: Date | null;
+          cancelAtPeriodEnd?: boolean;
+          planId?: string;
+          stripeLastEventCreatedAt?: Date | null;
+        } | undefined;
         const plan = priceId ? await tx.query.plans.findFirst({ where: eq(plans.stripePriceId, priceId), columns: { id: true } }) : undefined;
         if (tenantRow && tenantId) {
           const storedTime = tenantRow.stripeLastEventCreatedAt?.getTime() ?? null;
@@ -184,10 +206,22 @@ export async function POST(req: Request) {
       } else if (eventType === "invoice.paid" || eventType === "invoice.payment_failed") {
         const subId = typeof obj.subscription === "string" ? obj.subscription : undefined;
         if (subId) {
-          const row = await tx.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.stripeSubscriptionId, subId), columns: { tenantId: true } });
-          if (row) {
+          const rowResult = await tx.execute(sql`
+            SELECT tenant_id AS "tenantId"
+            FROM tenant_subscriptions
+            WHERE stripe_subscription_id = ${subId}
+            FOR UPDATE
+          `);
+          const row = rowResult.rows[0] as { tenantId?: string } | undefined;
+          if (row?.tenantId) {
             tenantId = row.tenantId;
-            const current = await tx.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, row.tenantId), columns: { stripeLastEventCreatedAt: true } });
+            const currentResult = await tx.execute(sql`
+              SELECT stripe_last_event_created_at AS "stripeLastEventCreatedAt"
+              FROM tenant_subscriptions
+              WHERE tenant_id = ${row.tenantId}
+              FOR UPDATE
+            `);
+            const current = currentResult.rows[0] as { stripeLastEventCreatedAt?: Date | null } | undefined;
             const storedTime = current?.stripeLastEventCreatedAt?.getTime() ?? null;
             let newerThanStored = storedTime === null || eventCreatedAt.getTime() > storedTime;
             if (storedTime !== null && eventCreatedAt.getTime() === storedTime) {
