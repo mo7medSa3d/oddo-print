@@ -170,7 +170,10 @@ describe("production hardening contracts", () => {
 
     const onboarding = read("src/app/api/onboarding/route.ts");
     expect(onboarding).toContain("await tx.update(tenants)");
-    expect(onboarding.indexOf("await tx.update(tenants)")).toBeLessThan(onboarding.indexOf("tenantSubscriptions"));
+    const trialLock = onboarding.indexOf("await tx.update(tenants)");
+    const trialRead = onboarding.indexOf("const existing = await tx.query.tenantSubscriptions.findFirst");
+    expect(trialLock).toBeGreaterThanOrEqual(0);
+    expect(trialRead).toBeGreaterThan(trialLock);
     expect(onboarding).toContain("Trial has already been used for this workspace");
 
     const checkout = read("src/app/api/billing/checkout/route.ts");
