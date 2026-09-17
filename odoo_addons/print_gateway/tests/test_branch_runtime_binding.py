@@ -1,3 +1,5 @@
+from psycopg2 import IntegrityError
+
 from unittest.mock import patch
 
 # Hard imports: this module only runs under the Odoo test runner; a fallback
@@ -202,10 +204,12 @@ class TestBranchRuntimeBinding(TransactionCase):
             "runtime_agent_id": "agent-a",
             "enabled": True,
         })
-        with self.assertRaises(Exception):
-            model.create({
-                "company_id": self.company.id,
-                "branch_id": self.branch.id,
-                "runtime_agent_id": "agent-a",
-                "enabled": True,
-            })
+        with self.env.cr.savepoint():
+            with self.assertRaises(IntegrityError) as ctx:
+                model.create({
+                    "company_id": self.company.id,
+                    "branch_id": self.branch.id,
+                    "runtime_agent_id": "agent-a",
+                    "enabled": True,
+                })
+            self.assertIn("print_gateway_runtime_agent_assignment_agent_unique", str(ctx.exception))
