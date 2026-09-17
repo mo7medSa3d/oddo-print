@@ -6,6 +6,7 @@
  * PostgreSQL or other external services.
  */
 export const integrationVitestTestFiles = [
+  "tests/control-plane-concurrency.integration.test.ts",
   "tests/agent-deletion.test.ts",
   "tests/agent-lifecycle.integration.test.ts",
   "tests/agent-registration.test.ts",
