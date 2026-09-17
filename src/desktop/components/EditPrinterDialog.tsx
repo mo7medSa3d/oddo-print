@@ -85,7 +85,7 @@ export function EditPrinterDialog({
         onError("IPP printer URL is required.");
         return;
       }
-      if (!/^ipp(s)?:\\/\\//i.test(address.trim()) && !/^https?:\\/\\//i.test(address.trim())) {
+      if (!/^(ipp|ipps|http|https):\\/\\//i.test(address.trim())) {
         onError("IPP address must be an ipp://, ipps://, http:// or https:// URL.");
         return;
       }
