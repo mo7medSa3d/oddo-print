@@ -348,6 +348,11 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 	a.desiredStateMu.Unlock()
 
 	for _, id := range missing {
+		// Remove only the deleted Gateway-owned record. Keeping an old entry in
+		// printers.json would let the next registry reload recreate it.
+		if err := printer.RemoveFromRegistry(a.registryPath, id); err != nil {
+			log.Printf("[desired-state] warning: failed to remove deleted Gateway printer %s from local registry: %v", id, err)
+		}
 		a.removeGatewayRuntime(id)
 		a.printersMu.Lock()
 		delete(a.gatewayOwned, id)
