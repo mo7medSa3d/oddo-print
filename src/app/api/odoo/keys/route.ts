@@ -1,4 +1,3 @@
-import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { apiKeys } from "../../../../db/schema";
@@ -67,17 +66,26 @@ export async function POST(req: Request) {
   const description = parsed.data.description?.trim() || null;
   const { raw, hashed, id } = generateOdooApiKey();
 
-  await db.insert(apiKeys).values({
-    id,
-    name,
-    description,
-    hashedKey: hashed,
-    scope: parsed.data.scope,
-    allowedDocumentTypes: parsed.data.allowedDocumentTypes?.length ? parsed.data.allowedDocumentTypes : null,
-    tenantId: manager.tenantId,
+  await db.transaction(async (tx) => {
+    await tx.insert(apiKeys).values({
+      id,
+      name,
+      description,
+      hashedKey: hashed,
+      scope: parsed.data.scope,
+      allowedDocumentTypes: parsed.data.allowedDocumentTypes?.length ? parsed.data.allowedDocumentTypes : null,
+      tenantId: manager.tenantId,
+    });
+    await writeAuditEvent({
+      tenantId: manager.tenantId,
+      actorType: manager.userId ? "user" : "system",
+      actorId: manager.userId ?? "legacy-manager",
+      action: "api_key.created",
+      resourceType: "api_key",
+      resourceId: id,
+      metadata: { scope: parsed.data.scope },
+    }, tx);
   });
-
-  await writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "api_key.created", resourceType: "api_key", resourceId: id, metadata: { scope: parsed.data.scope } }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   return NextResponse.json({
     id,
     name,
