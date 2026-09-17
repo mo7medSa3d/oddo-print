@@ -19,30 +19,30 @@ func newDesiredStateTestAgent(t *testing.T) *Agent {
 	t.Cleanup(func() { _ = q.Close() })
 
 	return &Agent{
-		cfg: &config.Config{},
-		configPath: filepath.Join(dir, "config.yaml"),
-		registryPath: filepath.Join(dir, "printers.json"),
-		printers: make(map[string]printer.Printer),
-		printerConfigs: make(map[string]config.PrinterConfig),
-		registryOwned: make(map[string]struct{}),
-		gatewayOwned: make(map[string]struct{}),
+		cfg:               &config.Config{},
+		configPath:        filepath.Join(dir, "config.yaml"),
+		registryPath:      filepath.Join(dir, "printers.json"),
+		printers:          make(map[string]printer.Printer),
+		printerConfigs:    make(map[string]config.PrinterConfig),
+		registryOwned:     make(map[string]struct{}),
+		gatewayOwned:      make(map[string]struct{}),
 		gatewayTombstones: make(map[string]struct{}),
-		desiredStates: make(map[string]desiredPrinterRecord),
-		desiredStatePath: filepath.Join(dir, "desired-state.json"),
-		queue: q,
+		desiredStates:     make(map[string]desiredPrinterRecord),
+		desiredStatePath:  filepath.Join(dir, "desired-state.json"),
+		queue:             q,
 	}
 }
 
 func testDesiredPrinter(id string, revision int64, lifecycle string) desiredPrinterWire {
 	return desiredPrinterWire{
-		ID: id,
-		Name: "Receipt " + id,
-		PrinterType: "physical",
-		DeviceClass: "thermal",
-		ConnectionType: "network",
-		Protocol: "raw",
-		Lifecycle: lifecycle,
-		Config: map[string]interface{}{"ip": "192.0.2.10", "port": 9100},
+		ID:              id,
+		Name:            "Receipt " + id,
+		PrinterType:     "physical",
+		DeviceClass:     "thermal",
+		ConnectionType:  "network",
+		Protocol:        "raw",
+		Lifecycle:       lifecycle,
+		Config:          map[string]interface{}{"ip": "192.0.2.10", "port": 9100},
 		DesiredRevision: revision,
 	}
 }
@@ -117,8 +117,11 @@ func TestDesiredStateDisablesAndRemovesRuntime(t *testing.T) {
 	if _, ok := a.desiredStates["printer-2"]; ok {
 		t.Fatal("missing desired snapshot did not delete cached state")
 	}
-	if a.isGatewayOwned("printer-2") {
-		t.Fatal("removed desired printer remained Gateway-owned")
+	if _, ok := a.gatewayOwned["printer-2"]; ok {
+		t.Fatal("removed desired printer retained live Gateway ownership")
+	}
+	if !a.isGatewayOwned("printer-2") {
+		t.Fatal("removed desired printer lost its durable Gateway deletion fence")
 	}
 }
 
@@ -129,14 +132,14 @@ func TestDesiredStateDeletionRemovesLocalRegistryEntry(t *testing.T) {
 	a.reconcileGatewayDesiredState([]desiredPrinterWire{p})
 
 	local := printer.DeviceInfo{
-		ID: p.ID,
-		Name: p.Name,
-		PrinterType: "thermal",
+		ID:             p.ID,
+		Name:           p.Name,
+		PrinterType:    "thermal",
 		ConnectionType: "network",
-		Protocol: "raw",
-		Endpoint: "192.0.2.10:9100",
-		Status: "online",
-		Enabled: true,
+		Protocol:       "raw",
+		Endpoint:       "192.0.2.10:9100",
+		Status:         "online",
+		Enabled:        true,
 	}
 	if _, err := printer.RegisterManual(a.registryPath, local); err != nil {
 		t.Fatalf("RegisterManual: %v", err)
@@ -160,14 +163,14 @@ func TestGatewayOwnedPrinterIsNotReintroducedFromStaleRegistry(t *testing.T) {
 	a.markGatewayOwned("printer-stale")
 
 	local := printer.DeviceInfo{
-		ID: "printer-stale",
-		Name: "Stale Gateway printer",
-		PrinterType: "thermal",
+		ID:             "printer-stale",
+		Name:           "Stale Gateway printer",
+		PrinterType:    "thermal",
 		ConnectionType: "network",
-		Protocol: "raw",
-		Endpoint: "192.0.2.30:9100",
-		Status: "online",
-		Enabled: true,
+		Protocol:       "raw",
+		Endpoint:       "192.0.2.30:9100",
+		Status:         "online",
+		Enabled:        true,
 	}
 	if _, err := printer.RegisterManual(a.registryPath, local); err != nil {
 		t.Fatalf("RegisterManual: %v", err)
@@ -196,14 +199,14 @@ func TestDesiredStateDeletionTombstoneSurvivesRestart(t *testing.T) {
 
 	// Simulate a stale registry entry reappearing after local cleanup failed.
 	local := printer.DeviceInfo{
-		ID: p.ID,
-		Name: p.Name,
-		PrinterType: "thermal",
+		ID:             p.ID,
+		Name:           p.Name,
+		PrinterType:    "thermal",
 		ConnectionType: "network",
-		Protocol: "raw",
-		Endpoint: "192.0.2.40:9100",
-		Status: "online",
-		Enabled: true,
+		Protocol:       "raw",
+		Endpoint:       "192.0.2.40:9100",
+		Status:         "online",
+		Enabled:        true,
 	}
 	if _, err := printer.RegisterManual(a.registryPath, local); err != nil {
 		t.Fatalf("RegisterManual: %v", err)
