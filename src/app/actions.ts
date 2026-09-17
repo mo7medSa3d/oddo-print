@@ -201,6 +201,33 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
     await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${manager.tenantId} || ':' || ${id}))`);
 
+      // Use the same lock ordering as agent heartbeats: agent row first,
+      // then printer row. The preliminary lookup does not lock either row;
+      // the authoritative printer row is locked only after the owner agent
+      // lock is acquired. This prevents an agent heartbeat from deadlocking
+      // with a concurrent lifecycle transition.
+      const owner = await tx.execute(sql`
+        SELECT agent_id
+        FROM printers
+        WHERE id = ${id} AND tenant_id = ${manager.tenantId}
+      `);
+      const ownerAgentId = (owner.rows[0] as { agent_id?: string } | undefined)?.agent_id;
+      if (!ownerAgentId) throw new ActionError("Printer not found", 404);
+
+      if (lifecycle === "active") {
+        const agent = await tx.execute(sql`
+          SELECT lifecycle
+          FROM agents
+          WHERE id = ${ownerAgentId} AND tenant_id = ${manager.tenantId}
+          FOR UPDATE
+        `);
+        const agentLifecycle = (agent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
+        if (!agentLifecycle) throw new ActionError("The agent that owns this printer no longer exists.", 404);
+        if (agentLifecycle !== "active") {
+          throw new ActionError(`The agent owning this printer is ${agentLifecycle}; reactivate the agent first.`, 409);
+        }
+      }
+
       const locked = await tx.execute(sql`
         SELECT id, agent_id, lifecycle
         FROM printers
@@ -216,20 +243,6 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
 
       if (!canTransitionLifecycle(current, lifecycle)) {
         throw new ActionError(`This printer cannot go from ${current} to ${lifecycle}.`, 409);
-      }
-
-      if (lifecycle === "active") {
-        const agent = await tx.execute(sql`
-          SELECT lifecycle
-          FROM agents
-          WHERE id = ${printer.agent_id} AND tenant_id = ${manager.tenantId}
-          FOR UPDATE
-        `);
-        const agentLifecycle = (agent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
-        if (!agentLifecycle) throw new ActionError("The agent that owns this printer no longer exists.", 404);
-        if (agentLifecycle !== "active") {
-          throw new ActionError(`The agent owning this printer is ${agentLifecycle}; reactivate the agent first.`, 409);
-        }
       }
 
       const [updated] = await tx.update(printers)
