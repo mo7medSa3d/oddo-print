@@ -120,6 +120,39 @@ func TestDesiredStateDisablesAndRemovesRuntime(t *testing.T) {
 	}
 }
 
+func TestDesiredStateDeletionRemovesLocalRegistryEntry(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	a.desiredStateSynced = true
+	p := testDesiredPrinter("printer-delete", 2, "active")
+	a.reconcileGatewayDesiredState([]desiredPrinterWire{p})
+
+	local := printer.DeviceInfo{
+		ID: p.ID,
+		Name: p.Name,
+		PrinterType: "thermal",
+		ConnectionType: "network",
+		Protocol: "raw",
+		Endpoint: "192.0.2.10:9100",
+		Status: "online",
+		Enabled: true,
+	}
+	if _, err := printer.RegisterManual(a.registryPath, local); err != nil {
+		t.Fatalf("RegisterManual: %v", err)
+	}
+
+	a.reconcileGatewayDesiredState(nil)
+
+	infos, err := printer.LoadRegistryPrinters(a.registryPath)
+	if err != nil {
+		t.Fatalf("LoadRegistryPrinters: %v", err)
+	}
+	for _, info := range infos {
+		if info.ID == p.ID {
+			t.Fatalf("deleted Gateway printer was resurrected in local registry")
+		}
+	}
+}
+
 func TestDesiredStateRestartRecovery(t *testing.T) {
 	a := newDesiredStateTestAgent(t)
 	a.desiredStateSynced = true
