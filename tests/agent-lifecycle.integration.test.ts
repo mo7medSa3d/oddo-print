@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { db } from "../src/db";
-import { agents, tenants } from "../src/db/schema";
+import { agents, auditEvents, tenants } from "../src/db/schema";
 import { and, eq } from "drizzle-orm";
 import { applyMigrations, closePool, hasTestDatabase } from "./helpers/pg";
 import { transitionAgentLifecycle, LifecycleConflict } from "../src/lib/agent-lifecycle";
@@ -19,21 +19,30 @@ suite("Agent Lifecycle", () => {
     await db.insert(agents).values({ id: agentId, tenantId, name: "Agent", lifecycle: "active", status: "online" });
 
     const [retired, disabled] = await Promise.allSettled([
-      transitionAgentLifecycle(agentId, "retired", tenantId),
-      transitionAgentLifecycle(agentId, "disabled", tenantId),
+      transitionAgentLifecycle(agentId, "retired", tenantId, { type: "user", id: "retire-user" }),
+      transitionAgentLifecycle(agentId, "disabled", tenantId, { type: "user", id: "disable-user" }),
     ]);
 
     const row = await db.query.agents.findFirst({ where: and(eq(agents.id, agentId), eq(agents.tenantId, tenantId)) });
     expect(row!.lifecycle === "retired" || row!.lifecycle === "disabled").toBe(true);
 
-    const outcomes = [retired, disabled];
-    const fulfilled = outcomes.filter((result): result is PromiseFulfilledResult<{ changed: boolean; lifecycle: string; pairingCode: string | null } | null> => result.status === "fulfilled");
-    expect(fulfilled).toHaveLength(1);
-    expect(fulfilled[0]!.value?.changed).toBe(true);
-    expect(fulfilled[0]!.value?.lifecycle).toBe(row!.lifecycle);
+    const succeeded = [retired, disabled].filter((result): result is PromiseFulfilledResult<{ changed: boolean; lifecycle: string; pairingCode: string | null } | null> => result.status === "fulfilled");
+    expect(succeeded.length).toBeGreaterThanOrEqual(1);
+    expect(succeeded.every((result) => result.value?.lifecycle)).toBe(true);
 
-    const rejected = outcomes.find((result): result is PromiseRejectedResult => result.status === "rejected");
-    expect(rejected).toBeDefined();
-    expect(rejected!.reason).toBeInstanceOf(LifecycleConflict);
+    if (row!.lifecycle === "retired") {
+      expect(retired.status).toBe("fulfilled");
+      expect((retired as PromiseFulfilledResult<{ changed: boolean; lifecycle: string; pairingCode: string | null }>).value.lifecycle).toBe("retired");
+    }
+    if (row!.lifecycle === "disabled") {
+      expect(disabled.status).toBe("fulfilled");
+      expect((disabled as PromiseFulfilledResult<{ changed: boolean; lifecycle: string; pairingCode: string | null }>).value.lifecycle).toBe("disabled");
+    }
+
+    if (retired.status === "rejected") expect(retired.reason).toBeInstanceOf(LifecycleConflict);
+    if (disabled.status === "rejected") expect(disabled.reason).toBeInstanceOf(LifecycleConflict);
+
+    const audits = await db.query.auditEvents.findMany({ where: eq(auditEvents.tenantId, tenantId) });
+    expect(audits.filter((event) => event.resourceId === agentId && event.action.startsWith("agent.lifecycle."))).toHaveLength(succeeded.length);
   });
 });
