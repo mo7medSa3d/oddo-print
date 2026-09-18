@@ -39,7 +39,7 @@ export async function POST(req: Request) {
 
       if (consumed.length !== 1) throw new Error("Reset token already consumed");
 
-      await tx.update(users).set({ passwordHash: nextHash, updatedAt: now }).where(eq(users.id, row.userId));
+      const updatedUser = await tx.update(users)\n        .set({ passwordHash: nextHash, updatedAt: now })\n        .where(eq(users.id, row.userId))\n        .returning({ id: users.id });\n      if (updatedUser.length !== 1) throw new Error("Reset user missing");
 
       // Revoke all tenant manager sessions for this user
       await tx
