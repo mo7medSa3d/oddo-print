@@ -94,6 +94,12 @@ describe("production fixes contracts (2026-09)", () => {
     expect(jobs).not.toContain("pending.action_sync_status()");
   });
 
+  it("password reset requires the target user update to affect exactly one row", () => {
+    const route = read("src/app/api/auth/reset-password/route.ts");
+    expect(route).toContain(".returning({ id: users.id })");
+    expect(route).toContain('if (updatedUser.length !== 1) throw new Error("Reset user missing");');
+  });
+
   it("production startup refuses plaintext manager passwords", () => {
     const server = read("server.ts");
     expect(server).toContain("process.env.NODE_ENV === \"production\" && process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD === \"1\"");
