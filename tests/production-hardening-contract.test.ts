@@ -190,6 +190,33 @@ describe("production hardening contracts", () => {
     expect(discovery).toContain("DISCOVERY_ALREADY_RUNNING");
     const schema = read("src/db/schema.ts");
     expect(schema).toContain("discovery_sessions_active_agent_unique");
+    expect(schema).toContain("print_jobs_tenant_idempotency_unique");
+    expect(schema).toContain("tenant_users_single_owner_idx");
+
+    const printService = read("src/lib/print-job-service.ts");
+    expect(printService).toContain("print_jobs:idempotency:");
+    expect(printService).toContain("WHERE tenant_id = ${tenantId} AND idempotency_key = ${idempotencyKey}");
+
+    const printRoute = read("src/app/api/print/jobs/route.ts");
+    expect(printRoute).not.toContain("eq(printJobs.apiKeyId, odoo.id), eq(printJobs.idempotencyKey");
+    expect(printRoute).toContain("eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.idempotencyKey");
+    expect(printRoute).not.toContain("eq(printJobs.id, id), eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.apiKeyId, odoo.id)");
+
+    const batchStatus = read("src/app/api/print/jobs/batch-status/route.ts");
+    expect(batchStatus).toContain("eq(printJobs.tenantId, odoo.tenantId)");
+    expect(batchStatus).not.toContain("eq(printJobs.apiKeyId, odoo.id)");
+
+    const auth = read("src/lib/manager-auth.ts");
+    expect(auth).toContain("passwordHash: true");
+    expect(auth).toContain("eq(users.passwordHash, legacyHash)");
+
+    for (const path of ["src/app/api/billing/cancel/route.ts", "src/app/api/billing/resume/route.ts"]) {
+      const billingRoute = read(path);
+      expect(billingRoute).toContain("FROM tenants");
+      expect(billingRoute).toContain("FOR UPDATE");
+      expect(billingRoute).toContain("FROM tenant_subscriptions");
+      expect(billingRoute).toContain("stripeRequest(");
+    }
   });
 
   it("keeps the main governance workflow present and explicit about the external protection prerequisite", () => {
