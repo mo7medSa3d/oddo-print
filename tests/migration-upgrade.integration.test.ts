@@ -126,6 +126,49 @@ suite("production-like PostgreSQL migration upgrade", () => {
       expect(uniqueIndex.rowCount).toBe(1);
       const legacyKeyIndex = await pool.query(`SELECT indexname FROM pg_indexes WHERE tablename='print_jobs' AND indexname IN ('print_jobs_idempotency_unique','print_jobs_internal_idempotency_unique')`);
       expect(legacyKeyIndex.rowCount).toBe(0);
+      const billingSchema = await pool.query(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='tenant_subscriptions'
+          AND column_name IN (
+            'checkout_status','checkout_plan_id','checkout_idempotency_key',
+            'checkout_session_id','checkout_session_url','checkout_session_expires_at',
+            'billing_operation_id','billing_operation_type',
+            'billing_operation_idempotency_key','billing_operation_subscription_id'
+          )
+        ORDER BY column_name
+      `);
+      expect(billingSchema.rows.map((row) => row.column_name)).toEqual([
+        "billing_operation_id",
+        "billing_operation_idempotency_key",
+        "billing_operation_subscription_id",
+        "billing_operation_type",
+        "checkout_idempotency_key",
+        "checkout_plan_id",
+        "checkout_session_expires_at",
+        "checkout_session_id",
+        "checkout_session_url",
+        "checkout_status",
+      ]);
+      const billingIndexes = await pool.query(`
+        SELECT indexname
+        FROM pg_indexes
+        WHERE tablename = 'tenant_subscriptions'
+          AND indexname IN (
+            'tenant_subscriptions_checkout_idempotency_unique',
+            'tenant_subscriptions_checkout_session_unique',
+            'tenant_subscriptions_billing_operation_unique',
+            'tenant_subscriptions_billing_operation_key_unique'
+          )
+        ORDER BY indexname
+      `);
+      expect(billingIndexes.rows.map((row) => row.indexname)).toEqual([
+        "tenant_subscriptions_billing_operation_key_unique",
+        "tenant_subscriptions_billing_operation_unique",
+        "tenant_subscriptions_checkout_idempotency_unique",
+        "tenant_subscriptions_checkout_session_unique",
+      ]);
+
       const trigger = await pool.query(`SELECT tgname FROM pg_trigger WHERE tgrelid='print_jobs'::regclass AND tgname='print_jobs_notify_agent_job_available'`);
       expect(trigger.rowCount).toBe(1);
 
