@@ -67,7 +67,6 @@ export async function POST(req: Request) {
         return { kind: "already_subscribed" as const };
       }
 
-      const now = Date.now();
       const samePlan = sub?.checkoutPlanId === plan.id;
       const openUnexpired =
         sub?.checkoutStatus === "open" &&
@@ -258,18 +257,20 @@ export async function POST(req: Request) {
         FOR UPDATE
       `);
       const current = await tx.execute(sql`
-        SELECT checkout_status AS "checkoutStatus",
+        SELECT status,
+               checkout_status AS "checkoutStatus",
                stripe_subscription_id AS "stripeSubscriptionId"
         FROM tenant_subscriptions
         WHERE tenant_id = ${claims.tenantId}
         FOR UPDATE
       `);
       const row = current.rows[0] as {
+        status?: string;
         checkoutStatus?: string;
         stripeSubscriptionId?: string | null;
       } | undefined;
 
-      if (row?.stripeSubscriptionId && ACTIVE_SUBSCRIPTION_STATUSES.has(row.checkoutStatus ?? "")) {
+      if (row?.stripeSubscriptionId && ACTIVE_SUBSCRIPTION_STATUSES.has(row.status ?? "")) {
         return { kind: "completed" as const };
       }
 
