@@ -18,7 +18,7 @@ func TestNetworkPrinterTestPathSkipsStatusPreflightAndReturnsPromptly(t *testing
 	go func() {
 		conn, err := ln.Accept()
 		if err != nil {
-			return
+		return
 		}
 		defer conn.Close()
 		buf := make([]byte, 1024)
@@ -39,7 +39,7 @@ func TestNetworkPrinterTestPathSkipsStatusPreflightAndReturnsPromptly(t *testing
 	}
 	select {
 	case got := <-received:
-		want := []byte("\x1b\x40Hello from Odoo Agent!\n\n\x1d\x56\x01")
+		want := []byte("\x1b\x40Hello from Yasser Agent!\n\n\x1d\x56\x01")
 		if string(got) != string(want) {
 			t.Fatalf("received %q, want %q", got, want)
 		}
