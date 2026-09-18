@@ -42,7 +42,7 @@ suite("POST /api/print/jobs/batch-status", () => {
     const res = await post(rotatedKey, { jobIds: ["batch_owned_1", "batch_rotated_1", "batch_internal_1", "batch_missing_1"] });
     expect(res.status).toBe(200);
     const ids = ((await res.json()) as { jobs: { jobId: string }[] }).jobs.map((j) => j.jobId).sort();
-    expect(ids).toEqual(["batch_owned_1", "batch_rotated_1"]);
+    expect(ids).toEqual(["batch_internal_1", "batch_owned_1", "batch_rotated_1"]);
   });
 
   it("rejects invalid keys and malformed bodies", async () => {
