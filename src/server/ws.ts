@@ -121,18 +121,25 @@ export function __clearWsBucketsForTests(): void {
   wsMessageInFlightByAgentId.clear();
 }
 
-export function closeAgentSockets(agentId: string, lifecycleRevision?: number): void {
+export function shouldCloseAgentSocketForLifecycleRevision(
+  socketRevision: number | undefined,
+  invalidatingRevision: number,
+): boolean {
+  // An authenticated socket without a revision can only be from a process
+  // started before this fence was deployed; close it rather than letting a
+  // legacy session survive a lifecycle transition.
+  if (socketRevision === undefined) return true;
+  return socketRevision < invalidatingRevision;
+}
+
+export function closeAgentSockets(agentId: string, lifecycleRevision: number): void {
   const set = agentSockets.get(agentId);
   if (!set || set.size === 0) return;
   for (const ws of set) {
     // A lifecycle notification invalidates sessions authenticated BEFORE the
     // transition that produced this revision. A newer session must survive,
     // even if the notification itself was delayed in the PG LISTEN queue.
-    if (
-      lifecycleRevision !== undefined &&
-      ws.lifecycleRevision !== undefined &&
-      ws.lifecycleRevision >= lifecycleRevision
-    ) {
+    if (!shouldCloseAgentSocketForLifecycleRevision(ws.lifecycleRevision, lifecycleRevision)) {
       continue;
     }
     try {
@@ -141,6 +148,17 @@ export function closeAgentSockets(agentId: string, lifecycleRevision?: number): 
       try { ws.terminate(); } catch {}
     }
   }
+}
+
+async function currentAgentLifecycleRevision(agentId: string): Promise<number | null> {
+  const result = await pool.query<{ lifecycle_revision: number | string }>(
+    "SELECT lifecycle_revision FROM agents WHERE id = $1",
+    [agentId],
+  );
+  if (result.rows.length !== 1) return null;
+  const revision = Number(result.rows[0].lifecycle_revision);
+  if (!Number.isSafeInteger(revision) || revision < 0) return null;
+  return revision;
 }
 
 export function closeTenantSockets(tenantId: string): void {
@@ -398,7 +416,21 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
             message.lifecycleRevision >= 0
               ? message.lifecycleRevision
               : undefined;
-          closeAgentSockets(message.agentId, revision);
+
+          // Older gateway instances may emit only {agentId}. Resolve that
+          // legacy notification against the durable current revision instead
+          // of closing every socket blindly. This keeps rolling deployments
+          // safe against the same stale-notification race.
+          void (async () => {
+            const effectiveRevision = revision ?? await currentAgentLifecycleRevision(message.agentId as string);
+            if (effectiveRevision === null) {
+              logWarn("[ws] ignored agent-session notification: lifecycle revision unavailable");
+              return;
+            }
+            closeAgentSockets(message.agentId as string, effectiveRevision);
+          })().catch((error) => {
+            logWarn("[ws] failed to fence agent sockets from lifecycle notification:", { error: error });
+          });
         }
         if (typeof message.tenantId === "string" && message.tenantId) closeTenantSockets(message.tenantId);
       } catch {
