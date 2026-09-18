@@ -192,10 +192,15 @@ export async function POST(req: Request) {
             }, tx);
             return { kind: "ignored" as const };
           }
-          if (current?.stripeCustomerId && customerId && current.stripeCustomerId !== customerId) throw new Error("Checkout customer identity conflict");
+          if (current?.stripeCustomerId && customerId && current.stripeCustomerId !== customerId) {
+            throw new Error("Checkout customer identity conflict");
+          }
+          const checkoutSessionId = typeof obj.id === "string" ? obj.id : undefined;
           await tx.update(tenantSubscriptions).set({
             stripeSubscriptionId: differentSubscription ? subId : (current?.stripeSubscriptionId ?? subId),
             stripeCustomerId: current?.stripeCustomerId ?? (customerId ?? null),
+            checkoutStatus: "completed",
+            checkoutSessionId: checkoutSessionId ?? null,
             updatedAt: new Date(),
           }).where(eq(tenantSubscriptions.tenantId, tenantId));
         }
@@ -208,6 +213,9 @@ export async function POST(req: Request) {
                  stripe_subscription_id AS "stripeSubscriptionId",
                  stripe_customer_id AS "stripeCustomerId",
                  status,
+                 checkout_status AS "checkoutStatus",
+                 checkout_plan_id AS "checkoutPlanId",
+                 checkout_idempotency_key AS "checkoutIdempotencyKey",
                  current_period_end AS "currentPeriodEnd",
                  cancel_at_period_end AS "cancelAtPeriodEnd",
                  plan_id AS "planId",
@@ -221,6 +229,9 @@ export async function POST(req: Request) {
           stripeSubscriptionId?: string | null;
           stripeCustomerId?: string | null;
           status?: "trialing" | "active" | "past_due" | "paused" | "cancelled";
+          checkoutStatus?: "none" | "creating" | "open" | "completed";
+          checkoutPlanId?: string | null;
+          checkoutIdempotencyKey?: string | null;
           currentPeriodEnd?: Date | null;
           cancelAtPeriodEnd?: boolean;
           planId?: string;
@@ -248,13 +259,24 @@ export async function POST(req: Request) {
             newerThanStored = false;
           }
           if (newerThanStored) {
+            const nextStatus = typeof obj.status === "string" ? statusOf(obj.status) : tenantRow.status;
             await tx.update(tenantSubscriptions).set({
               stripeCustomerId: typeof obj.customer === "string" ? obj.customer : tenantRow.stripeCustomerId,
               stripeSubscriptionId: subId || tenantRow.stripeSubscriptionId,
-              status: typeof obj.status === "string" ? statusOf(obj.status) : tenantRow.status,
+              status: nextStatus,
               currentPeriodEnd: typeof obj.current_period_end === "number" ? new Date(obj.current_period_end * 1000) : tenantRow.currentPeriodEnd,
               cancelAtPeriodEnd: obj.cancel_at_period_end === true,
               planId: plan?.id ?? tenantRow.planId,
+              ...(nextStatus === "cancelled"
+                ? {
+                    checkoutStatus: "none" as const,
+                    checkoutPlanId: null,
+                    checkoutIdempotencyKey: null,
+                    checkoutSessionId: null,
+                    checkoutSessionUrl: null,
+                    checkoutSessionExpiresAt: null,
+                  }
+                : {}),
               stripeLastEventCreatedAt: eventCreatedAt,
               updatedAt: new Date(),
             }).where(eq(tenantSubscriptions.tenantId, tenantId));
