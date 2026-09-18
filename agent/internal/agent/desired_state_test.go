@@ -292,6 +292,38 @@ func TestTombstonedPrinterRemainsExecutionFenced(t *testing.T) {
 	}
 }
 
+func TestDesiredStatePersistenceFailureKeepsDeletionFence(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	a.desiredStateSynced = true
+	p := testDesiredPrinter("printer-persist-fence", 1, "active")
+	a.reconcileGatewayDesiredState([]desiredPrinterWire{p})
+	a.observeDesiredRevision(p.ID, "online")
+	if !a.isPrinterExecutionAllowed(p.ID) {
+		t.Fatal("expected printer to be executable before simulated persistence failure")
+	}
+
+	// A directory at the destination makes the atomic rename fail after the
+	// deletion fence has been prepared, exercising the fail-closed path.
+	a.desiredStatePath = filepath.Join(t.TempDir(), "desired-state-target")
+	if err := os.MkdirAll(a.desiredStatePath, 0700); err != nil {
+		t.Fatalf("mkdir persistence target: %v", err)
+	}
+	a.reconcileGatewayDesiredState(nil)
+
+	if a.isPrinterExecutionAllowed(p.ID) {
+		t.Fatal("printer must remain execution-fenced when tombstone persistence fails")
+	}
+	if _, ok := a.gatewayOwned[p.ID]; ok {
+		t.Fatal("Gateway ownership must be removed in memory after deletion")
+	}
+	if _, ok := a.gatewayTombstones[p.ID]; !ok {
+		t.Fatal("in-memory tombstone must survive persistence failure")
+	}
+	if _, ok := a.printerConfigs[p.ID]; !ok {
+		t.Fatal("runtime cleanup must wait until the deletion fence is durable")
+	}
+}
+
 func TestDesiredStateLoaderRejectsOversizedFile(t *testing.T) {
 	a := newDesiredStateTestAgent(t)
 	if err := os.WriteFile(a.desiredStatePath, make([]byte, maxDesiredStateBytes+1), 0600); err != nil {
