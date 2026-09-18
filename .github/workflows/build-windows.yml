@@ -202,19 +202,14 @@ jobs:
             (Join-Path $env:ProgramFiles "Yasser\Yasser Manager"),
             (Join-Path $env:ProgramFiles "Yasser Manager"),
             (Join-Path $env:ProgramFiles "yasser-manager"),
-            (Join-Path $env:ProgramFiles "Odoo Print\Odoo Print Manager"),
-            (Join-Path $env:ProgramFiles "Odoo Print Manager"),
-            (Join-Path $env:ProgramFiles "odoo-print-manager"),
             (Join-Path ${env:ProgramFiles(x86)} "Yasser\Yasser Manager"),
             (Join-Path ${env:ProgramFiles(x86)} "Yasser Manager"),
-            (Join-Path ${env:ProgramFiles(x86)} "Odoo Print\Odoo Print Manager"),
-            (Join-Path ${env:ProgramFiles(x86)} "Odoo Print Manager"),
             (Join-Path $env:LOCALAPPDATA "Programs\Yasser Manager"),
-            (Join-Path $env:LOCALAPPDATA "Programs\Odoo Print Manager")
+            (Join-Path $env:LOCALAPPDATA "Programs\Yasser Manager")
           )
           $installDir = $candidateDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $installDir) {
-            $regKeys = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "Manager" -or $_.DisplayName -match "Yasser" -or $_.DisplayName -match "Odoo" }
+            $regKeys = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "^Yasser( Manager)?$" }
             foreach ($k in $regKeys) {
               if ($k.InstallLocation -and (Test-Path $k.InstallLocation)) {
                 $installDir = $k.InstallLocation
@@ -223,7 +218,7 @@ jobs:
             }
           }
           if (-not $installDir) {
-            $foundExe = Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}, "$env:LOCALAPPDATA\Programs") -Filter "*manager*.exe" -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 1
+            $foundExe = Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}, "$env:LOCALAPPDATA\Programs") -Filter "Yasser*.exe" -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($foundExe) {
               $installDir = $foundExe.DirectoryName
             }
@@ -237,6 +232,50 @@ jobs:
           Write-Host "Found installed directory: $installDir"
           & pwsh -NoProfile -File .\scripts\smoke-test-windows.ps1 -InstallDir $installDir
           if ($LASTEXITCODE -ne 0) { throw "Windows smoke test failed" }
+      - name: Install NSIS and smoke-test installed app
+        shell: pwsh
+        run: |
+          $nsis = Get-ChildItem "src-tauri\\target\\x86_64-pc-windows-msvc\\release\\bundle\\nsis\\Yasser Manager_*-setup.exe" | Select-Object -First 1
+          if (-not $nsis) { throw "Yasser Manager NSIS installer missing" }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "Yasser Manager NSIS"
+          if (Test-Path $installDir) {
+            Remove-Item -Recurse -Force $installDir
+          }
+          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+
+          # NSIS requires /D=... as the final argument. Keep the destination
+          # inside the ephemeral runner temp directory so this test cannot
+          # collide with the MSI installation or leave Program Files state.
+          $proc = Start-Process -FilePath $nsis.FullName -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru
+          if ($proc.ExitCode -ne 0) {
+            throw "NSIS install failed with code $($proc.ExitCode)"
+          }
+          if (-not (Test-Path $installDir)) {
+            throw "NSIS install directory was not created: $installDir"
+          }
+
+          & pwsh -NoProfile -File .\\scripts\\smoke-test-windows.ps1 -InstallDir $installDir
+          if ($LASTEXITCODE -ne 0) { throw "NSIS Windows smoke test failed" }
+
+          $uninstaller = Join-Path $installDir "uninstall.exe"
+          if (-not (Test-Path $uninstaller)) {
+            $uninstaller = Get-ChildItem $installDir -Filter "uninstall*.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $uninstaller) { throw "NSIS uninstaller missing" }
+
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @("/S") -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) {
+            throw "NSIS uninstall failed with code $($uninstall.ExitCode)"
+          }
+          if (Test-Path $installDir) {
+            $remaining = Get-ChildItem $installDir -Force -ErrorAction SilentlyContinue
+            if ($remaining) {
+              throw "NSIS uninstall left files behind in $installDir"
+            }
+          }
+          Write-Host "NSIS install, smoke test, and silent uninstall passed."
+
       - name: Upload Windows MSI and NSIS EXE
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
