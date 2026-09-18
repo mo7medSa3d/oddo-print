@@ -182,7 +182,7 @@ describe("production hardening contracts", () => {
     expect(checkout).toContain("FOR UPDATE");
     expect(checkout).toContain("tenant-customer-");
     expect(checkout).toContain("checkout-intent-");
-    expect(checkout).toContain("checkoutStatus: " + ""creating"");
+    expect(checkout).toContain('checkoutStatus: "creating"');
     expect(checkout).toContain("checkoutIdempotencyKey");
     expect(checkout).toContain("billingOperationId");
 
@@ -223,7 +223,7 @@ describe("production hardening contracts", () => {
       expect(billingRoute).toContain("FROM tenant_subscriptions");
       expect(billingRoute).toContain("stripeRequest(");
       expect(billingRoute).toContain("billingOperationId");
-      expect(billingRoute).toContain("billing-${path.includes("cancel") ? "cancel" : "resume"}-");
+      expect(billingRoute).toContain(path.includes("cancel") ? "billing-cancel-" : "billing-resume-");
     }
   });
 
