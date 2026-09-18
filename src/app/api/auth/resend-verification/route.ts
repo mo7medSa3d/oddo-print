@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { users, emailVerificationTokens } from "../../../../db/schema";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { generateOpaqueToken, hashToken, normalizeEmail, validEmail } from "../../../../lib/password";
 import { nanoid } from "../../../../lib/nanoid";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
@@ -51,6 +51,7 @@ export async function POST(req: Request) {
 
   try {
     await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT id FROM users WHERE id = ${user.id} FOR UPDATE`);
       await tx
         .update(emailVerificationTokens)
         .set({ consumedAt: now })
