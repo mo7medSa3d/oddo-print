@@ -37,7 +37,7 @@ if (-not $InstallDir) {
   )
   $InstallDir = $candidateDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
   if (-not $InstallDir) {
-    $regKeys = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "Yasser" }
+    $regKeys = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "^Yasser( Manager)?$" }
     foreach ($k in $regKeys) {
       if ($k.InstallLocation -and (Test-Path $k.InstallLocation)) {
         $InstallDir = $k.InstallLocation
