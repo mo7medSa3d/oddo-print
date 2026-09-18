@@ -173,27 +173,28 @@ suite("print idempotency (Odoo → Gateway)", () => {
     expect(await jobCount()).toBe(2);
   });
 
-  it("isolates job lookup and idempotency by Odoo installation key", async () => {
-    const otherKey = "odoo_other_installation";
+  it("preserves idempotency and job lookup across Odoo API-key rotation", async () => {
+    const otherKey = "odoo_rotated_installation";
     await pool().query(
-      `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key) VALUES ($1, $2, 'standard', 'other installation', $3)`,
-      ["key_other_installation", f.tenantId, sha256(otherKey)],
+      `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key) VALUES ($1, $2, 'standard', 'rotated installation', $3)`,
+      ["key_rotated_installation", f.tenantId, sha256(otherKey)],
     );
 
-    const first = await create(jobBody("op-installation-scope"));
+    const first = await create(jobBody("op-installation-rotation"));
     expect(first.status).toBe(201);
     const created = await first.json();
+
+    const replayAfterRotation = await create(jobBody("op-installation-rotation"), otherKey);
+    expect(replayAfterRotation.status).toBe(200);
+    const replayed = await replayAfterRotation.json();
+    expect(replayed.jobId).toBe(created.jobId);
+    expect(await jobCount()).toBe(1);
 
     const foreignRead = await printJobsGET(new Request(`http://gateway.test/api/print/jobs?id=${created.jobId}`, {
       headers: { Authorization: `Bearer ${otherKey}` },
     }));
-    expect(foreignRead.status).toBe(404);
-
-    const sameOperationFromOtherInstallation = await create(jobBody("op-installation-scope"), otherKey);
-    expect(sameOperationFromOtherInstallation.status).toBe(201);
-    const second = await sameOperationFromOtherInstallation.json();
-    expect(second.jobId).not.toBe(created.jobId);
-    expect(await jobCount()).toBe(2);
+    expect(foreignRead.status).toBe(200);
+    expect((await foreignRead.json()).jobId).toBe(created.jobId);
   });
 
   it("internal requests may reuse the same idempotency key across tenants", async () => {
