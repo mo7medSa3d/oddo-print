@@ -44,7 +44,7 @@ suite("control-plane concurrency invariants", () => {
     vi.mocked(stripeRequest).mockImplementation(async (path: string, _form: URLSearchParams, idempotencyKey?: string) => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       if (path === "customers") return { id: "cus_control_plane" };
-      if (path === "checkout/sessions") return { url: `https://checkout.example/${idempotencyKey}` };
+      if (path === "checkout/sessions") return { id: `cs_${idempotencyKey}`, url: `https://checkout.example/${idempotencyKey}` };
       throw new Error(`unexpected Stripe path: ${path}`);
     });
     await db.insert(tenants).values({ id: "tenant_control_plane", name: "Control Plane Tenant" });
