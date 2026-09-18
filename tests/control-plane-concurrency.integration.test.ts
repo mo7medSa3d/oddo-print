@@ -143,7 +143,7 @@ suite("control-plane concurrency invariants", () => {
     const customerCalls = stripeCalls.filter(([path]) => path === "customers");
     const checkoutCalls = stripeCalls.filter(([path]) => path === "checkout/sessions");
     expect(customerCalls).toHaveLength(2);
-    expect(new Set(customerCalls.map((call) => call[2]))).toEqual(new Set([`tenant-customer-${"tenant_control_plane"}`]));
+    expect(customerCalls.map((call) => call[2])).toEqual([`tenant-customer-${"tenant_control_plane"}`, `tenant-customer-${"tenant_control_plane"}`]);
     expect(checkoutCalls).toHaveLength(2);
     expect(checkoutCalls[0]?.[2]).toBe(`checkout-${"tenant_control_plane"}-${planId}`);
     expect(checkoutCalls[1]?.[2]).toBe(checkoutCalls[0]?.[2]);
