@@ -162,7 +162,7 @@ func (p *NetworkPrinter) Test(ctx context.Context) error {
 	}
 	testCtx, cancel := context.WithTimeout(ctx, testPrintDialTimeout)
 	defer cancel()
-	return p.printBytes(testCtx, []byte("\x1b\x40Hello from Odoo Agent!\n\n\x1d\x56\x01"), false, testPrintDialTimeout)
+	return p.printBytes(testCtx, []byte("\x1b\x40Hello from Yasser Agent!\n\n\x1d\x56\x01"), false, testPrintDialTimeout)
 }
 
 // Status differentiates transport reachability from device health:
