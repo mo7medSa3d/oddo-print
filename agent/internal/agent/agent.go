@@ -1870,8 +1870,10 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 				}
 				a.updateJobStatus(ctx, jobID, "failed", marker+": local ledger terminal with an unknown outcome; this delivery was not dispatched (agent.reprint_after_crash=false)", claimToken)
 			}
+			lock.Unlock()
 			return
 		}
+		lock.Unlock()
 		log.Printf("Job %s: local durable ledger unavailable; refusing dispatch (no bytes sent): %v", jobID, err)
 		// Fenced pre-execution return (never dispatched, zero bytes sent):
 		// the gateway requeues without burning the delivery budget.
@@ -1889,6 +1891,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 			if aberr := a.queue.AbortPrint(jobID, "dispatch_refused: "+reason+"; zero bytes transmitted"); aberr != nil {
 				log.Printf("Job %s: failed to abort local ledger row: %v", jobID, aberr)
 			}
+			lock.Unlock()
 			return
 		} else {
 			log.Printf("Job %s: printing report unacknowledged (%v); ownership still provable, proceeding with ledger-tracked outcome", jobID, err)
