@@ -55,7 +55,7 @@ export function isLikelyAuthenticated(req: IncomingMessage): boolean {
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const token = authHeader.slice(7).trim();
     if (token.startsWith("odoo_") && token.length >= 16) return true;
-    if (token.includes(":") && token.length >= 10) return true; // agt_...:secret
+    // Agent bearer credentials are not trusted by shape alone. Without a DB lookup, treating any colon-containing token as authenticated lets an attacker claim the larger request budget.
     if (verifyJwtQuick(token)) return true;
   }
 
