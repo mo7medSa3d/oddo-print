@@ -1809,38 +1809,32 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	lock.Lock()
 
 	if !a.isPrinterExecutionAllowed(printerID) {
-		lock.Unlock()
 		a.rejectJob(ctx, jobID, jobClaimToken(job), "printer_not_at_desired_state")
 		return
 	}
 	p, ok := a.getPrinter(printerID)
 	if !ok {
-		lock.Unlock()
 		a.updateJobStatus(ctx, jobID, "failed", fmt.Sprintf("printer %s is not configured on this agent", printerID), claimToken)
 		return
 	}
 	if !printer.SupportsKind(p, kind) {
 		reason := fmt.Sprintf("CAPABILITY_MISMATCH: printer %s cannot print %s payloads", printerID, kind)
-		lock.Unlock()
 		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
 		return
 	}
 	facts, factsOK := a.deviceFacts(printerID)
 	if !factsOK {
 		reason := fmt.Sprintf("CAPABILITY_MISMATCH: printer %s has no declared device facts on this agent", printerID)
-		lock.Unlock()
 		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
 		return
 	}
 	if compatible, why := printer.PayloadCompatibleForDevice(kind, pl.Protocol, facts); !compatible {
 		reason := fmt.Sprintf("CAPABILITY_MISMATCH: %s", why)
-		lock.Unlock()
 		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
 		return
 	}
 
 	if a.queue.IsProcessed(jobID) {
-		lock.Unlock()
 		log.Printf("Job %s was already processed while waiting for dispatch. Skipping.", jobID)
 		return
 	}
@@ -1873,7 +1867,6 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 			lock.Unlock()
 			return
 		}
-		lock.Unlock()
 		log.Printf("Job %s: local durable ledger unavailable; refusing dispatch (no bytes sent): %v", jobID, err)
 		// Fenced pre-execution return (never dispatched, zero bytes sent):
 		// the gateway requeues without burning the delivery budget.
@@ -1917,12 +1910,10 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	case a.execSem <- struct{}{}:
 		defer func() { <-a.execSem }()
 	case <-ctx.Done():
-		lock.Unlock()
 		a.rejectJob(ctx, jobID, jobClaimToken(job), "agent_shutting_down")
 		return
 	}
 	if a.queue.IsProcessed(jobID) {
-		lock.Unlock()
 		log.Printf("Job %s was already processed while waiting for printer %s. Skipping duplicate print.", jobID, printerID)
 		return
 	}
@@ -1977,7 +1968,6 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 			log.Printf("Job %s: ledger write failed after successful print: %v", jobID, err)
 		}
 	}
-	lock.Unlock()
 
 	if printErr != nil {
 		log.Printf("Job %s FAILED on printer %s: %v", jobID, printerID, printErr)
