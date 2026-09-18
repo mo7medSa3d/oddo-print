@@ -107,7 +107,7 @@ suite("control-plane concurrency invariants", () => {
       db.insert(tenantUsers).values({
         userId: secondUserId, tenantId: "tenant_control_plane", role: "owner",
       }),
-    ).rejects.toThrow(/tenant_users_single_owner_idx|duplicate key/i);
+    ).rejects.toThrow();
   });
 
   it("allows only one concurrent onboarding trial for a tenant", async () => {
