@@ -270,6 +270,28 @@ func TestDesiredStateSameRevisionConflictIsRejected(t *testing.T) {
 	}
 }
 
+func TestTombstonedPrinterRemainsExecutionFenced(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	a.desiredStateSynced = true
+	p := testDesiredPrinter("printer-fenced", 1, "active")
+	a.reconcileGatewayDesiredState([]desiredPrinterWire{p})
+	a.observeDesiredRevision(p.ID, "online")
+	if !a.isPrinterExecutionAllowed(p.ID) {
+		t.Fatal("expected printer to be executable before deletion")
+	}
+
+	a.printersMu.Lock()
+	a.gatewayTombstones[p.ID] = struct{}{}
+	a.printersMu.Unlock()
+	a.desiredStateMu.Lock()
+	delete(a.desiredStates, p.ID)
+	a.desiredStateMu.Unlock()
+
+	if a.isPrinterExecutionAllowed(p.ID) {
+		t.Fatal("tombstoned printer must remain fenced after desired-state cache removal")
+	}
+}
+
 func TestDesiredStateLoaderRejectsOversizedFile(t *testing.T) {
 	a := newDesiredStateTestAgent(t)
 	if err := os.WriteFile(a.desiredStatePath, make([]byte, maxDesiredStateBytes+1), 0600); err != nil {
