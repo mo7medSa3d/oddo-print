@@ -181,7 +181,10 @@ describe("production hardening contracts", () => {
     expect(checkout).toContain("FROM tenants");
     expect(checkout).toContain("FOR UPDATE");
     expect(checkout).toContain("tenant-customer-");
-    expect(checkout).toContain("checkout-${claims.tenantId}-${plan.id}");
+    expect(checkout).toContain("checkout-intent-");
+    expect(checkout).toContain("checkoutStatus: " + ""creating"");
+    expect(checkout).toContain("checkoutIdempotencyKey");
+    expect(checkout).toContain("billingOperationId");
 
     const lifecycle = read("src/lib/tenant-lifecycle.ts");
     expect(lifecycle).toContain('PLATFORM_TENANT_PROTECTED');
@@ -210,6 +213,8 @@ describe("production hardening contracts", () => {
     const auth = read("src/lib/manager-auth.ts");
     expect(auth).toContain("passwordHash: true");
     expect(auth).toContain("eq(users.passwordHash, legacyHash)");
+    expect(auth).toContain("if (!row || !row.emailVerifiedAt) return null;");
+    expect(auth).toContain("if (upgradedRows.length !== 1) return null;");
 
     for (const path of ["src/app/api/billing/cancel/route.ts", "src/app/api/billing/resume/route.ts"]) {
       const billingRoute = read(path);
@@ -217,6 +222,8 @@ describe("production hardening contracts", () => {
       expect(billingRoute).toContain("FOR UPDATE");
       expect(billingRoute).toContain("FROM tenant_subscriptions");
       expect(billingRoute).toContain("stripeRequest(");
+      expect(billingRoute).toContain("billingOperationId");
+      expect(billingRoute).toContain("billing-${path.includes("cancel") ? "cancel" : "resume"}-");
     }
   });
 
