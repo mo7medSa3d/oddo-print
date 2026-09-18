@@ -1594,7 +1594,7 @@ func (a *Agent) reconcileRegistryPrinters(infos []printer.DeviceInfo) {
 	}
 
 	a.printersMu.Lock()
-	defer a.printersMu.Unlock()
+	var removed []string
 	for id := range a.registryOwned {
 		if _, gatewayManaged := a.gatewayOwned[id]; gatewayManaged {
 			continue
@@ -1602,10 +1602,28 @@ func (a *Agent) reconcileRegistryPrinters(infos []printer.DeviceInfo) {
 		if _, stillPresent := present[id]; stillPresent {
 			continue
 		}
-		delete(a.printers, id)
-		delete(a.printerConfigs, id)
+		removed = append(removed, id)
 	}
 	a.registryOwned = present
+	a.printersMu.Unlock()
+
+	// Registry removals are local lifecycle changes too. Serialize them with
+	// physical execution so a stale discovery sweep cannot delete the backend
+	// out from under an active print.
+	for _, id := range removed {
+		lock := a.getPrinterLock(id)
+		lock.Lock()
+		a.printersMu.Lock()
+		if _, gatewayManaged := a.gatewayOwned[id]; !gatewayManaged {
+			if _, stillPresent := present[id]; !stillPresent {
+				delete(a.printers, id)
+				delete(a.printerConfigs, id)
+			}
+		}
+		a.printersMu.Unlock()
+		lock.Unlock()
+		a.deleteProbeState(id)
+	}
 }
 
 func (a *Agent) reloadRegistryPrinters() {
