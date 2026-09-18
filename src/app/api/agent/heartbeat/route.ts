@@ -96,7 +96,11 @@ function sanitizePrinter(p: ReportedPrinter): {
         .map((value) => String(value).toLowerCase().trim())
         .filter((token) => KNOWN_CAPABILITY_TOKENS.has(token));
     } else {
-      capabilities.supported_protocols = [];
+      // Malformed type is treated as absent rather than authoritative. Only
+      // a valid array (including an explicit empty array) is a capability
+      // declaration; invalid JSON shape should not crash or create a
+      // synthetic deny-list that was never actually declared.
+      delete capabilities.supported_protocols;
     }
   }
   const status = typeof p.status === "string" && VALID_PRINTER_STATUSES.has(p.status.trim().toLowerCase()) ? p.status.trim().toLowerCase() : "unknown";
