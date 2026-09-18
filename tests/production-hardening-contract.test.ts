@@ -227,6 +227,13 @@ describe("production hardening contracts", () => {
     expect(workflow).toContain("push:");
     expect(workflow).toContain("branches: [main]");
     expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("CI / ci");
+    expect(workflow).toContain("CI / odoo19");
+    expect(workflow).toContain("Docker / docker-build-runtime");
+    expect(workflow).toContain("Build Windows Installer / build-windows");
+    expect(workflow).toContain("Security and Resilience Gates / postgres-failure-injection");
+    expect(workflow).toContain("Security and Resilience Gates / supply-chain");
+
     expect(workflow).toContain("verify-main-protection:");
     expect(workflow).not.toContain("security-audit");
     expect(workflow).not.toContain("npm audit");
