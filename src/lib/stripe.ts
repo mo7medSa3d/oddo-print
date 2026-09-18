@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { runtimeSecret } from "./runtime-secret";
 export function stripeSecret(): string { const s=runtimeSecret("STRIPE_SECRET_KEY"); if(!s) throw new Error("Stripe is not configured"); return s; }
 export function stripeHeaders(extra:Record<string,string>={}) { return { Authorization:`Bearer ${stripeSecret()}`, "Content-Type":"application/x-www-form-urlencoded", ...(runtimeSecret("STRIPE_API_VERSION")?{"Stripe-Version":runtimeSecret("STRIPE_API_VERSION")!}:{}), ...extra }; }
-export type StripeApiResponse = { id: string; url?: string | null };
+export type StripeApiResponse = { id: string; url?: string | null; expires_at?: number };
 
 function requireStripeObject(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Stripe returned an invalid response object");
@@ -12,10 +12,19 @@ function requireStripeObject(data: unknown): Record<string, unknown> {
 function parseStripeResponse(path: string, data: unknown): StripeApiResponse {
   const object = requireStripeObject(data);
   if (typeof object.id !== "string" || object.id.length === 0) throw new Error(`Stripe response missing id for ${path}`);
-  if (path === "checkout/sessions" && object.url !== null && typeof object.url !== "string") {
-    throw new Error("Stripe checkout session returned an invalid url");
+  if (path === "checkout/sessions") {
+    if (object.url !== null && object.url !== undefined && typeof object.url !== "string") {
+      throw new Error("Stripe checkout session returned an invalid url");
+    }
+    if (object.expires_at !== undefined && (!Number.isSafeInteger(object.expires_at) || Number(object.expires_at) <= 0)) {
+      throw new Error("Stripe checkout session returned an invalid expires_at");
+    }
   }
-  return { id: object.id, ...(Object.prototype.hasOwnProperty.call(object, "url") ? { url: object.url as string | null } : {}) };
+  return {
+    id: object.id,
+    ...(Object.prototype.hasOwnProperty.call(object, "url") ? { url: object.url as string | null } : {}),
+    ...(Object.prototype.hasOwnProperty.call(object, "expires_at") ? { expires_at: Number(object.expires_at) } : {}),
+  };
 }
 
 export async function stripeRequest(path:string, form:URLSearchParams, idempotencyKey?:string): Promise<StripeApiResponse> {
