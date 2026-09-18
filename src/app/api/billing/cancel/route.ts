@@ -8,7 +8,6 @@ import { hasManagerPermission } from "../../../../lib/authorization";
 import { stripeRequest } from "../../../../lib/stripe";
 
 export async function POST(req: Request) {
-  void req;
   const claims = await validateManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "billing.manage")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
