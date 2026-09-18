@@ -5,6 +5,12 @@ import { describe, expect, it } from "vitest";
 const read = (file: string) => readFileSync(resolve(process.cwd(), file), "utf8");
 
 describe("DoS/resource exhaustion hardening contracts", () => {
+  it("does not trust an arbitrary X-API-Key header as authenticated", () => {
+    const guard = read("src/server/request-guard.ts");
+    expect(guard).toContain('startsWith("odoo_")');
+    expect(guard).not.toContain('apiKeyHeader.trim().length >= 16) return true');
+  });
+
   it("bounds per-agent queued count and payload memory", () => {
     const service = read("src/lib/print-job-service.ts");
     expect(service).toContain("MAX_AGENT_QUEUED_JOBS = 256");
