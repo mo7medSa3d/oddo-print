@@ -34,9 +34,10 @@ function verifyJwtQuick(token: string): boolean {
   if (parts.length !== 3) return false;
   const [h, p, s] = parts;
   const secret = process.env.GATEWAY_JWT_SECRET;
-  if (!secret || secret.length < 32) {
-    return true;
-  }
+  // Resource-budget classification must fail closed. Route-level authentication
+  // still decides access, but an unsigned JWT-shaped value must not let an
+  // attacker reserve from the larger authenticated request pool.
+  if (!secret || secret.length < 32) return false;
   try {
     const data = `${h}.${p}`;
     const expected = createHmac("sha256", secret).update(data).digest("base64url");
@@ -54,15 +55,11 @@ export function isLikelyAuthenticated(req: IncomingMessage): boolean {
   const authHeader = typeof auth === "string" ? auth : Array.isArray(auth) ? auth[0] : "";
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const token = authHeader.slice(7).trim();
-    if (token.startsWith("odoo_") && token.length >= 16) return true;
-    // Agent bearer credentials are not trusted by shape alone. Without a DB lookup, treating any colon-containing token as authenticated lets an attacker claim the larger request budget.
+    // Only locally verifiable signed sessions receive the larger pool. Odoo API
+    // keys and agent credentials are opaque DB-backed values; their prefix or
+    // shape proves nothing at this pre-routing boundary.
     if (verifyJwtQuick(token)) return true;
   }
-
-  const apiKey = headers["x-api-key"];
-  const apiKeyHeader = typeof apiKey === "string" ? apiKey : Array.isArray(apiKey) ? apiKey[0] : "";
-  // Do not classify an arbitrary X-API-Key as authenticated: the header is attacker-controlled and validation belongs to the route. Only the canonical Odoo key prefix is safe to recognize without a DB lookup.
-  if (apiKeyHeader.trim().startsWith("odoo_") && apiKeyHeader.trim().length >= 16) return true;
 
   const cookie = headers["cookie"];
   const cookieHeader = typeof cookie === "string" ? cookie : Array.isArray(cookie) ? cookie[0] : "";

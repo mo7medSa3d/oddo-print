@@ -5,11 +5,12 @@ import { describe, expect, it } from "vitest";
 const read = (file: string) => readFileSync(resolve(process.cwd(), file), "utf8");
 
 describe("DoS/resource exhaustion hardening contracts", () => {
-  it("does not trust an arbitrary X-API-Key header as authenticated", () => {
+  it("does not trust opaque credential shapes as authenticated", () => {
     const guard = read("src/server/request-guard.ts");
-    expect(guard).toContain('startsWith("odoo_")');
-    expect(guard).toContain('apiKeyHeader.trim().startsWith("odoo_") && apiKeyHeader.trim().length >= 16');
+    expect(guard).not.toContain('token.startsWith("odoo_")');
+    expect(guard).not.toContain('apiKeyHeader.trim().startsWith("odoo_")');
     expect(guard).not.toContain('token.includes(":") && token.length >= 10');
+    expect(guard).toContain("if (!secret || secret.length < 32) return false");
   });
 
   it("bounds per-agent queued count and payload memory", () => {

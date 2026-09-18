@@ -1,7 +1,7 @@
 import { createServer, type Server } from "http";
 import { connect, type AddressInfo } from "net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { guardApiRequest, MAX_API_BODY_BYTES } from "../src/server/request-guard";
+import { guardApiRequest, isLikelyAuthenticated, MAX_API_BODY_BYTES } from "../src/server/request-guard";
 import { parseStrictContentLength } from "../src/lib/request-limits";
 
 /**
@@ -27,6 +27,28 @@ describe("strict Content-Length parser", () => {
     expect(parseStrictContentLength(["10", "10"])).toBeNull();
     expect(parseStrictContentLength("0")).toBe(0);
     expect(parseStrictContentLength("4096")).toBe(4096);
+  });
+});
+
+describe("request authentication budget classification", () => {
+  it("rejects attacker-controlled opaque credential shapes", () => {
+    const req = { headers: { authorization: "Bearer odoo_attacker-controlled-key" } } as import("http").IncomingMessage;
+    expect(isLikelyAuthenticated(req)).toBe(false);
+
+    const apiKeyReq = { headers: { "x-api-key": "odoo_attacker-controlled-key" } } as unknown as import("http").IncomingMessage;
+    expect(isLikelyAuthenticated(apiKeyReq)).toBe(false);
+  });
+
+  it("fails closed for JWT-shaped values when the signing secret is unavailable", () => {
+    const previous = process.env.GATEWAY_JWT_SECRET;
+    delete process.env.GATEWAY_JWT_SECRET;
+    try {
+      const req = { headers: { authorization: `Bearer ${"a".repeat(20)}.${"b".repeat(20)}.${"c".repeat(20)}` } } as import("http").IncomingMessage;
+      expect(isLikelyAuthenticated(req)).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.GATEWAY_JWT_SECRET;
+      else process.env.GATEWAY_JWT_SECRET = previous;
+    }
   });
 });
 

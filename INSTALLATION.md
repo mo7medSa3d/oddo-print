@@ -30,6 +30,22 @@ GET /api/health -> {"ok":true}
 
 ## 2. Windows Agent
 
+### Linux desktop build prerequisites
+
+The Tauri desktop manager requires native GTK 3, GLib, WebKitGTK 4.1, and tray development libraries. Check the current machine before running Cargo:
+
+```bash
+npm run desktop:linux:deps
+```
+
+If modules are missing, print the distribution-specific command with `bash scripts/setup-tauri-linux.sh --print`, or install interactively with:
+
+```bash
+npm run desktop:linux:deps:install
+```
+
+The script supports Fedora/RHEL, Debian/Ubuntu, and Arch-family distributions and verifies `gdk-3.0`, `gobject-2.0`, and `webkit2gtk-4.1` through `pkg-config`.
+
 Install the Windows Agent/Desktop Manager bundle. Pair the Agent with the Gateway using the pairing flow exposed by the Gateway manager. The Agent owns local printer discovery, heartbeat, queueing and physical execution.
 
 The Gateway manager can inspect runtime agents/printers and their health. Odoo does not create or synchronize these resources.
