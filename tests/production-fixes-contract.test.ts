@@ -60,8 +60,8 @@ describe("production fixes contracts (2026-09)", () => {
     expect(doc).toContain("if _, hasDeadline := parent.Deadline(); hasDeadline {");
     // executor saturation / shutdown reject the job FENCED with the claim
     // token instead of silently dropping delivered work.
-    expect(agent).toContain('a.rejectJob(jobID, jobClaimToken(job), "pending_full")');
-    expect(agent).toContain('a.rejectJob(jobID, jobClaimToken(job), "agent_shutting_down")');
+    expect(agent).toContain('a.rejectJob(ctx, jobID, jobClaimToken(job), "pending_full")');
+    expect(agent).toContain('a.rejectJob(ctx, jobID, jobClaimToken(job), "agent_shutting_down")');
     expect(agent).toMatch(/discoverySem:\s*make\(chan struct\{\}, 1\)/);
     const net = read("agent/internal/printer/network.go");
     expect(net).toMatch(/dialTimeout\s*=\s*10\s*\*\s*time\.Second/);
