@@ -51,7 +51,7 @@ suite("gateway runtime printer availability + payload capability contract", () =
     if (result.ok) {
       throw new Error("expected explicit empty supported_protocols to fail closed");
     }
-    expect(result.reason).toMatch(/does not explicitly support RAW protocol/i);
+    expect(result.reason).toMatch(/does not explicitly support RAW/i);
   });
 
   it("preserves an explicit empty supported_protocols list instead of falling back to transport capability", () => {
