@@ -1,12 +1,16 @@
 # Production Completion Report — Odoo Print Gateway
 
+> **Historical verification record — superseded.**
+>
+> This document records the state of a specific repository baseline and execution environment at the time it was written. Its PASS/BLOCKED/FAIL/NOT PRODUCTION READY findings are **not a current status verdict for `main`**. Do not use the environment limitations in this report as evidence that the current repository has the same limitations. Current status must be established from the current `main` commit, current source, and current CI/release evidence.
+
 Date: 2026-09-14
 Repository baseline: `printer-repo-main-revised-clean.zip`
 Working tree: `/mnt/data/printer-repo-work/printer-repo-main`
 
-## A. Executive Status
+## A. Historical Executive Status
 
-**NOT PRODUCTION READY**
+**NOT PRODUCTION READY — HISTORICAL / SUPERSEDED**
 
 The requested SaaS completion work was implemented against the supplied repository while preserving the existing Odoo → Gateway → PostgreSQL → Windows Agent → Printer architecture. The repository is materially more complete, but the full production verification matrix could not be executed in this environment because the repository requires Node >=24.15.0 and Go 1.26, while the available environment has Node 22.16.0 and Go 1.23.2, and external package/toolchain downloads are blocked. PostgreSQL, Docker, Rust/Tauri, PowerShell, and Windows/hardware validation were also unavailable.
 
