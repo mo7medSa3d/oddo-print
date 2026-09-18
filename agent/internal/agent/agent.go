@@ -1801,13 +1801,46 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	}
 
 	kind := string(pl.Type)
-	// Per-printer serialization: two jobs for the same printer never run concurrently.
-	// The lock is held ONLY around the physical print call and local queue
-	// bookkeeping. Gateway status callbacks (network I/O) are done outside the
-	// critical section so a slow/unresponsive gateway never blocks other jobs
-	// queued for the same printer.
-	// Re-check idempotency in case a racing delivery (WS + poll fallback both firing) got here first.
+
+	// Serialize lifecycle changes with physical execution. The authoritative
+	// desired-state gate and backend lookup happen while holding the same
+	// per-printer lock used by apply/remove operations.
+	lock := a.getPrinterLock(printerID)
+	lock.Lock()
+
+	if !a.isPrinterExecutionAllowed(printerID) {
+		lock.Unlock()
+		a.rejectJob(ctx, jobID, jobClaimToken(job), "printer_not_at_desired_state")
+		return
+	}
+	p, ok := a.getPrinter(printerID)
+	if !ok {
+		lock.Unlock()
+		a.updateJobStatus(ctx, jobID, "failed", fmt.Sprintf("printer %s is not configured on this agent", printerID), claimToken)
+		return
+	}
+	if !printer.SupportsKind(p, kind) {
+		reason := fmt.Sprintf("CAPABILITY_MISMATCH: printer %s cannot print %s payloads", printerID, kind)
+		lock.Unlock()
+		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
+		return
+	}
+	facts, factsOK := a.deviceFacts(printerID)
+	if !factsOK {
+		reason := fmt.Sprintf("CAPABILITY_MISMATCH: printer %s has no declared device facts on this agent", printerID)
+		lock.Unlock()
+		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
+		return
+	}
+	if compatible, why := printer.PayloadCompatibleForDevice(kind, pl.Protocol, facts); !compatible {
+		reason := fmt.Sprintf("CAPABILITY_MISMATCH: %s", why)
+		lock.Unlock()
+		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
+		return
+	}
+
 	if a.queue.IsProcessed(jobID) {
+		lock.Unlock()
 		log.Printf("Job %s was already processed while waiting for dispatch. Skipping.", jobID)
 		return
 	}
@@ -1871,47 +1904,9 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	printCtx, cancel := context.WithTimeout(ctx, printDocumentTimeout(len(pl.Data)))
 	defer cancel()
 
-	// Physical print is serialized per printer; re-check dedup before printing
-	// in case the same jobId was already completed while we were reporting
-	// "printing" or waiting for the printer lock. Local queue updates are kept
-	// inside the critical section so a waiter sees the terminal state.
-	lock := a.getPrinterLock(printerID)
-	lock.Lock()
-
-	// The printer lifecycle uses this same lock. Re-check desired state and
-	// resolve the backend only after acquiring it, so a concurrent manager
-	// update cannot swap/disable the printer between authorization and dispatch.
-	if !a.isPrinterExecutionAllowed(printerID) {
-		lock.Unlock()
-		a.rejectJob(ctx, jobID, jobClaimToken(job), "printer_not_at_desired_state")
-		return
-	}
-	p, ok := a.getPrinter(printerID)
-	if !ok {
-		lock.Unlock()
-		a.updateJobStatus(ctx, jobID, "failed", fmt.Sprintf("printer %s is not configured on this agent", printerID), claimToken)
-		return
-	}
-	if !printer.SupportsKind(p, kind) {
-		reason := fmt.Sprintf("CAPABILITY_MISMATCH: printer %s cannot print %s payloads", printerID, kind)
-		lock.Unlock()
-		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
-		return
-	}
-	facts, factsOK := a.deviceFacts(printerID)
-	if !factsOK {
-		reason := fmt.Sprintf("CAPABILITY_MISMATCH: printer %s has no declared device facts on this agent", printerID)
-		lock.Unlock()
-		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
-		return
-	}
-	if compatible, why := printer.PayloadCompatibleForDevice(kind, pl.Protocol, facts); !compatible {
-		reason := fmt.Sprintf("CAPABILITY_MISMATCH: %s", why)
-		lock.Unlock()
-		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
-		return
-	}
-
+	// The lifecycle gate above remains held through the physical dispatch so
+	// a concurrent manager update cannot replace/disable the backend after the
+	// final authorization check and before bytes reach the device.
 	// Only physical execution consumes a global worker slot. Jobs waiting for
 	// the same printer lock must not occupy all worker slots and starve jobs
 	// destined for unrelated printers.
