@@ -226,6 +226,16 @@ func (a *Agent) recordDesiredError(id string, err error) error {
 }
 
 func (a *Agent) isPrinterExecutionAllowed(id string) bool {
+	// A tombstoned Gateway-owned printer is always fenced, even after its
+	// desired-state cache entry has been removed. This is the fail-closed
+	// boundary used when durable tombstone persistence temporarily fails.
+	a.printersMu.RLock()
+	_, tombstoned := a.gatewayTombstones[id]
+	a.printersMu.RUnlock()
+	if tombstoned {
+		return false
+	}
+
 	a.desiredStateMu.Lock()
 	row, managed := a.desiredStates[id]
 	synced := a.desiredStateSynced
@@ -420,7 +430,6 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 	a.desiredStateMu.Lock()
 	for id := range a.desiredStates {
 		if _, ok := incoming[id]; !ok {
-			delete(a.desiredStates, id)
 			missing = append(missing, id)
 		}
 	}
@@ -438,6 +447,12 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 			delete(a.gatewayOwned, id)
 		}
 		a.printersMu.Unlock()
+
+		a.desiredStateMu.Lock()
+		for _, id := range missing {
+			delete(a.desiredStates, id)
+		}
+		a.desiredStateMu.Unlock()
 
 		if err := a.persistDesiredState(); err != nil {
 			log.Printf("ERROR: Gateway deletion fences are not durable; refusing local cleanup: %v", err)
