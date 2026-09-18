@@ -69,6 +69,8 @@ func printDocumentTimeout(payloadBytes int) time.Duration {
 	return base + time.Duration(mb)*perMB
 }
 
+const printerLockShards = 128
+
 type Agent struct {
 	cfg          *config.Config
 	configPath   string
@@ -1178,7 +1180,6 @@ func (a *Agent) waitForJobs() {
 
 func printerLockIndex(printerID string) int {
 	const (
-		printerLockShards = 128
 		fnvOffset64 = uint64(14695981039346656037)
 		fnvPrime64  = uint64(1099511628211)
 	)
@@ -1894,8 +1895,9 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	}
 	log.Printf("print.trace local_ledger_ready request_id=%s job_id=%s printer_id=%s ledger_latency_ms=%d", requestID, jobID, printerID, time.Since(ledgerStart).Milliseconds())
 
-	// Report printing outside the per-printer lock (network I/O must not
-	// hold mutex) - AND gate physical dispatch on the gateway's answer.
+	// The printer fence is intentionally held through the gateway's
+	// pre-dispatch status transition. This prevents a lifecycle swap/disable
+	// from landing between authorization and the physical send.
 	reportStart := time.Now()
 	if err := a.updateJobStatus(ctx, jobID, "printing", "", claimToken); err != nil {
 		if proceed, reason := a.authorizeDispatchAfterReportFailure(jobID, expiresAtStr, err); !proceed {
