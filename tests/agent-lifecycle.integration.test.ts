@@ -43,6 +43,7 @@ suite("Agent Lifecycle", () => {
 
     const row = await db.query.agents.findFirst({ where: and(eq(agents.id, agentId), eq(agents.tenantId, tenantId)) });
     expect(row!.lifecycle === "retired" || row!.lifecycle === "disabled").toBe(true);
+    expect(row!.lifecycleRevision).toBe(1);
 
     const succeeded = [retired, disabled].filter((result): result is PromiseFulfilledResult<{ changed: boolean; lifecycle: string; pairingCode: string | null } | null> => result.status === "fulfilled");
     expect(succeeded.length).toBeGreaterThanOrEqual(1);
