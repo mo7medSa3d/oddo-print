@@ -1,8 +1,12 @@
 # Production Fix & Verification Report
 
-## Final status
+> **Historical verification record — superseded.**
+>
+> This document records the state of a specific repository baseline and execution environment at the time it was written. Its PASS/BLOCKED/FAIL/NOT PRODUCTION READY findings are **not a current status verdict for `main`**. Do not use the environment limitations in this report as evidence that the current repository has the same limitations. Current status must be established from the current `main` commit, current source, and current CI/release evidence.
 
-**NOT PRODUCTION READY**
+## Historical final status at the audited baseline
+
+**NOT PRODUCTION READY — HISTORICAL / SUPERSEDED**
 
 The reported production defects were addressed incrementally on top of the supplied `printer-repo-main-revised-clean-completed.zip`. The remaining blocker is verification environment capability: the repository requires Node >=24.15.0 and Go 1.26, while this environment has Node 22.16.0 and Go 1.23.2; PostgreSQL/Odoo/Windows hardware were not available for full integration/physical verification.
 
@@ -114,4 +118,4 @@ No migration was required. Presence convergence uses the existing `agents.status
 
 The remaining limitations are verification-only, not silently converted to PASS: complete Node/Next/Vitest validation requires the repository's Node 24.15+ dependency environment; Go validation requires Go 1.26; Odoo execution requires an Odoo 19 runtime; full DB tests require PostgreSQL; Tauri/installer checks require Rust/Windows; physical delivery requires a real printer.
 
-Because those environments are unavailable here, the final status remains **NOT PRODUCTION READY** under the supplied completion protocol.
+Because those environments were unavailable in the recorded execution environment, the historical assessment was **NOT PRODUCTION READY** under the supplied completion protocol. This sentence is not a current `main` status verdict.
