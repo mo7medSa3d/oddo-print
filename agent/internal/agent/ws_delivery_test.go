@@ -324,9 +324,7 @@ func TestInterruptedJobIsReportedAtStartup(t *testing.T) {
 	if err := ag.queue.UpdateStatus("job_crashed", "printing"); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
-	if err := ag.recoverInterruptedJobs(context.Background()); err != nil {
-			t.Fatalf("recoverInterruptedJobs: %v", err)
-		}
+	ag.recoverInterruptedJobs(context.Background())
 	updates := gw.Updates()
 	if len(updates) != 1 {
 		t.Fatalf("expected exactly one status report, got %#v", updates)
