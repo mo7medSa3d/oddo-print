@@ -59,8 +59,9 @@ suite("gateway runtime printer availability + payload capability contract", () =
       require("node:path").resolve(process.cwd(), "src/app/api/agent/heartbeat/route.ts"),
       "utf8",
     );
-    expect(source).toContain("capabilities.supported_protocols = []");
-    expect(source).not.toContain("else delete capabilities.supported_protocols");
+    expect(source).toContain('if (Array.isArray(capabilities.supported_protocols))');
+    expect(source).toContain("capabilities.supported_protocols = (capabilities.supported_protocols as unknown[])");
+    expect(source).toContain("delete capabilities.supported_protocols");
   });
 
   it("accepts raw/escpos/pdf only when the printer capability boundary allows it", () => {
