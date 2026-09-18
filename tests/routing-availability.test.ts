@@ -54,6 +54,15 @@ suite("gateway runtime printer availability + payload capability contract", () =
     expect(result.reason).toMatch(/does not explicitly support RAW protocol/i);
   });
 
+  it("preserves an explicit empty supported_protocols list instead of falling back to transport capability", () => {
+    const source = require("node:fs").readFileSync(
+      require("node:path").resolve(process.cwd(), "src/app/api/agent/heartbeat/route.ts"),
+      "utf8",
+    );
+    expect(source).toContain("capabilities.supported_protocols = []");
+    expect(source).not.toContain("else delete capabilities.supported_protocols");
+  });
+
   it("accepts raw/escpos/pdf only when the printer capability boundary allows it", () => {
     expect(validatePayloadForPrinter({ type: "raw", protocol: "raw" }, {
       protocol: "raw",
