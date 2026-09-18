@@ -60,6 +60,7 @@ export const tenantUsers = pgTable("tenant_users", {
 }, (table) => ({
   pk: uniqueIndex("tenant_users_pk").on(table.userId, table.tenantId),
   tenantIdx: index("tenant_users_tenant_idx").on(table.tenantId),
+  ownerUnique: uniqueIndex("tenant_users_single_owner_idx").on(table.tenantId).where(sql`${table.role} = 'owner'`),
   roleCheck: check("tenant_users_role_check", sql`${table.role} in ('owner','admin','operator','viewer','integration_admin','billing_admin')`),
 }));
 
@@ -328,8 +329,7 @@ export const printJobs = pgTable("print_jobs", {
   claimedAtIdx: index("print_jobs_claimed_at_idx").on(table.status, table.claimedAt),
   apiKeyIdIdx: index("print_jobs_api_key_id_idx").on(table.apiKeyId),
   requestIdIdx: index("print_jobs_request_id_idx").on(table.requestId),
-  idempotencyUnique: uniqueIndex("print_jobs_idempotency_unique").on(table.apiKeyId, table.idempotencyKey).where(sql`idempotency_key IS NOT NULL AND api_key_id IS NOT NULL`),
-  internalIdempotencyUnique: uniqueIndex("print_jobs_internal_idempotency_unique").on(table.tenantId, table.idempotencyKey).where(sql`idempotency_key IS NOT NULL AND api_key_id IS NULL`),
+  idempotencyUnique: uniqueIndex("print_jobs_tenant_idempotency_unique").on(table.tenantId, table.idempotencyKey).where(sql`idempotency_key IS NOT NULL`),
   statusCheck: check("print_jobs_status_check", sql`${table.status} in ('queued','claimed','printing','success','failed','expired')`),
   retriesCheck: check("print_jobs_retries_check", sql`${table.retries} >= 0`),
   deliveryAttemptsCheck: check("print_jobs_delivery_attempts_check", sql`${table.deliveryAttempts} >= 0`),
