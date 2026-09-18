@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-  Deterministic Windows smoke test for the installed Odoo Print Manager.
+  Deterministic Windows smoke test for the installed Yasser Manager.
 
 .DESCRIPTION
   Verifies that the installed desktop app and bundled agent/CLI binaries exist,
@@ -14,7 +14,7 @@
 
 .EXAMPLE
   ./scripts/smoke-test-windows.ps1
-  ./scripts/smoke-test-windows.ps1 -InstallDir "$env:ProgramFiles\Odoo Print Manager"
+  ./scripts/smoke-test-windows.ps1 -InstallDir "$env:ProgramFiles\Yasser Manager"
 #>
 param(
   [string]$InstallDir = "",
@@ -29,17 +29,17 @@ if (-not $InstallDir) {
     (Join-Path $env:ProgramFiles "Yasser\Yasser Manager"),
     (Join-Path $env:ProgramFiles "Yasser Manager"),
     (Join-Path $env:ProgramFiles "yasser-manager"),
-    (Join-Path $env:ProgramFiles "Odoo Print\Odoo Print Manager"),
-    (Join-Path $env:ProgramFiles "Odoo Print Manager"),
-    (Join-Path $env:ProgramFiles "odoo-print-manager"),
+    (Join-Path $env:ProgramFiles "Odoo Print\Yasser Manager"),
+    (Join-Path $env:ProgramFiles "Yasser Manager"),
+    (Join-Path $env:ProgramFiles "yasser-manager"),
     (Join-Path ${env:ProgramFiles(x86)} "Yasser\Yasser Manager"),
     (Join-Path ${env:ProgramFiles(x86)} "Yasser Manager"),
-    (Join-Path ${env:ProgramFiles(x86)} "Odoo Print\Odoo Print Manager"),
-    (Join-Path ${env:ProgramFiles(x86)} "Odoo Print Manager"),
+    (Join-Path ${env:ProgramFiles(x86)} "Odoo Print\Yasser Manager"),
+    (Join-Path ${env:ProgramFiles(x86)} "Yasser Manager"),
     (Join-Path $env:LOCALAPPDATA "Programs\Yasser Manager"),
-    (Join-Path $env:LOCALAPPDATA "Programs\Odoo Print Manager"),
+    (Join-Path $env:LOCALAPPDATA "Programs\Yasser Manager"),
     (Join-Path $env:LOCALAPPDATA "Yasser Manager"),
-    (Join-Path $env:LOCALAPPDATA "Odoo Print Manager")
+    (Join-Path $env:LOCALAPPDATA "Yasser Manager")
   )
   $InstallDir = $candidateDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
   if (-not $InstallDir) {
@@ -99,8 +99,8 @@ Write-Host "Agent data dir: $agentDataDir"
 $candidateAppExes = @(
   (Join-Path $InstallDir "yasser-manager.exe"),
   (Join-Path $InstallDir "Yasser Manager.exe"),
-  (Join-Path $InstallDir "Odoo Print Manager.exe"),
-  (Join-Path $InstallDir "odoo-print-manager.exe")
+  (Join-Path $InstallDir "Yasser Manager.exe"),
+  (Join-Path $InstallDir "yasser-manager.exe")
 )
 $appExe = $candidateAppExes | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $appExe) {
@@ -113,8 +113,8 @@ if (-not $appExe) {
 $candidateAgentExes = @(
   (Join-Path $InstallDir "resources\YasserAgent.exe"),
   (Join-Path $InstallDir "YasserAgent.exe"),
-  (Join-Path $InstallDir "resources\OdooPrintAgent.exe"),
-  (Join-Path $InstallDir "OdooPrintAgent.exe")
+  (Join-Path $InstallDir "resources\YasserAgent.exe"),
+  (Join-Path $InstallDir "YasserAgent.exe")
 )
 $agentExe = $candidateAgentExes | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $agentExe) {
@@ -127,8 +127,8 @@ if (-not $agentExe) {
 $candidateCliExes = @(
   (Join-Path $InstallDir "resources\yasser-agent-cli.exe"),
   (Join-Path $InstallDir "yasser-agent-cli.exe"),
-  (Join-Path $InstallDir "resources\odoo-print-agent-cli.exe"),
-  (Join-Path $InstallDir "odoo-print-agent-cli.exe")
+  (Join-Path $InstallDir "resources\yasser-agent-cli.exe"),
+  (Join-Path $InstallDir "yasser-agent-cli.exe")
 )
 $cliExe = $candidateCliExes | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $cliExe) {
@@ -144,7 +144,7 @@ Assert-Path $cliExe "Bundled CLI executable"
 
 # Start from a deterministic state so the run does not create duplicates.
 Get-Process -Name "YasserAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Get-Process -Name "OdooPrintAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "YasserAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # 2. Desktop application process ----------------------------------------------
 $desktop = $null
@@ -158,7 +158,7 @@ try {
   }
   # The desktop starts the agent detached; clean it up before the direct test.
   Get-Process -Name "YasserAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  Get-Process -Name "OdooPrintAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Get-Process -Name "YasserAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
 # 3. CLI help ----------------------------------------------------------------
