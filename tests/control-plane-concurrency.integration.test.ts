@@ -93,6 +93,23 @@ suite("control-plane concurrency invariants", () => {
     vi.unstubAllEnvs();
   });
 
+  it("enforces at most one owner membership per tenant at the database boundary", async () => {
+    const firstUserId = `owner_a_${nanoid(8)}`;
+    const secondUserId = `owner_b_${nanoid(8)}`;
+    await db.insert(users).values([
+      { id: firstUserId, email: `${firstUserId}@example.test`, passwordHash: "unused" },
+      { id: secondUserId, email: `${secondUserId}@example.test`, passwordHash: "unused" },
+    ]);
+    await db.insert(tenantUsers).values({
+      userId: firstUserId, tenantId: "tenant_control_plane", role: "owner",
+    });
+    await expect(
+      db.insert(tenantUsers).values({
+        userId: secondUserId, tenantId: "tenant_control_plane", role: "owner",
+      }),
+    ).rejects.toThrow(/tenant_users_single_owner_idx|duplicate key/i);
+  });
+
   it("allows only one concurrent onboarding trial for a tenant", async () => {
     const planId = `plan_trial_${nanoid(8)}`;
     await db.insert(plans).values({
