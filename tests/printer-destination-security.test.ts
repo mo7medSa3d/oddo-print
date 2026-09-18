@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { validateConnectionConfig } from "../src/lib/printer-model";
+import { validateConnectionConfig, assertPrinterMetadataLimits, PRINTER_CONFIG_MAX_BYTES } from "../src/lib/printer-model";
 
 describe("printer destination security policy", () => {
+  it("enforces metadata limits by UTF-8 bytes", () => {
+    const unicodeValue = "😀".repeat(Math.ceil(PRINTER_CONFIG_MAX_BYTES / 4));
+    expect(() => assertPrinterMetadataLimits({ config: { serial: unicodeValue }, capabilities: undefined })).toThrow(/16KB/);
+  });
+
   it("accepts private/link-local RAW printer endpoints", () => {
     expect(validateConnectionConfig("network", { ip: "192.168.1.50", port: 9100 })).toBeNull();
     expect(validateConnectionConfig("network", { ip: "192.168.1.50", port: 9101 })).toContain("port must be 9100");
