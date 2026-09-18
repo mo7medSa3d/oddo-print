@@ -84,8 +84,9 @@ type Agent struct {
 	// successfully read printers.json snapshot. YAML-owned IDs are excluded.
 	registryOwned map[string]struct{}
 	queue         *queue.Queue
-	jobLocks      map[string]*sync.Mutex
-	locksMutex    sync.Mutex
+	// A bounded shard set avoids an unbounded mutex map. Collisions only
+	// serialize unrelated printer IDs; correctness is unchanged.
+	jobLocks [128]sync.Mutex
 
 	// Job executor: bounded, deduplicated, and tracked for clean shutdown.
 	execSem      chan struct{}       // limits concurrently executing jobs
@@ -147,6 +148,7 @@ type Agent struct {
 	gatewayTombstones  map[string]struct{}
 	desiredStatePath   string
 	desiredStateSynced bool
+	desiredStatePersistMu sync.Mutex
 }
 
 type printerProbeState struct {
@@ -194,6 +196,9 @@ func (a *Agent) getProbeState(printerID string) *printerProbeState {
 // status payloads and job dispatch read it concurrently — all access must go
 // through these helpers.
 func (a *Agent) addPrinter(id string, p printer.Printer, pc config.PrinterConfig) bool {
+	lock := a.getPrinterLock(id)
+	lock.Lock()
+	defer lock.Unlock()
 	a.printersMu.Lock()
 	defer a.printersMu.Unlock()
 	if _, gatewayManaged := a.gatewayOwned[id]; gatewayManaged {
@@ -279,7 +284,6 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 		printerConfigs:   make(map[string]config.PrinterConfig),
 		registryOwned:    make(map[string]struct{}),
 		queue:            q,
-		jobLocks:         make(map[string]*sync.Mutex),
 		execSem:          make(chan struct{}, maxConcurrentJobs),
 		pendingSlots:     make(chan struct{}, maxPendingJobs),
 		inFlight:         make(map[string]struct{}),
@@ -516,7 +520,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	log.Printf("Agent %s starting (ID: %s, %d printer(s) configured)", a.cfg.Agent.Name, a.cfg.Agent.ID, a.printerCount())
 
 	// Crash recovery must run before any new delivery is accepted.
-	a.recoverInterruptedJobs()
+	a.recoverInterruptedJobs(ctx)
 
 	go a.connectWebSocket(ctx)
 
@@ -611,7 +615,7 @@ func (a *Agent) Run(ctx context.Context) error {
 //
 // Either way this is NOT exactly-once printing; the physical outcome of the
 // interrupted attempt is unknown and that is what gets recorded.
-func (a *Agent) recoverInterruptedJobs() {
+func (a *Agent) recoverInterruptedJobs(ctx context.Context) {
 	interrupted, err := a.queue.MarkInterrupted()
 	if err != nil {
 		log.Printf("WARNING: could not scan the local queue for interrupted jobs: %v", err)
@@ -629,7 +633,7 @@ func (a *Agent) recoverInterruptedJobs() {
 			"WARNING: job %s on printer %s was still printing when the agent stopped. Physical output is UNKNOWN (full, partial or none). Reporting it as failed; reprint_after_crash=%v",
 			job.ID, job.PrinterID, reprint,
 		)
-		a.updateJobStatus(job.ID, "failed", queue.InterruptedMarker+
+		a.updateJobStatus(ctx, job.ID, "failed", queue.InterruptedMarker+
 			": the agent stopped while this job was printing; the physical output is unknown (full, partial or none)", job.ClaimToken)
 	}
 	if len(interrupted) > 0 {
@@ -858,7 +862,7 @@ func (a *Agent) sendJobAck(jobID, claimToken string) error {
 func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 	jobID, _ := job["id"].(string)
 	if jobID == "" {
-		log.Printf("Received malformed job (missing id); ignoring: %v", job)
+		log.Printf("Received malformed job (missing id); ignoring")
 		return
 	}
 
@@ -876,7 +880,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 		// PATCH fails (network down), the undelivered-claim sweep remains
 		// the safe backstop: it only re-queues claims that never showed
 		// delivery evidence.
-		a.rejectJob(jobID, jobClaimToken(job), "agent_shutting_down")
+		a.rejectJob(ctx, jobID, jobClaimToken(job), "agent_shutting_down")
 		return
 	default:
 	}
@@ -1084,7 +1088,7 @@ func (a *Agent) inFlightJobIDs(limit int) []map[string]string {
 // temporarily overloaded agent never drives a healthy backlog into
 // 'exceeded max retries'. Best-effort — the gateway's 90s claim-lease
 // reclaim remains the backstop if this request fails or races.
-func (a *Agent) rejectJob(jobID, token, reason string) {
+func (a *Agent) rejectJob(ctx context.Context, jobID, token, reason string) {
 	if live := a.currentClaimToken(jobID); live != "" {
 		token = live
 	}
@@ -1101,7 +1105,7 @@ func (a *Agent) rejectJob(jobID, token, reason string) {
 	if token != "" {
 		body["claimToken"] = token
 	}
-	resp, err := a.doAuthorizedRequest("PATCH", reqURL, body)
+	resp, err := a.doAuthorizedRequest(ctx, "PATCH", reqURL, body)
 	if err != nil {
 		log.Printf("Job %s: failed to report pending-full rejection: %v (claim lease remains the backstop)", jobID, err)
 		return
@@ -1138,13 +1142,21 @@ func (a *Agent) waitForJobs() {
 	}
 }
 
-func (a *Agent) getPrinterLock(printerID string) *sync.Mutex {
-	a.locksMutex.Lock()
-	defer a.locksMutex.Unlock()
-	if _, ok := a.jobLocks[printerID]; !ok {
-		a.jobLocks[printerID] = &sync.Mutex{}
+func printerLockIndex(printerID string) int {
+	const (
+		fnvOffset64 = uint64(14695981039346656037)
+		fnvPrime64  = uint64(1099511628211)
+	)
+	hash := fnvOffset64
+	for i := 0; i < len(printerID); i++ {
+		hash ^= uint64(printerID[i])
+		hash *= fnvPrime64
 	}
-	return a.jobLocks[printerID]
+	return int(hash % uint64(len((&Agent{}).jobLocks)))
+}
+
+func (a *Agent) getPrinterLock(printerID string) *sync.Mutex {
+	return &a.jobLocks[printerLockIndex(printerID)]
 }
 
 // sendHeartbeatGuarded makes heartbeat ticks non-reentrant: if the previous
@@ -1590,7 +1602,7 @@ func (a *Agent) sendHeartbeat() {
 	if ids := a.inFlightJobIDs(64); len(ids) > 0 {
 		payload["keepAliveJobIds"] = ids
 	}
-	resp, err := a.doAuthorizedRequest("POST", reqURL, payload)
+	resp, err := a.doAuthorizedRequest(ctx, "POST", reqURL, payload)
 	if err != nil {
 		log.Printf("Heartbeat failed: %v", err)
 		return
@@ -1633,7 +1645,7 @@ func (a *Agent) sendHeartbeat() {
 
 func (a *Agent) pollJobs(ctx context.Context) {
 	reqURL := fmt.Sprintf("%s/api/agent/jobs", a.cfg.Server.URL)
-	resp, err := a.doAuthorizedRequest("GET", reqURL, nil)
+	resp, err := a.doAuthorizedRequest(ctx, "GET", reqURL, nil)
 	if err != nil {
 		log.Printf("Poll failed: %v", err)
 		return
@@ -1968,7 +1980,7 @@ func (a *Agent) currentClaimToken(jobID string) string {
 	return a.inFlightTokens[jobID]
 }
 
-func (a *Agent) updateJobStatus(jobID, status, errMsg, claimToken string) error {
+func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken string) error {
 	if live := a.currentClaimToken(jobID); live != "" {
 		claimToken = live
 	}
@@ -2003,7 +2015,7 @@ func (a *Agent) updateJobStatus(jobID, status, errMsg, claimToken string) error 
 	return nil
 }
 
-func (a *Agent) doAuthorizedRequest(method, url string, body interface{}) (*http.Response, error) {
+func (a *Agent) doAuthorizedRequest(ctx context.Context, method, url string, body interface{}) (*http.Response, error) {
 	var buf io.Reader
 	if body != nil {
 		b := new(bytes.Buffer)
@@ -2013,7 +2025,7 @@ func (a *Agent) doAuthorizedRequest(method, url string, body interface{}) (*http
 		buf = b
 	}
 
-	req, err := http.NewRequest(method, url, buf)
+	req, err := http.NewRequestWithContext(ctx, method, url, buf)
 	if err != nil {
 		return nil, err
 	}
