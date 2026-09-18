@@ -254,7 +254,7 @@ describe("DEFECT #6 — Agent test-print fast path", () => {
     const testPrinter = discovery.slice(discovery.indexOf("func TestPrinter"));
     expect(testPrinter).toContain("LoadRegistryPrinters(registryPath)");
     expect(testPrinter).not.toContain("DiscoverQuick(cfg, registryPath)");
-    expect(network).toContain("return p.printBytes(testCtx, []byte(\"\\x1b\\x40Hello from Odoo Agent!\\n\\n\\x1d\\x56\\x01\"), false, testPrintDialTimeout)");
+    expect(network).toContain("return p.printBytes(testCtx, []byte(\"\\x1b\\x40Hello from Yasser Agent!\\n\\n\\x1d\\x56\\x01\"), false, testPrintDialTimeout)");
     expect(network).toContain("testPrintDialTimeout  = 3 * time.Second");
     expect(testSource).toContain("healthy test print took");
     expect(testSource).toContain("refused printer test took");
