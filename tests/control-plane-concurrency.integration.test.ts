@@ -145,7 +145,7 @@ suite("control-plane concurrency invariants", () => {
     expect(customerCalls).toHaveLength(2);
     expect(customerCalls.map((call) => call[2])).toEqual([`tenant-customer-${"tenant_control_plane"}`, `tenant-customer-${"tenant_control_plane"}`]);
     expect(checkoutCalls).toHaveLength(2);
-    expect(checkoutCalls[0]?.[2]).toBe(`checkout-${"tenant_control_plane"}-${planId}`);
+    expect(checkoutCalls[0]?.[2]).toMatch(/^checkout-intent-chk_/);
     expect(checkoutCalls[1]?.[2]).toBe(checkoutCalls[0]?.[2]);
     const subscription = await db.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, "tenant_control_plane") });
     expect(subscription?.stripeCustomerId).toBe("cus_control_plane");
