@@ -10,7 +10,6 @@ import { stripeRequest } from "../../../../lib/stripe";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due", "paused"]);
-const CHECKOUT_CREATION_LEASE_MS = 30_000;
 
 function checkoutIntentExpired(expiresAt: Date | string | null | undefined): boolean {
   if (!expiresAt) return false;
@@ -91,15 +90,6 @@ export async function POST(req: Request) {
       }
 
       if (
-        sub?.checkoutStatus === "creating" &&
-        sub.checkoutPlanId === plan.id &&
-        sub.checkoutIdempotencyKey &&
-        sub.updatedAt.getTime() > Date.now() - CHECKOUT_CREATION_LEASE_MS
-      ) {
-        return { kind: "in_progress" as const };
-      }
-
-      if (
         sub?.checkoutStatus === "open" &&
         !checkoutIntentExpired(sub.checkoutSessionExpiresAt)
       ) {
@@ -111,6 +101,23 @@ export async function POST(req: Request) {
 
       if (sub?.checkoutStatus === "completed") {
         return { kind: "in_progress" as const };
+      }
+
+      // A persisted "creating" intent is never replaced merely because the
+      // original process disappeared. The same Stripe idempotency key is the
+      // recovery fence: a retry may safely replay the exact external request,
+      // including after an ambiguous timeout or process crash.
+      if (
+        sub?.checkoutStatus === "creating" &&
+        sub.checkoutPlanId === plan.id &&
+        sub.checkoutIdempotencyKey
+      ) {
+        return {
+          kind: "proceed" as const,
+          intentId: sub.checkoutIdempotencyKey.replace(/^checkout-intent-/, ""),
+          idempotencyKey: sub.checkoutIdempotencyKey,
+          customerId: sub.stripeCustomerId ?? null,
+        };
       }
 
       const intentId = `chk_${randomUUID()}`;
