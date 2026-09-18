@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
-import { validatePrintJobPayload, buildTestPrintPayload, printJobPayloadSchema } from "../src/lib/payload";
+import { validatePrintJobPayload, buildTestPrintPayload, buildTestPdfPayload, printJobPayloadSchema } from "../src/lib/payload";
 
 describe("payload", () => {
   it("wire payload types are identical in TypeScript, Go and Odoo (no jpeg/raster drift)", () => {
@@ -57,6 +57,12 @@ describe("payload", () => {
     expect(validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=" }).data).toBe("aGVsbG8=");
     expect(validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: "aGk=" }).data).toBe("aGk=");
   });
+  it("escapes PDF literal-string syntax in generated diagnostics", () => {
+    const pdf = buildTestPdfPayload("Receipt) Tj /Injected", "Agent\\Backslash");
+    expect(pdf).toContain("(Printer: Receipt\\) Tj /Injected)");
+    expect(pdf).toContain("(Agent: Agent\\\\Backslash)");
+  });
+
   it("test payload is decodable and has cut command", () => {
     const p = buildTestPrintPayload("Receipt", "Main");
     const decoded = Buffer.from(p.data, "base64").toString("binary");
