@@ -31,11 +31,23 @@ export async function POST(req: Request) {
       if (!tenantRow?.id) throw new Error("TENANT_NOT_FOUND");
       if (tenantRow.lifecycle !== "active") throw new Error("TENANT_NOT_ACTIVE");
 
+      const existingMembership = await tx.query.tenantUsers.findFirst({
+        where: and(eq(tenantUsers.userId, user.id), eq(tenantUsers.tenantId, row.tenantId)),
+        columns: { userId: true },
+      });
+      if (existingMembership) throw new Error("USER_ALREADY_MEMBER");
+
       const consumed = await tx.update(tenantInvitations).set({ acceptedAt: new Date() })
         .where(and(eq(tenantInvitations.id, row.id), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt)))
         .returning({ id: tenantInvitations.id });
       if (consumed.length !== 1) throw new Error("Invitation already consumed");
-      await tx.insert(tenantUsers).values({ userId: user.id, tenantId: row.tenantId, role: row.role }).onConflictDoNothing();
+
+      const membership = await tx.insert(tenantUsers)
+        .values({ userId: user.id, tenantId: row.tenantId, role: row.role })
+        .onConflictDoNothing()
+        .returning({ userId: tenantUsers.userId });
+      if (membership.length !== 1) throw new Error("USER_ALREADY_MEMBER");
+
       await writeAuditEvent({
         tenantId: row.tenantId,
         actorType: "user",
@@ -51,6 +63,9 @@ export async function POST(req: Request) {
     }
     if (error instanceof Error && error.message === "TENANT_NOT_FOUND") {
       return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+    }
+    if (error instanceof Error && error.message === "USER_ALREADY_MEMBER") {
+      return NextResponse.json({ error: "User is already a member of this workspace" }, { status: 409 });
     }
     return NextResponse.json({
       error: error instanceof Error && error.message === "Invitation already consumed"
