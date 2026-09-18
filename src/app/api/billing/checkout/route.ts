@@ -10,6 +10,7 @@ import { stripeRequest } from "../../../../lib/stripe";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due", "paused"]);
+const CHECKOUT_CREATION_LEASE_MS = 30_000;
 
 function checkoutIntentExpired(expiresAt: Date | string | null | undefined): boolean {
   if (!expiresAt) return false;
@@ -85,6 +86,15 @@ export async function POST(req: Request) {
         sub?.checkoutStatus === "creating" &&
         sub.checkoutPlanId &&
         sub.checkoutPlanId !== plan.id
+      ) {
+        return { kind: "in_progress" as const };
+      }
+
+      if (
+        sub?.checkoutStatus === "creating" &&
+        sub.checkoutPlanId === plan.id &&
+        sub.checkoutIdempotencyKey &&
+        sub.updatedAt.getTime() > Date.now() - CHECKOUT_CREATION_LEASE_MS
       ) {
         return { kind: "in_progress" as const };
       }
