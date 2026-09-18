@@ -18,7 +18,7 @@ func TestNetworkPrinterTestPathSkipsStatusPreflightAndReturnsPromptly(t *testing
 	go func() {
 		conn, err := ln.Accept()
 		if err != nil {
-		return
+			return
 		}
 		defer conn.Close()
 		buf := make([]byte, 1024)
