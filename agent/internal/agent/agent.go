@@ -914,7 +914,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 	if pendingPrinter != "" && a.pendingByPrinter[pendingPrinter] >= maxPendingJobsPerPrinter {
 		a.inFlightMu.Unlock()
 		log.Printf("Job %s dropped: printer %s has reached the per-printer pending ceiling (%d); handing it back to the gateway queue.", jobID, pendingPrinter, maxPendingJobsPerPrinter)
-		a.rejectJob(jobID, jobClaimToken(job), "printer_pending_full")
+		a.rejectJob(ctx, jobID, jobClaimToken(job), "printer_pending_full")
 		return
 	}
 	a.inFlight[jobID] = struct{}{}
@@ -949,7 +949,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 		// agent holding a big backlog cannot burn jobs into a delivery-budget
 		// failure (see the reject gate in src/app/api/agent/jobs).
 		// Best-effort: the lease reclaim is the backstop if this PATCH fails.
-		a.rejectJob(jobID, jobClaimToken(job), "pending_full")
+		a.rejectJob(ctx, jobID, jobClaimToken(job), "pending_full")
 		return
 	}
 
@@ -962,7 +962,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("PANIC while executing job %s: %v", jobID, r)
-				a.updateJobStatus(jobID, "failed", fmt.Sprintf("AGENT_PANIC: %v", r), jobClaimToken(job))
+				a.updateJobStatus(ctx, jobID, "failed", fmt.Sprintf("AGENT_PANIC: %v", r), jobClaimToken(job))
 			}
 		}()
 
@@ -1602,7 +1602,9 @@ func (a *Agent) sendHeartbeat() {
 	if ids := a.inFlightJobIDs(64); len(ids) > 0 {
 		payload["keepAliveJobIds"] = ids
 	}
-	resp, err := a.doAuthorizedRequest(ctx, "POST", reqURL, payload)
+	heartbeatCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	resp, err := a.doAuthorizedRequest(heartbeatCtx, "POST", reqURL, payload)
 	if err != nil {
 		log.Printf("Heartbeat failed: %v", err)
 		return
@@ -1706,7 +1708,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		if expiresAt, err := time.Parse(time.RFC3339, expiresAtStr); err == nil {
 			if time.Now().UTC().After(expiresAt.UTC()) {
 				log.Printf("Job %s expired before agent processing. Skipping.", jobID)
-				a.updateJobStatus(jobID, "expired", "TTL exceeded before agent processing", claimToken)
+				a.updateJobStatus(ctx, jobID, "expired", "TTL exceeded before agent processing", claimToken)
 				return
 			}
 		}
@@ -1730,11 +1732,11 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		log.Printf("Job %s: local queue lookup failed; refusing dispatch: %v", jobID, err)
 		// Fenced pre-execution return (never dispatched, zero bytes sent):
 		// the gateway requeues without burning the retry budget.
-		a.rejectJob(jobID, claimToken, "ledger_unavailable")
+		a.rejectJob(ctx, jobID, claimToken, "ledger_unavailable")
 		return
 	} else if found && localStatus == "success" {
 		log.Printf("Job %s already completed locally (success). Re-reporting terminal result instead of printing again.", jobID)
-		a.updateJobStatus(jobID, "success", "", claimToken)
+		a.updateJobStatus(ctx, jobID, "success", "", claimToken)
 		return
 	} else if found && a.queue.WasOutcomeUnknown(jobID) && !a.cfg.ReprintAfterCrashEnabled() {
 		// This job already reached the printer in a previous attempt, so it
@@ -1749,59 +1751,18 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		}
 		reason := marker + ": refusing to reprint a job whose previous attempt had an unknown outcome (agent.reprint_after_crash=false); the earlier delivery may have produced output"
 		log.Printf("Job %s: %s", jobID, reason)
-		a.updateJobStatus(jobID, "failed", reason, claimToken)
-		return
-	}
-
-	if !a.isPrinterExecutionAllowed(printerID) {
-		log.Printf("Job %s blocked: printer %s is disabled, retired, stale, or not reconciled with Gateway desired state", jobID, printerID)
-		a.rejectJob(jobID, claimToken, "printer_not_at_desired_state")
-		return
-	}
-
-	p, ok := a.getPrinter(printerID)
-	if !ok {
-		log.Printf("Job %s references printer %s which is not configured on this agent", jobID, printerID)
-		a.updateJobStatus(jobID, "failed", fmt.Sprintf("printer %s is not configured on this agent", printerID), claimToken)
+		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
 		return
 	}
 
 	pl, err := payload.Parse(job["payload"])
 	if err != nil {
 		log.Printf("Job %s has an invalid payload: %v", jobID, err)
-		a.updateJobStatus(jobID, "failed", fmt.Sprintf("invalid payload: %v", err), claimToken)
+		a.updateJobStatus(ctx, jobID, "failed", fmt.Sprintf("invalid payload: %v", err), claimToken)
 		return
 	}
 
-	// Capability gate BEFORE anything is written anywhere. Two layers, both
-	// pre-dispatch (failure here never touches hardware):
-	//  1. Transport rendering capability (can this backend produce this
-	//     document kind at all).
-	//  2. The canonical payload-protocol x device-protocol table
-	//     (capability.go, mirroring src/lib/routing.ts). A zpl payload must
-	//     hit a zpl-declared device; a "raw" device is a byte sink, NOT a
-	//     protocol wildcard.
 	kind := string(pl.Type)
-	if !printer.SupportsKind(p, kind) {
-		reason := fmt.Sprintf("CAPABILITY_MISMATCH: printer %s cannot print %s payloads", printerID, kind)
-		log.Printf("Job %s rejected: %s", jobID, reason)
-		a.updateJobStatus(jobID, "failed", reason, claimToken)
-		return
-	}
-	facts, factsOK := a.deviceFacts(printerID)
-	if !factsOK {
-		reason := fmt.Sprintf("CAPABILITY_MISMATCH: printer %s has no declared device facts on this agent", printerID)
-		log.Printf("Job %s rejected: %s", jobID, reason)
-		a.updateJobStatus(jobID, "failed", reason, claimToken)
-		return
-	}
-	if compatible, why := printer.PayloadCompatibleForDevice(kind, pl.Protocol, facts); !compatible {
-		reason := fmt.Sprintf("CAPABILITY_MISMATCH: %s", why)
-		log.Printf("Job %s rejected: %s", jobID, reason)
-		a.updateJobStatus(jobID, "failed", reason, claimToken)
-		return
-	}
-
 	// Per-printer serialization: two jobs for the same printer never run concurrently.
 	// The lock is held ONLY around the physical print call and local queue
 	// bookkeeping. Gateway status callbacks (network I/O) are done outside the
@@ -1830,20 +1791,20 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 			// again; zero bytes were sent by this delivery).
 			log.Printf("Job %s: local ledger is terminal; refusing dispatch and re-reporting stored outcome", jobID)
 			if _, storedStatus, found, _ := a.queue.Get(jobID); found && storedStatus == "success" {
-				a.updateJobStatus(jobID, "success", "", claimToken)
+				a.updateJobStatus(ctx, jobID, "success", "", claimToken)
 			} else {
 				marker := "UNKNOWN_PARTIAL_DELIVERY"
 				if a.queue.WasInterrupted(jobID) {
 					marker = queue.InterruptedMarker
 				}
-				a.updateJobStatus(jobID, "failed", marker+": local ledger terminal with an unknown outcome; this delivery was not dispatched (agent.reprint_after_crash=false)", claimToken)
+				a.updateJobStatus(ctx, jobID, "failed", marker+": local ledger terminal with an unknown outcome; this delivery was not dispatched (agent.reprint_after_crash=false)", claimToken)
 			}
 			return
 		}
 		log.Printf("Job %s: local durable ledger unavailable; refusing dispatch (no bytes sent): %v", jobID, err)
 		// Fenced pre-execution return (never dispatched, zero bytes sent):
 		// the gateway requeues without burning the delivery budget.
-		a.rejectJob(jobID, claimToken, "ledger_unavailable")
+		a.rejectJob(ctx, jobID, claimToken, "ledger_unavailable")
 		return
 	}
 	log.Printf("print.trace local_ledger_ready request_id=%s job_id=%s printer_id=%s ledger_latency_ms=%d", requestID, jobID, printerID, time.Since(ledgerStart).Milliseconds())
@@ -1851,7 +1812,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// Report printing outside the per-printer lock (network I/O must not
 	// hold mutex) - AND gate physical dispatch on the gateway's answer.
 	reportStart := time.Now()
-	if err := a.updateJobStatus(jobID, "printing", "", claimToken); err != nil {
+	if err := a.updateJobStatus(ctx, jobID, "printing", "", claimToken); err != nil {
 		if proceed, reason := a.authorizeDispatchAfterReportFailure(jobID, expiresAtStr, err); !proceed {
 			log.Printf("Job %s: physical dispatch refused (%s); aborting before any byte is sent", jobID, reason)
 			if aberr := a.queue.AbortPrint(jobID, "dispatch_refused: "+reason+"; zero bytes transmitted"); aberr != nil {
@@ -1878,6 +1839,41 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// inside the critical section so a waiter sees the terminal state.
 	lock := a.getPrinterLock(printerID)
 	lock.Lock()
+
+	// The printer lifecycle uses this same lock. Re-check desired state and
+	// resolve the backend only after acquiring it, so a concurrent manager
+	// update cannot swap/disable the printer between authorization and dispatch.
+	if !a.isPrinterExecutionAllowed(printerID) {
+		lock.Unlock()
+		a.rejectJob(ctx, jobID, jobClaimToken(job), "printer_not_at_desired_state")
+		return
+	}
+	p, ok := a.getPrinter(printerID)
+	if !ok {
+		lock.Unlock()
+		a.updateJobStatus(ctx, jobID, "failed", fmt.Sprintf("printer %s is not configured on this agent", printerID), claimToken)
+		return
+	}
+	if !printer.SupportsKind(p, kind) {
+		reason := fmt.Sprintf("CAPABILITY_MISMATCH: printer %s cannot print %s payloads", printerID, kind)
+		lock.Unlock()
+		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
+		return
+	}
+	facts, factsOK := a.deviceFacts(printerID)
+	if !factsOK {
+		reason := fmt.Sprintf("CAPABILITY_MISMATCH: printer %s has no declared device facts on this agent", printerID)
+		lock.Unlock()
+		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
+		return
+	}
+	if compatible, why := printer.PayloadCompatibleForDevice(kind, pl.Protocol, facts); !compatible {
+		reason := fmt.Sprintf("CAPABILITY_MISMATCH: %s", why)
+		lock.Unlock()
+		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
+		return
+	}
+
 	// Only physical execution consumes a global worker slot. Jobs waiting for
 	// the same printer lock must not occupy all worker slots and starve jobs
 	// destined for unrelated printers.
@@ -1886,7 +1882,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		defer func() { <-a.execSem }()
 	case <-ctx.Done():
 		lock.Unlock()
-		a.rejectJob(jobID, jobClaimToken(job), "agent_shutting_down")
+		a.rejectJob(ctx, jobID, jobClaimToken(job), "agent_shutting_down")
 		return
 	}
 	if a.queue.IsProcessed(jobID) {
@@ -1949,12 +1945,12 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 
 	if printErr != nil {
 		log.Printf("Job %s FAILED on printer %s: %v", jobID, printerID, printErr)
-		a.updateJobStatus(jobID, "failed", failureMsg, claimToken)
+		a.updateJobStatus(ctx, jobID, "failed", failureMsg, claimToken)
 		return
 	}
 
 	log.Printf("Job %s: payload transmitted successfully to printer %s", jobID, printerID)
-	a.updateJobStatus(jobID, "success", "", claimToken)
+	a.updateJobStatus(ctx, jobID, "success", "", claimToken)
 }
 
 // ErrStaleClaim is returned by updateJobStatus when the gateway rejects a
