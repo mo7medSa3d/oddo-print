@@ -14,8 +14,8 @@
     6. cargo tauri build           (embeds frontend + agent exes -> NSIS/MSI)
 
   Outputs (default target x86_64-pc-windows-msvc):
-    src-tauri\target\<target>\release\bundle\nsis\Odoo Print Manager_<ver>_x64-setup.exe
-    src-tauri\target\<target>\release\bundle\msi\Odoo Print Manager_<ver>_x64_en-US.msi
+    src-tauri\target\<target>\release\bundle\nsis\Yasser Manager_<ver>_x64-setup.exe
+    src-tauri\target\<target>\release\bundle\msi\Yasser Manager_<ver>_x64_en-US.msi
 
   The bundle is fully standalone: customers need no Node.js, Go, Rust or
   Python. WebView2 is fetched at install time via the bootstrapper (see
@@ -148,16 +148,16 @@ Write-Step "Verifying installer artifacts"
 $artifacts = @()
 if ($Bundles -match "nsis") {
   $nsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\Yasser Manager_*-setup.exe") -File -ErrorAction SilentlyContinue)
-  $legacyNsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\*Odoo Print Manager*.exe") -File -ErrorAction SilentlyContinue)
+  $legacyNsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\*Yasser Manager*.exe") -File -ErrorAction SilentlyContinue)
   if ($nsis.Count -ne 1) { throw "Expected exactly one Yasser Manager NSIS installer under $bundleDir\nsis; found $($nsis.Count)" }
-  if ($legacyNsis.Count -ne 0) { throw "Legacy Odoo Print Manager NSIS output detected." }
+  if ($legacyNsis.Count -ne 0) { throw "Legacy Yasser Manager NSIS output detected." }
   $artifacts += $nsis
 }
 if ($Bundles -match "msi") {
   $msi = @(Get-ChildItem (Join-Path $bundleDir "msi\Yasser Manager_*.msi") -File -ErrorAction SilentlyContinue)
-  $legacyMsi = @(Get-ChildItem (Join-Path $bundleDir "msi\*Odoo Print Manager*.msi") -File -ErrorAction SilentlyContinue)
+  $legacyMsi = @(Get-ChildItem (Join-Path $bundleDir "msi\*Yasser Manager*.msi") -File -ErrorAction SilentlyContinue)
   if ($msi.Count -ne 1) { throw "Expected exactly one Yasser Manager MSI under $bundleDir\msi; found $($msi.Count)" }
-  if ($legacyMsi.Count -ne 0) { throw "Legacy Odoo Print Manager MSI output detected." }
+  if ($legacyMsi.Count -ne 0) { throw "Legacy Yasser Manager MSI output detected." }
   $artifacts += $msi
 }
 
