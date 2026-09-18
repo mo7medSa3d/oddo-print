@@ -48,6 +48,9 @@ suite("gateway runtime printer availability + payload capability contract", () =
       capabilities: { supported_protocols: [] },
     });
     expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected explicit empty supported_protocols to fail closed");
+    }
     expect(result.reason).toMatch(/does not explicitly support RAW protocol/i);
   });
 
