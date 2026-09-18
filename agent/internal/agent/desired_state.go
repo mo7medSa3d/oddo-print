@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -50,13 +51,31 @@ func desiredStatePath(configPath string) string {
 	return filepath.Join(dir, "desired-state.json")
 }
 
+const maxDesiredStateBytes = 2 << 20
+
 func (a *Agent) loadDesiredState() error {
-	raw, err := os.ReadFile(a.desiredStatePath)
+	f, err := os.Open(a.desiredStatePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
 		return err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Size() > maxDesiredStateBytes {
+		return fmt.Errorf("desired state file exceeds %d bytes", maxDesiredStateBytes)
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, maxDesiredStateBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(raw)) > maxDesiredStateBytes {
+		return fmt.Errorf("desired state file exceeds %d bytes", maxDesiredStateBytes)
 	}
 
 	var disk desiredStateDisk
@@ -96,7 +115,7 @@ func (a *Agent) loadDesiredState() error {
 				_ = a.recordDesiredError(row.Desired.ID, err)
 			} else {
 				row.AppliedDesiredRevision = row.Desired.DesiredRevision
-				row.ObservedDesiredRevision = row.Desired.DesiredRevision
+				row.ObservedDesiredRevision = 0
 				a.desiredStateMu.Lock()
 				a.desiredStates[row.Desired.ID] = row
 				a.desiredStateMu.Unlock()
@@ -129,6 +148,9 @@ func (a *Agent) markGatewayOwned(id string) {
 }
 
 func (a *Agent) persistDesiredState() error {
+	a.desiredStatePersistMu.Lock()
+	defer a.desiredStatePersistMu.Unlock()
+
 	a.desiredStateMu.Lock()
 	rows := make([]desiredPrinterRecord, 0, len(a.desiredStates))
 	for _, row := range a.desiredStates {
@@ -374,7 +396,13 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 		a.desiredStateMu.Lock()
 		applied := a.desiredStates[id]
 		applied.AppliedDesiredRevision = desired.DesiredRevision
-		applied.ObservedDesiredRevision = desired.DesiredRevision
+		// Applying a configuration is not proof that the physical device has
+		// observed it. Heartbeat probing advances this independently.
+		if desired.Lifecycle == "active" {
+			applied.ObservedDesiredRevision = 0
+		} else {
+			applied.ObservedDesiredRevision = desired.DesiredRevision
+		}
 		applied.ApplyError = ""
 		a.desiredStates[id] = applied
 		a.desiredStateMu.Unlock()
@@ -389,30 +417,33 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 	}
 	a.desiredStateMu.Unlock()
 
-	for _, id := range missing {
-		// Persist a durable deletion fence BEFORE attempting local registry
-		// cleanup. A transient filesystem failure, process restart, or stale
-		// printers.json must not turn a Gateway deletion into a new Agent-owned
-		// printer.
+	if len(missing) > 0 {
+		// Establish the deletion fences durably before destructive cleanup. If
+		// persistence fails, fail closed and leave the runtime fenced in memory.
 		a.printersMu.Lock()
 		if a.gatewayTombstones == nil {
 			a.gatewayTombstones = make(map[string]struct{})
 		}
-		a.gatewayTombstones[id] = struct{}{}
-		delete(a.gatewayOwned, id)
+		for _, id := range missing {
+			a.gatewayTombstones[id] = struct{}{}
+			delete(a.gatewayOwned, id)
+		}
 		a.printersMu.Unlock()
 
-		// Remove only the deleted Gateway-owned record. Keeping an old entry in
-		// printers.json would otherwise let the next registry reload recreate it.
-		if err := printer.RemoveFromRegistry(a.registryPath, id); err != nil {
-			log.Printf("[desired-state] warning: failed to remove deleted Gateway printer %s from local registry: %v", id, err)
+		if err := a.persistDesiredState(); err != nil {
+			log.Printf("ERROR: Gateway deletion fences are not durable; refusing local cleanup: %v", err)
+			return
 		}
-		a.removeGatewayRuntime(id)
-	}
 
-	if len(missing) > 0 {
+		for _, id := range missing {
+			if err := printer.RemoveFromRegistry(a.registryPath, id); err != nil {
+				log.Printf("[desired-state] warning: failed to remove deleted Gateway printer %s from local registry: %v", id, err)
+			}
+			a.removeGatewayRuntime(id)
+		}
 		a.reloadRegistryPrinters()
 	}
+
 	if err := a.persistDesiredState(); err != nil {
 		log.Printf("WARNING: failed to persist Gateway desired state: %v", err)
 	}
