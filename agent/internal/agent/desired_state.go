@@ -319,10 +319,15 @@ func desiredPrinterConfig(p desiredPrinterWire) config.PrinterConfig {
 }
 
 func (a *Agent) removeGatewayRuntime(id string) {
+	lock := a.getPrinterLock(id)
+	lock.Lock()
+	defer lock.Unlock()
+
 	a.printersMu.Lock()
 	delete(a.printers, id)
 	delete(a.printerConfigs, id)
 	a.printersMu.Unlock()
+	a.deleteProbeState(id)
 }
 
 func (a *Agent) applyDesiredPrinter(row desiredPrinterRecord) error {
@@ -337,6 +342,10 @@ func (a *Agent) applyDesiredPrinter(row desiredPrinterRecord) error {
 	if err != nil {
 		return fmt.Errorf("initialize printer %s at desired revision %d: %w", pc.ID, row.Desired.DesiredRevision, err)
 	}
+
+	lock := a.getPrinterLock(pc.ID)
+	lock.Lock()
+	defer lock.Unlock()
 
 	a.printersMu.Lock()
 	a.printers[pc.ID] = backend
