@@ -77,7 +77,7 @@ export async function POST(req: Request) {
         !!sub.checkoutSessionUrl &&
         !checkoutIntentExpired(sub.checkoutSessionExpiresAt);
 
-      if (openUnexpired) {
+      if (sub && openUnexpired) {
         return { kind: "existing" as const, url: sub.checkoutSessionUrl! };
       }
 
