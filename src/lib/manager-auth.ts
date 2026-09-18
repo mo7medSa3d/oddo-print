@@ -274,10 +274,18 @@ export async function authenticateManagerUser(username: string, password: string
     : await verifyScryptPasswordHash(password, row.passwordHash);
   if (!valid) return null;
   if (!row.passwordHash.startsWith("argon2id$")) {
-    // Safe password migration: upgrade legacy scrypt credentials only after
-    // the old verifier has positively authenticated the user.
+    // Upgrade only if the legacy hash is still the value that was verified.
+    // A concurrent password reset must never be overwritten by login migration.
+    const legacyHash = row.passwordHash;
     const upgraded = await hashPassword(password);
-    await db.update(users).set({ passwordHash: upgraded, updatedAt: new Date() }).where(eq(users.id, row.id));
+    const current = await db.query.users.findFirst({
+      where: eq(users.id, row.id),
+      columns: { passwordHash: true },
+    });
+    if (!current || current.passwordHash !== legacyHash) return null;
+    await db.update(users)
+      .set({ passwordHash: upgraded, updatedAt: new Date() })
+      .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)));
   }
   const membership = await db.query.tenantUsers.findFirst({
     where: and(eq(tenantUsers.userId, row.id), eq(tenantUsers.tenantId, tenantId)),
@@ -300,8 +308,16 @@ export async function authenticateCustomer(email: string, password: string): Pro
     : await verifyScryptPasswordHash(password, row.passwordHash);
   if (!valid) return null;
   if (!row.passwordHash.startsWith("argon2id$")) {
+    const legacyHash = row.passwordHash;
     const upgraded = await hashPassword(password);
-    await db.update(users).set({ passwordHash: upgraded, updatedAt: new Date() }).where(eq(users.id, row.id));
+    const current = await db.query.users.findFirst({
+      where: eq(users.id, row.id),
+      columns: { passwordHash: true },
+    });
+    if (!current || current.passwordHash !== legacyHash) return null;
+    await db.update(users)
+      .set({ passwordHash: upgraded, updatedAt: new Date() })
+      .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)));
   }
   return { userId: row.id, email: row.email };
 }
