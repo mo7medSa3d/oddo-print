@@ -436,8 +436,9 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 	a.desiredStateMu.Unlock()
 
 	if len(missing) > 0 {
-		// Establish the deletion fences durably before destructive cleanup. If
-		// persistence fails, fail closed and leave the runtime fenced in memory.
+		// Establish the in-memory deletion fences before removing cached desired
+		// state. The fence blocks execution immediately. Durability is checked
+		// below before any destructive local cleanup is allowed.
 		a.printersMu.Lock()
 		if a.gatewayTombstones == nil {
 			a.gatewayTombstones = make(map[string]struct{})
@@ -453,22 +454,46 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 			delete(a.desiredStates, id)
 		}
 		a.desiredStateMu.Unlock()
-
-		if err := a.persistDesiredState(); err != nil {
-			log.Printf("ERROR: Gateway deletion fences are not durable; refusing local cleanup: %v", err)
-			return
-		}
-
-		for _, id := range missing {
-			if err := printer.RemoveFromRegistry(a.registryPath, id); err != nil {
-				log.Printf("[desired-state] warning: failed to remove deleted Gateway printer %s from local registry: %v", id, err)
-			}
-			a.removeGatewayRuntime(id)
-		}
-		a.reloadRegistryPrinters()
 	}
 
+	// Persist first. Cleanup is intentionally retried on every subsequent
+	// reconciliation while the tombstone remains, so a transient filesystem
+	// failure cannot leave an inert runtime behind forever. A failed write
+	// never triggers destructive cleanup in the same pass.
 	if err := a.persistDesiredState(); err != nil {
-		log.Printf("WARNING: failed to persist Gateway desired state: %v", err)
+		if len(missing) > 0 {
+			log.Printf("ERROR: Gateway deletion fences are not durable; refusing local cleanup: %v", err)
+		} else {
+			log.Printf("WARNING: failed to persist Gateway desired state: %v", err)
+		}
+		return
+	}
+
+	// Once the snapshot containing the tombstones is durable, remove any
+	// remaining local runtime/registry entries for all tombstones. This also
+	// handles a previous pass that failed after fencing but before cleanup.
+	a.printersMu.RLock()
+	tombstones := make([]string, 0, len(a.gatewayTombstones))
+	for id := range a.gatewayTombstones {
+		tombstones = append(tombstones, id)
+	}
+	a.printersMu.RUnlock()
+	sort.Strings(tombstones)
+	cleanedRuntime := false
+	for _, id := range tombstones {
+		if err := printer.RemoveFromRegistry(a.registryPath, id); err != nil {
+			log.Printf("[desired-state] warning: failed to remove deleted Gateway printer %s from local registry: %v", id, err)
+			continue
+		}
+		a.printersMu.RLock()
+		_, runtimePresent := a.printerConfigs[id]
+		a.printersMu.RUnlock()
+		if runtimePresent {
+			cleanedRuntime = true
+		}
+		a.removeGatewayRuntime(id)
+	}
+	if cleanedRuntime || len(tombstones) > 0 {
+		a.reloadRegistryPrinters()
 	}
 }
