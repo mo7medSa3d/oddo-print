@@ -139,7 +139,7 @@ func (p *program) Stop(s service.Service) error {
 }
 
 // setupLogging opens a continuously rotating log file beside the config file
-// (%PROGRAMDATA%\OdooPrintAgent\logs\agent.log on Windows). The agent never
+// (%PROGRAMDATA%\YasserAgent\logs\agent.log on Windows). The agent never
 // writes to Program Files; the config path is the writable runtime root.
 func setupLogging(configPath string) (*lumberjack.Logger, error) {
 	logDir := filepath.Dir(configPath)
