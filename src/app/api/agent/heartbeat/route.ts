@@ -88,14 +88,15 @@ function sanitizePrinter(p: ReportedPrinter): {
   delete config.protocol;
   let capabilities = p.capabilities && typeof p.capabilities === "object" ? { ...(p.capabilities as Record<string, unknown>) } : null;
   if (capabilities && "supported_protocols" in capabilities) {
+    // Presence is authoritative: an explicitly empty/invalid list means the
+    // device declares no supported payload protocols. Do not delete the key,
+    // because deletion would silently restore transport-based fallback.
     if (Array.isArray(capabilities.supported_protocols)) {
-      const known = (capabilities.supported_protocols as unknown[])
+      capabilities.supported_protocols = (capabilities.supported_protocols as unknown[])
         .map((value) => String(value).toLowerCase().trim())
         .filter((token) => KNOWN_CAPABILITY_TOKENS.has(token));
-      if (known.length > 0) capabilities.supported_protocols = known;
-      else delete capabilities.supported_protocols;
     } else {
-      delete capabilities.supported_protocols;
+      capabilities.supported_protocols = [];
     }
   }
   const status = typeof p.status === "string" && VALID_PRINTER_STATUSES.has(p.status.trim().toLowerCase()) ? p.status.trim().toLowerCase() : "unknown";
