@@ -53,7 +53,7 @@ suite("real PostgreSQL runtime architecture gate", () => {
     expect(job.rows[0]).toMatchObject({ id:'job_pg',agent_id:'agt_pg',printer_id:'prn_pg',destination:'POS' });
   });
 
-  it("enforces installation-scoped idempotency keys", async () => {
+  it("enforces tenant-scoped idempotency keys", async () => {
     await pool().query(`INSERT INTO tenants (id, name) VALUES ('tenant_arch', 'Arch Test Tenant') ON CONFLICT (id) DO NOTHING`);
     await pool().query(`INSERT INTO agents (id,tenant_id,name,lifecycle,status) VALUES ('agt_unique','tenant_arch','Agent','active','online')`);
     await pool().query(`INSERT INTO printers (id,tenant_id,agent_id,name,printer_type,device_class,connection_type,protocol,status,lifecycle,config,capabilities)
@@ -66,12 +66,11 @@ suite("real PostgreSQL runtime architecture gate", () => {
       VALUES ('job_unique_1','tenant_arch','key_unique_a','POS','receipt','agt_unique','prn_unique','queued',$1::jsonb,now()+interval '1 hour','same-key')`, [payload]);
     await expect(pool().query(`INSERT INTO print_jobs (id,tenant_id,api_key_id,destination,document_type,agent_id,printer_id,status,payload,expires_at,idempotency_key)
       VALUES ('job_unique_2','tenant_arch','key_unique_a','POS','receipt','agt_unique','prn_unique','queued',$1::jsonb,now()+interval '1 hour','same-key')`, [payload])).rejects.toThrow();
-    await pool().query(`INSERT INTO print_jobs (id,tenant_id,api_key_id,destination,document_type,agent_id,printer_id,status,payload,expires_at,idempotency_key)
-      VALUES ('job_unique_3','tenant_arch','key_unique_b','POS','receipt','agt_unique','prn_unique','queued',$1::jsonb,now()+interval '1 hour','same-key')`, [payload]);
+    await expect(pool().query(`INSERT INTO print_jobs (id,tenant_id,api_key_id,destination,document_type,agent_id,printer_id,status,payload,expires_at,idempotency_key)
+      VALUES ('job_unique_3','tenant_arch','key_unique_b','POS','receipt','agt_unique','prn_unique','queued',$1::jsonb,now()+interval '1 hour','same-key')`, [payload])).rejects.toThrow();
     const jobs = await pool().query(`SELECT id,api_key_id FROM print_jobs WHERE idempotency_key='same-key' ORDER BY id`);
     expect(jobs.rows).toEqual([
       { id: 'job_unique_1', api_key_id: 'key_unique_a' },
-      { id: 'job_unique_3', api_key_id: 'key_unique_b' },
     ]);
   });
 });
