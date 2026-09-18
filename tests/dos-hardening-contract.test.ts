@@ -9,6 +9,7 @@ describe("DoS/resource exhaustion hardening contracts", () => {
     const guard = read("src/server/request-guard.ts");
     expect(guard).toContain('startsWith("odoo_")');
     expect(guard).not.toContain('apiKeyHeader.trim().length >= 16) return true');
+    expect(guard).not.toContain('token.includes(":") && token.length >= 10');
   });
 
   it("bounds per-agent queued count and payload memory", () => {
