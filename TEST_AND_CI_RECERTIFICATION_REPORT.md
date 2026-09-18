@@ -1,5 +1,9 @@
 # Test & CI Recertification Report
 
+> **Historical verification record — superseded.**
+>
+> This document records the state of a specific repository baseline and execution environment at the time it was written. Its PASS/BLOCKED/FAIL/NOT PRODUCTION READY findings are **not a current status verdict for `main`**. Do not use the environment limitations in this report as evidence that the current repository has the same limitations. Current status must be established from the current `main` commit, current source, and current CI/release evidence.
+
 ## A. Test Inventory
 
 The supplied repository was treated as the source of truth and compared before and after reconciliation.
@@ -182,10 +186,10 @@ The remaining blockers are execution-environment limitations rather than silentl
 
 No `.env`, secrets, `node_modules`, `.next`, coverage, temporary directories, logs, Python bytecode, or TypeScript build-info artifacts were included in the final package.
 
-## I. Final Assessment
+## I. Historical Final Assessment
 
-**TEST SUITE RECERTIFIED WITH BLOCKED ENVIRONMENT CHECKS**
+**TEST SUITE RECERTIFIED WITH BLOCKED ENVIRONMENT CHECKS — HISTORICAL / SUPERSEDED**
 
 The verification architecture is synchronized with the current repository: DB-backed tests are no longer silently mixed into unit execution, all current DB suites are covered by the integration configuration, CI uses declared Go/Node runtimes, duplicate integration invocations were removed, and static workflow/test contract checks pass.
 
-The repository cannot honestly be declared fully green from this execution environment because the required production toolchains and services are not available.
+The recorded environment could not honestly declare the repository fully green because the required production toolchains and services were not available at that time. This is an environment-scoped historical observation, not a current `main` status verdict.
