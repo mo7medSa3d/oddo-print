@@ -66,6 +66,9 @@ export async function POST(req: Request) {
       if (sub?.stripeSubscriptionId && ACTIVE_SUBSCRIPTION_STATUSES.has(sub.status)) {
         return { kind: "already_subscribed" as const };
       }
+      if (sub?.billingOperationId) {
+        return { kind: "in_progress" as const };
+      }
 
       const samePlan = sub?.checkoutPlanId === plan.id;
       const openUnexpired =
