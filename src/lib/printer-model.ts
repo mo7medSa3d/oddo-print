@@ -35,8 +35,12 @@ export const PRINTER_CONFIG_MAX_BYTES = 16 * 1024;
 export const PRINTER_CAPABILITIES_MAX_BYTES = 32 * 1024;
 
 export function assertPrinterMetadataLimits(input: Pick<CanonicalPrinterInput, "config" | "capabilities">): void {
-  if (JSON.stringify(input.config ?? {}).length > PRINTER_CONFIG_MAX_BYTES) throw new Error("printer config exceeds 16KB");
-  if (input.capabilities && JSON.stringify(input.capabilities).length > PRINTER_CAPABILITIES_MAX_BYTES) throw new Error("printer capabilities exceed 32KB");
+  const configJson = JSON.stringify(input.config ?? {});
+  if (Buffer.byteLength(configJson, "utf8") > PRINTER_CONFIG_MAX_BYTES) throw new Error("printer config exceeds 16KB");
+  if (input.capabilities) {
+    const capabilitiesJson = JSON.stringify(input.capabilities);
+    if (Buffer.byteLength(capabilitiesJson, "utf8") > PRINTER_CAPABILITIES_MAX_BYTES) throw new Error("printer capabilities exceed 32KB");
+  }
 }
 
 /**
