@@ -322,6 +322,17 @@ func TestDesiredStatePersistenceFailureKeepsDeletionFence(t *testing.T) {
 	if _, ok := a.printerConfigs[p.ID]; !ok {
 		t.Fatal("runtime cleanup must wait until the deletion fence is durable")
 	}
+
+	// A later successful reconciliation must retry and complete the pending
+	// local cleanup without requiring a process restart.
+	a.desiredStatePath = filepath.Join(t.TempDir(), "desired-state.json")
+	a.reconcileGatewayDesiredState(nil)
+	if _, ok := a.printerConfigs[p.ID]; ok {
+		t.Fatal("pending tombstone cleanup did not remove the stale runtime")
+	}
+	if _, ok := a.printers[p.ID]; ok {
+		t.Fatal("pending tombstone cleanup did not remove the stale backend")
+	}
 }
 
 func TestDesiredStateLoaderRejectsOversizedFile(t *testing.T) {
