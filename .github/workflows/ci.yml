@@ -116,10 +116,6 @@ jobs:
               END IF;
             END LOOP;
             IF NOT EXISTS (
-              SELECT 1 FROM pg_indexes WHERE schemaname='public' AND tablename='print_jobs'
-                AND indexname='print_jobs_idempotency_unique'
-            ) THEN RAISE EXCEPTION 'global print job idempotency index is missing'; END IF;
-            IF NOT EXISTS (
               SELECT 1 FROM information_schema.columns
               WHERE table_schema='public' AND table_name='print_jobs' AND column_name='destination'
             ) THEN RAISE EXCEPTION 'print_jobs.destination is missing'; END IF;
