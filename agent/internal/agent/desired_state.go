@@ -51,7 +51,7 @@ func desiredStatePath(configPath string) string {
 	return filepath.Join(dir, "desired-state.json")
 }
 
-const maxDesiredStateBytes = 2 << 20
+const maxDesiredStateBytes = 16 << 20
 
 func (a *Agent) loadDesiredState() error {
 	f, err := os.Open(a.desiredStatePath)
