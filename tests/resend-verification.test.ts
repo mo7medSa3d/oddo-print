@@ -107,7 +107,7 @@ describe("Resend Email Verification API", () => {
 
     transactionMock.mockImplementation(async (cb) => {
       return cb({
-        execute: executeMock.mockResolvedValue({ rows: [] }),
+        execute: executeMock.mockResolvedValue({ rows: [{ id: "usr_unverified", emailVerifiedAt: null }] }),
         update: txUpdate,
         insert: txInsert,
       });
