@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  One-shot production build of the Odoo Print Manager Windows installer.
+  One-shot production build of the Yasser Manager Windows installer.
 
 .DESCRIPTION
   Orchestrates the full pipeline on a Windows build host:
@@ -123,6 +123,17 @@ foreach ($exe in @("YasserAgent.exe", "yasser-agent-cli.exe")) {
 }
 
 # ── 6. Tauri bundle ──────────────────────────────────────────────────────────
+# Tauri's target directory may be cached between builds. Remove previous
+# installer outputs so legacy files can never leak into the current release.
+Write-Step "Cleaning stale Tauri installer bundles"
+foreach ($dir in @("msi", "nsis")) {
+  $path = Join-Path $bundleDir $dir
+  if (Test-Path $path) {
+    Remove-Item -Recurse -Force $path
+  }
+  New-Item -ItemType Directory -Force -Path $path | Out-Null
+}
+
 Write-Step "cargo tauri build (--target $Target --bundles $Bundles)"
 Push-Location $repoRoot
 try {
@@ -136,12 +147,17 @@ try {
 Write-Step "Verifying installer artifacts"
 $artifacts = @()
 if ($Bundles -match "nsis") {
-  $artifacts += Get-ChildItem (Join-Path $bundleDir "nsis\*.exe") -ErrorAction SilentlyContinue
-  if (-not $artifacts) { throw "NSIS installer missing under $bundleDir\nsis" }
+  $nsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\Yasser Manager_*-setup.exe") -File -ErrorAction SilentlyContinue)
+  $legacyNsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\*Odoo Print Manager*.exe") -File -ErrorAction SilentlyContinue)
+  if ($nsis.Count -ne 1) { throw "Expected exactly one Yasser Manager NSIS installer under $bundleDir\nsis; found $($nsis.Count)" }
+  if ($legacyNsis.Count -ne 0) { throw "Legacy Odoo Print Manager NSIS output detected." }
+  $artifacts += $nsis
 }
 if ($Bundles -match "msi") {
-  $msi = Get-ChildItem (Join-Path $bundleDir "msi\*.msi") -ErrorAction SilentlyContinue
-  if (-not $msi) { throw "MSI installer missing under $bundleDir\msi" }
+  $msi = @(Get-ChildItem (Join-Path $bundleDir "msi\Yasser Manager_*.msi") -File -ErrorAction SilentlyContinue)
+  $legacyMsi = @(Get-ChildItem (Join-Path $bundleDir "msi\*Odoo Print Manager*.msi") -File -ErrorAction SilentlyContinue)
+  if ($msi.Count -ne 1) { throw "Expected exactly one Yasser Manager MSI under $bundleDir\msi; found $($msi.Count)" }
+  if ($legacyMsi.Count -ne 0) { throw "Legacy Odoo Print Manager MSI output detected." }
   $artifacts += $msi
 }
 
