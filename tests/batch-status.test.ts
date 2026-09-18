@@ -29,15 +29,20 @@ suite("POST /api/print/jobs/batch-status", () => {
     body: JSON.stringify(body),
   }));
 
-  it("returns only jobs owned by the calling api key", async () => {
+  it("returns tenant jobs regardless of API-key incarnation", async () => {
     const keyId = await keyIdFor(f.odooKey);
+    const rotatedKey = "odoo_rotated_batch";
+    await pool().query(
+      `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key) VALUES ($1, $2, 'standard', 'rotated', $3)`,
+      ["key_rotated_batch", f.tenantId, sha256(rotatedKey)],
+    );
     await insertJob("batch_owned_1", keyId);
-    await insertJob("batch_owned_2", keyId);
-    await insertJob("batch_foreign_1", null);
-    const res = await post(f.odooKey, { jobIds: ["batch_owned_1", "batch_owned_2", "batch_foreign_1", "batch_missing_1"] });
+    await insertJob("batch_rotated_1", "key_rotated_batch");
+    await insertJob("batch_internal_1", null);
+    const res = await post(rotatedKey, { jobIds: ["batch_owned_1", "batch_rotated_1", "batch_internal_1", "batch_missing_1"] });
     expect(res.status).toBe(200);
     const ids = ((await res.json()) as { jobs: { jobId: string }[] }).jobs.map((j) => j.jobId).sort();
-    expect(ids).toEqual(["batch_owned_1", "batch_owned_2"]);
+    expect(ids).toEqual(["batch_internal_1", "batch_owned_1", "batch_rotated_1"]);
   });
 
   it("rejects invalid keys and malformed bodies", async () => {

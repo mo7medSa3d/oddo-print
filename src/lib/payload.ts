@@ -91,9 +91,13 @@ function safeTestText(value: string): string {
   return value.replace(/[^\x20-\x7e]/g, "").slice(0, 60);
 }
 
+function escapePdfText(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
 export function buildTestPdfPayload(printerName: string, agentName: string): string {
-  const safeName = safeTestText(printerName);
-  const safeAgent = safeTestText(agentName);
+  const safeName = escapePdfText(safeTestText(printerName));
+  const safeAgent = escapePdfText(safeTestText(agentName));
   const stamp = new Date().toISOString().replace("T", " ").slice(0, 19);
 
   const streamContent = [

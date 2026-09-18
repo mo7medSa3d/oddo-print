@@ -324,7 +324,7 @@ func TestInterruptedJobIsReportedAtStartup(t *testing.T) {
 	if err := ag.queue.UpdateStatus("job_crashed", "printing"); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
-	ag.recoverInterruptedJobs()
+	ag.recoverInterruptedJobs(context.Background())
 	updates := gw.Updates()
 	if len(updates) != 1 {
 		t.Fatalf("expected exactly one status report, got %#v", updates)
@@ -360,7 +360,7 @@ func TestReprintAfterCrashPolicy(t *testing.T) {
 		if err := ag.queue.UpdateStatus("job_crashed", "printing"); err != nil {
 			t.Fatalf("UpdateStatus: %v", err)
 		}
-		ag.recoverInterruptedJobs()
+		ag.recoverInterruptedJobs(context.Background())
 		ag.processJob(context.Background(), job)
 		if p.calls != 0 {
 			t.Fatalf("interrupted job must not be reprinted when the policy forbids it, got %d prints", p.calls)
@@ -388,7 +388,7 @@ func TestReprintAfterCrashPolicy(t *testing.T) {
 		if err := ag.queue.UpdateStatus("job_crashed", "printing"); err != nil {
 			t.Fatalf("UpdateStatus: %v", err)
 		}
-		ag.recoverInterruptedJobs()
+		ag.recoverInterruptedJobs(context.Background())
 		ag.processJob(context.Background(), job)
 		if p.calls != 1 {
 			t.Fatalf("explicit crash-reprint opt-in should retry once in this test, got %d prints", p.calls)
@@ -535,7 +535,7 @@ func TestUpdateJobStatusDetectsFenceRejection(t *testing.T) {
 	gw.rejectPrinting = true
 	p := &fakePrinter{}
 	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
-	err := ag.updateJobStatus("job_x", "printing", "", "claim-dead")
+	err := ag.updateJobStatus(context.Background(), "job_x", "printing", "", "claim-dead")
 	if err == nil {
 		t.Fatalf("expected ErrStaleClaim, got nil")
 	}
@@ -544,7 +544,7 @@ func TestUpdateJobStatusDetectsFenceRejection(t *testing.T) {
 	}
 	// Non-fence statuses still report normally through the same path.
 	gw.rejectPrinting = false
-	if err := ag.updateJobStatus("job_x", "printing", "", "claim-live"); err != nil {
+	if err := ag.updateJobStatus(context.Background(), "job_x", "printing", "", "claim-live"); err != nil {
 		t.Fatalf("expected nil error once the fence accepts, got %v", err)
 	}
 }

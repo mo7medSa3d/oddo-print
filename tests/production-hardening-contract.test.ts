@@ -87,6 +87,7 @@ describe("production hardening contracts", () => {
     expect(tags).toContain("0016_print_job_rate_limits");
     expect(tags).toContain("0017_notify_requeued_jobs");
     expect(tags).toContain("0021_scope_print_jobs_to_api_key");
+    expect(tags).toContain("0049_tenant_scoped_idempotency_and_owner_unique");
     expect(read("drizzle/0013_runtime_state_constraint_scope_fix.sql")).toContain("current_schema()");
     expect(read("drizzle/0014_discovery_state_checks.sql")).toContain("discovered_devices_candidate_status_check");
   });
@@ -120,9 +121,9 @@ describe("production hardening contracts", () => {
     expect(dashboard).toContain("eq(agents.tenantId, claims.tenantId)");
     expect(dashboard).toContain("eq(printers.tenantId, claims.tenantId)");
     expect(dashboard).toContain("eq(printJobs.tenantId, claims.tenantId)");
-    expect(lifecycle).toContain("transitionAgentLifecycle(id, lifecycle, claims.tenantId)");
+    expect(lifecycle).toContain("transitionAgentLifecycle(id, lifecycle, claims.tenantId, {");
     expect(helper).toContain("eq(agents.tenantId, tenantId)");
-    expect(helper).toContain("eq(printers.tenantId, tenantId)");
+    expect(helper).not.toContain("tx.update(printers)");
   });
 
   it("keeps stock validation print-policy fan-out intact", () => {
@@ -142,11 +143,107 @@ describe("production hardening contracts", () => {
     expect(route).not.toContain("destinationId");
   });
 
+  it("keeps agent lifecycle auditing single-writer and selection-token consumption conflict-safe", () => {
+    const actions = read("src/app/actions.ts");
+    const lifecycleStart = actions.indexOf("export async function setAgentLifecycle");
+    const lifecycleEnd = actions.indexOf("export async function getDashboardState");
+    expect(lifecycleStart).toBeGreaterThanOrEqual(0);
+    expect(lifecycleEnd).toBeGreaterThan(lifecycleStart);
+    const lifecycleAction = actions.slice(lifecycleStart, lifecycleEnd);
+    expect(lifecycleAction).not.toContain("writeAuditEvent");
+    expect(lifecycleAction).toContain("transitionAgentLifecycle");
+
+    const selectTenant = read("src/app/api/auth/select-tenant/route.ts");
+    expect(selectTenant).toContain("onConflictDoNothing");
+    expect(selectTenant).toContain("returning({ key: authRateLimits.key })");
+    expect(selectTenant).toContain("Selection token already used");
+    expect(selectTenant).not.toContain(`catch {
+          throw new Error("Selection token already used")`);
+  });
+
+  it("keeps control-plane concurrency boundaries enforced by code and schema", () => {
+    const invitation = read("src/app/api/team/invitations/accept/route.ts");
+    expect(invitation).toContain("FROM tenants");
+    expect(invitation).toContain("FOR UPDATE");
+    expect(invitation).toContain("tenantRow.lifecycle !== \"active\"");
+    expect(invitation).toContain('action: "team.invitation.accepted"');
+    expect(invitation).toContain("}, tx);");
+
+    const onboarding = read("src/app/api/onboarding/route.ts");
+    expect(onboarding).toContain("await tx.update(tenants)");
+    const trialLock = onboarding.indexOf("await tx.update(tenants)");
+    const trialRead = onboarding.indexOf("const existing = await tx.query.tenantSubscriptions.findFirst");
+    expect(trialLock).toBeGreaterThanOrEqual(0);
+    expect(trialRead).toBeGreaterThan(trialLock);
+    expect(onboarding).toContain("Trial has already been used for this workspace");
+
+    const checkout = read("src/app/api/billing/checkout/route.ts");
+    expect(checkout).toContain("FROM tenants");
+    expect(checkout).toContain("FOR UPDATE");
+    expect(checkout).toContain("tenant-customer-");
+    expect(checkout).toContain("checkout-intent-");
+    expect(checkout).toContain('checkoutStatus: "creating"');
+    expect(checkout).toContain("checkoutIdempotencyKey");
+    expect(checkout).toContain("billingOperationId");
+
+    const lifecycle = read("src/lib/tenant-lifecycle.ts");
+    expect(lifecycle).toContain('PLATFORM_TENANT_PROTECTED');
+    
+    const discovery = read("src/app/api/agents/[id]/discovery/route.ts");
+    expect(discovery).toContain("FOR UPDATE");
+    expect(discovery).toContain("DISCOVERY_ALREADY_RUNNING");
+    const schema = read("src/db/schema.ts");
+    expect(schema).toContain("discovery_sessions_active_agent_unique");
+    expect(schema).toContain("print_jobs_tenant_idempotency_unique");
+    expect(schema).toContain("tenant_users_single_owner_idx");
+
+    const printService = read("src/lib/print-job-service.ts");
+    expect(printService).toContain("print_jobs:idempotency:");
+    expect(printService).toContain("WHERE tenant_id = ${tenantId} AND idempotency_key = ${idempotencyKey}");
+
+    const printRoute = read("src/app/api/print/jobs/route.ts");
+    expect(printRoute).not.toContain("eq(printJobs.apiKeyId, odoo.id), eq(printJobs.idempotencyKey");
+    expect(printRoute).toContain("eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.idempotencyKey");
+    expect(printRoute).not.toContain("eq(printJobs.id, id), eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.apiKeyId, odoo.id)");
+
+    const batchStatus = read("src/app/api/print/jobs/batch-status/route.ts");
+    expect(batchStatus).toContain("eq(printJobs.tenantId, odoo.tenantId)");
+    expect(batchStatus).not.toContain("eq(printJobs.apiKeyId, odoo.id)");
+
+    const auth = read("src/lib/manager-auth.ts");
+    expect(auth).toContain("passwordHash: true");
+    expect(auth).toContain("eq(users.passwordHash, legacyHash)");
+    expect(auth).toContain("if (!row || !row.emailVerifiedAt) return null;");
+    expect(auth).toContain("if (upgradedRows.length !== 1) return null;");
+
+    for (const path of ["src/app/api/billing/cancel/route.ts", "src/app/api/billing/resume/route.ts"]) {
+      const billingRoute = read(path);
+      expect(billingRoute).toContain("FROM tenants");
+      expect(billingRoute).toContain("FOR UPDATE");
+      expect(billingRoute).toContain("FROM tenant_subscriptions");
+      expect(billingRoute).toContain("stripeRequest(");
+      expect(billingRoute).toContain("billingOperationId");
+      expect(billingRoute).toContain(path.includes("cancel") ? "billing-cancel-" : "billing-resume-");
+    }
+  });
+
   it("keeps the main governance workflow present and explicit about the external protection prerequisite", () => {
     const workflow = read(".github/workflows/main-governance.yml");
     expect(workflow).toContain("Require protected main branch");
     expect(workflow).toContain("Configure GitHub branch protection or a ruleset");
-    expect(workflow).toContain("security-audit");
+    expect(workflow).toContain("push:");
+    expect(workflow).toContain("branches: [main]");
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("CI / ci");
+    expect(workflow).toContain("CI / odoo19");
+    expect(workflow).toContain("Docker / docker-build-runtime");
+    expect(workflow).toContain("Build Windows Installer / build-windows");
+    expect(workflow).toContain("Security and Resilience Gates / postgres-failure-injection");
+    expect(workflow).toContain("Security and Resilience Gates / supply-chain");
+
+    expect(workflow).toContain("verify-main-protection:");
+    expect(workflow).not.toContain("security-audit");
+    expect(workflow).not.toContain("npm audit");
     expect(workflow).toContain("exit 1");
   });
 });

@@ -40,17 +40,20 @@ export function validatePayloadForPrinter(
   const payloadProto = payloadInput.protocol ? payloadInput.protocol.toLowerCase() : null;
   const proto = (printer.protocol ?? "").toLowerCase();
   const conn = (printer.connectionType ?? "").toLowerCase();
-  // Defensive coercion: the capabilities blob comes from agent-reported JSON
-  // (validated only as "object" at ingestion). A non-array
-  // supported_protocols used to throw TypeError here and 500 every job
-  // creation for the printer. Treat it as absent (declared transport
-  // decides) instead of crashing; the heartbeat sanitize additionally
-  // bounds array contents to the known vocabulary.
-  const rawSupported = printer.capabilities?.supported_protocols;
+  // Defensive validation: the capabilities blob comes from agent-reported
+  // JSON. A malformed non-array supported_protocols must fail closed as a
+  // capability mismatch rather than throwing a TypeError or becoming an
+  // implicit transport wildcard.
+  const capabilities = printer.capabilities ?? null;
+  const hasSupportedProtocolsProperty = capabilities !== null && Object.prototype.hasOwnProperty.call(capabilities, "supported_protocols");
+  const rawSupported = capabilities?.supported_protocols;
+  if (hasSupportedProtocolsProperty && !Array.isArray(rawSupported)) {
+    return { ok: false, reason: "CAPABILITY_MISMATCH: supported_protocols must be an array" };
+  }
   const supported = Array.isArray(rawSupported)
     ? rawSupported.map((value) => String(value).toLowerCase())
-    : undefined;
-  const hasExplicitCaps = Array.isArray(supported) && supported.length > 0;
+    : [];
+  const hasExplicitCaps = hasSupportedProtocolsProperty;
   // AUTHORITATIVE RULE for "unknown" protocol (mirrored in
   // agent/internal/printer/capability.go and documented in ARCHITECTURE.md):
   // "unknown" means "no byte language declared". The connection type is

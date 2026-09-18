@@ -9,6 +9,7 @@ Covers:
 5. Hardware test page diagnostic dispatch
 """
 
+import datetime
 import json
 import uuid
 from unittest.mock import patch, MagicMock
@@ -16,7 +17,7 @@ from unittest.mock import patch, MagicMock
 # Hard imports: this module only runs under the Odoo test runner. A fallback
 # to plain unittest previously turned every behavioral test into a silent
 # skip while the suite still exited green.
-from odoo import api
+from odoo import api, fields
 from odoo.tests.common import TransactionCase
 from odoo.exceptions import AccessError, ValidationError
 from odoo.addons.print_gateway.models.gateway_config import PrintGatewayConfig
@@ -382,6 +383,42 @@ class TestControlPlane(TransactionCase):
             self.assertEqual(job.protocol, "escpos")
             self.assertIn("YASSER PRINT GATEWAY DIAGNOSTIC", job.raw_payload)
 
+    def test_06b_stale_claimed_intent_cannot_exceed_max_attempts(self):
+        """A stale claimed intent at its retry ceiling must not be re-claimed.
+
+        Duplicate triggers may arrive after a worker crash. The SQL claim gate
+        must enforce the same max-attempts bound for stale claimed rows that
+        it already enforces for pending/failed rows.
+        """
+        intent_model = self.env["print_gateway.intent"]
+        model = self.env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
+        policy = self.env["print_gateway.policy"].create({
+            "name": "Max Attempts Stale Claim Policy",
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "model_id": model.id,
+            "event_type": "picking_validated",
+            "action_type": "raw_template",
+            "raw_template": "^XA^FD{name}^FS^XZ",
+            "raw_protocol": "zpl",
+            "binding_id": self.zpl_binding.id,
+            "active": True,
+        })
+        intent = intent_model.create({
+            "intent_key": "stale_max_attempts_key_%s" % uuid.uuid4().hex[:8],
+            "policy_id": policy.id,
+            "res_model": model.model,
+            "res_id": 1,
+            "event_type": "picking_validated",
+            "status": "claimed",
+            "attempts": 3,
+            "max_attempts": 3,
+            "claimed_at": fields.Datetime.now() - datetime.timedelta(minutes=10),
+            "claim_token": "stale-token",
+        })
+        claim = type(intent_model)._claim_intent(self.env, intent.id)
+        self.assertFalse(claim, "stale claimed intent at max attempts must not be re-claimed")
+
     def test_06_intent_crash_recovery_cron(self):
         """Verify cron_recover_pending_intents recovers stale claimed or pending intents."""
         intent_model = self.env["print_gateway.intent"]
@@ -443,7 +480,7 @@ class TestControlPlane(TransactionCase):
                 "report_id": picking_report.id,
                 "runtime_agent_id": "agent-cp-01",
                 "printer_id": "printer-branch-recovery",
-                "printer_protocol": "escpos",
+                "printer_protocol": "ipp",
                 "enabled": True,
                 "priority": 5,
             })

@@ -74,6 +74,29 @@ describe("Resend Email Verification API", () => {
     expect(sendEmailMock).not.toHaveBeenCalled();
   });
 
+  it("rechecks verification state under the user lock before minting", async () => {
+    userFindFirst.mockResolvedValue({ id: "usr_race", emailVerifiedAt: null });
+    transactionMock.mockImplementation(async (cb) => {
+      return cb({
+        execute: executeMock.mockResolvedValue({
+          rows: [{ id: "usr_race", emailVerifiedAt: new Date() }],
+        }),
+        update: updateMock,
+        insert: insertMock,
+      });
+    });
+
+    const req = new Request("http://localhost/api/auth/resend-verification", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "race@example.com" }),
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(202);
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(sendEmailMock).not.toHaveBeenCalled();
+  });
+
   it("invalidates previous tokens and dispatches new email for unverified user", async () => {
     userFindFirst.mockResolvedValue({ id: "usr_unverified", emailVerifiedAt: null });
     const txUpdateWhere = vi.fn().mockResolvedValue(undefined);
@@ -84,6 +107,7 @@ describe("Resend Email Verification API", () => {
 
     transactionMock.mockImplementation(async (cb) => {
       return cb({
+        execute: executeMock.mockResolvedValue({ rows: [{ id: "usr_unverified", emailVerifiedAt: null }] }),
         update: txUpdate,
         insert: txInsert,
       });

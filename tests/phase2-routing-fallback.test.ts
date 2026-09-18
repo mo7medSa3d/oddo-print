@@ -125,16 +125,19 @@ describe("runtime routing capability and availability", () => {
     expect(isAgentAvailableForPrinter({ lifecycle: "disabled", status: "online", lastSeenAt: now })).toBe(false);
   });
 
-  it("treats malformed supported_protocols as absent instead of throwing", () => {
-    // Agent-reported JSON is only object-checked at ingestion; a string (or
-    // any non-array) supported_protocols used to throw TypeError inside the
-    // routing check and 500 the calling route. Declared transport decides.
+  it("fails closed on malformed supported_protocols instead of throwing", () => {
+    // Agent-reported JSON is only object-checked at ingestion; malformed
+    // supported_protocols must fail closed rather than becoming an implicit
+    // transport wildcard.
     const asAny = (v: unknown) => v as never;
     const base = { protocol: "escpos", connectionType: "network" as const };
     expect(validatePayloadForPrinter(
       { type: "escpos" },
       { ...base, capabilities: { supported_protocols: asAny("escpos") } },
-    )).toEqual({ ok: true });
+    )).toEqual({
+      ok: false,
+      reason: "CAPABILITY_MISMATCH: supported_protocols must be an array",
+    });
     expect(validatePayloadForPrinter(
       { type: "raw", protocol: "zpl" },
       { ...base, capabilities: { supported_protocols: asAny("zpl") } },

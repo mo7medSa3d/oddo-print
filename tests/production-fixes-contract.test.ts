@@ -60,8 +60,8 @@ describe("production fixes contracts (2026-09)", () => {
     expect(doc).toContain("if _, hasDeadline := parent.Deadline(); hasDeadline {");
     // executor saturation / shutdown reject the job FENCED with the claim
     // token instead of silently dropping delivered work.
-    expect(agent).toContain('a.rejectJob(jobID, jobClaimToken(job), "pending_full")');
-    expect(agent).toContain('a.rejectJob(jobID, jobClaimToken(job), "agent_shutting_down")');
+    expect(agent).toContain('a.rejectJob(ctx, jobID, jobClaimToken(job), "pending_full")');
+    expect(agent).toContain('a.rejectJob(ctx, jobID, jobClaimToken(job), "agent_shutting_down")');
     expect(agent).toMatch(/discoverySem:\s*make\(chan struct\{\}, 1\)/);
     const net = read("agent/internal/printer/network.go");
     expect(net).toMatch(/dialTimeout\s*=\s*10\s*\*\s*time\.Second/);
@@ -92,6 +92,12 @@ describe("production fixes contracts (2026-09)", () => {
     expect(jobs).not.toContain("/api/odoo/sync");
     expect(jobs).not.toContain("max_branches");
     expect(jobs).not.toContain("pending.action_sync_status()");
+  });
+
+  it("password reset requires the target user update to affect exactly one row", () => {
+    const route = read("src/app/api/auth/reset-password/route.ts");
+    expect(route).toContain(".returning({ id: users.id })");
+    expect(route).toContain('if (updatedUser.length !== 1) throw new Error("Reset user missing");');
   });
 
   it("production startup refuses plaintext manager passwords", () => {

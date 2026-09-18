@@ -54,21 +54,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       await tx.update(apiKeys)
         .set({ revokedAt: new Date() })
         .where(and(eq(apiKeys.id, old.id), eq(apiKeys.tenantId, manager.tenantId)));
+      await writeAuditEvent({
+        tenantId: manager.tenantId,
+        actorType: manager.userId ? "user" : "system",
+        actorId: manager.userId ?? "legacy-manager",
+        action: "api_key.rotated",
+        resourceType: "api_key",
+        resourceId: newId,
+        metadata: { replacedKeyId: old.id, scope: old.scope },
+      }, tx);
       return { kind: "rotated" as const, oldId: old.id, newId, raw, name: old.name, scope: old.scope, allowedDocumentTypes: old.allowed_document_types };
     });
 
     if (rotated.kind === "not_found") return NextResponse.json({ error: "API key not found" }, { status: 404 });
     if (rotated.kind === "revoked") return NextResponse.json({ error: "Only an active API key can be rotated" }, { status: 409 });
-
-    await writeAuditEvent({
-      tenantId: manager.tenantId,
-      actorType: manager.userId ? "user" : "system",
-      actorId: manager.userId ?? "legacy-manager",
-      action: "api_key.rotated",
-      resourceType: "api_key",
-      resourceId: rotated.newId,
-      metadata: { replacedKeyId: rotated.oldId, scope: rotated.scope },
-    }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
 
     return NextResponse.json({
       id: rotated.newId,

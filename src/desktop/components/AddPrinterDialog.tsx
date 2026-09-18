@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import {
   Button,
@@ -8,7 +8,7 @@ import {
   Select,
   ErrorState,
 } from "../../components/ui";
-import { registerPrinter, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
+import { fetchGatewayAgents, registerGatewayPrinter, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
 import { errMsg, friendlyPrinterError, isProductionPrinter } from "../lib/printers";
 
 type Conn = "spooler" | "network" | "usb" | "ipp";
@@ -18,11 +18,13 @@ export function AddPrinterDialog({
   onClose,
   onSuccess,
   printers,
+  gatewayUrl,
 }: {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
   printers: PrinterInfo[];
+  gatewayUrl: string;
 }) {
   const [name, setName] = useState("");
   const [conn, setConn] = useState<Conn>("spooler");
@@ -34,6 +36,21 @@ export function AddPrinterDialog({
   const [usbSel, setUsbSel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [agents, setAgents] = useState<Array<{ id: string; name: string; status?: string; lifecycle?: string }>>([]);
+  const [agentId, setAgentId] = useState("");
+
+  const loadAgents = useCallback(async () => {
+    if (!gatewayUrl || agents.length > 0) return;
+    try {
+      const rows = await fetchGatewayAgents(gatewayUrl);
+      setAgents(rows);
+      const active = rows.find((row) => row.lifecycle === "active");
+      if (active) setAgentId((current) => current || active.id);
+    } catch {
+      setAgents([]);
+    }
+  }, [gatewayUrl, agents.length]);
+
 
   // Clear any previous error when dialog transitions to open
   const [prevOpen, setPrevOpen] = useState(open);
@@ -56,6 +73,8 @@ export function AddPrinterDialog({
   );
 
   const validate = (): string | null => {
+    if (!gatewayUrl) return "Gateway URL is not configured.";
+    if (!agentId) return "Select an active Gateway agent.";
     if (!name.trim()) return "Printer name is required.";
     if (conn === "spooler" && !spoolerName.trim())
       return "Select or type a spooler printer name.";
@@ -119,7 +138,7 @@ export function AddPrinterDialog({
           if (req.spoolerName) req.endpoint = req.spoolerName;
         }
       }
-      await registerPrinter(req);
+      await registerGatewayPrinter(gatewayUrl, { ...req, agentId });
       onSuccess();
       onClose();
       reset();
@@ -153,6 +172,20 @@ export function AddPrinterDialog({
       }
     >
       <div className="space-y-5">
+        <Field
+          label="Gateway agent"
+          htmlFor="pp-agent"
+          hint="The selected Agent owns execution; the Gateway remains authoritative for configuration."
+        >
+          <Select id="pp-agent" value={agentId} onFocus={loadAgents} onChange={(e) => setAgentId(e.target.value)}>
+            <option value="">Select an active agent…</option>
+            {agents.filter((a) => a.lifecycle === "active").map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name} ({a.status || "unknown"})
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field label="Printer name" htmlFor="pp-name">
           <Input
             id="pp-name"

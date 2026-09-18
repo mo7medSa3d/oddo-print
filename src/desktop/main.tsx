@@ -29,6 +29,7 @@ import { PageHeader } from "./ui";
 import { JobTimeline } from "./components/JobTimeline";
 import { Sidebar, type NavItem } from "./components/Sidebar";
 import { AddPrinterDialog } from "./components/AddPrinterDialog";
+import { EditPrinterDialog } from "./components/EditPrinterDialog";
 import { AdminPrivilegeDialog } from "./components/AdminPrivilegeDialog";
 import { OverviewPage } from "./pages/Overview";
 import { PrintersPage } from "./pages/Printers";
@@ -43,7 +44,8 @@ import {
   getAutostart,
   isRunningAsAdmin,
   getGatewayUrl,
-  getPrinters,
+  fetchGatewayPrinters,
+  updateGatewayPrinter,
   getRuntimePaths,
   isTauri,
   onTrayNavigate,
@@ -135,6 +137,7 @@ export default function App() {
     setBusy(v);
   }, []);
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
+  const [discoveredPrinters, setDiscoveredPrinters] = useState<PrinterInfo[]>([]);
   const [printersLoading, setPrintersLoading] = useState(false);
   const [printersError, setPrintersError] = useState<string | null>(null);
   const [printersFilter, setPrintersFilter] = useState("");
@@ -145,9 +148,10 @@ export default function App() {
   const [jobTab, setJobTab] = useState<JobTab>("all");
   const [jobSearch, setJobSearch] = useState("");
   const [autostart, setAutostartState] = useState<boolean | null>(null);
-  const [lastHeartbeat, setLastHeartbeat] = useState<string | null>(null);
+  const [lastStatusCheck, setLastStatusCheck] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [selectedPrinter, setSelectedPrinter] = useState<PrinterInfo | null>(null);
+  const [editingPrinter, setEditingPrinter] = useState<PrinterInfo | null>(null);
   const [selectedJob, setSelectedJob] = useState<JobRecord | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [gatewaySaving, setGatewaySaving] = useState(false);
@@ -159,27 +163,28 @@ export default function App() {
     try {
       const s = await getAgentStatus();
       setAgentStatus(s);
-      setLastHeartbeat(new Date().toISOString());
+      setLastStatusCheck(new Date().toISOString());
     } catch (e) {
       setAgentStatus({ error: errMsg(e) });
     }
   }, []);
 
   const refreshPrinters = useCallback(async () => {
-    if (!isTauri) return;
+    if (!gatewayUrl) {
+      setPrintersError("Gateway URL not configured");
+      return;
+    }
     setPrintersLoading(true);
     setPrintersError(null);
     try {
-      // UI safety net: the agent already filters virtual/redirected queues at
-      // discovery time; anything that still reports as virtual is dropped here.
-      const list = await getPrinters();
+      const list = await fetchGatewayPrinters(gatewayUrl);
       setPrinters(list.filter(isProductionPrinter));
     } catch (e) {
       setPrintersError(friendlyPrinterError(errMsg(e)));
     } finally {
       setPrintersLoading(false);
     }
-  }, []);
+  }, [gatewayUrl]);
 
   const refreshJobs = useCallback(async (options?: { status?: string; search?: string; limit?: number }) => {
     if (!gatewayUrl) return;
@@ -224,15 +229,35 @@ export default function App() {
     try {
       const res = await discoverPrinters();
       const list = res.printers.filter(isProductionPrinter);
-      setPrinters(list);
-      setMsg({ text: `Discovery found ${list.length} printers`, type: "success" });
+      setDiscoveredPrinters(list);
+      await refreshPrinters();
+      setMsg({ text: "Local discovery found " + list.length + " physical printers; Gateway inventory refreshed.", type: "success" });
       if (res.errors.length) setPrintersError(res.errors.join("; ").slice(0, 300));
     } catch (e) {
       setPrintersError(friendlyPrinterError(errMsg(e)));
     } finally {
       setPrintersLoading(false);
     }
-  }, []);
+  }, [refreshPrinters]);
+
+  const updatePrinterLifecycle = useCallback(async (id: string, lifecycle: "active" | "disabled" | "retired") => {
+    if (!gatewayUrl) {
+      setMsg({ text: "Gateway URL not configured", type: "error" });
+      return;
+    }
+    if (lifecycle === "retired" && !window.confirm("Retire this printer? It cannot be re-enabled after retirement.")) return;
+    try {
+      setBusyBoth(true);
+      await updateGatewayPrinter(gatewayUrl, id, { lifecycle });
+      await refreshPrinters();
+      setSelectedPrinter((current) => current?.id === id ? null : current);
+      setMsg({ text: lifecycle === "disabled" ? "Printer disabled" : lifecycle === "retired" ? "Printer retired" : "Printer enabled", type: "success" });
+    } catch (e) {
+      setMsg({ text: friendlyPrinterError(errMsg(e)), type: "error" });
+    } finally {
+      setBusyBoth(false);
+    }
+  }, [gatewayUrl, refreshPrinters, setBusyBoth]);
 
   const handleTest = useCallback(
     async (id: string) => {
@@ -247,7 +272,13 @@ export default function App() {
       }
     },
     [setBusyBoth]
-  );
+  );  const handleEditSaved = useCallback(async () => {
+    setEditingPrinter(null);
+    await refreshPrinters();
+    setMsg({ text: "Printer desired configuration updated", type: "success" });
+  }, [refreshPrinters]);
+
+
 
   const saveGateway = useCallback(async () => {
     try {
@@ -546,7 +577,7 @@ export default function App() {
     version,
     agentStatus,
     isOnline,
-    lastHeartbeat,
+    lastStatusCheck,
     autostart,
     setAutostartState,
     refreshStatus,
@@ -578,6 +609,7 @@ export default function App() {
     refreshPrinters,
     handleDiscover,
     handleTest,
+    updatePrinterLifecycle,
     showAdd,
     setShowAdd,
     selectedPrinter,
@@ -627,7 +659,7 @@ export default function App() {
         gatewayUrl={gatewayUrl}
         isOnline={isOnline}
         version={version}
-        lastHeartbeat={lastHeartbeat}
+        lastStatusCheck={lastStatusCheck}
       />
       {sidebarOpen && (
         <div
@@ -720,7 +752,18 @@ export default function App() {
           refreshPrinters();
           setMsg({ text: "Printer added", type: "success" });
         }}
-        printers={printers}
+        printers={discoveredPrinters}
+        gatewayUrl={gatewayUrl}
+      />
+
+      <EditPrinterDialog
+        key={editingPrinter ? `edit-${editingPrinter.id}-${editingPrinter.desiredRevision ?? 0}` : "edit-none"}
+        open={!!editingPrinter}
+        printer={editingPrinter}
+        gatewayUrl={gatewayUrl}
+        onClose={() => setEditingPrinter(null)}
+        onSaved={handleEditSaved}
+        onError={(message) => setMsg({ text: friendlyPrinterError(message), type: "error" })}
       />
 
       <Modal
@@ -780,6 +823,31 @@ export default function App() {
               <MetaRow label="Stable ID">
                 <Mono>{selectedPrinter.id}</Mono>
               </MetaRow>
+              <MetaRow label="Lifecycle">{selectedPrinter.lifecycle ?? "active"}</MetaRow>
+              <MetaRow label="Management">
+                {selectedPrinter.managementSource === "manager" ? "Gateway desired" : "Agent-owned"}
+              </MetaRow>
+              <MetaRow label="Desired revision">
+                {selectedPrinter.desiredRevision ?? 0}
+              </MetaRow>
+              <MetaRow label="Applied revision">
+                {selectedPrinter.appliedDesiredRevision ?? 0}
+                {selectedPrinter.managementSource === "manager" && (
+                  <span className="ml-2 text-ink-4">
+                    {selectedPrinter.configurationConverged ? "Applied" : "Pending"}
+                  </span>
+                )}
+              </MetaRow>
+              <MetaRow label="Observed">
+                {selectedPrinter.status} · {selectedPrinter.observedDeviceClass ?? "unknown"} · revision {selectedPrinter.observedDesiredRevision ?? 0}
+              </MetaRow>
+              <MetaRow label="Agent">
+                {selectedPrinter.agentName ?? selectedPrinter.agentId ?? "—"} · {selectedPrinter.agentStatus ?? "unknown"}
+              </MetaRow>
+              <MetaRow label="Agent heartbeat">
+                {selectedPrinter.agentLastSeenAt ? new Date(selectedPrinter.agentLastSeenAt).toLocaleString() : "—"}
+              </MetaRow>
+
               {selectedPrinter.usbVid && (
                 <MetaRow label="USB">
                   <Mono>
@@ -790,6 +858,15 @@ export default function App() {
               )}
             </div>
             <div className="grid grid-cols-2 gap-3">
+              {(selectedPrinter.managementSource === "manager" || selectedPrinter.managementSource === undefined) &&
+                selectedPrinter.lifecycle !== "retired" && (
+                <Button
+                  variant="secondary"
+                  onClick={() => setEditingPrinter(selectedPrinter)}
+                >
+                  Edit desired configuration
+                </Button>
+              )}
               <Button
                 variant="primary"
                 onClick={() => handleTest(selectedPrinter.id)}

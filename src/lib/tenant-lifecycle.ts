@@ -2,6 +2,7 @@ import { db } from "../db";
 import { tenants, managerSessions } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { writeAuditEvent, type AuditActor } from "./audit";
+import { runtimeSecret } from "./runtime-secret";
 
 export type TenantLifecycleState = "active" | "suspended" | "deleted";
 
@@ -18,7 +19,6 @@ export class TenantLifecycleError extends Error {
 const ALLOWED_TRANSITIONS: Record<TenantLifecycleState, ReadonlySet<TenantLifecycleState>> = {
   active: new Set(["suspended", "deleted"]),
   suspended: new Set(["active", "deleted"]),
-  // deleted is terminal — no outgoing transitions
   deleted: new Set(),
 };
 
@@ -39,12 +39,9 @@ export type TransitionTenantLifecycleResult = {
 /**
  * The single authoritative tenant lifecycle transition.
  *
- * Rules:
- *  - active → suspended: blocks all operations, revokes sessions, notifies sockets, records suspendedAt
- *  - suspended → active: restores operations, clears suspendedAt
- *  - active|suspended → deleted: terminal soft-deletion, revokes sessions, notifies sockets, records deletedAt
- *  - deleted is terminal: no transitions out
- *  - current === next is a true no-op
+ * The tenant row is locked before reading the current lifecycle. This makes
+ * the state check and the authoritative update one serialized transaction,
+ * so a stale caller can never overwrite a newer lifecycle transition.
  */
 export async function transitionTenantLifecycle(
   tenantId: string,
@@ -59,45 +56,65 @@ export async function transitionTenantLifecycle(
     throw new TenantLifecycleError("Lifecycle transition reason is required", "REASON_REQUIRED", 400);
   }
 
-  const tenant = await db.query.tenants.findFirst({
-    where: eq(tenants.id, tenantId),
-    columns: { id: true, lifecycle: true },
-  });
-  if (!tenant) {
-    throw new TenantLifecycleError("Tenant not found", "TENANT_NOT_FOUND", 404);
-  }
+  const trimmedReason = reason.trim();
+  return db.transaction(async (tx) => {
+    const locked = await tx.execute(sql`
+      SELECT id, lifecycle
+      FROM tenants
+      WHERE id = ${tenantId}
+      FOR UPDATE
+    `);
+    const tenant = locked.rows[0] as { id?: string; lifecycle?: unknown } | undefined;
+    if (!tenant?.id) {
+      throw new TenantLifecycleError("Tenant not found", "TENANT_NOT_FOUND", 404);
+    }
+    const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID");
+    if (platformTenantId && tenant.id === platformTenantId) {
+      throw new TenantLifecycleError(
+        "The platform tenant is protected from lifecycle suspension or deletion.",
+        "PLATFORM_TENANT_PROTECTED",
+        409,
+      );
+    }
+    if (!isTenantLifecycleState(tenant.lifecycle)) {
+      throw new TenantLifecycleError("Tenant has an invalid lifecycle value", "INVALID_STORED_LIFECYCLE", 500);
+    }
 
-  const current = tenant.lifecycle as TenantLifecycleState;
-  if (current === next) {
-    return { changed: false, lifecycle: current, previousLifecycle: current };
-  }
+    const current = tenant.lifecycle;
+    if (current === next) {
+      return { changed: false, lifecycle: current, previousLifecycle: current };
+    }
 
-  if (!canTransitionTenantLifecycle(current, next)) {
-    throw new TenantLifecycleError(
-      `Cannot transition tenant from '${current}' to '${next}'`,
-      "INVALID_LIFECYCLE_TRANSITION",
-      409,
-    );
-  }
+    if (!canTransitionTenantLifecycle(current, next)) {
+      throw new TenantLifecycleError(
+        `Cannot transition tenant from '${current}' to '${next}'`,
+        "INVALID_LIFECYCLE_TRANSITION",
+        409,
+      );
+    }
 
-  const now = new Date();
-  await db.transaction(async (tx) => {
+    const now = new Date();
     const updates: Record<string, unknown> = {
       lifecycle: next,
-      lifecycleReason: reason.trim(),
+      lifecycleReason: trimmedReason,
       updatedAt: now,
     };
 
     if (next === "suspended") {
       updates.suspendedAt = now;
     } else if (next === "active" && current === "suspended") {
-      // Reactivation clears suspension timestamp
       updates.suspendedAt = null;
     } else if (next === "deleted") {
       updates.deletedAt = now;
     }
 
-    await tx.update(tenants).set(updates).where(eq(tenants.id, tenantId));
+    const updated = await tx.update(tenants)
+      .set(updates)
+      .where(eq(tenants.id, tenantId))
+      .returning({ id: tenants.id, lifecycle: tenants.lifecycle });
+    if (updated.length !== 1) {
+      throw new TenantLifecycleError("Tenant lifecycle update lost its target", "LIFECYCLE_CONFLICT", 409);
+    }
 
     if (next === "suspended" || next === "deleted") {
       await tx.delete(managerSessions).where(eq(managerSessions.tenantId, tenantId));
@@ -112,11 +129,11 @@ export async function transitionTenantLifecycle(
         action: `tenant.lifecycle.${next}`,
         resourceType: "tenant",
         resourceId: tenantId,
-        metadata: { from: current, to: next, reason: reason.trim() },
+        metadata: { from: current, to: next, reason: trimmedReason },
       },
       tx,
     );
-  });
 
-  return { changed: true, lifecycle: next, previousLifecycle: current };
+    return { changed: true, lifecycle: next, previousLifecycle: current };
+  });
 }

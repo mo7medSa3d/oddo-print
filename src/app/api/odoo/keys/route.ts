@@ -1,4 +1,3 @@
-import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { apiKeys } from "../../../../db/schema";
@@ -67,17 +66,26 @@ export async function POST(req: Request) {
   const description = parsed.data.description?.trim() || null;
   const { raw, hashed, id } = generateOdooApiKey();
 
-  await db.insert(apiKeys).values({
-    id,
-    name,
-    description,
-    hashedKey: hashed,
-    scope: parsed.data.scope,
-    allowedDocumentTypes: parsed.data.allowedDocumentTypes?.length ? parsed.data.allowedDocumentTypes : null,
-    tenantId: manager.tenantId,
+  await db.transaction(async (tx) => {
+    await tx.insert(apiKeys).values({
+      id,
+      name,
+      description,
+      hashedKey: hashed,
+      scope: parsed.data.scope,
+      allowedDocumentTypes: parsed.data.allowedDocumentTypes?.length ? parsed.data.allowedDocumentTypes : null,
+      tenantId: manager.tenantId,
+    });
+    await writeAuditEvent({
+      tenantId: manager.tenantId,
+      actorType: manager.userId ? "user" : "system",
+      actorId: manager.userId ?? "legacy-manager",
+      action: "api_key.created",
+      resourceType: "api_key",
+      resourceId: id,
+      metadata: { scope: parsed.data.scope },
+    }, tx);
   });
-
-  await writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "api_key.created", resourceType: "api_key", resourceId: id, metadata: { scope: parsed.data.scope } }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   return NextResponse.json({
     id,
     name,
@@ -120,11 +128,22 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: "Only revoked API keys can be removed. Revoke the key first." }, { status: 409 });
   }
 
-  const revoked = await db.update(apiKeys)
-    .set({ revokedAt: new Date() })
-    .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId)))
-    .returning({ id: apiKeys.id, revokedAt: apiKeys.revokedAt });
-  if (!revoked.length) return NextResponse.json({ error: "API key not found" }, { status: 404 });
-  await writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "api_key.revoked", resourceType: "api_key", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
-  return NextResponse.json(revoked[0], { status: 200 });
+  const revoked = await db.transaction(async (tx) => {
+    const result = await tx.update(apiKeys)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId)))
+      .returning({ id: apiKeys.id, revokedAt: apiKeys.revokedAt });
+    if (!result.length) return null;
+    await writeAuditEvent({
+      tenantId: manager.tenantId,
+      actorType: manager.userId ? "user" : "system",
+      actorId: manager.userId ?? "legacy-manager",
+      action: "api_key.revoked",
+      resourceType: "api_key",
+      resourceId: id,
+    }, tx);
+    return result[0];
+  });
+  if (!revoked) return NextResponse.json({ error: "API key not found" }, { status: 404 });
+  return NextResponse.json(revoked, { status: 200 });
 }

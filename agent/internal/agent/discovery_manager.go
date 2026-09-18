@@ -15,7 +15,7 @@ import (
 // pollDiscovery checks gateway for pending discovery sessions for this agent and executes them.
 func (a *Agent) pollDiscovery(ctx context.Context) {
 	reqURL := fmt.Sprintf("%s/api/agent/discovery", a.cfg.Server.URL)
-	resp, err := a.doAuthorizedRequest("GET", reqURL, nil)
+	resp, err := a.doAuthorizedRequest(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return
 	}

@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, tenants, authRateLimits } from "../../../../db/schema";
 import { and, eq } from "drizzle-orm";
-import { validateManager, revokeManagerSession, managerCookieHeader, createManagerSession, type ManagerRole } from "../../../../lib/manager-auth";
+import { validateManager, managerCookieHeader } from "../../../../lib/manager-auth";
 import { verifyTenantSelectionToken } from "../../../../lib/customer-auth";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
+import { createManagerSessionInTransaction, revokeManagerSessionInTransaction } from "../../../../lib/manager-session-tx";
 
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 16 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
@@ -24,9 +25,7 @@ export async function POST(req: Request) {
 
   if (selectionToken) {
     const verified = verifyTenantSelectionToken(selectionToken);
-    if (!verified) {
-      return NextResponse.json({ error: "Invalid or expired workspace selection token" }, { status: 401 });
-    }
+    if (!verified) return NextResponse.json({ error: "Invalid or expired workspace selection token" }, { status: 401 });
     userId = verified.userId;
     isSelectionToken = true;
     tokenJti = verified.jti;
@@ -39,14 +38,12 @@ export async function POST(req: Request) {
   try {
     const result = await db.transaction(async (tx) => {
       if (isSelectionToken && tokenJti) {
-        // Enforce single-use token consumption at database boundary
-        try {
-          await tx.insert(authRateLimits).values({
-            key: `tsel_used_${tokenJti}`,
-            windowStartedAt: new Date(),
-            updatedAt: new Date(),
-          });
-        } catch {
+        const consumed = await tx.insert(authRateLimits).values({
+          key: `tsel_used_${tokenJti}`,
+          windowStartedAt: new Date(),
+          updatedAt: new Date(),
+        }).onConflictDoNothing({ target: authRateLimits.key }).returning({ key: authRateLimits.key });
+        if (consumed.length !== 1) {
           throw new Error("Selection token already used");
         }
       }
@@ -55,25 +52,19 @@ export async function POST(req: Request) {
         where: and(eq(tenantUsers.userId, userId!), eq(tenantUsers.tenantId, tenantId)),
         columns: { tenantId: true, role: true },
       });
-      if (!membership) {
-        throw new Error("Workspace not available");
-      }
+      if (!membership) throw new Error("Workspace not available");
 
       const tenant = await tx.query.tenants.findFirst({
         where: eq(tenants.id, tenantId),
         columns: { id: true, lifecycle: true },
       });
-      if (!tenant || tenant.lifecycle !== "active") {
-        throw new Error("Workspace is suspended or unavailable");
-      }
+      if (!tenant || tenant.lifecycle !== "active") throw new Error("Workspace is suspended or unavailable");
 
-      if (claims?.jti) {
-        await revokeManagerSession(claims.jti);
-      }
+      if (claims?.jti) await revokeManagerSessionInTransaction(tx, claims.jti);
 
-      const session = await createManagerSession(membership.tenantId, {
+      const session = await createManagerSessionInTransaction(tx, membership.tenantId, {
         userId: userId!,
-        role: membership.role as ManagerRole,
+        role: membership.role as Parameters<typeof createManagerSessionInTransaction>[2]["role"],
       });
 
       await writeAuditEvent({
@@ -91,12 +82,8 @@ export async function POST(req: Request) {
     return res;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Workspace selection failed";
-    if (message === "Selection token already used") {
-      return NextResponse.json({ error: "Workspace selection token has already been used" }, { status: 401 });
-    }
-    if (message === "Workspace not available" || message === "Workspace is suspended or unavailable") {
-      return NextResponse.json({ error: message }, { status: 403 });
-    }
+    if (message === "Selection token already used") return NextResponse.json({ error: "Workspace selection token has already been used" }, { status: 401 });
+    if (message === "Workspace not available" || message === "Workspace is suspended or unavailable") return NextResponse.json({ error: message }, { status: 403 });
     logError("tenant_selection_failed", { error: message });
     return NextResponse.json({ error: "Workspace selection failed" }, { status: 500 });
   }

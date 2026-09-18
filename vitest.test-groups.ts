@@ -6,11 +6,14 @@
  * PostgreSQL or other external services.
  */
 export const integrationVitestTestFiles = [
+  "tests/control-plane-concurrency.integration.test.ts",
   "tests/agent-deletion.test.ts",
+  "tests/agent-lifecycle.integration.test.ts",
   "tests/agent-registration.test.ts",
   "tests/architecture-pg.test.ts",
   "tests/auth-rate-limit.test.ts",
   "tests/batch-status.test.ts",
+  "tests/billing-webhook-concurrency.integration.test.ts",
   "tests/billing-webhook.test.ts",
   "tests/dashboard-payload-projection.test.ts",
   "tests/discovery-approval.test.ts",
@@ -25,6 +28,7 @@ export const integrationVitestTestFiles = [
   "tests/migration-upgrade.integration.test.ts",
   "tests/multi-instance-gateway.test.ts",
   "tests/platform-control-plane.test.ts",
+  "tests/printer-desired-state.test.ts",
   "tests/print-idempotency.test.ts",
   "tests/routing-availability.test.ts",
   "tests/runtime-constraints.test.ts",

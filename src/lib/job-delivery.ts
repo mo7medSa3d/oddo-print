@@ -3,6 +3,7 @@ import { printJobs } from "../db/schema";
 import { sql } from "drizzle-orm";
 import { fencedDeliveryWrite } from "./job-fencing";
 import { STALE_CLAIM_SECONDS, MAX_RETRIES } from "./job-maintenance";
+import { agentStaleThresholdSeconds } from "./agent-availability";
 
 /**
  * Hard ceiling on live (claimed + printing, unexpired) jobs per agent.
@@ -108,15 +109,14 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND p.expires_at > now()
         AND a.lifecycle = 'active'
         AND a.status = 'online'
+        AND a.last_seen_at IS NOT NULL
+        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
         AND pr.status = 'online'
+        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
         AND t.lifecycle = 'active'
     `);
     const inFlight = Number((live.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
-    // The WS push path previously had no ceiling at all: a NOTIFY fan-out or
-    // bulk creation could push live jobs past MAX while the poll path and
-    // creation admission both refused. Refuse here instead of claiming into
-    // an overloaded agent; the job stays queued for a later poll.
     if (inFlight >= MAX_AGENT_IN_FLIGHT_JOBS) return null;
     const locked = await tx.execute(sql`
       SELECT p.id
@@ -133,10 +133,13 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND p.retries < ${MAX_RETRIES}
         AND a.lifecycle = 'active'
         AND a.status = 'online'
+        AND a.last_seen_at IS NOT NULL
+        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
         AND pr.status = 'online'
+        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
         AND t.lifecycle = 'active'
-      FOR UPDATE OF p, pr SKIP LOCKED
+      FOR UPDATE OF p, a, pr, t SKIP LOCKED
     `);
     if (locked.rows.length === 0) return null;
 
@@ -161,11 +164,6 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
 }
 
 export async function markJobDelivered(jobId: string, tenantId: string, agentId: string, claimToken: string | null): Promise<boolean> {
-  // Fenced to THIS claim (the token returned by claimJobForDelivery): a
-  // superseded delivery attempt can never stamp evidence onto the row of
-  // the claim that replaced it. Returns whether the evidence write landed:
-  // callers must NOT report "delivered" on a socket success alone - only a
-  // persisted, same-token delivered_at counts as delivery.
   const res = await db.update(printJobs)
     .set({ deliveredAt: new Date(), updatedAt: new Date() })
     .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed", "printing"]))
@@ -184,10 +182,6 @@ export async function recordJobAck(jobId: string, tenantId: string, agentId: str
 export type ReleaseOutcome = "requeued" | "failed" | "noop";
 
 export async function releaseUndeliveredClaim(jobId: string, tenantId: string, agentId: string, claimToken: string | null, reason: string): Promise<ReleaseOutcome> {
-  // Fenced by the claim token of the delivery attempt being released: if a
-  // concurrent reclaim already produced a newer claim, neither UPDATE may
-  // match it. The status='claimed' predicate alone would be re-claimable
-  // (a poll claim re-sets status to 'claimed' with a new token).
   const requeued = await db.execute(sql`
     UPDATE print_jobs
     SET status = 'queued',

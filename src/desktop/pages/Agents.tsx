@@ -125,8 +125,8 @@ export function AgentsPage({ s }: { s: DesktopState }) {
                   label: "Last status check",
                   value: (
                     <Mono>
-                      {s.lastHeartbeat
-                        ? new Date(s.lastHeartbeat).toLocaleString()
+                      {s.lastStatusCheck
+                        ? new Date(s.lastStatusCheck).toLocaleString()
                         : "—"}
                     </Mono>
                   ),

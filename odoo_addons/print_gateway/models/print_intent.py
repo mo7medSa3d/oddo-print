@@ -99,7 +99,7 @@ class PrintGatewayIntent(models.Model):
                     SET status = 'claimed', claimed_at = %s, claim_token = %s, attempts = attempts + 1
                     WHERE id = %s AND (
                         (status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= %s)) OR
-                        (status = 'claimed' AND (claimed_at IS NULL OR claimed_at <= %s)) OR
+                        (status = 'claimed' AND attempts < max_attempts AND (claimed_at IS NULL OR claimed_at <= %s)) OR
                         (status = 'failed' AND attempts < max_attempts AND (next_retry_at IS NULL OR next_retry_at <= %s))
                     )
                 """, (now, claim_token, intent_id, now, stale_threshold, now))
@@ -130,9 +130,11 @@ class PrintGatewayIntent(models.Model):
                         print_job_id = %s,
                         last_error = %s,
                         next_retry_at = %s,
+                        claimed_at = CASE WHEN %s IN ('pending', 'dispatched', 'skipped', 'failed') THEN NULL ELSE claimed_at END,
+                        claim_token = CASE WHEN %s IN ('pending', 'dispatched', 'skipped', 'failed') THEN NULL ELSE claim_token END,
                         write_date = NOW() AT TIME ZONE 'UTC'
                     WHERE id = %s AND claim_token = %s
-                """, (status, print_job_id, last_error, next_retry_at, intent_id, claim_token))
+                """, (status, print_job_id, last_error, next_retry_at, status, status, intent_id, claim_token))
                 if target_cr.rowcount > 0:
                     if manage_cr:
                         target_cr.commit()

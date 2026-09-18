@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { users, emailVerificationTokens } from "../../../../db/schema";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { generateOpaqueToken, hashToken, normalizeEmail, validEmail } from "../../../../lib/password";
 import { nanoid } from "../../../../lib/nanoid";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
@@ -50,7 +50,16 @@ export async function POST(req: Request) {
   const expiresAt = new Date(now.getTime() + 30 * 60_000);
 
   try {
-    await db.transaction(async (tx) => {
+    const persisted = await db.transaction(async (tx) => {
+      const locked = await tx.execute(sql`
+        SELECT id, email_verified_at AS "emailVerifiedAt"
+        FROM users
+        WHERE id = ${user.id}
+        FOR UPDATE
+      `);
+      const lockedRow = locked.rows[0] as { id?: string; emailVerifiedAt?: Date | null } | undefined;
+      if (!lockedRow?.id || lockedRow.emailVerifiedAt) return false;
+
       await tx
         .update(emailVerificationTokens)
         .set({ consumedAt: now })
@@ -67,9 +76,13 @@ export async function POST(req: Request) {
         tokenHash,
         expiresAt,
       });
+      return true;
     });
+    if (!persisted) return NextResponse.json(GENERIC, { status: 202 });
   } catch {
-    return NextResponse.json({ error: "Resending verification temporarily unavailable" }, { status: 503 });
+    // Keep this endpoint enumeration-safe even when token persistence is
+    // temporarily unavailable. No token is sent unless persistence succeeds.
+    return NextResponse.json(GENERIC, { status: 202 });
   }
 
   try {

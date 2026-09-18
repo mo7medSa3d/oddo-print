@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requirePlatformOwner } from "../../../../../../lib/platform-auth";
 import { hasBodyOverLimit } from "../../../../../../lib/request-limits";
 import { transitionTenantLifecycle, TenantLifecycleError } from "../../../../../../lib/tenant-lifecycle";
+import { runtimeSecret } from "../../../../../../lib/runtime-secret";
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   let claims;
@@ -14,6 +15,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const { id } = await context.params;
   if (!id || typeof id !== "string") {
     return NextResponse.json({ error: "Tenant ID is required" }, { status: 400 });
+  }
+  const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID")?.trim();
+  if (!platformTenantId) {
+    return NextResponse.json({ error: "PLATFORM_TENANT_ID is not configured; platform tenant lifecycle is fail-closed.", code: "PLATFORM_TENANT_ID_REQUIRED" }, { status: 503 });
+  }
+  if (id === platformTenantId) {
+    return NextResponse.json({ error: "The platform tenant cannot be suspended.", code: "PLATFORM_TENANT_PROTECTED" }, { status: 409 });
   }
 
   if (hasBodyOverLimit(req, 16 * 1024)) {

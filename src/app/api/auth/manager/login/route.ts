@@ -61,7 +61,10 @@ export async function POST(req: Request) {
       logWarn("auth.login.user_lookup_failed", { requestId, error: e instanceof Error ? e.message : "unknown" });
     }
   }
-  const legacyValid = expectedUser && legacyTenantId === tenantId ? await verifyManagerPassword(username, password) : false;
+  const legacyEnabled = process.env.NODE_ENV !== "production" && process.env.ALLOW_LEGACY_MANAGER_AUTH === "1";
+  const legacyValid = legacyEnabled && expectedUser && legacyTenantId === tenantId
+    ? await verifyManagerPassword(username, password)
+    : false;
   if (!identity && !legacyValid) {
     logWarn("auth.login.failed", { requestId, ip });
     if (pre.retryAfterSec) return tooMany(pre.retryAfterSec);

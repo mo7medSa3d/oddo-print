@@ -1198,7 +1198,20 @@ class PrintGatewayJob(models.Model):
             # audit trail. Concurrent operators computing the same number
             # collapse onto the unique idempotency key instead of printing
             # twice.
-            job.write({"reprint_attempt_count": new_count})
+            # Preserve monotonic reprint numbering under concurrent operators.
+            # The derived idempotency key is computed optimistically; duplicate
+            # creators collapse onto the same key. GREATEST prevents a slower
+            # request from writing an older counter value after a faster request
+            # has already advanced it.
+            self.env.cr.execute(
+                """
+                UPDATE print_gateway_print_job
+                SET reprint_attempt_count = GREATEST(reprint_attempt_count, %s)
+                WHERE id = %s
+                """,
+                (new_count, job.id),
+            )
+            job.invalidate_recordset(["reprint_attempt_count"])
             retry.action_submit()
             reprinted_jobs |= retry
         return {

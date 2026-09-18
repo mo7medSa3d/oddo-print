@@ -17,7 +17,12 @@ import {
 } from "../lib/job-delivery";
 import { logInfo, logWarn } from "../lib/log";
 
-type AgentSocket = WebSocket & { agentId?: string; tenantId?: string; isAlive?: boolean };
+type AgentSocket = WebSocket & {
+  agentId?: string;
+  tenantId?: string;
+  lifecycleRevision?: number;
+  isAlive?: boolean;
+};
 
 type WritableSocket = Pick<Duplex, "end" | "destroy">;
 
@@ -116,12 +121,44 @@ export function __clearWsBucketsForTests(): void {
   wsMessageInFlightByAgentId.clear();
 }
 
-export function closeAgentSockets(agentId: string): void {
+export function shouldCloseAgentSocketForLifecycleRevision(
+  socketRevision: number | undefined,
+  invalidatingRevision: number,
+): boolean {
+  // An authenticated socket without a revision can only be from a process
+  // started before this fence was deployed; close it rather than letting a
+  // legacy session survive a lifecycle transition.
+  if (socketRevision === undefined) return true;
+  return socketRevision < invalidatingRevision;
+}
+
+export function closeAgentSockets(agentId: string, lifecycleRevision: number): void {
   const set = agentSockets.get(agentId);
   if (!set || set.size === 0) return;
   for (const ws of set) {
-    try { ws.close(4001, "agent deactivated"); } catch { try { ws.terminate(); } catch {} }
+    // A lifecycle notification invalidates sessions authenticated BEFORE the
+    // transition that produced this revision. A newer session must survive,
+    // even if the notification itself was delayed in the PG LISTEN queue.
+    if (!shouldCloseAgentSocketForLifecycleRevision(ws.lifecycleRevision, lifecycleRevision)) {
+      continue;
+    }
+    try {
+      ws.close(4001, "agent deactivated");
+    } catch {
+      try { ws.terminate(); } catch {}
+    }
   }
+}
+
+async function currentAgentLifecycleRevision(agentId: string): Promise<number | null> {
+  const result = await pool.query<{ lifecycle_revision: number | string }>(
+    "SELECT lifecycle_revision FROM agents WHERE id = $1",
+    [agentId],
+  );
+  if (result.rows.length !== 1) return null;
+  const revision = Number(result.rows[0].lifecycle_revision);
+  if (!Number.isSafeInteger(revision) || revision < 0) return null;
+  return revision;
 }
 
 export function closeTenantSockets(tenantId: string): void {
@@ -367,8 +404,34 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
     if (!notification.payload) return;
     if (notification.channel === PG_SESSIONS_CHANNEL) {
       try {
-        const message = JSON.parse(notification.payload) as { agentId?: unknown; tenantId?: unknown };
-        if (typeof message.agentId === "string" && message.agentId) closeAgentSockets(message.agentId);
+        const message = JSON.parse(notification.payload) as {
+          agentId?: unknown;
+          tenantId?: unknown;
+          lifecycleRevision?: unknown;
+        };
+        if (typeof message.agentId === "string" && message.agentId) {
+          const revision =
+            typeof message.lifecycleRevision === "number" &&
+            Number.isSafeInteger(message.lifecycleRevision) &&
+            message.lifecycleRevision >= 0
+              ? message.lifecycleRevision
+              : undefined;
+
+          // Older gateway instances may emit only {agentId}. Resolve that
+          // legacy notification against the durable current revision instead
+          // of closing every socket blindly. This keeps rolling deployments
+          // safe against the same stale-notification race.
+          void (async () => {
+            const effectiveRevision = revision ?? await currentAgentLifecycleRevision(message.agentId as string);
+            if (effectiveRevision === null) {
+              logWarn("[ws] ignored agent-session notification: lifecycle revision unavailable");
+              return;
+            }
+            closeAgentSockets(message.agentId as string, effectiveRevision);
+          })().catch((error) => {
+            logWarn("[ws] failed to fence agent sockets from lifecycle notification:", { error: error });
+          });
+        }
         if (typeof message.tenantId === "string" && message.tenantId) closeTenantSockets(message.tenantId);
       } catch {
         logWarn("[ws] ignored malformed agent/tenant-session notification");
@@ -576,6 +639,7 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         aws.isAlive = true;
         aws.tenantId = agent!.tenantId;
         aws.on("pong", () => { aws.isAlive = true; });
+        aws.lifecycleRevision = agent!.lifecycleRevision;
         trackAgentSocket(agent!.id, aws);
         // No per-connection bucket init here: getBucketForAgent(agentId)
         // lazily creates or reuses the persistent agent-level limiter, so

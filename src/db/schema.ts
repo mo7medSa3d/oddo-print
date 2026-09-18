@@ -60,6 +60,7 @@ export const tenantUsers = pgTable("tenant_users", {
 }, (table) => ({
   pk: uniqueIndex("tenant_users_pk").on(table.userId, table.tenantId),
   tenantIdx: index("tenant_users_tenant_idx").on(table.tenantId),
+  ownerUnique: uniqueIndex("tenant_users_single_owner_idx").on(table.tenantId).where(sql`${table.role} = 'owner'`),
   roleCheck: check("tenant_users_role_check", sql`${table.role} in ('owner','admin','operator','viewer','integration_admin','billing_admin')`),
 }));
 
@@ -81,6 +82,7 @@ export const agents = pgTable("agents", {
   secret: text("secret"),
   status: text("status").notNull().default("offline"),
   lifecycle: text("lifecycle").notNull().default("active"),
+  lifecycleRevision: integer("lifecycle_revision").notNull().default(0),
   metadata: jsonb("metadata").$type<{ hostname?: string; os?: string; osVersion?: string; version?: string; }>(),
   lastSeenAt: timestamp("last_seen_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -94,6 +96,7 @@ export const agents = pgTable("agents", {
   // (NULLed) rows are excluded by the partial predicate.
   pairingCodeHashPendingUnique: uniqueIndex("agents_pairing_code_hash_pending_unique").on(table.pairingCodeHash).where(sql`pairing_code_hash IS NOT NULL`),
   lifecycleCheck: check("agents_lifecycle_check", sql`${table.lifecycle} in ('active','disabled','retired')`),
+  lifecycleRevisionCheck: check("agents_lifecycle_revision_check", sql`${table.lifecycleRevision} >= 0`),
   statusCheck: check("agents_status_check", sql`${table.status} in ('online','offline')`),
 }));
 
@@ -108,6 +111,11 @@ export const printers = pgTable("printers", {
   protocol: text("protocol").notNull().default("unknown"),
   status: text("status").notNull().default("unknown"),
   lifecycle: text("lifecycle").notNull().default("active"),
+  managementSource: text("management_source").notNull().default("agent"),
+  desiredRevision: bigint("desired_revision", { mode: "number" }).notNull().default(0),
+  appliedDesiredRevision: bigint("applied_desired_revision", { mode: "number" }).notNull().default(0),
+  observedDesiredRevision: bigint("observed_desired_revision", { mode: "number" }).notNull().default(0),
+  observedDeviceClass: text("observed_device_class"),
   config: jsonb("config").$type<{ ip?: string; port?: number; vid?: number; pid?: number; serial?: string; address?: string; spooler_name?: string; paper_widths?: number[]; color_capable?: boolean; duplex_capable?: boolean; }>(),
   capabilities: jsonb("capabilities").$type<Record<string, unknown>>(),
   lastSeenAt: timestamp("last_seen_at"),
@@ -119,6 +127,10 @@ export const printers = pgTable("printers", {
   agentIdx: index("printers_agent_id_idx").on(table.agentId),
   printerTypeIdx: index("printers_printer_type_idx").on(table.printerType),
   statusIdx: index("printers_status_idx").on(table.status),
+  managementSourceCheck: check("printers_management_source_check", sql`${table.managementSource} in ('agent','manager')`),
+  desiredRevisionCheck: check("printers_desired_revision_check", sql`${table.desiredRevision} >= 0 AND ${table.appliedDesiredRevision} >= 0 AND ${table.observedDesiredRevision} >= 0 AND ${table.appliedDesiredRevision} <= ${table.desiredRevision} AND ${table.observedDesiredRevision} <= ${table.appliedDesiredRevision}`),
+  observedDeviceClassCheck: check("printers_observed_device_class_check", sql`${table.observedDeviceClass} IS NULL OR ${table.observedDeviceClass} in ('thermal','laser','inkjet','label','other','unknown')`),
+  desiredAgentIdx: index("printers_agent_lifecycle_desired_idx").on(table.tenantId, table.agentId, table.lifecycle, table.managementSource),
   lifecycleCheck: check("printers_lifecycle_check", sql`${table.lifecycle} in ('active','disabled','retired')`),
   printerTypeCheck: check("printers_type_check", sql`${table.printerType} in ('physical','virtual','redirected')`),
   deviceClassCheck: check("printers_device_class_check", sql`${table.deviceClass} in ('thermal','laser','inkjet','label','other','unknown')`),
@@ -238,6 +250,7 @@ export const discoverySessions = pgTable("discovery_sessions", {
   agentFk: foreignKey({ columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
   agentIdIdx: index("discovery_sessions_agent_id_idx").on(table.agentId),
   statusIdx: index("discovery_sessions_status_idx").on(table.status),
+  activeAgentUnique: uniqueIndex("discovery_sessions_active_agent_unique").on(table.tenantId, table.agentId).where(sql`${table.status} = 'running'`),
 }));
 
 export const discoveredDevices = pgTable("discovered_devices", {
@@ -318,8 +331,7 @@ export const printJobs = pgTable("print_jobs", {
   claimedAtIdx: index("print_jobs_claimed_at_idx").on(table.status, table.claimedAt),
   apiKeyIdIdx: index("print_jobs_api_key_id_idx").on(table.apiKeyId),
   requestIdIdx: index("print_jobs_request_id_idx").on(table.requestId),
-  idempotencyUnique: uniqueIndex("print_jobs_idempotency_unique").on(table.apiKeyId, table.idempotencyKey).where(sql`idempotency_key IS NOT NULL AND api_key_id IS NOT NULL`),
-  internalIdempotencyUnique: uniqueIndex("print_jobs_internal_idempotency_unique").on(table.tenantId, table.idempotencyKey).where(sql`idempotency_key IS NOT NULL AND api_key_id IS NULL`),
+  idempotencyUnique: uniqueIndex("print_jobs_tenant_idempotency_unique").on(table.tenantId, table.idempotencyKey).where(sql`idempotency_key IS NOT NULL`),
   statusCheck: check("print_jobs_status_check", sql`${table.status} in ('queued','claimed','printing','success','failed','expired')`),
   retriesCheck: check("print_jobs_retries_check", sql`${table.retries} >= 0`),
   deliveryAttemptsCheck: check("print_jobs_delivery_attempts_check", sql`${table.deliveryAttempts} >= 0`),
@@ -389,10 +401,26 @@ export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   trialStartedAt: timestamp("trial_started_at"),
   stripeLastEventCreatedAt: timestamp("stripe_last_event_created_at"),
   cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  checkoutStatus: text("checkout_status").notNull().default("none"),
+  checkoutPlanId: text("checkout_plan_id").references(() => plans.id),
+  checkoutIdempotencyKey: text("checkout_idempotency_key"),
+  checkoutSessionId: text("checkout_session_id"),
+  checkoutSessionUrl: text("checkout_session_url"),
+  checkoutSessionExpiresAt: timestamp("checkout_session_expires_at"),
+  billingOperationId: text("billing_operation_id"),
+  billingOperationType: text("billing_operation_type"),
+  billingOperationIdempotencyKey: text("billing_operation_idempotency_key"),
+  billingOperationSubscriptionId: text("billing_operation_subscription_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   statusCheck: check("tenant_subscriptions_status_check", sql`${table.status} in ('trialing','active','past_due','paused','cancelled')`),
+  checkoutStatusCheck: check("tenant_subscriptions_checkout_status_check", sql`${table.checkoutStatus} in ('none','creating','open','completed')`),
+  billingOperationTypeCheck: check("tenant_subscriptions_billing_operation_type_check", sql`${table.billingOperationType} IS NULL OR ${table.billingOperationType} in ('cancel','resume')`),
+  checkoutIdempotencyUnique: uniqueIndex("tenant_subscriptions_checkout_idempotency_unique").on(table.checkoutIdempotencyKey).where(sql`${table.checkoutIdempotencyKey} IS NOT NULL`),
+  checkoutSessionUnique: uniqueIndex("tenant_subscriptions_checkout_session_unique").on(table.checkoutSessionId).where(sql`${table.checkoutSessionId} IS NOT NULL`),
+  billingOperationUnique: uniqueIndex("tenant_subscriptions_billing_operation_unique").on(table.billingOperationId).where(sql`${table.billingOperationId} IS NOT NULL`),
+  billingOperationKeyUnique: uniqueIndex("tenant_subscriptions_billing_operation_key_unique").on(table.billingOperationIdempotencyKey).where(sql`${table.billingOperationIdempotencyKey} IS NOT NULL`),
 }));
 
 

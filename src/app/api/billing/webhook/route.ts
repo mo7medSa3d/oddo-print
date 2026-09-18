@@ -15,132 +15,331 @@ function statusOf(status: string): "trialing" | "active" | "past_due" | "paused"
   return "cancelled";
 }
 
+const INTERNAL_EVENT_KEY = "__yasser";
+
+type StripeEvent = {
+  id?: unknown;
+  type?: unknown;
+  created?: unknown;
+  data?: { object?: Record<string, unknown> };
+};
+
+async function latestProcessedEventForSubscription(
+  tx: { execute: typeof db.execute },
+  subscriptionId: string,
+): Promise<{ created: number; eventId: string } | null> {
+  const result = await tx.execute(sql`
+    SELECT event_id AS "eventId",
+           (payload->'__yasser'->>'event_created')::bigint AS created
+    FROM billing_events
+    WHERE processed_at IS NOT NULL
+      AND payload->'__yasser'->>'subscription_id' = ${subscriptionId}
+      AND payload->'__yasser'->>'event_created' ~ '^[0-9]+$'
+    ORDER BY created DESC, event_id DESC
+    LIMIT 1
+  `);
+  const row = result.rows[0] as { created?: number | string; eventId?: string } | undefined;
+  if (!row || !row.eventId || row.created === undefined) return null;
+  return { created: Number(row.created), eventId: row.eventId };
+}
+
+function subscriptionIdForEvent(eventType: string, object: Record<string, unknown>): string | undefined {
+  if (typeof object.subscription === "string") return object.subscription;
+  if (eventType.startsWith("customer.subscription.") && typeof object.id === "string") return object.id;
+  return undefined;
+}
+
+function timestampMillis(value: unknown): number | null {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isFinite(parsed.getTime()) ? parsed.getTime() : null;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 1_000_000_000_000 ? value : value * 1000;
+  }
+  return null;
+}
+
 export async function POST(req: Request) {
   const raw = await req.text();
   const sig = req.headers.get("stripe-signature") ?? "";
   const secret = runtimeSecret("STRIPE_WEBHOOK_SECRET");
   if (!secret || !verifyStripeSignature(raw, sig, secret)) return NextResponse.json({ error: "Invalid webhook signature" }, { status: 400 });
 
-  let event: { id?: unknown; type?: unknown; created?: unknown; data?: { object?: Record<string, unknown> } };
-  try { event = JSON.parse(raw) as typeof event; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  let event: StripeEvent;
+  try { event = JSON.parse(raw) as StripeEvent; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const eventId = typeof event.id === "string" ? event.id : "";
   const eventType = typeof event.type === "string" ? event.type : "";
   if (!eventId || !eventType) return NextResponse.json({ error: "Invalid event" }, { status: 400 });
+
   const obj = event.data?.object ?? {};
-  const eventCreatedAt = typeof (event as { created?: unknown }).created === "number" ? new Date((event as { created: number }).created * 1000) : new Date();
-
-  const inserted = await db.execute(sql`
-    INSERT INTO billing_events (event_id, event_type, payload)
-    VALUES (${eventId}, ${eventType}, ${JSON.stringify(obj)}::jsonb)
-    ON CONFLICT (event_id) DO NOTHING
-    RETURNING event_id
-  `);
-  if (inserted.rows.length === 0) {
-    const prior = await db.query.billingEvents.findFirst({ where: eq(billingEvents.eventId, eventId), columns: { processedAt: true } });
-    if (prior?.processedAt) return NextResponse.json({ received: true, idempotent: true });
-  }
-
+  const eventCreatedAt = typeof event.created === "number" ? new Date(event.created * 1000) : new Date();
+  const eventCreatedUnix = Math.floor(eventCreatedAt.getTime() / 1000);
   const metadataTenantId = typeof (obj.metadata as Record<string, unknown> | undefined)?.tenant_id === "string"
     ? String((obj.metadata as Record<string, unknown>).tenant_id)
     : undefined;
   const clientReferenceTenantId = typeof obj.client_reference_id === "string" ? obj.client_reference_id : undefined;
   const candidateTenantId = metadataTenantId ?? clientReferenceTenantId;
   const customerId = typeof obj.customer === "string" ? obj.customer : undefined;
-  const objectSubscriptionId = typeof obj.id === "string"
-    ? obj.id
-    : typeof obj.subscription === "string"
-      ? obj.subscription
-      : undefined;
-
-  // Stripe events are signed, but metadata/client_reference_id are still event
-  // data and are not an authorization source for a local tenant. Existing
-  // local Stripe identity bindings are authoritative and must agree before any
-  // tenant mutation occurs.
-  let boundTenantId: string | undefined;
-  let billingIdentityConflict = false;
-  if (objectSubscriptionId) {
-    const row = await db.query.tenantSubscriptions.findFirst({
-      where: eq(tenantSubscriptions.stripeSubscriptionId, objectSubscriptionId),
-      columns: { tenantId: true },
-    });
-    boundTenantId = row?.tenantId;
-  }
-  if (customerId) {
-    const row = await db.query.tenantSubscriptions.findFirst({
-      where: eq(tenantSubscriptions.stripeCustomerId, customerId),
-      columns: { tenantId: true },
-    });
-    if (row) {
-      if (boundTenantId && boundTenantId !== row.tenantId) {
-        billingIdentityConflict = true;
-      } else {
-        boundTenantId = row.tenantId;
-      }
-    }
-  }
-
-  if (boundTenantId && candidateTenantId && boundTenantId !== candidateTenantId) billingIdentityConflict = true;
-
-  let tenantId: string | undefined = boundTenantId ?? candidateTenantId;
-
+  const objectSubscriptionId = subscriptionIdForEvent(eventType, obj);
 
   try {
-    await db.transaction(async (tx) => {
-      if (billingIdentityConflict) {
-        await tx.update(billingEvents).set({ tenantId: boundTenantId ?? null, processedAt: new Date() }).where(eq(billingEvents.eventId, eventId));
-        return;
+    const result = await db.transaction(async (tx) => {
+      const payload = {
+        ...obj,
+        [INTERNAL_EVENT_KEY]: {
+          event_created: eventCreatedUnix,
+          subscription_id: objectSubscriptionId ?? null,
+        },
+      };
+
+      const inserted = await tx.execute(sql`
+        INSERT INTO billing_events (event_id, event_type, payload)
+        VALUES (${eventId}, ${eventType}, ${JSON.stringify(payload)}::jsonb)
+        ON CONFLICT (event_id) DO NOTHING
+        RETURNING event_id
+      `);
+      if (inserted.rows.length === 0) {
+        const prior = await tx.execute(sql`
+          SELECT processed_at AS "processedAt"
+          FROM billing_events
+          WHERE event_id = ${eventId}
+          FOR UPDATE
+        `);
+        const priorRow = prior.rows[0] as { processedAt?: Date | string | null } | undefined;
+        if (priorRow?.processedAt) return { kind: "idempotent" as const };
       }
+
+      const identityRows = await tx.execute(sql`
+        SELECT tenant_id AS "tenantId"
+        FROM tenant_subscriptions
+        WHERE (${objectSubscriptionId ? sql`stripe_subscription_id = ${objectSubscriptionId}` : sql`FALSE`})
+           OR (${customerId ? sql`stripe_customer_id = ${customerId}` : sql`FALSE`})
+        FOR UPDATE
+      `);
+      let boundTenantId: string | undefined;
+      let billingIdentityConflict = false;
+      for (const row of identityRows.rows as Array<{ tenantId?: string }>) {
+        if (!row.tenantId) continue;
+        if (boundTenantId && boundTenantId !== row.tenantId) billingIdentityConflict = true;
+        boundTenantId ??= row.tenantId;
+      }
+      if (boundTenantId && candidateTenantId && boundTenantId !== candidateTenantId) billingIdentityConflict = true;
+      let tenantId: string | undefined = boundTenantId ?? candidateTenantId;
+
+      if (billingIdentityConflict) {
+        await tx.update(billingEvents)
+          .set({ tenantId: boundTenantId ?? null, processedAt: new Date() })
+          .where(eq(billingEvents.eventId, eventId));
+        if (boundTenantId) {
+          await writeAuditEvent({
+            tenantId: boundTenantId,
+            actorType: "platform",
+            actorId: "stripe",
+            action: "billing.identity_conflict",
+            resourceType: "billing_event",
+            resourceId: eventId,
+          }, tx);
+        }
+        return { kind: "ignored" as const };
+      }
+
       if (eventType === "checkout.session.completed") {
         const subId = typeof obj.subscription === "string" ? obj.subscription : undefined;
         if (tenantId && subId) {
-          const current = await tx.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, tenantId), columns: { stripeSubscriptionId: true, stripeCustomerId: true } });
-          if (current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId) {
-            throw new Error("Checkout subscription identity conflict");
+          const currentResult = await tx.execute(sql`
+            SELECT stripe_subscription_id AS "stripeSubscriptionId",
+                   stripe_customer_id AS "stripeCustomerId",
+                   status,
+                   stripe_last_event_created_at AS "stripeLastEventCreatedAt"
+            FROM tenant_subscriptions
+            WHERE tenant_id = ${tenantId}
+            FOR UPDATE
+          `);
+          const current = currentResult.rows[0] as {
+            stripeSubscriptionId?: string | null;
+            stripeCustomerId?: string | null;
+            status?: "trialing" | "active" | "past_due" | "paused" | "cancelled";
+            stripeLastEventCreatedAt?: Date | null;
+          } | undefined;
+          const differentSubscription = Boolean(current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId);
+          if (differentSubscription && current?.status !== "cancelled") {
+            await tx.update(billingEvents)
+              .set({ tenantId, processedAt: new Date() })
+              .where(eq(billingEvents.eventId, eventId));
+            await writeAuditEvent({
+              tenantId,
+              actorType: "platform",
+              actorId: "stripe",
+              action: "billing.identity_conflict",
+              resourceType: "billing_event",
+              resourceId: eventId,
+            }, tx);
+            return { kind: "ignored" as const };
+          }
+          if (differentSubscription && current?.status === "cancelled" && current.stripeLastEventCreatedAt && eventCreatedAt.getTime() < (timestampMillis(current.stripeLastEventCreatedAt) ?? 0)) {
+            await tx.update(billingEvents)
+              .set({ tenantId, processedAt: new Date() })
+              .where(eq(billingEvents.eventId, eventId));
+            await writeAuditEvent({
+              tenantId,
+              actorType: "platform",
+              actorId: "stripe",
+              action: "billing.stale_checkout_subscription",
+              resourceType: "billing_event",
+              resourceId: eventId,
+            }, tx);
+            return { kind: "ignored" as const };
           }
           if (current?.stripeCustomerId && customerId && current.stripeCustomerId !== customerId) {
             throw new Error("Checkout customer identity conflict");
           }
-          await tx.update(tenantSubscriptions).set({ stripeSubscriptionId: current?.stripeSubscriptionId ?? subId, stripeCustomerId: current?.stripeCustomerId ?? (customerId ?? null), updatedAt: new Date() }).where(eq(tenantSubscriptions.tenantId, tenantId));
+          const checkoutSessionId = typeof obj.id === "string" ? obj.id : undefined;
+          await tx.update(tenantSubscriptions).set({
+            stripeSubscriptionId: differentSubscription ? subId : (current?.stripeSubscriptionId ?? subId),
+            stripeCustomerId: current?.stripeCustomerId ?? (customerId ?? null),
+            checkoutStatus: "completed",
+            checkoutSessionId: checkoutSessionId ?? null,
+            updatedAt: new Date(),
+          }).where(eq(tenantSubscriptions.tenantId, tenantId));
         }
       } else if (eventType.startsWith("customer.subscription.")) {
         const subId = typeof obj.id === "string" ? obj.id : "";
         const items = obj.items as { data?: Array<{ price?: { id?: string } }> } | undefined;
         const priceId = items?.data?.[0]?.price?.id;
-        const tenantRow = tenantId ? await tx.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, tenantId) }) : undefined;
+        const tenantRowResult = tenantId ? await tx.execute(sql`
+          SELECT tenant_id AS "tenantId",
+                 stripe_subscription_id AS "stripeSubscriptionId",
+                 stripe_customer_id AS "stripeCustomerId",
+                 status,
+                 checkout_status AS "checkoutStatus",
+                 checkout_plan_id AS "checkoutPlanId",
+                 checkout_idempotency_key AS "checkoutIdempotencyKey",
+                 current_period_end AS "currentPeriodEnd",
+                 cancel_at_period_end AS "cancelAtPeriodEnd",
+                 plan_id AS "planId",
+                 stripe_last_event_created_at AS "stripeLastEventCreatedAt"
+          FROM tenant_subscriptions
+          WHERE tenant_id = ${tenantId}
+          FOR UPDATE
+        `) : null;
+        const tenantRow = tenantRowResult?.rows[0] as {
+          tenantId?: string;
+          stripeSubscriptionId?: string | null;
+          stripeCustomerId?: string | null;
+          status?: "trialing" | "active" | "past_due" | "paused" | "cancelled";
+          checkoutStatus?: "none" | "creating" | "open" | "completed";
+          checkoutPlanId?: string | null;
+          checkoutIdempotencyKey?: string | null;
+          currentPeriodEnd?: Date | null;
+          cancelAtPeriodEnd?: boolean;
+          planId?: string;
+          stripeLastEventCreatedAt?: Date | null;
+        } | undefined;
         const plan = priceId ? await tx.query.plans.findFirst({ where: eq(plans.stripePriceId, priceId), columns: { id: true } }) : undefined;
-        const newerThanStored = !tenantRow?.stripeLastEventCreatedAt || tenantRow.stripeLastEventCreatedAt.getTime() <= eventCreatedAt.getTime();
-        if (tenantRow && tenantId && newerThanStored) {
-          await tx.update(tenantSubscriptions).set({
-            stripeCustomerId: typeof obj.customer === "string" ? obj.customer : tenantRow.stripeCustomerId,
-            stripeSubscriptionId: subId || tenantRow.stripeSubscriptionId,
-            status: typeof obj.status === "string" ? statusOf(obj.status) : tenantRow.status,
-            currentPeriodEnd: typeof obj.current_period_end === "number" ? new Date(obj.current_period_end * 1000) : tenantRow.currentPeriodEnd,
-            cancelAtPeriodEnd: obj.cancel_at_period_end === true,
-            planId: plan?.id ?? tenantRow.planId,
-            stripeLastEventCreatedAt: eventCreatedAt,
-            updatedAt: new Date(),
-          }).where(eq(tenantSubscriptions.tenantId, tenantId));
+        if (tenantRow && tenantId) {
+          const storedTime = timestampMillis(tenantRow.stripeLastEventCreatedAt);
+          let newerThanStored = storedTime === null || eventCreatedAt.getTime() > storedTime;
+          if (storedTime !== null && eventCreatedAt.getTime() === storedTime) {
+            const latest = await latestProcessedEventForSubscription(tx, subId);
+            newerThanStored = Boolean(latest && latest.created === eventCreatedUnix && eventId > latest.eventId);
+          }
+          const differentSubscription = Boolean(tenantRow.stripeSubscriptionId && tenantRow.stripeSubscriptionId !== subId);
+          if (differentSubscription && tenantRow.status !== "cancelled" ) {
+            // The tenant is bound to a different live subscription. A
+            // delayed event from an old/new unrelated subscription must not
+            // silently steal billing identity.
+            newerThanStored = false;
+          }
+          if (differentSubscription && tenantRow.status === "cancelled" && !newerThanStored) {
+            // A cancelled tenant may legitimately start a new subscription,
+            // but only an event newer than the cancellation state may replace
+            // the previous subscription identity.
+            newerThanStored = false;
+          }
+          if (newerThanStored) {
+            const nextStatus = typeof obj.status === "string" ? statusOf(obj.status) : tenantRow.status;
+            await tx.update(tenantSubscriptions).set({
+              stripeCustomerId: typeof obj.customer === "string" ? obj.customer : tenantRow.stripeCustomerId,
+              stripeSubscriptionId: subId || tenantRow.stripeSubscriptionId,
+              status: nextStatus,
+              currentPeriodEnd: typeof obj.current_period_end === "number" ? new Date(obj.current_period_end * 1000) : tenantRow.currentPeriodEnd,
+              cancelAtPeriodEnd: obj.cancel_at_period_end === true,
+              planId: plan?.id ?? tenantRow.planId,
+              ...(nextStatus === "cancelled"
+                ? {
+                    checkoutStatus: "none" as const,
+                    checkoutPlanId: null,
+                    checkoutIdempotencyKey: null,
+                    checkoutSessionId: null,
+                    checkoutSessionUrl: null,
+                    checkoutSessionExpiresAt: null,
+                  }
+                : {}),
+              stripeLastEventCreatedAt: eventCreatedAt,
+              updatedAt: new Date(),
+            }).where(eq(tenantSubscriptions.tenantId, tenantId));
+          }
         }
       } else if (eventType === "invoice.paid" || eventType === "invoice.payment_failed") {
         const subId = typeof obj.subscription === "string" ? obj.subscription : undefined;
         if (subId) {
-          const row = await tx.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.stripeSubscriptionId, subId), columns: { tenantId: true } });
-          if (row) {
+          const rowResult = await tx.execute(sql`
+            SELECT tenant_id AS "tenantId"
+            FROM tenant_subscriptions
+            WHERE stripe_subscription_id = ${subId}
+            FOR UPDATE
+          `);
+          const row = rowResult.rows[0] as { tenantId?: string } | undefined;
+          if (row?.tenantId) {
             tenantId = row.tenantId;
-            const current = await tx.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, row.tenantId), columns: { stripeLastEventCreatedAt: true } });
-            const newerThanStored = !current?.stripeLastEventCreatedAt || current.stripeLastEventCreatedAt.getTime() <= eventCreatedAt.getTime();
+            const currentResult = await tx.execute(sql`
+              SELECT stripe_last_event_created_at AS "stripeLastEventCreatedAt"
+              FROM tenant_subscriptions
+              WHERE tenant_id = ${row.tenantId}
+              FOR UPDATE
+            `);
+            const current = currentResult.rows[0] as { stripeLastEventCreatedAt?: Date | null } | undefined;
+            const storedTime = timestampMillis(current?.stripeLastEventCreatedAt);
+            let newerThanStored = storedTime === null || eventCreatedAt.getTime() > storedTime;
+            if (storedTime !== null && eventCreatedAt.getTime() === storedTime) {
+              const latest = await latestProcessedEventForSubscription(tx, subId);
+              newerThanStored = Boolean(latest && latest.created === eventCreatedUnix && eventId > latest.eventId);
+            }
             if (newerThanStored) {
-              await tx.update(tenantSubscriptions).set({ status: eventType === "invoice.paid" ? "active" : "past_due", stripeLastEventCreatedAt: eventCreatedAt, updatedAt: new Date() }).where(eq(tenantSubscriptions.tenantId, row.tenantId));
+              await tx.update(tenantSubscriptions).set({
+                status: eventType === "invoice.paid" ? "active" : "past_due",
+                stripeLastEventCreatedAt: eventCreatedAt,
+                updatedAt: new Date(),
+              }).where(eq(tenantSubscriptions.tenantId, row.tenantId));
             }
           }
         }
       }
-      await tx.update(billingEvents).set({ tenantId: tenantId ?? null, processedAt: new Date() }).where(eq(billingEvents.eventId, eventId));
+
+      await tx.update(billingEvents)
+        .set({ tenantId: tenantId ?? null, processedAt: new Date() })
+        .where(eq(billingEvents.eventId, eventId));
+
+      if (tenantId) {
+        await writeAuditEvent({
+          tenantId,
+          actorType: "platform",
+          actorId: "stripe",
+          action: `billing.${eventType}`,
+          resourceType: "billing_event",
+          resourceId: eventId,
+        }, tx);
+      }
+      return { kind: "processed" as const, tenantId };
     });
-    if (billingIdentityConflict) return NextResponse.json({ received: true, ignored: true });
-    if (tenantId) await writeAuditEvent({ tenantId, actorType: "platform", actorId: "stripe", action: `billing.${eventType}`, resourceType: "billing_event", resourceId: eventId }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
+
+    if (result.kind === "idempotent") return NextResponse.json({ received: true, idempotent: true });
+    if (result.kind === "ignored") return NextResponse.json({ received: true, ignored: true });
     return NextResponse.json({ received: true });
-  } catch {
+  } catch (error) {
+    logError("billing.webhook_failed", { eventId, error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });
   }
 }

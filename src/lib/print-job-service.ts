@@ -123,14 +123,12 @@ async function insertQueuedJobAtomically({
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:key:${rateLimitKeyId}`}))`);
     }
     if (idempotencyKey) {
-      const lockKey = rateLimitKeyId ? `print_jobs:idempotency:${rateLimitKeyId}:${idempotencyKey}` : `print_jobs:idempotency:internal:${tenantId}:${idempotencyKey}`;
+      const lockKey = `print_jobs:idempotency:${tenantId}:${idempotencyKey}`;
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
     }
 
     if (idempotencyKey) {
-      const existing = rateLimitKeyId
-        ? await tx.execute(sql`SELECT id, printer_id, destination, document_type, payload, agent_id, status FROM print_jobs WHERE tenant_id = ${tenantId} AND api_key_id = ${rateLimitKeyId} AND idempotency_key = ${idempotencyKey} LIMIT 1 FOR UPDATE`)
-        : await tx.execute(sql`SELECT id, printer_id, destination, document_type, payload, agent_id, status FROM print_jobs WHERE tenant_id = ${tenantId} AND api_key_id IS NULL AND idempotency_key = ${idempotencyKey} LIMIT 1 FOR UPDATE`);
+      const existing = await tx.execute(sql`SELECT id, printer_id, destination, document_type, payload, agent_id, status FROM print_jobs WHERE tenant_id = ${tenantId} AND idempotency_key = ${idempotencyKey} LIMIT 1 FOR UPDATE`);
       if (existing.rows.length > 0) {
         const row = existing.rows[0] as {
           id: string;
