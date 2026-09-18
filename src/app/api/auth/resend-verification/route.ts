@@ -70,7 +70,9 @@ export async function POST(req: Request) {
       });
     });
   } catch {
-    return NextResponse.json({ error: "Resending verification temporarily unavailable" }, { status: 503 });
+    // Keep this endpoint enumeration-safe even when token persistence is
+    // temporarily unavailable. No token is sent unless persistence succeeds.
+    return NextResponse.json(GENERIC, { status: 202 });
   }
 
   try {
