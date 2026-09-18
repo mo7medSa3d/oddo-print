@@ -94,10 +94,17 @@ export async function POST(req: Request) {
   try {
     await sendTransactionalEmail({ to: email, subject: "You are invited to Print Gateway", html: `<p>You have been invited to a Print Gateway workspace.</p><p><a href="${url}">Accept invitation</a></p>`, text: `Accept invitation: ${url}` });
   } catch {
-    await db.transaction(async (tx) => {
-      await tx.update(tenantInvitations)
+    const revoked = await db.transaction(async (tx) => {
+      const result = await tx.update(tenantInvitations)
         .set({ revokedAt: new Date() })
-        .where(eq(tenantInvitations.id, id));
+        .where(and(
+          eq(tenantInvitations.id, id),
+          isNull(tenantInvitations.acceptedAt),
+          isNull(tenantInvitations.revokedAt),
+        ))
+        .returning({ id: tenantInvitations.id });
+      if (result.length === 0) return { revoked: false, accepted: false };
+
       await writeAuditEvent({
         tenantId: claims.tenantId,
         actorType: "user",
@@ -106,7 +113,16 @@ export async function POST(req: Request) {
         resourceType: "tenant_invitation",
         resourceId: id,
       }, tx);
+      return { revoked: true, accepted: false };
     });
+
+    if (!revoked.revoked) {
+      const current = await db.query.tenantInvitations.findFirst({
+        where: and(eq(tenantInvitations.id, id), eq(tenantInvitations.tenantId, claims.tenantId)),
+        columns: { acceptedAt: true, revokedAt: true },
+      });
+      if (current?.acceptedAt) return NextResponse.json({ ok: true, id });
+    }
     return NextResponse.json({ error: "Invitation delivery is temporarily unavailable" }, { status: 503 });
   }
   return NextResponse.json({ ok: true, id });
