@@ -1915,6 +1915,11 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		a.rejectJob(ctx, jobID, jobClaimToken(job), "agent_shutting_down")
 		return
 	}
+
+	// Only the physical execution phase gets a document-specific timeout.
+	printCtx, cancel := context.WithTimeout(ctx, printDocumentTimeout(len(pl.Data)))
+	defer cancel()
+
 	if a.queue.IsProcessed(jobID) {
 		log.Printf("Job %s was already processed while waiting for printer %s. Skipping duplicate print.", jobID, printerID)
 		return
