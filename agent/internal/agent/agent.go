@@ -1908,6 +1908,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// The printer fence above remains held through physical dispatch. Only the
 	// physical execution phase consumes a global worker slot, so same-printer
 	// waiters do not starve unrelated printers.
+	select {
 	case a.execSem <- struct{}{}:
 		defer func() { <-a.execSem }()
 	case <-ctx.Done():
