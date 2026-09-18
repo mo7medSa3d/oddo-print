@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -58,14 +59,18 @@ func TestDesiredStateReconciliationConvergesAndRejectsStale(t *testing.T) {
 	if !ok {
 		t.Fatal("expected desired printer after reconciliation")
 	}
-	if row.AppliedDesiredRevision != 1 || row.ObservedDesiredRevision != 1 {
-		t.Fatalf("expected revision 1 to converge, got applied=%d observed=%d", row.AppliedDesiredRevision, row.ObservedDesiredRevision)
+	if row.AppliedDesiredRevision != 1 || row.ObservedDesiredRevision != 0 {
+		t.Fatalf("expected revision 1 to be applied but not physically observed, got applied=%d observed=%d", row.AppliedDesiredRevision, row.ObservedDesiredRevision)
 	}
 	if _, ok := a.printerConfigs["printer-1"]; !ok {
 		t.Fatal("expected active desired printer in runtime registry")
 	}
+	if a.isPrinterExecutionAllowed("printer-1") {
+		t.Fatal("active printer must remain fenced until a real status probe observes it")
+	}
+	a.observeDesiredRevision("printer-1", "online")
 	if !a.isPrinterExecutionAllowed("printer-1") {
-		t.Fatal("expected converged active printer to be executable")
+		t.Fatal("expected physically observed active printer to be executable")
 	}
 
 	updated := first
@@ -243,8 +248,8 @@ func TestDesiredStateRestartRecovery(t *testing.T) {
 	if !ok {
 		t.Fatal("expected persisted desired state")
 	}
-	if row.AppliedDesiredRevision != 7 || row.ObservedDesiredRevision != 7 {
-		t.Fatalf("restart recovery lost convergence, got applied=%d observed=%d", row.AppliedDesiredRevision, row.ObservedDesiredRevision)
+	if row.AppliedDesiredRevision != 7 || row.ObservedDesiredRevision != 0 {
+		t.Fatalf("restart recovery must require a fresh physical observation, got applied=%d observed=%d", row.AppliedDesiredRevision, row.ObservedDesiredRevision)
 	}
 	if _, ok := b.printerConfigs["printer-3"]; !ok {
 		t.Fatal("restart recovery did not restore runtime printer")
@@ -262,5 +267,15 @@ func TestDesiredStateSameRevisionConflictIsRejected(t *testing.T) {
 	a.reconcileGatewayDesiredState([]desiredPrinterWire{conflict})
 	if a.desiredStates["printer-4"].Desired.Name != p.Name {
 		t.Fatal("same-revision conflicting desired state was accepted")
+	}
+}
+
+func TestDesiredStateLoaderRejectsOversizedFile(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	if err := os.WriteFile(a.desiredStatePath, make([]byte, maxDesiredStateBytes+1), 0600); err != nil {
+		t.Fatalf("write oversized desired state: %v", err)
+	}
+	if err := a.loadDesiredState(); err == nil {
+		t.Fatal("expected oversized desired-state file to be rejected")
 	}
 }
