@@ -324,7 +324,9 @@ func TestInterruptedJobIsReportedAtStartup(t *testing.T) {
 	if err := ag.queue.UpdateStatus("job_crashed", "printing"); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
-	ag.recoverInterruptedJobs()
+	if err := ag.recoverInterruptedJobs(context.Background()); err != nil {
+			t.Fatalf("recoverInterruptedJobs: %v", err)
+		}
 	updates := gw.Updates()
 	if len(updates) != 1 {
 		t.Fatalf("expected exactly one status report, got %#v", updates)
@@ -360,7 +362,9 @@ func TestReprintAfterCrashPolicy(t *testing.T) {
 		if err := ag.queue.UpdateStatus("job_crashed", "printing"); err != nil {
 			t.Fatalf("UpdateStatus: %v", err)
 		}
-		ag.recoverInterruptedJobs()
+		if err := ag.recoverInterruptedJobs(context.Background()); err != nil {
+			t.Fatalf("recoverInterruptedJobs: %v", err)
+		}
 		ag.processJob(context.Background(), job)
 		if p.calls != 0 {
 			t.Fatalf("interrupted job must not be reprinted when the policy forbids it, got %d prints", p.calls)
@@ -388,7 +392,9 @@ func TestReprintAfterCrashPolicy(t *testing.T) {
 		if err := ag.queue.UpdateStatus("job_crashed", "printing"); err != nil {
 			t.Fatalf("UpdateStatus: %v", err)
 		}
-		ag.recoverInterruptedJobs()
+		if err := ag.recoverInterruptedJobs(context.Background()); err != nil {
+			t.Fatalf("recoverInterruptedJobs: %v", err)
+		}
 		ag.processJob(context.Background(), job)
 		if p.calls != 1 {
 			t.Fatalf("explicit crash-reprint opt-in should retry once in this test, got %d prints", p.calls)
