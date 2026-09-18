@@ -225,7 +225,7 @@ func handlePrintersDiscover(configPath string, jsonOutput bool) {
 	}
 	if len(printers) == 0 {
 		fmt.Println("No printers discovered. Try manual registration:")
-		fmt.Println("  odoo-agent-cli.exe printers add --name \"My Printer\" --type spooler --spooler-name \"HP LaserJet\"")
+		fmt.Println("  yasser-agent-cli.exe printers add --name \"My Printer\" --type spooler --spooler-name \"HP LaserJet\"")
 	}
 }
 
