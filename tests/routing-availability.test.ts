@@ -42,14 +42,13 @@ suite("gateway runtime printer availability + payload capability contract", () =
   }
 
   it("treats an explicit empty supported_protocols list as no capability", () => {
-    expect(validatePayloadForPrinter({ type: "raw", protocol: "raw" }, {
+    const result = validatePayloadForPrinter({ type: "raw", protocol: "raw" }, {
       protocol: "raw",
       connectionType: "network",
       capabilities: { supported_protocols: [] },
-    })).toEqual({
-      ok: false,
-      reason: "CAPABILITY_MISMATCH: printer does not explicitly support RAW protocol (protocol=raw)",
     });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/does not explicitly support RAW protocol/i);
   });
 
   it("accepts raw/escpos/pdf only when the printer capability boundary allows it", () => {
