@@ -99,6 +99,7 @@ suite("manager login rate limiting", () => {
     // the duration of this test suite rather than weakening the production
     // default.
     process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD = "1";
+    process.env.ALLOW_LEGACY_MANAGER_AUTH = "1";
     process.env.GATEWAY_JWT_SECRET = process.env.GATEWAY_JWT_SECRET || "x".repeat(32);
     process.env.TRUST_PROXY = "1";
     process.env.MANAGER_TENANT_ID = "tenant_rate_limit_test";
@@ -106,6 +107,7 @@ suite("manager login rate limiting", () => {
 
   afterAll(async () => {
     delete process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD;
+    delete process.env.ALLOW_LEGACY_MANAGER_AUTH;
     delete process.env.MANAGER_TENANT_ID;
     await closePool();
   });
