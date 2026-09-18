@@ -30,7 +30,7 @@ describe("CI PostgreSQL tripwire", () => {
             JOIN pg_namespace n ON n.oid=t.relnamespace
             WHERE c.conname='print_jobs_payload_contract_check' AND n.nspname=current_schema()) AS payload_check,
           (SELECT count(*) FROM pg_indexes
-            WHERE schemaname=current_schema() AND tablename='print_jobs' AND indexname='print_jobs_internal_idempotency_unique') AS internal_idem
+            WHERE schemaname=current_schema() AND tablename='print_jobs' AND indexname='print_jobs_tenant_idempotency_unique') AS tenant_idem
       `);
       // pg returns COUNT(*) as string; normalize before comparing.
       const counts = Object.fromEntries(
@@ -39,7 +39,7 @@ describe("CI PostgreSQL tripwire", () => {
       expect(counts).toMatchObject({
         claim_token: 1,
         payload_check: 1,
-        internal_idem: 1,
+        tenant_idem: 1,
       });
       // DB-enforced payload protocol contract: a raw payload without an
       // explicit protocol must be rejected by PostgreSQL itself. tenant_id
