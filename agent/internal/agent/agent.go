@@ -86,7 +86,7 @@ type Agent struct {
 	queue         *queue.Queue
 	// A bounded shard set avoids an unbounded mutex map. Collisions only
 	// serialize unrelated printer IDs; correctness is unchanged.
-	jobLocks [128]sync.Mutex
+	jobLocks [printerLockShards]sync.Mutex
 
 	// Job executor: bounded, deduplicated, and tracked for clean shutdown.
 	execSem      chan struct{}       // limits concurrently executing jobs
@@ -1178,6 +1178,7 @@ func (a *Agent) waitForJobs() {
 
 func printerLockIndex(printerID string) int {
 	const (
+		printerLockShards = 128
 		fnvOffset64 = uint64(14695981039346656037)
 		fnvPrime64  = uint64(1099511628211)
 	)
@@ -1186,7 +1187,7 @@ func printerLockIndex(printerID string) int {
 		hash ^= uint64(printerID[i])
 		hash *= fnvPrime64
 	}
-	return int(hash % uint64(len((&Agent{}).jobLocks)))
+	return int(hash % printerLockShards)
 }
 
 func (a *Agent) getPrinterLock(printerID string) *sync.Mutex {
