@@ -388,9 +388,7 @@ func TestReprintAfterCrashPolicy(t *testing.T) {
 		if err := ag.queue.UpdateStatus("job_crashed", "printing"); err != nil {
 			t.Fatalf("UpdateStatus: %v", err)
 		}
-		if err := ag.recoverInterruptedJobs(context.Background()); err != nil {
-			t.Fatalf("recoverInterruptedJobs: %v", err)
-		}
+		ag.recoverInterruptedJobs(context.Background())
 		ag.processJob(context.Background(), job)
 		if p.calls != 1 {
 			t.Fatalf("explicit crash-reprint opt-in should retry once in this test, got %d prints", p.calls)
