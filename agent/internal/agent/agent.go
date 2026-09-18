@@ -191,6 +191,40 @@ func (a *Agent) getProbeState(printerID string) *printerProbeState {
 	return st
 }
 
+func (a *Agent) deleteProbeState(printerID string) {
+	a.printersMu.RLock()
+	_, stillPresent := a.printerConfigs[printerID]
+	a.printersMu.RUnlock()
+	if stillPresent {
+		return
+	}
+	a.probeStateMu.Lock()
+	if st, ok := a.probeStates[printerID]; ok && !st.running.Load() {
+		delete(a.probeStates, printerID)
+	}
+	a.probeStateMu.Unlock()
+}
+
+// observeDesiredRevision advances the physical-observation fence only after
+// a real backend status probe returns a usable device state. Instantiating a
+// backend from configuration is not proof that the device is reachable.
+func (a *Agent) observeDesiredRevision(printerID, status string) {
+	if status != "online" && status != "busy" {
+		return
+	}
+	a.desiredStateMu.Lock()
+	defer a.desiredStateMu.Unlock()
+	row, ok := a.desiredStates[printerID]
+	if !ok || row.Desired.Lifecycle != "active" || row.ApplyError != "" {
+		return
+	}
+	if row.AppliedDesiredRevision >= row.Desired.DesiredRevision &&
+		row.ObservedDesiredRevision < row.Desired.DesiredRevision {
+		row.ObservedDesiredRevision = row.AppliedDesiredRevision
+		a.desiredStates[printerID] = row
+	}
+}
+
 // Printer map accessors. The printer map is mutated by the async discovery
 // goroutine started in New and by Discover/RegisterManual, while heartbeat
 // status payloads and job dispatch read it concurrently — all access must go
@@ -1292,7 +1326,10 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 		probeWg.Add(1)
 		go func(i int, pid string, p printer.Printer, st *printerProbeState) {
 			defer probeWg.Done()
-			defer st.running.Store(false)
+			defer func() {
+				st.running.Store(false)
+				a.deleteProbeState(pid)
+			}()
 			status := "error"
 			func() {
 				defer func() {
@@ -1303,6 +1340,7 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 				status = p.Status()
 			}()
 			a.setProbeLastStatus(pid, status)
+			a.observeDesiredRevision(pid, status)
 			results <- probeResult{idx: i, status: status}
 		}(i, id, printerByID[id], state)
 	}
@@ -1989,7 +2027,7 @@ func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, clai
 	if claimToken != "" {
 		body["claimToken"] = claimToken
 	}
-	resp, err := a.doAuthorizedRequest("PATCH", reqURL, body)
+	resp, err := a.doAuthorizedRequest(ctx, "PATCH", reqURL, body)
 	if err != nil {
 		log.Printf("Job %s: failed to report status %q to server: %v", jobID, status, err)
 		return err
