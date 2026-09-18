@@ -25,6 +25,8 @@ describe("CI PostgreSQL tripwire", () => {
         SELECT
           (SELECT count(*) FROM information_schema.columns
             WHERE table_schema=current_schema() AND table_name='print_jobs' AND column_name='claim_token') AS claim_token,
+          (SELECT count(*) FROM information_schema.columns
+            WHERE table_schema=current_schema() AND table_name='agents' AND column_name='lifecycle_revision') AS lifecycle_revision,
           (SELECT count(*) FROM pg_constraint c
             JOIN pg_class t ON t.oid=c.conrelid
             JOIN pg_namespace n ON n.oid=t.relnamespace
@@ -38,6 +40,7 @@ describe("CI PostgreSQL tripwire", () => {
       );
       expect(counts).toMatchObject({
         claim_token: 1,
+        lifecycle_revision: 1,
         payload_check: 1,
         tenant_idem: 1,
       });
