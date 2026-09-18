@@ -59,7 +59,9 @@ cd agent && go test ./... && go test -race ./...
 
 PostgreSQL, Odoo 19, Windows, and physical-printer E2E are release gates and must only be reported as passing when the real environment has executed them.
 
-See [API.md](API.md), [INSTALLATION.md](INSTALLATION.md), [OPERATIONS.md](OPERATIONS.md), and [SECURITY_MODEL.md](SECURITY_MODEL.md).
+For a production server first deployment and end-to-end smoke test, follow [SERVER_FIRST_RUN.md](SERVER_FIRST_RUN.md).
+
+See [API.md](API.md), [INSTALLATION.md](INSTALLATION.md), [DEPLOYMENT.md](DEPLOYMENT.md), [OPERATIONS.md](OPERATIONS.md), and [SECURITY_MODEL.md](SECURITY_MODEL.md).
 
 ## Audit and verification records
 
