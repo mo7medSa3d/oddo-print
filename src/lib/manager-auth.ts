@@ -268,7 +268,7 @@ export async function authenticateManagerUser(username: string, password: string
     where: eq(users.email, normalized),
     columns: { id: true, passwordHash: true, emailVerifiedAt: true },
   });
-  if (!row) return null;
+  if (!row || !row.emailVerifiedAt) return null;
   const valid = row.passwordHash.startsWith("argon2id$")
     ? await verifyPassword(password, row.passwordHash)
     : await verifyScryptPasswordHash(password, row.passwordHash);
@@ -283,9 +283,11 @@ export async function authenticateManagerUser(username: string, password: string
       columns: { passwordHash: true },
     });
     if (!current || current.passwordHash !== legacyHash) return null;
-    await db.update(users)
+    const upgradedRows = await db.update(users)
       .set({ passwordHash: upgraded, updatedAt: new Date() })
-      .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)));
+      .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)))
+      .returning({ id: users.id });
+    if (upgradedRows.length !== 1) return null;
   }
   const membership = await db.query.tenantUsers.findFirst({
     where: and(eq(tenantUsers.userId, row.id), eq(tenantUsers.tenantId, tenantId)),
@@ -315,9 +317,11 @@ export async function authenticateCustomer(email: string, password: string): Pro
       columns: { passwordHash: true },
     });
     if (!current || current.passwordHash !== legacyHash) return null;
-    await db.update(users)
+    const upgradedRows = await db.update(users)
       .set({ passwordHash: upgraded, updatedAt: new Date() })
-      .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)));
+      .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)))
+      .returning({ id: users.id });
+    if (upgradedRows.length !== 1) return null;
   }
   return { userId: row.id, email: row.email };
 }
