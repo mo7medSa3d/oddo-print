@@ -82,6 +82,7 @@ export const agents = pgTable("agents", {
   secret: text("secret"),
   status: text("status").notNull().default("offline"),
   lifecycle: text("lifecycle").notNull().default("active"),
+  lifecycleRevision: integer("lifecycle_revision").notNull().default(0),
   metadata: jsonb("metadata").$type<{ hostname?: string; os?: string; osVersion?: string; version?: string; }>(),
   lastSeenAt: timestamp("last_seen_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -95,6 +96,7 @@ export const agents = pgTable("agents", {
   // (NULLed) rows are excluded by the partial predicate.
   pairingCodeHashPendingUnique: uniqueIndex("agents_pairing_code_hash_pending_unique").on(table.pairingCodeHash).where(sql`pairing_code_hash IS NOT NULL`),
   lifecycleCheck: check("agents_lifecycle_check", sql`${table.lifecycle} in ('active','disabled','retired')`),
+  lifecycleRevisionCheck: check("agents_lifecycle_revision_check", sql`${table.lifecycleRevision} >= 0`),
   statusCheck: check("agents_status_check", sql`${table.status} in ('online','offline')`),
 }));
 
