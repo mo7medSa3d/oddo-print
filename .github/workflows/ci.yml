@@ -153,6 +153,16 @@ jobs:
               WHERE schemaname='public' AND tablename='discovery_sessions'
                 AND indexname='discovery_sessions_active_agent_unique'
             ) THEN RAISE EXCEPTION 'running discovery session uniqueness index is missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE schemaname='public' AND tablename='print_jobs'
+                AND indexname='print_jobs_tenant_idempotency_unique'
+            ) THEN RAISE EXCEPTION 'tenant-scoped print idempotency index is missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE schemaname='public' AND tablename='tenant_users'
+                AND indexname='tenant_users_single_owner_idx'
+            ) THEN RAISE EXCEPTION 'single tenant owner uniqueness index is missing'; END IF;
           END $$;
           SQL
       - name: Run integration tests (PostgreSQL)
