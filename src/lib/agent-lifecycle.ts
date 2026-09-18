@@ -27,14 +27,18 @@ export async function transitionAgentLifecycle(
 ): Promise<AgentLifecycleResult | null> {
   return db.transaction(async (tx) => {
     const locked = await tx.execute(sql`
-      SELECT id, lifecycle
+      SELECT id, lifecycle, lifecycle_revision
       FROM agents
       WHERE id = ${agentId} AND tenant_id = ${tenantId}
       FOR UPDATE
     `);
-    const agent = locked.rows[0] as { id?: string; lifecycle?: unknown } | undefined;
+    const agent = locked.rows[0] as { id?: string; lifecycle?: unknown; lifecycle_revision?: unknown } | undefined;
     if (!agent?.id) return null;
     if (typeof agent.lifecycle !== "string") throw new Error("agent has an invalid lifecycle value");
+    const currentRevision = Number(agent.lifecycle_revision ?? 0);
+    if (!Number.isInteger(currentRevision) || currentRevision < 0) {
+      throw new Error("agent has an invalid lifecycle revision");
+    }
 
     const current = agent.lifecycle as "active" | "disabled" | "retired";
     if (current === next) {
@@ -69,8 +73,12 @@ export async function transitionAgentLifecycle(
       pairingCodeHash: pairingCode ? hashPairingCode(pairingCode) : null,
       pairingCodeExpiresAt: pairingCode ? new Date(now.getTime() + 10 * 60 * 1000) : null,
       status: "offline",
+      lifecycleRevision: currentRevision + 1,
       updatedAt: now,
-    }).where(and(eq(agents.id, agentId), eq(agents.tenantId, tenantId), eq(agents.lifecycle, current))).returning({ lifecycle: agents.lifecycle });
+    }).where(and(eq(agents.id, agentId), eq(agents.tenantId, tenantId), eq(agents.lifecycle, current), eq(agents.lifecycleRevision, currentRevision))).returning({
+      lifecycle: agents.lifecycle,
+      lifecycleRevision: agents.lifecycleRevision,
+    });
 
     if (updated.length !== 1) {
       throw new LifecycleConflict("Agent lifecycle changed concurrently; refresh and try again");
@@ -88,7 +96,11 @@ export async function transitionAgentLifecycle(
       },
       tx,
     );
-    await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ agentId })}::text)`);
+    const nextRevision = Number(updated[0]?.lifecycleRevision);
+    if (!Number.isInteger(nextRevision) || nextRevision <= currentRevision) {
+      throw new Error("agent lifecycle revision did not advance");
+    }
+    await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ agentId, lifecycleRevision: nextRevision })}::text)`);
 
     return { changed: true, lifecycle: next, pairingCode };
   });
