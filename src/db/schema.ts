@@ -399,10 +399,26 @@ export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   trialStartedAt: timestamp("trial_started_at"),
   stripeLastEventCreatedAt: timestamp("stripe_last_event_created_at"),
   cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  checkoutStatus: text("checkout_status").notNull().default("none"),
+  checkoutPlanId: text("checkout_plan_id").references(() => plans.id),
+  checkoutIdempotencyKey: text("checkout_idempotency_key"),
+  checkoutSessionId: text("checkout_session_id"),
+  checkoutSessionUrl: text("checkout_session_url"),
+  checkoutSessionExpiresAt: timestamp("checkout_session_expires_at"),
+  billingOperationId: text("billing_operation_id"),
+  billingOperationType: text("billing_operation_type"),
+  billingOperationIdempotencyKey: text("billing_operation_idempotency_key"),
+  billingOperationSubscriptionId: text("billing_operation_subscription_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   statusCheck: check("tenant_subscriptions_status_check", sql`${table.status} in ('trialing','active','past_due','paused','cancelled')`),
+  checkoutStatusCheck: check("tenant_subscriptions_checkout_status_check", sql`${table.checkoutStatus} in ('none','creating','open','completed')`),
+  billingOperationTypeCheck: check("tenant_subscriptions_billing_operation_type_check", sql`${table.billingOperationType} IS NULL OR ${table.billingOperationType} in ('cancel','resume')`),
+  checkoutIdempotencyUnique: uniqueIndex("tenant_subscriptions_checkout_idempotency_unique").on(table.checkoutIdempotencyKey).where(sql`${table.checkoutIdempotencyKey} IS NOT NULL`),
+  checkoutSessionUnique: uniqueIndex("tenant_subscriptions_checkout_session_unique").on(table.checkoutSessionId).where(sql`${table.checkoutSessionId} IS NOT NULL`),
+  billingOperationUnique: uniqueIndex("tenant_subscriptions_billing_operation_unique").on(table.billingOperationId).where(sql`${table.billingOperationId} IS NOT NULL`),
+  billingOperationKeyUnique: uniqueIndex("tenant_subscriptions_billing_operation_key_unique").on(table.billingOperationIdempotencyKey).where(sql`${table.billingOperationIdempotencyKey} IS NOT NULL`),
 }));
 
 
