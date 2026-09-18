@@ -1,8 +1,12 @@
 # Odoo 19 Printing Forensic + Company/Branch/Agent Verification Report
 
-## Executive status
+> **Historical verification record — superseded.**
+>
+> This document records the state of a specific repository baseline and execution environment at the time it was written. Its PASS/BLOCKED/FAIL/NOT PRODUCTION READY findings are **not a current status verdict for `main`**. Do not use the environment limitations in this report as evidence that the current repository has the same limitations. Current status must be established from the current `main` commit, current source, and current CI/release evidence.
 
-**NOT PRODUCTION READY**
+## Historical status at the audited baseline
+
+**NOT PRODUCTION READY — HISTORICAL / SUPERSEDED**
 
 The repository was modified in-place from `printer-repo-final-production-fixed.zip`. The Odoo integration changes are implemented and statically verified, but a full live Odoo 19 install/POS execution and physical printer test could not be executed in this environment because the Odoo runtime, PostgreSQL test stack, Windows runtime, Rust toolchain, Docker, and the required Node/Go toolchain versions are unavailable here.
 
