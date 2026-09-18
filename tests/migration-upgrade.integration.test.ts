@@ -122,8 +122,10 @@ suite("production-like PostgreSQL migration upgrade", () => {
       expect(upgradedTenants.rows.map((r) => r.id)).toEqual(["legacy_default"]);
       const tenantId = upgradedTenants.rows[0].id as string;
 
-      const uniqueIndex = await pool.query(`SELECT indexname FROM pg_indexes WHERE tablename='print_jobs' AND indexname='print_jobs_idempotency_unique'`);
+      const uniqueIndex = await pool.query(`SELECT indexname FROM pg_indexes WHERE tablename='print_jobs' AND indexname='print_jobs_tenant_idempotency_unique'`);
       expect(uniqueIndex.rowCount).toBe(1);
+      const legacyKeyIndex = await pool.query(`SELECT indexname FROM pg_indexes WHERE tablename='print_jobs' AND indexname IN ('print_jobs_idempotency_unique','print_jobs_internal_idempotency_unique')`);
+      expect(legacyKeyIndex.rowCount).toBe(0);
       const trigger = await pool.query(`SELECT tgname FROM pg_trigger WHERE tgrelid='print_jobs'::regclass AND tgname='print_jobs_notify_agent_job_available'`);
       expect(trigger.rowCount).toBe(1);
 
