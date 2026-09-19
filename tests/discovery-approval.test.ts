@@ -107,8 +107,9 @@ suite("discovery trust and approval flow", () => {
     expect(provision.status).toBe(201);
 
     const body = await provision.json();
-    const printer = await pool().query(`SELECT agent_id, lifecycle, status, protocol FROM printers WHERE id = $1`, [body.printerId]);
-    expect(printer.rows[0]).toEqual({ agent_id: f.agentId, lifecycle: "active", status: "unknown", protocol: "ipp" });
+    const printer = await pool().query(`SELECT agent_id, lifecycle, status, protocol, config FROM printers WHERE id = $1`, [body.printerId]);
+    expect(printer.rows[0]).toMatchObject({ agent_id: f.agentId, lifecycle: "active", status: "unknown", protocol: "ipp" });
+    expect(printer.rows[0].config).toMatchObject({ address: "ipp://192.168.10.50:631/ipp/print" });
 
     const device = await pool().query(`SELECT verification, confidence, candidate_status, provisioned_printer_id FROM discovered_devices WHERE id = $1`, ["device-provision-1"]);
     expect(device.rows[0].verification).toBe("verified");
@@ -117,7 +118,33 @@ suite("discovery trust and approval flow", () => {
     expect(device.rows[0].provisioned_printer_id).toBe(body.printerId);
   });
 
+  it("provisions a verified Windows spooler candidate with a routable queue config", async () => {
+    const discoveryId = await createDiscoverySession();
+    await agentRequest(discoveryId, [{
+      id: "device-spooler-1", source: ["windows_spooler"], protocol: "spooler",
+      deviceName: "HP LaserJet Enterprise", verification: "verified", confidence: "high",
+    }]);
+
+    const manager = await createManagerSession(f.tenantId);
+    const verify = await verifyPOST(
+      await managerRequest(manager.token, `/api/agents/${f.agentId}/discovered-printers/device-spooler-1/verify`),
+      { params: Promise.resolve({ id: f.agentId, deviceId: "device-spooler-1" }) } as any,
+    );
+    expect(verify.status).toBe(200);
+
+    const provision = await provisionPOST(
+      await managerRequest(manager.token, `/api/agents/${f.agentId}/discovered-printers/device-spooler-1/provision`),
+      { params: Promise.resolve({ id: f.agentId, deviceId: "device-spooler-1" }) } as any,
+    );
+    expect(provision.status).toBe(201);
+    const body = await provision.json();
+    const printer = await pool().query(`SELECT connection_type, protocol, config FROM printers WHERE id = $1`, [body.printerId]);
+    expect(printer.rows[0]).toMatchObject({ connection_type: "spooler", protocol: "spooler" });
+    expect(printer.rows[0].config).toMatchObject({ spooler_name: "HP LaserJet Enterprise", address: "HP LaserJet Enterprise" });
+  });
+
   it("refuses to provision an LPR-only candidate as raw (LAW: no heuristic protocol inference)", async () => {
+
     // An LPR probe only proves TCP 515 accepts connections. The LPD daemon
     // there does not consume a raw byte stream, so mapping lpr -> raw would
     // write raw job bytes to port 515 - the exact re-labeling the agent's
