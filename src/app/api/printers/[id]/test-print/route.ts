@@ -16,11 +16,11 @@ export const dynamic = "force-dynamic";
 // Real test print — creates a real printJobs row: queued → claimed → printing → success/failed
 // Tauri → Gateway → Agent → Printer (never Tauri → Printer directly).
 //
-// Manager-authenticated only: a queued test print reaches physical hardware,
-// so it is an operator-console action. The Odoo addon routes its own test
-// pages through the durable outbox (/api/print/jobs with a document-scoped
-// key), never this endpoint; an installation API key must not be able to
-// bypass per-key document-type scoping here.
+// Manager-authenticated or owning-Agent-authenticated only: a queued test
+// print reaches physical hardware, so the caller must already be authorized
+// for this tenant/printer. The Odoo addon routes its own test pages through
+// the durable outbox (/api/print/jobs with a document-scoped key), never this
+// endpoint; an installation API key cannot bypass document-type scoping.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const auth = await validateConsoleAuth(req);
