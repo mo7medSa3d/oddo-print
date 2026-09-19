@@ -47,6 +47,18 @@ describe("printer destination security policy", () => {
     expect(parsed.protocol).toBe("spooler");
   });
 
+  it("rejects contradictory USB transport protocols", async () => {
+    const { parsePrinterInput } = await import("../src/lib/printer-model");
+    expect(() => parsePrinterInput({
+      name: "USB IPP", agentId: "a1", connectionType: "usb", protocol: "ipp",
+      config: { vid: 1234, pid: 5678, address: "\\\\?\\usb#device" },
+    })).toThrow(/usb connection type does not support protocol ipp/i);
+    expect(() => parsePrinterInput({
+      name: "USB IPPS", agentId: "a1", connectionType: "usb", protocol: "ipps",
+      config: { vid: 1234, pid: 5678, address: "\\\\?\\usb#device" },
+    })).toThrow(/usb connection type does not support protocol ipps/i);
+  });
+
   it("rejects contradictory transport/protocol declarations", async () => {
     const { parsePrinterInput } = await import("../src/lib/printer-model");
     expect(() => parsePrinterInput({
