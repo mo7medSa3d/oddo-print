@@ -182,8 +182,11 @@ class PrintGatewayConfig(models.Model):
                 raise ValidationError(
                     message or _("Gateway activation synchronization failed (HTTP %s).") % response.status_code
                 )
+            acknowledged_revision = body.get("revision")
+            if not isinstance(acknowledged_revision, int) or acknowledged_revision < -1:
+                raise ValidationError(_("Gateway activation synchronization returned an invalid revision."))
             self.sudo().write({
-                "last_enabled_sync_revision": revision,
+                "last_enabled_sync_revision": acknowledged_revision,
                 "last_enabled_sync_at": fields.Datetime.now(),
                 "last_enabled_sync_error": False,
             })
@@ -267,7 +270,7 @@ class PrintGatewayConfig(models.Model):
     @api.model
     def cron_sync_enabled_state(self):
         """Retry activation-state replication for configurations not yet acknowledged."""
-        configs = self.search([
+        configs = self.sudo().search([
             ("gateway_url", "!=", False),
             ("gateway_api_key", "!=", False),
         ])
