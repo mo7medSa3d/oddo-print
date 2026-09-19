@@ -389,21 +389,26 @@ export async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterI
   })) as unknown as PrinterInfo[];
 }
 
-function networkConfigFromEndpoint(endpoint: string): { ip: string; port: number } {
+function networkConfigFromEndpoint(endpoint: string, protocol = ""): { ip: string; port: number } {
   const raw = endpoint.trim();
+  const normalizedProtocol = protocol.trim().toLowerCase();
+  const allowedPorts = normalizedProtocol === "ipp" ? new Set([80, 443, 631]) : new Set([9100]);
+  const portError = normalizedProtocol === "ipp"
+    ? "Network IPP printer endpoint port must be 80, 443, or 631"
+    : "Network printer endpoint port must be 9100";
   if (raw.startsWith("[")) {
     const close = raw.indexOf("]");
     if (close <= 1 || raw.charAt(close + 1) !== ":") throw new Error("Network printer endpoint must be host:9100");
     const ip = raw.slice(1, close);
     const port = Number(raw.slice(close + 2));
-    if (!Number.isInteger(port) || port !== 9100) throw new Error("Network printer endpoint port must be 9100");
+    if (!Number.isInteger(port) || !allowedPorts.has(port)) throw new Error(portError);
     return { ip, port };
   }
   const idx = raw.lastIndexOf(":");
   if (idx <= 0) throw new Error("Network printer endpoint must be host:port");
   const ip = raw.slice(0, idx);
   const port = Number(raw.slice(idx + 1));
-  if (!ip || !Number.isInteger(port) || port !== 9100) throw new Error("Network printer endpoint port must be 9100");
+  if (!ip || !Number.isInteger(port) || !allowedPorts.has(port)) throw new Error(portError);
   return { ip, port };
 }
 
@@ -416,7 +421,7 @@ export async function registerGatewayPrinter(
   const connectionType = req.connectionType.toLowerCase();
 
   if (connectionType === "network") {
-    const network = networkConfigFromEndpoint(req.endpoint || "");
+    const network = networkConfigFromEndpoint(req.endpoint || "", req.protocol || "");
     config.ip = network.ip;
     config.port = network.port;
   } else if (connectionType === "spooler") {
