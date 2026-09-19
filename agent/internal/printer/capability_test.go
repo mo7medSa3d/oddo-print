@@ -40,6 +40,7 @@ func TestCapabilityTableParity(t *testing.T) {
 		{"unknown+spooler escpos rejected", "escpos", "escpos", "unknown", "spooler", nil, false},
 		// Explicit caps are authoritative either way.
 		{"declared escpos caps allow escpos on raw pipe", "escpos", "escpos", "raw", "network", []string{"escpos"}, true},
+		{"declared empty caps deny escpos even on escpos transport", "escpos", "escpos", "escpos", "network", []string{}, false},
 		{"declared pdf caps allow pdf on raw pipe", "pdf", "", "raw", "network", []string{"pdf"}, true},
 		{"declared caps cannot smuggle a protocol", "pdf", "raw", "spooler", "spooler", []string{"pdf"}, false},
 		// ipp and ipps are the same document transport everywhere checked.
