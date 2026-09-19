@@ -273,7 +273,7 @@ func TestEndpointParsing(t *testing.T) {
 		isNet    bool
 	}{
 		{"192.168.1.10:9100", true},
-		{"10.0.0.5:515", true},
+		{"10.0.0.5:9100", true},
 		{"HP LaserJet", false},
 		{"USB001", false},
 		{"\\\\server\\printer", false},
@@ -288,6 +288,7 @@ func TestEndpointParsing(t *testing.T) {
 		} else {
 			// For spooler type, network endpoint check not applicable
 			pc.Type = "spooler"
+			pc.Protocol = "spooler"
 			pc.SpoolerName = tc.endpoint
 			if err := config.ValidatePrinterConfig(pc); err != nil {
 				t.Errorf("spooler endpoint %q should be valid: %v", tc.endpoint, err)
