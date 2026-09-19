@@ -96,6 +96,21 @@ suite("gateway runtime printer availability + payload capability contract", () =
     })).toEqual({ ok: true });
   });
 
+  it("treats USB printers backed by the Windows spooler as spooler transports", () => {
+    expect(validatePayloadForPrinter({ type: "pdf" }, {
+      protocol: "spooler",
+      connectionType: "usb",
+    }).ok).toBe(true);
+    expect(validatePayloadForPrinter({ type: "image" }, {
+      protocol: "spooler",
+      connectionType: "usb",
+    }).ok).toBe(true);
+    expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, {
+      protocol: "spooler",
+      connectionType: "usb",
+    }).ok).toBe(true);
+  });
+
   it("creates a job for an active online physical printer using the new contract", async () => {
     const res = await create({
       printerId: f.printerId,
