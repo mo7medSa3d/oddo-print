@@ -249,6 +249,22 @@ func handlePrintersTest(configPath, printerID string) {
 	fmt.Printf("Test print succeeded for %s (bytes submitted to spooler/TCP).\n", printerID)
 }
 
+func validateManualPrinterTransport(connectionType, endpoint, spoolerName string) error {
+	connection := strings.ToLower(strings.TrimSpace(connectionType))
+	ep := strings.TrimSpace(endpoint)
+	spooler := strings.TrimSpace(spoolerName)
+	if connection == "usb" && spooler == "" && ep == "" {
+		return fmt.Errorf("--endpoint is required for direct USB transport (Windows device path \\?\\... or \\.\\...); use --spooler-name for a Windows print queue")
+	}
+	if connection == "spooler" && spooler == "" && ep == "" {
+		return fmt.Errorf("--spooler-name or --endpoint is required for spooler printers")
+	}
+	if ep == "" && spooler == "" {
+		return fmt.Errorf("--endpoint or --spooler-name is required")
+	}
+	return nil
+}
+
 func handlePrintersAdd(configPath string, args []string) {
 	loaded := loadConfigForCLI(configPath)
 	registryPath := config.RegistryPath(loaded.path)
@@ -280,19 +296,12 @@ func handlePrintersAdd(configPath string, args []string) {
 	if strings.TrimSpace(*name) == "" {
 		log.Fatal("--name is required for printers add")
 	}
-	if strings.TrimSpace(*endpoint) == "" && strings.TrimSpace(*spoolerName) == "" && strings.TrimSpace(*vid) == "" {
-		if strings.ToLower(*typ) == "spooler" && *spoolerName != "" {
-			*endpoint = *spoolerName
-		} else {
-			log.Fatal("--endpoint or --spooler-name is required (or --vid for USB)")
-		}
+	if err := validateManualPrinterTransport(*typ, *endpoint, *spoolerName); err != nil {
+		log.Fatal(err)
 	}
 	effectiveEndpoint := *endpoint
 	if *spoolerName != "" && effectiveEndpoint == "" {
 		effectiveEndpoint = *spoolerName
-	}
-	if effectiveEndpoint == "" && *vid != "" {
-		effectiveEndpoint = fmt.Sprintf("usb-vid:%s pid:%s", *vid, *pid)
 	}
 	enabled := strings.ToLower(strings.TrimSpace(*enabledStr)) != "false"
 	var caps map[string]interface{}
@@ -336,7 +345,7 @@ func handlePrintersAdd(configPath string, args []string) {
 		fmt.Println("ID auto-generated deterministically; discover will not duplicate it.")
 	}
 	if strings.ToLower(info.ConnectionType) == "usb" && info.SpoolerName == "" {
-		fmt.Println("NOTE: USB without spooler queue will be discovered but printing requires Windows spooler queue. Install via Windows Settings > Printers and re-add with --spooler-name.")
+		fmt.Println("NOTE: direct USB uses the Windows device interface path from --endpoint; --vid/--pid identify the device but do not replace the required device path.")
 	}
 	_ = registryPath
 }
