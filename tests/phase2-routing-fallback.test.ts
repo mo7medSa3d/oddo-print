@@ -60,6 +60,7 @@ describe("runtime routing capability and availability", () => {
     expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, { protocol: "escpos", connectionType: "network" }).ok).toBe(true);
     expect(validatePayloadForPrinter({ type: "raw", protocol: "escpos" }, { protocol: "escpos", connectionType: "network" }).ok).toBe(true);
     expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, { protocol: "zpl", connectionType: "network" }).ok).toBe(false);
+    expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, { protocol: "raw", connectionType: "network" }).ok).toBe(false);
     expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, { protocol: "spooler", connectionType: "spooler" }).ok).toBe(true);
     // An explicit capability list can narrow/confirm the byte-stream language.
     expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, {
