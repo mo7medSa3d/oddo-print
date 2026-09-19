@@ -283,7 +283,7 @@ pub struct GatewayRequestArgs {
     pub body: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct GatewayResponse {
     pub status: u16,
     pub body: String,
