@@ -67,10 +67,12 @@ describe("runtime routing capability and availability", () => {
     }).ok).toBe(true);
   });
 
-  it("requires ZPL/TSPL devices for ZPL/TSPL payloads", () => {
+  it("requires exact ZPL/TSPL devices for ZPL/TSPL payloads", () => {
     expect(validatePayloadForPrinter({ type: "raw", protocol: "zpl" }, { protocol: "zpl", connectionType: "network" }).ok).toBe(true);
     expect(validatePayloadForPrinter({ type: "raw", protocol: "tspl" }, { protocol: "tspl", connectionType: "network" }).ok).toBe(true);
     expect(validatePayloadForPrinter({ type: "raw", protocol: "zpl" }, { protocol: "tspl", connectionType: "network" }).ok).toBe(false);
+    expect(validatePayloadForPrinter({ type: "raw", protocol: "tspl" }, { protocol: "zpl", connectionType: "network" }).ok).toBe(false);
+    expect(validatePayloadForPrinter({ type: "raw", protocol: "raw" }, { protocol: "zpl", connectionType: "network" }).ok).toBe(false);
   });
 
   it("requires spooler or IPP transport for PDF", () => {
