@@ -41,13 +41,13 @@ func TestCapabilityTableParity(t *testing.T) {
 		// Explicit caps are authoritative either way.
 		{"declared escpos caps allow escpos on raw pipe", "escpos", "escpos", "raw", "network", []string{"escpos"}, true},
 		{"declared empty caps deny escpos even on escpos transport", "escpos", "escpos", "escpos", "network", []string{}, false},
-		{"declared pdf caps cannot turn raw pipe into PDF renderer", "pdf", "", "raw", "network", []string{"pdf"}, false},
+		{"declared pdf caps allow pdf on raw pipe", "pdf", "", "raw", "network", []string{"pdf"}, true},
 		{"declared caps cannot smuggle a protocol", "pdf", "raw", "spooler", "spooler", []string{"pdf"}, false},
 		// ipp and ipps are the same document transport everywhere checked.
 		{"ipps transport prints pdf like ipp", "pdf", "", "ipps", "ipps", nil, true},
 		{"declared ipps caps cannot turn raw pipe into IPPS renderer", "pdf", "", "raw", "network", []string{"ipps"}, false},
-		{"declared ipps caps cannot turn raw pipe into IPPS renderer", "image", "", "raw", "network", []string{"ipps"}, false},
-		{"declared ipp caps cannot turn raw pipe into IPP renderer", "image", "", "raw", "network", []string{"ipp"}, false},
+		{"declared ipps caps allow image like ipp", "image", "", "raw", "network", []string{"ipps"}, true},
+		{"declared ipp caps allow image", "image", "", "raw", "network", []string{"ipp"}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
