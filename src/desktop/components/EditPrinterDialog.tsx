@@ -1,11 +1,52 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Button, Field, Input, Modal, Select } from "../../components/ui";
 import { updateGatewayPrinter, type PrinterInfo } from "../lib/ipc";
 
-type ConnectionType = "network" | "spooler" | "ipp" | "ipps";
+type ConnectionType = "network" | "spooler" | "usb" | "ipp" | "ipps";
 
 function readConfig(printer: PrinterInfo): Record<string, unknown> {
   return printer.config && typeof printer.config === "object" ? printer.config : {};
+}
+
+function stringConfig(config: Record<string, unknown>, key: string): string {
+  const value = config[key];
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function defaultProtocol(connectionType: ConnectionType): string {
+  switch (connectionType) {
+    case "spooler": return "spooler";
+    case "ipp": return "ipp";
+    case "ipps": return "ipps";
+    default: return "raw";
+  }
+}
+
+function protocolOptions(connectionType: ConnectionType): Array<{ value: string; label: string }> {
+  switch (connectionType) {
+    case "spooler":
+      return [{ value: "spooler", label: "Spooler" }, { value: "unknown", label: "Unknown" }];
+    case "ipp":
+      return [{ value: "ipp", label: "IPP" }, { value: "unknown", label: "Unknown" }];
+    case "ipps":
+      return [{ value: "ipps", label: "IPPS" }, { value: "unknown", label: "Unknown" }];
+    case "usb":
+      return [
+        { value: "raw", label: "RAW" },
+        { value: "escpos", label: "ESC/POS" },
+        { value: "zpl", label: "ZPL" },
+        { value: "tspl", label: "TSPL" },
+        { value: "unknown", label: "Unknown" },
+      ];
+    default:
+      return [
+        { value: "raw", label: "RAW" },
+        { value: "escpos", label: "ESC/POS" },
+        { value: "zpl", label: "ZPL" },
+        { value: "tspl", label: "TSPL" },
+        { value: "ipp", label: "IPP" },
+      ];
+  }
 }
 
 export function EditPrinterDialog({
@@ -29,11 +70,9 @@ export function EditPrinterDialog({
     status: "unknown",
     enabled: false,
   }), [printer]);
-  const [name, setName] = useState(() => printer?.name ?? "");
-  const [connectionType, setConnectionType] = useState<ConnectionType>(() =>
-    (printer?.connectionType || printer?.connection_type || "network") as ConnectionType
-  );
-  const [protocol, setProtocol] = useState(() => printer?.protocol || "raw");
+  const [name, setName] = useState("");
+  const [connectionType, setConnectionType] = useState<ConnectionType>("network");
+  const [protocol, setProtocol] = useState("raw");
   const [host, setHost] = useState(() =>
     typeof initialConfig.ip === "string" ? initialConfig.ip : ""
   );
@@ -46,14 +85,34 @@ export function EditPrinterDialog({
   const [spoolerName, setSpoolerName] = useState(() =>
     typeof initialConfig.spooler_name === "string" ? initialConfig.spooler_name : ""
   );
-  const [deviceClass, setDeviceClass] = useState(() =>
-    printer?.deviceClass || printer?.device_class || printer?.observedDeviceClass || "unknown"
-  );
-  const [printerType, setPrinterType] = useState(() =>
-    printer?.printerType || printer?.printer_type || "physical"
-  );
+  const [usbVid, setUsbVid] = useState("");
+  const [usbPid, setUsbPid] = useState("");
+  const [usbSerial, setUsbSerial] = useState("");
+  const [deviceClass, setDeviceClass] = useState("unknown");
+  const [printerType, setPrinterType] = useState("physical");
   const [busy, setBusy] = useState(false);
-  const config = initialConfig;
+
+  useEffect(() => {
+    if (!printer || !open) return;
+    const cfg = readConfig(printer);
+    const conn = (
+      printer.connectionType ||
+      printer.connection_type ||
+      "network"
+    ) as ConnectionType;
+    setName(printer.name ?? "");
+    setConnectionType(conn);
+    setProtocol(printer.protocol || defaultProtocol(conn));
+    setHost(stringConfig(cfg, "ip"));
+    setPort(typeof cfg.port === "number" ? String(cfg.port) : "9100");
+    setAddress(stringConfig(cfg, "address"));
+    setSpoolerName(stringConfig(cfg, "spooler_name"));
+    setUsbVid(printer.usbVid ?? (cfg.vid != null ? String(cfg.vid) : ""));
+    setUsbPid(printer.usbPid ?? (cfg.pid != null ? String(cfg.pid) : ""));
+    setUsbSerial(printer.usbSerial ?? stringConfig(cfg, "serial"));
+    setDeviceClass(printer.deviceClass || printer.device_class || printer.observedDeviceClass || "unknown");
+    setPrinterType(printer.printerType || printer.printer_type || "physical");
+  }, [printer, open]);
   async function save() {
     if (!printer) return;
     if (!gatewayUrl) {
@@ -73,8 +132,11 @@ export function EditPrinterDialog({
 
     if (connectionType === "network") {
       const n = Number(port);
-      if (!host.trim() || !Number.isInteger(n) || n !== 9100) {
-        onError("Network printers require a host and TCP port 9100.");
+      const expectedPort = protocol === "ipp" ? 631 : 9100;
+      if (!host.trim() || !Number.isInteger(n) || n !== expectedPort) {
+        onError(protocol === "ipp"
+          ? "Network IPP printers require a private host and TCP port 631."
+          : "Network printers require a private host and TCP port 9100.");
         return;
       }
       nextConfig.ip = host.trim();
@@ -86,6 +148,25 @@ export function EditPrinterDialog({
       }
       nextConfig.spooler_name = spoolerName.trim();
       nextConfig.address = spoolerName.trim();
+    } else if (connectionType === "usb") {
+      const vid = Number(usbVid);
+      const pid = Number(usbPid);
+      if (!usbVid.trim() || !Number.isInteger(vid) || vid < 0 || vid > 65535) {
+        onError("USB printers require a valid VID.");
+        return;
+      }
+      if (!usbPid.trim() || !Number.isInteger(pid) || pid < 0 || pid > 65535) {
+        onError("USB printers require a valid PID.");
+        return;
+      }
+      if (!address.trim()) {
+        onError("Direct USB printers require a Windows device path.");
+        return;
+      }
+      nextConfig.vid = vid;
+      nextConfig.pid = pid;
+      if (usbSerial.trim()) nextConfig.serial = usbSerial.trim();
+      nextConfig.address = address.trim();
     } else {
       if (!address.trim()) {
         onError("IPP printer URL is required.");
@@ -136,9 +217,18 @@ export function EditPrinterDialog({
             <Input id="edit-printer-name" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="Connection" htmlFor="edit-printer-connection">
-            <Select id="edit-printer-connection" value={connectionType} onChange={(e) => setConnectionType(e.target.value as ConnectionType)}>
+            <Select
+              id="edit-printer-connection"
+              value={connectionType}
+              onChange={(e) => {
+                const nextConnection = e.target.value as ConnectionType;
+                setConnectionType(nextConnection);
+                setProtocol(defaultProtocol(nextConnection));
+              }}
+            >
               <option value="network">Network TCP</option>
               <option value="spooler">Windows spooler</option>
+              <option value="usb">USB</option>
               <option value="ipp">IPP</option>
               <option value="ipps">IPPS</option>
             </Select>
@@ -146,14 +236,9 @@ export function EditPrinterDialog({
           <div className="grid grid-cols-2 gap-4">
             <Field label="Protocol" htmlFor="edit-printer-protocol">
               <Select id="edit-printer-protocol" value={protocol} onChange={(e) => setProtocol(e.target.value)}>
-                <option value="raw">RAW</option>
-                <option value="escpos">ESC/POS</option>
-                <option value="zpl">ZPL</option>
-                <option value="tspl">TSPL</option>
-                <option value="ipp">IPP</option>
-                <option value="ipps">IPPS</option>
-                <option value="spooler">Spooler</option>
-                <option value="unknown">Unknown</option>
+                {protocolOptions(connectionType).map((item) => (
+                  <option key={item.value} value={item.value}>{item.label}</option>
+                ))}
               </Select>
             </Field>
             <Field label="Device class" htmlFor="edit-printer-class">
