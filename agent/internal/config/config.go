@@ -301,6 +301,15 @@ func (p PrinterConfig) NormalizedType() string {
 	switch t {
 	case "tcp":
 		return "network"
+	case "usb":
+		// A USB device with an installed Windows spooler queue is executed by
+		// the spooler backend, not by the raw USB backend. Normalize it here so
+		// discovery, validation, capability reporting and execution share one
+		// transport identity.
+		if strings.TrimSpace(p.SpoolerName) != "" {
+			return "spooler"
+		}
+		return "usb"
 	case "":
 		return "network"
 	default:
@@ -316,7 +325,7 @@ func (p PrinterConfig) NormalizedType() string {
 func (p PrinterConfig) NormalizedProtocol() (string, error) {
 	proto := strings.ToLower(strings.TrimSpace(p.Protocol))
 	if proto == "" {
-		switch nt := p.NormalizedConnectionTypeStrict(); nt {
+		switch nt := p.NormalizedType(); nt {
 		case "spooler":
 			// A spooler queue carries its own transport identity.
 			return "spooler", nil
