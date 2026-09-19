@@ -28,6 +28,7 @@ func TestCapabilityTableParity(t *testing.T) {
 		{"image never carries a protocol", "image", "escpos", "escpos", "network", nil, false},
 		{"image is raster-converted by escpos", "image", "", "escpos", "network", nil, true},
 		{"image is not printable by ipp without caps", "image", "", "ipp", "ipp", nil, false},
+		{"image is raster-converted by network escpos", "image", "", "escpos", "network", nil, true},
 		// Authoritative unknown rule.
 		{"unknown+network routes nothing", "raw", "raw", "unknown", "network", nil, false},
 		{"unknown+network escpos rejected", "escpos", "escpos", "unknown", "network", nil, false},
