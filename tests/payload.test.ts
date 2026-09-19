@@ -93,6 +93,20 @@ describe("payload", () => {
     })).toThrow(/no supported test ticket format/i);
   });
 
+  it("does not invent a test protocol for an unknown byte-stream printer", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    expect(() => buildTestPrintPayloadForPrinter("Unknown", "Agent", {
+      connectionType: "network",
+      protocol: "unknown",
+      capabilities: null,
+    })).toThrow(/no supported test ticket format/i);
+    expect(() => buildTestPrintPayloadForPrinter("Unknown USB", "Agent", {
+      connectionType: "usb",
+      protocol: "unknown",
+      capabilities: null,
+    })).toThrow(/no supported test ticket format/i);
+  });
+
   it("routes network IPP test tickets to PDF instead of a byte-stream format", async () => {
     const { buildTestPrintPayloadForPrinter, validatePrintJobPayload } = await import("../src/lib/payload");
     const payload = buildTestPrintPayloadForPrinter("IPP Printer", "Agent", {
