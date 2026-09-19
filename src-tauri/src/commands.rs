@@ -1251,7 +1251,7 @@ mod autostart_choice_tests {
 
 #[cfg(test)]
 mod agent_console_path_tests {
-    use super::{allowed_agent_gateway_path, gateway_printer_action_path};
+    use super::{allowed_agent_gateway_path, gateway_printer_action_path, valid_jobs_query};
 
     #[test]
     fn printer_action_paths_are_strictly_scoped() {
@@ -1264,16 +1264,28 @@ mod agent_console_path_tests {
     }
 
     #[test]
+    fn jobs_query_allows_only_known_bounded_filters() {
+        assert!(valid_jobs_query("/api/jobs"));
+        assert!(valid_jobs_query("/api/jobs?limit=50"));
+        assert!(valid_jobs_query("/api/jobs?limit=50&search=invoice"));
+        assert!(valid_jobs_query("/api/jobs?status=queued&offset=10&printerId=p1&agentId=a1"));
+        assert!(!valid_jobs_query("/api/jobs?evil=https://example.com"));
+        assert!(!valid_jobs_query("/api/jobs?limit=50&evil=x"));
+        assert!(!valid_jobs_query("/api/jobs?limit=50&search=" .to_string().as_str()));
+    }
+
+    #[test]
     fn agent_console_allowlist_rejects_unrelated_test_print_endpoints() {
         assert!(allowed_agent_gateway_path("/api/printers", "POST"));
         assert!(allowed_agent_gateway_path("/api/printers/p1/test-print", "POST"));
         assert!(allowed_agent_gateway_path("/api/printers/p1/test-connection", "POST"));
+        assert!(allowed_agent_gateway_path("/api/jobs?limit=50", "GET"));
+        assert!(allowed_agent_gateway_path("/api/jobs?limit=50&search=invoice", "GET"));
         assert!(!allowed_agent_gateway_path("/api/other/p1/test-print", "POST"));
         assert!(!allowed_agent_gateway_path("/api/jobs/p1/test-print", "POST"));
-        assert!(!allowed_agent_gateway_path("/api/printers/p1/test-print?next=/api/other", "POST"));
+        assert!(!allowed_agent_gateway_path("/api/jobs?next=/api/other", "GET"));
     }
 }
-
 #[cfg(test)]
 mod security_tests {
     use super::{is_public_gateway_path, is_valid_code, normalize_gateway_url};
