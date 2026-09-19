@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestAllowedGatewayConsolePath(t *testing.T) {
 	tests := []struct {
@@ -35,4 +39,23 @@ func TestAllowedGatewayConsolePath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGatewayRequestCLIUsesExplicitConfigPath(t *testing.T) {
+	source := readGatewaySourceForTest(t)
+	if !strings.Contains(source, 'fs.String("config", configPath, "Path to the paired agent config file")') {
+		t.Fatal("gateway-request must accept the explicit -config path used by the Tauri desktop")
+	}
+	if !strings.Contains(source, "config.Load(*configOverride)") {
+		t.Fatal("gateway-request must load the explicitly supplied agent config")
+	}
+}
+
+func readGatewaySourceForTest(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile("gateway.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
