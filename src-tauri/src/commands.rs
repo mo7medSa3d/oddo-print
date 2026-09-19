@@ -157,14 +157,10 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     if scheme != "https" && scheme != "http" {
         return Err("gateway URL must use http:// or https://".into());
     }
-    // Production Gateways must use HTTPS. Localhost HTTP remains available for
-    // development without weakening the remote transport policy.
+    // This isolated test branch intentionally accepts remote HTTP so the Azure
+    // HTTP test Gateway can be exercised directly by IP before DNS/TLS exists.
     if scheme == "http" {
-        let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
-        let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");
-        if !local {
-            return Err("Gateway URL must use HTTPS for remote Gateways".into());
-        }
+        return Ok(parsed.as_str().trim_end_matches('/').to_string());
     }
     if parsed.username() != "" || parsed.password().is_some() {
         return Err("gateway URL cannot include embedded credentials".into());
@@ -1147,8 +1143,8 @@ mod security_tests {
     }
 
     #[test]
-    fn remote_http_gateway_is_rejected() {
-        assert!(normalize_gateway_url("http://gateway.example.com").is_err());
+    fn remote_http_gateway_is_allowed_on_http_test_branch() {
+        assert!(normalize_gateway_url("http://gateway.example.com").is_ok());
         assert!(normalize_gateway_url("http://127.0.0.1:3000").is_ok());
         assert!(normalize_gateway_url("https://gateway.example.com").is_ok());
     }
