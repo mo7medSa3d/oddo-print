@@ -33,7 +33,8 @@ func handleGatewayRequest(args []string, configPath string) {
 	}
 
 	reqPath := strings.TrimSpace(*path)
-	if !isAllowedGatewayConsolePath(reqPath, strings.ToUpper(strings.TrimSpace(*method))) {
+	reqMethod := strings.ToUpper(strings.TrimSpace(*method))
+	if !isAllowedGatewayConsolePath(reqPath, reqMethod) {
 		fmt.Fprintln(os.Stderr, "gateway request path/method is not permitted")
 		os.Exit(2)
 	}
@@ -44,13 +45,11 @@ func handleGatewayRequest(args []string, configPath string) {
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "load agent config failed: %v
-", err)
+		fmt.Fprintf(os.Stderr, "load agent config failed: %v\n", err)
 		os.Exit(1)
 	}
 	if err := cfg.Validate(); err != nil {
-		fmt.Fprintf(os.Stderr, "agent config is not ready: %v
-", err)
+		fmt.Fprintf(os.Stderr, "agent config is not ready: %v\n", err)
 		os.Exit(1)
 	}
 	if strings.TrimSpace(cfg.Server.URL) == "" || strings.TrimSpace(cfg.Agent.ID) == "" || strings.TrimSpace(cfg.Agent.Secret) == "" {
@@ -73,10 +72,9 @@ func handleGatewayRequest(args []string, configPath string) {
 	if *body != "" {
 		reader = bytes.NewBufferString(*body)
 	}
-	req, err := http.NewRequest(strings.ToUpper(strings.TrimSpace(*method)), target.String(), reader)
+	req, err := http.NewRequest(reqMethod, target.String(), reader)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "create Gateway request failed: %v
-", err)
+		fmt.Fprintf(os.Stderr, "create Gateway request failed: %v\n", err)
 		os.Exit(1)
 	}
 	req.Header.Set("Authorization", "Bearer "+cfg.Agent.ID+":"+cfg.Agent.Secret)
@@ -93,16 +91,14 @@ func handleGatewayRequest(args []string, configPath string) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Gateway request failed: %v
-", err)
+		fmt.Fprintf(os.Stderr, "Gateway request failed: %v\n", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, gatewayRequestMaxBody+1))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "read Gateway response failed: %v
-", err)
+		fmt.Fprintf(os.Stderr, "read Gateway response failed: %v\n", err)
 		os.Exit(1)
 	}
 	if len(data) > gatewayRequestMaxBody {
@@ -113,26 +109,23 @@ func handleGatewayRequest(args []string, configPath string) {
 		fmt.Fprintln(os.Stderr, strings.TrimSpace(string(data)))
 		os.Exit(1)
 	}
-	// Return only the Gateway response body on stdout. The secret never reaches
-	// stdout/stderr and is consumed only inside this local process.
-	if strings.TrimSpace(string(data)) == "" {
+
+	if len(bytes.TrimSpace(data)) == 0 {
 		fmt.Fprintln(os.Stdout, "{}")
 		return
 	}
-	if json.Valid(data) {
-		_, _ = os.Stdout.Write(data)
-		if data[len(data)-1] != '
-' {
-			fmt.Fprintln(os.Stdout)
-		}
-		return
+	if !json.Valid(data) {
+		fmt.Fprintln(os.Stderr, "Gateway returned a non-JSON response")
+		os.Exit(1)
 	}
-	fmt.Fprintln(os.Stderr, "Gateway returned a non-JSON response")
-	os.Exit(1)
+	_, _ = os.Stdout.Write(data)
+	if data[len(data)-1] != '\n' {
+		fmt.Fprintln(os.Stdout)
+	}
 }
 
 func isAllowedGatewayConsolePath(path, method string) bool {
-	switch method {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
 	case "GET":
 		return path == "/api/printers" ||
 			path == "/api/jobs" ||
