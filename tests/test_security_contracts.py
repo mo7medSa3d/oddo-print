@@ -85,11 +85,13 @@ def test_tenant_entitlements_fail_closed_without_active_subscription():
     assert "TenantEntitlementConfigError" in source
 
 
-def test_plan_catalog_normalizes_and_requires_canonical_entitlements():
+def test_plan_catalog_uses_shared_canonical_entitlement_normalizer():
     source = read("scripts/provision-plans.ts")
-    assert 'maxAgents: "max_agents"' in source
-    assert 'maxPrinters: "max_printers"' in source
-    assert 'maxJobsPerMinute: "max_jobs_per_minute"' in source
-    assert 'maxConcurrentJobs: "max_concurrent_jobs"' in source
-    assert '"unlimited"' in source
-    assert 'Each plan must define entitlement ${key}' in source
+    assert 'normalizePlanEntitlements(plan.entitlements)' in source
+    helper = read("src/lib/entitlements.ts")
+    assert '"max_agents"' in helper
+    assert '"max_printers"' in helper
+    assert '"max_jobs_per_minute"' in helper
+    assert '"max_concurrent_jobs"' in helper
+    assert 'value === "unlimited"' in helper
+    assert 'must be a positive integer or "unlimited"' in helper

@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Shield, Building2, CreditCard, Activity, LogOut, Cpu } from "lucide-react";
+import { Shield, Building2, CreditCard, Activity, LogOut, Cpu, Tags } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/platform/dashboard", label: "Dashboard", icon: Activity },
   { href: "/platform/tenants", label: "Tenants", icon: Building2 },
   { href: "/platform/subscriptions", label: "Subscriptions", icon: CreditCard },
+  { href: "/platform/plans", label: "Plans", icon: Tags },
   { href: "/platform/audit", label: "System Audit", icon: Shield },
 ];
 

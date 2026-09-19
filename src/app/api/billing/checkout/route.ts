@@ -35,7 +35,7 @@ export async function POST(req: Request) {
   }
 
   const planId = typeof body.planId === "string" ? body.planId.trim() : "";
-  const plan = await db.query.plans.findFirst({ where: eq(plans.id, planId) });
+  const plan = await db.query.plans.findFirst({ where: and(eq(plans.id, planId), eq(plans.isActive, true), eq(plans.isPublic, true)) });
   if (!plan?.stripePriceId) {
     return NextResponse.json({ error: "Plan is not billable" }, { status: 400 });
   }

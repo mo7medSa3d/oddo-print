@@ -14,6 +14,31 @@ export class TenantSubscriptionRequiredError extends Error {
   }
 }
 
+export const PLAN_ENTITLEMENT_KEYS = [
+  "max_agents",
+  "max_printers",
+  "max_jobs_per_minute",
+  "max_concurrent_jobs",
+] as const;
+
+export type PlanEntitlementKey = typeof PLAN_ENTITLEMENT_KEYS[number];
+export type EntitlementValue = number | "unlimited";
+export type TenantEntitlements = Record<PlanEntitlementKey, EntitlementValue>;
+
+export function normalizePlanEntitlements(input: unknown): TenantEntitlements {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("entitlements must be an object");
+  const source = input as Record<string, unknown>;
+  const result = {} as TenantEntitlements;
+  for (const key of PLAN_ENTITLEMENT_KEYS) {
+    const value = source[key];
+    if (value === "unlimited") { result[key] = value; continue; }
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+      throw new Error(`Entitlement ${key} must be a positive integer or "unlimited"`);
+    }
+    result[key] = value;
+  }
+  return result;
+}
 export class TenantEntitlementConfigError extends Error {
   readonly code = "TENANT_ENTITLEMENT_UNAVAILABLE" as const;
   constructor(public readonly entitlement: string) {
@@ -34,11 +59,25 @@ export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: str
     LIMIT 1
   `);
   if (!result.rows[0]) throw new TenantSubscriptionRequiredError();
-  const entitlements = (result.rows[0].entitlements ?? {}) as Record<string, unknown>;
-  const value = entitlements[key];
+  if (!(PLAN_ENTITLEMENT_KEYS as readonly string[]).includes(key)) throw new TenantEntitlementConfigError(key);
+  const entitlements = normalizePlanEntitlements(result.rows[0].entitlements);
+  const value = entitlements[key as PlanEntitlementKey];
   if (value === "unlimited") return null;
-  if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) return value;
-  throw new TenantEntitlementConfigError(key);
+  return value;
+}
+
+export async function getTenantEntitlements(tx: EntitlementTx, tenantId: string): Promise<TenantEntitlements> {
+  const result = await tx.execute(sql`
+    SELECT p.entitlements
+    FROM tenant_subscriptions ts
+    JOIN plans p ON p.id = ts.plan_id
+    WHERE ts.tenant_id = ${tenantId}
+      AND ts.status IN ('trialing','active','past_due')
+      AND (ts.current_period_end IS NULL OR ts.current_period_end > now())
+    LIMIT 1
+  `);
+  if (!result.rows[0]) throw new TenantSubscriptionRequiredError();
+  return normalizePlanEntitlements(result.rows[0].entitlements);
 }
 
 export async function enforceTenantResourceEntitlement(tx: EntitlementTx, tenantId: string, key: string, currentCountSql: SQL): Promise<void> {

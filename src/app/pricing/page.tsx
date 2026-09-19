@@ -2,7 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { db } from "../../db";
 import { plans } from "../../db/schema";
-import { isNotNull } from "drizzle-orm";
+import { and, asc, eq, isNotNull } from "drizzle-orm";
 import {
   getManagerCookieName,
   validateManagerClaims,
@@ -16,12 +16,14 @@ export default async function Pricing() {
     .select({
       id: plans.id,
       name: plans.name,
+      description: plans.description,
       entitlements: plans.entitlements,
       currency: plans.currency,
       interval: plans.interval,
     })
     .from(plans)
-    .where(isNotNull(plans.stripePriceId));
+    .where(and(isNotNull(plans.stripePriceId), eq(plans.isActive, true), eq(plans.isPublic, true)))
+    .orderBy(asc(plans.displayOrder), asc(plans.name));
 
   const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
   const claims = await validateManagerClaims(token ? verifyManagerToken(token) : null);
@@ -47,6 +49,7 @@ export default async function Pricing() {
             <article key={plan.id} className="card flex flex-col p-6">
               <div>
                 <h2 className="text-lg font-semibold text-ink">{plan.name}</h2>
+                {plan.description && <p className="mt-1 text-sm text-ink-3">{plan.description}</p>}
                 <p className="mt-1 text-sm font-medium text-ink-2">
                   {plan.currency ? plan.currency.toUpperCase() : ""}{plan.interval ? ` / ${plan.interval}` : ""}
                 </p>

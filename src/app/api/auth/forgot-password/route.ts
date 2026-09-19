@@ -30,7 +30,7 @@ export async function POST(req: Request) {
       expiresAt,
     });
   });
-  try { const url=`${appBaseUrl(req)}/reset-password?token=${encodeURIComponent(raw)}`; await sendTransactionalEmail({to:user.email,subject:"Reset your Print Gateway password",html:`<p><a href="${url}">Reset password</a></p>`,text:`Reset your password: ${url}`}); } catch { /* Keep the response enumeration-safe. */ }
+  try { const url=`${appBaseUrl(req)}/reset-password?token=${encodeURIComponent(raw)}`; await sendTransactionalEmail({to:user.email,subject:"Reset your Yasser password",html:`<p><a href="${url}">Reset password</a></p>`,text:`Reset your password: ${url}`}); } catch { /* Keep the response enumeration-safe. */ }
   // Do not clear the limiter here: a password-reset request is not a successful
   // authentication event. Clearing it would let an attacker repeatedly trigger
   // reset emails and bypass the abuse budget after every delivery.

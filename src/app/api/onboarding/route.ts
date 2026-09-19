@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { plans, tenantSubscriptions, tenants } from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { validateManager } from "../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../lib/authorization";
 import { hasBodyOverLimit } from "../../../lib/request-limits";
@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   if (!hasManagerPermission(claims, "billing.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const rows = await db.select({
     id: plans.id, name: plans.name, entitlements: plans.entitlements, currency: plans.currency, interval: plans.interval, stripePriceId: plans.stripePriceId,
-  }).from(plans);
+  }).from(plans).where(and(eq(plans.isActive, true), eq(plans.isPublic, true)));
   const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, claims.tenantId), columns: { id: true, name: true } });
   const subscription = await db.query.tenantSubscriptions.findFirst({
     where: eq(tenantSubscriptions.tenantId, claims.tenantId),
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
   if (name.length < 2 || name.length > 120 || !planId) return NextResponse.json({ error: "Workspace name and plan are required" }, { status: 400 });
   const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, claims.tenantId), columns: { id: true } });
   if (!tenant) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
-  const plan = await db.query.plans.findFirst({ where: eq(plans.id, planId), columns: { id: true, stripePriceId: true } });
+  const plan = await db.query.plans.findFirst({ where: and(eq(plans.id, planId), eq(plans.isActive, true), eq(plans.isPublic, true)), columns: { id: true, stripePriceId: true } });
   if (!plan || !plan.stripePriceId) return NextResponse.json({ error: "Plan not found" }, { status: 400 });
 
   try {
