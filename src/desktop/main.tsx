@@ -202,7 +202,7 @@ export default function App() {
       const status = Number((e as { status?: number })?.status ?? 0);
       setJobsError(
         status === 401 || status === 403
-          ? "Gateway requires a manager session — sign in below to view jobs."
+          ? "Gateway job access is unavailable — pair this PC with the Gateway and verify the connection."
           : `Could not load jobs: ${errMsg(e)}`
       );
     } finally {
