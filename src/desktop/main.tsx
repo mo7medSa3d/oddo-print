@@ -969,9 +969,8 @@ export default function App() {
               </Button>
             </div>
             <p className="text-[13px] leading-relaxed text-ink-3">
-              This prints a LOCAL test page directly from this PC - it does not exercise the
-              Gateway queue. Use &quot;Send Test Page&quot; on the Gateway console to validate the full
-              pipeline (queued, claimed by the agent, then printed).
+              This sends a test page through the Gateway queue and exercises the managed delivery path
+              (queued, claimed by this agent, then printed).
             </p>
           </div>
         )}
