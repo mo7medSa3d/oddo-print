@@ -43,7 +43,7 @@ func TestAllowedGatewayConsolePath(t *testing.T) {
 
 func TestGatewayRequestCLIUsesExplicitConfigPath(t *testing.T) {
 	source := readGatewaySourceForTest(t)
-	if !strings.Contains(source, 'fs.String("config", configPath, "Path to the paired agent config file")') {
+	if !strings.Contains(source, `fs.String("config", configPath, "Path to the paired agent config file")`) {
 		t.Fatal("gateway-request must accept the explicit -config path used by the Tauri desktop")
 	}
 	if !strings.Contains(source, "config.Load(*configOverride)") {
