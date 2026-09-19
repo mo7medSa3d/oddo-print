@@ -8,11 +8,17 @@ export const tenants = pgTable("tenants", {
   suspendedAt: timestamp("suspended_at"),
   deletedAt: timestamp("deleted_at"),
   lifecycleReason: text("lifecycle_reason"),
+  // Replicated from Odoo Gateway Configuration; this is deliberately separate
+  // from tenant lifecycle so Odoo can be disabled and later re-enabled.
+  odooEnabled: boolean("odoo_enabled").notNull().default(false),
+  odooEnabledRevision: integer("odoo_enabled_revision").notNull().default(-1),
+  odooEnabledUpdatedAt: timestamp("odoo_enabled_updated_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   lifecycleIdx: index("tenants_lifecycle_idx").on(table.lifecycle),
   lifecycleCheck: check("tenants_lifecycle_check", sql`${table.lifecycle} in ('active','suspended','deleted')`),
+  odooEnabledRevisionCheck: check("tenants_odoo_enabled_revision_check", sql`${table.odooEnabledRevision} >= -1`),
 }));
 
 export const tenantDomains = pgTable("tenant_domains", {
