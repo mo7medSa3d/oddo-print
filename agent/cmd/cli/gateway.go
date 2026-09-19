@@ -18,69 +18,9 @@ import (
 
 const gatewayRequestMaxBody = 8 * 1024 * 1024
 
-var gatewayPrinterPathRe = regexp.MustCompile(`^/api/printers(?:/[A-Za-z0-9._~-]+(?:/(?:test-connection|test-print))?)?package main
-
-import (
-	"bytes"
-	"encoding/json"
-	"flag"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"os"
-	"regexp"
-	"strings"
-	"time"
-
-	"github.com/yasser-agent/agent/internal/config"
-)
-
-const gatewayRequestMaxBody = 8 * 1024 * 1024
-
-)
-var gatewayPrinterActionPathRe = regexp.MustCompile(`^/api/printers/[A-Za-z0-9._~-]+/(?:test-connection|test-print)package main
-
-import (
-	"bytes"
-	"encoding/json"
-	"flag"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"os"
-	"regexp"
-	"strings"
-	"time"
-
-	"github.com/yasser-agent/agent/internal/config"
-)
-
-const gatewayRequestMaxBody = 8 * 1024 * 1024
-
-)
-var gatewayAgentPathRe = regexp.MustCompile(`^/api/agents(?:/[A-Za-z0-9._~-]+)?package main
-
-import (
-	"bytes"
-	"encoding/json"
-	"flag"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"os"
-	"regexp"
-	"strings"
-	"time"
-
-	"github.com/yasser-agent/agent/internal/config"
-)
-
-const gatewayRequestMaxBody = 8 * 1024 * 1024
-
-)
+var gatewayPrinterPathRe = regexp.MustCompile("^/api/printers(?:/[A-Za-z0-9._~-]+(?:/(?:test-connection|test-print))?)?$")
+var gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/(?:test-connection|test-print)$")
+var gatewayAgentPathRe = regexp.MustCompile("^/api/agents(?:/[A-Za-z0-9._~-]+)?$")
 
 func handleGatewayRequest(args []string, configPath string) {
 	fs := flag.NewFlagSet("gateway-request", flag.ContinueOnError)
@@ -187,15 +127,15 @@ func handleGatewayRequest(args []string, configPath string) {
 
 func isAllowedJobsPath(path string) bool {
 	parsed, err := url.Parse(path)
-	if err != nil || parsed.Path != "/api/jobs" || parsed.RawPath != "" {
+	if err != nil || parsed.Path != "/api/jobs" || parsed.RawPath != "" || parsed.Fragment != "" {
 		return false
 	}
 	for key, values := range parsed.Query() {
+		if len(values) != 1 || len(values[0]) > 200 {
+			return false
+		}
 		switch key {
 		case "limit", "offset", "status", "search", "q", "printerId", "agentId":
-			if len(values) != 1 || len(values[0]) > 200 {
-				return false
-			}
 		default:
 			return false
 		}
@@ -207,12 +147,10 @@ func isAllowedGatewayConsolePath(path, method string) bool {
 	switch strings.ToUpper(strings.TrimSpace(method)) {
 	case "GET":
 		return path == "/api/printers" ||
-			path == "/api/jobs" ||
+			isAllowedJobsPath(path) ||
 			gatewayAgentPathRe.MatchString(path)
 	case "POST":
-		return path == "/api/printers" ||
-			strings.HasSuffix(path, "/test-connection") ||
-			strings.HasSuffix(path, "/test-print")
+		return path == "/api/printers" || gatewayPrinterActionPathRe.MatchString(path)
 	case "PATCH":
 		return gatewayPrinterPathRe.MatchString(path) && path != "/api/printers"
 	default:
