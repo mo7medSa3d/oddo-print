@@ -164,12 +164,19 @@ export function buildTestPrintPayloadForPrinter(
   agentName: string,
   printer: { protocol?: string | null; connectionType?: string | null; capabilities?: { supported_protocols?: string[] } | null },
 ): PrintJobPayload {
-  const declared = (printer.protocol ?? "").toLowerCase();
-  const conn = (printer.connectionType ?? "").toLowerCase();
-  const supported = (printer.capabilities?.supported_protocols ?? []).map((p) => String(p).toLowerCase());
-  const byteProto = ["escpos", "zpl", "tspl", "raw"].includes(declared)
-    ? declared
-    : (["escpos", "zpl", "tspl", "raw"] as const).find((p) => supported.includes(p)) ?? "";
+  const declared = (printer.protocol ?? "").toLowerCase().trim();
+  const conn = (printer.connectionType ?? "").toLowerCase().trim();
+  const capabilities = printer.capabilities ?? null;
+  const hasExplicitCaps = capabilities !== null && Object.prototype.hasOwnProperty.call(capabilities, "supported_protocols");
+  const supported = Array.isArray(capabilities?.supported_protocols)
+    ? capabilities.supported_protocols.map((p) => String(p).toLowerCase().trim())
+    : [];
+  const byteCandidates = ["escpos", "zpl", "tspl", "raw"] as const;
+  const byteProto = byteCandidates.find((p) => {
+    if (hasExplicitCaps && !supported.includes(p)) return false;
+    if (p === "escpos") return conn === "network" || conn === "spooler" || conn === "usb";
+    return conn === "network" || conn === "spooler" || conn === "usb";
+  }) ?? "";
   const name = safeTestText(printerName);
   const agent = safeTestText(agentName);
   const stamp = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -220,12 +227,12 @@ export function buildTestPrintPayloadForPrinter(
     return { type: "raw", protocol: "raw", encoding: "base64", data: Buffer.from(raw, "utf-8").toString("base64") };
   }
 
-  const isDocumentTransport =
-    ["spooler", "ipp", "ipps"].includes(conn) ||
-    ["spooler", "ipp", "ipps"].includes(declared) ||
-    supported.some((p) => ["pdf", "spooler", "ipp", "ipps"].includes(p));
+  const physicalDocumentTransport =
+    conn === "spooler" || conn === "ipp" || conn === "ipps" ||
+    (conn === "network" && declared === "ipp");
+  const pdfAllowed = !hasExplicitCaps || supported.some((p) => ["pdf", "spooler", "ipp", "ipps"].includes(p));
 
-  if (isDocumentTransport) {
+  if (physicalDocumentTransport && pdfAllowed) {
     const pdf = buildTestPdfPayload(name, agent);
     return {
       type: "pdf",
