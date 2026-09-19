@@ -15,6 +15,12 @@ type ApiKey = {
   revokedAt: string | null;
 };
 
+type GatewayConfigurationState = {
+  enabled: boolean;
+  revision: number;
+  updatedAt: string | null;
+};
+
 export default function ApiKeysPage() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [name, setName] = useState("Odoo");
@@ -23,12 +29,61 @@ export default function ApiKeysPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [gatewayConfig, setGatewayConfig] = useState<GatewayConfigurationState | null>(null);
+  const [gatewayConfigError, setGatewayConfigError] = useState<string | null>(null);
 
   async function load() {
     const response = await fetch("/api/odoo/keys", { cache: "no-store", credentials: "include" });
     if (!response.ok) throw new Error("Unable to load API keys.");
     return await response.json() as ApiKey[];
   }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadGatewayConfiguration() {
+      try {
+        const response = await fetch("/api/odoo/configuration", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (!response.ok) {
+          throw new Error(
+            response.status === 403
+              ? "You do not have permission to view Gateway configuration status."
+              : "Unable to load Odoo Gateway configuration status.",
+          );
+        }
+        const data = await response.json() as GatewayConfigurationState;
+        if (cancelled) return;
+        if (
+          typeof data.enabled !== "boolean" ||
+          !Number.isInteger(data.revision) ||
+          data.revision < -1
+        ) {
+          throw new Error("Gateway returned an invalid configuration status.");
+        }
+        setGatewayConfig({
+          enabled: data.enabled,
+          revision: data.revision,
+          updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
+        });
+        setGatewayConfigError(null);
+      } catch (err) {
+        if (!cancelled) {
+          setGatewayConfigError(err instanceof Error ? err.message : String(err));
+        }
+      }
+    }
+
+    void loadGatewayConfiguration();
+    const interval = window.setInterval(loadGatewayConfiguration, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,6 +215,44 @@ export default function ApiKeysPage() {
           </Button>
         </div>
       )}
+
+      <Card className="mb-6">
+        <CardHeader
+          title="Gateway Configuration"
+          subtitle="Live status from the Odoo Gateway Configuration checkbox."
+          icon={<Shield className="h-5 w-5 text-brand" />}
+        />
+        <div className="flex flex-col gap-3 px-6 pb-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              {gatewayConfig ? (
+                <StatusBadge
+                  tone={gatewayConfig.enabled ? "ok" : "bad"}
+                  label={gatewayConfig.enabled ? "Active" : "Inactive"}
+                />
+              ) : (
+                <StatusBadge tone="neutral" label="Sync pending" />
+              )}
+            </div>
+            <p className="mt-2 text-sm text-ink-3">
+              Odoo is the source of truth. Changing the checkbox in Odoo updates this status automatically.
+            </p>
+            {gatewayConfig?.updatedAt && (
+              <p className="mt-1 text-xs text-ink-4">
+                Last synchronized {new Date(gatewayConfig.updatedAt).toLocaleString()}
+              </p>
+            )}
+            {gatewayConfigError && (
+              <p className="mt-1 text-xs text-bad" role="status">{gatewayConfigError}</p>
+            )}
+          </div>
+          {gatewayConfig && (
+            <div className="text-right text-xs text-ink-4">
+              Revision {gatewayConfig.revision}
+            </div>
+          )}
+        </div>
+      </Card>
 
       {rawKey && (
         <Card className="mb-6 border-edge-accent bg-surface-2">
