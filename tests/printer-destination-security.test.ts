@@ -51,7 +51,7 @@ describe("printer destination security policy", () => {
     const { parsePrinterInput } = await import("../src/lib/printer-model");
     expect(() => parsePrinterInput({
       name: "USB Missing IDs", agentId: "a1", connectionType: "usb", protocol: "raw",
-      config: { address: "\\\\\\?\\usb#device" },
+      config: { address: "\\\\?\\usb#device" },
     })).toThrow(/direct USB printer requires config\.(vid|pid)/i);
     expect(() => parsePrinterInput({
       name: "USB Missing Path", agentId: "a1", connectionType: "usb", protocol: "raw",
@@ -59,15 +59,19 @@ describe("printer destination security policy", () => {
     })).toThrow(/config\.address/i);
     expect(parsePrinterInput({
       name: "USB Complete", agentId: "a1", connectionType: "usb", protocol: "raw",
-      config: { vid: 1234, pid: 5678, address: "\\\\\\?\\usb#device" },
+      config: { vid: 1234, pid: 5678, address: "\\\\?\\usb#device" },
     }).connectionType).toBe("usb");
+    expect(() => parsePrinterInput({
+      name: "USB Spooler Injection", agentId: "a1", connectionType: "usb", protocol: "raw",
+      config: { vid: 1234, pid: 5678, address: "HP LaserJet" },
+    })).toThrow(/Windows device path/i);
   });
 
   it("rejects ambiguous USB spooler protocol without a spooler queue", async () => {
     const { parsePrinterInput } = await import("../src/lib/printer-model");
     expect(() => parsePrinterInput({
       name: "USB Spooler Ambiguous", agentId: "a1", connectionType: "usb", protocol: "spooler",
-      config: { vid: 1234, pid: 5678, address: "\\\\\\?\\usb#device" },
+      config: { vid: 1234, pid: 5678, address: "\\\\?\\usb#device" },
     })).toThrow(/connection type spooler.*spooler_name/i);
   });
 
