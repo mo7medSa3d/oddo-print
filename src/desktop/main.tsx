@@ -572,7 +572,7 @@ export default function App() {
         if (jobTab === "unassigned") {
           const dest = String(j.destination ?? "");
           const pid = jobPrinterId(j);
-          return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid && p.status === "online");
+          return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
         }
         if (jobTab === "printed") return st === "success";
         if (jobTab === "unknown") return outcome === "unknown";
