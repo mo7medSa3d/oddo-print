@@ -124,11 +124,15 @@ func handleGatewayRequest(args []string, configPath string) {
 	}
 	_, _ = os.Stdout.Write(encoded)
 	fmt.Fprintln(os.Stdout)
+}
 
 func isAllowedJobsPath(path string) bool {
 	parsed, err := url.Parse(path)
 	if err != nil || parsed.Path != "/api/jobs" || parsed.RawPath != "" || parsed.Fragment != "" {
 		return false
+	}
+	if parsed.RawQuery == "" {
+		return true
 	}
 	for _, pair := range strings.Split(parsed.RawQuery, "&") {
 		if pair == "" || !strings.Contains(pair, "=") {
