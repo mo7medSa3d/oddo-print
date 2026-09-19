@@ -227,7 +227,7 @@ export default function ApiKeysPage() {
             <div className="flex items-center gap-2">
               {gatewayConfig ? (
                 <StatusBadge
-                  tone={gatewayConfig.enabled ? "ok" : "bad"}
+                  tone={gatewayConfig.enabled ? "ok" : "neutral"}
                   label={gatewayConfig.enabled ? "Active" : "Inactive"}
                 />
               ) : (
