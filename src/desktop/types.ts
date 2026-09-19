@@ -40,9 +40,8 @@ export interface DesktopState {
   health: Record<string, unknown> | null;
   healthError: string | null;
   gatewayConnected: boolean;
-  gatewaySaving: boolean;
+  gatewayChecking: boolean;
   checkHealth: () => void;
-  saveGateway: () => void;
   pairCode: string;
   setPairCode: (v: string) => void;
   pair: () => void;
