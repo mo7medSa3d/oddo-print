@@ -1,6 +1,7 @@
 import { IncomingMessage, type ServerResponse } from "http";
 import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { parseStrictContentLength } from "../lib/request-limits";
+import { runtimeSecret } from "../lib/runtime-secret";
 
 /**
  * API body limit. The custom Next server must never consume the IncomingMessage
@@ -33,7 +34,15 @@ function verifyJwtQuick(token: string): boolean {
   const parts = token.split(".");
   if (parts.length !== 3) return false;
   const [h, p, s] = parts;
-  const secret = process.env.GATEWAY_JWT_SECRET;
+  let secret: string | undefined;
+  try {
+    secret = runtimeSecret("GATEWAY_JWT_SECRET");
+  } catch {
+    // Admission classification must fail closed if the secret file is
+    // unavailable or unreadable. Route-level authentication will surface the
+    // actual configuration problem separately.
+    return false;
+  }
   // Resource-budget classification must fail closed. Route-level authentication
   // still decides access, but an unsigned JWT-shaped value must not let an
   // attacker reserve from the larger authenticated request pool.
