@@ -52,6 +52,37 @@ suite("printer desired-state authority", () => {
     expect((await response.json()).code).toBe("INVALID_PRINTER");
   });
 
+  it("canonicalizes USB registrations with a spooler queue to the spooler transport", async () => {
+    const f = await seedFixture();
+    const session = await createManagerSession(f.tenantId);
+
+    const response = await printersPOST(new Request("http://gateway.test/api/printers", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + session.token,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "USB Receipt Queue",
+        agentId: f.agentId,
+        printerType: "physical",
+        deviceClass: "thermal",
+        connectionType: "usb",
+        protocol: "unknown",
+        config: { spooler_name: "Receipt Printer" },
+      }),
+    }));
+
+    expect(response.status).toBe(201);
+    const created = await response.json();
+    expect(created.connectionType).toBe("spooler");
+    expect(created.protocol).toBe("spooler");
+    expect(created.config).toEqual({
+      spooler_name: "Receipt Printer",
+      address: "Receipt Printer",
+    });
+  });
+
   it("persists manager-owned desired state and increments its revision atomically", async () => {
     const f = await seedFixture();
     const session = await createManagerSession(f.tenantId);
