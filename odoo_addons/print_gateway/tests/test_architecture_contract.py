@@ -149,9 +149,19 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn('runtime_agent_assignment', source)
         self.assertIn('The selected Gateway Runtime Agent is not assigned to the current Odoo Branch.', source)
 
-    def test_runtime_printers_requires_agent_branch_assignment(self):
+    def test_runtime_agent_and_printer_discovery_is_tenant_scoped(self):
         source = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
-        self.assertIn('runtime_agent_assignment', source)
+        self.assertIn("api/odoo/agents", source)
+        self.assertIn("selected_agent_id", source)
+        self.assertIn("same Gateway tenant", source)
+        self.assertNotIn("Access Denied: The selected Agent is not assigned to this Odoo Branch.", source)
+
+        # Assignment remains mandatory for an actual branch binding; discovery
+        # must not be the chicken-and-egg gate that hides otherwise valid
+        # tenant Agents from the selector.
+        binding_source = (MODELS / "binding.py").read_text(encoding="utf-8")
+        self.assertIn('runtime_agent_assignment', binding_source)
+        self.assertIn("The selected Gateway Runtime Agent is not assigned to the current Odoo Branch.", binding_source)
         self.assertIn('is not assigned to this Odoo Branch', source)
 
     def test_agent_widget_clears_previous_printer_on_agent_change(self):
