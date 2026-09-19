@@ -61,7 +61,7 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		if conn != "network" && conn != "usb" {
 			return false
 		}
-		if proto == "ipp" || proto == "ipps" {
+		if proto != protocol {
 			return false
 		}
 		switch protocol {
