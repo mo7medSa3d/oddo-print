@@ -78,10 +78,10 @@ func TestValidatePrinterConfigRejectsNonDeviceUSBEndpoint(t *testing.T) {
 
 func TestValidatePrinterConfigAllowsUSBSpoolerWithoutVIDPID(t *testing.T) {
 	p := PrinterConfig{
-		ID: "usb-spooler",
-		Name: "USB Queue",
-		Type: "usb",
-		Protocol: "spooler",
+		ID:          "usb-spooler",
+		Name:        "USB Queue",
+		Type:        "usb",
+		Protocol:    "spooler",
 		SpoolerName: "Receipt Printer",
 	}
 	if err := ValidatePrinterConfig(p); err != nil {
