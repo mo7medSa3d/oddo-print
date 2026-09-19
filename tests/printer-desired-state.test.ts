@@ -79,7 +79,6 @@ suite("printer desired-state authority", () => {
     expect(created.protocol).toBe("spooler");
     expect(created.config).toEqual({
       spooler_name: "Receipt Printer",
-      address: "Receipt Printer",
     });
   });
 
@@ -157,6 +156,10 @@ suite("printer desired-state authority", () => {
 
   it("rejects protocol-only patches that contradict the existing transport", async () => {
     const f = await seedFixture();
+    await pool().query(
+      "UPDATE printers SET connection_type = 'network', protocol = 'raw', config = $2::jsonb WHERE id = $1",
+      [f.printerId, JSON.stringify({ ip: "192.168.1.50", port: 9100 })],
+    );
     const session = await createManagerSession(f.tenantId);
 
     const response = await printerPATCH(
@@ -193,6 +196,7 @@ suite("printer desired-state authority", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
+          connectionType: "network",
           protocol: "ipp",
           config: { ip: "192.168.1.50", port: 631 },
         }),
