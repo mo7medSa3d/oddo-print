@@ -141,7 +141,7 @@ class PrintGatewayConfig(models.Model):
         try:
             protected = self._protected_gateway_api_key(self.gateway_api_key)
             if protected != self.gateway_api_key:
-                self.sudo().write({"gateway_api_key": protected})
+                self.with_context(skip_enabled_sync=True).sudo().write({"gateway_api_key": protected})
                 self.invalidate_recordset(["gateway_api_key"])
             return decrypt_gateway_api_key(self.gateway_api_key)
         except (CredentialKeyUnavailable, CredentialDecryptError, ValueError) as exc:
@@ -261,6 +261,7 @@ class PrintGatewayConfig(models.Model):
 
     def write(self, vals):
         sync_fields = {"enabled", "gateway_url", "gateway_api_key"}
+        skip_enabled_sync = bool(self.env.context.get("skip_enabled_sync"))
         if set(vals).intersection({"gateway_url", "gateway_api_key", "enabled", "company_id", "runtime_agent_id"}):
             self._check_admin()
         vals = dict(vals)
@@ -273,7 +274,7 @@ class PrintGatewayConfig(models.Model):
                     _("Gateway credential protection is unavailable. Configure the deployment-managed credential encryption key before saving an API key.")
                 ) from exc
         result = super().write(vals)
-        if sync_fields.intersection(vals):
+        if sync_fields.intersection(vals) and not skip_enabled_sync:
             for record in self:
                 if "enabled" in vals and before_enabled.get(record.id) != bool(record.enabled):
                     record.sudo().write({
