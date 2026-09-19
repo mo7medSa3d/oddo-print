@@ -157,7 +157,8 @@ export default function App() {
   const [editingPrinter, setEditingPrinter] = useState<PrinterInfo | null>(null);
   const [selectedJob, setSelectedJob] = useState<JobRecord | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [gatewaySaving, setGatewaySaving] = useState(false);
+  const [gatewayChecking, setGatewayChecking] = useState(false);
+  const [checkedGatewayUrl, setCheckedGatewayUrl] = useState("");
   const [collapsed, setCollapsed] = useState(false);
   const [jobPrinterFilter, setJobPrinterFilter] = useState<string | null>(null);
 
@@ -209,21 +210,61 @@ export default function App() {
     }
   }, [savedGatewayUrl]);
 
-  const checkHealth = useCallback(async (targetUrl?: string) => {
-    const target = targetUrl ?? gatewayUrl;
-    if (!target) {
+  const probeGateway = useCallback(async (targetUrl: string): Promise<boolean> => {
+    try {
+      const h = await fetchGatewayHealth(targetUrl);
+      setHealth(h);
+      setCheckedGatewayUrl(targetUrl);
+      const gatewayError = (h as { error?: unknown })?.error;
+      if (gatewayError) {
+        setHealthError(errMsg(gatewayError));
+        return false;
+      }
+      setHealthError(null);
+      return true;
+    } catch (e) {
+      setHealth(null);
+      setCheckedGatewayUrl(targetUrl);
+      setHealthError(friendlyPrinterError(errMsg(e)));
+      return false;
+    }
+  }, []);
+
+  const checkHealth = useCallback(async () => {
+    const raw = gatewayUrl.trim();
+    if (!raw) {
+      setHealth(null);
+      setCheckedGatewayUrl("");
       setHealthError("Gateway URL not configured");
       return;
     }
+
+    let target: string;
+    try {
+      target = normalizeGatewayUrl(raw);
+    } catch (e) {
+      setHealth(null);
+      setCheckedGatewayUrl("");
+      setHealthError(errMsg(e));
+      return;
+    }
+
+    setGatewayChecking(true);
     setHealthError(null);
     try {
-      const h = await fetchGatewayHealth(target);
-      setHealth(h);
-      if ((h as { error?: string })?.error) setHealthError(String((h as { error?: string }).error));
+      const reachable = await probeGateway(target);
+      if (!reachable) return;
+
+      await setGatewayUrl(target);
+      setGw(target);
+      setSavedGatewayUrl(target);
+      setMsg({ text: "Gateway connection verified and saved", type: "success" });
     } catch (e) {
-      setHealthError(friendlyPrinterError(errMsg(e)));
+      setMsg({ text: errMsg(e), type: "error" });
+    } finally {
+      setGatewayChecking(false);
     }
-  }, [gatewayUrl]);
+  }, [gatewayUrl, probeGateway]);
 
   const handleDiscover = useCallback(async () => {
     if (!isTauri) return;
@@ -282,23 +323,6 @@ export default function App() {
   }, [refreshPrinters]);
 
 
-
-  const saveGateway = useCallback(async () => {
-    try {
-      const n = normalizeGatewayUrl(gatewayUrl);
-      setGatewaySaving(true);
-      await setGatewayUrl(n);
-      setSavedGatewayUrl(n);
-      setGw(n);
-      setMsg({ text: "Gateway saved", type: "success" });
-      // Check exactly the URL that was just persisted, not the previous React closure value.
-      await checkHealth(n);
-    } catch (e) {
-      setMsg({ text: errMsg(e), type: "error" });
-    } finally {
-      setGatewaySaving(false);
-    }
-  }, [gatewayUrl, checkHealth]);
 
   const startAgent = useCallback(async () => {
     try {
@@ -374,14 +398,8 @@ export default function App() {
       .catch(() => {});
     getGatewayUrl()
       .then((v) => {
-        // Initial load updates both the editable draft and the committed URL exactly once.
-        // Do not make this effect depend on refresh callbacks that change while typing.
         setGw(v);
         setSavedGatewayUrl(v);
-        if (v)
-          fetchGatewayHealth(v)
-            .then((h) => setHealth(h))
-            .catch((e) => setHealthError(errMsg(e)));
       })
       .catch(() => {});
     getRuntimePaths()
@@ -394,6 +412,37 @@ export default function App() {
     const id = setInterval(refreshStatus, 30000);
     return () => clearInterval(id);
   }, [refreshStatus]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+
+    const raw = gatewayUrl.trim();
+    if (!raw) {
+      setHealth(null);
+      setCheckedGatewayUrl("");
+      setHealthError(null);
+      return;
+    }
+
+    // Do not probe every keystroke. Once a syntactically valid URL is present,
+    // check it automatically after a short pause so pasted/entered URLs become
+    // Reachable without an extra save step.
+    let target: string;
+    try {
+      target = normalizeGatewayUrl(raw);
+    } catch {
+      setHealth(null);
+      setCheckedGatewayUrl("");
+      setHealthError(null);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void probeGateway(target);
+    }, 450);
+
+    return () => window.clearTimeout(timer);
+  }, [gatewayUrl, probeGateway]);
 
   useEffect(() => {
     if (savedGatewayUrl) refreshPrinters();
@@ -439,8 +488,16 @@ export default function App() {
     !!agentStatus && !(agentStatus as Record<string, unknown>).error && (agentStatus as { running?: boolean }).running !== false;
   const healthOk = Boolean(health && (health as { ok?: boolean }).ok !== false && !healthError);
   const agentRegistered = Boolean((agentStatus as { registered?: boolean } | null)?.registered);
+  let normalizedGatewayUrl = "";
+  try {
+    normalizedGatewayUrl = normalizeGatewayUrl(gatewayUrl);
+  } catch {
+    // The URL is still being edited; an invalid/partial draft is never connected.
+  }
   const gatewayConnected = Boolean(
-    savedGatewayUrl && gatewayUrl === savedGatewayUrl && (healthOk || agentRegistered)
+    normalizedGatewayUrl &&
+      checkedGatewayUrl === normalizedGatewayUrl &&
+      (healthOk || agentRegistered)
   );
   const gatewaySubLabel = !savedGatewayUrl
     ? "Set Gateway URL in Settings"
@@ -603,9 +660,8 @@ export default function App() {
     health,
     healthError,
     gatewayConnected,
-    gatewaySaving,
+    gatewayChecking,
     checkHealth,
-    saveGateway,
     pairCode,
     setPairCode,
     pair,
