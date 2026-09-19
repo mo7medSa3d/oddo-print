@@ -68,13 +68,20 @@ export function validatePayloadForPrinter(
     ? names.some((name) => supported!.includes(name))
     : false;
   const transport = (...names: string[]) => !hasExplicitCaps && names.includes(family);
+  // Explicit capabilities can refine a device's language set, but they
+  // cannot add a PDF/image renderer that the concrete backend does not have.
+  const physicalPdf = conn === "spooler" || conn === "ipp" || conn === "ipps"
+    || (conn === "network" && proto === "ipp");
+  const physicalImage = conn === "spooler"
+    || (conn === "network" && proto === "escpos");
 
   // PDF: requires a transport that can actually consume/render a document.
   if (pt === "pdf") {
     if (payloadProto) {
       return { ok: false, reason: "CAPABILITY_MISMATCH: pdf payloads cannot specify a printer protocol" };
     }
-    if (anyCap("pdf", "spooler", "ipp", "ipps") || transport("spooler", "ipp", "ipps")) return { ok: true };
+    if (!physicalPdf) return { ok: false, reason: "CAPABILITY_MISMATCH: pdf requires spooler or IPP transport" };
+    if (!hasExplicitCaps || anyCap("pdf", "spooler", "ipp", "ipps")) return { ok: true };
     return { ok: false, reason: "CAPABILITY_MISMATCH: pdf requires spooler or IPP transport" };
   }
 
@@ -84,7 +91,8 @@ export function validatePayloadForPrinter(
     if (payloadProto) {
       return { ok: false, reason: "CAPABILITY_MISMATCH: image payloads cannot specify a printer protocol" };
     }
-    if (anyCap("image", "jpeg", "spooler", "ipp", "ipps", "escpos") || transport("spooler", "escpos")) return { ok: true };
+    if (!physicalImage) return { ok: false, reason: "CAPABILITY_MISMATCH: image payload not supported by printer" };
+    if (!hasExplicitCaps || anyCap("image", "jpeg", "spooler", "escpos")) return { ok: true };
     return { ok: false, reason: "CAPABILITY_MISMATCH: image payload not supported by printer" };
   }
 
