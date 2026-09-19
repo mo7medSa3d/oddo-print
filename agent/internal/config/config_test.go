@@ -33,7 +33,7 @@ func TestValidatePrinterConfig(t *testing.T) {
 		{ID: "p1", Name: "", Type: "network", Endpoint: "1.1.1.1:9100"},
 		{ID: "p1", Name: "x", Type: "serial", Endpoint: "1.1.1.1:9100"},
 		{ID: "p1", Name: "x", Type: "network", Endpoint: "notanipport"},
-		{ID: "p1", Name: "x", Type: "network", Endpoint: "1.1.1.1:9101", Protocol: "raw"},
+		{ID: "p1", Name: "x", Type: "network", Endpoint: "192.168.1.50:9101", Protocol: "raw"},
 	}
 	for i, c := range bad {
 		if err := ValidatePrinterConfig(c); err == nil {
