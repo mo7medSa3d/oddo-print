@@ -49,6 +49,7 @@ func TestValidatePrinterConfigRejectsContradictoryTransportProtocols(t *testing.
 		{ID: "spooler-raw", Name: "Spooler", Type: "spooler", SpoolerName: "HP", Protocol: "raw"},
 		{ID: "network-ipps", Name: "Network", Type: "network", Endpoint: "192.168.1.60:9100", Protocol: "ipps"},
 		{ID: "ipps-http", Name: "IPPS HTTP", Type: "ipps", Endpoint: "http://192.168.1.60:631/ipp/print", Protocol: "ipps"},
+		{ID: "ipp-creds", Name: "IPP Credentials", Type: "ipp", Endpoint: "http://user:pass@192.168.1.60:631/ipp/print", Protocol: "ipp"},
 	}
 	for _, tc := range cases {
 		if err := ValidatePrinterConfig(tc); err == nil {
