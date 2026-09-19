@@ -125,6 +125,7 @@ export function EditPrinterDialog({
       return;
     }
 
+    const config = initialConfig;
     const nextConfig: Record<string, unknown> = { ...config };
     delete nextConfig.ip;
     delete nextConfig.port;
