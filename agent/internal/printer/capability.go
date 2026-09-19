@@ -50,6 +50,10 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		family = conn
 	}
 	hasCaps := d.SupportedProtocolDeclared || d.SupportedProtocol != nil
+	physicalPDF := conn == "spooler" || conn == "ipp" || conn == "ipps" ||
+		(conn == "network" && proto == "ipp")
+	physicalImage := conn == "spooler" ||
+		(conn == "network" && proto == "escpos")
 
 	capabilityListed := func(names ...string) bool {
 		for _, name := range names {
@@ -81,10 +85,13 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		if pp != "" {
 			return false, "pdf payloads cannot specify a printer protocol"
 		}
+		if !physicalPDF {
+			return false, "pdf requires spooler or IPP transport"
+		}
 		if hasCaps && capabilityListed("pdf", "spooler", "ipp", "ipps") {
 			return true, ""
 		}
-		if !hasCaps && transportIs("spooler", "ipp", "ipps") {
+		if !hasCaps {
 			return true, ""
 		}
 		return false, "pdf requires spooler or IPP transport"
@@ -92,10 +99,13 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		if pp != "" {
 			return false, "image payloads cannot specify a printer protocol"
 		}
-		if hasCaps && capabilityListed("image", "jpeg", "spooler", "ipp", "ipps", "escpos") {
+		if !physicalImage {
+			return false, "image payload not supported by printer"
+		}
+		if hasCaps && capabilityListed("image", "jpeg", "spooler", "escpos") {
 			return true, ""
 		}
-		if !hasCaps && (transportIs("spooler") || declared("escpos", "escpos")) {
+		if !hasCaps {
 			return true, ""
 		}
 		return false, "image payload not supported by printer"
