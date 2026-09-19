@@ -9,13 +9,13 @@ import "strings"
 //
 //   - type=escpos            -> device must declare escpos
 //   - type=raw + protocol=X  -> device must declare X, X in
-//                                {raw, escpos, zpl, tspl}; there is NO
-//                               wildcard: "raw" is a byte sink, not "any
-//                               protocol compatible"
+//     {raw, escpos, zpl, tspl}; there is NO
+//     wildcard: "raw" is a byte sink, not "any
+//     protocol compatible"
 //   - type=pdf               -> spooler/ipp document transports (or an
-//                               explicit capability)
+//     explicit capability)
 //   - type=image             -> driver-backed transports or an ESC/POS
-//                               device that raster-converts
+//     device that raster-converts
 //   - peripherals            -> escpos only (enforced in payload.Parse)
 //
 // An explicit supported_protocols capability list is authoritative; without
