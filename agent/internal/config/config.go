@@ -503,8 +503,11 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 		}
 	}
 	if nt == "usb" {
-		if p.USBVID == "" || p.USBPID == "" {
-			return fmt.Errorf("printer %s: usb_vid and usb_pid are required", p.ID)
+		// USB entries backed by an explicitly named Windows spooler queue are
+		// executed through the spooler backend and therefore do not require raw
+		// USB VID/PID identifiers. Direct USB transport still requires both.
+		if strings.TrimSpace(p.SpoolerName) == "" && (p.USBVID == "" || p.USBPID == "") {
+			return fmt.Errorf("printer %s: usb_vid and usb_pid are required for direct USB transport", p.ID)
 		}
 	}
 	if nt == "spooler" && strings.TrimSpace(p.SpoolerName) == "" {
