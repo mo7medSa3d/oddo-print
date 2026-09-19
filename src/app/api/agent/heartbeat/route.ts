@@ -25,6 +25,10 @@ const VALID_CONNECTION_TYPES = new Set(["network", "usb", "spooler", "ipp", "ipp
 const VALID_PROTOCOLS = new Set(["raw", "escpos", "zpl", "tspl", "ipp", "ipps", "spooler", "windows_spooler", "unknown"]);
 const VALID_AGENT_STATUSES = new Set(["online", "offline"]);
 
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
 type DesiredStateAck = { printerId?: unknown; appliedDesiredRevision?: unknown; observedDesiredRevision?: unknown };
 
 type ReportedPrinter = {
@@ -104,8 +108,8 @@ function sanitizePrinter(p: ReportedPrinter): {
     }
   }
   const status = typeof p.status === "string" && VALID_PRINTER_STATUSES.has(p.status.trim().toLowerCase()) ? p.status.trim().toLowerCase() : "unknown";
-  if (JSON.stringify(config).length > PRINTER_CONFIG_MAX_BYTES) return { ok: false, reason: "config_payload_too_large" };
-  if (capabilities && JSON.stringify(capabilities).length > PRINTER_CAPABILITIES_MAX_BYTES) return { ok: false, reason: "capabilities_payload_too_large" };
+  if (utf8ByteLength(JSON.stringify(config)) > PRINTER_CONFIG_MAX_BYTES) return { ok: false, reason: "config_payload_too_large" };
+  if (capabilities && utf8ByteLength(JSON.stringify(capabilities)) > PRINTER_CAPABILITIES_MAX_BYTES) return { ok: false, reason: "capabilities_payload_too_large" };
   const configErr = validateConnectionConfig(connectionType, config);
   if (configErr) return { ok: false, reason: `invalid_connection_config: ${configErr}` };
   const transportProtocolErr = validatePrinterTransportProtocol(connectionType, protocol);
@@ -126,7 +130,7 @@ export async function POST(req: Request) {
     const status = rawStatus;
     const reportedPrinters = Array.isArray(body?.printers) ? body.printers : [];
     if (reportedPrinters.length > 500) return NextResponse.json({ error: "too many printers in heartbeat" }, { status: 400 });
-    if (JSON.stringify(reportedPrinters).length > 256_000) return NextResponse.json({ error: "heartbeat printer metadata exceeds 256KB" }, { status: 400 });
+    if (utf8ByteLength(JSON.stringify(reportedPrinters)) > 256_000) return NextResponse.json({ error: "heartbeat printer metadata exceeds 256KB" }, { status: 400 });
 
     const gatewayOwnedPrinterIds = new Set<string>();
     if (Array.isArray(body?.gatewayOwnedPrinterIds)) {
