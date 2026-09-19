@@ -140,8 +140,33 @@ export function validateConnectionConfig(connectionType: string, cfg: Record<str
   return null;
 }
 
+export function validatePrinterTransportProtocol(connectionType: string, protocol: string): string | null {
+  const connection = connectionType.trim().toLowerCase();
+  const declared = protocol.trim().toLowerCase();
+  if (!declared) return "printer protocol is required";
+  if (declared === "unknown") return null;
+  if (connection === "network" && declared === "ipps") {
+    return "network printers do not support IPPS protocol without a URL; use connection type ipps";
+  }
+  if (connection === "ipp" && declared !== "ipp") {
+    return "ipp connection type requires ipp protocol";
+  }
+  if (connection === "ipps" && declared !== "ipps") {
+    return "ipps connection type requires ipps protocol";
+  }
+  if (connection === "spooler" && declared !== "spooler") {
+    return "spooler connection type requires spooler protocol";
+  }
+  if ((connection === "network") && !["raw", "escpos", "zpl", "tspl", "ipp"].includes(declared)) {
+    return `network connection type does not support protocol ${declared}`;
+  }
+  return null;
+}
+
 export function parsePrinterInput(value: unknown): CanonicalPrinterInput {
   const parsed = printerInputSchema.parse(value);
   assertPrinterMetadataLimits(parsed);
+  const transportProtocolError = validatePrinterTransportProtocol(parsed.connectionType, parsed.protocol);
+  if (transportProtocolError) throw new Error(transportProtocolError);
   return parsed;
 }
