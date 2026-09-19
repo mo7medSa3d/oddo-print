@@ -47,8 +47,7 @@ is queued. An explicitly configured `supported_protocols` list is never overwrit
   `raw`/`escpos` may additionally travel over any byte-stream transport (spooler), but
   **`pdf` is never inferred from `raw` support**;
 * without a declared list the transport decides: `pdf` requires a spooler or IPP/IPPS
-  printer and is refused for raw-TCP/USB devices; `raw`/`escpos` are accepted by raw,
-  escpos, spooler and IPP transports.
+  printer and is refused for raw-TCP/USB devices; `raw`/`escpos` are accepted by byte-stream transports (RAW TCP, ESC/POS, and spooler RAW mode), not by IPP/IPPS.
 
 A mismatch is `CAPABILITY_MISMATCH` → HTTP **422** at job creation, and the routing layer
 tries the next binding by priority before giving up.
@@ -141,7 +140,7 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Protocol | IPP 2.0 `Print-Job` (0x0002) over HTTP POST `application/ipp`, with `attributes-charset`, `attributes-natural-language`, `printer-uri`, `requesting-user-name`, `document-format`, `job-name` |
 | Document kinds | `pdf` ✅ as `application/pdf`; `raw` / `escpos` ❌ → `CAPABILITY_MISMATCH` |
 | Configuration | `type: ipp` or `ipps` (also `type: network` with `protocol: ipp`), `endpoint:` an `ipp://`, `ipps://`, `http://` URL or a bare `host:port` — normalised by `normalizeIPPURL` |
-| Capability reporting | `supported_protocols: [raw, escpos, pdf]` |
+| Capability reporting | `supported_protocols: [pdf]` |
 | Error handling | Non-2xx HTTP and any IPP status other than `0x0000` become job errors with the decoded IPP status text; 15 s client timeout, shortened to the job deadline when smaller |
 | Status probe | `Get-Printer-Attributes` (5 s): `printer-state` 3/4/5 → `online`/`busy`/`offline`; `printer-state-reasons` containing `offline`/`shutdown` → `offline`, `media-needed`/`toner-empty` → `error`; unreachable → `offline` |
 | Platform limits | None |
