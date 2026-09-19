@@ -73,6 +73,19 @@ func TestValidatePrinterConfigAllowsCompatibleTransportProtocols(t *testing.T) {
 	}
 }
 
+func TestUSBSpoolerConfigUsesSpoolerTransport(t *testing.T) {
+	p := PrinterConfig{ID: "usb-spooler", Name: "HP", Type: "usb", SpoolerName: "HP LaserJet"}
+	if got := p.NormalizedType(); got != "spooler" {
+		t.Fatalf("expected USB printer with spooler queue to normalize to spooler, got %q", got)
+	}
+	if got, err := p.NormalizedProtocol(); err != nil || got != "spooler" {
+		t.Fatalf("expected USB spooler config to normalize protocol to spooler, got %q err=%v", got, err)
+	}
+	if err := ValidatePrinterConfig(p); err != nil {
+		t.Fatalf("expected USB spooler config to validate, got %v", err)
+	}
+}
+
 func TestDefaultConfigPathProgramData(t *testing.T) {
 	orig := os.Getenv("PROGRAMDATA")
 	t.Setenv("PROGRAMDATA", `C:\ProgramData`)
