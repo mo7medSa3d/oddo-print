@@ -439,7 +439,10 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 			return fmt.Errorf("printer %s: protocol %q is incompatible with spooler connection", p.ID, proto)
 		}
 	case "usb":
-		if proto != "raw" && proto != "escpos" && proto != "zpl" && proto != "tspl" && proto != "spooler" && proto != "unknown" {
+		if proto == "spooler" {
+			return fmt.Errorf("printer %s: usb spooler printers must use type spooler with spooler_name", p.ID)
+		}
+		if proto != "raw" && proto != "escpos" && proto != "zpl" && proto != "tspl" && proto != "unknown" {
 			return fmt.Errorf("printer %s: protocol %q is incompatible with usb connection", p.ID, proto)
 		}
 	}
