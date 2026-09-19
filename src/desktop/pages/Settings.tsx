@@ -82,19 +82,12 @@ export function SettingsPage({ s }: { s: DesktopState }) {
 
           <div className="flex flex-wrap justify-end gap-3">
             <Button
-              variant="secondary"
+              variant="primary"
               onClick={s.checkHealth}
+              loading={s.gatewayChecking}
               icon={<Activity className="h-[18px] w-[18px]" />}
             >
               Check connection
-            </Button>
-            <Button
-              variant="primary"
-              onClick={s.saveGateway}
-              loading={s.gatewaySaving}
-              icon={<Link2 className="h-[18px] w-[18px]" />}
-            >
-              Save connection
             </Button>
           </div>
 
@@ -216,7 +209,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
         <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1fr_auto] lg:items-end">
           <ol className="space-y-3 text-[14px] text-ink-2">
             {[
-              "Configure and save the Gateway URL above.",
+              "Enter the Gateway URL above and verify the connection.",
               "Generate a 6-character pairing code from the Central Gateway dashboard or Odoo 19 wizard.",
               "Enter the code below — credentials are securely persisted to Windows DPAPI / agent config.",
             ].map((step, i) => (
