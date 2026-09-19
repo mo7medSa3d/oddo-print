@@ -521,9 +521,12 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		}
 		infos := discoverLPRPrinters(subCtx, lprTargets)
 		if len(infos) > 0 {
-			log.Printf("[discovery] LPR found %d printers", len(infos))
+			// LPR/LPD probing is discovery-only until a real LPR execution
+			// backend is implemented. Never promote protocol=lpr into the
+			// production printer inventory because Gateway/Agent routing
+			// intentionally supports only the implemented protocol vocabulary.
+			addErr(fmt.Sprintf("lpr discovery: found %d LPR/LPD endpoint(s), but LPR execution is not supported; candidates were not registered", len(infos)))
 		}
-		add(infos)
 	}()
 
 	// 8. SNMP (161) — read-only, public community
