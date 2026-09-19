@@ -383,10 +383,26 @@ export async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterI
     throw err;
   }
   const rows = JSON.parse(body) as Array<Record<string, unknown>>;
-  return rows.map((row) => ({
-    ...row,
-    enabled: row.lifecycle === "active",
-  })) as unknown as PrinterInfo[];
+  return rows.map((row) => {
+    const config = row.config && typeof row.config === "object"
+      ? row.config as Record<string, unknown>
+      : {};
+    const numberOrNull = (value: unknown): number | null =>
+      typeof value === "number" && Number.isFinite(value) ? value : null;
+    const stringOrUndefined = (value: unknown): string | undefined =>
+      typeof value === "string" && value.trim() ? value : undefined;
+    return {
+      ...row,
+      enabled: row.lifecycle === "active",
+      endpoint: stringOrUndefined(row.endpoint) ?? stringOrUndefined(config.address),
+      spooler_name: stringOrUndefined(row.spooler_name) ?? stringOrUndefined(config.spooler_name),
+      network_address: stringOrUndefined(row.network_address) ?? stringOrUndefined(config.ip),
+      port: numberOrNull(row.port) ?? numberOrNull(config.port),
+      usbVid: row.usbVid != null ? String(row.usbVid) : config.vid != null ? String(config.vid) : undefined,
+      usbPid: row.usbPid != null ? String(row.usbPid) : config.pid != null ? String(config.pid) : undefined,
+      usbSerial: row.usbSerial != null ? String(row.usbSerial) : config.serial != null ? String(config.serial) : undefined,
+    };
+  }) as unknown as PrinterInfo[];
 }
 
 function networkConfigFromEndpoint(endpoint: string, protocol = ""): { ip: string; port: number } {
