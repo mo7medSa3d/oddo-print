@@ -409,10 +409,31 @@ fn gateway_printer_action_path(path: &str, action: &str) -> bool {
     parts.next().is_none() && selected_action == action && valid_gateway_printer_id(id)
 }
 
+fn valid_jobs_query(path: &str) -> bool {
+    let Some((base, query)) = path.split_once('?') else {
+        return path == "/api/jobs";
+    };
+    if base != "/api/jobs" || query.is_empty() {
+        return false;
+    }
+    for pair in query.split('&') {
+        let mut parts = pair.splitn(2, '=');
+        let key = parts.next().unwrap_or("");
+        let value = parts.next().unwrap_or("");
+        if value.len() > 200 {
+            return false;
+        }
+        if !matches!(key, "limit" | "offset" | "status" | "search" | "q" | "printerId" | "agentId") {
+            return false;
+        }
+    }
+    true
+}
+
 fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
     let method = method.to_ascii_uppercase();
     match method.as_str() {
-        "GET" => path == "/api/printers" || path == "/api/jobs" || path == "/api/agents",
+        "GET" => path == "/api/printers" || valid_jobs_query(path) || path == "/api/agents",
         "POST" => path == "/api/printers"
             || gateway_printer_action_path(path, "test-connection")
             || gateway_printer_action_path(path, "test-print"),
