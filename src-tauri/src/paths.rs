@@ -90,7 +90,7 @@ fn agent_data_root_candidate() -> PathBuf {
             return PathBuf::from(override_dir);
         }
     }
-    if let Ok(override_dir) = std::env::var("YASSER_AGENT_DATA_DIR") {
+    if let Ok(override_dir) = std::env::var("ODOO_PRINT_AGENT_DATA_DIR") {
         if !override_dir.trim().is_empty() {
             return PathBuf::from(override_dir);
         }
