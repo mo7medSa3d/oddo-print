@@ -1225,6 +1225,31 @@ mod autostart_choice_tests {
 }
 
 #[cfg(test)]
+mod agent_console_path_tests {
+    use super::{allowed_agent_gateway_path, gateway_printer_action_path};
+
+    #[test]
+    fn printer_action_paths_are_strictly_scoped() {
+        assert!(gateway_printer_action_path("/api/printers/p1/test-print", "test-print"));
+        assert!(gateway_printer_action_path("/api/printers/p1/test-connection", "test-connection"));
+        assert!(!gateway_printer_action_path("/api/other/p1/test-print", "test-print"));
+        assert!(!gateway_printer_action_path("/api/printers/p1/test-print/extra", "test-print"));
+        assert!(!gateway_printer_action_path("/api/printers/../agents/test-print", "test-print"));
+        assert!(!gateway_printer_action_path("/api/printers/-p1/test-print", "test-print"));
+    }
+
+    #[test]
+    fn agent_console_allowlist_rejects_unrelated_test_print_endpoints() {
+        assert!(allowed_agent_gateway_path("/api/printers", "POST"));
+        assert!(allowed_agent_gateway_path("/api/printers/p1/test-print", "POST"));
+        assert!(allowed_agent_gateway_path("/api/printers/p1/test-connection", "POST"));
+        assert!(!allowed_agent_gateway_path("/api/other/p1/test-print", "POST"));
+        assert!(!allowed_agent_gateway_path("/api/jobs/p1/test-print", "POST"));
+        assert!(!allowed_agent_gateway_path("/api/printers/p1/test-print?next=/api/other", "POST"));
+    }
+}
+
+#[cfg(test)]
 mod security_tests {
     use super::{is_public_gateway_path, is_valid_code, normalize_gateway_url};
 
