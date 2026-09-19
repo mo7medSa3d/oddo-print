@@ -178,7 +178,6 @@ export function buildTestPrintPayloadForPrinter(
   const allows = (candidate: string) => !hasExplicitCaps || supported.includes(candidate);
   const byteTransportEligible =
     conn === "usb" ||
-    conn === "spooler" ||
     (conn === "network" && declared !== "ipp" && declared !== "ipps");
   const byteProto =
     (declaredByteProtocol && allows(declaredByteProtocol) ? declaredByteProtocol : null) ??
@@ -237,7 +236,7 @@ export function buildTestPrintPayloadForPrinter(
   const physicalDocumentTransport =
     conn === "spooler" || conn === "ipp" || conn === "ipps" ||
     (conn === "network" && declared === "ipp");
-  const pdfAllowed = !hasExplicitCaps || supported.some((p) => ["pdf", "spooler", "ipp", "ipps"].includes(p));
+  const pdfAllowed = !hasExplicitCaps || supported.includes("pdf") || supported.includes("spooler") || supported.includes("ipp") || supported.includes("ipps");
 
   if (physicalDocumentTransport && pdfAllowed) {
     const pdf = buildTestPdfPayload(name, agent);
