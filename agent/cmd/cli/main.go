@@ -29,6 +29,12 @@ func main() {
 			handlePrintersSubcommand(args[1:], *configPath)
 			return
 		}
+		// The packaged desktop uses the paired Agent identity for Gateway
+		// console requests; it never needs a separate Manager login.
+		if args[0] == "gateway-request" {
+			handleGatewayRequest(args[1:], *configPath)
+			return
+		}
 		// Also support legacy flag style: -pair etc already handled, so unknown args => usage
 		fmt.Printf("Unknown command: %v\n", args)
 		printUsage()
@@ -70,6 +76,10 @@ func printUsage() {
 	fmt.Println("  yasser-agent-cli.exe -pair <code> -server <url> [-config <path>]")
 	fmt.Println("  -server is required for pairing and must be http(s).")
 	fmt.Println("  Default config path:", config.DefaultConfigPath())
+	fmt.Println("")
+	fmt.Println("Gateway console (Agent-authenticated):")
+	fmt.Println("  yasser-agent-cli.exe gateway-request -method GET -path /api/printers [-config <path>]")
+	fmt.Println("  yasser-agent-cli.exe gateway-request -method GET -path /api/jobs?limit=50 [-config <path>]")
 	fmt.Println("")
 	fmt.Println("Printer management:")
 	fmt.Println("  yasser-agent-cli.exe printers list [--json] [-config <path>]")
