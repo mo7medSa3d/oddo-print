@@ -53,7 +53,14 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 	physicalPDF := conn == "spooler" || conn == "ipp" || conn == "ipps" ||
 		(conn == "network" && proto == "ipp")
 	physicalImage := conn == "spooler" ||
-		(conn == "network" && proto == "escpos")
+		(conn == "network" && proto == "escpos") ||
+		(conn == "usb" && proto == "escpos")
+	physicalByteProtocol := func(protocol string) bool {
+		if conn == "spooler" {
+			return protocol == "raw" || protocol == "escpos"
+		}
+		return (conn == "network" || conn == "usb") && proto == protocol
+	}
 
 	capabilityListed := func(names ...string) bool {
 		for _, name := range names {
@@ -75,9 +82,9 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 	}
 	declared := func(name string, transports ...string) bool {
 		if hasCaps {
-			return capabilityListed(name)
+			return capabilityListed(name) && physicalByteProtocol(name)
 		}
-		return transportIs(transports...)
+		return physicalByteProtocol(name) || transportIs(transports...)
 	}
 
 	switch pt {
