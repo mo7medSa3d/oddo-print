@@ -253,14 +253,24 @@ class PrintGatewayPolicy(models.Model):
             )
             binding_id = route.get("binding_id") or False
         else:
-            # Raw policy routing performs the same exact binding/protocol
-            # authorization immediately before dispatch. Explicit bindings are
-            # already authoritative and therefore safe as a dedup identity.
-            binding_id = self.binding_id.id if self.binding_id else False
+            # Resolve implicit raw targets too. Using False for every policy
+            # without an explicit binding caused unrelated branch/filter
+            # policies to collapse into one dedup key before routing.
+            route = self.env["print_gateway.print_router"].resolve_binding(
+                record=record,
+                company=record.company_id,
+                document_type="label",
+                explicit_binding=self.binding_id or None,
+                explicit_destination=self.binding_id.destination_ref if self.binding_id else None,
+                protocol=self.raw_protocol,
+                payload_type="raw",
+            )
+            binding_id = route.get("binding_id") or False
         return (
             binding_id,
             self.action_type,
             self.report_id.id if self.report_id else False,
+            self.raw_protocol or False,
             self.raw_template or False,
         )
 
