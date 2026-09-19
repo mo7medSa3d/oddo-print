@@ -99,6 +99,60 @@ suite("printer desired-state authority", () => {
     expect(audits.rows.map((row) => row.action)).toEqual(["printer.registered", "printer.changed"]);
   });
 
+  it("rejects protocol-only patches that contradict the existing transport", async () => {
+    const f = await seedFixture();
+    const session = await createManagerSession(f.tenantId);
+
+    const response = await printerPATCH(
+      new Request("http://gateway.test/api/printers/" + encodeURIComponent(f.printerId), {
+        method: "PATCH",
+        headers: {
+          Authorization: "Bearer " + session.token,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ protocol: "ipps" }),
+      }),
+      { params: Promise.resolve({ id: f.printerId }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/network.*ipps|ipps.*url/i);
+
+    const row = await pool().query(
+      "SELECT connection_type, protocol FROM printers WHERE id = $1",
+      [f.printerId],
+    );
+    expect(row.rows[0]).toEqual({ connection_type: "network", protocol: "raw" });
+  });
+
+  it("accepts a network IPP patch with the matching port contract", async () => {
+    const f = await seedFixture();
+    const session = await createManagerSession(f.tenantId);
+
+    const response = await printerPATCH(
+      new Request("http://gateway.test/api/printers/" + encodeURIComponent(f.printerId), {
+        method: "PATCH",
+        headers: {
+          Authorization: "Bearer " + session.token,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          protocol: "ipp",
+          config: { ip: "192.168.1.50", port: 631 },
+        }),
+      }),
+      { params: Promise.resolve({ id: f.printerId }) },
+    );
+
+    expect(response.status).toBe(200);
+    const row = await pool().query(
+      "SELECT connection_type, protocol, config FROM printers WHERE id = $1",
+      [f.printerId],
+    );
+    expect(row.rows[0]).toMatchObject({ connection_type: "network", protocol: "ipp" });
+    expect(row.rows[0].config).toEqual({ ip: "192.168.1.50", port: 631 });
+  });
+
   it("never exposes one tenant's desired printer through another manager token", async () => {
     const first = await seedFixture();
     const second = await seedFixture();
