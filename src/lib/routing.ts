@@ -75,10 +75,14 @@ export function validatePayloadForPrinter(
     || (conn === "network" && proto === "ipp");
   const physicalImage = conn === "spooler" || proto === "spooler"
     || (conn === "network" && proto === "escpos");
-  const physicalByteProtocol = (protocol: string) =>
-    conn === "spooler" || proto === "spooler"
-      ? protocol === "raw" || protocol === "escpos"
-      : (conn === "network" || conn === "usb") && proto === protocol;
+  const physicalByteProtocol = (protocol: string) => {
+    if (conn === "spooler" || proto === "spooler") {
+      return protocol === "raw" || protocol === "escpos";
+    }
+    return (conn === "network" || conn === "usb")
+      && proto !== "ipp" && proto !== "ipps"
+      && (BYTE_PROTOCOLS as readonly string[]).includes(protocol);
+  };
 
   // PDF: requires a transport that can actually consume/render a document.
   if (pt === "pdf") {
