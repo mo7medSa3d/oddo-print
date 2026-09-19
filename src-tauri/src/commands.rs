@@ -388,6 +388,74 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     Ok(GatewayResponse { status, body })
 }
 
+#[derive(Deserialize)]
+pub struct AgentGatewayRequestArgs {
+    pub path: String,
+    pub method: String,
+    pub body: Option<String>,
+}
+
+fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
+    let method = method.to_ascii_uppercase();
+    match method.as_str() {
+        "GET" => path == "/api/printers" || path == "/api/jobs" || path == "/api/agents",
+        "POST" => path == "/api/printers"
+            || path.ends_with("/test-connection")
+            || path.ends_with("/test-print"),
+        "PATCH" => path.starts_with("/api/printers/") && !path.contains("?"),
+        _ => false,
+    }
+}
+
+#[tauri::command]
+pub async fn gateway_agent_request(args: AgentGatewayRequestArgs, app: tauri::AppHandle) -> Result<String, String> {
+    let path = args.path.trim().to_string();
+    let method = args.method.trim().to_ascii_uppercase();
+    if !path.starts_with("/api/") || path.contains("..") || path.contains('\\') {
+        return Err("gateway request path must be an API-relative path".into());
+    }
+    if !allowed_agent_gateway_path(&path, &method) {
+        return Err("gateway request is not permitted for the desktop Agent console".into());
+    }
+    if args.body.as_ref().map(|b| b.len() > 8 * 1024 * 1024).unwrap_or(false) {
+        return Err("gateway request body exceeds 8 MiB".into());
+    }
+    run_blocking(move || {
+        let cli = agent::cli_path(&app)?;
+        let config = paths::agent_config_path();
+        let root = paths::agent_data_root();
+        let mut request_cmd = std::process::Command::new(&cli);
+        request_cmd
+            .arg("gateway-request")
+            .arg("-method")
+            .arg(&method)
+            .arg("-path")
+            .arg(&path)
+            .arg("-config")
+            .arg(&config)
+            .env("YASSER_AGENT_DATA_DIR", &root);
+        if let Some(body) = args.body {
+            request_cmd.arg("-body").arg(body);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            request_cmd.creation_flags(0x0800_0000);
+        }
+        let out = request_cmd
+            .output()
+            .map_err(|e| format!("failed to run agent Gateway request: {e}"))?;
+        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        if !out.status.success() {
+            let msg = if stderr.is_empty() { stdout } else { stderr };
+            return Err(msg);
+        }
+        Ok(stdout)
+    })
+    .await
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct GatewayConfig {
     pub url: String,
