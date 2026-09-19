@@ -6,7 +6,7 @@ import { requireManagerPermission } from "../../../../lib/authorization";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { canTransitionLifecycle } from "../../../../lib/lifecycle";
-import { PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, assertPrinterMetadataLimits, validateConnectionConfig } from "../../../../lib/printer-model";
+import { PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, assertPrinterMetadataLimits, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { writeAuditEvent } from "../../../../lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -88,9 +88,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     const connectionType = parsed.data.connectionType ?? existing.connectionType;
+    const protocol = parsed.data.protocol ?? existing.protocol;
     const cfg = (parsed.data.config ?? existing.config ?? {}) as Record<string, unknown>;
-    if (parsed.data.connectionType !== undefined || parsed.data.config !== undefined) {
-      const err = validateConnectionConfig(connectionType, cfg);
+    if (
+      parsed.data.connectionType !== undefined ||
+      parsed.data.protocol !== undefined ||
+      parsed.data.config !== undefined
+    ) {
+      const transportProtocolError = validatePrinterTransportProtocol(connectionType, protocol);
+      if (transportProtocolError) {
+        return { kind: "invalid" as const, message: transportProtocolError };
+      }
+      const err = validateConnectionConfig(connectionType, cfg, protocol);
       if (err) return { kind: "invalid" as const, message: err };
     }
 
