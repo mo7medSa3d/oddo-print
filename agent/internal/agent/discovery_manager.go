@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/yasser-agent/agent/internal/printer"
@@ -116,8 +117,15 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string)
 				sources = append(sources, fmt.Sprint(v))
 			}
 		}
-		if di.Protocol == "ipp" {
-			sources = append(sources, "ipp")
+		if di.Protocol == "ipp" || di.Protocol == "ipps" {
+			sources = append(sources, di.Protocol)
+		}
+
+		deviceClass := strings.ToLower(strings.TrimSpace(di.PrinterType))
+		switch deviceClass {
+		case "thermal", "laser", "inkjet", "label", "other", "unknown":
+		default:
+			deviceClass = "unknown"
 		}
 
 		confidence := "low"
@@ -133,13 +141,21 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string)
 			uri = di.Endpoint
 		}
 
+		uri := ""
+		if di.Protocol == "ipp" || di.Protocol == "ipps" {
+			uri = di.Endpoint
+		}
 		dev := map[string]interface{}{
 			"source":       sources,
 			"protocol":     di.Protocol,
 			"ipAddress":    di.NetworkAddress,
 			"port":         di.Port,
+			"uri":          uri,
 			"deviceName":   di.Name,
-			"manufacturer": di.Capabilities["manufacturer"],
+			"spoolerName":  di.SpoolerName,
+			"deviceClass":  deviceClass,
+			"transport":    di.ConnectionType,
+			"manufacturer": func() interface{} { if di.Capabilities != nil { return di.Capabilities["manufacturer"] }; return nil }(),
 			"model":        di.Name,
 			"confidence":   confidence,
 			"verification": verification,
