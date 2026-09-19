@@ -485,7 +485,9 @@ export async function updateGatewayPrinter(
 ): Promise<PrinterInfo> {
   const base = normalizeGatewayUrl(gatewayUrl);
   const headers = { "Content-Type": "application/json", ...(await managerGatewayHeaders()) };
-  const { status, body } = await gatewayConsoleRequest(
+  // Printer desired-state mutations are Manager-only at the Gateway HTTP boundary.
+  // Use the Rust manager transport, not the Agent console allowlist.
+  const { status, body } = await gatewayRequest(
     base,
     "/api/printers/" + encodeURIComponent(printerId),
     "PATCH",
