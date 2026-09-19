@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { printers, agents } from "../../../../../db/schema";
-import { validateManager } from "../../../../../lib/manager-auth";
 import { validateConsoleAuth } from "../../../../../lib/console-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
