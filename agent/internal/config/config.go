@@ -510,8 +510,14 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 		// USB entries backed by an explicitly named Windows spooler queue are
 		// executed through the spooler backend and therefore do not require raw
 		// USB VID/PID identifiers. Direct USB transport still requires both.
-		if strings.TrimSpace(p.SpoolerName) == "" && (p.USBVID == "" || p.USBPID == "") {
-			return fmt.Errorf("printer %s: usb_vid and usb_pid are required for direct USB transport", p.ID)
+		if strings.TrimSpace(p.SpoolerName) == "" {
+			if p.USBVID == "" || p.USBPID == "" {
+				return fmt.Errorf("printer %s: usb_vid and usb_pid are required for direct USB transport", p.ID)
+			}
+			ep := strings.TrimSpace(p.Endpoint)
+			if !strings.HasPrefix(ep, `\\?\`) && !strings.HasPrefix(ep, `\\.\`) {
+				return fmt.Errorf("printer %s: direct USB endpoint must be a Windows device path (\\?\\... or \\.\\...)", p.ID)
+			}
 		}
 	}
 	if nt == "spooler" && strings.TrimSpace(p.SpoolerName) == "" {
