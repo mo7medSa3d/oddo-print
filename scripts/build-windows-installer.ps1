@@ -148,9 +148,9 @@ Write-Step "Verifying installer artifacts"
 $artifacts = @()
 if ($Bundles -match "nsis") {
   $nsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\Yasser Manager_*-setup.exe") -File -ErrorAction SilentlyContinue)
-  $legacyNsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\*Yasser Manager*.exe") -File -ErrorAction SilentlyContinue)
   if ($nsis.Count -ne 1) { throw "Expected exactly one Yasser Manager NSIS installer under $bundleDir\nsis; found $($nsis.Count)" }
-  if ($legacyNsis.Count -ne 0) { throw "Legacy Yasser Manager NSIS output detected." }
+  $unexpectedNsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\*.exe") -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $nsis[0].Name })
+  if ($unexpectedNsis.Count -ne 0) { throw "Unexpected extra NSIS executable(s) detected: $($unexpectedNsis.Name -join ', ')" }
   $artifacts += $nsis
 }
 if ($Bundles -match "msi") {
