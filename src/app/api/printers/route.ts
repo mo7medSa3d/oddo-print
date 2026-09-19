@@ -5,7 +5,7 @@ import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { nanoid } from "../../../lib/nanoid";
-import { parsePrinterInput, validateConnectionConfig } from "../../../lib/printer-model";
+import { parsePrinterInput, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../lib/printer-model";
 import { writeAuditEvent } from "../../../lib/audit";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../../../lib/entitlements";
 import { getEffectivePrinterStatus } from "../../../lib/agent-availability";
