@@ -44,6 +44,8 @@ func TestCapabilityTableParity(t *testing.T) {
 		{"unknown+spooler escpos rejected", "escpos", "escpos", "unknown", "spooler", nil, false},
 		// Explicit caps are authoritative either way.
 		{"declared escpos caps allow escpos on raw pipe", "escpos", "escpos", "raw", "network", []string{"escpos"}, true},
+		{"declared zpl caps allow zpl on USB byte stream", "raw", "zpl", "raw", "usb", []string{"zpl"}, true},
+		{"declared tspl caps allow tspl on RAW TCP byte stream", "raw", "tspl", "raw", "network", []string{"tspl"}, true},
 		{"declared empty caps deny escpos even on escpos transport", "escpos", "escpos", "escpos", "network", []string{}, false},
 		{"declared pdf caps cannot add renderer to raw pipe", "pdf", "", "raw", "network", []string{"pdf"}, false},
 		{"declared caps cannot smuggle a protocol", "pdf", "raw", "spooler", "spooler", []string{"pdf"}, false},
