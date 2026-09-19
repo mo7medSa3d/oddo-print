@@ -80,7 +80,7 @@ export function validatePayloadForPrinter(
       return protocol === "raw" || protocol === "escpos";
     }
     return (conn === "network" || conn === "usb")
-      && proto !== "ipp" && proto !== "ipps"
+      && proto === protocol
       && (BYTE_PROTOCOLS as readonly string[]).includes(protocol);
   };
 
