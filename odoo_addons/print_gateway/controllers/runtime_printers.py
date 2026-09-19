@@ -65,7 +65,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         try:
             response = requests.get(
                 '%s/api/odoo/agents' % config._gateway_base(for_request=True),
-                headers=config._gateway_headers(), timeout=(3, 5), allow_redirects=False,
+                headers=config._gateway_headers(), timeout=5, allow_redirects=False,
             )
             if response.status_code != 200:
                 raise ValidationError('Gateway agent discovery failed (HTTP %s).' % response.status_code)
@@ -120,7 +120,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         try:
             agent_response = requests.get(
                 '%s/api/odoo/agents' % config._gateway_base(for_request=True),
-                headers=config._gateway_headers(), timeout=(3, 5), allow_redirects=False,
+                headers=config._gateway_headers(), timeout=5, allow_redirects=False,
             )
             if agent_response.status_code != 200:
                 raise ValidationError('Gateway agent discovery failed (HTTP %s).' % agent_response.status_code)
@@ -142,7 +142,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 '%s/api/odoo/printers' % config._gateway_base(for_request=True),
                 headers=config._gateway_headers(),
                 params={'agent_id': selected_agent_id},
-                timeout=(3, 5), allow_redirects=False,
+                timeout=5, allow_redirects=False,
             )
             if response.status_code != 200:
                 raise ValidationError('Gateway printer discovery failed (HTTP %s).' % response.status_code)
