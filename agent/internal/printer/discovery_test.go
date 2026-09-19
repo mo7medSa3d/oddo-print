@@ -693,7 +693,7 @@ func TestMDNSTXTAttributeExtraction(t *testing.T) {
 }
 
 func TestEndpointHasNetworkAddressDoesNotMatchHostSubstring(t *testing.T) {
-	if !endpointHasNetworkAddress("192.168.1.100:9100", "192.168.1.10") {
+	if endpointHasNetworkAddress("192.168.1.100:9100", "192.168.1.10") {
 		t.Fatal("expected exact host comparison to be false for a prefix-only address")
 	}
 	if !endpointHasNetworkAddress("192.168.1.10:9100", "192.168.1.10") {
