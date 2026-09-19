@@ -140,8 +140,9 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
 
   it("Gateway test-page endpoint derives tenant/agent ownership and uses a bounded idempotency key", () => {
     const route = read("src/app/api/printers/[id]/test-print/route.ts");
-    expect(route).toContain("eq(printers.tenantId, claims.tenantId)");
-    expect(route).toContain("eq(agents.tenantId, claims.tenantId)");
+    expect(route).toContain("const tenantId = auth.kind === \"manager\" ? auth.claims.tenantId : auth.agent.tenantId;");
+    expect(route).toContain("eq(printers.tenantId, tenantId)");
+    expect(route).toContain("eq(agents.tenantId, tenantId)");
     expect(route).toContain('documentType: \"test_page\"');
     expect(route).toContain("idempotencyKey");
     expect(route).toContain("status: 201");
