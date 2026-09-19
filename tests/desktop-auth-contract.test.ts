@@ -21,12 +21,12 @@ describe("desktop manager authentication contract", () => {
     expect(source).not.toContain('credentials: "include"');
   });
 
-  it("rejects remote HTTP Gateway URLs in the production desktop build", () => {
+  it("allows the isolated HTTP test branch to use a remote IP over HTTP", () => {
     const commands = read("src-tauri/src/commands.rs");
     expect(commands).toContain('if scheme == "http"');
-    expect(commands).toContain('if !local {');
-    expect(commands).toContain('Gateway URL must use HTTPS for remote Gateways');
+    expect(commands).toContain("This isolated test branch intentionally accepts remote HTTP");
     expect(commands).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
+    expect(commands).not.toContain("Gateway URL must use HTTPS for remote Gateways");
   });
 
   it("gateway CORS is explicit and never wildcarded", () => {
