@@ -77,8 +77,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
     }
 
-    const printerConfig = { ip: device.ipAddress ?? undefined, port: device.port ?? undefined, address: device.uri ?? undefined };
-    const configError = validateConnectionConfig(transport.connectionType, printerConfig);
+    const ippAddress = device.uri
+      ?? (device.ipAddress && device.port
+        ? transport.protocol + "://" + device.ipAddress + ":" + String(device.port) + "/ipp/print"
+        : undefined);
+    const printerConfig = transport.connectionType === "spooler"
+      ? { spooler_name: device.spoolerName ?? device.deviceName ?? undefined, address: device.spoolerName ?? device.deviceName ?? undefined }
+      : transport.connectionType === "ipp" || transport.connectionType === "ipps"
+        ? { address: ippAddress }
+        : { ip: device.ipAddress ?? undefined, port: device.port ?? undefined };
+    const configError = validateConnectionConfig(transport.connectionType, printerConfig, transport.protocol);
     if (configError) return { kind: "invalid_endpoint" as const, error: configError };
 
     const printerId = `printer_${nanoid(10)}`;
