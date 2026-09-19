@@ -93,6 +93,18 @@ describe("payload", () => {
     })).toThrow(/no supported test ticket format/i);
   });
 
+  it("routes network IPP test tickets to PDF instead of a byte-stream format", async () => {
+    const { buildTestPrintPayloadForPrinter, validatePrintJobPayload } = await import("../src/lib/payload");
+    const payload = buildTestPrintPayloadForPrinter("IPP Printer", "Agent", {
+      connectionType: "network",
+      protocol: "ipp",
+      capabilities: null,
+    });
+    expect(payload.type).toBe("pdf");
+    expect(payload.protocol).toBeUndefined();
+    expect(validatePrintJobPayload(payload).type).toBe("pdf");
+  });
+
   it("test payload is decodable and has cut command", () => {
     const p = buildTestPrintPayload("Receipt", "Main");
     const decoded = Buffer.from(p.data, "base64").toString("binary");
