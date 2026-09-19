@@ -17,7 +17,7 @@ export async function GET(req: Request) {
   const auth = await validateConsoleAuth(req);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const tenantId = auth.kind === "manager" ? auth.tenantId : auth.agent.tenantId;
+  const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
   const agentId = auth.kind === "agent" ? auth.agent.id : null;
   if (auth.kind === "manager") {
     try { requireManagerPermission(auth.claims, "printers.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
@@ -87,8 +87,8 @@ export async function POST(req: Request) {
         const created = inserted[0];
         await writeAuditEvent({
           tenantId: tenantId,
-          actorType: auth.kind === "manager" ? auth.claims.userId : undefined ? "user" : "system",
-          actorId: auth.kind === "manager" ? auth.claims.userId : undefined ?? "legacy-manager",
+          actorType: auth.kind === "manager" && auth.claims.userId ? "user" : "system",
+          actorId: auth.kind === "manager" ? (auth.claims.userId ?? "legacy-manager") : auth.agent.id,
           action: "printer.registered",
           resourceType: "printer",
           resourceId: created.id,
