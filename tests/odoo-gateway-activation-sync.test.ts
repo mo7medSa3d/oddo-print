@@ -48,6 +48,8 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(model).toContain("api.SUPERUSER_ID");
     expect(model).toContain("skip_enabled_sync");
     expect(model).toContain("def cron_sync_enabled_state");
+    expect(model).toContain("config._sync_enabled_state_to_gateway(");
+    expect(model).toContain("config._gateway_api_key_plaintext()");
     expect(model).toContain("last_enabled_sync_error");
 
     expect(cron).toContain('id="cron_sync_gateway_enabled_state"');
