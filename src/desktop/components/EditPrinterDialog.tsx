@@ -45,6 +45,7 @@ function protocolOptions(connectionType: ConnectionType): Array<{ value: string;
         { value: "zpl", label: "ZPL" },
         { value: "tspl", label: "TSPL" },
         { value: "ipp", label: "IPP" },
+        { value: "unknown", label: "Unknown" },
       ];
   }
 }
