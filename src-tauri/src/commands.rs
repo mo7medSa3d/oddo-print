@@ -395,14 +395,40 @@ pub struct AgentGatewayRequestArgs {
     pub body: Option<String>,
 }
 
+fn valid_gateway_printer_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '~')
+        })
+}
+
+fn gateway_printer_action_path(path: &str, action: &str) -> bool {
+    let prefix = "/api/printers/";
+    let Some(rest) = path.strip_prefix(prefix) else {
+        return false;
+    };
+    let mut parts = rest.split('/');
+    let id = parts.next().unwrap_or("");
+    let selected_action = parts.next().unwrap_or("");
+    parts.next().is_none() && selected_action == action && valid_gateway_printer_id(id)
+}
+
 fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
     let method = method.to_ascii_uppercase();
     match method.as_str() {
         "GET" => path == "/api/printers" || path == "/api/jobs" || path == "/api/agents",
         "POST" => path == "/api/printers"
-            || path.ends_with("/test-connection")
-            || path.ends_with("/test-print"),
-        "PATCH" => path.starts_with("/api/printers/") && !path.contains("?"),
+            || gateway_printer_action_path(path, "test-connection")
+            || gateway_printer_action_path(path, "test-print"),
+        "PATCH" => {
+            let prefix = "/api/printers/";
+            let Some(rest) = path.strip_prefix(prefix) else {
+                return false;
+            };
+            let mut parts = rest.split('/');
+            let id = parts.next().unwrap_or("");
+            parts.next().is_none() && valid_gateway_printer_id(id)
+        }
         _ => false,
     }
 }
