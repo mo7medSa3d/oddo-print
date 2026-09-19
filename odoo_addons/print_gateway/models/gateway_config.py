@@ -273,6 +273,8 @@ class PrintGatewayConfig(models.Model):
     def write(self, vals):
         sync_fields = {"enabled", "gateway_url", "gateway_api_key"}
         skip_enabled_sync = bool(self.env.context.get("skip_enabled_sync"))
+        if set(vals).intersection({"gateway_url", "gateway_api_key", "enabled", "company_id", "runtime_agent_id"}):
+            self._check_admin()
         pre_sync_credentials = {}
         if "gateway_api_key" in vals and not vals["gateway_api_key"]:
             for record in self:
@@ -288,8 +290,6 @@ class PrintGatewayConfig(models.Model):
                     # a remote disable. The write itself must still be allowed;
                     # the Gateway state will surface the existing credential error.
                     continue
-        if set(vals).intersection({"gateway_url", "gateway_api_key", "enabled", "company_id", "runtime_agent_id"}):
-            self._check_admin()
         vals = dict(vals)
         before_enabled = {record.id: bool(record.enabled) for record in self}
         if "gateway_api_key" in vals and vals["gateway_api_key"]:
