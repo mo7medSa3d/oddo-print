@@ -90,11 +90,13 @@ export function HeaderNav() {
               Start trial
             </Link>
           )}
-          <button type="button" onClick={() => setMobileOpen(!mobileOpen)}
-            className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border border-edge bg-surface text-ink-2 hover:bg-surface-2 focusable ${authenticated === true ? "" : "hidden sm:inline-flex"}`}
-            aria-label={mobileOpen ? "Close menu" : "Open menu"} aria-expanded={mobileOpen}>
-            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
+          {authenticated === true && (
+            <button type="button" onClick={() => setMobileOpen(!mobileOpen)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-edge bg-surface text-ink-2 hover:bg-surface-2 focusable md:hidden"
+              aria-label={mobileOpen ? "Close menu" : "Open menu"} aria-expanded={mobileOpen}>
+              {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+          )}
         </div>
       </div>
       {mobileOpen && authenticated === true && (
