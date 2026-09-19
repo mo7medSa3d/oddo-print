@@ -2,7 +2,6 @@ package printer
 
 import (
 	"fmt"
-	"net"
 	"strconv"
 	"strings"
 
@@ -73,19 +72,16 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 				DevicePath:   cfg.Endpoint,
 			}, nil
 		}
-		// CASE B: USB device has a Windows spooler queue -> use spooler (preferred)
-		if cfg.SpoolerName != "" {
-			return NewSpooler(cfg.SpoolerName, cfg.Name), nil
+		// Reaching this point means direct USB transport. Never reinterpret an
+		// arbitrary endpoint (for example a printer display name) as a Windows
+		// spooler queue; that would bypass the transport contract and could route
+		// a job to an unintended queue. Config.NormalizedType already promotes
+		// USB entries with spooler_name to type=spooler.
+		// USBPrinter.Print uses the supplied Windows device interface path via
+		// CreateFile + WriteFile. Validation is fail-closed if the path is absent.
+		if cfg.Endpoint == "" {
+			return nil, fmt.Errorf("printer %s: direct USB transport requires a Windows device path; configure type=spooler with spooler_name for a Windows print queue", cfg.ID)
 		}
-		if cfg.Endpoint != "" && !isNetworkEndpoint(cfg.Endpoint) {
-			// Endpoint is spooler name for USB-via-spooler (e.g., "HP LaserJet")
-			return NewSpooler(cfg.Endpoint, cfg.Name), nil
-		}
-		// CASE B: USB device exists as raw USB without a spooler queue.
-		// USBPrinter.Print uses the discovered Windows device path via
-		// CreateFile + WriteFile (see usb_windows.go). If no device path was
-		// discovered, Print returns an explicit diagnostic error telling the
-		// admin to install the printer as a Windows printer and use spooler.
 		vid := parseHex16(cfg.USBVID)
 		pid := parseHex16(cfg.USBPID)
 		return &USBPrinter{
@@ -112,16 +108,6 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 	}
 }
 
-func isNetworkEndpoint(ep string) bool {
-	if ep == "" {
-		return false
-	}
-	if len(ep) > 0 && ep[0] == '\\' {
-		return false
-	}
-	_, _, err := net.SplitHostPort(ep)
-	return err == nil
-}
 
 func parseHex16(s string) uint16 {
 	s = strings.TrimSpace(s)
