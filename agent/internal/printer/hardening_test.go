@@ -1,7 +1,6 @@
 package printer
 
 import (
-	"context"
 	"net"
 	"path/filepath"
 	"strings"
