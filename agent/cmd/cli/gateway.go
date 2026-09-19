@@ -18,7 +18,6 @@ import (
 
 const gatewayRequestMaxBody = 8 * 1024 * 1024
 
-var gatewayPrinterPathRe = regexp.MustCompile("^/api/printers(?:/[A-Za-z0-9._~-]+(?:/(?:test-connection|test-print))?)?$")
 var gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/(?:test-connection|test-print)$")
 var gatewayAgentPathRe = regexp.MustCompile("^/api/agents(?:/[A-Za-z0-9._~-]+)?$")
 
