@@ -150,7 +150,10 @@ export function AddPrinterDialog({
           } else {
             req.endpoint = sel.endpoint
               || (typeof sourceConfig.address === "string" ? sourceConfig.address : "");
-            req.protocol = sel.protocol || "raw";
+            // Discovery may not have enough evidence to prove a byte protocol.
+            // Preserve that uncertainty instead of guessing RAW and making an
+            // otherwise unverified USB device routable.
+            req.protocol = sel.protocol || "unknown";
           }
         }
       }
