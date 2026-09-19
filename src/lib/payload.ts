@@ -172,11 +172,14 @@ export function buildTestPrintPayloadForPrinter(
     ? capabilities.supported_protocols.map((p) => String(p).toLowerCase().trim())
     : [];
   const byteCandidates = ["escpos", "zpl", "tspl", "raw"] as const;
-  const byteProto = byteCandidates.find((p) => {
-    if (hasExplicitCaps && !supported.includes(p)) return false;
-    if (p === "escpos") return conn === "network" || conn === "spooler" || conn === "usb";
-    return conn === "network" || conn === "spooler" || conn === "usb";
-  }) ?? "";
+  const declaredByteProtocol = byteCandidates.includes(declared as (typeof byteCandidates)[number])
+    ? declared as (typeof byteCandidates)[number]
+    : null;
+  const allows = (candidate: string) => !hasExplicitCaps || supported.includes(candidate);
+  const byteProto =
+    (declaredByteProtocol && allows(declaredByteProtocol) ? declaredByteProtocol : null) ??
+    byteCandidates.find((candidate) => allows(candidate)) ??
+    "";
   const name = safeTestText(printerName);
   const agent = safeTestText(agentName);
   const stamp = new Date().toISOString().replace("T", " ").slice(0, 19);
