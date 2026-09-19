@@ -4,7 +4,7 @@ import { agents } from "../../../db/schema";
 import { validateManager } from "../../../lib/manager-auth";
 import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { createAgent } from "../../actions";
 import { ActionError } from "../../../lib/action-error";
