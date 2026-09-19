@@ -254,7 +254,7 @@ class PrintGatewayBinding(models.Model):
                 _("The selected Gateway Runtime Agent is not assigned to the current Odoo Branch.")
             )
         try:
-            response = requests.get("%s/api/odoo/agents" % config._gateway_base(for_request=True), headers=config._gateway_headers(), timeout=(5, 10), allow_redirects=False)
+            response = requests.get("%s/api/odoo/agents" % config._gateway_base(for_request=True), headers=config._gateway_headers(), timeout=10, allow_redirects=False)
             if response.status_code != 200:
                 raise ValidationError(_("Gateway agent discovery failed (HTTP %s).") % response.status_code)
             body = response.json()
@@ -272,7 +272,7 @@ class PrintGatewayBinding(models.Model):
                 % (agent_match.get("name") or self.runtime_agent_id, agent_match.get("lifecycle"))
             )
         try:
-            response = requests.get("%s/api/odoo/printers" % config._gateway_base(for_request=True), headers=config._gateway_headers(), timeout=(5, 10), allow_redirects=False)
+            response = requests.get("%s/api/odoo/printers" % config._gateway_base(for_request=True), headers=config._gateway_headers(), timeout=10, allow_redirects=False)
             if response.status_code != 200:
                 raise ValidationError(_("Gateway printer discovery failed (HTTP %s).") % response.status_code)
             body = response.json()
