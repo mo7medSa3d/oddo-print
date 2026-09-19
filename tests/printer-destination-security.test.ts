@@ -47,6 +47,22 @@ describe("printer destination security policy", () => {
     expect(parsed.protocol).toBe("spooler");
   });
 
+  it("rejects incomplete direct USB registration metadata", async () => {
+    const { parsePrinterInput } = await import("../src/lib/printer-model");
+    expect(() => parsePrinterInput({
+      name: "USB Missing IDs", agentId: "a1", connectionType: "usb", protocol: "raw",
+      config: { address: "\\\\\\?\\usb#device" },
+    })).toThrow(/direct USB printer requires config\.(vid|pid)/i);
+    expect(() => parsePrinterInput({
+      name: "USB Missing Path", agentId: "a1", connectionType: "usb", protocol: "raw",
+      config: { vid: 1234, pid: 5678 },
+    })).toThrow(/config\.address/i);
+    expect(parsePrinterInput({
+      name: "USB Complete", agentId: "a1", connectionType: "usb", protocol: "raw",
+      config: { vid: 1234, pid: 5678, address: "\\\\\\?\\usb#device" },
+    }).connectionType).toBe("usb");
+  });
+
   it("rejects contradictory USB transport protocols", async () => {
     const { parsePrinterInput } = await import("../src/lib/printer-model");
     expect(() => parsePrinterInput({
