@@ -436,7 +436,13 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 			return fmt.Errorf("printer %s: network endpoint required", p.ID)
 		}
 		if nt == "ipp" || nt == "ipps" || strings.HasPrefix(proto, "ipp") || strings.HasPrefix(strings.ToLower(ep), "ipp://") || strings.HasPrefix(strings.ToLower(ep), "ipps://") || strings.HasPrefix(strings.ToLower(ep), "http://") || strings.HasPrefix(strings.ToLower(ep), "https://") {
-			u, err := url.Parse(ep)
+			normalizedEndpoint := ep
+			if proto == "ipp" && !strings.Contains(ep, "://") {
+				if host, port, splitErr := net.SplitHostPort(ep); splitErr == nil && host != "" && port != "" {
+					normalizedEndpoint = "http://" + net.JoinHostPort(strings.Trim(host, "[]"), port) + "/ipp/print"
+				}
+			}
+			u, err := url.Parse(normalizedEndpoint)
 			if err != nil || u.Hostname() == "" {
 				return fmt.Errorf("printer %s: invalid IPP endpoint %q", p.ID, p.Endpoint)
 			}
