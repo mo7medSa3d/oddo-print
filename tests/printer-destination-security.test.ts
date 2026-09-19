@@ -48,5 +48,4 @@ describe("printer destination security policy", () => {
       config: { spooler_name: "HP" },
     })).toThrow(/spooler protocol/i);
   });
-  });
 });
