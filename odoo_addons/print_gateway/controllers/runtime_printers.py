@@ -174,6 +174,6 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 'connectionType': printer.get('connectionType') if isinstance(printer.get('connectionType'), str) else 'unknown',
                 'protocol': printer.get('protocol') if isinstance(printer.get('protocol'), str) else 'unknown',
                 'agentId': returned_agent_id,
-                'agentName': agent.get('name') if isinstance(agent.get('name'), str) else agent_id,
+                'agentName': agent.get('name') if isinstance(agent.get('name'), str) else selected_agent_id,
             })
         return {'enabled': True, 'selectedAgentId': selected_agent_id, 'printers': sanitized}
