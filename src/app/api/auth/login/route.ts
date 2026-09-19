@@ -14,8 +14,17 @@ export async function POST(req: Request) {
   const tenantId = typeof body.tenantId === "string" && body.tenantId.length <= 128 ? body.tenantId : undefined;
   if (!email || !password || password.length > 4096) return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
   const ip = clientIpFrom(req);
-  const pre = await reserveAuthAttempt(ip, email);
-  if (!pre.allowed) { const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 }); res.headers.set("Retry-After", String(pre.retryAfterSec)); return res; }
+  let pre: Awaited<ReturnType<typeof reserveAuthAttempt>>;
+  try {
+    pre = await reserveAuthAttempt(ip, email);
+  } catch {
+    return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });
+  }
+  if (!pre.allowed) {
+    const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
+    res.headers.set("Retry-After", String(pre.retryAfterSec));
+    return res;
+  }
   let identity: Awaited<ReturnType<typeof authenticateForTenant>>;
   try { identity = await authenticateForTenant(email, password, tenantId); } catch { identity = null; }
   if (!identity) {
