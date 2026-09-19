@@ -160,10 +160,14 @@ async function gatewayConsoleRequest(
   if (!isTauri) {
     return gatewayRequest(base, path, method, headers, body);
   }
-  const responseBody = await invoke<string>("gateway_agent_request", {
+  const responseEnvelope = await invoke<string>("gateway_agent_request", {
     args: { path, method, body: body ?? null },
   });
-  return { status: 200, body: responseBody };
+  const response = JSON.parse(responseEnvelope) as Partial<GatewayResponse>;
+  if (typeof response.status !== "number" || typeof response.body !== "string") {
+    throw new Error("Invalid Gateway response envelope");
+  }
+  return { status: response.status, body: response.body };
 }
 
 export async function loginManager(
