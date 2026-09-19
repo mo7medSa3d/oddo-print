@@ -105,7 +105,20 @@ export function printerEndpoint(p: PrinterInfo): string {
 /* ---------- Errors ---------- */
 
 export function errMsg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object") {
+    const value = e as Record<string, unknown>;
+    for (const key of ["message", "error", "reason"]) {
+      if (typeof value[key] === "string" && value[key].trim()) return value[key] as string;
+    }
+    try {
+      return JSON.stringify(e);
+    } catch {
+      return "Unknown error";
+    }
+  }
+  return String(e);
 }
 
 export function friendlyPrinterError(raw: string): string {
