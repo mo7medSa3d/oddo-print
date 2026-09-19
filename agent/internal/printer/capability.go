@@ -58,7 +58,18 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		if conn == "spooler" || proto == "spooler" {
 			return protocol == "raw" || protocol == "escpos"
 		}
-		return (conn == "network" || conn == "usb") && proto == protocol
+		if conn != "network" && conn != "usb" {
+			return false
+		}
+		if proto == "ipp" || proto == "ipps" {
+			return false
+		}
+		switch protocol {
+		case "raw", "escpos", "zpl", "tspl":
+			return true
+		default:
+			return false
+		}
 	}
 
 	capabilityListed := func(names ...string) bool {
