@@ -132,10 +132,11 @@ export function EditPrinterDialog({
 
     if (connectionType === "network") {
       const n = Number(port);
-      const expectedPort = protocol === "ipp" ? 631 : 9100;
-      if (!host.trim() || !Number.isInteger(n) || n !== expectedPort) {
+      const ippPorts = new Set([80, 443, 631]);
+      const validPort = protocol === "ipp" ? ippPorts.has(n) : n === 9100;
+      if (!host.trim() || !Number.isInteger(n) || !validPort) {
         onError(protocol === "ipp"
-          ? "Network IPP printers require a private host and TCP port 631."
+          ? "Network IPP printers require a private host and TCP port 80, 443, or 631."
           : "Network printers require a private host and TCP port 9100.");
         return;
       }
