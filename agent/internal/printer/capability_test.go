@@ -48,6 +48,9 @@ func TestCapabilityTableParity(t *testing.T) {
 		{"declared pdf caps cannot add renderer to raw pipe", "pdf", "", "raw", "network", []string{"pdf"}, false},
 		{"declared caps cannot smuggle a protocol", "pdf", "raw", "spooler", "spooler", []string{"pdf"}, false},
 		// ipp and ipps are the same document transport everywhere checked.
+		{"USB-backed spooler prints pdf", "pdf", "", "spooler", "usb", nil, true},
+		{"USB-backed spooler prints image", "image", "", "spooler", "usb", nil, true},
+		{"USB-backed spooler prints escpos", "escpos", "escpos", "spooler", "usb", nil, true},
 		{"ipps transport prints pdf like ipp", "pdf", "", "ipps", "ipps", nil, true},
 		{"declared ipps caps cannot turn raw pipe into IPPS renderer", "pdf", "", "raw", "network", []string{"ipps"}, false},
 		{"declared ipps caps cannot add renderer to raw pipe", "image", "", "raw", "network", []string{"ipps"}, false},
