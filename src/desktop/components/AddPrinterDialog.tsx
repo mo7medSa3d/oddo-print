@@ -131,15 +131,20 @@ export function AddPrinterDialog({
       if (conn === "usb") {
         const sel = usbPrinters.find((p) => p.id === usbSel);
         if (sel) {
-          req.usbVid = sel.usbVid;
-          req.usbPid = sel.usbPid;
-          req.usbSerial = sel.usbSerial;
-          if (sel.spooler_name) {
-            req.spoolerName = sel.spooler_name;
-            req.endpoint = sel.spooler_name;
+          const sourceConfig = sel.config && typeof sel.config === "object"
+            ? sel.config as Record<string, unknown>
+            : {};
+          req.usbVid = sel.usbVid ?? (sourceConfig.vid != null ? String(sourceConfig.vid) : undefined);
+          req.usbPid = sel.usbPid ?? (sourceConfig.pid != null ? String(sourceConfig.pid) : undefined);
+          req.usbSerial = sel.usbSerial ?? (sourceConfig.serial != null ? String(sourceConfig.serial) : undefined);
+          const discoveredSpooler = sel.spooler_name ?? (typeof sourceConfig.spooler_name === "string" ? sourceConfig.spooler_name : "");
+          if (discoveredSpooler.trim()) {
+            req.spoolerName = discoveredSpooler.trim();
+            req.endpoint = discoveredSpooler.trim();
             req.protocol = "spooler";
           } else {
-            req.endpoint = sel.endpoint || sel.network_address || sel.networkAddress || "";
+            req.endpoint = sel.endpoint
+              || (typeof sourceConfig.address === "string" ? sourceConfig.address : "");
             req.protocol = sel.protocol || "raw";
           }
         }
