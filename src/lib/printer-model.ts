@@ -115,6 +115,10 @@ export function validateConnectionConfig(connectionType: string, cfg: Record<str
       if (addressErr) return addressErr;
       try {
         const parsed = new URL(cfg.address.includes("://") ? cfg.address : `http://${cfg.address}`);
+        const scheme = parsed.protocol.toLowerCase();
+        if (connectionType === "ipps" && !["https:", "ipps:"].includes(scheme)) {
+          return "IPPS printer requires an HTTPS/IPPS address";
+        }
         if (parsed.port) {
           const portErr = validatePrinterPort(connectionType, Number(parsed.port));
           if (portErr) return portErr;
