@@ -185,6 +185,12 @@ class PrintGatewayConfig(models.Model):
                 timeout=(5, 10),
                 allow_redirects=False,
             )
+            # Do not parse an authentication-failure body: a revoked/deleted
+            # API key may return HTML or an empty response. The sync worker
+            # records the failure and the retry cron can converge after a new
+            # key is configured.
+            if response.status_code == 401:
+                raise ValidationError(_("Gateway activation synchronization was rejected because the API key is unauthorized."))
             body = response.json() if response.content else {}
             if response.status_code != 200 or not isinstance(body, dict) or body.get("ok") is not True:
                 message = body.get("error") if isinstance(body, dict) else False
