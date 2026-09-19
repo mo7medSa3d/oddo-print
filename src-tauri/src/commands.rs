@@ -419,8 +419,10 @@ fn valid_jobs_query(path: &str) -> bool {
     for pair in query.split('&') {
         let mut parts = pair.splitn(2, '=');
         let key = parts.next().unwrap_or("");
-        let value = parts.next().unwrap_or("");
-        if value.len() > 200 {
+        let Some(value) = parts.next() else {
+            return false;
+        };
+        if key.is_empty() || value.len() > 200 {
             return false;
         }
         if !matches!(key, "limit" | "offset" | "status" | "search" | "q" | "printerId" | "agentId") {
@@ -1267,11 +1269,12 @@ mod agent_console_path_tests {
         assert!(valid_jobs_query("/api/jobs?status=queued&offset=10&printerId=p1&agentId=a1"));
         assert!(!valid_jobs_query("/api/jobs?evil=https://example.com"));
         assert!(!valid_jobs_query("/api/jobs?limit=50&evil=x"));
-        assert!(!valid_jobs_query("/api/jobs?limit=50&search=" .to_string().as_str()));
+        assert!(!valid_jobs_query("/api/jobs?limit"));
+        assert!(!valid_jobs_query("/api/jobs?=50"));
     }
 
     #[test]
-    fn agent_console_allowlist_rejects_unrelated_test_print_endpoints() {
+    fn agent_console_allowlist_matches_desktop_jobs_requests() {
         assert!(allowed_agent_gateway_path("/api/printers", "POST"));
         assert!(allowed_agent_gateway_path("/api/printers/p1/test-print", "POST"));
         assert!(allowed_agent_gateway_path("/api/printers/p1/test-connection", "POST"));
