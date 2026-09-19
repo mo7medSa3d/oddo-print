@@ -51,7 +51,7 @@ export function HeaderNav() {
       <div className="mx-auto flex h-[68px] max-w-[1440px] items-center justify-between gap-4 px-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-8">
           <Link href="/" className="rounded-lg focusable transition-opacity hover:opacity-90" aria-label="Yasser home">
-            <BrandMark title="Print Gateway" subtitle="Enterprise print operations" />
+            <BrandMark title="Yasser" subtitle="Enterprise print operations" />
           </Link>
           <div className="hidden items-center gap-1 text-sm font-semibold md:flex" role="navigation" aria-label="Main Navigation">
             {navLinks.map(({ href, label, icon: Icon }) => {
