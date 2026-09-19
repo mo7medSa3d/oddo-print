@@ -468,11 +468,12 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 				return fmt.Errorf("printer %s: network endpoint host must be a private or link-local IP", p.ID)
 			}
 			parsed, err := strconv.Atoi(port)
-			// RAW TCP normally uses 9100, but the transport is a plain TCP byte
-			// stream and can legitimately target an explicitly configured private
-			// port. LPR remains a separate, unsupported protocol.
-			if err != nil || parsed < 1 || parsed > 65535 {
-				return fmt.Errorf("printer %s: network endpoint port must be 1-65535", p.ID)
+			// Gateway-managed network printers use the single canonical RAW TCP
+			// destination port 9100. Keeping the Agent boundary identical prevents
+			// a printer from being accepted into local config only to be rejected
+			// later by heartbeat inventory validation.
+			if err != nil || parsed != 9100 {
+				return fmt.Errorf("printer %s: network endpoint port must be 9100", p.ID)
 			}
 		}
 	}
