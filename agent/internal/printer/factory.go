@@ -59,28 +59,11 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		if protoErr != nil {
 			return nil, protoErr
 		}
-		// CASE A: Raw USB device path detected -> route directly to USBPrinter
-		if strings.HasPrefix(cfg.Endpoint, `\\?\`) || strings.HasPrefix(cfg.Endpoint, `\\.\`) {
-			vid := parseHex16(cfg.USBVID)
-			pid := parseHex16(cfg.USBPID)
-			return &USBPrinter{
-				ID:           cfg.ID,
-				Name:         cfg.Name,
-				VID:          vid,
-				PID:          pid,
-				SerialNumber: cfg.USBSerial,
-				DevicePath:   cfg.Endpoint,
-			}, nil
-		}
-		// Reaching this point means direct USB transport. Never reinterpret an
-		// arbitrary endpoint (for example a printer display name) as a Windows
-		// spooler queue; that would bypass the transport contract and could route
-		// a job to an unintended queue. Config.NormalizedType already promotes
-		// USB entries with spooler_name to type=spooler.
-		// USBPrinter.Print uses the supplied Windows device interface path via
-		// CreateFile + WriteFile. Validation is fail-closed if the path is absent.
-		if cfg.Endpoint == "" {
-			return nil, fmt.Errorf("printer %s: direct USB transport requires a Windows device path; configure type=spooler with spooler_name for a Windows print queue", cfg.ID)
+		// A USB entry that reached this branch is direct USB transport. Any
+		// Windows spooler-backed USB printer is normalized to type=spooler by
+		// PrinterConfig.NormalizedType when spooler_name is present.
+		if !strings.HasPrefix(cfg.Endpoint, `\\?\`) && !strings.HasPrefix(cfg.Endpoint, `\\.\`) {
+			return nil, fmt.Errorf("printer %s: direct USB transport requires a Windows device path (\\?\\... or \\.\\...); configure type=spooler with spooler_name for a Windows print queue", cfg.ID)
 		}
 		vid := parseHex16(cfg.USBVID)
 		pid := parseHex16(cfg.USBPID)
