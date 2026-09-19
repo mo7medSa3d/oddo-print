@@ -265,6 +265,7 @@ export const discoveredDevices = pgTable("discovered_devices", {
   port: integer("port"),
   macAddress: text("mac_address"),
   deviceName: text("device_name"),
+  spoolerName: text("spooler_name"),
   manufacturer: text("manufacturer"),
   model: text("model"),
   serialNumber: text("serial_number"),
