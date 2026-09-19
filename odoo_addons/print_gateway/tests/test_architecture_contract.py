@@ -155,6 +155,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("selected_agent_id", source)
         self.assertIn("same Gateway tenant", source)
         self.assertNotIn("Access Denied: The selected Agent is not assigned to this Odoo Branch.", source)
+        self.assertNotIn("runtime_agent_assignment", source)
 
         # Assignment remains mandatory for an actual branch binding; discovery
         # must not be the chicken-and-egg gate that hides otherwise valid
