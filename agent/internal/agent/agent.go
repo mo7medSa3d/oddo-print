@@ -1237,19 +1237,23 @@ func (a *Agent) deviceFacts(printerID string) (printer.TransportFacts, bool) {
 		family = "unknown"
 	}
 	var caps []string
+	supportedProtocolsDeclared := false
 	if explicit, ok := pc.Capabilities["supported_protocols"].([]interface{}); ok {
+		supportedProtocolsDeclared = true
 		for _, v := range explicit {
 			if str, ok := v.(string); ok {
 				caps = append(caps, strings.ToLower(strings.TrimSpace(str)))
 			}
 		}
 	} else if explicit, ok := pc.Capabilities["supported_protocols"].([]string); ok {
+		supportedProtocolsDeclared = true
 		caps = explicit
 	}
 	return printer.TransportFacts{
-		Protocol:          family,
-		Connection:        pc.NormalizedType(),
-		SupportedProtocol: caps,
+		Protocol:                  family,
+		Connection:                pc.NormalizedType(),
+		SupportedProtocol:         caps,
+		SupportedProtocolDeclared: supportedProtocolsDeclared,
 	}, true
 }
 
