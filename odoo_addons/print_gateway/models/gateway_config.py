@@ -264,6 +264,21 @@ class PrintGatewayConfig(models.Model):
         self._check_admin()
         return super().unlink()
 
+    @api.model
+    def cron_sync_enabled_state(self):
+        """Retry activation-state replication for configurations not yet acknowledged."""
+        configs = self.search([
+            ("gateway_url", "!=", False),
+            ("gateway_api_key", "!=", False),
+        ])
+        for config in configs:
+            if (
+                int(config.last_enabled_sync_revision or -1) != int(config.enabled_sync_revision or 0)
+                or bool(config.last_enabled_sync_error)
+            ):
+                config._sync_enabled_state_to_gateway()
+        return True
+
     def action_test_connection(self):
         self.ensure_one()
         self._check_admin()
