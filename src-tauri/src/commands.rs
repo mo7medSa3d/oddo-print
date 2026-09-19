@@ -443,15 +443,8 @@ fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
         "POST" => path == "/api/printers"
             || gateway_printer_action_path(path, "test-connection")
             || gateway_printer_action_path(path, "test-print"),
-        "PATCH" => {
-            let prefix = "/api/printers/";
-            let Some(rest) = path.strip_prefix(prefix) else {
-                return false;
-            };
-            let mut parts = rest.split('/');
-            let id = parts.next().unwrap_or("");
-            parts.next().is_none() && valid_gateway_printer_id(id)
-        }
+        // Printer desired-state mutation is manager-only at the HTTP
+        // boundary, so an Agent bearer must never be able to reach PATCH.
         _ => false,
     }
 }
@@ -1293,6 +1286,7 @@ mod agent_console_path_tests {
         assert!(!allowed_agent_gateway_path("/api/other/p1/test-print", "POST"));
         assert!(!allowed_agent_gateway_path("/api/jobs/p1/test-print", "POST"));
         assert!(!allowed_agent_gateway_path("/api/jobs?next=/api/other", "GET"));
+        assert!(!allowed_agent_gateway_path("/api/printers/p1", "PATCH"));
     }
 }
 #[cfg(test)]
