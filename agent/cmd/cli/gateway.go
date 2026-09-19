@@ -160,8 +160,9 @@ func isAllowedGatewayConsolePath(path, method string) bool {
 			gatewayAgentPathRe.MatchString(path)
 	case "POST":
 		return path == "/api/printers" || gatewayPrinterActionPathRe.MatchString(path)
-	case "PATCH":
-		return gatewayPrinterPathRe.MatchString(path) && path != "/api/printers"
+	// Printer desired-state mutation is manager-only at the HTTP
+	// boundary. Agent credentials may observe/register/test, but never
+	// modify manager-owned printer configuration or lifecycle.
 	default:
 		return false
 	}
