@@ -602,7 +602,7 @@ export default function App() {
       unassigned: jobs.filter((j) => {
         const dest = String(j.destination ?? "");
         const pid = jobPrinterId(j);
-        return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid && p.status === "online");
+        return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
       }).length,
       printed: jobs.filter((j) => jobStatus(j) === "success").length,
       unknown: jobs.filter((j) => deriveOutcome(jobStatus(j), String(j.error ?? "")) === "unknown").length,
