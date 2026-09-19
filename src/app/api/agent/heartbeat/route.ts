@@ -3,7 +3,7 @@ import { agents, printJobs, printers } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { DEVICE_CLASSES, PRINTER_TYPES, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABILITIES_MAX_BYTES, validateConnectionConfig } from "../../../../lib/printer-model";
+import { DEVICE_CLASSES, PRINTER_TYPES, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABILITIES_MAX_BYTES, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
 const MAX_HEARTBEAT_BODY_BYTES = 512 * 1024;
@@ -108,6 +108,8 @@ function sanitizePrinter(p: ReportedPrinter): {
   if (capabilities && JSON.stringify(capabilities).length > PRINTER_CAPABILITIES_MAX_BYTES) return { ok: false, reason: "capabilities_payload_too_large" };
   const configErr = validateConnectionConfig(connectionType, config);
   if (configErr) return { ok: false, reason: `invalid_connection_config: ${configErr}` };
+  const transportProtocolErr = validatePrinterTransportProtocol(connectionType, protocol);
+  if (transportProtocolErr) return { ok: false, reason: `invalid_transport_protocol: ${transportProtocolErr}` };
   return { ok: true, printer: { id: p.id.trim(), name: p.name.trim(), printerType, deviceClass, connectionType, protocol, status, config, capabilities } };
 }
 
