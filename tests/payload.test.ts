@@ -63,6 +63,36 @@ describe("payload", () => {
     expect(pdf).toContain("(Agent: Agent\\\\Backslash)");
   });
 
+  it("test ticket follows the declared ZPL/TSPL protocol", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    const zpl = buildTestPrintPayloadForPrinter("Zebra", "Agent", {
+      connectionType: "network",
+      protocol: "zpl",
+      capabilities: null,
+    });
+    expect(zpl.type).toBe("raw");
+    expect(zpl.protocol).toBe("zpl");
+    expect(Buffer.from(zpl.data, "base64").toString("utf8")).toContain("^XA");
+
+    const tspl = buildTestPrintPayloadForPrinter("TSC", "Agent", {
+      connectionType: "network",
+      protocol: "tspl",
+      capabilities: null,
+    });
+    expect(tspl.type).toBe("raw");
+    expect(tspl.protocol).toBe("tspl");
+    expect(Buffer.from(tspl.data, "base64").toString("utf8")).toContain("SIZE 75 mm, 50 mm");
+  });
+
+  it("does not fabricate a document test for a byte-stream printer with PDF-only capabilities", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    expect(() => buildTestPrintPayloadForPrinter("RAW", "Agent", {
+      connectionType: "network",
+      protocol: "raw",
+      capabilities: { supported_protocols: ["pdf"] },
+    })).toThrow(/no supported test ticket format/i);
+  });
+
   it("test payload is decodable and has cut command", () => {
     const p = buildTestPrintPayload("Receipt", "Main");
     const decoded = Buffer.from(p.data, "base64").toString("binary");
