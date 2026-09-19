@@ -176,9 +176,13 @@ export function buildTestPrintPayloadForPrinter(
     ? declared as (typeof byteCandidates)[number]
     : null;
   const allows = (candidate: string) => !hasExplicitCaps || supported.includes(candidate);
+  const byteTransportEligible =
+    conn === "usb" ||
+    conn === "spooler" ||
+    (conn === "network" && declared !== "ipp" && declared !== "ipps");
   const byteProto =
     (declaredByteProtocol && allows(declaredByteProtocol) ? declaredByteProtocol : null) ??
-    byteCandidates.find((candidate) => allows(candidate)) ??
+    (byteTransportEligible ? byteCandidates.find((candidate) => allows(candidate)) : null) ??
     "";
   const name = safeTestText(printerName);
   const agent = safeTestText(agentName);
