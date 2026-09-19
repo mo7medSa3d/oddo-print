@@ -13,9 +13,9 @@ import (
 // Supported:
 //   - type "network"/"tcp" with protocol "raw" or "escpos": RAW TCP (9100)
 //   - type "spooler": Windows Print Spooler via winspool.drv (or stub on non-Windows)
-//   - type "usb": USB printers exposed via Windows spooler fall back to spooler backend;
-//     raw USB transport (CreateFile + WriteFile) is used when no spooler queue
-//     is available but a Windows device path was discovered.
+//   - type "usb": direct USB transport requires a Windows device interface path;
+//     Windows spooler queues are represented by type "spooler" with spooler_name;
+//     an arbitrary USB endpoint is never treated as a spooler queue.
 //   - type "ipp"/"ipps" and network:ipp protocol: real IPP client (IPPPrinter).
 func New(cfg config.PrinterConfig) (Printer, error) {
 	if cfg.ID == "" {
@@ -90,7 +90,6 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		return nil, fmt.Errorf("printer %s: unknown printer type %q (expected network/usb/spooler/ipp)", cfg.ID, cfg.Type)
 	}
 }
-
 
 func parseHex16(s string) uint16 {
 	s = strings.TrimSpace(s)

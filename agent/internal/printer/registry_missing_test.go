@@ -16,7 +16,6 @@ func TestLoadRegistryPrintersMissingFileIsFirstRunState(t *testing.T) {
 	}
 }
 
-
 func TestRegisterManualUSBWithSpoolerQueueDerivesSpoolerProtocol(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "printers.json")
 	info := DeviceInfo{

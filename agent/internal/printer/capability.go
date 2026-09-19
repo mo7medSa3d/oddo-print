@@ -32,10 +32,10 @@ import "strings"
 
 // DeviceFacts are the declared transport properties of one printer entry.
 type TransportFacts struct {
-	Protocol                   string
-	Connection                 string
-	SupportedProtocol          []string
-	SupportedProtocolDeclared  bool
+	Protocol                  string
+	Connection                string
+	SupportedProtocol         []string
+	SupportedProtocolDeclared bool
 }
 
 // PayloadCompatibleForDevice reports whether the payload may physically be

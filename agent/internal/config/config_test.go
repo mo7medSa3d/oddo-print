@@ -63,12 +63,12 @@ func TestValidatePrinterConfigRejectsContradictoryTransportProtocols(t *testing.
 
 func TestValidatePrinterConfigRejectsNonDeviceUSBEndpoint(t *testing.T) {
 	p := PrinterConfig{
-		ID: "usb-bad-path",
-		Name: "USB Bad Path",
-		Type: "usb",
+		ID:       "usb-bad-path",
+		Name:     "USB Bad Path",
+		Type:     "usb",
 		Protocol: "raw",
-		USBVID: "1234",
-		USBPID: "5678",
+		USBVID:   "1234",
+		USBPID:   "5678",
 		Endpoint: "HP LaserJet",
 	}
 	if err := ValidatePrinterConfig(p); err == nil {
