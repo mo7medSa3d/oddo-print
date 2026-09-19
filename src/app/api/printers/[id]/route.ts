@@ -49,11 +49,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await validateConsoleAuth(req);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (auth.kind === "manager") {
-    try { requireManagerPermission(auth.claims, "printers.manage"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
-  }
+  // Printer desired-state mutation is a manager control-plane operation.
+  // Agents may observe/register their own printers, but must never mutate
+  // manager-owned configuration or lifecycle through this route.
+  if (auth.kind !== "manager") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  try { requireManagerPermission(auth.claims, "printers.manage"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
-  const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
+  const tenantId = auth.claims.tenantId;
   const { id } = await params;
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
