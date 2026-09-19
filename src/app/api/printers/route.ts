@@ -58,7 +58,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Agent may only register printers for itself" }, { status: 403 });
     }
 
-    const error = validateConnectionConfig(data.connectionType, data.config);
+    const error = validateConnectionConfig(data.connectionType, data.config, data.protocol);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
     const id = data.id ?? `printer_${nanoid(8)}`;
