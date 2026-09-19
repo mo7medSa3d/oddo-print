@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { printers, agents } from "../../../../../db/schema";
 import { validateManager } from "../../../../../lib/manager-auth";
+import { validateConsoleAuth } from "../../../../../lib/console-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
 import { getAgentAvailability } from "../../../../../lib/agent-availability";
@@ -12,12 +13,19 @@ export const dynamic = "force-dynamic";
 // not a live LAN probe. `live: false` is part of the response contract so UIs
 // cannot present cached reachability as a just-tested TCP result.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const claims = await validateManager(req);
-  if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  const auth = await validateConsoleAuth(req);
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (auth.kind === "manager") {
+    try { requireManagerPermission(auth.claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  }
 
+  const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
   const { id } = await params;
-  const printer = await db.query.printers.findFirst({ where: and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId)) });
+  const printer = await db.query.printers.findFirst({
+    where: auth.kind === "agent"
+      ? and(eq(printers.id, id), eq(printers.tenantId, tenantId), eq(printers.agentId, auth.agent.id))
+      : and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
+  });
   if (!printer) return NextResponse.json({ error: "Printer not found" }, { status: 404 });
 
   if (printer.lifecycle !== "active") {
