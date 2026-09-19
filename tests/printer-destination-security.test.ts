@@ -63,6 +63,14 @@ describe("printer destination security policy", () => {
     }).connectionType).toBe("usb");
   });
 
+  it("rejects ambiguous USB spooler protocol without a spooler queue", async () => {
+    const { parsePrinterInput } = await import("../src/lib/printer-model");
+    expect(() => parsePrinterInput({
+      name: "USB Spooler Ambiguous", agentId: "a1", connectionType: "usb", protocol: "spooler",
+      config: { vid: 1234, pid: 5678, address: "\\\\\\?\\usb#device" },
+    })).toThrow(/connection type spooler.*spooler_name/i);
+  });
+
   it("rejects contradictory USB transport protocols", async () => {
     const { parsePrinterInput } = await import("../src/lib/printer-model");
     expect(() => parsePrinterInput({
