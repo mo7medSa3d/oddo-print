@@ -77,6 +77,13 @@ export default function PlatformTenantsPage() {
     };
   }, [reloadKey]);
 
+  const closeDialog = useCallback(() => {
+    if (actionLoading) return;
+    setSelectedTenant(null);
+    setSuspendReason("");
+    setActionError(null);
+  }, [actionLoading]);
+
   useEffect(() => {
     if (!selectedTenant) return;
 
@@ -111,12 +118,7 @@ export default function PlatformTenantsPage() {
     setActionError(null);
   }
 
-  const closeDialog = useCallback(() => {
-    if (actionLoading) return;
-    setSelectedTenant(null);
-    setSuspendReason("");
-    setActionError(null);
-  }, [actionLoading]);
+
 
   async function handleLifecycleAction() {
     if (!selectedTenant) return;
