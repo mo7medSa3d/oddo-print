@@ -442,6 +442,7 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 		if proto != "raw" && proto != "escpos" && proto != "zpl" && proto != "tspl" && proto != "spooler" && proto != "unknown" {
 			return fmt.Errorf("printer %s: protocol %q is incompatible with usb connection", p.ID, proto)
 		}
+	}
 	if nt == "network" || nt == "ipp" || nt == "ipps" {
 		ep := strings.TrimSpace(p.Endpoint)
 		if ep == "" {
