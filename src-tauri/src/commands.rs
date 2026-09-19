@@ -500,7 +500,13 @@ pub async fn gateway_agent_request(args: AgentGatewayRequestArgs, app: tauri::Ap
             let msg = if stderr.is_empty() { stdout } else { stderr };
             return Err(msg);
         }
-        Ok(stdout)
+        // gateway-request returns a JSON {status, body} envelope for every
+        // HTTP response, including application errors. Keep the actual status
+        // visible to the desktop instead of manufacturing HTTP 200.
+        let response: GatewayResponse = serde_json::from_str(&stdout)
+            .map_err(|e| format!("invalid agent Gateway response envelope: {e}"))?;
+        serde_json::to_string(&response)
+            .map_err(|e| format!("serialize agent Gateway response: {e}"))
     })
     .await
 }
