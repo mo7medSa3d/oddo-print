@@ -35,6 +35,7 @@ describe("desktop manager authentication contract", () => {
       expect(commands).toContain("Gateway URL must use HTTPS for remote Gateways");
     }
   });
+
   it("gateway CORS is explicit and never wildcarded", () => {
     const source = read("src/server/cors.ts");
     expect(source).toContain("DESKTOP_CORS_ORIGINS");
