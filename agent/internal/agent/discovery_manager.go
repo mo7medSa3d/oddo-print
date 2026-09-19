@@ -141,15 +141,15 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string)
 			uri = di.Endpoint
 		}
 		dev := map[string]interface{}{
-			"source":       sources,
-			"protocol":     di.Protocol,
-			"ipAddress":    di.NetworkAddress,
-			"port":         di.Port,
-			"uri":          uri,
-			"deviceName":   di.Name,
-			"spoolerName":  di.SpoolerName,
-			"deviceClass":  deviceClass,
-			"transport":    di.ConnectionType,
+			"source":      sources,
+			"protocol":    di.Protocol,
+			"ipAddress":   di.NetworkAddress,
+			"port":        di.Port,
+			"uri":         uri,
+			"deviceName":  di.Name,
+			"spoolerName": di.SpoolerName,
+			"deviceClass": deviceClass,
+			"transport":   di.ConnectionType,
 			"manufacturer": func() interface{} {
 				if di.Capabilities != nil {
 					return di.Capabilities["manufacturer"]
