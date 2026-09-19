@@ -60,7 +60,7 @@ function VerifyEmailContent() {
 
   return (
     <div className="w-full max-w-md card p-7 text-center">
-      <BrandMark size="lg" title="Print Gateway" subtitle="Email verification" />
+      <BrandMark size="lg" title="Yasser" subtitle="Email verification" />
       <h1 className="mt-6 text-2xl font-bold text-ink">
         {state === "loading" ? "Verify your email" : state === "ok" ? "Email verified" : state === "pending" ? "Check your email" : "Verification failed"}
       </h1>
