@@ -64,6 +64,18 @@ suite("gateway runtime printer availability + payload capability contract", () =
     expect(source).toContain("delete capabilities.supported_protocols");
   });
 
+  it("allows spooler raw/escpos payloads but not unsupported spooler languages", () => {
+    expect(validatePayloadForPrinter({ type: "raw", protocol: "raw" }, {
+      protocol: "spooler", connectionType: "spooler", capabilities: null,
+    }).ok).toBe(true);
+    expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, {
+      protocol: "spooler", connectionType: "spooler", capabilities: null,
+    }).ok).toBe(true);
+    expect(validatePayloadForPrinter({ type: "raw", protocol: "zpl" }, {
+      protocol: "spooler", connectionType: "spooler", capabilities: null,
+    }).ok).toBe(false);
+  });
+
   it("accepts raw/escpos/pdf only when the printer capability boundary allows it", () => {
     expect(validatePayloadForPrinter({ type: "raw", protocol: "raw" }, {
       protocol: "raw",
