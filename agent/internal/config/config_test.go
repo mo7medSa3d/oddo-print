@@ -61,6 +61,21 @@ func TestValidatePrinterConfigRejectsContradictoryTransportProtocols(t *testing.
 	}
 }
 
+func TestValidatePrinterConfigRejectsNonDeviceUSBEndpoint(t *testing.T) {
+	p := PrinterConfig{
+		ID: "usb-bad-path",
+		Name: "USB Bad Path",
+		Type: "usb",
+		Protocol: "raw",
+		USBVID: "1234",
+		USBPID: "5678",
+		Endpoint: "HP LaserJet",
+	}
+	if err := ValidatePrinterConfig(p); err == nil {
+		t.Fatal("expected direct USB endpoint to require a Windows device path")
+	}
+}
+
 func TestValidatePrinterConfigAllowsUSBSpoolerWithoutVIDPID(t *testing.T) {
 	p := PrinterConfig{
 		ID: "usb-spooler",
