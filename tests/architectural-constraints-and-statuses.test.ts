@@ -64,7 +64,10 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     const mainTsx = read("src/desktop/main.tsx");
     expect(mainTsx).toContain("onGatewayConfigChanged");
     expect(mainTsx).toContain("const healthOk = Boolean(health && (health as { ok?: boolean }).ok !== false && !healthError);");
-    expect(mainTsx).toContain("const gatewayConnected = Boolean(gatewayUrl && (healthOk || agentRegistered));");
+    expect(mainTsx).toContain("const [savedGatewayUrl, setSavedGatewayUrl] = useState(\"\");");
+    expect(mainTsx).toContain("const gatewayConnected = Boolean(");
+    expect(mainTsx).toContain("savedGatewayUrl && gatewayUrl === savedGatewayUrl && (healthOk || agentRegistered)");
+    expect(mainTsx).toContain("await checkHealth(n);");
 
     const overviewTsx = read("src/desktop/pages/Overview.tsx");
     expect(overviewTsx).toContain('s.gatewayUrl ? (s.gatewayConnected ? "Connected" : "Unreachable") : "Not configured"');
