@@ -40,3 +40,15 @@ describe("desktop Agent Gateway response contract", () => {
     expect(source).toContain('pair == "" || !strings.Contains(pair, "=")');
   });
 });
+
+  it("keeps printer control-plane mutations manager-only", () => {
+    const route = read("src/app/api/printers/[id]/route.ts");
+    const rust = read("src-tauri/src/commands.rs");
+    const cli = read("agent/cmd/cli/gateway.go");
+    const printersRoute = read("src/app/api/printers/route.ts");
+
+    expect(route).toContain('if (auth.kind !== "manager")');
+    expect(rust).not.toContain('"PATCH" => {');
+    expect(cli).not.toContain('case "PATCH":');
+    expect(printersRoute).toContain('managementSource: auth.kind === "manager" ? "manager" : "agent"');
+  });
