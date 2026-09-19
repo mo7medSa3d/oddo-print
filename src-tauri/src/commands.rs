@@ -159,8 +159,13 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     }
     // This isolated test branch intentionally accepts remote HTTP so the Azure
     // HTTP test Gateway can be exercised directly by IP before DNS/TLS exists.
-    if scheme == "http" {
-        return Ok(parsed.as_str().trim_end_matches('/').to_string());
+    let remote_http = scheme == "http";
+    if remote_http {
+        // Remote HTTP is allowed only on this dedicated test branch; the
+        // credential/query/fragment checks below still apply at the same
+        // Tauri trust boundary.
+    } else if scheme != "https" {
+        return Err("Gateway URL must use HTTPS outside the HTTP test branch".into());
     }
     if parsed.username() != "" || parsed.password().is_some() {
         return Err("gateway URL cannot include embedded credentials".into());
