@@ -67,7 +67,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Agent may only register printers for itself" }, { status: 403 });
     }
 
-    const error = validateConnectionConfig(data.connectionType, data.config, data.protocol);
+    let connectionType = data.connectionType;
+    let protocol = data.protocol;
+    const config = { ...data.config };
+    if (connectionType === "usb" && typeof config.spooler_name === "string" && config.spooler_name.trim()) {
+      connectionType = "spooler";
+      protocol = "spooler";
+      config.address = config.spooler_name.trim();
+    }
+
+    const transportProtocolError = validatePrinterTransportProtocol(connectionType, protocol);
+    if (transportProtocolError) return NextResponse.json({ error: transportProtocolError }, { status: 400 });
+    const error = validateConnectionConfig(connectionType, config, protocol);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
     const id = data.id ?? `printer_${nanoid(8)}`;
@@ -83,8 +94,8 @@ export async function POST(req: Request) {
         const inserted = await tx.insert(printers).values({
           id, tenantId: tenantId, agentId: data.agentId, name: data.name,
           printerType: data.printerType, deviceClass: data.deviceClass,
-          connectionType: data.connectionType, protocol: data.protocol,
-          status: "unknown", lifecycle: "active", config: data.config,
+          connectionType, protocol,
+          status: "unknown", lifecycle: "active", config,
           capabilities: null,
           managementSource: "manager",
           desiredRevision: 1,
