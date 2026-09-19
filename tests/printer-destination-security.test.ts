@@ -34,6 +34,19 @@ describe("printer destination security policy", () => {
     expect(validateConnectionConfig("ipps", { address: "http://192.168.1.60:631/ipp/print" })).toContain("HTTPS/IPPS address");
   });
 
+  it("canonicalizes USB printers backed by the Windows spooler", async () => {
+    const { parsePrinterInput } = await import("../src/lib/printer-model");
+    const parsed = parsePrinterInput({
+      name: "USB Spooler",
+      agentId: "a1",
+      connectionType: "usb",
+      protocol: "unknown",
+      config: { spooler_name: "HP LaserJet" },
+    });
+    expect(parsed.connectionType).toBe("spooler");
+    expect(parsed.protocol).toBe("spooler");
+  });
+
   it("rejects contradictory transport/protocol declarations", async () => {
     const { parsePrinterInput } = await import("../src/lib/printer-model");
     expect(() => parsePrinterInput({
