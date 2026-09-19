@@ -44,6 +44,9 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(model).toContain("last_enabled_sync_revision");
     expect(model).toContain('"/api/odoo/configuration"');
     expect(model).toContain("self.env.cr.postcommit.add");
+    expect(model).toContain("pre_sync_credentials");
+    expect(model).toContain("record._gateway_api_key_plaintext()");
+    expect(model).toContain("self._queue_enabled_state_sync(pre_sync_credentials)");
     expect(model).toContain("self.env.registry.cursor()");
     expect(model).toContain("api.SUPERUSER_ID");
     expect(model).toContain("skip_enabled_sync");
