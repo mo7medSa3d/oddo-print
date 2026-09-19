@@ -52,6 +52,31 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(agentFieldJs).not.toContain("<t t-esc=\"agent.name\"/> — <t t-esc=\"agent.id\"/> — <t t-esc=\"agent.status\"/>");
   });
 
+  it("uses the paired Agent identity for the Desktop Gateway console without Manager login UI", () => {
+    const consoleAuth = read("src/lib/console-auth.ts");
+    expect(consoleAuth).toContain("validateAgent");
+    expect(consoleAuth).toContain('kind: "agent"');
+
+    const jobsPage = read("src/desktop/pages/Jobs.tsx");
+    expect(jobsPage).not.toContain("loginManager");
+    expect(jobsPage).not.toContain("Gateway manager sign-in");
+    expect(jobsPage).not.toContain("managerUsername");
+    expect(jobsPage).not.toContain("managerPassword");
+
+    const ipcTs = read("src/desktop/lib/ipc.ts");
+    expect(ipcTs).toContain('invoke<string>("gateway_agent_request"');
+    expect(ipcTs).toContain("async function gatewayConsoleRequest(");
+
+    const printersRoute = read("src/app/api/printers/route.ts");
+    expect(printersRoute).toContain("validateConsoleAuth");
+    expect(printersRoute).toContain("auth.agent.id");
+    expect(printersRoute).toContain("eq(printers.agentId, agentId)");
+
+    const jobsRoute = read("src/app/api/jobs/route.ts");
+    expect(jobsRoute).toContain("validateConsoleAuth");
+    expect(jobsRoute).toContain("eq(printJobs.agentId, auth.agent.id)");
+  });
+
   it("emits and listens for gateway:config_changed and unifies gateway status across desktop UI", () => {
     const commandsRs = read("src-tauri/src/commands.rs");
     expect(commandsRs).toContain("pub fn set_gateway_config(url: String, app: tauri::AppHandle)");
