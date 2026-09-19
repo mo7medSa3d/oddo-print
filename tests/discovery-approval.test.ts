@@ -109,7 +109,7 @@ suite("discovery trust and approval flow", () => {
     const body = await provision.json();
     const printer = await pool().query(`SELECT agent_id, lifecycle, status, protocol, config FROM printers WHERE id = $1`, [body.printerId]);
     expect(printer.rows[0]).toMatchObject({ agent_id: f.agentId, lifecycle: "active", status: "unknown", protocol: "ipp" });
-    expect(printer.rows[0].config).toMatchObject({ address: "ipp://192.168.10.50:631/ipp/print" });
+    expect(printer.rows[0].config).toMatchObject({ address: "ipp://192.168.10.50/ipp/print" });
 
     const device = await pool().query(`SELECT verification, confidence, candidate_status, provisioned_printer_id FROM discovered_devices WHERE id = $1`, ["device-provision-1"]);
     expect(device.rows[0].verification).toBe("verified");
@@ -204,8 +204,8 @@ suite("discovery trust and approval flow", () => {
 
     expect([a.status, b.status].sort()).toEqual([200, 201]);
     const count = await pool().query(
-      `SELECT count(*)::int AS count FROM printers WHERE agent_id = $1 AND config->>'ip' = $2 AND (config->>'port')::int = $3`,
-      [f.agentId, "192.168.10.51", 631],
+      `SELECT count(*)::int AS count FROM printers WHERE agent_id = $1 AND config->>'address' = $2`,
+      [f.agentId, "ipp://192.168.10.51/ipp/print"],
     );
     expect(count.rows[0].count).toBe(1);
   });
