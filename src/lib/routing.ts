@@ -70,13 +70,13 @@ export function validatePayloadForPrinter(
   const transport = (...names: string[]) => !hasExplicitCaps && names.includes(family);
   // Explicit capabilities can refine a device's language set, but they
   // cannot add a PDF/image renderer that the concrete backend does not have.
-  const physicalPdf = conn === "spooler" || conn === "ipp" || conn === "ipps"
+  const physicalPdf = conn === "spooler" || proto === "spooler"
+    || conn === "ipp" || conn === "ipps"
     || (conn === "network" && proto === "ipp");
-  const physicalImage = conn === "spooler"
-    || (conn === "network" && proto === "escpos")
-    || (conn === "usb" && proto === "escpos");
+  const physicalImage = conn === "spooler" || proto === "spooler"
+    || (conn === "network" && proto === "escpos");
   const physicalByteProtocol = (protocol: string) =>
-    conn === "spooler"
+    conn === "spooler" || proto === "spooler"
       ? protocol === "raw" || protocol === "escpos"
       : (conn === "network" || conn === "usb") && proto === protocol;
 
