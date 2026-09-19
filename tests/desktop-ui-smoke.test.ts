@@ -87,7 +87,7 @@ async function invoke<T>(
         : path.startsWith("/api/printers")
           ? printers
           : jobs;
-      return JSON.stringify(body) as unknown as T;
+      return JSON.stringify({ status: 200, body: JSON.stringify(body) }) as unknown as T;
     }
     case "gateway_request": {
       const path = options?.args?.path ?? "";
