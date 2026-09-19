@@ -48,6 +48,8 @@ func TestValidatePrinterConfigRejectsContradictoryTransportProtocols(t *testing.
 		{ID: "ipps-ipp", Name: "IPPS", Type: "ipps", Endpoint: "ipps://192.168.1.60/ipp/print", Protocol: "ipp"},
 		{ID: "spooler-raw", Name: "Spooler", Type: "spooler", SpoolerName: "HP", Protocol: "raw"},
 		{ID: "network-ipps", Name: "Network", Type: "network", Endpoint: "192.168.1.60:9100", Protocol: "ipps"},
+		{ID: "usb-ipp", Name: "USB IPP", Type: "usb", Protocol: "ipp", USBVID: "1234", USBPID: "5678", Endpoint: `\\\\?\\usb#device`},
+		{ID: "usb-ipps", Name: "USB IPPS", Type: "usb", Protocol: "ipps", USBVID: "1234", USBPID: "5678", Endpoint: `\\\\?\\usb#device`},
 		{ID: "ipps-http", Name: "IPPS HTTP", Type: "ipps", Endpoint: "http://192.168.1.60:631/ipp/print", Protocol: "ipps"},
 		{ID: "ipp-creds", Name: "IPP Credentials", Type: "ipp", Endpoint: "http://user:pass@192.168.1.60:631/ipp/print", Protocol: "ipp"},
 	}
