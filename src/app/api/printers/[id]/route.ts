@@ -72,9 +72,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${tenantId} || ':' || ${id}))`);
 
     const existing = await tx.query.printers.findFirst({
-      where: auth.kind === "agent"
-        ? and(eq(printers.id, id), eq(printers.tenantId, tenantId), eq(printers.agentId, auth.agent.id))
-        : and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
+      where: and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
     });
     if (!existing) return { kind: "not_found" as const };
 
@@ -142,8 +140,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     await writeAuditEvent({
       tenantId: tenantId,
-      actorType: auth.kind === "manager" && auth.claims.userId ? "user" : "system",
-      actorId: auth.kind === "manager" ? (auth.claims.userId ?? "legacy-manager") : auth.agent.id,
+      actorType: auth.claims.userId ? "user" : "system",
+      actorId: auth.claims.userId ?? "legacy-manager",
       action: "printer.changed",
       resourceType: "printer",
       resourceId: id,
