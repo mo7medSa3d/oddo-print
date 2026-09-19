@@ -31,11 +31,16 @@ describe("runtime printer routing regressions", () => {
       capabilities: { supported_protocols: ["raw"] },
     });
     expect(result.ok).toBe(false);
-    // Once escpos IS explicitly declared, JPEG raster conversion is allowed.
+    // Metadata cannot turn a RAW TCP backend into an image renderer.
     expect(validatePayloadForPrinter({ type: "image" }, {
       protocol: "raw",
       connectionType: "network",
       capabilities: { supported_protocols: ["raw", "escpos"] },
+    }).ok).toBe(false);
+    expect(validatePayloadForPrinter({ type: "image" }, {
+      protocol: "escpos",
+      connectionType: "network",
+      capabilities: { supported_protocols: ["escpos"] },
     }).ok).toBe(true);
   });
 });
