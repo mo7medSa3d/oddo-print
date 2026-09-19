@@ -140,11 +140,6 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string)
 		if di.Protocol == "ipp" || di.Protocol == "ipps" {
 			uri = di.Endpoint
 		}
-
-		uri := ""
-		if di.Protocol == "ipp" || di.Protocol == "ipps" {
-			uri = di.Endpoint
-		}
 		dev := map[string]interface{}{
 			"source":       sources,
 			"protocol":     di.Protocol,
