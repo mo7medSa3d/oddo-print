@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { plans, tenantSubscriptions, tenants } from "../../../db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { validateManager } from "../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../lib/authorization";
 import { hasBodyOverLimit } from "../../../lib/request-limits";
@@ -40,6 +40,16 @@ export async function POST(req: Request) {
 
   try {
     await db.transaction(async (tx) => {
+    // Serialize onboarding/trial decisions per workspace. Without this lock,
+    // two concurrent first-time trial requests can both observe no
+    // trialStartedAt before either transaction commits.
+    const lockedTenant = await tx.execute(sql`
+      SELECT id
+      FROM tenants
+      WHERE id = ${claims.tenantId}
+      FOR UPDATE
+    `);
+    if (lockedTenant.rows.length !== 1) throw new Error("TENANT_NOT_FOUND");
     await tx.update(tenants).set({ name, updatedAt: new Date() }).where(eq(tenants.id, claims.tenantId));
     if (!trial) return;
     const end = new Date(Date.now() + 30 * 24 * 60 * 60_000);
@@ -52,6 +62,7 @@ export async function POST(req: Request) {
     }
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "TENANT_NOT_FOUND") return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
     if (error instanceof Error && error.message === "Trial has already been used for this workspace") return NextResponse.json({ error: "This workspace has already used its trial" }, { status: 409 });
     throw error;
   }
