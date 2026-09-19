@@ -147,6 +147,10 @@ export function validateConnectionConfig(connectionType: string, cfg: Record<str
       if (typeof cfg.address !== "string" || !cfg.address.trim()) {
         return "direct USB printer requires config.address (device path)";
       }
+      const usbAddress = cfg.address.trim();
+      if (!usbAddress.startsWith("\\\\?\\") && !usbAddress.startsWith("\\\\.\\")) {
+        return "direct USB printer config.address must be a Windows device path (\\\\?\\... or \\\\.\\...)";
+      }
     }
   }
   if (connectionType === "spooler" && !(typeof cfg.spooler_name === "string" && cfg.spooler_name.trim()) && !(typeof cfg.address === "string" && cfg.address.trim())) {
