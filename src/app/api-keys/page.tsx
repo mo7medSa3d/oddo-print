@@ -246,11 +246,6 @@ export default function ApiKeysPage() {
               <p className="mt-1 text-xs text-bad" role="status">{gatewayConfigError}</p>
             )}
           </div>
-          {gatewayConfig && (
-            <div className="text-right text-xs text-ink-4">
-              Revision {gatewayConfig.revision}
-            </div>
-          )}
         </div>
       </Card>
 
