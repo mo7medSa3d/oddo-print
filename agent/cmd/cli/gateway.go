@@ -131,6 +131,11 @@ func isAllowedJobsPath(path string) bool {
 	if err != nil || parsed.Path != "/api/jobs" || parsed.RawPath != "" || parsed.Fragment != "" {
 		return false
 	}
+	for _, pair := range strings.Split(parsed.RawQuery, "&") {
+		if pair == "" || !strings.Contains(pair, "=") {
+			return false
+		}
+	}
 	for key, values := range parsed.Query() {
 		if len(values) != 1 || len(values[0]) > 200 {
 			return false
