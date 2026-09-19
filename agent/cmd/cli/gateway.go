@@ -28,6 +28,7 @@ func handleGatewayRequest(args []string, configPath string) {
 	path := fs.String("path", "", "API-relative Gateway path")
 	method := fs.String("method", "GET", "HTTP method")
 	body := fs.String("body", "", "Optional JSON request body")
+	configOverride := fs.String("config", configPath, "Path to the paired agent config file")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -44,7 +45,7 @@ func handleGatewayRequest(args []string, configPath string) {
 		os.Exit(2)
 	}
 
-	cfg, err := config.Load(configPath)
+	cfg, err := config.Load(*configOverride)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "load agent config failed: %v\n", err)
 		os.Exit(1)
