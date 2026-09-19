@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Button, Field, Input, Modal, Select } from "../../components/ui";
 import { updateGatewayPrinter, type PrinterInfo } from "../lib/ipc";
 
@@ -71,49 +71,34 @@ export function EditPrinterDialog({
     status: "unknown",
     enabled: false,
   }), [printer]);
-  const [name, setName] = useState("");
-  const [connectionType, setConnectionType] = useState<ConnectionType>("network");
-  const [protocol, setProtocol] = useState("raw");
-  const [host, setHost] = useState(() =>
-    typeof initialConfig.ip === "string" ? initialConfig.ip : ""
+  const [name, setName] = useState(() => printer?.name ?? "");
+  const [connectionType, setConnectionType] = useState<ConnectionType>(() =>
+    (printer?.connectionType || printer?.connection_type || "network") as ConnectionType
   );
-  const [port, setPort] = useState(() =>
-    typeof initialConfig.port === "number" ? String(initialConfig.port) : "9100"
+  const [protocol, setProtocol] = useState(() => printer?.protocol || defaultProtocol(
+    (printer?.connectionType || printer?.connection_type || "network") as ConnectionType
+  ));
+  const [host, setHost] = useState(() => stringConfig(initialConfig, "ip"));
+  const [port, setPort] = useState(() => typeof initialConfig.port === "number" ? String(initialConfig.port) : "9100");
+  const [address, setAddress] = useState(() => stringConfig(initialConfig, "address"));
+  const [spoolerName, setSpoolerName] = useState(() => stringConfig(initialConfig, "spooler_name"));
+  const [usbVid, setUsbVid] = useState(() =>
+    printer?.usbVid ?? (initialConfig.vid != null ? String(initialConfig.vid) : "")
   );
-  const [address, setAddress] = useState(() =>
-    typeof initialConfig.address === "string" ? initialConfig.address : ""
+  const [usbPid, setUsbPid] = useState(() =>
+    printer?.usbPid ?? (initialConfig.pid != null ? String(initialConfig.pid) : "")
   );
-  const [spoolerName, setSpoolerName] = useState(() =>
-    typeof initialConfig.spooler_name === "string" ? initialConfig.spooler_name : ""
+  const [usbSerial, setUsbSerial] = useState(() =>
+    printer?.usbSerial ?? stringConfig(initialConfig, "serial")
   );
-  const [usbVid, setUsbVid] = useState("");
-  const [usbPid, setUsbPid] = useState("");
-  const [usbSerial, setUsbSerial] = useState("");
-  const [deviceClass, setDeviceClass] = useState("unknown");
-  const [printerType, setPrinterType] = useState("physical");
+  const [deviceClass, setDeviceClass] = useState(() =>
+    printer?.deviceClass || printer?.device_class || printer?.observedDeviceClass || "unknown"
+  );
+  const [printerType, setPrinterType] = useState(() =>
+    printer?.printerType || printer?.printer_type || "physical"
+  );
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!printer || !open) return;
-    const cfg = readConfig(printer);
-    const conn = (
-      printer.connectionType ||
-      printer.connection_type ||
-      "network"
-    ) as ConnectionType;
-    setName(printer.name ?? "");
-    setConnectionType(conn);
-    setProtocol(printer.protocol || defaultProtocol(conn));
-    setHost(stringConfig(cfg, "ip"));
-    setPort(typeof cfg.port === "number" ? String(cfg.port) : "9100");
-    setAddress(stringConfig(cfg, "address"));
-    setSpoolerName(stringConfig(cfg, "spooler_name"));
-    setUsbVid(printer.usbVid ?? (cfg.vid != null ? String(cfg.vid) : ""));
-    setUsbPid(printer.usbPid ?? (cfg.pid != null ? String(cfg.pid) : ""));
-    setUsbSerial(printer.usbSerial ?? stringConfig(cfg, "serial"));
-    setDeviceClass(printer.deviceClass || printer.device_class || printer.observedDeviceClass || "unknown");
-    setPrinterType(printer.printerType || printer.printer_type || "physical");
-  }, [printer, open]);
   async function save() {
     if (!printer) return;
     if (!gatewayUrl) {
@@ -125,8 +110,7 @@ export function EditPrinterDialog({
       return;
     }
 
-    const config = initialConfig;
-    const nextConfig: Record<string, unknown> = { ...config };
+      const nextConfig: Record<string, unknown> = { ...initialConfig };
     delete nextConfig.ip;
     delete nextConfig.port;
     delete nextConfig.address;
