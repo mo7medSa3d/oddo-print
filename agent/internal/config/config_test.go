@@ -60,6 +60,19 @@ func TestValidatePrinterConfigRejectsContradictoryTransportProtocols(t *testing.
 	}
 }
 
+func TestValidatePrinterConfigAllowsUSBSpoolerWithoutVIDPID(t *testing.T) {
+	p := PrinterConfig{
+		ID: "usb-spooler",
+		Name: "USB Queue",
+		Type: "usb",
+		Protocol: "spooler",
+		SpoolerName: "Receipt Printer",
+	}
+	if err := ValidatePrinterConfig(p); err != nil {
+		t.Fatalf("USB printer backed by a Windows spooler should not require VID/PID: %v", err)
+	}
+}
+
 func TestValidatePrinterConfigAllowsCompatibleTransportProtocols(t *testing.T) {
 	cases := []PrinterConfig{
 		{ID: "network-raw", Name: "RAW", Type: "network", Endpoint: "192.168.1.60:9100", Protocol: "raw"},
