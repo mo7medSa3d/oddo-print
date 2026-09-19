@@ -32,13 +32,13 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(viewsXml).not.toMatch(/<form[^>]*delete="0"/);
   });
 
-  it("enforces branch-scoped agent isolation and status indicators in runtime_printers.py", () => {
+  it("discovers active tenant agents without making branch assignment a discovery gate", () => {
     const ctrlPy = read("odoo_addons/print_gateway/controllers/runtime_printers.py");
-    expect(ctrlPy).toContain("print_gateway.runtime_agent_assignment");
-    expect(ctrlPy).toContain("('company_id', '=', root_company.id)");
-    expect(ctrlPy).toContain("('branch_id', '=', branch.id if branch else False)");
-    expect(ctrlPy).toContain("allowed_agent_ids = {");
-    expect(ctrlPy).toContain("sanitized = [a for a in sanitized if a['id'] in allowed_agent_ids]");
+    expect(ctrlPy).toContain("api/odoo/agents");
+    expect(ctrlPy).toContain("selected_agent_id");
+    expect(ctrlPy).toContain("same Gateway tenant");
+    expect(ctrlPy).not.toContain("allowed_agent_ids = {");
+    expect(ctrlPy).not.toContain("print_gateway.runtime_agent_assignment");
     expect(ctrlPy).toContain("'selectedAgentId': selected");
   });
 
