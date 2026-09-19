@@ -157,18 +157,13 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     if scheme != "https" && scheme != "http" {
         return Err("gateway URL must use http:// or https://".into());
     }
-    // Production requires HTTPS for remote Gateways. The isolated HTTP test
-    // environment may opt in explicitly with the same machine-level flag used
-    // by the test Agent; no flag means the production restriction remains.
+    // Production Gateways must use HTTPS. Localhost HTTP remains available for
+    // development without weakening the remote transport policy.
     if scheme == "http" {
         let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
         let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");
-        let test_http = matches!(
-            std::env::var("YASSER_AGENT_ALLOW_INSECURE_HTTP").as_deref(),
-            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
-        );
-        if !local && !test_http {
-            return Err("Gateway URL must use HTTPS unless the Gateway is local to this machine or HTTP test mode is explicitly enabled".into());
+        if !local {
+            return Err("Gateway URL must use HTTPS for remote Gateways".into());
         }
     }
     if parsed.username() != "" || parsed.password().is_some() {
