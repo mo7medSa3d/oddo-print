@@ -1530,7 +1530,7 @@ func endpointToConfig(pc config.PrinterConfig) map[string]interface{} {
 		}
 		// Add diagnostic if direct USB without spooler
 		if pc.SpoolerName == "" {
-			cfgMap["diagnostic"] = "USB device requires Windows spooler queue for printing"
+			cfgMap["diagnostic"] = "Direct USB transport requires a Windows device interface path; use a spooler_name only for Windows print-queue transport"
 		}
 	case "ipp", "ipps":
 		cfgMap["address"] = pc.Endpoint
