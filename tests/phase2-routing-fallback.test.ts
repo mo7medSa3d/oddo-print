@@ -145,6 +145,8 @@ describe("runtime routing capability and availability", () => {
       { type: "raw", protocol: "zpl" },
       { ...base, capabilities: { supported_protocols: asAny("zpl") } },
     ).ok).toBe(false);
+    // Unknown capability tokens are ignored at ingestion; a remaining
+    // declared "raw" capability still permits a matching RAW payload.
     expect(validatePayloadForPrinter(
       { type: "raw", protocol: "raw" },
       { ...base, capabilities: { supported_protocols: asAny(["raw", 42, null] as unknown[]) } },
