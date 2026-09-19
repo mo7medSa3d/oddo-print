@@ -27,7 +27,7 @@ printer produces pages of garbage, so it is refused with `CAPABILITY_MISMATCH`.
 
 | Backend | Implementation | `raw` | `escpos` | `pdf` | Physical verification |
 |---|---|---|---|---|---|
-| Network RAW TCP (usually :9100) | `network.go` | ✅ | ✅ | ❌ `CAPABILITY_MISMATCH` (a 9100 byte stream has no renderer) | **NOT VERIFIED** (tested against a local mock listener — VERIFIED at socket level) |
+| Network RAW TCP (:9100) | `network.go` | ✅ | ✅ | ❌ `CAPABILITY_MISMATCH` (a 9100 byte stream has no renderer) | **NOT VERIFIED** (tested against a local mock listener — VERIFIED at socket level) |
 | Windows spooler | `spooler_windows.go` | ✅ RAW datatype (`StartDocPrinterW`) | ✅ RAW datatype | ✅ PDF pipeline (§4) | **COMPILE VERIFIED** only |
 | Windows spooler (non-Windows build) | `spooler_stub.go` | `ERR_UNSUPPORTED_TRANSPORT` (simulated file write only under explicit opt-in, still reported as failure) | same | `ERR_UNSUPPORTED_TRANSPORT` (same opt-in rule) | **SIMULATED** |
 | IPP / IPPS | `ipp.go` | ❌ `CAPABILITY_MISMATCH` (IPP is a document transport here) | ❌ `CAPABILITY_MISMATCH` | ✅ `application/pdf` | **NOT VERIFIED** against a real IPP printer (`httptest` coverage only) |
@@ -117,7 +117,7 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Protocol | Win32 spooler API: `OpenPrinterW` → `StartDocPrinterW` (DOC_INFO_1, datatype `RAW`) → `StartPagePrinter` → `WritePrinter` loop → `EndPagePrinter` → `EndDocPrinter`. PDF jobs take the PDF pipeline instead (§4) |
 | Document kinds | `raw` ✅ · `escpos` ✅ · `pdf` ✅ (through the PDF pipeline, never the RAW datatype) |
 | Configuration | `type: spooler` plus `spooler_name` (falls back to `endpoint`). A USB printer installed as a Windows printer is configured this way |
-| Capability reporting | `supported_protocols: [raw, escpos, pdf]` |
+| Capability reporting | `supported_protocols: [pdf]` |
 | Error handling | Every Win32 call is checked and the last error is wrapped into the job error (`OpenPrinterW`, `StartDocPrinterW`, `StartPagePrinter`, `WritePrinter`, 0-byte writes). `EndDocPrinter`/`EndPagePrinter` run through `defer` even after a failure. Context cancellation is honoured between chunks |
 | Status probe | `OpenPrinterW` → `online`, failure → `offline` |
 | Platform limits | Windows only. The `!windows` build is a simulation (§5.3) |
