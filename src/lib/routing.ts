@@ -73,7 +73,12 @@ export function validatePayloadForPrinter(
   const physicalPdf = conn === "spooler" || conn === "ipp" || conn === "ipps"
     || (conn === "network" && proto === "ipp");
   const physicalImage = conn === "spooler"
-    || (conn === "network" && proto === "escpos");
+    || (conn === "network" && proto === "escpos")
+    || (conn === "usb" && proto === "escpos");
+  const physicalByteProtocol = (protocol: string) =>
+    conn === "spooler"
+      ? protocol === "raw" || protocol === "escpos"
+      : (conn === "network" || conn === "usb") && proto === protocol;
 
   // PDF: requires a transport that can actually consume/render a document.
   if (pt === "pdf") {
@@ -101,7 +106,7 @@ export function validatePayloadForPrinter(
     if (payloadProto && payloadProto !== "escpos") {
       return { ok: false, reason: `CAPABILITY_MISMATCH: escpos payload cannot use protocol ${payloadProto}` };
     }
-    if (anyCap("escpos") || transport("escpos")) return { ok: true };
+    if (physicalByteProtocol("escpos") && (!hasExplicitCaps || anyCap("escpos"))) return { ok: true };
     return { ok: false, reason: `CAPABILITY_MISMATCH: printer does not explicitly support ESC/POS (protocol=${proto || "unknown"})` };
   }
 
@@ -116,7 +121,7 @@ export function validatePayloadForPrinter(
     }
     // raw+escpos is exactly an escpos payload; every other byte protocol is
     // accepted only by devices that declare it.
-    if (anyCap(payloadProto) || transport(payloadProto)) return { ok: true };
+    if (physicalByteProtocol(payloadProto) && (!hasExplicitCaps || anyCap(payloadProto))) return { ok: true };
     return { ok: false, reason: `CAPABILITY_MISMATCH: printer does not explicitly support ${payloadProto.toUpperCase()} (protocol=${proto || "unknown"})` };
   }
 
