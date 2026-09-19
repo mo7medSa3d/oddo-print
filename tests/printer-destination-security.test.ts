@@ -32,4 +32,21 @@ describe("printer destination security policy", () => {
     expect(validateConnectionConfig("ipp", { address: "ipp://user:pass@192.168.1.60/ipp/print" })).toContain("embedded credentials");
     expect(validateConnectionConfig("ipps", { address: "https://user:pass@192.168.1.60/ipp/print" })).toContain("embedded credentials");
   });
+
+  it("rejects contradictory transport/protocol declarations", async () => {
+    const { parsePrinterInput } = await import("../src/lib/printer-model");
+    expect(() => parsePrinterInput({
+      name: "Bad IPP", agentId: "a1", connectionType: "ipp", protocol: "raw",
+      config: { address: "ipp://192.168.1.60/ipp/print" },
+    })).toThrow(/ipp protocol/i);
+    expect(() => parsePrinterInput({
+      name: "Bad IPPS", agentId: "a1", connectionType: "ipps", protocol: "ipp",
+      config: { address: "ipps://192.168.1.60/ipp/print" },
+    })).toThrow(/ipps protocol/i);
+    expect(() => parsePrinterInput({
+      name: "Bad Spooler", agentId: "a1", connectionType: "spooler", protocol: "raw",
+      config: { spooler_name: "HP" },
+    })).toThrow(/spooler protocol/i);
+  });
+  });
 });
