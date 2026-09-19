@@ -116,7 +116,7 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Protocol | Win32 spooler API: `OpenPrinterW` → `StartDocPrinterW` (DOC_INFO_1, datatype `RAW`) → `StartPagePrinter` → `WritePrinter` loop → `EndPagePrinter` → `EndDocPrinter`. PDF jobs take the PDF pipeline instead (§4) |
 | Document kinds | `raw` ✅ · `escpos` ✅ · `pdf` ✅ (through the PDF pipeline, never the RAW datatype) |
 | Configuration | `type: spooler` plus `spooler_name` (falls back to `endpoint`). A USB printer installed as a Windows printer is configured this way |
-| Capability reporting | `supported_protocols: [pdf]` |
+| Capability reporting | `supported_protocols: [raw, escpos, pdf, image]` |
 | Error handling | Every Win32 call is checked and the last error is wrapped into the job error (`OpenPrinterW`, `StartDocPrinterW`, `StartPagePrinter`, `WritePrinter`, 0-byte writes). `EndDocPrinter`/`EndPagePrinter` run through `defer` even after a failure. Context cancellation is honoured between chunks |
 | Status probe | `OpenPrinterW` → `online`, failure → `offline` |
 | Platform limits | Windows only. The `!windows` build is a simulation (§5.3) |
