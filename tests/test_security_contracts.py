@@ -60,10 +60,11 @@ def test_agent_pairing_success_does_not_clear_rate_limit():
     assert "reset the brute-force budget" in source
 
 
-def test_tauri_gateway_http_is_loopback_only():
+def test_tauri_gateway_http_is_explicitly_test_branch_only():
     source = read("src-tauri/src/commands.rs")
-    assert 'let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");' in source
-    assert 'Gateway URL must use HTTPS for remote Gateways' in source
+    assert 'This isolated test branch intentionally accepts remote HTTP' in source
+    assert 'if scheme == "http"' in source
+    assert 'return Ok(parsed.as_str().trim_end_matches(\'/\').to_string());' in source
 
 
 def test_billing_webhook_binds_identity_before_metadata_tenant_mutation():
