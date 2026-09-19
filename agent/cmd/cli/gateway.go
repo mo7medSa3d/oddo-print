@@ -18,8 +18,69 @@ import (
 
 const gatewayRequestMaxBody = 8 * 1024 * 1024
 
-var gatewayPrinterPathRe = regexp.MustCompile(`^/api/printers(?:/[A-Za-z0-9._~-]+(?:/(?:test-connection|test-print))?)?$`)
-var gatewayAgentPathRe = regexp.MustCompile(`^/api/agents(?:/[A-Za-z0-9._~-]+)?$`)
+var gatewayPrinterPathRe = regexp.MustCompile(`^/api/printers(?:/[A-Za-z0-9._~-]+(?:/(?:test-connection|test-print))?)?package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/yasser-agent/agent/internal/config"
+)
+
+const gatewayRequestMaxBody = 8 * 1024 * 1024
+
+)
+var gatewayPrinterActionPathRe = regexp.MustCompile(`^/api/printers/[A-Za-z0-9._~-]+/(?:test-connection|test-print)package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/yasser-agent/agent/internal/config"
+)
+
+const gatewayRequestMaxBody = 8 * 1024 * 1024
+
+)
+var gatewayAgentPathRe = regexp.MustCompile(`^/api/agents(?:/[A-Za-z0-9._~-]+)?package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/yasser-agent/agent/internal/config"
+)
+
+const gatewayRequestMaxBody = 8 * 1024 * 1024
+
+)
 
 func handleGatewayRequest(args []string, configPath string) {
 	fs := flag.NewFlagSet("gateway-request", flag.ContinueOnError)
