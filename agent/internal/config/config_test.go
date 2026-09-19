@@ -42,6 +42,36 @@ func TestValidatePrinterConfig(t *testing.T) {
 	}
 }
 
+
+func TestValidatePrinterConfigRejectsContradictoryTransportProtocols(t *testing.T) {
+	cases := []PrinterConfig{
+		{ID: "ipp-raw", Name: "IPP", Type: "ipp", Endpoint: "ipp://192.168.1.60/ipp/print", Protocol: "raw"},
+		{ID: "ipps-ipp", Name: "IPPS", Type: "ipps", Endpoint: "ipps://192.168.1.60/ipp/print", Protocol: "ipp"},
+		{ID: "spooler-raw", Name: "Spooler", Type: "spooler", SpoolerName: "HP", Protocol: "raw"},
+		{ID: "network-ipps", Name: "Network", Type: "network", Endpoint: "192.168.1.60:9100", Protocol: "ipps"},
+	}
+	for _, tc := range cases {
+		if err := ValidatePrinterConfig(tc); err == nil {
+			t.Fatalf("expected contradictory transport/protocol rejection for %+v", tc)
+		}
+	}
+}
+
+func TestValidatePrinterConfigAllowsCompatibleTransportProtocols(t *testing.T) {
+	cases := []PrinterConfig{
+		{ID: "network-raw", Name: "RAW", Type: "network", Endpoint: "192.168.1.60:9100", Protocol: "raw"},
+		{ID: "network-ipp", Name: "Network IPP", Type: "network", Endpoint: "192.168.1.60:631", Protocol: "ipp"},
+		{ID: "ipp", Name: "IPP", Type: "ipp", Endpoint: "ipp://192.168.1.60/ipp/print", Protocol: "ipp"},
+		{ID: "ipps", Name: "IPPS", Type: "ipps", Endpoint: "ipps://192.168.1.60/ipp/print", Protocol: "ipps"},
+		{ID: "spooler", Name: "Spooler", Type: "spooler", SpoolerName: "HP", Protocol: "spooler"},
+	}
+	for _, tc := range cases {
+		if err := ValidatePrinterConfig(tc); err != nil {
+			t.Fatalf("expected compatible transport/protocol pair for %+v, got %v", tc, err)
+		}
+	}
+}
+
 func TestDefaultConfigPathProgramData(t *testing.T) {
 	orig := os.Getenv("PROGRAMDATA")
 	t.Setenv("PROGRAMDATA", `C:\ProgramData`)
