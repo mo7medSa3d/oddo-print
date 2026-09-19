@@ -65,9 +65,14 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(mainTsx).toContain("onGatewayConfigChanged");
     expect(mainTsx).toContain("const healthOk = Boolean(health && (health as { ok?: boolean }).ok !== false && !healthError);");
     expect(mainTsx).toContain("const [savedGatewayUrl, setSavedGatewayUrl] = useState(\"\");");
+    expect(mainTsx).toContain("const [checkedGatewayUrl, setCheckedGatewayUrl] = useState(\"\");");
+    expect(mainTsx).toContain("const probeGateway = useCallback(async (targetUrl: string): Promise<boolean>");
+    expect(mainTsx).toContain("window.setTimeout(() => {");
     expect(mainTsx).toContain("const gatewayConnected = Boolean(");
-    expect(mainTsx).toContain("savedGatewayUrl && gatewayUrl === savedGatewayUrl && (healthOk || agentRegistered)");
-    expect(mainTsx).toContain("await checkHealth(n);");
+    expect(mainTsx).toContain("checkedGatewayUrl === normalizedGatewayUrl");
+    expect(mainTsx).toContain("await setGatewayUrl(target);");
+    expect(mainTsx).toContain("setMsg({ text: \"Gateway connection verified and saved\", type: \"success\" });");
+    expect(mainTsx).not.toContain("const saveGateway = useCallback");
 
     const overviewTsx = read("src/desktop/pages/Overview.tsx");
     expect(overviewTsx).toContain('s.gatewayUrl ? (s.gatewayConnected ? "Connected" : "Unreachable") : "Not configured"');
