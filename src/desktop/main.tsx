@@ -121,6 +121,9 @@ export default function App() {
   const [page, navigate] = useHashPage("dashboard");
   const [version, setVersion] = useState("");
   const [gatewayUrl, setGw] = useState("");
+  // Keep the editable URL draft separate from the last successfully saved URL.
+  // Network refresh effects must never be driven by keystrokes in Settings.
+  const [savedGatewayUrl, setSavedGatewayUrl] = useState("");
   const [pairCode, setPairCode] = useState("");
   const [health, setHealth] = useState<Record<string, unknown> | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
@@ -170,27 +173,27 @@ export default function App() {
   }, []);
 
   const refreshPrinters = useCallback(async () => {
-    if (!gatewayUrl) {
+    if (!savedGatewayUrl) {
       setPrintersError("Gateway URL not configured");
       return;
     }
     setPrintersLoading(true);
     setPrintersError(null);
     try {
-      const list = await fetchGatewayPrinters(gatewayUrl);
+      const list = await fetchGatewayPrinters(savedGatewayUrl);
       setPrinters(list.filter(isProductionPrinter));
     } catch (e) {
       setPrintersError(friendlyPrinterError(errMsg(e)));
     } finally {
       setPrintersLoading(false);
     }
-  }, [gatewayUrl]);
+  }, [savedGatewayUrl]);
 
   const refreshJobs = useCallback(async (options?: { status?: string; search?: string; limit?: number }) => {
-    if (!gatewayUrl) return;
+    if (!savedGatewayUrl) return;
     setJobsLoading(true);
     try {
-      const data = await fetchGatewayJobs(gatewayUrl, options);
+      const data = await fetchGatewayJobs(savedGatewayUrl, options);
       setJobs(Array.isArray(data) ? data : []);
       setJobsError(null);
     } catch (e: unknown) {
@@ -204,7 +207,7 @@ export default function App() {
     } finally {
       setJobsLoading(false);
     }
-  }, [gatewayUrl]);
+  }, [savedGatewayUrl]);
 
   const checkHealth = useCallback(async (targetUrl?: string) => {
     const target = targetUrl ?? gatewayUrl;
@@ -285,9 +288,11 @@ export default function App() {
       const n = normalizeGatewayUrl(gatewayUrl);
       setGatewaySaving(true);
       await setGatewayUrl(n);
+      setSavedGatewayUrl(n);
       setGw(n);
       setMsg({ text: "Gateway saved", type: "success" });
-      checkHealth();
+      // Check exactly the URL that was just persisted, not the previous React closure value.
+      await checkHealth(n);
     } catch (e) {
       setMsg({ text: errMsg(e), type: "error" });
     } finally {
@@ -369,7 +374,10 @@ export default function App() {
       .catch(() => {});
     getGatewayUrl()
       .then((v) => {
+        // Initial load updates both the editable draft and the committed URL exactly once.
+        // Do not make this effect depend on refresh callbacks that change while typing.
         setGw(v);
+        setSavedGatewayUrl(v);
         if (v)
           fetchGatewayHealth(v)
             .then((h) => setHealth(h))
@@ -383,14 +391,17 @@ export default function App() {
       .then((st) => setAutostartState(st.enabled))
       .catch(() => {});
     refreshStatus();
-    refreshPrinters();
     const id = setInterval(refreshStatus, 30000);
     return () => clearInterval(id);
-  }, [refreshStatus, refreshPrinters]);
+  }, [refreshStatus]);
 
   useEffect(() => {
-    if (gatewayUrl) refreshJobs();
-  }, [gatewayUrl, refreshJobs]);
+    if (savedGatewayUrl) refreshPrinters();
+  }, [savedGatewayUrl, refreshPrinters]);
+
+  useEffect(() => {
+    if (savedGatewayUrl) refreshJobs();
+  }, [savedGatewayUrl, refreshJobs]);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -405,6 +416,7 @@ export default function App() {
     if (!isTauri) return;
     let unlisten: (() => void) | undefined;
     onGatewayConfigChanged((url) => {
+      setSavedGatewayUrl(url);
       setGw(url);
       if (url) {
         checkHealth(url);
@@ -427,8 +439,10 @@ export default function App() {
     !!agentStatus && !(agentStatus as Record<string, unknown>).error && (agentStatus as { running?: boolean }).running !== false;
   const healthOk = Boolean(health && (health as { ok?: boolean }).ok !== false && !healthError);
   const agentRegistered = Boolean((agentStatus as { registered?: boolean } | null)?.registered);
-  const gatewayConnected = Boolean(gatewayUrl && (healthOk || agentRegistered));
-  const gatewaySubLabel = !gatewayUrl
+  const gatewayConnected = Boolean(
+    savedGatewayUrl && gatewayUrl === savedGatewayUrl && (healthOk || agentRegistered)
+  );
+  const gatewaySubLabel = !savedGatewayUrl
     ? "Set Gateway URL in Settings"
     : gatewayConnected
       ? "Reachable"
