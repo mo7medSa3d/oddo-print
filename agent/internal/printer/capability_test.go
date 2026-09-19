@@ -73,6 +73,17 @@ func TestCapabilityTableParity(t *testing.T) {
 	}
 }
 
+func TestSupportedProtocolsForUSBESCPos(t *testing.T) {
+	got := SupportedProtocolsForDevice(TransportFacts{Protocol: "escpos", Connection: "usb"})
+	if len(got) != 1 || got[0] != "escpos" {
+		t.Fatalf("direct USB ESC/POS must not advertise image rasterization, got %v", got)
+	}
+	got = SupportedProtocolsForDevice(TransportFacts{Protocol: "escpos", Connection: "network"})
+	if len(got) != 2 || got[0] != "escpos" || got[1] != "image" {
+		t.Fatalf("network ESC/POS should advertise image rasterization, got %v", got)
+	}
+}
+
 func TestSupportedProtocolsForUnknownDevices(t *testing.T) {
 	if got := SupportedProtocolsForDevice(TransportFacts{Protocol: "unknown", Connection: "network"}); len(got) != 0 {
 		t.Fatalf("unknown+network must derive no protocols, got %v", got)
