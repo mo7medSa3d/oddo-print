@@ -451,10 +451,10 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 					normalizedEndpoint = "http://" + net.JoinHostPort(strings.Trim(host, "[]"), port) + "/ipp/print"
 				}
 			}
+			u, err := url.Parse(normalizedEndpoint)
 			if u.User != nil {
 				return fmt.Errorf("printer %s: IPP endpoint must not contain embedded credentials", p.ID)
 			}
-			u, err := url.Parse(normalizedEndpoint)
 			if err != nil || u.Hostname() == "" {
 				return fmt.Errorf("printer %s: invalid IPP endpoint %q", p.ID, p.Endpoint)
 			}
