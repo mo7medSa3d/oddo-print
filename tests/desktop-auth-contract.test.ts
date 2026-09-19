@@ -21,11 +21,16 @@ describe("desktop manager authentication contract", () => {
     expect(source).not.toContain('credentials: "include"');
   });
 
-  it("rejects remote HTTP Gateway URLs because manager bearer tokens must use encrypted transport", () => {
-    const source = read("src/desktop/lib/ipc.ts");
-    expect(source).toContain('parsed.protocol === "http:"');
-    expect(source).toContain('"localhost", "127.0.0.1", "[::1]", "::1"');
-    expect(source).toContain("Gateway URL must use HTTPS unless the Gateway is local to this machine");
+  it("keeps remote HTTP test support behind the Rust-side explicit test gate", () => {
+    const ipc = read("src/desktop/lib/ipc.ts");
+    expect(ipc).toContain("The packaged Tauri app enforces the real transport policy in Rust.");
+    expect(ipc).not.toContain("Gateway URL must use HTTPS unless the Gateway is local to this machine");
+
+    const commands = read("src-tauri/src/commands.rs");
+    expect(commands).toContain('if scheme == "http:"');
+    expect(commands).toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
+    expect(commands).toContain("!local && !test_http");
+    expect(commands).toContain("Gateway URL must use HTTPS unless the Gateway is local to this machine or HTTP test mode is explicitly enabled");
   });
 
   it("gateway CORS is explicit and never wildcarded", () => {
