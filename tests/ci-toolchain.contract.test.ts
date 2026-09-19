@@ -32,6 +32,13 @@ describe("CI/runtime alignment", () => {
     expect(ci).not.toMatch(/go-version:\s*['\"]1\.27\.1['\"]/);
   });
 
+  it("resolves the Gateway JWT through the runtime secret loader", () => {
+    const source = readFileSync(path.join(root, "src/server/request-guard.ts"), "utf8");
+    expect(source).toContain('import { runtimeSecret } from "../lib/runtime-secret";');
+    expect(source).toContain('runtimeSecret("GATEWAY_JWT_SECRET")');
+    expect(source).not.toContain("process.env.GATEWAY_JWT_SECRET");
+  });
+
   it("keeps third-party Actions SHA-pinned", () => {
     const unpinned = /uses:\s*[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+@(v\d|stable|main|master|\d+\.)/;
     for (const workflow of workflows()) {
