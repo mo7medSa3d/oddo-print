@@ -300,7 +300,7 @@ func TestEndpointParsing(t *testing.T) {
 func TestFactoryUSBWithoutSpoolerUsesDirectDevicePath(t *testing.T) {
 	pc := config.PrinterConfig{
 		ID: "usb1", Name: "USB Direct", Type: "usb", Protocol: "raw",
-		Endpoint: `\\?\\usb#vid_03f0&pid_0c17#SN123`, USBVID: "03f0", USBPID: "0c17", USBSerial: "SN123",
+		Endpoint: `\\?\usb#vid_03f0&pid_0c17#SN123`, USBVID: "03f0", USBPID: "0c17", USBSerial: "SN123",
 	}
 	p, err := New(pc)
 	if err != nil {
