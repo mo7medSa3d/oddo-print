@@ -27,6 +27,31 @@ suite("printer desired-state authority", () => {
     await truncateAll();
   });
 
+  it("returns 400 for invalid printer input instead of misclassifying it as an internal error", async () => {
+    const f = await seedFixture();
+    const session = await createManagerSession(f.tenantId);
+
+    const response = await printersPOST(new Request("http://gateway.test/api/printers", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + session.token,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Invalid Printer",
+        agentId: f.agentId,
+        printerType: "physical",
+        deviceClass: "thermal",
+        connectionType: "network",
+        protocol: "raw",
+        config: { ip: "192.168.1.50", port: 9101 },
+      }),
+    }));
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe("INVALID_PRINTER");
+  });
+
   it("persists manager-owned desired state and increments its revision atomically", async () => {
     const f = await seedFixture();
     const session = await createManagerSession(f.tenantId);
