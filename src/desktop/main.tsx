@@ -379,12 +379,13 @@ export default function App() {
       setMsg({ text: r || "Agent paired", type: "success" });
       setPairCode("");
       refreshStatus();
+      await Promise.all([refreshPrinters(), refreshJobs()]);
     } catch (e) {
       setMsg({ text: errMsg(e), type: "error" });
     } finally {
       setBusyBoth(false);
     }
-  }, [pairCode, gatewayUrl, refreshStatus, setBusyBoth]);
+  }, [pairCode, gatewayUrl, refreshJobs, refreshPrinters, refreshStatus, setBusyBoth]);
 
   useEffect(() => {
     if (!isTauri) return;
