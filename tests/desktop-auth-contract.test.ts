@@ -38,7 +38,7 @@ describe("desktop manager authentication contract", () => {
 
   it("routes manager-owned printer mutations through the Manager transport", () => {
     const source = read("src/desktop/lib/ipc.ts");
-    const updateFn = source.match(/export async function updateGatewayPrinter[\\s\\S]*?(?=\\nexport interface DiscoverResult)/)?.[0] ?? "";
+    const updateFn = source.match(/export async function updateGatewayPrinter[\s\S]*?(?=\nexport interface DiscoverResult)/)?.[0] ?? "";
     expect(updateFn).toContain('await gatewayRequest(');
     expect(updateFn).not.toContain('await gatewayConsoleRequest(');
     expect(source).toContain('"/api/printers/" + encodeURIComponent(printerId)');
