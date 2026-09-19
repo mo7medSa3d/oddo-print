@@ -74,14 +74,27 @@ export function HeaderNav() {
               {loggingOut ? "Signing out…" : "Sign out"}
             </button>
           )}
-          <span className="hidden rounded-md border border-edge bg-surface-2 px-2.5 py-1 font-mono text-[11px] font-medium text-ink-3 sm:inline-flex">v1.0.0</span>
-          {authenticated === true && (
-            <button type="button" onClick={() => setMobileOpen(!mobileOpen)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-edge bg-surface text-ink-2 hover:bg-surface-2 focusable md:hidden"
-              aria-label={mobileOpen ? "Close menu" : "Open menu"} aria-expanded={mobileOpen}>
-              {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </button>
+          {authenticated === false && pathname !== "/pricing" && (
+            <Link
+              href="/login"
+              className="hidden rounded-lg border border-edge bg-surface px-3.5 py-2 text-sm font-semibold text-ink-2 hover:bg-surface-2 hover:text-ink focusable sm:inline-flex"
+            >
+              Sign in
+            </Link>
           )}
+          {authenticated === false && pathname !== "/pricing" && (
+            <Link
+              href="/signup"
+              className="hidden rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-white hover:opacity-95 focusable sm:inline-flex"
+            >
+              Start trial
+            </Link>
+          )}
+          <button type="button" onClick={() => setMobileOpen(!mobileOpen)}
+            className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border border-edge bg-surface text-ink-2 hover:bg-surface-2 focusable ${authenticated === true ? "" : "hidden sm:inline-flex"}`}
+            aria-label={mobileOpen ? "Close menu" : "Open menu"} aria-expanded={mobileOpen}>
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
       </div>
       {mobileOpen && authenticated === true && (
