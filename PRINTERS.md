@@ -100,7 +100,7 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 
 | Aspect | Detail |
 |---|---|
-| Protocol | Raw byte stream over TCP, normally port 9100 (JetDirect/AppSocket). No document model, no acknowledgement |
+| Protocol | Raw byte stream over TCP on canonical port 9100 (JetDirect/AppSocket). No document model, no acknowledgement |
 | Document kinds | `raw` ✅ · `escpos` ✅ · `pdf` ❌ → `CAPABILITY_MISMATCH` |
 | Configuration | `type: network` (alias `tcp`), `endpoint: <ip>:<port>`, `protocol: raw` or `escpos` |
 | Capability reporting | Heartbeat reports `supported_protocols: [raw, escpos]` unless the operator pinned a list |
@@ -139,7 +139,7 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Aspect | Detail |
 |---|---|
 | Protocol | IPP 2.0 `Print-Job` (0x0002) over HTTP POST `application/ipp`, with `attributes-charset`, `attributes-natural-language`, `printer-uri`, `requesting-user-name`, `document-format`, `job-name` |
-| Document kinds | `raw` ✅ and `escpos` ✅ as `application/octet-stream` · `pdf` ✅ as `application/pdf` (the PDF bytes are validated before they are sent) |
+| Document kinds | `pdf` ✅ as `application/pdf`; `raw` / `escpos` ❌ → `CAPABILITY_MISMATCH` |
 | Configuration | `type: ipp` or `ipps` (also `type: network` with `protocol: ipp`), `endpoint:` an `ipp://`, `ipps://`, `http://` URL or a bare `host:port` — normalised by `normalizeIPPURL` |
 | Capability reporting | `supported_protocols: [raw, escpos, pdf]` |
 | Error handling | Non-2xx HTTP and any IPP status other than `0x0000` become job errors with the decoded IPP status text; 15 s client timeout, shortened to the job deadline when smaller |
