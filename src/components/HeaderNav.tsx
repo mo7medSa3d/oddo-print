@@ -74,7 +74,7 @@ export function HeaderNav() {
               {loggingOut ? "Signing out…" : "Sign out"}
             </button>
           )}
-          {authenticated === false && pathname !== "/pricing" && (
+          {authenticated === false && (
             <Link
               href="/login"
               className="hidden rounded-lg border border-edge bg-surface px-3.5 py-2 text-sm font-semibold text-ink-2 hover:bg-surface-2 hover:text-ink focusable sm:inline-flex"
@@ -82,7 +82,7 @@ export function HeaderNav() {
               Sign in
             </Link>
           )}
-          {authenticated === false && pathname !== "/pricing" && (
+          {authenticated === false && (
             <Link
               href="/signup"
               className="hidden rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-white hover:opacity-95 focusable sm:inline-flex"
