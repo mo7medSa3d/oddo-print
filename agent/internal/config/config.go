@@ -443,6 +443,10 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 			if u.RawQuery != "" || u.Fragment != "" {
 				return fmt.Errorf("printer %s: IPP endpoint must not contain query strings or fragments", p.ID)
 			}
+			scheme := strings.ToLower(u.Scheme)
+			if nt == "ipps" && scheme != "https" && scheme != "ipps" {
+				return fmt.Errorf("printer %s: IPPS endpoint must use https:// or ipps://", p.ID)
+			}
 			ip := net.ParseIP(strings.Trim(u.Hostname(), "[]"))
 			if ip == nil || !isAllowedPrinterIP(ip) {
 				return fmt.Errorf("printer %s: IPP endpoint host must be a private or link-local IP", p.ID)
