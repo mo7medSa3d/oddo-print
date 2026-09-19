@@ -181,7 +181,7 @@ export function buildTestPrintPayloadForPrinter(
     (conn === "network" && declared !== "ipp" && declared !== "ipps");
   const byteProto =
     (declaredByteProtocol && allows(declaredByteProtocol) ? declaredByteProtocol : null) ??
-    (byteTransportEligible ? byteCandidates.find((candidate) => allows(candidate)) : null) ??
+    (byteTransportEligible && hasExplicitCaps ? byteCandidates.find((candidate) => allows(candidate)) : null) ??
     "";
   const name = safeTestText(printerName);
   const agent = safeTestText(agentName);
