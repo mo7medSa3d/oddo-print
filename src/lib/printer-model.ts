@@ -166,10 +166,14 @@ export function validatePrinterTransportProtocol(connectionType: string, protoco
 
 export function parsePrinterInput(value: unknown): CanonicalPrinterInput {
   const parsed = printerInputSchema.parse(value);
-  assertPrinterMetadataLimits(parsed);
-  const transportProtocolError = validatePrinterTransportProtocol(parsed.connectionType, parsed.protocol);
+  const normalized =
+    parsed.connectionType === "usb" && typeof parsed.config.spooler_name === "string" && parsed.config.spooler_name.trim()
+      ? { ...parsed, connectionType: "spooler" as const, protocol: "spooler" as const }
+      : parsed;
+  assertPrinterMetadataLimits(normalized);
+  const transportProtocolError = validatePrinterTransportProtocol(normalized.connectionType, normalized.protocol);
   if (transportProtocolError) throw new Error(transportProtocolError);
-  const connectionConfigError = validateConnectionConfig(parsed.connectionType, parsed.config, parsed.protocol);
+  const connectionConfigError = validateConnectionConfig(normalized.connectionType, normalized.config, normalized.protocol);
   if (connectionConfigError) throw new Error(connectionConfigError);
-  return parsed;
+  return normalized;
 }
