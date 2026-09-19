@@ -50,13 +50,12 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		family = conn
 	}
 	hasCaps := d.SupportedProtocolDeclared || d.SupportedProtocol != nil
-	physicalPDF := conn == "spooler" || conn == "ipp" || conn == "ipps" ||
+	physicalPDF := conn == "spooler" || proto == "spooler" || conn == "ipp" || conn == "ipps" ||
 		(conn == "network" && proto == "ipp")
-	physicalImage := conn == "spooler" ||
-		(conn == "network" && proto == "escpos") ||
-		(conn == "usb" && proto == "escpos")
+	physicalImage := conn == "spooler" || proto == "spooler" ||
+		(conn == "network" && proto == "escpos")
 	physicalByteProtocol := func(protocol string) bool {
-		if conn == "spooler" {
+		if conn == "spooler" || proto == "spooler" {
 			return protocol == "raw" || protocol == "escpos"
 		}
 		return (conn == "network" || conn == "usb") && proto == protocol
