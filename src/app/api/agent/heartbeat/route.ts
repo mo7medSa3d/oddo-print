@@ -110,7 +110,7 @@ function sanitizePrinter(p: ReportedPrinter): {
   const status = typeof p.status === "string" && VALID_PRINTER_STATUSES.has(p.status.trim().toLowerCase()) ? p.status.trim().toLowerCase() : "unknown";
   if (utf8ByteLength(JSON.stringify(config)) > PRINTER_CONFIG_MAX_BYTES) return { ok: false, reason: "config_payload_too_large" };
   if (capabilities && utf8ByteLength(JSON.stringify(capabilities)) > PRINTER_CAPABILITIES_MAX_BYTES) return { ok: false, reason: "capabilities_payload_too_large" };
-  const configErr = validateConnectionConfig(connectionType, config);
+  const configErr = validateConnectionConfig(connectionType, config, protocol);
   if (configErr) return { ok: false, reason: `invalid_connection_config: ${configErr}` };
   const transportProtocolErr = validatePrinterTransportProtocol(connectionType, protocol);
   if (transportProtocolErr) return { ok: false, reason: `invalid_transport_protocol: ${transportProtocolErr}` };
