@@ -87,9 +87,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (ownerLifecycle !== "active") return { kind: "conflict" as const, message: `cannot activate printer while agent is ${ownerLifecycle}` };
     }
 
-    const connectionType = parsed.data.connectionType ?? existing.connectionType;
-    const protocol = parsed.data.protocol ?? existing.protocol;
+    let connectionType = parsed.data.connectionType ?? existing.connectionType;
+    let protocol = parsed.data.protocol ?? existing.protocol;
     const cfg = (parsed.data.config ?? existing.config ?? {}) as Record<string, unknown>;
+    if (connectionType === "usb" && typeof cfg.spooler_name === "string" && cfg.spooler_name.trim()) {
+      connectionType = "spooler";
+      protocol = "spooler";
+    }
     if (
       parsed.data.connectionType !== undefined ||
       parsed.data.protocol !== undefined ||
@@ -116,8 +120,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (parsed.data.name !== undefined) update.name = parsed.data.name;
     if (parsed.data.printerType !== undefined) update.printerType = parsed.data.printerType;
     if (parsed.data.deviceClass !== undefined) update.deviceClass = parsed.data.deviceClass;
-    if (parsed.data.connectionType !== undefined) update.connectionType = parsed.data.connectionType;
-    if (parsed.data.protocol !== undefined) update.protocol = parsed.data.protocol;
+    if (parsed.data.connectionType !== undefined || connectionType !== existing.connectionType) update.connectionType = connectionType;
+    if (parsed.data.protocol !== undefined || protocol !== existing.protocol) update.protocol = protocol;
     if (parsed.data.config !== undefined) update.config = parsed.data.config;
     if (parsed.data.lifecycle !== undefined) update.lifecycle = parsed.data.lifecycle;
 
