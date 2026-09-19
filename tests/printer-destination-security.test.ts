@@ -31,6 +31,7 @@ describe("printer destination security policy", () => {
     expect(validateConnectionConfig("ipp", { address: "https://192.168.1.60/ipp/print?q=1" })).toContain("query strings");
     expect(validateConnectionConfig("ipp", { address: "ipp://user:pass@192.168.1.60/ipp/print" })).toContain("embedded credentials");
     expect(validateConnectionConfig("ipps", { address: "https://user:pass@192.168.1.60/ipp/print" })).toContain("embedded credentials");
+    expect(validateConnectionConfig("ipps", { address: "http://192.168.1.60:631/ipp/print" })).toContain("HTTPS/IPPS address");
   });
 
   it("rejects contradictory transport/protocol declarations", async () => {
