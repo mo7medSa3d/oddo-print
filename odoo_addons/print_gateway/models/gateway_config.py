@@ -159,19 +159,28 @@ class PrintGatewayConfig(models.Model):
             "X-Odoo-Database": self.env.cr.dbname,
         }
 
-    def _sync_enabled_state_to_gateway(self, expected_revision=None, expected_enabled=None):
-        """Push the Odoo activation checkbox to the Gateway after commit."""
+    def _sync_enabled_state_to_gateway(
+        self,
+        gateway_url,
+        api_key,
+        dbname,
+        expected_revision,
+        expected_enabled,
+    ):
+        """Push Odoo activation state and persist the result on a fresh cursor."""
         self.ensure_one()
-        revision = int(
-            self.enabled_sync_revision if expected_revision is None else expected_revision
-        )
-        enabled = bool(self.enabled if expected_enabled is None else expected_enabled)
-        if not self.gateway_api_key:
-            return False
+        revision = int(expected_revision)
+        enabled = bool(expected_enabled)
         try:
             response = requests.patch(
-                "%s/api/odoo/configuration" % self._gateway_base(for_request=True),
-                headers={**self._gateway_headers(), "Content-Type": "application/json"},
+                "%s/api/odoo/configuration" % gateway_url,
+                headers={
+                    "Authorization": "Bearer %s" % api_key,
+                    "Accept": "application/json",
+                    "Cache-Control": "no-store",
+                    "Content-Type": "application/json",
+                    "X-Odoo-Database": dbname,
+                },
                 json={"enabled": enabled, "revision": revision},
                 timeout=(5, 10),
                 allow_redirects=False,
@@ -185,33 +194,64 @@ class PrintGatewayConfig(models.Model):
             acknowledged_revision = body.get("revision")
             if not isinstance(acknowledged_revision, int) or acknowledged_revision < -1:
                 raise ValidationError(_("Gateway activation synchronization returned an invalid revision."))
-            self.sudo().write({
-                "last_enabled_sync_revision": acknowledged_revision,
-                "last_enabled_sync_at": fields.Datetime.now(),
-                "last_enabled_sync_error": False,
-            })
+            self._persist_enabled_sync_result(
+                dbname,
+                success=True,
+                revision=acknowledged_revision,
+                error=False,
+            )
             return True
         except (ValidationError, requests.RequestException, ValueError) as exc:
             message = str(exc)[:4000]
-            try:
-                self.sudo().write({"last_enabled_sync_error": message})
-            except Exception:
-                _logger.warning("Could not persist Gateway activation sync error for config %s", self.id)
+            self._persist_enabled_sync_result(
+                dbname,
+                success=False,
+                revision=None,
+                error=message,
+            )
             _logger.warning("Gateway activation synchronization failed for config %s: %s", self.id, exc)
             return False
+
+    def _persist_enabled_sync_result(self, dbname, *, success, revision, error):
+        """Persist post-commit sync bookkeeping using an independent cursor."""
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, api.SUPERUSER_ID, {})
+            config = env["print_gateway.gateway_config"].browse(self.id).exists()
+            if config:
+                values = {"last_enabled_sync_error": error or False}
+                if success:
+                    values.update({
+                        "last_enabled_sync_revision": int(revision),
+                        "last_enabled_sync_at": fields.Datetime.now(),
+                    })
+                config.write(values)
+            cr.commit()
+        except Exception:
+            cr.rollback()
+            _logger.exception("Could not persist Gateway activation sync result for config %s", self.id)
+        finally:
+            cr.close()
 
     def _queue_enabled_state_sync(self):
         for record in self:
             if not record.gateway_api_key:
                 continue
             record_id = record.id
+            gateway_url = record._gateway_base(for_request=True)
+            api_key = record._gateway_api_key_plaintext()
+            dbname = self.env.cr.dbname
             revision = int(record.enabled_sync_revision or 0)
             enabled = bool(record.enabled)
             self.env.cr.postcommit.add(
-                lambda record_id=record_id, revision=revision, enabled=enabled:
+                lambda record_id=record_id, gateway_url=gateway_url, api_key=api_key,
+                       dbname=dbname, revision=revision, enabled=enabled:
                     self.browse(record_id)._sync_enabled_state_to_gateway(
-                        expected_revision=revision,
-                        expected_enabled=enabled,
+                        gateway_url,
+                        api_key,
+                        dbname,
+                        revision,
+                        enabled,
                     )
             )
 
