@@ -134,8 +134,14 @@ export function AddPrinterDialog({
           req.usbVid = sel.usbVid;
           req.usbPid = sel.usbPid;
           req.usbSerial = sel.usbSerial;
-          req.spoolerName = sel.spooler_name || sel.name;
-          if (req.spoolerName) req.endpoint = req.spoolerName;
+          if (sel.spooler_name) {
+            req.spoolerName = sel.spooler_name;
+            req.endpoint = sel.spooler_name;
+            req.protocol = "spooler";
+          } else {
+            req.endpoint = sel.endpoint || sel.network_address || sel.networkAddress || "";
+            req.protocol = sel.protocol || "raw";
+          }
         }
       }
       await registerGatewayPrinter(gatewayUrl, { ...req, agentId });
