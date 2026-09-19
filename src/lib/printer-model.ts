@@ -89,9 +89,15 @@ function validateIPPPrinterAddress(value: string): string | null {
   return null;
 }
 
-function validatePrinterPort(connectionType: string, port: number): string | null {
-  const allowed = connectionType === "network" ? new Set([9100]) : new Set([80, 443, 631]);
+function validatePrinterPort(connectionType: string, port: number, protocol = ""): string | null {
+  const isNetworkIPP = connectionType === "network" && protocol === "ipp";
+  const allowed = isNetworkIPP
+    ? new Set([80, 443, 631])
+    : connectionType === "network"
+      ? new Set([9100])
+      : new Set([80, 443, 631]);
   if (!allowed.has(port)) {
+    if (isNetworkIPP) return "network IPP printer port must be 80, 443, or 631";
     return connectionType === "network"
       ? "network printer port must be 9100"
       : "IPP printer port must be 80, 443, or 631";
@@ -99,14 +105,14 @@ function validatePrinterPort(connectionType: string, port: number): string | nul
   return null;
 }
 
-export function validateConnectionConfig(connectionType: string, cfg: Record<string, unknown>): string | null {
+export function validateConnectionConfig(connectionType: string, cfg: Record<string, unknown>, protocol = ""): string | null {
   if (connectionType === "network") {
     if (!cfg.ip || typeof cfg.ip !== "string") return "network printer requires config.ip";
     if (!cfg.port || typeof cfg.port !== "number") return "network printer requires config.port";
     if (cfg.ip.includes(" ")) return "invalid network address";
     const addressErr = validatePrivatePrinterHost(cfg.ip);
     if (addressErr) return addressErr;
-    const portErr = validatePrinterPort(connectionType, cfg.port);
+    const portErr = validatePrinterPort(connectionType, cfg.port, protocol);
     if (portErr) return portErr;
   }
   if (connectionType === "ipp" || connectionType === "ipps") {
@@ -120,7 +126,7 @@ export function validateConnectionConfig(connectionType: string, cfg: Record<str
           return "IPPS printer requires an HTTPS/IPPS address";
         }
         if (parsed.port) {
-          const portErr = validatePrinterPort(connectionType, Number(parsed.port));
+          const portErr = validatePrinterPort(connectionType, Number(parsed.port), protocol);
           if (portErr) return portErr;
         }
       } catch {
@@ -131,7 +137,7 @@ export function validateConnectionConfig(connectionType: string, cfg: Record<str
       if (addressErr) return addressErr;
       if (cfg.port !== undefined) {
         if (typeof cfg.port !== "number") return "IPP printer port is invalid";
-        const portErr = validatePrinterPort(connectionType, cfg.port);
+        const portErr = validatePrinterPort(connectionType, cfg.port, protocol);
         if (portErr) return portErr;
       }
     } else {
@@ -172,5 +178,7 @@ export function parsePrinterInput(value: unknown): CanonicalPrinterInput {
   assertPrinterMetadataLimits(parsed);
   const transportProtocolError = validatePrinterTransportProtocol(parsed.connectionType, parsed.protocol);
   if (transportProtocolError) throw new Error(transportProtocolError);
+  const connectionConfigError = validateConnectionConfig(parsed.connectionType, parsed.config, parsed.protocol);
+  if (connectionConfigError) throw new Error(connectionConfigError);
   return parsed;
 }
