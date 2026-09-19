@@ -53,6 +53,7 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 	physicalPDF := conn == "spooler" || conn == "ipp" || conn == "ipps" ||
 		(conn == "network" && proto == "ipp")
 	physicalImage := conn == "spooler" ||
+		(conn == "network" && proto == "escpos") ||
 		(conn == "network" && proto == "escpos")
 
 	capabilityListed := func(names ...string) bool {
