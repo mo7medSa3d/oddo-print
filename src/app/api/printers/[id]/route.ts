@@ -127,8 +127,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     await writeAuditEvent({
       tenantId: tenantId,
-      actorType: claims.userId ? "user" : "system",
-      actorId: claims.userId ?? "legacy-manager",
+      actorType: auth.kind === "manager" && auth.claims.userId ? "user" : "system",
+      actorId: auth.kind === "manager" ? (auth.claims.userId ?? "legacy-manager") : auth.agent.id,
       action: "printer.changed",
       resourceType: "printer",
       resourceId: id,
