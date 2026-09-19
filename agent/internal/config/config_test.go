@@ -42,7 +42,6 @@ func TestValidatePrinterConfig(t *testing.T) {
 	}
 }
 
-
 func TestValidatePrinterConfigRejectsContradictoryTransportProtocols(t *testing.T) {
 	cases := []PrinterConfig{
 		{ID: "ipp-raw", Name: "IPP", Type: "ipp", Endpoint: "ipp://192.168.1.60/ipp/print", Protocol: "raw"},
