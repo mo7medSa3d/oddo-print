@@ -326,7 +326,29 @@ class PrintGatewayConfig(models.Model):
                 int(config.last_enabled_sync_revision or -1) != int(config.enabled_sync_revision or 0)
                 or bool(config.last_enabled_sync_error)
             ):
-                config._sync_enabled_state_to_gateway()
+                try:
+                    gateway_url = config._gateway_base(for_request=True)
+                    api_key = config._gateway_api_key_plaintext()
+                    config._sync_enabled_state_to_gateway(
+                        gateway_url,
+                        api_key,
+                        self.env.cr.dbname,
+                        int(config.enabled_sync_revision or 0),
+                        bool(config.enabled),
+                    )
+                except (ValidationError, requests.RequestException, ValueError) as exc:
+                    message = str(exc)[:4000]
+                    config._persist_enabled_sync_result(
+                        self.env.cr.dbname,
+                        success=False,
+                        revision=None,
+                        error=message,
+                    )
+                    _logger.warning(
+                        "Gateway activation reconciliation failed for config %s: %s",
+                        config.id,
+                        exc,
+                    )
         return True
 
     def action_test_connection(self):
