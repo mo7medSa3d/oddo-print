@@ -135,6 +135,20 @@ export function validateConnectionConfig(connectionType: string, cfg: Record<str
       return "invalid IPP printer URL";
     }
   }
+  if (connectionType === "usb") {
+    const hasSpooler = typeof cfg.spooler_name === "string" && cfg.spooler_name.trim();
+    if (!hasSpooler) {
+      if (typeof cfg.vid !== "number" || !Number.isInteger(cfg.vid) || cfg.vid < 0 || cfg.vid > 65535) {
+        return "direct USB printer requires config.vid";
+      }
+      if (typeof cfg.pid !== "number" || !Number.isInteger(cfg.pid) || cfg.pid < 0 || cfg.pid > 65535) {
+        return "direct USB printer requires config.pid";
+      }
+      if (typeof cfg.address !== "string" || !cfg.address.trim()) {
+        return "direct USB printer requires config.address (device path)";
+      }
+    }
+  }
   if (connectionType === "spooler" && !(typeof cfg.spooler_name === "string" && cfg.spooler_name.trim()) && !(typeof cfg.address === "string" && cfg.address.trim())) {
     return "spooler printer requires config.spooler_name or config.address";
   }
