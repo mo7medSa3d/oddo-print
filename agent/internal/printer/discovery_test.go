@@ -160,7 +160,7 @@ func TestManualPrinterTypes(t *testing.T) {
 
 	cases := []DeviceInfo{
 		{Name: "TCP Printer", ConnectionType: "tcp", Endpoint: "192.168.1.50:9100", Protocol: "raw"},
-		{Name: "USB Printer", ConnectionType: "usb", Endpoint: `\\?\\usb#vid_03f0&pid_0c17#SN123`, Protocol: "raw", USBVID: "03f0", USBPID: "0c17", USBSerial: "SN123"},
+		{Name: "USB Printer", ConnectionType: "usb", Endpoint: `\\?\usb#vid_03f0&pid_0c17#SN123`, Protocol: "raw", USBVID: "03f0", USBPID: "0c17", USBSerial: "SN123"},
 		{Name: "Spooler Printer", ConnectionType: "spooler", SpoolerName: "HP LaserJet", Endpoint: "HP LaserJet", Protocol: "spooler"},
 		{Name: "IPP Printer", ConnectionType: "ipp", Endpoint: "ipp://192.168.1.60/ipp/print", Protocol: "ipp"},
 	}
