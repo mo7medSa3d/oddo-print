@@ -25,7 +25,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="flex-1">{children}</main>
       <footer className="border-t border-edge bg-surface py-5 mt-auto">
         <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4 px-4 text-xs text-ink-3 sm:px-6">
-          <p>© 2026 Print Gateway</p>
+          <p>© 2026 Yasser</p>
           <p>Enterprise print operations</p>
         </div>
       </footer>
