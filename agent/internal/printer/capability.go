@@ -32,9 +32,10 @@ import "strings"
 
 // DeviceFacts are the declared transport properties of one printer entry.
 type TransportFacts struct {
-	Protocol          string
-	Connection        string
-	SupportedProtocol []string
+	Protocol                   string
+	Connection                 string
+	SupportedProtocol          []string
+	SupportedProtocolDeclared  bool
 }
 
 // PayloadCompatibleForDevice reports whether the payload may physically be
@@ -48,7 +49,7 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 	if family == "" || family == "unknown" {
 		family = conn
 	}
-	hasCaps := len(d.SupportedProtocol) > 0
+	hasCaps := d.SupportedProtocolDeclared || d.SupportedProtocol != nil
 
 	capabilityListed := func(names ...string) bool {
 		for _, name := range names {
