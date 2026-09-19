@@ -18,6 +18,22 @@ describe("desktop Agent Gateway response contract", () => {
     expect(ipc).not.toContain("return { status: 200, body: responseBody }");
   });
 
+  it("routes desktop printer tests through the Gateway console path", () => {
+    const main = read("src/desktop/main.tsx");
+    const ipc = read("src/desktop/lib/ipc.ts");
+    expect(main).toContain("testGatewayPrinter(gatewayUrl, id)");
+    expect(main).not.toContain("testPrinter(id)");
+    expect(ipc).toContain("/api/printers/" + encodeURIComponent(printerId) + "/test-print");
+  });
+
+  it("normalizes Gateway printer config metadata for the desktop model", () => {
+    const ipc = read("src/desktop/lib/ipc.ts");
+    expect(ipc).toContain("config.address");
+    expect(ipc).toContain("config.spooler_name");
+    expect(ipc).toContain("config.vid");
+    expect(ipc).toContain("config.pid");
+  });
+
   it("allows the bare jobs endpoint while rejecting malformed query pairs", () => {
     const source = read("agent/cmd/cli/gateway.go");
     expect(source).toContain('if parsed.RawQuery == "" {');
