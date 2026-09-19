@@ -36,7 +36,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (auth.kind === "manager") {
     try { requireManagerPermission(auth.claims, "printers.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   }
-  const tenantId = auth.kind === "manager" ? auth.tenantId : auth.agent.tenantId;
+  const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
   const { id } = await params;
   const row = await db.query.printers.findFirst({
     where: auth.kind === "agent"
@@ -54,7 +54,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     try { requireManagerPermission(auth.claims, "printers.manage"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   }
 
-  const tenantId = auth.kind === "manager" ? auth.tenantId : auth.agent.tenantId;
+  const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
   const { id } = await params;
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
