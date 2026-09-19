@@ -45,9 +45,9 @@ export function normalizeGatewayUrl(raw: string): string {
     if (parsed.username || parsed.password) {
       throw new Error("Gateway URL cannot include embedded credentials");
     }
-    if (parsed.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]", "::1"].includes(parsed.hostname.toLowerCase())) {
-      throw new Error("Gateway URL must use HTTPS unless the Gateway is local to this machine");
-    }
+    // The packaged Tauri app enforces the real transport policy in Rust.
+    // The HTTP-test branch intentionally allows the draft through here so the
+    // Rust boundary can apply the explicit YASSER_AGENT_ALLOW_INSECURE_HTTP test gate.
     if (parsed.search || parsed.hash) {
       throw new Error("Gateway URL cannot include query strings or fragments");
     }
