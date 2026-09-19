@@ -182,7 +182,7 @@ class PrintGatewayConfig(models.Model):
                     "X-Odoo-Database": dbname,
                 },
                 json={"enabled": enabled, "revision": revision},
-                timeout=(5, 10),
+                timeout=10,
                 allow_redirects=False,
             )
             # Do not parse an authentication-failure body: a revoked/deleted
@@ -378,7 +378,7 @@ class PrintGatewayConfig(models.Model):
             response = requests.get(
                 "%s/api/odoo/health" % self._gateway_base(for_request=True),
                 headers=self._gateway_headers(),
-                timeout=(5, 10),
+                timeout=10,
                 allow_redirects=False,
             )
             # Authentication failure semantics are deterministic and must not
@@ -513,7 +513,7 @@ class PrintGatewayPairAgentWizard(models.TransientModel):
             response = requests.get(
                 "%s/api/odoo/agents" % config._gateway_base(for_request=True),
                 headers=config._gateway_headers(),
-                timeout=(5, 10),
+                timeout=10,
                 allow_redirects=False,
             )
             if response.status_code in (401, 403):
