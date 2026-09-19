@@ -185,6 +185,24 @@ func handleGatewayRequest(args []string, configPath string) {
 	}
 }
 
+func isAllowedJobsPath(path string) bool {
+	parsed, err := url.Parse(path)
+	if err != nil || parsed.Path != "/api/jobs" || parsed.RawPath != "" {
+		return false
+	}
+	for key, values := range parsed.Query() {
+		switch key {
+		case "limit", "offset", "status", "search", "q", "printerId", "agentId":
+			if len(values) != 1 || len(values[0]) > 200 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func isAllowedGatewayConsolePath(path, method string) bool {
 	switch strings.ToUpper(strings.TrimSpace(method)) {
 	case "GET":
