@@ -81,8 +81,8 @@ export function AddPrinterDialog({
     if (conn === "network") {
       if (!host.trim()) return "Host is required.";
       if (host.includes(" ")) return "Invalid host.";
-      const p = parseInt(port, 10);
-      if (isNaN(p) || p < 1 || p > 65535) return "Port must be 1–65535.";
+      const p = Number(port);
+      if (!Number.isInteger(p) || p !== 9100) return "Network printer port must be 9100.";
     }
     if (conn === "ipp" && !ippUrl.trim()) return "IPP endpoint is required.";
     if (
