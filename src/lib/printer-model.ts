@@ -80,6 +80,9 @@ function validateIPPPrinterAddress(value: string): string | null {
   if (parsed.search || parsed.hash) {
     return "IPP printer URL cannot contain query strings or fragments";
   }
+  if (parsed.username || parsed.password) {
+    return "IPP printer URL cannot contain embedded credentials";
+  }
   if (!isAllowedPrinterDestination(parsed.hostname)) {
     return "printer network destination must be a private or link-local IP address";
   }
