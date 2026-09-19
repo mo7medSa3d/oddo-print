@@ -239,13 +239,18 @@ class PrintGatewayConfig(models.Model):
         finally:
             cr.close()
 
-    def _queue_enabled_state_sync(self):
+    def _queue_enabled_state_sync(self, credential_overrides=None):
+        credential_overrides = credential_overrides or {}
         for record in self:
-            if not record.gateway_api_key:
-                continue
+            override = credential_overrides.get(record.id)
+            if override:
+                gateway_url, api_key = override
+            else:
+                if not record.gateway_api_key:
+                    continue
+                gateway_url = record._gateway_base(for_request=True)
+                api_key = record._gateway_api_key_plaintext()
             record_id = record.id
-            gateway_url = record._gateway_base(for_request=True)
-            api_key = record._gateway_api_key_plaintext()
             dbname = self.env.cr.dbname
             revision = int(record.enabled_sync_revision or 0)
             enabled = bool(record.enabled)
@@ -268,6 +273,21 @@ class PrintGatewayConfig(models.Model):
     def write(self, vals):
         sync_fields = {"enabled", "gateway_url", "gateway_api_key"}
         skip_enabled_sync = bool(self.env.context.get("skip_enabled_sync"))
+        pre_sync_credentials = {}
+        if "gateway_api_key" in vals and not vals["gateway_api_key"]:
+            for record in self:
+                if not record.gateway_api_key:
+                    continue
+                try:
+                    pre_sync_credentials[record.id] = (
+                        record._gateway_base(for_request=True),
+                        record._gateway_api_key_plaintext(),
+                    )
+                except (ValidationError, ValueError):
+                    # A corrupted/unavailable old credential cannot authenticate
+                    # a remote disable. The write itself must still be allowed;
+                    # the Gateway state will surface the existing credential error.
+                    continue
         if set(vals).intersection({"gateway_url", "gateway_api_key", "enabled", "company_id", "runtime_agent_id"}):
             self._check_admin()
         vals = dict(vals)
@@ -287,7 +307,7 @@ class PrintGatewayConfig(models.Model):
                         "enabled_sync_revision": int(record.enabled_sync_revision or 0) + 1,
                         "last_enabled_sync_error": False,
                     })
-            self._queue_enabled_state_sync()
+            self._queue_enabled_state_sync(pre_sync_credentials)
         return result
 
     @api.model_create_multi
