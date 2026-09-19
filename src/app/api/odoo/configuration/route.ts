@@ -71,33 +71,39 @@ export async function PATCH(req: Request) {
   }
 
   const now = new Date();
-  const updated = await db.update(tenants)
-    .set({
-      odooEnabled: enabled,
-      odooEnabledRevision: Number(revision),
-      odooEnabledUpdatedAt: now,
-      updatedAt: now,
-    })
-    .where(and(
-      eq(tenants.id, apiKey.tenantId),
-      lt(tenants.odooEnabledRevision, Number(revision)),
-    ))
-    .returning({
-      enabled: tenants.odooEnabled,
-      revision: tenants.odooEnabledRevision,
-      updatedAt: tenants.odooEnabledUpdatedAt,
-    });
+  const updated = await db.transaction(async (tx) => {
+    const result = await tx.update(tenants)
+      .set({
+        odooEnabled: enabled,
+        odooEnabledRevision: Number(revision),
+        odooEnabledUpdatedAt: now,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(tenants.id, apiKey.tenantId),
+        lt(tenants.odooEnabledRevision, Number(revision)),
+      ))
+      .returning({
+        enabled: tenants.odooEnabled,
+        revision: tenants.odooEnabledRevision,
+        updatedAt: tenants.odooEnabledUpdatedAt,
+      });
+
+    if (result.length) {
+      await writeAuditEvent({
+        tenantId: apiKey.tenantId,
+        actorType: "odoo",
+        actorId: apiKey.id,
+        action: "odoo.gateway_configuration.updated",
+        resourceType: "tenant",
+        resourceId: apiKey.tenantId,
+        metadata: { enabled, revision: Number(revision) },
+      }, tx);
+    }
+    return result;
+  });
 
   if (updated.length) {
-    await writeAuditEvent({
-      tenantId: apiKey.tenantId,
-      actorType: "odoo",
-      actorId: apiKey.id,
-      action: "odoo.gateway_configuration.updated",
-      resourceType: "tenant",
-      resourceId: apiKey.tenantId,
-      metadata: { enabled, revision: Number(revision) },
-    });
     return NextResponse.json({ ok: true, applied: true, ...updated[0] }, {
       status: 200,
       headers: { "Cache-Control": "no-store" },
