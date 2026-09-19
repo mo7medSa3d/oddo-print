@@ -396,14 +396,14 @@ function networkConfigFromEndpoint(endpoint: string): { ip: string; port: number
     if (close <= 1 || raw.charAt(close + 1) !== ":") throw new Error("Network printer endpoint must be host:9100");
     const ip = raw.slice(1, close);
     const port = Number(raw.slice(close + 2));
-    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Network printer endpoint port is invalid");
+    if (!Number.isInteger(port) || port !== 9100) throw new Error("Network printer endpoint port must be 9100");
     return { ip, port };
   }
   const idx = raw.lastIndexOf(":");
   if (idx <= 0) throw new Error("Network printer endpoint must be host:port");
   const ip = raw.slice(0, idx);
   const port = Number(raw.slice(idx + 1));
-  if (!ip || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Network printer endpoint is invalid");
+  if (!ip || !Number.isInteger(port) || port !== 9100) throw new Error("Network printer endpoint port must be 9100");
   return { ip, port };
 }
 
