@@ -174,10 +174,10 @@ class TestControlPlane(TransactionCase):
         self.assertEqual(intent2.id, intent1.id, "Duplicate trigger must return existing intent and suppress duplicate job creation")
 
     def test_01b_raw_policy_dedup_identity_includes_resolved_binding_and_protocol(self):
-        """Raw fan-out dedup must not collapse distinct resolved targets or languages."""
+        """Raw fan-out dedup must include the resolved target and language."""
         model = self.env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
         zpl_policy = self.env["print_gateway.policy"].create({
-            "name": "Implicit ZPL Policy",
+            "name": "Raw ZPL Identity Policy",
             "company_id": self.company.id,
             "branch_id": self.branch.id,
             "model_id": model.id,
@@ -189,7 +189,7 @@ class TestControlPlane(TransactionCase):
             "active": True,
         })
         tspl_policy = self.env["print_gateway.policy"].create({
-            "name": "Implicit TSPL Policy",
+            "name": "Raw TSPL Identity Policy",
             "company_id": self.company.id,
             "branch_id": self.branch.id,
             "model_id": model.id,
@@ -205,14 +205,19 @@ class TestControlPlane(TransactionCase):
         mock_picking._name = model.model
         mock_picking.id = 9992
         mock_picking.company_id = self.branch
-        mock_picking.write_date = "2026-09-08 16:00:00"
 
-        # The explicit ZPL binding and the unresolved implicit TSPL route must
-        # not share a dedup identity merely because both have no/limited
-        # explicit target metadata. Protocol is part of the content contract.
-        zpl_key = zpl_policy.effective_target_key(mock_picking)
-        tspl_key = tspl_policy.effective_target_key(mock_picking)
+        router_cls = type(self.env["print_gateway.print_router"])
+        responses = [
+            {"binding_id": self.zpl_binding.id},
+            {"binding_id": self.zpl_binding.id},
+        ]
+        with patch.object(router_cls, "resolve_binding", side_effect=responses):
+            zpl_key = zpl_policy.effective_target_key(mock_picking)
+            tspl_key = tspl_policy.effective_target_key(mock_picking)
+
         self.assertNotEqual(zpl_key, tspl_key)
+        self.assertEqual(zpl_key[0], tspl_key[0])
+        self.assertNotEqual(zpl_key[3], tspl_key[3])
 
     def test_02_raw_zpl_command_routing(self):
         """Verify raw ZPL command routing bypasses QWeb and creates raw_cmd outbox job."""
