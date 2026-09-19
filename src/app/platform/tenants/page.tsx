@@ -111,12 +111,12 @@ export default function PlatformTenantsPage() {
     setActionError(null);
   }
 
-  function closeDialog() {
+  const closeDialog = useCallback(() => {
     if (actionLoading) return;
     setSelectedTenant(null);
     setSuspendReason("");
     setActionError(null);
-  }
+  }, [actionLoading]);
 
   async function handleLifecycleAction() {
     if (!selectedTenant) return;
