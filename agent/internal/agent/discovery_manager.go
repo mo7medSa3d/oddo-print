@@ -150,7 +150,12 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string)
 			"spoolerName":  di.SpoolerName,
 			"deviceClass":  deviceClass,
 			"transport":    di.ConnectionType,
-			"manufacturer": func() interface{} { if di.Capabilities != nil { return di.Capabilities["manufacturer"] }; return nil }(),
+			"manufacturer": func() interface{} {
+				if di.Capabilities != nil {
+					return di.Capabilities["manufacturer"]
+				}
+				return nil
+			}(),
 			"model":        di.Name,
 			"confidence":   confidence,
 			"verification": verification,
