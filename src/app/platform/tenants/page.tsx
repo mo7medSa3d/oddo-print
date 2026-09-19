@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   AlertOctagon,
   Building2,
@@ -88,7 +88,7 @@ export default function PlatformTenantsPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedTenant, actionLoading]);
+  }, [selectedTenant, actionLoading, closeDialog]);
 
   function handleRefresh() {
     setLoading(true);
