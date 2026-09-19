@@ -80,6 +80,15 @@ async function invoke<T>(
   switch (cmd) {
     case "plugin:event|listen":
       return 1 as unknown as T;
+    case "gateway_agent_request": {
+      const path = options?.args?.path ?? "";
+      const body = path.startsWith("/api/agents")
+        ? [{ id: "agent-1", name: "Reception Agent", status: "online", lifecycle: "active" }]
+        : path.startsWith("/api/printers")
+          ? printers
+          : jobs;
+      return JSON.stringify(body) as unknown as T;
+    }
     case "gateway_request": {
       const path = options?.args?.path ?? "";
       const body = path === "/api/health"
