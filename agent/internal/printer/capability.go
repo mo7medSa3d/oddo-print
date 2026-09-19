@@ -169,6 +169,9 @@ func SupportedProtocolsForDevice(d TransportFacts) []string {
 	}
 	switch family {
 	case "escpos":
+		if strings.ToLower(strings.TrimSpace(d.Connection)) == "usb" {
+			return []string{"escpos"}
+		}
 		return []string{"escpos", "image"}
 	case "zpl":
 		return []string{"zpl"}
