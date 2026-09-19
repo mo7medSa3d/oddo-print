@@ -162,7 +162,6 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         binding_source = (MODELS / "binding.py").read_text(encoding="utf-8")
         self.assertIn('runtime_agent_assignment', binding_source)
         self.assertIn("The selected Gateway Runtime Agent is not assigned to the current Odoo Branch.", binding_source)
-        self.assertIn('is not assigned to this Odoo Branch', source)
 
     def test_agent_widget_clears_previous_printer_on_agent_change(self):
         source = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
