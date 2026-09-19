@@ -15,7 +15,7 @@ import { Printer } from "lucide-react";
 export function BrandMark({
   size = "md",
   showWordmark = true,
-  title = "Print Gateway",
+  title = "Yasser",
   subtitle = "Enterprise print operations",
   className = "",
 }: {

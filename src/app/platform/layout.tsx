@@ -26,22 +26,24 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link href="/platform/dashboard" className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center">
-                <Cpu className="w-5 h-5" />
+      <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/95 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-6">
+            <Link href="/platform/dashboard" className="flex shrink-0 items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-400/20 bg-indigo-500/10 text-indigo-300">
+                <Cpu className="h-5 w-5" />
               </div>
-              <div>
-                <span className="font-bold text-white text-base tracking-tight">Yasser</span>
-                <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 uppercase tracking-wider">
-                  Control Plane
-                </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-bold tracking-tight text-white">Yasser</span>
+                  <span className="rounded border border-indigo-400/20 bg-indigo-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-indigo-300">
+                    Control Plane
+                  </span>
+                </div>
               </div>
             </Link>
 
-            <nav className="hidden md:flex items-center gap-1">
+            <nav className="hidden items-center gap-1 md:flex" aria-label="Platform navigation">
               {NAV_ITEMS.map((item) => {
                 const Icon = item.icon;
                 const active = pathname === item.href;
@@ -49,13 +51,13 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition ${
+                    className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 text-sm font-medium transition ${
                       active
-                        ? "bg-indigo-600/15 text-indigo-400 border border-indigo-500/20"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                        ? "border-indigo-400/20 bg-indigo-500/10 text-indigo-300"
+                        : "border-transparent text-slate-400 hover:border-slate-800 hover:bg-slate-900 hover:text-slate-100"
                     }`}
                   >
-                    <Icon className="w-4 h-4" />
+                    <Icon className="h-4 w-4" />
                     {item.label}
                   </Link>
                 );
@@ -63,21 +65,26 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
             </nav>
           </div>
 
-          <div className="flex items-center gap-4">
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              Sign Out
-            </button>
-          </div>
+          <button
+            onClick={handleLogout}
+            className="flex shrink-0 items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-300"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Sign Out
+          </button>
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {children}
+      <main className="flex-1 bg-slate-950">
+        <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">{children}</div>
       </main>
+
+      <footer className="border-t border-slate-800 bg-slate-950">
+        <div className="mx-auto flex min-h-14 max-w-7xl items-center justify-between gap-4 px-4 py-4 text-xs text-slate-500 sm:px-6 lg:px-8">
+          <span>© 2026 Yasser</span>
+          <span className="text-slate-600">Platform Control Plane</span>
+        </div>
+      </footer>
     </div>
   );
 }

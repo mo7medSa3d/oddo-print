@@ -68,13 +68,13 @@ export default function LoginPage() {
   }
 
   if (checkingSession) {
-    return <div className="canvas-wash min-h-screen flex items-center justify-center px-4"><div className="flex flex-col items-center gap-4 text-center"><BrandMark size="lg" title="Print Gateway" subtitle="Customer portal" /><span className="text-sm text-ink-3">Checking session…</span></div></div>;
+    return <div className="canvas-wash min-h-screen flex items-center justify-center px-4"><div className="flex flex-col items-center gap-4 text-center"><BrandMark size="lg" title="Yasser" subtitle="Customer portal" /><span className="text-sm text-ink-3">Checking session…</span></div></div>;
   }
 
   return (
     <div className="canvas-wash min-h-screen flex items-center justify-center py-12">
       <div className="container mx-auto flex max-w-md flex-col px-4">
-        <BrandMark size="lg" title="Print Gateway" subtitle="Customer portal" />
+        <BrandMark size="lg" title="Yasser" subtitle="Customer portal" />
         <div className="mt-6"><h1 className="text-2xl font-bold tracking-tight text-ink">Sign in</h1><p className="mt-1 text-sm text-ink-3">Use the email address associated with your workspace.</p></div>
         <form onSubmit={onSubmit} className="card brand-hairline mt-6 space-y-5 p-6" aria-describedby="login-help">
           <Field label="Email" htmlFor="email"><Input id="email" type="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required aria-invalid={err ? true : undefined} /></Field>
