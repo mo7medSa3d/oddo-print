@@ -77,7 +77,7 @@ export function HeaderNav() {
           {authenticated === false && (
             <Link
               href="/login"
-              className="hidden rounded-lg border border-edge bg-surface px-3.5 py-2 text-sm font-semibold text-ink-2 hover:bg-surface-2 hover:text-ink focusable sm:inline-flex"
+              className="inline-flex rounded-lg border border-edge bg-surface px-3.5 py-2 text-sm font-semibold text-ink-2 hover:bg-surface-2 hover:text-ink focusable"
             >
               Sign in
             </Link>
