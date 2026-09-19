@@ -405,7 +405,31 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 	if perr != nil {
 		return perr
 	}
-	_ = proto
+	// Transport and protocol are one physical contract. Reject combinations
+	// that the factory would otherwise interpret differently (for example an
+	// IPP transport declared as RAW, which would pass Gateway capability checks
+	// but fail only after the Agent starts execution).
+	switch nt {
+	case "network":
+		if proto == "ipps" {
+			return fmt.Errorf("printer %s: network connection requires an IPP URL for IPPS; use type ipps", p.ID)
+		}
+		if proto != "raw" && proto != "escpos" && proto != "zpl" && proto != "tspl" && proto != "ipp" && proto != "unknown" {
+			return fmt.Errorf("printer %s: protocol %q is incompatible with network connection", p.ID, proto)
+		}
+	case "ipp":
+		if proto != "ipp" && proto != "unknown" {
+			return fmt.Errorf("printer %s: protocol %q is incompatible with ipp connection", p.ID, proto)
+		}
+	case "ipps":
+		if proto != "ipps" && proto != "unknown" {
+			return fmt.Errorf("printer %s: protocol %q is incompatible with ipps connection", p.ID, proto)
+		}
+	case "spooler":
+		if proto != "spooler" && proto != "unknown" {
+			return fmt.Errorf("printer %s: protocol %q is incompatible with spooler connection", p.ID, proto)
+		}
+	}
 	if nt == "network" || nt == "ipp" || nt == "ipps" {
 		ep := strings.TrimSpace(p.Endpoint)
 		if ep == "" {
