@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -301,7 +302,7 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 						duplicate = true
 						break
 					}
-					if existing.Endpoint != "" && strings.Contains(existing.Endpoint, d.NetworkAddress) {
+					if endpointHasNetworkAddress(existing.Endpoint, d.NetworkAddress) {
 						all[i] = mergeDeviceInfo(existing, d)
 						seen[d.ID] = true
 						duplicate = true
@@ -758,6 +759,23 @@ func ListPrinters(cfg *config.Config, registryPath string) ([]DeviceInfo, error)
 		}
 	}
 	return result.Printers, nil
+}
+
+func endpointHasNetworkAddress(endpoint, networkAddress string) bool {
+	endpoint = strings.TrimSpace(endpoint)
+	networkAddress = strings.TrimSpace(networkAddress)
+	if endpoint == "" || networkAddress == "" {
+		return false
+	}
+	if host, _, err := net.SplitHostPort(endpoint); err == nil {
+		return strings.EqualFold(strings.Trim(host, "[]"), networkAddress)
+	}
+	if strings.Contains(endpoint, "://") {
+		if u, err := url.Parse(endpoint); err == nil && u.Hostname() != "" {
+			return strings.EqualFold(u.Hostname(), networkAddress)
+		}
+	}
+	return false
 }
 
 func mergeDeviceInfo(existing, incoming DeviceInfo) DeviceInfo {
