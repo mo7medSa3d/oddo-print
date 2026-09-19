@@ -514,8 +514,25 @@ export function discoverPrinters(): Promise<DiscoverResult> {
   return invoke<DiscoverResult>("discover_printers");
 }
 
-export function testPrinter(printerId: string): Promise<string> {
-  return invoke<string>("test_printer", { printerId });
+export async function testGatewayPrinter(
+  gatewayUrl: string,
+  printerId: string,
+): Promise<Record<string, unknown>> {
+  const base = normalizeGatewayUrl(gatewayUrl);
+  const headers = await managerGatewayHeaders();
+  const { status, body } = await gatewayConsoleRequest(
+    base,
+    "/api/printers/" + encodeURIComponent(printerId) + "/test-print",
+    "POST",
+    headers,
+  );
+  if (status === 401 || status === 403) await clearManagerSession();
+  if (status < 200 || status >= 300) {
+    const err: Error & { status?: number } = new Error(body || "Gateway test print failed (" + status + ")");
+    err.status = status;
+    throw err;
+  }
+  return JSON.parse(body) as Record<string, unknown>;
 }
 
 export function cleanupLocalJobs(): Promise<number> {
