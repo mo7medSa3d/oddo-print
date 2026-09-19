@@ -77,6 +77,12 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(jobsRoute).toContain("eq(printJobs.agentId, auth.agent.id)");
   });
 
+  it("does not classify an existing offline printer as an unassigned job", () => {
+    const mainTsx = read("src/desktop/main.tsx");
+    expect(mainTsx).toContain('dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid)');
+    expect(mainTsx).not.toContain('dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid && p.status === "online")');
+  });
+
   it("emits and listens for gateway:config_changed and unifies gateway status across desktop UI", () => {
     const commandsRs = read("src-tauri/src/commands.rs");
     expect(commandsRs).toContain("pub fn set_gateway_config(url: String, app: tauri::AppHandle)");
