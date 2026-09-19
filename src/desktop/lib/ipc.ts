@@ -149,6 +149,23 @@ async function gatewayRequest(
   });
 }
 
+async function gatewayConsoleRequest(
+  gatewayUrl: string,
+  path: string,
+  method = "GET",
+  headers: Record<string, string> = {},
+  body?: string,
+): Promise<GatewayResponse> {
+  const base = normalizeGatewayUrl(gatewayUrl);
+  if (!isTauri) {
+    return gatewayRequest(base, path, method, headers, body);
+  }
+  const responseBody = await invoke<string>("gateway_agent_request", {
+    args: { path, method, body: body ?? null },
+  });
+  return { status: 200, body: responseBody };
+}
+
 export async function loginManager(
   gatewayUrl: string,
   username: string,
@@ -341,7 +358,7 @@ export async function fetchGatewayAgents(
 ): Promise<Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null }>> {
   const base = normalizeGatewayUrl(gatewayUrl);
   const headers = await managerGatewayHeaders();
-  const { status, body } = await gatewayRequest(base, "/api/agents", "GET", headers);
+  const { status, body } = await gatewayConsoleRequest(base, "/api/agents", "GET", headers);
   if (status === 401 || status === 403) await clearManagerSession();
   if (status < 200 || status >= 300) {
     const err: Error & { status?: number } = new Error(body || "agents fetch failed (" + status + ")");
@@ -354,7 +371,7 @@ export async function fetchGatewayAgents(
 export async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterInfo[]> {
   const base = normalizeGatewayUrl(gatewayUrl);
   const headers = await managerGatewayHeaders();
-  const { status, body } = await gatewayRequest(base, "/api/printers", "GET", headers);
+  const { status, body } = await gatewayConsoleRequest(base, "/api/printers", "GET", headers);
   if (status === 401 || status === 403) await clearManagerSession();
   if (status < 200 || status >= 300) {
     const err: Error & { status?: number } = new Error(body || "printers fetch failed (" + status + ")");
@@ -426,7 +443,7 @@ export async function registerGatewayPrinter(
     printerType: req.printerType || "physical",
     config,
   };
-  const { status, body } = await gatewayRequest(base, "/api/printers", "POST", headers, JSON.stringify(payload));
+  const { status, body } = await gatewayConsoleRequest(base, "/api/printers", "POST", headers, JSON.stringify(payload));
   if (status === 401 || status === 403) await clearManagerSession();
   if (status < 200 || status >= 300) {
     const err: Error & { status?: number } = new Error(body || "printer registration failed (" + status + ")");
@@ -443,7 +460,7 @@ export async function updateGatewayPrinter(
 ): Promise<PrinterInfo> {
   const base = normalizeGatewayUrl(gatewayUrl);
   const headers = { "Content-Type": "application/json", ...(await managerGatewayHeaders()) };
-  const { status, body } = await gatewayRequest(
+  const { status, body } = await gatewayConsoleRequest(
     base,
     "/api/printers/" + encodeURIComponent(printerId),
     "PATCH",
@@ -530,7 +547,7 @@ export async function fetchGatewayJobs(
   const endpoint = `/api/jobs?${params.toString()}`;
   const headers: Record<string, string> = {};
   if (browserToken) headers.Authorization = `Bearer ${browserToken}`;
-  const { status, body } = await gatewayRequest(base, endpoint, "GET", headers);
+  const { status, body } = await gatewayConsoleRequest(base, endpoint, "GET", headers);
   if (status === 401 || status === 403) {
     await clearManagerSession();
   }
