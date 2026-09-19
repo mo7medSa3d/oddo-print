@@ -3,6 +3,7 @@
 
 from urllib.parse import urlparse
 
+import logging
 import os
 import requests
 
@@ -19,6 +20,8 @@ from .crypto import (
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, ValidationError
 
+_logger = logging.getLogger(__name__)
+
 
 class PrintGatewayConfig(models.Model):
     _name = "print_gateway.gateway_config"
@@ -32,6 +35,14 @@ class PrintGatewayConfig(models.Model):
         ondelete="restrict", index=True,
     )
     enabled = fields.Boolean(string="Gateway Printing Enabled", default=False)
+    enabled_sync_revision = fields.Integer(
+        string="Activation Sync Revision", default=0, readonly=True, copy=False,
+    )
+    last_enabled_sync_revision = fields.Integer(
+        string="Last Gateway Sync Revision", default=-1, readonly=True, copy=False,
+    )
+    last_enabled_sync_at = fields.Datetime(readonly=True, copy=False)
+    last_enabled_sync_error = fields.Text(readonly=True, copy=False)
     gateway_url = fields.Char(string="Gateway URL", required=True)
     gateway_api_key = fields.Char(
         string="API Key",
@@ -148,14 +159,69 @@ class PrintGatewayConfig(models.Model):
             "X-Odoo-Database": self.env.cr.dbname,
         }
 
+    def _sync_enabled_state_to_gateway(self, expected_revision=None, expected_enabled=None):
+        """Push the Odoo activation checkbox to the Gateway after commit."""
+        self.ensure_one()
+        revision = int(
+            self.enabled_sync_revision if expected_revision is None else expected_revision
+        )
+        enabled = bool(self.enabled if expected_enabled is None else expected_enabled)
+        if not self.gateway_api_key:
+            return False
+        try:
+            response = requests.patch(
+                "%s/api/odoo/configuration" % self._gateway_base(for_request=True),
+                headers={**self._gateway_headers(), "Content-Type": "application/json"},
+                json={"enabled": enabled, "revision": revision},
+                timeout=(5, 10),
+                allow_redirects=False,
+            )
+            body = response.json() if response.content else {}
+            if response.status_code != 200 or not isinstance(body, dict) or body.get("ok") is not True:
+                message = body.get("error") if isinstance(body, dict) else False
+                raise ValidationError(
+                    message or _("Gateway activation synchronization failed (HTTP %s).") % response.status_code
+                )
+            self.sudo().write({
+                "last_enabled_sync_revision": revision,
+                "last_enabled_sync_at": fields.Datetime.now(),
+                "last_enabled_sync_error": False,
+            })
+            return True
+        except (ValidationError, requests.RequestException, ValueError) as exc:
+            message = str(exc)[:4000]
+            try:
+                self.sudo().write({"last_enabled_sync_error": message})
+            except Exception:
+                _logger.warning("Could not persist Gateway activation sync error for config %s", self.id)
+            _logger.warning("Gateway activation synchronization failed for config %s: %s", self.id, exc)
+            return False
+
+    def _queue_enabled_state_sync(self):
+        for record in self:
+            if not record.gateway_api_key:
+                continue
+            record_id = record.id
+            revision = int(record.enabled_sync_revision or 0)
+            enabled = bool(record.enabled)
+            self.env.cr.postcommit.add(
+                lambda record_id=record_id, revision=revision, enabled=enabled:
+                    self.browse(record_id)._sync_enabled_state_to_gateway(
+                        expected_revision=revision,
+                        expected_enabled=enabled,
+                    )
+            )
+
     def _check_admin(self):
         if not self.env.user.has_group("base.group_system"):
             raise AccessError(_("Only Odoo system administrators can change Gateway configuration."))
 
     def write(self, vals):
+        sync_fields = {"enabled", "gateway_url", "gateway_api_key"}
         if set(vals).intersection({"gateway_url", "gateway_api_key", "enabled", "company_id", "runtime_agent_id"}):
             self._check_admin()
         vals = dict(vals)
+        before_enabled = {record.id: bool(record.enabled) for record in self}
         if "gateway_api_key" in vals and vals["gateway_api_key"]:
             try:
                 vals["gateway_api_key"] = self._protected_gateway_api_key(vals["gateway_api_key"])
@@ -163,7 +229,16 @@ class PrintGatewayConfig(models.Model):
                 raise ValidationError(
                     _("Gateway credential protection is unavailable. Configure the deployment-managed credential encryption key before saving an API key.")
                 ) from exc
-        return super().write(vals)
+        result = super().write(vals)
+        if sync_fields.intersection(vals):
+            for record in self:
+                if "enabled" in vals and before_enabled.get(record.id) != bool(record.enabled):
+                    record.sudo().write({
+                        "enabled_sync_revision": int(record.enabled_sync_revision or 0) + 1,
+                        "last_enabled_sync_error": False,
+                    })
+            self._queue_enabled_state_sync()
+        return result
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -181,7 +256,9 @@ class PrintGatewayConfig(models.Model):
                         _("Gateway credential protection is unavailable. Configure the deployment-managed credential encryption key before creating a Gateway configuration.")
                     ) from exc
             normalized.append(vals)
-        return super().create(normalized)
+        records = super().create(normalized)
+        records._queue_enabled_state_sync()
+        return records
 
     def unlink(self):
         self._check_admin()
