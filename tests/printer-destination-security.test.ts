@@ -29,5 +29,7 @@ describe("printer destination security policy", () => {
     expect(validateConnectionConfig("ipp", { address: "https://169.254.169.254/ipp/print" })).toContain("private or link-local");
     expect(validateConnectionConfig("ipp", { address: "https://example.com/ipp/print" })).toContain("private or link-local");
     expect(validateConnectionConfig("ipp", { address: "https://192.168.1.60/ipp/print?q=1" })).toContain("query strings");
+    expect(validateConnectionConfig("ipp", { address: "ipp://user:pass@192.168.1.60/ipp/print" })).toContain("embedded credentials");
+    expect(validateConnectionConfig("ipps", { address: "https://user:pass@192.168.1.60/ipp/print" })).toContain("embedded credentials");
   });
 });
