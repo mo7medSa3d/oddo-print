@@ -158,6 +158,9 @@ export function validatePrinterTransportProtocol(connectionType: string, protoco
   if (connection === "spooler" && declared !== "spooler") {
     return "spooler connection type requires spooler protocol";
   }
+  if (connection === "usb" && !["raw", "escpos", "zpl", "tspl", "spooler", "unknown"].includes(declared)) {
+    return `usb connection type does not support protocol ${declared}`;
+  }
   if ((connection === "network") && !["raw", "escpos", "zpl", "tspl", "ipp"].includes(declared)) {
     return `network connection type does not support protocol ${declared}`;
   }
