@@ -155,9 +155,9 @@ if ($Bundles -match "nsis") {
 }
 if ($Bundles -match "msi") {
   $msi = @(Get-ChildItem (Join-Path $bundleDir "msi\Yasser Manager_*.msi") -File -ErrorAction SilentlyContinue)
-  $legacyMsi = @(Get-ChildItem (Join-Path $bundleDir "msi\*Yasser Manager*.msi") -File -ErrorAction SilentlyContinue)
   if ($msi.Count -ne 1) { throw "Expected exactly one Yasser Manager MSI under $bundleDir\msi; found $($msi.Count)" }
-  if ($legacyMsi.Count -ne 0) { throw "Legacy Yasser Manager MSI output detected." }
+  $unexpectedMsi = @(Get-ChildItem (Join-Path $bundleDir "msi\*.msi") -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $msi[0].Name })
+  if ($unexpectedMsi.Count -ne 0) { throw "Unexpected extra MSI package(s) detected: $($unexpectedMsi.Name -join ', ')" }
   $artifacts += $msi
 }
 
