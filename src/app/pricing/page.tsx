@@ -2,7 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { db } from "../../db";
 import { plans } from "../../db/schema";
-import { eq, isNotNull } from "drizzle-orm";
+import { isNotNull } from "drizzle-orm";
 import {
   getManagerCookieName,
   validateManagerClaims,
