@@ -51,8 +51,17 @@ export async function POST(req: Request) {
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
+  let data;
   try {
-    const data = parsePrinterInput(body);
+    data = parsePrinterInput(body);
+  } catch (error) {
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : "Invalid printer configuration",
+      code: "INVALID_PRINTER",
+    }, { status: 400 });
+  }
+
+  try {
     const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
     if (auth.kind === "agent" && data.agentId !== auth.agent.id) {
       return NextResponse.json({ error: "Agent may only register printers for itself" }, { status: 403 });
