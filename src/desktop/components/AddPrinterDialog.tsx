@@ -11,7 +11,7 @@ import {
 import { fetchGatewayAgents, registerGatewayPrinter, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
 import { errMsg, friendlyPrinterError, isProductionPrinter } from "../lib/printers";
 
-type Conn = "spooler" | "network" | "usb" | "ipp";
+type Conn = "spooler" | "network" | "usb" | "ipp" | "ipps";
 
 export function AddPrinterDialog({
   open,
@@ -84,14 +84,19 @@ export function AddPrinterDialog({
       const p = Number(port);
       if (!Number.isInteger(p) || p !== 9100) return "Network printer port must be 9100.";
     }
-    if (conn === "ipp" && !ippUrl.trim()) return "IPP endpoint is required.";
+    if ((conn === "ipp" || conn === "ipps") && !ippUrl.trim()) return "IPP endpoint is required.";
     if (
-      conn === "ipp" &&
+      (conn === "ipp" || conn === "ipps") &&
       ippUrl.trim() &&
-      !/^https?:\/\//i.test(ippUrl) &&
-      !/^ipp:\/\//i.test(ippUrl)
+      !/^(https?|ipp|ipps):\/\//i.test(ippUrl)
     )
-      return "IPP URL must start with http://, https:// or ipp://";
+      return "IPP URL must start with http://, https://, ipp:// or ipps://";
+    if (
+      conn === "ipps" &&
+      ippUrl.trim() &&
+      !/^(https|ipps):\/\//i.test(ippUrl)
+    )
+      return "IPPS requires an https:// or ipps:// endpoint.";
     if (conn === "usb" && !usbSel) return "Select a USB printer.";
     return null;
   };
@@ -124,9 +129,9 @@ export function AddPrinterDialog({
         req.endpoint = `${host.trim()}:${port.trim()}`;
         req.protocol = protocol;
       }
-      if (conn === "ipp") {
+      if (conn === "ipp" || conn === "ipps") {
         req.endpoint = ippUrl.trim();
-        req.protocol = "ipp";
+        req.protocol = conn;
       }
       if (conn === "usb") {
         const sel = usbPrinters.find((p) => p.id === usbSel);
@@ -216,6 +221,7 @@ export function AddPrinterDialog({
             <option value="network">Network (TCP)</option>
             <option value="usb">USB</option>
             <option value="ipp">IPP</option>
+            <option value="ipps">IPPS</option>
           </Select>
         </Field>
         {conn === "spooler" && (
@@ -304,17 +310,19 @@ export function AddPrinterDialog({
             </Select>
           </Field>
         )}
-        {conn === "ipp" && (
+        {(conn === "ipp" || conn === "ipps") && (
           <Field
-            label="IPP endpoint"
+            label={conn === "ipps" ? "IPPS endpoint" : "IPP endpoint"}
             htmlFor="pp-ipp"
-            hint="Use a private/link-local printer IP, e.g. ipp://192.168.1.60/ipp/print"
+            hint={conn === "ipps"
+              ? "Use a private/link-local IPPS endpoint, e.g. ipps://192.168.1.60/ipp/print"
+              : "Use a private/link-local printer IP, e.g. ipp://192.168.1.60/ipp/print"}
           >
             <Input
               id="pp-ipp"
               value={ippUrl}
               onChange={(e) => setIppUrl(e.target.value)}
-              placeholder="ipp://192.168.1.60/ipp/print"
+              placeholder={conn === "ipps" ? "ipps://192.168.1.60/ipp/print" : "ipp://192.168.1.60/ipp/print"}
             />
           </Field>
         )}
