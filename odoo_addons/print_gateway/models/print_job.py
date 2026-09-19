@@ -1265,7 +1265,7 @@ class PrintGatewayJob(models.Model):
         # Bound query batch (limit=100) with FOR UPDATE SKIP LOCKED to prevent worker overlap
         self.env.cr.execute("""
             SELECT id FROM print_gateway_print_job
-            WHERE gateway_job_id IS NOT NULL AND status NOT IN ('success', 'failed', 'unknown')
+            WHERE gateway_job_id IS NOT NULL AND status NOT IN ('success', 'failed', 'partial', 'unknown')
             ORDER BY id ASC
             LIMIT 100
             FOR UPDATE SKIP LOCKED
