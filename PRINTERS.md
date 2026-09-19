@@ -165,7 +165,7 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 
 ESC/POS is **not a backend** — it is a payload dialect (`ESC @` initialise … `GS V` cut) carried
 by whichever byte-stream transport the printer uses: RAW TCP, the Windows spooler in RAW mode,
-direct USB, or IPP as `application/octet-stream`. The agent never generates or rewrites ESC/POS
+direct USB. IPP/IPPS is a document transport and accepts PDF as `application/pdf`; the agent never generates or rewrites ESC/POS
 for a job; the only ESC/POS the gateway produces itself is the test-print payload
 (`buildTestPrintPayload` in `src/lib/payload.ts`).
 
