@@ -829,7 +829,7 @@ class PrintGatewayJob(models.Model):
                     response = requests.post(
                         "%s/api/print/jobs" % gateway_config._gateway_base(for_request=True),
                         json=job._submission_body(), headers=gateway_config._gateway_headers(),
-                        timeout=(5, 20), allow_redirects=False,
+                        timeout=20, allow_redirects=False,
                     )
                     if response.status_code not in (200, 201):
                         # Deterministic client-side rejections (invalid
@@ -1052,7 +1052,7 @@ class PrintGatewayJob(models.Model):
                 response = requests.get(
                     "%s/api/print/jobs" % gateway_config._gateway_base(for_request=True),
                     params={"id": job.gateway_job_id}, headers=gateway_config._gateway_headers(),
-                    timeout=(5, 10), allow_redirects=False,
+                    timeout=10, allow_redirects=False,
                 )
                 if response.status_code == 404:
                     job.write({
@@ -1295,7 +1295,7 @@ class PrintGatewayJob(models.Model):
                         "%s/api/print/jobs/batch-status" % config._gateway_base(for_request=True),
                         json={"jobIds": job_ids},
                         headers=config._gateway_headers(),
-                        timeout=(5, 15),
+                        timeout=15,
                         allow_redirects=False,
                     )
                     if response.status_code == 200:
