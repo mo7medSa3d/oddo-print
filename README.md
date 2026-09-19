@@ -44,6 +44,18 @@ A transport interruption is represented as an unknown physical outcome until Gat
 
 Managers can generate an Odoo API key, copy the raw value once, and revoke it. Gateway stores only the cryptographic hash and never returns raw secrets from list/read endpoints.
 
+## Platform plans and entitlements
+
+The Platform Control Plane manages the commercial plan catalog at `/platform/plans`.
+A plan contains the Yasser-side entitlements `max_agents`, `max_printers`, `max_jobs_per_minute`, and `max_concurrent_jobs`.
+These limits are enforced server-side from the tenant's current subscription plan; they are not UI-only values.
+
+Stripe remains the source of truth for money and recurring billing. Create the Stripe Product/Price in Stripe, then bind its `price_...` (and optional `prod_...`) ID to the Yasser plan. Existing subscriptions continue using their current Stripe subscription price even when the plan's current price reference is changed for future checkout.
+
+Plan `Active` controls whether new customer checkout can use the plan. `Public` controls whether it appears in the public pricing/onboarding catalog. Archiving or hiding a plan does not remove entitlements from existing subscriptions.
+
+The legacy `STRIPE_PLAN_CATALOG` / `npm run db:provision-plans` path remains available for first-boot/operator provisioning; Platform Admin changes to the managed catalog fields are preserved across subsequent provisioning runs.
+
 ## Development
 
 ```bash

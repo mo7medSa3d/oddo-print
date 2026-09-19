@@ -5,7 +5,7 @@ import { validateManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { requestIdFrom } from "../../../../../lib/log";
 import { and, eq } from "drizzle-orm";
-import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError, PrintJobCapabilityError, PrintJobInputError, PrintJobRateLimitError } from "../../../../../lib/print-job-service";
+import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError, PrintJobCapabilityError, PrintJobInputError } from "../../../../../lib/print-job-service";
 import { TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../../../../../lib/entitlements";
 import { buildTestPrintPayloadForPrinter } from "../../../../../lib/payload";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../../lib/job-delivery";
@@ -65,9 +65,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
     if (e instanceof TenantSubscriptionRequiredError || e instanceof TenantEntitlementConfigError) {
       return NextResponse.json({ error: e.message, code: e.code }, { status: 403 });
-    }
-    if (e instanceof PrintJobRateLimitError) {
-      return NextResponse.json({ error: e.code, retryable: true, retryAfterSeconds: e.retryAfterSeconds }, { status: 429, headers: { "Retry-After": String(e.retryAfterSeconds) } });
     }
     if (e instanceof AgentQueueFullError || e instanceof AgentQueuedJobsFullError) {
       return NextResponse.json({

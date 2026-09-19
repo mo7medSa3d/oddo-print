@@ -383,13 +383,23 @@ export const auditEvents = pgTable("audit_events", {
 export const plans = pgTable("plans", {
   id: text("id").primaryKey(),
   name: text("name").notNull().unique(),
+  description: text("description").notNull().default(""),
   entitlements: jsonb("entitlements").$type<Record<string, number | boolean | string>>().default({}).notNull(),
-  stripePriceId: text("stripe_price_id").unique(),
+  stripePriceId: text("stripe_price_id"),
+  stripeProductId: text("stripe_product_id"),
   currency: text("currency"),
   interval: text("interval"),
+  isActive: boolean("is_active").notNull().default(true),
+  isPublic: boolean("is_public").notNull().default(true),
+  displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  displayOrderCheck: check("plans_display_order_check", sql`${table.displayOrder} >= 0`),
+  catalogIdx: index("plans_catalog_idx").on(table.isActive, table.isPublic, table.displayOrder, table.name),
+  stripePriceIdUnique: uniqueIndex("plans_stripe_price_id_unique").on(table.stripePriceId).where(sql`${table.stripePriceId} IS NOT NULL`),
+  stripeProductIdUnique: uniqueIndex("plans_stripe_product_id_unique").on(table.stripeProductId).where(sql`${table.stripeProductId} IS NOT NULL`),
+}));
 
 export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   tenantId: text("tenant_id").references(() => tenants.id).primaryKey(),

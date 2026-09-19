@@ -365,6 +365,13 @@
       "when": 1790000000051,
       "tag": "0051_agent_lifecycle_revision",
       "breakpoints": false
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1790000000052,
+      "tag": "0052_plan_catalog_management",
+      "breakpoints": false
     }
   ]
 }
