@@ -65,16 +65,12 @@ func validateServerURL(raw string) error {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return fmt.Errorf("server.url must not contain credentials, query strings, or fragments")
 	}
-	// HTTPS is the production/default transport. Plain HTTP is only permitted
-	// when explicitly opted into for isolated development or test environments.
+	// This binary is built only from the isolated test/http-server-ready
+	// branch. The test Gateway intentionally runs over HTTP before production
+	// DNS/TLS exists. Production artifacts retain the HTTPS-only policy.
 	switch strings.ToLower(u.Scheme) {
-	case "https":
+	case "https", "http":
 		return nil
-	case "http":
-		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
-			return nil
-		}
-		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASSER_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development")
 	default:
 		return fmt.Errorf("server.url scheme must be http or https, got %q", u.Scheme)
 	}

@@ -1,8 +1,25 @@
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { runtimeSecret } from "./runtime-secret";
 
 export type TransactionalEmail = { to: string; subject: string; html: string; text: string };
 
+function captureHttpTestEmail(message: TransactionalEmail): boolean {
+  if (process.env.YASSER_HTTP_TEST_MODE !== "1") return false;
+  const captureFile = process.env.YASSER_TEST_EMAIL_CAPTURE_FILE?.trim();
+  if (!captureFile) return false;
+  mkdirSync(dirname(captureFile), { recursive: true });
+  appendFileSync(
+    captureFile,
+    `TO: ${message.to}\nSUBJECT: ${message.subject}\n${message.text}\n---\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+  return true;
+}
+
 export async function sendTransactionalEmail(message: TransactionalEmail): Promise<void> {
+  if (captureHttpTestEmail(message)) return;
+
   const apiKey = runtimeSecret("RESEND_API_KEY");
   const from = runtimeSecret("EMAIL_FROM");
   if (!apiKey || !from) {

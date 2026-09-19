@@ -36,10 +36,10 @@ func validateServerURL(raw string) error {
 		return nil
 	}
 	if u.Scheme == "http" {
-		if os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
-			return nil
-		}
-		return fmt.Errorf("http URL %q requires explicit opt-in via ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP=1 environment variable", raw)
+		// This binary is built only from the isolated test/http-server-ready
+		// branch. Its purpose is to exercise the real Agent against the HTTP
+		// test Gateway before production DNS/TLS exists.
+		return nil
 	}
 	return fmt.Errorf("server URL scheme must be http or https, got %q", u.Scheme)
 }

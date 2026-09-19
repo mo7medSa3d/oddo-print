@@ -46,8 +46,18 @@ if (process.env.NODE_ENV === "production" && process.env.ALLOW_PLAINTEXT_MANAGER
   throw new Error("Refusing production startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1; configure MANAGER_PASSWORD_HASH instead.");
 }
 
-if (process.env.NODE_ENV === "production" && (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")) {
+const httpTestMode = process.env.YASSER_HTTP_TEST_MODE === "1";
+
+if (
+  process.env.NODE_ENV === "production" &&
+  !httpTestMode &&
+  (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")
+) {
   throw new Error("Refusing production startup with COOKIE_SECURE disabled; manager/customer session cookies must be Secure in production.");
+}
+
+if (process.env.NODE_ENV === "production" && httpTestMode && (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")) {
+  console.warn("[security] YASSER_HTTP_TEST_MODE=1: COOKIE_SECURE is intentionally disabled for the isolated HTTP test deployment.");
 }
 
 if (process.env.NODE_ENV === "production") {

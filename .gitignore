@@ -34,3 +34,5 @@ __pycache__/
 *.egg-info/
 odoo_addons/**/__pycache__/
 odoo_addons/**/*.pyc
+
+deploy/http-test/test-data/*
