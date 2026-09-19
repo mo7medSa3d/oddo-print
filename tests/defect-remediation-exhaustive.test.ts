@@ -141,7 +141,7 @@ describe("DEFECT #4 — Odoo Agent Selection & Runtime Printer Field", () => {
 
   it("runtime_printers controller passes agent_id parameter to Gateway", () => {
     const controllerSource = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/controllers/runtime_printers.py"), "utf-8");
-    expect(controllerSource).toContain("params={'agent_id': agent_id.strip()}");
+    expect(controllerSource).toContain("params={'agent_id': selected_agent_id}");
   });
 
   it("runtime_printer_field OWL component binds value and preserves offline configured printer", () => {
