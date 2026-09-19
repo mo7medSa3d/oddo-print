@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { agents, printers } from "../../../../../db/schema";
 import { validateManager } from "../../../../../lib/manager-auth";
+import { validateConsoleAuth } from "../../../../../lib/console-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { requestIdFrom } from "../../../../../lib/log";
 import { and, eq } from "drizzle-orm";
@@ -23,11 +24,18 @@ export const dynamic = "force-dynamic";
 // bypass per-key document-type scoping here.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const claims = await validateManager(req);
-  if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  const auth = await validateConsoleAuth(req);
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (auth.kind === "manager") {
+    try { requireManagerPermission(auth.claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  }
 
-  const printer = await db.query.printers.findFirst({ where: and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId)) });
+  const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
+  const printer = await db.query.printers.findFirst({
+    where: auth.kind === "agent"
+      ? and(eq(printers.id, id), eq(printers.tenantId, tenantId), eq(printers.agentId, auth.agent.id))
+      : and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
+  });
   if (!printer) return NextResponse.json({ error: "Printer not found" }, { status: 404 });
 
   const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, claims.tenantId)) });
@@ -55,7 +63,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       requestedBy: "manager-test",
       documentType: "test_page",
       idempotencyKey,
-      tenantId: claims.tenantId,
+      tenantId: tenantId,
       requestId: requestIdFrom(req),
     });
     return NextResponse.json({ ok: true, jobId: result.id, printerId: printer.id, status: result.status }, { status: 201 });
