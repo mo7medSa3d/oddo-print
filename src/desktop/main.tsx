@@ -468,9 +468,10 @@ export default function App() {
       setSavedGatewayUrl(url);
       setGw(url);
       if (url) {
-        checkHealth(url);
+        void probeGateway(url);
       } else {
         setHealth(null);
+        setCheckedGatewayUrl("");
         setHealthError("Gateway URL not configured");
       }
       refreshStatus();
@@ -482,7 +483,7 @@ export default function App() {
     return () => {
       unlisten?.();
     };
-  }, [checkHealth, refreshStatus]);
+  }, [probeGateway, refreshStatus]);
 
   const isOnline =
     !!agentStatus && !(agentStatus as Record<string, unknown>).error && (agentStatus as { running?: boolean }).running !== false;
