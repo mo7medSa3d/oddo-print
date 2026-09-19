@@ -58,7 +58,7 @@ import {
   stopAgent as ipcStopAgent,
   normalizeGatewayUrl,
   discoverPrinters,
-  testPrinter,
+  testGatewayPrinter,
   setAutostart,
   type PrinterInfo,
 } from "./lib/ipc";
@@ -307,15 +307,25 @@ export default function App() {
     async (id: string) => {
       try {
         setBusyBoth(true);
-        await testPrinter(id);
-        setMsg({ text: "Local test page printed from this PC (bypasses the Gateway).", type: "success" });
+        if (!gatewayUrl) {
+          throw new Error("Gateway URL is not configured.");
+        }
+        const result = await testGatewayPrinter(gatewayUrl, id);
+        const jobId = typeof result.jobId === "string" ? result.jobId : null;
+        setMsg({
+          text: jobId
+            ? "Test print queued through the Gateway. Check Print Jobs for the final result."
+            : "Test print queued through the Gateway.",
+          type: "success",
+        });
+        if (jobId) void refreshJobs();
       } catch (e) {
         setMsg({ text: friendlyPrinterError(errMsg(e)), type: "error" });
       } finally {
         setBusyBoth(false);
       }
     },
-    [setBusyBoth]
+    [gatewayUrl, refreshJobs, setBusyBoth]
   );  const handleEditSaved = useCallback(async () => {
     setEditingPrinter(null);
     await refreshPrinters();
