@@ -41,11 +41,11 @@ func TestCapabilityTableParity(t *testing.T) {
 		{"unknown+spooler pdf accepted", "pdf", "", "unknown", "spooler", nil, true},
 		{"unknown+spooler image accepted", "image", "", "unknown", "spooler", nil, true},
 		{"unknown+ipp pdf accepted", "pdf", "", "unknown", "ipp", nil, true},
-		{"unknown+spooler escpos rejected", "escpos", "escpos", "unknown", "spooler", nil, false},
-		// Explicit caps are authoritative either way.
-		{"declared escpos caps allow escpos on raw pipe", "escpos", "escpos", "raw", "network", []string{"escpos"}, true},
-		{"declared zpl caps allow zpl on USB byte stream", "raw", "zpl", "raw", "usb", []string{"zpl"}, true},
-		{"declared tspl caps allow tspl on RAW TCP byte stream", "raw", "tspl", "raw", "network", []string{"tspl"}, true},
+		{"unknown+spooler escpos uses spooler transport", "escpos", "escpos", "unknown", "spooler", nil, true},
+		// Explicit capability lists cannot override the concrete transport protocol;\n\t\t// they can only narrow/confirm what that backend actually speaks.
+		{"declared escpos caps cannot override raw device protocol", "escpos", "escpos", "raw", "network", []string{"escpos"}, false},
+		{"declared zpl caps cannot override raw USB device protocol", "raw", "zpl", "raw", "usb", []string{"zpl"}, false},
+		{"declared tspl caps cannot override raw TCP device protocol", "raw", "tspl", "raw", "network", []string{"tspl"}, false},
 		{"declared empty caps deny escpos even on escpos transport", "escpos", "escpos", "escpos", "network", []string{}, false},
 		{"declared pdf caps cannot add renderer to raw pipe", "pdf", "", "raw", "network", []string{"pdf"}, false},
 		{"declared caps cannot smuggle a protocol", "pdf", "raw", "spooler", "spooler", []string{"pdf"}, false},
