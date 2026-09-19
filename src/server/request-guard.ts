@@ -155,7 +155,14 @@ export async function guardApiRequest(
   const authenticated = isLikelyAuthenticated(req);
 
   const rawLength = req.headers["content-length"];
+  const transferEncoding = req.headers["transfer-encoding"];
+
   if (rawLength === undefined) {
+    // No Content-Length and no Transfer-Encoding means there is no declared
+    // request body. Allow bodyless mutating requests such as DELETE /...?id=...
+    // to reach their route handler.
+    if (transferEncoding === undefined) return req;
+
     // Chunked / missing length: auth first, never allocate for anonymous
     // Slowloris streams on payload-bearing endpoints.
     if (payloadBearing && !authenticated) {
