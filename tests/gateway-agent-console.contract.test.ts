@@ -23,7 +23,7 @@ describe("desktop Agent Gateway response contract", () => {
     const ipc = read("src/desktop/lib/ipc.ts");
     expect(main).toContain("testGatewayPrinter(gatewayUrl, id)");
     expect(main).not.toContain("testPrinter(id)");
-    expect(ipc).toContain("/api/printers/" + encodeURIComponent(printerId) + "/test-print");
+    expect(ipc).toContain('"/api/printers/" + encodeURIComponent(printerId) + "/test-print"');
   });
 
   it("normalizes Gateway printer config metadata for the desktop model", () => {
