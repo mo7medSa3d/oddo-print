@@ -6,10 +6,15 @@
         <field name="arch" type="xml">
             <list string="Gateway Configuration" create="1" class="o_pg_list">
                 <field name="company_id" string="Odoo Company"/>
-                <field name="enabled" widget="boolean_toggle"/>
+                <field name="gateway_sync_state"
+                       string="Gateway Status"
+                       widget="badge"
+                       decoration-success="gateway_sync_state == 'active'"
+                       decoration-warning="gateway_sync_state == 'syncing'"
+                       decoration-danger="gateway_sync_state == 'attention'"
+                       decoration-muted="gateway_sync_state in ('disabled', 'not_configured')"/>
                 <field name="gateway_url"/>
-                <field name="last_test_status" widget="badge"/>
-                <field name="last_test_at" optional="show"/>
+
             </list>
         </field>
     </record>
