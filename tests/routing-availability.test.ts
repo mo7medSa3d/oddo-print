@@ -9,7 +9,10 @@ import {
   type Fixture,
 } from "./helpers/pg";
 import { validatePayloadForPrinter } from "../src/lib/routing";
+import { db } from "../src/db";
+import { createPrintJobForPrinter } from "../src/lib/print-job-service";
 import { POST as printJobsPOST, GET as printJobsGET } from "../src/app/api/print/jobs/route";
+import { vi } from "vitest";
 
 const suite = describe.skipIf(!hasTestDatabase);
 
@@ -145,6 +148,58 @@ suite("gateway runtime printer availability + payload capability contract", () =
     });
     expect(res.status).toBe(409);
     expect((await pool().query(`SELECT count(*)::int AS n FROM print_jobs`)).rows[0].n).toBe(0);
+  });
+
+  it("rechecks a runtime owner inside the enqueue transaction when the precheck is stale", async () => {
+    // Simulate the TOCTOU boundary directly: the initial ORM reads return a
+    // fresh online snapshot, but the authoritative transaction sees that the
+    // printer became offline before INSERT. The enqueue must reject instead
+    // of persisting a job that can never reach a live runtime owner.
+    const snapshot = (await pool().query(
+      `SELECT p.id, p.agent_id, p.protocol, p.connection_type, p.status, p.lifecycle, p.capabilities, a.lifecycle AS agent_lifecycle, a.status AS agent_status, a.last_seen_at
+       FROM printers p JOIN agents a ON a.id = p.agent_id
+       WHERE p.id = $1 AND p.tenant_id = $2`,
+      [f.printerId, f.tenantId],
+    )).rows[0];
+
+    await pool().query(`UPDATE printers SET status = 'offline' WHERE id = $1`, [f.printerId]);
+
+    const printerFindFirst = vi.spyOn(db.query.printers, "findFirst").mockResolvedValue({
+      id: snapshot.id,
+      tenantId: f.tenantId,
+      agentId: snapshot.agent_id,
+      protocol: snapshot.protocol,
+      connectionType: snapshot.connection_type,
+      status: "online",
+      lifecycle: "active",
+      capabilities: snapshot.capabilities,
+    } as never);
+    const agentFindFirst = vi.spyOn(db.query.agents, "findFirst").mockResolvedValue({
+      id: f.agentId,
+      tenantId: f.tenantId,
+      lifecycle: snapshot.agent_lifecycle,
+      status: snapshot.agent_status,
+      lastSeenAt: snapshot.last_seen_at,
+    } as never);
+
+    try {
+      await expect(createPrintJobForPrinter(
+        f.printerId,
+        { type: "raw", protocol: "raw", encoding: "base64", data: rawBase64() },
+        {
+          requestedBy: "odoo",
+          tenantId: f.tenantId,
+          destination: "POS",
+          documentType: "receipt",
+          idempotencyKey: "enqueue-toctou-1",
+        },
+      )).rejects.toMatchObject({ code: "PRINTER_OFFLINE" });
+    } finally {
+      printerFindFirst.mockRestore();
+      agentFindFirst.mockRestore();
+    }
+
+    expect((await pool().query(`SELECT count(*)::int AS n FROM print_jobs WHERE idempotency_key = $1`, ["enqueue-toctou-1"])).rows[0].n).toBe(0);
   });
 
   it("rejects an offline printer and does not persist a job", async () => {
