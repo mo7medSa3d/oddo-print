@@ -207,7 +207,11 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("import { RetryPrintPopup }", source)
         self.assertIn("gatewayOutcome === \"unknown\"", source)
         self.assertIn("gatewayOutcome === \"partial\"", source)
-        self.assertIn("do not add this printer to retryPrinters", source)
+        self.assertIn('gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial"', source)
+        ambiguous_idx = source.indexOf('gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial"')
+        ambiguous_block = source[ambiguous_idx:source.indexOf('if (result.successful)', ambiguous_idx)]
+        self.assertIn("continue;", ambiguous_block)
+        self.assertNotIn("retryPrinters.add(printer)", ambiguous_block)
         self.assertIn('const recordPrintAttempt = !["failed", "unknown", "partial"].includes(result?.status);', source)
 
     def test_report_interceptor_malformed_response_is_fail_closed(self):
