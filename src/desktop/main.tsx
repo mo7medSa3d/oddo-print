@@ -589,9 +589,8 @@ export default function App() {
       list = list.filter((j) => {
         const st = jobStatus(j).toLowerCase();
         const outcome = deriveOutcome(st, String(j.error ?? ""));
+        if (jobTab === "in_flight") return st === "claimed" || st === "printing";
         if (jobTab === "queued") return st === "queued";
-        if (jobTab === "claimed") return st === "claimed";
-        if (jobTab === "printing") return st === "printing";
         if (jobTab === "unassigned") {
           const dest = String(j.destination ?? "");
           const pid = jobPrinterId(j);
@@ -619,9 +618,8 @@ export default function App() {
   const jobCounts = useMemo(
     () => ({
       all: jobs.length,
+      in_flight: jobs.filter((j) => ["claimed", "printing"].includes(jobStatus(j))).length,
       queued: jobs.filter((j) => jobStatus(j) === "queued").length,
-      claimed: jobs.filter((j) => jobStatus(j) === "claimed").length,
-      printing: jobs.filter((j) => jobStatus(j) === "printing").length,
       unassigned: jobs.filter((j) => {
         const dest = String(j.destination ?? "");
         const pid = jobPrinterId(j);
