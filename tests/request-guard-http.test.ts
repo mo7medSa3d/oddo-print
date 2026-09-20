@@ -169,6 +169,19 @@ describe("request guard (real HTTP)", () => {
       expect(data.error).toBe("CONTENT_LENGTH_REQUIRED");
     });
 
+    it("rejects chunked bodies on non-payload mutating API routes too", async () => {
+      const { status, body } = await rawHttp(
+        "POST /api/auth/manager/login HTTP/1.1\r\n" +
+          "Host: 127.0.0.1\r\n" +
+          "Content-Type: application/json\r\n" +
+          "Transfer-Encoding: chunked\r\n" +
+          "Connection: close\r\n\r\n" +
+          "4\r\nAAAA\r\n0\r\n\r\n",
+      );
+      expect(status).toBe(411);
+      expect(body).toContain("CONTENT_LENGTH_REQUIRED");
+    });
+
     it("admits requests only while the global byte budget has capacity", async () => {
       const { MAX_CONCURRENT_CHUNKED_BYTES, getReservedRequestBytes } = await import(
         "../src/server/request-guard"
