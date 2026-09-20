@@ -51,6 +51,12 @@ describe("production hardening contracts", () => {
     expect(read("src/lib/payload.ts")).toContain("const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024;");
   });
 
+  it("records completion time when Odoo submission receives a terminal Gateway result", () => {
+    const printJob = read("odoo_addons/print_gateway/models/print_job.py");
+    expect(printJob).toContain('if remote_status in {"success", "failed", "unknown"}:');
+    expect(printJob).toContain('values["completed_at"] = fields.Datetime.now()');
+  });
+
   it("keeps the API body guard stream-safe without request cloning", () => {
     const server = read("server.ts");
     const guard = read("src/server/request-guard.ts");
