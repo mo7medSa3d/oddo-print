@@ -3,7 +3,7 @@ import { db } from "../../../../../../../db";
 import { discoverySessions } from "../../../../../../../db/schema";
 import { validateManager } from "../../../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../../../lib/authorization";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
