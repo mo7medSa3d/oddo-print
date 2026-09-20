@@ -1,5 +1,8 @@
 use std::path::PathBuf;
+use std::io::Read;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::Manager;
 
@@ -8,6 +11,98 @@ use crate::logging;
 
 const SERVICE_NAME: &str = "YasserAgent";
 const BACKGROUND_PID_FILE: &str = "agent.pid";
+const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const MAX_COMMAND_OUTPUT_BYTES: usize = 64 * 1024;
+
+/// Execute a short-lived bundled helper with a hard wall-clock deadline and
+/// per-stream output budget. On timeout/output overflow the child is killed
+/// and reaped before the error is returned, so no helper process or pipe can
+/// survive a failed IPC call.
+pub(crate) fn run_bounded_command(
+    mut cmd: Command,
+    timeout: std::time::Duration,
+    max_stdout: usize,
+    max_stderr: usize,
+) -> Result<std::process::Output, String> {
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("spawn command failed: {e}"))?;
+    let stdout = child.stdout.take().ok_or_else(|| "command stdout pipe unavailable".to_string())?;
+    let stderr = child.stderr.take().ok_or_else(|| "command stderr pipe unavailable".to_string())?;
+
+    let overflow = Arc::new(AtomicBool::new(false));
+    let overflow_out = Arc::clone(&overflow);
+    let overflow_err = Arc::clone(&overflow);
+
+    let out_thread = std::thread::spawn(move || {
+        let mut reader = stdout.take((max_stdout as u64).saturating_add(1));
+        let mut buf = Vec::with_capacity(max_stdout.min(64 * 1024));
+        let _ = reader.read_to_end(&mut buf);
+        if buf.len() > max_stdout {
+            overflow_out.store(true, Ordering::Release);
+            buf.truncate(max_stdout);
+        }
+        buf
+    });
+    let err_thread = std::thread::spawn(move || {
+        let mut reader = stderr.take((max_stderr as u64).saturating_add(1));
+        let mut buf = Vec::with_capacity(max_stderr.min(64 * 1024));
+        let _ = reader.read_to_end(&mut buf);
+        if buf.len() > max_stderr {
+            overflow_err.store(true, Ordering::Release);
+            buf.truncate(max_stderr);
+        }
+        buf
+    });
+
+    let deadline = std::time::Instant::now() + timeout;
+    let mut status = None;
+    loop {
+        if overflow.load(Ordering::Acquire) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = out_thread.join();
+            let _ = err_thread.join();
+            return Err(format!("command output exceeded the {} byte stream budget", max_stdout.max(max_stderr)));
+        }
+        match child.try_wait() {
+            Ok(Some(s)) => {
+                status = Some(s);
+                break;
+            }
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = out_thread.join();
+                    let _ = err_thread.join();
+                    return Err(format!("command exceeded timeout of {} seconds", timeout.as_secs()));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = out_thread.join();
+                let _ = err_thread.join();
+                return Err(format!("wait for command failed: {e}"));
+            }
+        }
+    }
+
+    if overflow.load(Ordering::Acquire) {
+        let _ = out_thread.join();
+        let _ = err_thread.join();
+        return Err("command output exceeded the configured stream budget".to_string());
+    }
+
+    let stdout = out_thread.join().map_err(|_| "stdout reader thread panicked".to_string())?;
+    let stderr = err_thread.join().map_err(|_| "stderr reader thread panicked".to_string())?;
+    Ok(std::process::Output {
+        status: status.expect("status set before reader join"),
+        stdout,
+        stderr,
+    })
+}
 
 fn resource_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     app.path().resource_dir().ok()
@@ -368,8 +463,15 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
                     .arg(&config)
                     .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root())
                     .creation_flags(CREATE_NO_WINDOW)
-                    .output()
-                    .map_err(|e| format!("failed to run {} -service {action}: {e}", path.display()))?;
+                    run_bounded_command(
+                        Command::new(&path)
+                            .args(["-service", action, "-config"])
+                            .arg(&config)
+                            .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root()),
+                        COMMAND_TIMEOUT,
+                        MAX_COMMAND_OUTPUT_BYTES,
+                        MAX_COMMAND_OUTPUT_BYTES,
+                    )?;
                 let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
                 if !out.status.success() {
