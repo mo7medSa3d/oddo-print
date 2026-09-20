@@ -41,7 +41,10 @@ export function isOdooKeyAllowedForDocumentType(
 
 export async function validateOdooKey(
   req: Request,
-  options: { requireIntegrationEnabled?: boolean } = {},
+  options: {
+    requireIntegrationEnabled?: boolean;
+    requireActiveTenant?: boolean;
+  } = {},
 ) {
   // Odoo Gateway authentication is based on the Odoo installation API key.
   // The Odoo database name is not used as an authentication requirement:
@@ -58,11 +61,15 @@ export async function validateOdooKey(
   if (!row || row.revokedAt || !timingSafeEqualStr(row.hashedKey, hashed)) return null;
 
   await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(and(eq(apiKeys.id, row.id), eq(apiKeys.tenantId, row.tenantId))).catch(() => undefined);
-  // Tenant lifecycle gate: suspended/deleted tenants cannot submit jobs via Odoo.
-  try {
-    await requireActiveTenant(row.tenantId);
-  } catch {
-    return null;
+  // Tenant lifecycle gate: suspended/deleted tenants cannot perform normal
+  // Odoo operations. Health probes may opt out so the caller can return the
+  // correct 403 lifecycle status instead of misclassifying it as bad credentials.
+  if (options.requireActiveTenant !== false) {
+    try {
+      await requireActiveTenant(row.tenantId);
+    } catch {
+      return null;
+    }
   }
   // Credential validity and integration activation are deliberately separate.
   // Configuration/health must remain callable while Odoo is disabled so a
