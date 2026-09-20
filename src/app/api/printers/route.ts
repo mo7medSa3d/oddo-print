@@ -5,7 +5,7 @@ import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { nanoid } from "../../../lib/nanoid";
-import { parsePrinterInput, validateConnectionConfig } from "../../../lib/printer-model";
+import { parsePrinterInput, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../lib/printer-model";
 import { writeAuditEvent } from "../../../lib/audit";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../../../lib/entitlements";
 import { getEffectivePrinterStatus } from "../../../lib/agent-availability";
@@ -51,14 +51,34 @@ export async function POST(req: Request) {
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
+  let data;
   try {
-    const data = parsePrinterInput(body);
+    data = parsePrinterInput(body);
+  } catch (error) {
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : "Invalid printer configuration",
+      code: "INVALID_PRINTER",
+    }, { status: 400 });
+  }
+
+  try {
     const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
     if (auth.kind === "agent" && data.agentId !== auth.agent.id) {
       return NextResponse.json({ error: "Agent may only register printers for itself" }, { status: 403 });
     }
 
-    const error = validateConnectionConfig(data.connectionType, data.config);
+    let connectionType = data.connectionType;
+    let protocol = data.protocol;
+    const config = { ...data.config };
+    if (connectionType === "usb" && typeof config.spooler_name === "string" && config.spooler_name.trim()) {
+      connectionType = "spooler";
+      protocol = "spooler";
+      config.address = config.spooler_name.trim();
+    }
+
+    const transportProtocolError = validatePrinterTransportProtocol(connectionType, protocol);
+    if (transportProtocolError) return NextResponse.json({ error: transportProtocolError }, { status: 400 });
+    const error = validateConnectionConfig(connectionType, config, protocol);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
     const id = data.id ?? `printer_${nanoid(8)}`;
@@ -74,11 +94,11 @@ export async function POST(req: Request) {
         const inserted = await tx.insert(printers).values({
           id, tenantId: tenantId, agentId: data.agentId, name: data.name,
           printerType: data.printerType, deviceClass: data.deviceClass,
-          connectionType: data.connectionType, protocol: data.protocol,
-          status: "unknown", lifecycle: "active", config: data.config,
+          connectionType, protocol,
+          status: "unknown", lifecycle: "active", config,
           capabilities: null,
-          managementSource: "manager",
-          desiredRevision: 1,
+          managementSource: auth.kind === "manager" ? "manager" : "agent",
+          desiredRevision: auth.kind === "manager" ? 1 : 0,
           appliedDesiredRevision: 0,
           observedDesiredRevision: 0,
           observedDeviceClass: null,
