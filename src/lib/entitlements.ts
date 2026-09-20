@@ -1,4 +1,5 @@
 import { sql, type SQL } from "drizzle-orm";
+import { logError } from "./log";
 
 export class TenantEntitlementError extends Error {
   readonly code = "TENANT_ENTITLEMENT_EXCEEDED" as const;
@@ -60,7 +61,20 @@ export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: str
   `);
   if (!result.rows[0]) throw new TenantSubscriptionRequiredError();
   if (!(PLAN_ENTITLEMENT_KEYS as readonly string[]).includes(key)) throw new TenantEntitlementConfigError(key);
-  const entitlements = normalizePlanEntitlements(result.rows[0].entitlements);
+  let entitlements: TenantEntitlements;
+  try {
+    entitlements = normalizePlanEntitlements(result.rows[0].entitlements);
+  } catch (err) {
+    // normalizePlanEntitlements throws a generic Error for malformed plan data.
+    // Log the raw error for internal diagnostics and convert it to a typed
+    // TenantEntitlementConfigError so callers produce a sanitized response.
+    logError("entitlements.plan_malformed", {
+      tenantId,
+      key,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw new TenantEntitlementConfigError(key);
+  }
   const value = entitlements[key as PlanEntitlementKey];
   if (value === "unlimited") return null;
   return value;
@@ -77,7 +91,18 @@ export async function getTenantEntitlements(tx: EntitlementTx, tenantId: string)
     LIMIT 1
   `);
   if (!result.rows[0]) throw new TenantSubscriptionRequiredError();
-  return normalizePlanEntitlements(result.rows[0].entitlements);
+  try {
+    return normalizePlanEntitlements(result.rows[0].entitlements);
+  } catch (err) {
+    // Same as getTenantEntitlementLimit: log raw error and convert to typed error
+    // so callers never surface raw internal details in a 500 response.
+    logError("entitlements.plan_malformed", {
+      tenantId,
+      key: "plan_entitlements",
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw new TenantEntitlementConfigError("plan_entitlements");
+  }
 }
 
 export async function enforceTenantResourceEntitlement(tx: EntitlementTx, tenantId: string, key: string, currentCountSql: SQL): Promise<void> {

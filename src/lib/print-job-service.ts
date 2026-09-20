@@ -129,11 +129,17 @@ async function insertQueuedJobAtomically({
     // intentionally allocated for the next explicit reprint.
     let effectiveIdempotencyKey = idempotencyKey ?? null;
     if (reprintOfJobId) {
+      // Escape LIKE wildcards in reprintOfJobId. Job IDs use the format
+      // `job_XXXX` — the underscore (`_`) is a SQL LIKE wildcard matching any
+      // single character. Without escaping, `LIKE 'gw-reprint:job_ABC:%'` would
+      // also match `gw-reprint:jobXABC:%`. Escaping with backslash and adding
+      // ESCAPE '\\' makes the pattern exact.
+      const escapedReprintId = reprintOfJobId.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
       const activeReprint = await tx.execute(sql`
         SELECT id, printer_id, agent_id, status
         FROM print_jobs
         WHERE tenant_id = ${tenantId}
-          AND idempotency_key LIKE ${`gw-reprint:${reprintOfJobId}:%`}
+          AND idempotency_key LIKE ${`gw-reprint:${escapedReprintId}:%`} ESCAPE '\\'
           AND status IN ('queued', 'claimed', 'printing')
         ORDER BY created_at DESC
         LIMIT 1
@@ -148,7 +154,7 @@ async function insertQueuedJobAtomically({
         SELECT COUNT(*)::int AS count
         FROM print_jobs
         WHERE tenant_id = ${tenantId}
-          AND idempotency_key LIKE ${`gw-reprint:${reprintOfJobId}:%`}
+          AND idempotency_key LIKE ${`gw-reprint:${escapedReprintId}:%`} ESCAPE '\\'
       `);
       const count = Number((countResult.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
       effectiveIdempotencyKey = `gw-reprint:${reprintOfJobId}:${count + 1}`;
@@ -207,6 +213,12 @@ async function insertQueuedJobAtomically({
     // or a stale agent, leaving an apparently accepted job that can never be
     // claimed. Lock order (agent -> printer) matches the manager printer PATCH
     // path's row-lock order to avoid an enqueue-vs-reconfigure deadlock.
+    //
+    // NOTE: The tenants table is also joined here (not in the original query)
+    // to close a TOCTOU window: if a tenant is suspended/deleted between the
+    // auth check (validateOdooKey / requireActiveTenant) and this INSERT, the
+    // job must be rejected. The poll-claim path already guards on t.lifecycle;
+    // this makes the enqueue path equally strict.
     const runtimeOwner = await tx.execute(sql`
       SELECT
         p.lifecycle AS printer_lifecycle,
@@ -220,11 +232,14 @@ async function insertQueuedJobAtomically({
         p.desired_revision AS desired_revision,
         a.lifecycle AS agent_lifecycle,
         a.status AS agent_status,
-        a.last_seen_at AS agent_last_seen_at
+        a.last_seen_at AS agent_last_seen_at,
+        te.lifecycle AS tenant_lifecycle
       FROM agents a
       JOIN printers p
         ON p.agent_id = a.id
        AND p.tenant_id = a.tenant_id
+      JOIN tenants te
+        ON te.id = a.tenant_id
       WHERE a.id = ${agentId}
         AND a.tenant_id = ${tenantId}
         AND p.id = ${printerId}
@@ -244,9 +259,14 @@ async function insertQueuedJobAtomically({
       agent_lifecycle?: string;
       agent_status?: string;
       agent_last_seen_at?: Date | string | null;
+      tenant_lifecycle?: string;
     } | undefined;
     if (!owner || owner.printer_agent_id !== agentId) {
       throw new PrintJobInputError("Printer owner changed during enqueue; retry the print operation", "PRINTER_OWNER_CHANGED", 409);
+    }
+    // Tenant lifecycle re-check: closes the TOCTOU gap between auth and INSERT.
+    if (owner.tenant_lifecycle !== "active") {
+      throw new PrintJobInputError(`Workspace is ${owner.tenant_lifecycle ?? "unavailable"}`, "TENANT_UNAVAILABLE", 409);
     }
     if (owner.printer_lifecycle !== "active") {
       throw new PrintJobInputError(`Printer is ${owner.printer_lifecycle ?? "unavailable"}`, "PRINTER_UNAVAILABLE", 409);
