@@ -96,6 +96,9 @@ export async function claimJobForDelivery(
   agentId: string,
   options: { markDeliveryEvidencePending?: boolean } = {},
 ): Promise<ClaimedJobRow | null> {
+  const claimError = options.markDeliveryEvidencePending
+    ? sql`${DELIVERY_EVIDENCE_PENDING}`
+    : sql`${printJobs.error}`;
   return db.transaction(async (tx) => {
     // Same advisory lock the poll claim path and the creation admission
     // check take: concurrent WS pushes and polls for one agent serialize
@@ -155,7 +158,7 @@ export async function claimJobForDelivery(
           claim_token = gen_random_uuid()::text,
           delivered_at = NULL,
           acked_at = NULL,
-          error = CASE WHEN ${options.markDeliveryEvidencePending} THEN ${DELIVERY_EVIDENCE_PENDING} ELSE print_jobs.error END,
+          error = ${claimError},
           delivery_attempts = print_jobs.delivery_attempts + 1
       WHERE id = ${jobId}
         AND tenant_id = (SELECT tenant_id FROM agents WHERE id = ${agentId})
