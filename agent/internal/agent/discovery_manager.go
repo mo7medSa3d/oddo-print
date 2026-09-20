@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -12,6 +13,11 @@ import (
 
 	"github.com/yasser-agent/agent/internal/printer"
 )
+
+// maxDiscoverySessionsBytes bounds the pending-session list: sessions are
+// metadata only (no printer payloads), and the gateway runs at most one
+// session per agent, so this is a hard ceiling far above any real response.
+const maxDiscoverySessionsBytes = 8 << 20
 
 // pollDiscovery checks gateway for pending discovery sessions for this agent and executes them.
 func (a *Agent) pollDiscovery(ctx context.Context) {
@@ -25,7 +31,7 @@ func (a *Agent) pollDiscovery(ctx context.Context) {
 		return
 	}
 	var sessions []map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxDiscoverySessionsBytes)).Decode(&sessions); err != nil {
 		return
 	}
 	for _, s := range sessions {

@@ -43,6 +43,34 @@ const (
 	maxPendingJobsPerPrinter = 8
 )
 
+// Gateway response bounds. Every control-plane response read is capped so a
+// hostile or buggy server cannot make the agent allocate without limit:
+//   - error/diagnostic bodies are only logged, so 8 KiB keeps both the
+//     allocation and the log line bounded;
+//   - the job poll carries at most maxClaimBatch jobs, each bounded by
+//     payload.MaxPayloadBytes (the same ceiling dispatch enforces), so the
+//     product is the documented batch ceiling — a larger response is a
+//     contract violation and is rejected instead of absorbed;
+//   - the heartbeat carries manager-owned desired state: per-printer config
+//     is capped at 16 KiB by the gateway but max_printers may be unlimited,
+//     so this is a generous hard ceiling over any real fleet, not a
+//     contract value.
+const (
+	maxGatewayErrorBodyBytes = 8 << 10
+	maxClaimBatch            = 20
+	maxHeartbeatBytes        = 256 << 20
+)
+
+func maxPollJobsBytes() int64 {
+	return int64(maxClaimBatch) * int64(payload.MaxPayloadBytes)
+}
+
+// pollJobsByteLimit is the live poll-response ceiling. It defaults to the
+// documented batch product and is only varied by tests in this package
+// (which run sequentially), so a bounded read can be exercised without
+// transferring the full production ceiling.
+var pollJobsByteLimit = maxPollJobsBytes()
+
 // shutdownGrace bounds how long Run waits for in-flight jobs after the agent
 // is asked to stop. The Windows SCM default stop timeout is 30s.
 const shutdownGrace = 25 * time.Second
@@ -1157,7 +1185,7 @@ func (a *Agent) rejectJob(ctx context.Context, jobID, token, reason string) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes))
 		log.Printf("Job %s: server rejected the pending-full rejection (%d): %s", jobID, resp.StatusCode, string(respBody))
 	}
 }
@@ -1699,7 +1727,7 @@ func (a *Agent) sendHeartbeat() {
 		return
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxHeartbeatBytes))
 	if resp.StatusCode >= 300 {
 		log.Printf("Heartbeat rejected (%d): %s", resp.StatusCode, string(body))
 		return
@@ -1744,13 +1772,13 @@ func (a *Agent) pollJobs(ctx context.Context) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes))
 		log.Printf("Poll rejected (%d): %s", resp.StatusCode, string(body))
 		return
 	}
 
 	var jobs []map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, pollJobsByteLimit)).Decode(&jobs); err != nil {
 		log.Printf("Poll: failed to decode job list: %v", err)
 		return
 	}
@@ -2060,7 +2088,7 @@ func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, clai
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes))
 		log.Printf("Job %s: server rejected status update to %q (%d): %s", jobID, status, resp.StatusCode, string(respBody))
 		// Fence rejection: the gateway no longer recognizes this claim
 		// (expired and reassigned, or never valid). Callers MUST treat this
