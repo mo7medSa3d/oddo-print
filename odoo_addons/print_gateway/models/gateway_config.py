@@ -673,6 +673,12 @@ class PrintGatewayConfig(models.Model):
                         "enabled_sync_revision": new_revision,
                         "last_enabled_sync_error": False,
                     }
+                    if api_key_changed:
+                        technical_values.update({
+                            "last_test_status": "draft",
+                            "last_test_at": False,
+                            "last_test_error": False,
+                        })
                     migration = url_migrations.get(record.id)
                     pending_disable = migration if url_changed else (key_removal_shutdowns.get(record.id) if key_removed else None)
                     if pending_disable:
@@ -728,17 +734,6 @@ class PrintGatewayConfig(models.Model):
 
     def unlink(self):
         self._check_admin()
-        for record in self:
-            remote_may_still_be_enabled = bool(
-                record.enabled
-                or record.last_enabled_sync_error
-                or int(record.last_enabled_sync_revision or -1) != int(record.enabled_sync_revision or 0)
-                or record.pending_disable_gateway_url
-            )
-            if remote_may_still_be_enabled:
-                raise ValidationError(
-                    _("Disable Gateway printing and wait until the Gateway status is confirmed as Disabled before deleting this configuration.")
-                )
         return super().unlink()
 
     @api.model
