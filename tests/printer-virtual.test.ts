@@ -27,6 +27,10 @@ describe("printer virtual classification", () => {
     expect(isVirtualPrinterRecord(record)).toBe(true);
   });
 
+  it("rejects an explicitly redirected printer type", () => {
+    expect(isVirtualPrinterRecord({ printerType: "redirected", name: "HP LaserJet" })).toBe(true);
+  });
+
   it("keeps 'physical USB printer'", () => {
     expect(isVirtualPrinterRecord({ printerType: "physical", connectionType: "usb", name: "Epson" })).toBe(false);
   });
