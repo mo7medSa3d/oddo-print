@@ -197,6 +197,91 @@ suite("print idempotency (Odoo → Gateway)", () => {
     expect((await foreignRead.json()).jobId).toBe(created.jobId);
   });
 
+  it("converges concurrent operator reprints on one active reprint", async () => {
+    const original = await createPrintJobForPrinter(f.printerId, {
+      type: "pdf",
+      encoding: "base64",
+      data: pdfBase64(),
+    }, {
+      requestedBy: "internal-service",
+      tenantId: f.tenantId,
+      idempotencyKey: "original-reprint-source",
+      destination: "POS",
+      documentType: "invoice",
+      rateLimitKeyId: null,
+    });
+
+    const results = await Promise.all([
+      createPrintJobForPrinter(f.printerId, originalPayload(), {
+        requestedBy: "manager-reprint",
+        reprintOfJobId: original.id,
+        destination: "POS",
+        documentType: "invoice",
+        tenantId: f.tenantId,
+      }),
+      createPrintJobForPrinter(f.printerId, originalPayload(), {
+        requestedBy: "manager-reprint",
+        reprintOfJobId: original.id,
+        destination: "POS",
+        documentType: "invoice",
+        tenantId: f.tenantId,
+      }),
+      createPrintJobForPrinter(f.printerId, originalPayload(), {
+        requestedBy: "manager-reprint",
+        reprintOfJobId: original.id,
+        destination: "POS",
+        documentType: "invoice",
+        tenantId: f.tenantId,
+      }),
+    ]);
+
+    const ids = new Set(results.map((r) => r.id));
+    expect(ids.size).toBe(1);
+    expect(results.filter((r) => r.isReused).length).toBe(2);
+    expect(await jobCount()).toBe(2);
+  });
+
+  it("allows a new explicit reprint after the previous reprint is terminal", async () => {
+    const original = await createPrintJobForPrinter(f.printerId, {
+      type: "pdf",
+      encoding: "base64",
+      data: pdfBase64(),
+    }, {
+      requestedBy: "internal-service",
+      tenantId: f.tenantId,
+      idempotencyKey: "original-reprint-terminal-source",
+      destination: "POS",
+      documentType: "invoice",
+      rateLimitKeyId: null,
+    });
+
+    const first = await createPrintJobForPrinter(f.printerId, originalPayload(), {
+      requestedBy: "manager-reprint",
+      reprintOfJobId: original.id,
+      destination: "POS",
+      documentType: "invoice",
+      tenantId: f.tenantId,
+    });
+
+    await pool().query("UPDATE print_jobs SET status = 'success', updated_at = now() WHERE id = $1", [first.id]);
+
+    const second = await createPrintJobForPrinter(f.printerId, originalPayload(), {
+      requestedBy: "manager-reprint",
+      reprintOfJobId: original.id,
+      destination: "POS",
+      documentType: "invoice",
+      tenantId: f.tenantId,
+    });
+
+    expect(second.id).not.toBe(first.id);
+    expect(second.isReused).not.toBe(true);
+    expect(await jobCount()).toBe(3);
+  });
+
+  function originalPayload() {
+    return { type: "pdf", encoding: "base64", data: pdfBase64("reprint-source\n") };
+  }
+
   it("internal requests may reuse the same idempotency key across tenants", async () => {
     const other = await seedFixture();
     const key = "op-internal-cross-tenant";
