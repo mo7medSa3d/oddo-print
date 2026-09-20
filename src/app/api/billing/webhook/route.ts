@@ -242,8 +242,15 @@ export async function POST(req: Request) {
           const storedTime = timestampMillis(tenantRow.stripeLastEventCreatedAt);
           let newerThanStored = storedTime === null || eventCreatedAt.getTime() > storedTime;
           if (storedTime !== null && eventCreatedAt.getTime() === storedTime) {
-            const latest = await latestProcessedEventForSubscription(tx, subId);
-            newerThanStored = Boolean(latest && latest.created === eventCreatedUnix && eventId > latest.eventId);
+            // Same-second tie: Stripe event IDs (evt_1XYZ...) are NOT
+            // chronologically sortable by lexicographic order. A newer event can
+            // have a lexicographically smaller ID, so `eventId > latest.eventId`
+            // does NOT reliably identify the later event. The safe behavior on a
+            // same-second tie is to skip (not overwrite): the already-processed
+            // event holds state, and the next event (with a different timestamp)
+            // will apply the correct update. This is idempotency-safe because the
+            // event is still recorded in billing_events with processed_at set.
+            newerThanStored = false;
           }
           const differentSubscription = Boolean(tenantRow.stripeSubscriptionId && tenantRow.stripeSubscriptionId !== subId);
           if (differentSubscription && tenantRow.status !== "cancelled" ) {
@@ -304,8 +311,8 @@ export async function POST(req: Request) {
             const storedTime = timestampMillis(current?.stripeLastEventCreatedAt);
             let newerThanStored = storedTime === null || eventCreatedAt.getTime() > storedTime;
             if (storedTime !== null && eventCreatedAt.getTime() === storedTime) {
-              const latest = await latestProcessedEventForSubscription(tx, subId);
-              newerThanStored = Boolean(latest && latest.created === eventCreatedUnix && eventId > latest.eventId);
+              // Same-second tie: conservative skip — see customer.subscription.* branch comment.
+              newerThanStored = false;
             }
             if (newerThanStored) {
               await tx.update(tenantSubscriptions).set({

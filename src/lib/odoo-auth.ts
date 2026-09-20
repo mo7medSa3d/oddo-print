@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { apiKeys } from "../db/schema";
+import { apiKeys, tenants } from "../db/schema";
 import { and, eq } from "drizzle-orm";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { requireActiveTenant } from "./tenant-guard";
@@ -61,5 +61,15 @@ export async function validateOdooKey(req: Request) {
   } catch {
     return null;
   }
+  // Odoo integration gate: the tenant may have the integration disabled via the
+  // /api/odoo/configuration toggle while still having valid, un-revoked keys.
+  // Treat a disabled integration as auth failure (null → 401) to avoid leaking
+  // whether the rejection is key-based or integration-based.
+  const tenantRow = await db.query.tenants.findFirst({
+    where: eq(tenants.id, row.tenantId),
+    columns: { odooEnabled: true },
+  });
+  if (!tenantRow?.odooEnabled) return null;
+
   return row;
 }
