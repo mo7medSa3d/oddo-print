@@ -55,10 +55,10 @@ func TestValidPDFPassesValidation(t *testing.T) {
 	if err := ValidatePDF(validPDF()); err != nil {
 		t.Fatalf("valid PDF rejected: %v", err)
 	}
-	// A BOM/leading newline written by some exporters is still accepted.
+	// The shared Gateway/agent policy requires the header at byte zero.
 	withPreamble := append([]byte("\n"), validPDF()...)
-	if err := ValidatePDF(withPreamble); err != nil {
-		t.Fatalf("PDF with leading newline rejected: %v", err)
+	if err := ValidatePDF(withPreamble); err == nil {
+		t.Fatal("PDF with a leading newline must be rejected")
 	}
 	// Trailing padding after %%EOF is tolerated.
 	padded := append(validPDF(), bytes.Repeat([]byte("\n"), 32)...)

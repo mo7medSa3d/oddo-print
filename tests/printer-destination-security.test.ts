@@ -9,6 +9,8 @@ describe("printer destination security policy", () => {
 
   it("accepts private/link-local RAW printer endpoints", () => {
     expect(validateConnectionConfig("network", { ip: "192.168.1.50", port: 9100 })).toBeNull();
+    expect(validateConnectionConfig("network", { ip: "192.168.1.50", port: 9100, address: "192.168.1.50:9100" })).toBeNull();
+    expect(validateConnectionConfig("network", { ip: "192.168.1.50", port: 9100, address: "8.8.8.8:9100" })).toContain("conflicts");
     expect(validateConnectionConfig("network", { ip: "192.168.1.50", port: 9101 })).toContain("port must be 9100");
     expect(validateConnectionConfig("network", { ip: "10.20.30.40", port: 9100 })).toBeNull();
     expect(validateConnectionConfig("network", { ip: "fe80::10", port: 9100 })).toBeNull();

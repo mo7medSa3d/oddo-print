@@ -147,8 +147,8 @@ function isPayloadBearingEndpoint(url: string | undefined): boolean {
  *   Next sees the stream, so every JSON body has an enforceable byte ceiling.
  * - Reservation applies ONLY to payload-bearing endpoints; other /api/*
  *   routes are size-checked but never charge the concurrency budget.
- * - Every reservation is released via releaseChunkedBody() on response
- *   `finish`/`close` and request `close`/`error`.
+ * - Every reservation remains held through route processing and is released
+ *   exactly once when the response finishes or closes.
  */
 export async function guardApiRequest(
   req: IncomingMessage,
@@ -207,7 +207,5 @@ export async function guardApiRequest(
   };
   res.once("finish", releaseOnce);
   res.once("close", releaseOnce);
-  req.once("close", releaseOnce);
-  req.once("error", releaseOnce);
   return req;
 }

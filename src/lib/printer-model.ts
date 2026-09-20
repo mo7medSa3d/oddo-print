@@ -114,6 +114,14 @@ export function validateConnectionConfig(connectionType: string, cfg: Record<str
     if (addressErr) return addressErr;
     const portErr = validatePrinterPort(connectionType, cfg.port, protocol);
     if (portErr) return portErr;
+    if (cfg.address !== undefined) {
+      if (typeof cfg.address !== "string") return "network printer config.address must be a string";
+      const canonicalAddress = `${cfg.ip.trim().replace(/^\[|\]$/g, "")}:${cfg.port}`;
+      const suppliedAddress = cfg.address.trim().replace(/^\[([^\]]+)\]:(\d+)$/, "$1:$2");
+      if (suppliedAddress && suppliedAddress !== canonicalAddress) {
+        return "network printer config.address conflicts with config.ip/config.port";
+      }
+    }
   }
   if (connectionType === "ipp" || connectionType === "ipps") {
     if (typeof cfg.address !== "string" || !cfg.address.trim()) {

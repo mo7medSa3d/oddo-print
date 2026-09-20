@@ -211,13 +211,22 @@ func (a *Agent) deleteProbeState(printerID string) {
 // a real backend status probe returns a usable device state. Instantiating a
 // backend from configuration is not proof that the device is reachable.
 func (a *Agent) observeDesiredRevision(printerID, status string) {
-	if status != "online" && status != "busy" {
-		return
-	}
 	a.desiredStateMu.Lock()
 	defer a.desiredStateMu.Unlock()
 	row, ok := a.desiredStates[printerID]
 	if !ok || row.Desired.Lifecycle != "active" || row.ApplyError != "" {
+		return
+	}
+	usable := status == "online" || status == "busy"
+	if status == "unknown" && row.Desired.ConnectionType == "network" {
+		switch strings.ToLower(strings.TrimSpace(row.Desired.Protocol)) {
+		case "raw", "escpos", "zpl", "tspl":
+			// Status() reached the device but has no readable back-channel. This
+			// proves connectivity/config observation without claiming health.
+			usable = true
+		}
+	}
+	if !usable {
 		return
 	}
 	if row.AppliedDesiredRevision >= row.Desired.DesiredRevision &&

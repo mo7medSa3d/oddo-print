@@ -49,6 +49,17 @@ func TestParseValidPDF(t *testing.T) {
 	}
 }
 
+func TestPDFSignaturePolicyMatchesGateway(t *testing.T) {
+	prefixed := base64.StdEncoding.EncodeToString([]byte("\n%PDF-1.4 fake"))
+	if _, err := Parse(map[string]interface{}{"type": "pdf", "encoding": "base64", "data": prefixed}); err == nil {
+		t.Fatal("PDF signature after a prefix must be rejected")
+	}
+	rawWithMarker := base64.StdEncoding.EncodeToString([]byte("label %PDF- text"))
+	if _, err := Parse(map[string]interface{}{"type": "raw", "protocol": "raw", "encoding": "base64", "data": rawWithMarker}); err != nil {
+		t.Fatalf("RAW marker text after byte zero must remain valid: %v", err)
+	}
+}
+
 func TestParseInvalidCases(t *testing.T) {
 	validData := base64.StdEncoding.EncodeToString([]byte("hello"))
 	cases := []struct {

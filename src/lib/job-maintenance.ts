@@ -5,8 +5,9 @@ import { incrementMetric } from "./metrics";
 export const STALE_CLAIM_SECONDS = 90;
 export const STALE_PRINTING_SECONDS = 10 * 60;
 export const MAX_RETRIES = 5;
+export const MAX_DELIVERY_ATTEMPTS = 5;
 
-export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<{ expired: number; requeuedClaims: number; silentDeliveries: number; stalePrinting: number; exhaustedClaims: number }> {
+export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<{ expired: number; requeuedClaims: number; silentDeliveries: number; stalePrinting: number; exhaustedClaims: number; exhaustedQueued: number }> {
   const agentFilter = scope.agentId ? sql`AND agent_id = ${scope.agentId}` : sql``;
 
   const expired = await db.execute(sql`
@@ -70,12 +71,24 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
     RETURNING id
   `);
 
+  const exhaustedQueued = await db.execute(sql`
+    UPDATE print_jobs SET status='failed',
+      error=CASE
+        WHEN retries >= ${MAX_RETRIES} THEN 'exceeded max retries before delivery'
+        ELSE 'exceeded max delivery attempts' END,
+      updated_at=now()
+    WHERE status='queued' AND expires_at > now()
+      AND (retries >= ${MAX_RETRIES} OR delivery_attempts >= ${MAX_DELIVERY_ATTEMPTS}) ${agentFilter}
+    RETURNING id
+  `);
+
   const result = {
     expired: expired.rows.length,
     requeuedClaims: requeuedClaims.rows.length,
     silentDeliveries: silentDeliveries.rows.length,
     stalePrinting: stalePrinting.rows.length,
     exhaustedClaims: exhaustedClaims.rows.length,
+    exhaustedQueued: exhaustedQueued.rows.length,
   };
   const unknownExpiryCount = expired.rows.filter((row) => String((row as { error?: unknown }).error ?? "").startsWith("JOB_EXPIRED_DURING_PRINT") || String((row as { error?: unknown }).error ?? "").startsWith("UNKNOWN_PARTIAL_DELIVERY")).length;
   if (result.expired > 0) incrementMetric("print_jobs_expired_total", result.expired);
@@ -90,5 +103,6 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
     incrementMetric("print_jobs_unknown_total", result.stalePrinting);
   }
   if (result.exhaustedClaims > 0) incrementMetric("print_jobs_failed_total", result.exhaustedClaims);
+  if (result.exhaustedQueued > 0) incrementMetric("print_jobs_failed_total", result.exhaustedQueued);
   return result;
 }

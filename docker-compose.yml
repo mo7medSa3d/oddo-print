@@ -55,6 +55,16 @@ services:
       TZ: UTC
       HOSTNAME: 0.0.0.0
       PORT: 3000
+      APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL must be set to the public Gateway URL}
+      # Optional providers stay disabled when unset; their absence must not
+      # prevent the core Gateway from starting.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_API_VERSION: ${STRIPE_API_VERSION:-}
+      STRIPE_PLAN_CATALOG: ${STRIPE_PLAN_CATALOG:-}
       PGHOST: postgres
       PGPORT: 5432
       PGDATABASE: ${POSTGRES_DB:-yasser_db}

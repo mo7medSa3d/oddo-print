@@ -19,7 +19,10 @@ describe("runtime printer routing regressions", () => {
     expect(isPrinterAvailableForJob(printer({ printerType: "virtual", connectionType: "spooler", protocol: "spooler" }))).toBe(false);
   });
 
-  it("rejects offline and disabled printers before execution", () => {
+  it("separates unknown health from execution eligibility for connected unidirectional network printers", () => {
+    expect(isPrinterAvailableForJob(printer({ status: "unknown", protocol: "escpos" }))).toBe(true);
+    expect(isPrinterAvailableForJob(printer({ status: "unknown", protocol: "ipp" }))).toBe(false);
+    expect(isPrinterAvailableForJob(printer({ status: "unknown", connectionType: "spooler" }))).toBe(false);
     expect(isPrinterAvailableForJob(printer({ status: "offline" }))).toBe(false);
     expect(isPrinterAvailableForJob(printer({ lifecycle: "disabled" }))).toBe(false);
   });

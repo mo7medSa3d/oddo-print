@@ -1,7 +1,7 @@
 import { agents, printJobs, printers } from "../db/schema";
 import { db } from "../db";
 import { isVirtualPrinterRecord } from "./printer-virtual";
-import { validatePayloadForPrinter } from "./routing";
+import { isPrinterStatusExecutable, validatePayloadForPrinter } from "./routing";
 import { validatePrintJobPayload } from "./payload";
 import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "./nanoid";
@@ -204,6 +204,8 @@ async function insertQueuedJobAtomically({
       SELECT
         p.lifecycle AS printer_lifecycle,
         p.status AS printer_status,
+        p.connection_type AS printer_connection_type,
+        p.protocol AS printer_protocol,
         p.agent_id AS printer_agent_id,
         p.management_source AS management_source,
         p.applied_desired_revision AS applied_desired_revision,
@@ -224,6 +226,8 @@ async function insertQueuedJobAtomically({
     const owner = runtimeOwner.rows[0] as {
       printer_lifecycle?: string;
       printer_status?: string;
+      printer_connection_type?: string;
+      printer_protocol?: string;
       printer_agent_id?: string;
       management_source?: string;
       applied_desired_revision?: number | string;
@@ -238,8 +242,12 @@ async function insertQueuedJobAtomically({
     if (owner.printer_lifecycle !== "active") {
       throw new PrintJobInputError(`Printer is ${owner.printer_lifecycle ?? "unavailable"}`, "PRINTER_UNAVAILABLE", 409);
     }
-    if (owner.printer_status !== "online") {
-      throw new PrintJobInputError("Printer is not online", "PRINTER_OFFLINE", 503);
+    if (!isPrinterStatusExecutable({
+      status: owner.printer_status ?? null,
+      connectionType: owner.printer_connection_type ?? null,
+      protocol: owner.printer_protocol ?? null,
+    })) {
+      throw new PrintJobInputError("Printer is not executable", "PRINTER_OFFLINE", 503);
     }
     if (owner.agent_lifecycle !== "active") {
       throw new PrintJobInputError(`Agent is ${owner.agent_lifecycle ?? "unavailable"}`, "AGENT_UNAVAILABLE", 409);
@@ -321,7 +329,7 @@ export async function createPrintJobForPrinter(
   if (!printer) throw new PrintJobInputError("Printer not found", "PRINTER_NOT_FOUND", 404);
   if (printer.lifecycle !== "active") throw new PrintJobInputError(`Printer is ${printer.lifecycle}`, "PRINTER_UNAVAILABLE", 409);
   if (isVirtualPrinterRecord(printer)) throw new PrintJobInputError("Printer is virtual or redirected", "PRINTER_VIRTUAL", 409);
-  if (printer.status !== "online") throw new PrintJobInputError("Printer is not online", "PRINTER_OFFLINE", 503);
+  if (!isPrinterStatusExecutable(printer)) throw new PrintJobInputError("Printer is not executable", "PRINTER_OFFLINE", 503);
 
   const validatedPayload = validatePrintJobPayload(payload);
   const capability = validatePayloadForPrinter(validatedPayload, {

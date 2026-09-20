@@ -44,6 +44,7 @@ type PrinterConfig struct {
 	USBPID         string                 `yaml:"usb_pid,omitempty"`
 	USBSerial      string                 `yaml:"usb_serial,omitempty"`
 	Capabilities   map[string]interface{} `yaml:"capabilities,omitempty"`
+	PaperWidthMM   int                    `yaml:"paper_width_mm,omitempty"`
 	Enabled        *bool                  `yaml:"enabled,omitempty"`
 }
 

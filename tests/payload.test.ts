@@ -40,6 +40,8 @@ describe("payload", () => {
     expect(() => validatePrintJobPayload({ type: "pdf", encoding: "base64", data: Buffer.from("hello").toString("base64") })).toThrow(/PDF payload/);
     expect(() => validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: Buffer.from("%PDF-1.7").toString("base64") })).toThrow(/PDF bytes/);
     expect(() => validatePrintJobPayload({ type: "escpos", protocol: "escpos", encoding: "base64", data: Buffer.from("%PDF-1.7").toString("base64") })).toThrow(/PDF bytes/);
+    expect(() => validatePrintJobPayload({ type: "pdf", encoding: "base64", data: Buffer.from("\n%PDF-1.7").toString("base64") })).toThrow(/start with/);
+    expect(validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: Buffer.from("label %PDF- text").toString("base64") }).type).toBe("raw");
   });
   it("rejects bad type", () => {
     expect(() => validatePrintJobPayload({ type: "badtype", encoding: "base64", data: "aGVsbG8=" })).toThrow();
@@ -82,6 +84,17 @@ describe("payload", () => {
     expect(tspl.type).toBe("raw");
     expect(tspl.protocol).toBe("tspl");
     expect(Buffer.from(tspl.data, "base64").toString("utf8")).toContain("SIZE 75 mm, 50 mm");
+  });
+
+  it("sanitizes ZPL and TSPL language delimiters in test-page names", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    const zpl = Buffer.from(buildTestPrintPayloadForPrinter("A^FS~JA", "B^XZ", { protocol: "zpl", connectionType: "network" }).data, "base64").toString("utf8");
+    expect(zpl).not.toContain("A^FS~JA");
+    expect(zpl.match(/\^XZ/g)).toHaveLength(1);
+
+    const tspl = Buffer.from(buildTestPrintPayloadForPrinter('A"\nPRINT 9,9', 'B\\"', { protocol: "tspl", connectionType: "network" }).data, "base64").toString("utf8");
+    expect(tspl).not.toContain('A"');
+    expect(tspl.match(/PRINT 1,1/g)).toHaveLength(1);
   });
 
   it("does not fabricate a document test for a byte-stream printer with PDF-only capabilities", async () => {

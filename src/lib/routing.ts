@@ -137,6 +137,12 @@ export interface PrinterAvailability extends PrinterLike {
   status: string | null;
 }
 
+export function isPrinterStatusExecutable(printer: Pick<PrinterAvailability, "status" | "connectionType" | "protocol">): boolean {
+  if (printer.status === "online") return true;
+  if (printer.status !== "unknown" || printer.connectionType !== "network") return false;
+  return ["raw", "escpos", "zpl", "tspl"].includes(String(printer.protocol ?? "").toLowerCase());
+}
+
 export function isPrinterAvailableForJob(
   printer: PrinterAvailability,
   agent?: { lifecycle?: string | null; status?: string | null; lastSeenAt?: Date | string | null } | null,
@@ -145,7 +151,7 @@ export function isPrinterAvailableForJob(
   if (printer.lifecycle !== "active") return false;
   if (isVirtualPrinterRecord(printer)) return false;
   if (agent !== undefined && !isAgentAvailableForPrinter(agent, now)) return false;
-  return printer.status === "online";
+  return isPrinterStatusExecutable(printer);
 }
 
 export function isAgentAvailableForPrinter(

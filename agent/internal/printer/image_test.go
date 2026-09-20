@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"strings"
 	"testing"
 )
 
@@ -22,6 +23,21 @@ func createTestJPEG(w, h int) []byte {
 	var buf bytes.Buffer
 	_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90})
 	return buf.Bytes()
+}
+
+func TestJPEGConfigRejectsUnsafeDimensionsBeforeDecode(t *testing.T) {
+	jpegData := createTestJPEG(1, 1)
+	// SOF0 dimensions follow the marker, segment length, precision byte.
+	for i := 0; i+8 < len(jpegData); i++ {
+		if jpegData[i] == 0xff && jpegData[i+1] == 0xc0 {
+			jpegData[i+5], jpegData[i+6] = 0xff, 0xff
+			jpegData[i+7], jpegData[i+8] = 0xff, 0xff
+			break
+		}
+	}
+	if _, err := JPEGToESCPOS(jpegData); err == nil || !strings.Contains(err.Error(), "dimensions") {
+		t.Fatalf("expected pre-decode dimension rejection, got %v", err)
+	}
 }
 
 func TestAdaptiveRasterBanding(t *testing.T) {

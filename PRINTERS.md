@@ -70,7 +70,7 @@ runtime renderer download, browser engine, or customer-installed PDF software.
 The PDFium WASM module is embedded in the Agent binary by go-pdfium, and the
 Wazero filesystem is explicitly isolated from the host filesystem.
 
-The shared Agent payload limit remains 5 MiB. PDF-specific protection also
+The shared Agent payload limit remains 5 MiB. PDF validation requires `%PDF-` at byte zero and a `%%EOF` marker within the final 4 KiB (trailing padding is allowed). PDF-specific protection also
 limits documents to 500 pages and caps one rendered page at 16 million pixels
 (about 64 MiB for the 32-bit bitmap before renderer overhead). The renderer pool
 has one live worker and PDF jobs are serialized so PDF rendering cannot create
@@ -109,7 +109,11 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Discovery | Active TCP 9100 scan of private IPv4 subnets (`network_discovery.go`) |
 | Physical verification | **NOT VERIFIED** on a real device. Byte-for-byte transmission is **VERIFIED** against a local mock listener (`network_test.go`, `pdf_test.go`, `internal/integration/mock_e2e_test.go`) |
 
-### 5.2 Windows print spooler — `SpoolerPrinter` (`spooler_windows.go`)
+### 5.2 JPEG raster limits and paper width
+
+JPEG dimensions are inspected with `jpeg.DecodeConfig` before full decode. Either source dimension above 16,384 pixels, a source image above 40,000,000 pixels, or a projected ESC/POS raster above 32 MiB is rejected. Raster width defaults conservatively to 384 dots. A single explicit desired-state `config.paper_widths` value is carried separately as millimetres (`paper_width_mm`) and mapped to the supported raster width (for example, 80 mm → 576 dots); ambiguous multi-width configuration does not widen the default.
+
+### 5.3 Windows print spooler — `SpoolerPrinter` (`spooler_windows.go`)
 
 | Aspect | Detail |
 |---|---|
@@ -123,7 +127,7 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Discovery | `EnumPrintersW` level 2 with correct `PRINTER_INFO_2W` parsing; non-printer PnP entries are filtered out (`isValidSpoolerPrinter`), status/attributes mapped by `classify.go` |
 | Physical verification | **COMPILE VERIFIED** only (`GOOS=windows go build/vet`). No paper has been produced in CI |
 
-### 5.3 Spooler stub for non-Windows builds (`spooler_stub.go`)
+### 5.4 Spooler stub for non-Windows builds (`spooler_stub.go`)
 
 | Aspect | Detail |
 |---|---|
@@ -133,21 +137,21 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Status probe | `unknown` without a probe (an unreadable state, never healthy); `"online"` only under the explicit simulation opt-in |
 | Physical verification | **SIMULATED** — never counts as evidence of printing |
 
-### 5.4 IPP / IPPS — `IPPPrinter` (`ipp.go`)
+### 5.5 IPP / IPPS — `IPPPrinter` (`ipp.go`)
 
 | Aspect | Detail |
 |---|---|
 | Protocol | IPP 2.0 `Print-Job` (0x0002) over HTTP POST `application/ipp`, with `attributes-charset`, `attributes-natural-language`, `printer-uri`, `requesting-user-name`, `document-format`, `job-name` |
 | Document kinds | `pdf` ✅ as `application/pdf`; `raw` / `escpos` ❌ → `CAPABILITY_MISMATCH` |
-| Configuration | `type: ipp` or `ipps` (also `type: network` with `protocol: ipp`), `endpoint:` an `ipp://`, `ipps://`, `http://` URL or a bare `host:port` — normalised by `normalizeIPPURL` |
+| Configuration | `type: ipp` or `ipps` (also `type: network` with `protocol: ipp`), `endpoint:` an `ipp://`, `ipps://`, `http://` URL or a bare `host:port` — normalised by `normalizeIPPURL`; `ipp://` and `ipps://` default to port 631 when omitted |
 | Capability reporting | `supported_protocols: [pdf]` |
-| Error handling | Non-2xx HTTP and any IPP status other than `0x0000` become job errors with the decoded IPP status text; 15 s client timeout, shortened to the job deadline when smaller |
+| Error handling | Non-2xx HTTP and IPP client/server error classes (`0x04xx`/`0x05xx`) become job errors with decoded status text; the complete `0x00xx` success class is accepted. Responses shorter than the IPP header are rejected. The client timeout is 15 s, shortened to the job deadline when smaller |
 | Status probe | `Get-Printer-Attributes` (5 s): `printer-state` 3/4/5 → `online`/`busy`/`offline`; `printer-state-reasons` containing `offline`/`shutdown` → `offline`, `media-needed`/`toner-empty` → `error`; unreachable → `offline` |
 | Platform limits | None |
 | Discovery | TCP 631 scan (`ipp_discovery.go`); the mDNS helper is a stub that returns nothing |
 | Physical verification | **NOT VERIFIED** against a real IPP printer. Request construction and status parsing are **VERIFIED** with `httptest` (`ipp_test.go`) |
 
-### 5.5 Direct USB — `USBPrinter` (`usb_windows.go`)
+### 5.6 Direct USB — `USBPrinter` (`usb_windows.go`)
 
 | Aspect | Detail |
 |---|---|
@@ -161,7 +165,7 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Discovery | `SetupDiGetClassDevsW` (`DIGCF_PRESENT|ALLCLASSES`) with VID/PID/serial parsing and a device-interface path map; not available on non-Windows |
 | Physical verification | **COMPILE VERIFIED** only |
 
-### 5.6 ESC/POS
+### 5.7 ESC/POS
 
 ESC/POS is **not a backend** — it is a payload dialect (`ESC @` initialise … `GS V` cut) carried
 by whichever byte-stream transport the printer uses: RAW TCP, the Windows spooler in RAW mode,

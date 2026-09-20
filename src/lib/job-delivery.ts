@@ -2,7 +2,7 @@ import { db } from "../db";
 import { printJobs } from "../db/schema";
 import { sql } from "drizzle-orm";
 import { fencedDeliveryWrite } from "./job-fencing";
-import { STALE_CLAIM_SECONDS, MAX_RETRIES } from "./job-maintenance";
+import { STALE_CLAIM_SECONDS, MAX_DELIVERY_ATTEMPTS, MAX_RETRIES } from "./job-maintenance";
 import { agentStaleThresholdSeconds } from "./agent-availability";
 
 /**
@@ -43,7 +43,7 @@ export const MAX_AGENT_IN_FLIGHT_JOBS = 500;
  * stale/queued candidates); no path may claim past either.
  */
 export const CLAIM_LEASE_SECONDS = STALE_CLAIM_SECONDS;
-export const MAX_DELIVERY_ATTEMPTS = 5;
+export { MAX_DELIVERY_ATTEMPTS };
 
 export type ClaimedJobRow = {
   id: string;
@@ -112,7 +112,7 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
-        AND pr.status = 'online'
+        AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
         AND t.lifecycle = 'active'
     `);
@@ -136,7 +136,7 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
-        AND pr.status = 'online'
+        AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
         AND t.lifecycle = 'active'
       FOR UPDATE OF p, a, pr, t SKIP LOCKED
