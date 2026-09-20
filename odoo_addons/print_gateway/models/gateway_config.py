@@ -191,10 +191,12 @@ class PrintGatewayConfig(models.Model):
             config = env["print_gateway.gateway_config"].browse(self.id).exists()
             if config:
                 if success:
+                    # Old-endpoint shutdown is only phase 1. Keep the pending
+                    # migration record until the NEW endpoint has acknowledged
+                    # the same revision and desired enabled state; otherwise a
+                    # second URL change could race between the two phases and
+                    # leave an uncontrolled split-brain configuration.
                     config.with_context(skip_enabled_sync=True).write({
-                        "pending_disable_gateway_url": False,
-                        "pending_disable_gateway_api_key": False,
-                        "pending_disable_revision": -1,
                         "last_gateway_migration_sync_at": fields.Datetime.now(),
                         "last_gateway_migration_sync_error": False,
                     })
@@ -206,6 +208,28 @@ class PrintGatewayConfig(models.Model):
         except Exception:
             cr.rollback()
             _logger.exception("Could not persist Gateway URL migration result for config %s", self.id)
+        finally:
+            cr.close()
+
+    def _complete_gateway_migration(self, revision):
+        """Clear the durable migration fence only after the new endpoint converges."""
+        self.ensure_one()
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, api.SUPERUSER_ID, {})
+            config = env["print_gateway.gateway_config"].browse(self.id).exists()
+            if config and int(config.pending_disable_revision or -1) == int(revision):
+                config.with_context(skip_enabled_sync=True).write({
+                    "pending_disable_gateway_url": False,
+                    "pending_disable_gateway_api_key": False,
+                    "pending_disable_revision": -1,
+                    "last_gateway_migration_sync_at": fields.Datetime.now(),
+                    "last_gateway_migration_sync_error": False,
+                })
+            cr.commit()
+        except Exception:
+            cr.rollback()
+            _logger.exception("Could not complete Gateway URL migration for config %s", self.id)
         finally:
             cr.close()
 
@@ -282,13 +306,16 @@ class PrintGatewayConfig(models.Model):
                 revision=old_revision,
             ):
                 return
-        self._sync_enabled_state_to_gateway(
+        synced = self._sync_enabled_state_to_gateway(
             gateway_url,
             api_key,
             dbname,
             revision,
             enabled,
         )
+        if synced and pending_disable:
+            self._complete_gateway_migration(revision)
+        return synced
 
     def _sync_enabled_state_to_gateway(
         self,
@@ -329,8 +356,18 @@ class PrintGatewayConfig(models.Model):
                     message or _("Gateway activation synchronization failed (HTTP %s).") % response.status_code
                 )
             acknowledged_revision = body.get("revision")
-            if not isinstance(acknowledged_revision, int) or acknowledged_revision < -1:
+            acknowledged_enabled = body.get("enabled")
+            if not isinstance(acknowledged_revision, int) or acknowledged_revision < 0:
                 raise ValidationError(_("Gateway activation synchronization returned an invalid revision."))
+            # A 200 stale-revision response is informational, not convergence.
+            # Only an exact revision + state acknowledgement completes this
+            # synchronization phase. This is critical during URL migration:
+            # otherwise the new endpoint could be left disabled/stale while
+            # Odoo clears the migration fence.
+            if acknowledged_revision != revision or acknowledged_enabled is not enabled:
+                raise ValidationError(
+                    _("Gateway activation synchronization did not acknowledge the requested revision/state.")
+                )
             self._persist_enabled_sync_result(
                 dbname,
                 success=True,
