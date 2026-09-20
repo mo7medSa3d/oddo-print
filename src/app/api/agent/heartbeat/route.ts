@@ -110,11 +110,11 @@ function sanitizePrinter(p: ReportedPrinter): {
         .map((value) => String(value).toLowerCase().trim())
         .filter((token) => KNOWN_CAPABILITY_TOKENS.has(token));
     } else {
-      // Malformed type is treated as absent rather than authoritative. Only
-      // a valid array (including an explicit empty array) is a capability
-      // declaration; invalid JSON shape should not crash or create a
-      // synthetic deny-list that was never actually declared.
-      delete capabilities.supported_protocols;
+      // Presence is authoritative. A malformed supported_protocols value is
+      // rejected rather than erased, because erasing it would restore
+      // transport-based fallback and could broaden what this device can
+      // receive. The routing layer intentionally fails closed on this shape.
+      return { ok: false, reason: "invalid_supported_protocols" };
     }
   }
   const status = typeof p.status === "string" && VALID_PRINTER_STATUSES.has(p.status.trim().toLowerCase()) ? p.status.trim().toLowerCase() : "unknown";
