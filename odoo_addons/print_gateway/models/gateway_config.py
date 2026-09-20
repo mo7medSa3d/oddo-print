@@ -728,6 +728,17 @@ class PrintGatewayConfig(models.Model):
 
     def unlink(self):
         self._check_admin()
+        for record in self:
+            remote_may_still_be_enabled = bool(
+                record.enabled
+                or record.last_enabled_sync_error
+                or int(record.last_enabled_sync_revision or -1) != int(record.enabled_sync_revision or 0)
+                or record.pending_disable_gateway_url
+            )
+            if remote_may_still_be_enabled:
+                raise ValidationError(
+                    _("Disable Gateway printing and wait until the Gateway status is confirmed as Disabled before deleting this configuration.")
+                )
         return super().unlink()
 
     @api.model
