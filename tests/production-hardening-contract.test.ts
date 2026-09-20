@@ -202,7 +202,11 @@ describe("production hardening contracts", () => {
     expect(printService).toContain("WHERE tenant_id = ${tenantId}");
     expect(printService).toContain("idempotency_key = ${effectiveIdempotencyKey}");
     expect(printService).toContain("status IN ('queued', 'claimed', 'printing')");
-    expect(printService).toContain("gw-reprint:${reprintOfJobId}:%");
+    expect(printService).toContain("const escapedReprintId = reprintOfJobId.replace");
+    expect(printService).toContain('.replace(/%/g, "\\\\%")');
+    expect(printService).toContain('.replace(/_/g, "\\\\_")');
+    expect(printService).toContain("gw-reprint:${escapedReprintId}:%");
+    expect(printService).toContain("ESCAPE '\\\\'");
 
     const printRoute = read("src/app/api/print/jobs/route.ts");
     expect(printRoute).not.toContain("eq(printJobs.apiKeyId, odoo.id), eq(printJobs.idempotencyKey");
