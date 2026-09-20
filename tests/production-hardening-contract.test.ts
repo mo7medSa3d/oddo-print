@@ -40,7 +40,8 @@ describe("production hardening contracts", () => {
   it("never re-submits an Odoo outbox row after it has a remote Gateway job id", () => {
     const printJob = read("odoo_addons/print_gateway/models/print_job.py");
     expect(printJob).toContain("if job.gateway_job_id:");
-    expect(printJob).toContain("Never POST the same row again");
+    expect(printJob).toContain("Never POST the same row");
+    expect(printJob).toContain("again: intent recovery");
     expect(printJob).toContain("Explicit reprint actions");
   });
 
