@@ -574,6 +574,7 @@ class PrintGatewayBinding(models.Model):
                 "dispatched": True,
                 "success": True,
                 "has_binding": True,
+                "status": route.get("status") or "unknown",
                 "printer_name": route.get("printer_id") or binding.printer_id,
                 "message": route.get("message") or _("Sent silently to printer."),
             }
