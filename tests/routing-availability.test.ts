@@ -61,7 +61,7 @@ suite("gateway runtime printer availability + payload capability contract", () =
     );
     expect(source).toContain('if (Array.isArray(capabilities.supported_protocols))');
     expect(source).toContain("capabilities.supported_protocols = (capabilities.supported_protocols as unknown[])");
-    expect(source).toContain("delete capabilities.supported_protocols");
+    expect(source).not.toContain("delete capabilities.supported_protocols");
   });
 
   it("allows spooler raw/escpos payloads but not unsupported spooler languages", () => {
