@@ -430,6 +430,30 @@ class PrintGatewayConfig(models.Model):
             self._check_admin()
 
         vals = dict(vals)
+
+        # URL migration is a durable state machine. Serialize concurrent writes
+        # per configuration row before reading the previous endpoint/revision;
+        # otherwise two simultaneous URL changes can both observe the same old
+        # state and the later transaction can overwrite the first pending
+        # shutdown record, losing an endpoint that still may be active.
+        if self.ids:
+            self.flush_recordset()
+            self.env.cr.execute(
+                f"SELECT id FROM {self._table} WHERE id IN %s FOR UPDATE",
+                [tuple(self.ids)],
+            )
+            self.invalidate_recordset([
+                "gateway_url",
+                "gateway_api_key",
+                "enabled",
+                "enabled_sync_revision",
+                "last_enabled_sync_revision",
+                "last_enabled_sync_error",
+                "pending_disable_gateway_url",
+                "pending_disable_gateway_api_key",
+                "pending_disable_revision",
+            ])
+
         pre_sync_credentials = {}
         if "gateway_api_key" in vals and not vals["gateway_api_key"]:
             for record in self:
