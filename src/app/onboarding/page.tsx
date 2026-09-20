@@ -1,1 +1,205 @@
-"use client";import{useEffect,useState}from"react";import{useRouter}from"next/navigation";import{Button,Field,Input}from"../../components/ui";type Plan={id:string;name:string;currency:string|null;interval:string|null;entitlements:Record<string,unknown>};export default function Onboarding(){const[name,setName]=useState("");const[plans,setPlans]=useState<Plan[]>([]);const[planId,setPlanId]=useState("");const[err,setErr]=useState("");const[loading,setLoading]=useState(false);const router=useRouter();useEffect(()=>{fetch("/api/billing/plans",{credentials:"include"}).then(r=>r.json()).then(d=>setPlans(d.plans??[])).catch(()=>setPlans([]))},[]);async function submit(trial:boolean){setErr("");setLoading(true);try{const r=await fetch("/api/onboarding",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({workspaceName:name,planId,trial})});const d=await r.json();if(!r.ok)throw new Error(d.error??"Setup failed");if(trial)router.replace("/dashboard");else{const c=await fetch("/api/billing/checkout",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({planId})});const cd=await c.json();if(!c.ok)throw new Error(cd.error??"Checkout unavailable");window.location.href=cd.url}}catch(e){setErr(e instanceof Error?e.message:"Setup failed")}finally{setLoading(false)}}return <main className="canvas-wash min-h-screen flex items-center justify-center px-4 py-12"><div className="w-full max-w-2xl card p-7"><h1 className="text-2xl font-bold text-ink">Set up your workspace</h1><p className="mt-1 text-sm text-ink-3">Name the workspace and choose the commercial plan you want to use.</p><div className="mt-6 space-y-5"><Field label="Workspace name" htmlFor="name"><Input id="name" value={name} onChange={e=>setName(e.target.value)} minLength={2} maxLength={120} required/></Field><div><label className="text-sm font-semibold text-ink">Plan</label><div className="mt-2 grid gap-3 md:grid-cols-2">{plans.map(p=><button key={p.id} type="button" onClick={()=>setPlanId(p.id)} className={`rounded-xl border p-4 text-left ${planId===p.id?"border-edge-accent bg-brand-subtle":"border-edge bg-surface"}`}><div className="font-semibold text-ink">{p.name}</div><div className="mt-1 text-xs text-ink-3">{p.currency??""} {p.interval?`/${p.interval}`:""}</div></button>)}</div></div>{err&&<p className="text-sm text-bad">{err}</p>}<div className="flex flex-col gap-3 sm:flex-row"><Button variant="primary" disabled={!name||!planId||loading} loading={loading} onClick={()=>submit(true)}>Start trial</Button><Button variant="secondary" disabled={!name||!planId||loading} onClick={()=>submit(false)}>Continue to checkout</Button></div></div></div></main>}
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2, CreditCard, Sparkles } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Button, Card, EmptyState, ErrorState, Field, Input } from "../../components/ui";
+
+type Plan = {
+  id: string;
+  name: string;
+  currency: string | null;
+  interval: string | null;
+  entitlements: Record<string, unknown>;
+};
+
+export default function Onboarding() {
+  const [name, setName] = useState("");
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [planId, setPlanId] = useState("");
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [plansError, setPlansError] = useState("");
+  const router = useRouter();
+
+  const loadPlans = useCallback(async () => {
+    setPlansLoading(true);
+    setPlansError("");
+    try {
+      const response = await fetch("/api/billing/plans", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Unable to load available plans.");
+      }
+      const nextPlans = Array.isArray(data.plans) ? data.plans : [];
+      setPlans(nextPlans);
+      setPlanId((current) => current && nextPlans.some((plan: Plan) => plan.id === current) ? current : nextPlans[0]?.id ?? "");
+    } catch (error) {
+      setPlans([]);
+      setPlanId("");
+      setPlansError(error instanceof Error ? error.message : "Unable to load available plans.");
+    } finally {
+      setPlansLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPlans();
+  }, [loadPlans]);
+
+  async function submit(trial: boolean) {
+    setErr("");
+    if (!name.trim() || !planId) {
+      setErr("Choose a workspace name and a plan before continuing.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await fetch("/api/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ workspaceName: name.trim(), planId, trial }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Workspace setup failed.");
+      }
+      if (trial) {
+        router.replace("/dashboard");
+        return;
+      }
+      const checkout = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ planId }),
+      });
+      const checkoutData = await checkout.json().catch(() => ({}));
+      if (!checkout.ok || typeof checkoutData.url !== "string") {
+        throw new Error(typeof checkoutData.error === "string" ? checkoutData.error : "Checkout is temporarily unavailable.");
+      }
+      window.location.href = checkoutData.url;
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : "Workspace setup failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const canContinue = name.trim().length >= 2 && !!planId && !plansLoading && !plansError;
+
+  return (
+    <main className="canvas-wash min-h-screen px-4 py-12">
+      <div className="mx-auto w-full max-w-3xl">
+        <div className="mx-auto max-w-2xl text-center">
+          <div className="inline-flex items-center gap-2 rounded-full border border-edge-accent bg-brand-subtle px-3 py-1.5 text-xs font-semibold text-brand-subtle-text">
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            Workspace setup
+          </div>
+          <h1 className="mt-4 text-3xl font-bold tracking-tight text-ink sm:text-4xl">Set up your print workspace</h1>
+          <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-ink-3 sm:text-base">
+            Name the workspace and choose the operating plan that fits the number of agents, printers, and jobs you expect to run.
+          </p>
+        </div>
+
+        <Card className="mt-8 p-6 sm:p-8">
+          <div className="grid gap-8">
+            <Field label="Workspace name" htmlFor="workspace-name" hint="Use the name your team will recognize in the Gateway console.">
+              <Input
+                id="workspace-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                minLength={2}
+                maxLength={120}
+                autoComplete="organization"
+                placeholder="e.g. Acme Warehouse"
+                required
+                disabled={loading}
+              />
+            </Field>
+
+            <div>
+              <div className="flex items-end justify-between gap-4">
+                <div>
+                  <label className="text-sm font-semibold text-ink">Choose a plan</label>
+                  <p className="mt-1 text-xs text-ink-3">You can review or change billing after setup.</p>
+                </div>
+                {plans.length > 0 && <span className="text-xs font-medium text-ink-3">{plans.length} available</span>}
+              </div>
+
+              {plansLoading ? (
+                <div className="mt-3 grid gap-3 md:grid-cols-2" role="status" aria-label="Loading plans">
+                  {[0, 1].map((item) => (
+                    <div key={item} className="rounded-xl border border-edge bg-surface-2 p-5">
+                      <div className="skeleton h-4 w-28" />
+                      <div className="mt-3 skeleton h-3 w-20" />
+                      <div className="mt-4 skeleton h-3 w-full" />
+                      <div className="mt-2 skeleton h-3 w-3/4" />
+                    </div>
+                  ))}
+                  <span className="sr-only">Loading plans…</span>
+                </div>
+              ) : plansError ? (
+                <div className="mt-3"><ErrorState title="Plans could not be loaded" message={plansError} retry={() => void loadPlans()} /></div>
+              ) : plans.length === 0 ? (
+                <div className="mt-3"><EmptyState icon={<CreditCard className="h-9 w-9" />} title="No plans are available" description="The workspace cannot be activated until a public billing plan is configured." /></div>
+              ) : (
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {plans.map((plan) => {
+                    const selected = planId === plan.id;
+                    const included = Object.entries(plan.entitlements ?? {}).slice(0, 4);
+                    const cardClass = "rounded-xl border p-5 text-left transition-[border-color,background-color,box-shadow] duration-150 focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] " +
+                      (selected ? "border-brand bg-brand-subtle shadow-xs" : "border-edge bg-surface hover:border-edge-strong hover:bg-surface-2") +
+                      (loading ? " pointer-events-none opacity-60" : "");
+                    return (
+                      <button key={plan.id} type="button" disabled={loading} aria-pressed={selected} onClick={() => setPlanId(plan.id)} className={cardClass}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <div className="text-[15px] font-semibold text-ink">{plan.name}</div>
+                            <div className="mt-1 text-xs font-medium text-ink-3">
+                              {plan.currency ? plan.currency.toUpperCase() : ""}{plan.interval ? " / " + plan.interval : ""}
+                            </div>
+                          </div>
+                          {selected && <CheckCircle2 className="h-5 w-5 shrink-0 text-brand" aria-hidden />}
+                        </div>
+                        {included.length > 0 && (
+                          <div className="mt-4 space-y-2 border-t border-edge pt-3">
+                            {included.map(([key, value]) => (
+                              <div key={key} className="flex items-center justify-between gap-4 text-xs">
+                                <span className="capitalize text-ink-3">{key.replace(/^max_/, "").replace(/_/g, " ")}</span>
+                                <span className="font-semibold text-ink">{typeof value === "boolean" ? (value ? "Included" : "Not included") : String(value)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {err && (
+              <div className="flex items-start gap-3 rounded-xl border border-bad-edge bg-bad-bg px-4 py-3.5 text-sm text-bad" role="alert">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                <span>{err}</span>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-3 border-t border-edge pt-6 sm:flex-row">
+              <Button variant="primary" disabled={!canContinue || loading} loading={loading} onClick={() => void submit(true)} className="sm:flex-1">Start trial</Button>
+              <Button variant="secondary" disabled={!canContinue || loading} onClick={() => void submit(false)} className="sm:flex-1">Continue to checkout</Button>
+            </div>
+
+            <p className="text-center text-xs leading-relaxed text-ink-3">Gateway limits are enforced server-side. Your selected plan does not change the security model of the print path.</p>
+          </div>
+        </Card>
+      </div>
+    </main>
+  );
+}
