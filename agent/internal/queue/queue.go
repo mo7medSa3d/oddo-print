@@ -188,7 +188,7 @@ func (q *Queue) BeginPrint(id, printerID string, payload []byte, claimToken stri
 	if claimToken != "" {
 		insertToken = claimToken
 	}
-	res, err := tx.Exec(
+	_, err = tx.Exec(
 		`INSERT OR IGNORE INTO print_jobs (id, printer_id, payload, status, claim_token) VALUES (?, ?, ?, 'queued', ?)`,
 		id, printerID, payload, insertToken,
 	)
