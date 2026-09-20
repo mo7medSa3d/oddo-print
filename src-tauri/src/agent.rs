@@ -191,18 +191,10 @@ fn is_running(_app: &tauri::AppHandle) -> bool {
 }
 
 #[cfg(windows)]
-fn is_process_running(_app: &tauri::AppHandle) -> bool {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let Ok(tasklist) = system32_exe("tasklist.exe") else { return false; };
-    let mut cmd = Command::new(tasklist);
-    cmd.args(["/FI", "IMAGENAME eq YasserAgent.exe", "/FO", "CSV", "/NH"])
-        .creation_flags(CREATE_NO_WINDOW);
-    let out = run_bounded_command(cmd, std::time::Duration::from_secs(5), 32 * 1024, 16 * 1024);
-    match out {
-        Ok(o) => String::from_utf8_lossy(&o.stdout).contains("YasserAgent.exe"),
-        Err(_) => false,
-    }
+fn is_process_running(app: &tauri::AppHandle) -> bool {
+    read_background_record()
+        .map(|record| background_record_matches(app, &record))
+        .unwrap_or(false)
 }
 
 #[cfg(not(windows))]
@@ -364,6 +356,103 @@ fn process_identity(pid: u32) -> Result<(String, u64), String> {
 }
 
 #[cfg(windows)]
+fn terminate_owned_background_process(
+    app: &tauri::AppHandle,
+    record: &BackgroundProcessRecord,
+) -> Result<(), String> {
+    use std::ffi::c_void;
+
+    type Handle = *mut c_void;
+    type Dword = u32;
+    type Bool = i32;
+
+    #[repr(C)]
+    struct FileTime {
+        low: Dword,
+        high: Dword,
+    }
+
+    const PROCESS_QUERY_LIMITED_INFORMATION: Dword = 0x1000;
+    const PROCESS_TERMINATE: Dword = 0x0001;
+    const SYNCHRONIZE: Dword = 0x0010_0000;
+    const WAIT_OBJECT_0: Dword = 0;
+    const WAIT_TIMEOUT: Dword = 0x102;
+
+    unsafe extern "system" {
+        fn OpenProcess(desired_access: Dword, inherit_handle: Bool, process_id: Dword) -> Handle;
+        fn QueryFullProcessImageNameW(
+            process: Handle,
+            flags: Dword,
+            exe_name: *mut u16,
+            size: *mut Dword,
+        ) -> Bool;
+        fn GetProcessTimes(
+            process: Handle,
+            creation: *mut FileTime,
+            exit: *mut FileTime,
+            kernel: *mut FileTime,
+            user: *mut FileTime,
+        ) -> Bool;
+        fn TerminateProcess(process: Handle, exit_code: Dword) -> Bool;
+        fn WaitForSingleObject(handle: Handle, milliseconds: Dword) -> Dword;
+        fn CloseHandle(handle: Handle) -> Bool;
+    }
+
+    let handle = unsafe {
+        OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE,
+            0,
+            record.pid,
+        )
+    };
+    if handle.is_null() {
+        return Err(format!("OpenProcess({}) failed while stopping the owned agent", record.pid));
+    }
+
+    let result = (|| {
+        let mut buf = vec![0u16; 1024];
+        let mut len = buf.len() as Dword;
+        if unsafe { QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len) } == 0 || len == 0 {
+            return Err(format!("cannot verify image path for owned agent PID {}", record.pid));
+        }
+        let image = std::os::windows::ffi::OsStringExt::from_wide(&buf[..len as usize])
+            .to_string_lossy()
+            .to_string();
+
+        let mut creation = FileTime { low: 0, high: 0 };
+        let mut exit = FileTime { low: 0, high: 0 };
+        let mut kernel = FileTime { low: 0, high: 0 };
+        let mut user = FileTime { low: 0, high: 0 };
+        if unsafe { GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) } == 0 {
+            return Err(format!("cannot verify creation time for owned agent PID {}", record.pid));
+        }
+        let creation_time = ((creation.high as u64) << 32) | creation.low as u64;
+        let expected = expected_agent_image(app)?;
+        if !image.eq_ignore_ascii_case(&expected)
+            || creation_time != record.creation_time
+            || !record.image.eq_ignore_ascii_case(&expected)
+        {
+            return Err(format!(
+                "refusing to terminate PID {} because process identity does not match the owned YasserAgent.exe",
+                record.pid
+            ));
+        }
+
+        if unsafe { TerminateProcess(handle, 1) } == 0 {
+            return Err(format!("TerminateProcess({}) failed", record.pid));
+        }
+        match unsafe { WaitForSingleObject(handle, 5000) } {
+            WAIT_OBJECT_0 => Ok(()),
+            WAIT_TIMEOUT => Err(format!("owned YasserAgent.exe PID {} did not exit within 5 seconds", record.pid)),
+            other => Err(format!("waiting for owned YasserAgent.exe PID {} failed with status 0x{other:08x}", record.pid)),
+        }
+    })();
+
+    unsafe { CloseHandle(handle); }
+    result
+}
+
+#[cfg(windows)]
 fn expected_agent_image(app: &tauri::AppHandle) -> Result<String, String> {
     let path = agent_path(app)?;
     let canonical = std::fs::canonicalize(&path).unwrap_or(path);
@@ -516,33 +605,11 @@ pub fn stop(app: &tauri::AppHandle) -> Result<(), String> {
                     ));
                 }
 
-                let out = taskkill_pid(record.pid, false)?;
-                if !out.status.success() {
-                    logging::warn(&format!(
-                        "graceful taskkill for owned agent pid={record.pid} reported: {}",
-                        String::from_utf8_lossy(&out.stderr).trim()
-                    ));
-                } else {
-                    logging::info(&format!("graceful shutdown requested for owned agent pid={record.pid}"));
-                }
-
-                for _ in 0..5 {
-                    if !background_record_matches(app, &record) {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_secs(2));
-                }
-
-                if background_record_matches(app, &record) {
-                    let out = taskkill_pid(record.pid, true)?;
-                    if !out.status.success() {
-                        return Err(format!(
-                            "force stop of owned agent pid={record.pid} failed: {}",
-                            String::from_utf8_lossy(&out.stderr).trim()
-                        ));
-                    }
-                    logging::warn(&format!("owned agent pid={record.pid} did not exit within the grace window; forced termination"));
-                }
+                terminate_owned_background_process(app, &record)?;
+                logging::info(&format!(
+                    "terminated exactly the owned YasserAgent.exe PID {} after identity verification",
+                    record.pid
+                ));
                 clear_background_pid();
             }
         }
