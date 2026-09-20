@@ -554,12 +554,19 @@ class PrintGatewayConfig(models.Model):
             for record in self:
                 enabled_changed = "enabled" in vals and before_enabled.get(record.id) != bool(record.enabled)
                 url_changed = record.id in url_migrations
+                api_key_changed = "gateway_api_key" in vals
                 if url_changed or enabled_changed:
                     new_revision = before_revision[record.id] + 1
                     technical_values = {
                         "enabled_sync_revision": new_revision,
                         "last_enabled_sync_error": False,
                     }
+                    if api_key_changed:
+                        technical_values.update({
+                            "last_test_status": "draft",
+                            "last_test_at": False,
+                            "last_test_error": False,
+                        })
                     migration = url_migrations.get(record.id)
                     if url_changed and migration:
                         old_url, old_api_key_protected = migration
@@ -578,7 +585,12 @@ class PrintGatewayConfig(models.Model):
                         })
                     record.sudo().write(technical_values)
                 elif "gateway_api_key" in vals:
-                    record.sudo().write({"last_enabled_sync_error": False})
+                    record.sudo().write({
+                        "last_enabled_sync_error": False,
+                        "last_test_status": "draft",
+                        "last_test_at": False,
+                        "last_test_error": False,
+                    })
             self._queue_enabled_state_sync(pre_sync_credentials)
 
         return result
