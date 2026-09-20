@@ -1,9 +1,33 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the Yasser Manager main window (least privilege — core only; no store/shell/fs/http).",
-  "windows": ["main"],
+  "description": "Capabilities for the Yasser Manager main window. Only the explicitly required application commands are exposed to the local desktop UI.",
+  "windows": [
+    "main"
+  ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "allow-get-agent-status",
+    "allow-start-agent",
+    "allow-stop-agent",
+    "allow-restart-agent",
+    "allow-control-service",
+    "allow-pair-agent",
+    "allow-get-gateway-config",
+    "allow-set-gateway-config",
+    "allow-gateway-request",
+    "allow-gateway-agent-request",
+    "allow-clear-manager-session",
+    "allow-has-manager-session",
+    "allow-get-runtime-paths",
+    "allow-get-app-version",
+    "allow-get-printers",
+    "allow-discover-printers",
+    "allow-test-printer",
+    "allow-cleanup-local-jobs",
+    "allow-register-printer",
+    "allow-get-autostart",
+    "allow-set-autostart",
+    "allow-is-running-as-admin"
   ]
 }
