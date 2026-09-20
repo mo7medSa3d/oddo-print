@@ -90,11 +90,13 @@ def test_company_gateway_secret_is_server_side_only_in_runtime_controllers():
 def test_gateway_config_preserves_revoked_status_on_401():
     source = read("models/gateway_config.py")
     assert '"last_test_status": "revoked"' in source
-    assert 'message = _("API Key has been revoked or deleted from the Gateway.' in source
+    assert 'message = _("The Gateway rejected the API key.' in source
     revoked_at = source.index('"last_test_status": "revoked"')
     return_at = source.index('"tag": "display_notification"', revoked_at)
     assert '"type": "warning"' in source[revoked_at:return_at + 1000]
     assert 'raise ValidationError(message)' not in source[revoked_at:return_at + 1000]
+    assert 'if response.status_code == 403:' in source
+    assert 'Gateway workspace is not available for printing.' in source
 
 
 def test_gateway_api_key_is_admin_only_and_not_exportable():
