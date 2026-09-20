@@ -649,20 +649,18 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
             {
                 use std::os::windows::process::CommandExt;
                 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-                let out = Command::new(&path)
+                let mut service_cmd = Command::new(&path);
+                service_cmd
                     .args(["-service", action, "-config"])
                     .arg(&config)
                     .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root())
-                    .creation_flags(CREATE_NO_WINDOW)
-                    run_bounded_command(
-                        Command::new(&path)
-                            .args(["-service", action, "-config"])
-                            .arg(&config)
-                            .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root()),
-                        COMMAND_TIMEOUT,
-                        MAX_COMMAND_OUTPUT_BYTES,
-                        MAX_COMMAND_OUTPUT_BYTES,
-                    )?;
+                    .creation_flags(CREATE_NO_WINDOW);
+                let out = run_bounded_command(
+                    service_cmd,
+                    COMMAND_TIMEOUT,
+                    MAX_COMMAND_OUTPUT_BYTES,
+                    MAX_COMMAND_OUTPUT_BYTES,
+                )?;
                 let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
                 if !out.status.success() {
@@ -677,12 +675,17 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
             }
             #[cfg(not(windows))]
             {
-                let out = Command::new(&path)
+                let mut service_cmd = Command::new(&path);
+                service_cmd
                     .args(["-service", action, "-config"])
                     .arg(&config)
-                    .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root())
-                    .output()
-                    .map_err(|e| format!("failed to run {} -service {action}: {e}", path.display()))?;
+                    .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root());
+                let out = run_bounded_command(
+                    service_cmd,
+                    COMMAND_TIMEOUT,
+                    MAX_COMMAND_OUTPUT_BYTES,
+                    MAX_COMMAND_OUTPUT_BYTES,
+                )?;
                 let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
                 if !out.status.success() {
