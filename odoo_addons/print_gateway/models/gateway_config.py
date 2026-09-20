@@ -834,20 +834,30 @@ class PrintGatewayConfig(models.Model):
             # parsing the response so malformed/error HTML cannot erase the
             # explicit revoked state.
             if response.status_code == 401:
-                # The installation API key was revoked or deleted on the
-                # Gateway. Keep the explicit revoked state; the generic
-                # ValidationError handler below must not overwrite it with
-                # the less-specific failed state.
-                message = _("API Key has been revoked or deleted from the Gateway. Printing is disabled. Paste a new key or press Clear / Remove Key, then test again.")
+                message = _("The Gateway rejected the API key. Replace the key and test the connection again.")
                 self.write({
                     "last_test_at": fields.Datetime.now(),
                     "last_test_status": "revoked",
                     "last_test_error": message,
                     "enabled": False,
                 })
-                # Do not raise after persisting the state: an Odoo exception
-                # rolls back the transaction, which would erase the revoked
-                # marker we just stored. Return a warning notification instead.
+                return {
+                    "type": "ir.actions.client",
+                    "tag": "display_notification",
+                    "params": {"title": _("Gateway Connection"), "message": message, "type": "warning", "sticky": True},
+                }
+            if response.status_code == 403:
+                body = response.json() if response.content else {}
+                message = (
+                    body.get("error")
+                    if isinstance(body, dict) and body.get("error")
+                    else _("The Gateway workspace is not available for printing.")
+                )
+                self.write({
+                    "last_test_at": fields.Datetime.now(),
+                    "last_test_status": "failed",
+                    "last_test_error": message,
+                })
                 return {
                     "type": "ir.actions.client",
                     "tag": "display_notification",
