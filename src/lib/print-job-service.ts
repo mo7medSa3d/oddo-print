@@ -192,6 +192,73 @@ async function insertQueuedJobAtomically({
       }
     }
 
+    // Re-validate the runtime owner INSIDE the enqueue transaction.
+    // The initial pre-check in createPrintJobForPrinter intentionally happens
+    // before payload validation, but printer/agent lifecycle and health can
+    // change between that read and this INSERT. Without this second boundary
+    // the Gateway could persist a queued job against a retired/offline printer
+    // or a stale agent, leaving an apparently accepted job that can never be
+    // claimed. Lock order (agent -> printer) matches the manager printer PATCH
+    // path's row-lock order to avoid an enqueue-vs-reconfigure deadlock.
+    const runtimeOwner = await tx.execute(sql`
+      SELECT
+        p.lifecycle AS printer_lifecycle,
+        p.status AS printer_status,
+        p.agent_id AS printer_agent_id,
+        p.management_source AS management_source,
+        p.applied_desired_revision AS applied_desired_revision,
+        p.desired_revision AS desired_revision,
+        a.lifecycle AS agent_lifecycle,
+        a.status AS agent_status,
+        a.last_seen_at AS agent_last_seen_at
+      FROM agents a
+      JOIN printers p
+        ON p.agent_id = a.id
+       AND p.tenant_id = a.tenant_id
+      WHERE a.id = ${agentId}
+        AND a.tenant_id = ${tenantId}
+        AND p.id = ${printerId}
+        AND p.tenant_id = ${tenantId}
+      FOR UPDATE OF a, p
+    `);
+    const owner = runtimeOwner.rows[0] as {
+      printer_lifecycle?: string;
+      printer_status?: string;
+      printer_agent_id?: string;
+      management_source?: string;
+      applied_desired_revision?: number | string;
+      desired_revision?: number | string;
+      agent_lifecycle?: string;
+      agent_status?: string;
+      agent_last_seen_at?: Date | string | null;
+    } | undefined;
+    if (!owner || owner.printer_agent_id !== agentId) {
+      throw new PrintJobInputError("Printer owner changed during enqueue; retry the print operation", "PRINTER_OWNER_CHANGED", 409);
+    }
+    if (owner.printer_lifecycle !== "active") {
+      throw new PrintJobInputError(`Printer is ${owner.printer_lifecycle ?? "unavailable"}`, "PRINTER_UNAVAILABLE", 409);
+    }
+    if (owner.printer_status !== "online") {
+      throw new PrintJobInputError("Printer is not online", "PRINTER_OFFLINE", 503);
+    }
+    if (owner.agent_lifecycle !== "active") {
+      throw new PrintJobInputError(`Agent is ${owner.agent_lifecycle ?? "unavailable"}`, "AGENT_UNAVAILABLE", 409);
+    }
+    const lastSeen = owner.agent_last_seen_at ? new Date(owner.agent_last_seen_at) : null;
+    if (
+      owner.agent_status !== "online" ||
+      !lastSeen ||
+      Date.now() - lastSeen.getTime() > 60_000
+    ) {
+      throw new PrintJobInputError("Printer owner agent is offline or stale", "AGENT_UNAVAILABLE", 503);
+    }
+    if (
+      owner.management_source === "manager" &&
+      Number(owner.applied_desired_revision ?? 0) < Number(owner.desired_revision ?? 0)
+    ) {
+      throw new PrintJobInputError("Printer configuration is still applying; retry when the printer is ready", "PRINTER_UNAVAILABLE", 503);
+    }
+
     await enforceTenantJobEntitlements(tx, tenantId);
 
     const counts = await tx.execute(sql`
