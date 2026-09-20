@@ -29,6 +29,15 @@ describe("desktop manager authentication contract", () => {
     expect(commands).not.toContain("Gateway URL must use HTTPS for remote Gateways");
   });
 
+
+  it("uses the paired Agent identity for packaged-console jobs instead of requiring Manager login", () => {
+    const source = read("src/desktop/lib/ipc.ts");
+    expect(source).toContain('invoke<string>("gateway_agent_request"');
+    expect(source).toContain('"/api/jobs"');
+    expect(source).toContain("gatewayConsoleRequest(base, "/api/jobs"");
+    expect(source).not.toContain('gatewayRequest(base, "/api/jobs"');
+  });
+
   it("gateway CORS is explicit and never wildcarded", () => {
     const source = read("src/server/cors.ts");
     expect(source).toContain("DESKTOP_CORS_ORIGINS");
