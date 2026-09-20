@@ -58,7 +58,10 @@ const (
 const (
 	maxGatewayErrorBodyBytes = 8 << 10
 	maxClaimBatch            = 20
-	maxHeartbeatBytes        = 256 << 20
+	// Heartbeat is control-plane metadata only. Keep a hard multi-megabyte
+	// ceiling; real printer desired-state payloads are far smaller, and a
+	// bounded cap prevents a malformed gateway from consuming hundreds of MiB.
+	maxHeartbeatBytes        = 32 << 20
 )
 
 func maxPollJobsBytes() int64 {
@@ -157,6 +160,10 @@ type Agent struct {
 	shutdownCh  chan struct{}
 	shutdownOne sync.Once
 	closeOne    sync.Once
+	// shutdownGate serializes shutdown with dispatch registration.
+	shutdownGate sync.RWMutex
+	// runtimeWG tracks background goroutines owned by Run until shutdown drains them.
+	runtimeWG sync.WaitGroup
 
 	wsMu   sync.RWMutex
 	wsConn *websocket.Conn
@@ -580,7 +587,17 @@ func (a *Agent) Close() error {
 // beginShutdown atomically closes the job-acceptance gate. Safe to call more
 // than once (e.g. service stop after an interactive Ctrl+C).
 func (a *Agent) beginShutdown() {
+	a.shutdownGate.Lock()
+	defer a.shutdownGate.Unlock()
 	a.shutdownOne.Do(func() { close(a.shutdownCh) })
+}
+
+func (a *Agent) launchTracked(fn func()) {
+	a.runtimeWG.Add(1)
+	go func() {
+		defer a.runtimeWG.Done()
+		fn()
+	}()
 }
 
 func (a *Agent) Run(ctx context.Context) error {
@@ -595,14 +612,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Crash recovery must run before any new delivery is accepted.
 	a.recoverInterruptedJobs(ctx)
 
-	go a.connectWebSocket(ctx)
-
-	var discoveryWg sync.WaitGroup
-	discoveryWg.Add(1)
-	go func() {
-		defer discoveryWg.Done()
-		a.runInitialAsyncDiscovery(ctx)
-	}()
+	a.launchTracked(func() { a.connectWebSocket(ctx) })
+	a.launchTracked(func() { a.runInitialAsyncDiscovery(ctx) })
 
 	heartbeatTicker := time.NewTicker(30 * time.Second)
 	pollTicker := time.NewTicker(10 * time.Second) // Fallback poll
@@ -614,9 +625,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer cleanupTicker.Stop()
 
 	// Send an immediate heartbeat/poll on startup instead of waiting a full tick.
-	go a.sendHeartbeatGuarded()
-	go a.pollJobsGuarded(ctx)
-	go a.pollDiscovery(ctx)
+	a.launchTracked(func() { a.sendHeartbeatGuarded() })
+	a.launchTracked(func() { a.pollJobsGuarded(ctx) })
+	a.launchTracked(func() { a.pollDiscovery(ctx) })
 
 	// Counts poll ticks skipped because the WebSocket is connected.
 	wsSafetyPollTicks := 0
@@ -629,13 +640,13 @@ func (a *Agent) Run(ctx context.Context) error {
 			if c := a.getWSConn(); c != nil {
 				_ = c.Close()
 			}
-			discoveryWg.Wait()
+			a.runtimeWG.Wait()
 			a.waitForJobs()
 			return nil
 		case <-heartbeatTicker.C:
 			// Never block the select loop: heartbeat probes TCP-reachability
 			// of every configured printer, which can take seconds when offline.
-			go a.sendHeartbeatGuarded()
+			a.launchTracked(func() { a.sendHeartbeatGuarded() })
 		case <-pollTicker.C:
 			// Poll is the primary delivery path while the WebSocket is down.
 			// While the socket IS up it still runs as a safety net every
@@ -646,25 +657,25 @@ func (a *Agent) Run(ctx context.Context) error {
 			// would sit claimed until the agent happened to disconnect.
 			if a.getWSConn() == nil {
 				wsSafetyPollTicks = 0
-				go a.pollJobsGuarded(ctx)
+				a.launchTracked(func() { a.pollJobsGuarded(ctx) })
 			} else {
 				wsSafetyPollTicks++
 				if wsSafetyPollTicks >= wsSafetyPollEvery {
 					wsSafetyPollTicks = 0
-					go a.pollJobsGuarded(ctx)
+					a.launchTracked(func() { a.pollJobsGuarded(ctx) })
 				}
 			}
 		case <-discoveryTicker.C:
-			go a.pollDiscovery(ctx)
+			a.launchTracked(func() { a.pollDiscovery(ctx) })
 		case <-cleanupTicker.C:
-			go func() {
+			a.launchTracked(func() {
 				deleted, err := a.queue.CleanupTerminal(7)
 				if err != nil {
 					log.Printf("Background queue cleanup failed: %v", err)
 				} else if deleted > 0 {
 					log.Printf("Background queue cleanup deleted %d old terminal jobs", deleted)
 				}
-			}()
+			})
 		}
 	}
 }
@@ -944,10 +955,12 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 	// closed, so any Add that passes the gate is guaranteed to happen before
 	// that Wait — a late Add can never race with a Wait observing a zero
 	// counter (sync.WaitGroup's forbidden interleaving).
+	a.shutdownGate.RLock()
 	a.inFlightMu.Lock()
 	select {
 	case <-a.shutdownCh:
 		a.inFlightMu.Unlock()
+		a.shutdownGate.RUnlock()
 		// The agent is stopping. Report a FENCED pre-execution rejection so
 		// the gateway can re-queue the job without burning attempts. If the
 		// PATCH fails (network down), the undelivered-claim sweep remains
@@ -977,6 +990,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 			}
 		}
 		a.inFlightMu.Unlock()
+		a.shutdownGate.RUnlock()
 		log.Printf("Job %s is already in flight; duplicate delivery ignored (latest claim token adopted).", jobID)
 		return
 	}
@@ -986,6 +1000,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 	}
 	if pendingPrinter != "" && a.pendingByPrinter[pendingPrinter] >= maxPendingJobsPerPrinter {
 		a.inFlightMu.Unlock()
+		a.shutdownGate.RUnlock()
 		log.Printf("Job %s dropped: printer %s has reached the per-printer pending ceiling (%d); handing it back to the gateway queue.", jobID, pendingPrinter, maxPendingJobsPerPrinter)
 		a.rejectJob(ctx, jobID, jobClaimToken(job), "printer_pending_full")
 		return
@@ -1008,6 +1023,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 	a.inFlightReceived[jobID] = time.Now()
 	a.wg.Add(1)
 	a.inFlightMu.Unlock()
+	a.shutdownGate.RUnlock()
 
 	select {
 	case a.pendingSlots <- struct{}{}:

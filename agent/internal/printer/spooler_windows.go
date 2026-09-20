@@ -490,13 +490,18 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 	if err := p.waitBeginSession(ctx); err != nil {
 		return err
 	}
-	defer p.endSession()
 
+	// Ownership of sessionMu is transferred to the worker. Win32 WritePrinter
+	// is not cancellable; if the caller times out while the worker is still
+	// inside the spooler RPC, releasing the mutex here would allow a second
+	// physical print session to overlap the stuck one. The worker therefore
+	// keeps the per-printer lock until executeSpoolerSession actually returns.
 	printStart := time.Now()
 	resultCh := make(chan spoolerTaskResult, 1)
 	cancelNotice := make(chan struct{})
 
 	go func() {
+		defer p.endSession()
 		resultCh <- executeSpoolerSession(p.SpoolerName, data, cancelNotice)
 	}()
 

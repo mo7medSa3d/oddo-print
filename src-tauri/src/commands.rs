@@ -220,8 +220,7 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
         cmd.creation_flags(0x0800_0000);
     }
     let out = cmd
-        .output()
-        .map_err(|e| format!("failed to run yasser-agent-cli.exe: {e}"))?;
+        agent::run_bounded_command(cmd, std::time::Duration::from_secs(60), 64 * 1024, 64 * 1024)?;
 
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -290,7 +289,46 @@ pub struct GatewayResponse {
 }
 
 fn method_from_str(value: &str) -> Result<reqwest::Method, String> {
-    value.parse::<reqwest::Method>().map_err(|_| "unsupported HTTP method".into())
+    let method = value
+        .trim()
+        .parse::<reqwest::Method>()
+        .map_err(|_| "unsupported HTTP method".to_string())?;
+    match method {
+        reqwest::Method::GET | reqwest::Method::POST | reqwest::Method::PATCH => Ok(method),
+        _ => Err("HTTP method is not permitted by the desktop Gateway boundary".into()),
+    }
+}
+
+/// Read a Gateway response incrementally. Buffering the complete body before
+/// checking its size would make the advertised limit ineffective for chunked
+/// responses, so the 8 MiB boundary is enforced while reading.
+async fn read_response_body_limited(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+) -> Result<String, String> {
+    if let Some(len) = response.content_length() {
+        if len > max_bytes as u64 {
+            return Err(format!("Gateway response exceeds {} byte limit", max_bytes));
+        }
+    }
+
+    let capacity = response
+        .content_length()
+        .map(|n| n.min(max_bytes as u64) as usize)
+        .unwrap_or(16 * 1024);
+    let mut body = Vec::with_capacity(capacity);
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| format!("read Gateway response: {e}"))?
+    {
+        if chunk.len() > max_bytes.saturating_sub(body.len()) {
+            return Err(format!("Gateway response exceeds {} byte limit", max_bytes));
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    String::from_utf8(body).map_err(|e| format!("Gateway response was not valid UTF-8: {e}"))
 }
 
 fn configured_gateway_origin() -> Result<url::Url, String> {
@@ -315,16 +353,28 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
 
     // The renderer cannot supply its own Authorization header. Manager bearer
     // credentials are held only in Rust process memory for the packaged app.
-    if args.headers.keys().any(|name| {
-        name.eq_ignore_ascii_case("authorization")
+    let mut header_budget = 0usize;
+    for (name, value) in &args.headers {
+        if name.eq_ignore_ascii_case("authorization")
             || name.eq_ignore_ascii_case("cookie")
             || name.eq_ignore_ascii_case("host")
+            || name.eq_ignore_ascii_case("content-length")
+            || name.eq_ignore_ascii_case("transfer-encoding")
+            || name.eq_ignore_ascii_case("connection")
+            || name.eq_ignore_ascii_case("upgrade")
             || name.eq_ignore_ascii_case("x-forwarded-for")
             || name.eq_ignore_ascii_case("x-forwarded-host")
             || name.eq_ignore_ascii_case("x-forwarded-proto")
             || name.eq_ignore_ascii_case("x-real-ip")
-    }) {
-        return Err("restricted authentication/proxy headers are managed by the desktop authentication boundary".into());
+        {
+            return Err("restricted authentication/proxy/transport headers are managed by the desktop boundary".into());
+        }
+        header_budget = header_budget
+            .saturating_add(name.len())
+            .saturating_add(value.len());
+        if header_budget > 64 * 1024 {
+            return Err("Gateway request headers exceed the 64 KiB limit".into());
+        }
     }
     let manager_token = if is_public_gateway_path(path) {
         None
@@ -363,10 +413,7 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     }
     let response = request.send().await.map_err(|e| format!("Gateway request failed: {e}"))?;
     let status = response.status().as_u16();
-    let body = response.text().await.map_err(|e| format!("read Gateway response: {e}"))?;
-    if body.len() > 8 * 1024 * 1024 {
-        return Err("Gateway response exceeds 8 MiB".into());
-    }
+    let body = read_response_body_limited(response, 8 * 1024 * 1024).await?;
 
     if status == 401 || status == 403 {
         clear_manager_session_inner();
@@ -485,9 +532,7 @@ pub async fn gateway_agent_request(args: AgentGatewayRequestArgs, app: tauri::Ap
             use std::os::windows::process::CommandExt;
             request_cmd.creation_flags(0x0800_0000);
         }
-        let out = request_cmd
-            .output()
-            .map_err(|e| format!("failed to run agent Gateway request: {e}"))?;
+        let out = agent::run_bounded_command(request_cmd, std::time::Duration::from_secs(20), 256 * 1024, 64 * 1024)?;
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         if !out.status.success() {
@@ -859,9 +904,7 @@ pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, 
             use std::os::windows::process::CommandExt;
             discover_cmd.creation_flags(0x0800_0000);
         }
-        let out = discover_cmd
-            .output()
-            .map_err(|e| format!("failed to run discover: {}", e))?;
+        let out = agent::run_bounded_command(discover_cmd, std::time::Duration::from_secs(30), 512 * 1024, 64 * 1024)?;
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).to_string();
         if !out.status.success() {
@@ -922,9 +965,7 @@ pub async fn test_printer(printer_id: String, app: tauri::AppHandle) -> Result<S
             use std::os::windows::process::CommandExt;
             test_cmd.creation_flags(0x0800_0000);
         }
-        let out = test_cmd
-            .output()
-            .map_err(|e| format!("failed to run test: {}", e))?;
+        let out = agent::run_bounded_command(test_cmd, std::time::Duration::from_secs(30), 64 * 1024, 64 * 1024)?;
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         if !out.status.success() {
@@ -1015,7 +1056,7 @@ pub async fn register_printer(request: RegisterPrinterRequest, app: tauri::AppHa
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x0800_0000);
         }
-        let out = cmd.output().map_err(|e| format!("failed to run register: {}", e))?;
+        let out = agent::run_bounded_command(cmd, std::time::Duration::from_secs(30), 64 * 1024, 64 * 1024)?;
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         if !out.status.success() {
