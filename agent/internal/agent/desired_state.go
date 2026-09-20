@@ -30,10 +30,12 @@ type desiredPrinterWire struct {
 }
 
 type desiredPrinterRecord struct {
-	Desired                 desiredPrinterWire `json:"desired"`
-	AppliedDesiredRevision  int64              `json:"appliedDesiredRevision"`
-	ObservedDesiredRevision int64              `json:"observedDesiredRevision"`
-	ApplyError              string             `json:"applyError,omitempty"`
+	Desired                         desiredPrinterWire `json:"desired"`
+	AppliedDesiredRevision          int64              `json:"appliedDesiredRevision"`
+	ObservedDesiredRevision         int64              `json:"observedDesiredRevision"`
+	ObservedSupportedProtocols      []string           `json:"observedSupportedProtocols,omitempty"`
+	ObservedSupportedProtocolsKnown bool               `json:"observedSupportedProtocolsKnown,omitempty"`
+	ApplyError                      string             `json:"applyError,omitempty"`
 }
 
 type desiredStateDisk struct {
@@ -310,8 +312,15 @@ func desiredEndpoint(c map[string]interface{}, connectionType string) string {
 	return ""
 }
 
-func desiredPrinterConfig(p desiredPrinterWire) config.PrinterConfig {
+func desiredPrinterConfig(row desiredPrinterRecord) config.PrinterConfig {
+	p := row.Desired
 	enabled := p.Lifecycle == "active"
+	var capabilities map[string]interface{}
+	if row.ObservedSupportedProtocolsKnown {
+		capabilities = map[string]interface{}{
+			"supported_protocols": append([]string(nil), row.ObservedSupportedProtocols...),
+		}
+	}
 	return config.PrinterConfig{
 		ID:             p.ID,
 		Name:           p.Name,
@@ -324,6 +333,7 @@ func desiredPrinterConfig(p desiredPrinterWire) config.PrinterConfig {
 		USBVID:         desiredStringValue(p.Config, "vid"),
 		USBPID:         desiredStringValue(p.Config, "pid"),
 		USBSerial:      desiredStringValue(p.Config, "serial"),
+		Capabilities:   capabilities,
 		Enabled:        &enabled,
 	}
 }
@@ -347,7 +357,7 @@ func (a *Agent) applyDesiredPrinter(row desiredPrinterRecord) error {
 		return nil
 	}
 
-	pc := desiredPrinterConfig(row.Desired)
+	pc := desiredPrinterConfig(row)
 	backend, err := printer.New(pc)
 	if err != nil {
 		return fmt.Errorf("initialize printer %s at desired revision %d: %w", pc.ID, row.Desired.DesiredRevision, err)
