@@ -143,9 +143,8 @@ function isPayloadBearingEndpoint(url: string | undefined): boolean {
  *   the 32 MiB authenticated concurrency budget.
  * - Requests that are unauthenticated or possess unverifiable credentials are
  *   restricted to the smaller 8 MiB unauthenticated budget pool.
- * - Unauthenticated chunked requests to payload-bearing endpoints
- *   (`/api/agent/`, `/api/print/`) are rejected with 401 UNAUTHORIZED
- *   without reserving budget.
+ * - Chunked/missing-length mutating requests are rejected with 411 before
+ *   Next sees the stream, so every JSON body has an enforceable byte ceiling.
  * - Reservation applies ONLY to payload-bearing endpoints; other /api/*
  *   routes are size-checked but never charge the concurrency budget.
  * - Every reservation is released via releaseChunkedBody() on response
@@ -172,13 +171,12 @@ export async function guardApiRequest(
     // to reach their route handler.
     if (transferEncoding === undefined) return req;
 
-    // Chunked / missing length: auth first, never allocate for anonymous
-    // Slowloris streams on payload-bearing endpoints.
-    if (payloadBearing && !authenticated) {
-      rejectRequest(res, 401, "UNAUTHORIZED");
-      req.destroy();
-      return null;
-    }
+    // Chunked requests cannot be hard-capped without consuming the stream,
+    // which previously allowed non-payload mutating endpoints (login, billing,
+    // settings, etc.) to hand an unbounded stream to Next's JSON parser. The
+    // safe contract is therefore: every mutating API request carrying a
+    // transfer-encoded body must declare Content-Length. Bodyless mutating
+    // requests with neither header remain valid.
     rejectRequest(res, 411, "CONTENT_LENGTH_REQUIRED");
     req.destroy();
     return null;
