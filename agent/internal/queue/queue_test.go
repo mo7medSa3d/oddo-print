@@ -238,6 +238,11 @@ func TestBeginPrintCannotReopenTerminalOrUnknownStates(t *testing.T) {
 			if tc.status != "" {
 				settle(tc.id, tc.status, tc.lastErr)
 			}
+			if tc.id == "bp_printing" {
+				if _, err := q.db.Exec(`UPDATE print_jobs SET claim_token = ? WHERE id = ?`, "token-"+tc.id, tc.id); err != nil {
+					t.Fatalf("seed live claim token: %v", err)
+				}
+			}
 			err := q.BeginPrint(tc.id, "printer-1", []byte("payload"), "token-"+tc.id, tc.allowReopen)
 			if tc.wantErr {
 				if !errors.Is(err, ErrTerminalState) {
