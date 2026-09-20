@@ -43,8 +43,8 @@ class PrintGatewayConfig(models.Model):
     )
     last_enabled_sync_at = fields.Datetime(readonly=True, copy=False)
     last_enabled_sync_error = fields.Text(readonly=True, copy=False)
-    # Durable one-item migration state for Gateway URL changes. The previous
-    # endpoint is explicitly disabled before the new endpoint is reconciled.
+    # Durable one-item shutdown/migration state. The previous endpoint is
+    # explicitly disabled before a new endpoint or credential is reconciled.
     # A second URL migration is blocked while this state is pending, preventing
     # remote endpoint drift and keeping reconciliation deterministic.
     pending_disable_gateway_url = fields.Char(readonly=True, copy=False, groups="base.group_system")
@@ -78,6 +78,23 @@ class PrintGatewayConfig(models.Model):
         readonly=True, default="draft",
     )
     last_test_error = fields.Text(readonly=True)
+    gateway_sync_state = fields.Selection(
+        [
+            ("active", "Enabled"),
+            ("disabled", "Disabled"),
+            ("syncing", "Syncing"),
+            ("attention", "Action needed"),
+            ("not_configured", "Setup required"),
+        ],
+        string="Gateway Status",
+        compute="_compute_gateway_sync_state",
+        readonly=True,
+    )
+    gateway_sync_message = fields.Char(
+        string="Status details",
+        compute="_compute_gateway_sync_state",
+        readonly=True,
+    )
 
     _company_unique = models.Constraint(
         "UNIQUE(company_id)",
@@ -109,6 +126,51 @@ class PrintGatewayConfig(models.Model):
         if parsed.path not in ("", "/"):
             raise ValidationError(_("Gateway URL must be the Gateway origin, without an API path."))
         return raw.rstrip("/")
+
+    @api.depends(
+        "enabled",
+        "gateway_api_key",
+        "last_test_status",
+        "last_enabled_sync_error",
+        "enabled_sync_revision",
+        "last_enabled_sync_revision",
+    )
+    def _compute_gateway_sync_state(self):
+        for record in self:
+            if not record.gateway_api_key:
+                record.gateway_sync_state = "not_configured"
+                record.gateway_sync_message = _(
+                    "Add an installation API key to connect this Odoo company to the Gateway."
+                )
+                continue
+            if record.last_test_status == "revoked":
+                record.gateway_sync_state = "attention"
+                record.gateway_sync_message = _(
+                    "The Gateway API key is no longer valid. Replace the key, then test the connection."
+                )
+                continue
+            if record.last_enabled_sync_error:
+                record.gateway_sync_state = "attention"
+                record.gateway_sync_message = _(
+                    "Odoo is set to %s, but the Gateway has not confirmed that state yet."
+                ) % (_("enabled") if record.enabled else _("disabled"))
+                continue
+            if int(record.last_enabled_sync_revision or -1) != int(record.enabled_sync_revision or 0):
+                record.gateway_sync_state = "syncing"
+                record.gateway_sync_message = _(
+                    "Sending the current Odoo activation state to the Gateway."
+                )
+                continue
+            if record.enabled:
+                record.gateway_sync_state = "active"
+                record.gateway_sync_message = _(
+                    "Printing is enabled in Odoo and the Gateway has confirmed the current state."
+                )
+            else:
+                record.gateway_sync_state = "disabled"
+                record.gateway_sync_message = _(
+                    "Printing is disabled in Odoo and the Gateway has confirmed the current state."
+                )
 
     @api.constrains("company_id")
     def _check_company_id(self):
@@ -300,12 +362,32 @@ class PrintGatewayConfig(models.Model):
         """Reconcile old endpoint shutdown before the new endpoint state."""
         if pending_disable:
             old_url, old_api_key, old_revision = pending_disable
+            # When the pending shutdown is for the SAME endpoint as the
+            # current configuration, a newly supplied credential can recover
+            # a previous key-removal that was interrupted by key revocation.
+            # URL migrations must still use the credential belonging to the
+            # previous endpoint.
+            shutdown_api_key = old_api_key
+            if self.gateway_api_key and old_url == gateway_url:
+                shutdown_api_key = api_key
             if not self._sync_pending_gateway_disable(
                 gateway_url=old_url,
-                api_key=old_api_key,
+                api_key=shutdown_api_key,
                 revision=old_revision,
             ):
                 return
+            if not self.gateway_api_key:
+                # A removed key cannot be used for a second no-op PATCH, but
+                # the successful shutdown already proves the requested
+                # disabled state for this revision.
+                self._persist_enabled_sync_result(
+                    dbname,
+                    success=True,
+                    revision=old_revision,
+                    error=False,
+                )
+                self._complete_gateway_migration(old_revision)
+                return True
         synced = self._sync_enabled_state_to_gateway(
             gateway_url,
             api_key,
@@ -435,7 +517,7 @@ class PrintGatewayConfig(models.Model):
                     and int(record.pending_disable_revision or -1) >= 0
                 ):
                     raise ValidationError(
-                        _("Gateway URL migration state is incomplete; automatic reconciliation is blocked until it is repaired.")
+                        _("Gateway endpoint shutdown/migration state is incomplete; automatic reconciliation is blocked until it is repaired.")
                     )
                 pending_disable = (
                     record.pending_disable_gateway_url,
@@ -491,21 +573,46 @@ class PrintGatewayConfig(models.Model):
                 "pending_disable_revision",
             ])
 
+        before_enabled = {record.id: bool(record.enabled) for record in self}
+        before_gateway_url = {record.id: record.gateway_url for record in self}
+        before_revision = {record.id: int(record.enabled_sync_revision or 0) for record in self}
         pre_sync_credentials = {}
+        key_removal_shutdowns = {}
+        key_removal_unconfirmed = {}
         if "gateway_api_key" in vals and not vals["gateway_api_key"]:
             for record in self:
                 if not record.gateway_api_key:
                     continue
+                if record.pending_disable_gateway_url:
+                    raise ValidationError(
+                        _("The API key cannot be removed while a previous Gateway migration is still pending.")
+                    )
+                remote_may_still_be_enabled = bool(
+                    record.enabled
+                    or record.last_enabled_sync_error
+                    or int(record.last_enabled_sync_revision or -1) != before_revision[record.id]
+                )
+                if remote_may_still_be_enabled and record.last_test_status == "revoked":
+                    # The old credential is already known to be unusable. It
+                    # cannot safely be used to mutate the Gateway, so removing
+                    # it must not create an endless retry fence. Keep the
+                    # activation revision unacknowledged so the UI reports
+                    # that the remote state still needs a valid credential.
+                    key_removal_unconfirmed[record.id] = True
+                    continue
                 try:
-                    pre_sync_credentials[record.id] = (
+                    credentials = (
                         record._gateway_base(for_request=True),
                         record._gateway_api_key_plaintext(),
                     )
-                except (ValidationError, ValueError):
-                    continue
-        before_enabled = {record.id: bool(record.enabled) for record in self}
-        before_gateway_url = {record.id: record.gateway_url for record in self}
-        before_revision = {record.id: int(record.enabled_sync_revision or 0) for record in self}
+                    pre_sync_credentials[record.id] = credentials
+                    if remote_may_still_be_enabled:
+                        key_removal_shutdowns[record.id] = credentials
+                except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError) as exc:
+                    if remote_may_still_be_enabled:
+                        raise ValidationError(
+                            _("The existing Gateway API key cannot be decrypted, so Odoo will not remove it while the Gateway may still be active.")
+                        ) from exc
         url_migrations = {}
 
         if "gateway_url" in vals:
@@ -555,6 +662,11 @@ class PrintGatewayConfig(models.Model):
                 enabled_changed = "enabled" in vals and before_enabled.get(record.id) != bool(record.enabled)
                 url_changed = record.id in url_migrations
                 api_key_changed = "gateway_api_key" in vals
+                key_removed = api_key_changed and not vals.get("gateway_api_key")
+                if key_removed and before_enabled.get(record.id) and not enabled_changed:
+                    raise ValidationError(
+                        _("Disable Gateway printing before removing its installation API key.")
+                    )
                 if url_changed or enabled_changed:
                     new_revision = before_revision[record.id] + 1
                     technical_values = {
@@ -568,21 +680,26 @@ class PrintGatewayConfig(models.Model):
                             "last_test_error": False,
                         })
                     migration = url_migrations.get(record.id)
-                    if url_changed and migration:
-                        old_url, old_api_key_protected = migration
+                    pending_disable = migration if url_changed else (key_removal_shutdowns.get(record.id) if key_removed else None)
+                    if pending_disable:
+                        old_url, old_api_key_protected = pending_disable
                         technical_values.update({
                             "pending_disable_gateway_url": old_url,
                             "pending_disable_gateway_api_key": old_api_key_protected,
                             "pending_disable_revision": new_revision,
                             "last_gateway_migration_sync_error": False,
                         })
-                    elif url_changed:
+                    elif url_changed or key_removed:
                         technical_values.update({
                             "pending_disable_gateway_url": False,
                             "pending_disable_gateway_api_key": False,
                             "pending_disable_revision": -1,
                             "last_gateway_migration_sync_error": False,
                         })
+                        if key_removed and key_removal_unconfirmed.get(record.id):
+                            technical_values["last_enabled_sync_error"] = _(
+                                "The previous Gateway API key was already revoked, so Odoo could not confirm the remote Gateway was disabled. Add a new key and test the connection to finish synchronization."
+                            )
                     record.sudo().write(technical_values)
                 elif "gateway_api_key" in vals:
                     record.sudo().write({
@@ -641,16 +758,27 @@ class PrintGatewayConfig(models.Model):
                     old_api_key = config._gateway_api_key_plaintext_from_value(
                         config.pending_disable_gateway_api_key
                     )
+                    shutdown_api_key = old_api_key
+                    if (
+                        config.gateway_api_key
+                        and config.pending_disable_gateway_url == config.gateway_url
+                    ):
+                        shutdown_api_key = config._gateway_api_key_plaintext()
                     if not config._sync_pending_gateway_disable(
                         gateway_url=config.pending_disable_gateway_url,
-                        api_key=old_api_key,
+                        api_key=shutdown_api_key,
                         revision=int(config.pending_disable_revision),
                     ):
+                        continue
+                    if not config.gateway_api_key:
+                        config._complete_gateway_migration(
+                            int(config.pending_disable_revision or -1)
+                        )
                         continue
                 except (ValidationError, requests.RequestException, ValueError) as exc:
                     config._persist_gateway_migration_result(success=False, error=str(exc))
                     _logger.warning(
-                        "Gateway URL migration retry failed for config %s: %s",
+                        "Gateway endpoint shutdown retry failed for config %s: %s",
                         config.id,
                         exc,
                     )
