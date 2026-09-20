@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantSubscriptions } from "../../../../db/schema";
@@ -31,13 +32,17 @@ export async function POST(req: Request) {
     }
 
     const base = (runtimeSecret("APP_BASE_URL") ?? new URL(req.url).origin).replace(/\/$/, "");
+    // Portal sessions are short-lived (minutes). A static idempotency key would
+    // cause Stripe to replay the same (now-expired) URL for 24h. Use a unique
+    // key per request so each click mints a fresh portal session; retries with
+    // the same key are still safe within a single logical operation.
     const portal = await stripeRequest(
       "billing_portal/sessions",
       new URLSearchParams({
         customer: sub.stripeCustomerId,
         return_url: base + "/billing",
       }),
-      "portal-" + claims.tenantId,
+      `portal-${claims.tenantId}-${randomUUID()}`,
     );
 
     if (typeof portal.url !== "string" || !portal.url) {

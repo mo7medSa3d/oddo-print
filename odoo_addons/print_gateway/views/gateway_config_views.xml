@@ -13,8 +13,8 @@
                        decoration-warning="gateway_sync_state == 'syncing'"
                        decoration-danger="gateway_sync_state == 'attention'"
                        decoration-muted="gateway_sync_state in ('disabled', 'not_configured')"/>
+                <field name="enabled" widget="boolean_toggle" string="Active"/>
                 <field name="gateway_url"/>
-
             </list>
         </field>
     </record>
@@ -30,16 +30,95 @@
                     <button name="action_open_runtime_assignments" type="object" string="Branch Assignments" icon="fa-sitemap"/>
                 </header>
                 <sheet>
-                    <h2>Print Gateway</h2>
-                    <p class="text-muted">Odoo owns business context and print intent. Gateway owns runtime Agents, runtime Printers, queueing and execution.</p>
+                    <div class="o_pg_record_header">
+                        <span class="o_pg_record_icon"><i class="fa fa-plug" role="img" aria-label="Gateway"/></span>
+                        <div>
+                            <h1>Print Gateway</h1>
+                            <p class="text-muted mb-0">Odoo owns business context and print intent. Gateway owns runtime Agents, runtime Printers, queueing and execution.</p>
+                        </div>
+                    </div>
+
+                    <!-- Distinct State Row: Credential / Activation / Connection — Odoo 19 form view uses invisible (Python expression), not QWeb t-if/t-att -->
+                    <div class="d-flex flex-wrap gap-3 mb-4">
+                        <!-- Credential: present -->
+                        <div class="o_pg_cred_card flex-fill has-key" invisible="not gateway_api_key">
+                            <span class="o_pg_cred_icon"><i class="fa fa-key" role="img" aria-label="Credential"/></span>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold small">Credential</div>
+                                <div class="small text-muted">API key configured • Encrypted at rest</div>
+                            </div>
+                            <span class="badge text-bg-success">Present</span>
+                        </div>
+                        <!-- Credential: missing -->
+                        <div class="o_pg_cred_card flex-fill no-key" invisible="gateway_api_key">
+                            <span class="o_pg_cred_icon"><i class="fa fa-key" role="img" aria-label="Credential"/></span>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold small">Credential</div>
+                                <div class="small text-muted">No API key • Setup required</div>
+                            </div>
+                            <span class="badge text-bg-danger">Missing</span>
+                        </div>
+                        <!-- Activation: enabled -->
+                        <div class="o_pg_cred_card flex-fill has-key" invisible="not enabled">
+                            <span class="o_pg_cred_icon"><i class="fa fa-power-off" role="img" aria-label="Activation"/></span>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold small">Activation</div>
+                                <div class="small text-muted">Printing enabled in Odoo</div>
+                            </div>
+                            <span class="o_pg_activation_state enabled">Enabled</span>
+                        </div>
+                        <!-- Activation: disabled -->
+                        <div class="o_pg_cred_card flex-fill" invisible="enabled">
+                            <span class="o_pg_cred_icon"><i class="fa fa-power-off" role="img" aria-label="Activation"/></span>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold small">Activation</div>
+                                <div class="small text-muted">Printing disabled in Odoo</div>
+                            </div>
+                            <span class="o_pg_activation_state disabled">Disabled</span>
+                        </div>
+                        <!-- Connection: active -->
+                        <div class="o_pg_connection_banner flex-fill mb-0 is-active" invisible="gateway_sync_state != 'active'">
+                            <span class="o_pg_conn_icon"><i class="fa fa-check" role="img" aria-label="Active"/></span>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold small"><field name="gateway_sync_state" readonly="1" nolabel="1" class="d-inline"/></div>
+                                <div class="small"><field name="gateway_sync_message" readonly="1" nolabel="1"/></div>
+                            </div>
+                        </div>
+                        <!-- Connection: syncing -->
+                        <div class="o_pg_connection_banner flex-fill mb-0 is-syncing" invisible="gateway_sync_state != 'syncing'">
+                            <span class="o_pg_conn_icon"><i class="fa fa-refresh fa-spin" role="img" aria-label="Syncing"/></span>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold small"><field name="gateway_sync_state" readonly="1" nolabel="1" class="d-inline"/></div>
+                                <div class="small"><field name="gateway_sync_message" readonly="1" nolabel="1"/></div>
+                            </div>
+                        </div>
+                        <!-- Connection: attention -->
+                        <div class="o_pg_connection_banner flex-fill mb-0 is-attention" invisible="gateway_sync_state != 'attention'">
+                            <span class="o_pg_conn_icon"><i class="fa fa-exclamation-triangle" role="img" aria-label="Attention"/></span>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold small"><field name="gateway_sync_state" readonly="1" nolabel="1" class="d-inline"/></div>
+                                <div class="small"><field name="gateway_sync_message" readonly="1" nolabel="1"/></div>
+                            </div>
+                        </div>
+                        <!-- Connection: disabled / not_configured -->
+                        <div class="o_pg_connection_banner flex-fill mb-0 is-disabled" invisible="gateway_sync_state not in ('disabled','not_configured')">
+                            <span class="o_pg_conn_icon"><i class="fa fa-pause" role="img" aria-label="Inactive"/></span>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold small"><field name="gateway_sync_state" readonly="1" nolabel="1" class="d-inline"/></div>
+                                <div class="small"><field name="gateway_sync_message" readonly="1" nolabel="1"/></div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="alert alert-warning" role="alert" invisible="gateway_sync_state != 'attention'">
                         <field name="gateway_sync_message" readonly="1" nolabel="1" class="fw-semibold"/>
                     </div>
+
                     <group>
                         <field name="company_id" string="Odoo Company"/>
-                        <field name="enabled" widget="boolean_toggle"/>
+                        <field name="enabled" widget="boolean_toggle" string="Enable Gateway Printing"/>
                         <field name="gateway_sync_state"
-                               string="Gateway Status"
+                               string="Connection Status"
                                widget="badge"
                                decoration-success="gateway_sync_state == 'active'"
                                decoration-warning="gateway_sync_state == 'syncing'"

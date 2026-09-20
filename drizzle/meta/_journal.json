@@ -386,6 +386,13 @@
       "when": 1790000000054,
       "tag": "0054_odoo_gateway_activation_state",
       "breakpoints": false
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1790000000055,
+      "tag": "0055_job_events_and_spooler_job_id",
+      "breakpoints": false
     }
   ]
 }

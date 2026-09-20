@@ -10,6 +10,7 @@ import { MAX_AGENT_IN_FLIGHT_JOBS } from "./job-delivery";
 
 import { enforceTenantJobEntitlements } from "./entitlements";
 import { logInfo } from "./log";
+import { recordJobEvent } from "./job-timeline";
 
 export const MAX_AGENT_QUEUED_JOBS = 256;
 export const MAX_AGENT_QUEUED_PAYLOAD_BYTES = 128 * 1024 * 1024;
@@ -413,6 +414,33 @@ export async function createPrintJobForPrinter(
     enqueueLatencyMs: Date.now() - enqueueStartedAt,
     reused: result.isReused,
   });
+
+  // Enterprise timeline: record created + queued (non-blocking)
+  if (!result.isReused) {
+    try {
+      await recordJobEvent({
+        jobId: result.jobId,
+        tenantId: options.tenantId,
+        stage: "created",
+        status: "ok",
+        message: "Job created in Gateway",
+        agentId: result.agentId,
+        printerId: result.printerId,
+        requestId: options.requestId ?? undefined,
+        metadata: { documentType: options.documentType, destination: options.destination },
+      });
+      await recordJobEvent({
+        jobId: result.jobId,
+        tenantId: options.tenantId,
+        stage: "queued",
+        status: "ok",
+        message: `Queued for agent ${result.agentId}`,
+        agentId: result.agentId,
+        printerId: result.printerId,
+        requestId: options.requestId ?? undefined,
+      });
+    } catch {}
+  }
 
   if (result.isReused) {
     return { id: result.jobId, printerId: result.printerId, agentId: result.agentId, status: result.status, isReused: true };

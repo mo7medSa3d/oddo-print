@@ -324,6 +324,8 @@ export const printJobs = pgTable("print_jobs", {
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  spoolerJobId: text("spooler_job_id"),
+  attemptId: text("attempt_id"),
 }, (table) => ({
   agentFk: foreignKey({ columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
   printerFk: foreignKey({ columns: [table.tenantId, table.printerId], foreignColumns: [printers.tenantId, printers.id] }),
@@ -353,6 +355,31 @@ export const printJobs = pgTable("print_jobs", {
     OR (${table.payload}->>'type' = 'image' AND COALESCE(${table.payload}->>'protocol', '') = '')
   )`),
 }));
+
+
+export const jobEvents = pgTable("job_events", {
+  id: text("id").primaryKey(),
+  jobId: text("job_id").notNull(),
+  tenantId: text("tenant_id").references(() => tenants.id).notNull(),
+  stage: text("stage").notNull(),
+  status: text("status").notNull(),
+  attemptId: text("attempt_id"),
+  claimId: text("claim_id"),
+  spoolerJobId: text("spooler_job_id"),
+  agentId: text("agent_id"),
+  printerId: text("printer_id"),
+  requestId: text("request_id"),
+  message: text("message"),
+  errorCode: text("error_code"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  jobIdIdx: index("job_events_job_id_idx").on(table.jobId),
+  tenantJobIdx: index("job_events_tenant_job_idx").on(table.tenantId, table.jobId),
+  stageCheck: check("job_events_stage_check", sql`${table.stage} in ('created','queued','claimed','accepted','connection','printing','delivery','success','failed','expired','blocked')`),
+  statusCheck: check("job_events_status_check", sql`${table.status} in ('ok','error','blocked','pending')`),
+}));
+
 
 // Operational Prometheus counter store. Created by migration 0015 and written
 // exclusively via raw SQL in `src/lib/metrics.ts` (metrics must never break a
