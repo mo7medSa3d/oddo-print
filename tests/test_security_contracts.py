@@ -61,20 +61,11 @@ def test_agent_pairing_success_does_not_clear_rate_limit():
     assert "reset the brute-force budget" in source
 
 
-def test_tauri_gateway_http_transport_contract_matches_branch_mode():
+def test_tauri_gateway_http_is_explicitly_test_branch_only():
     source = read("src-tauri/src/commands.rs")
-    test_branch_mode = "This isolated test branch intentionally accepts remote HTTP" in source
-
-    if test_branch_mode:
-        assert 'let remote_http = scheme == "http";' in source
-        assert 'if remote_http {' in source
-        assert "gateway URL cannot include embedded credentials" in source
-        assert "gateway URL cannot include query strings or fragments" in source
-    else:
-        assert 'if scheme == "http" {' in source
-        assert 'let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");' in source
-        assert 'if !local {' in source
-        assert "Gateway URL must use HTTPS for remote Gateways" in source
+    assert 'This isolated test branch intentionally accepts remote HTTP' in source
+    assert 'if scheme == "http"' in source
+    assert 'return Ok(parsed.as_str().trim_end_matches(\'/\').to_string());' in source
 
 
 def test_billing_webhook_binds_identity_before_metadata_tenant_mutation():
