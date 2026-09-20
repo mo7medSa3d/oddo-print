@@ -87,6 +87,16 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertNotIn('widget="gateway_runtime_agent"', source)
         self.assertNotIn('string="Runtime Assignment"', source)
 
+    def test_gateway_config_ui_exposes_friendly_status_not_sync_internals(self):
+        source = (VIEWS / "gateway_config_views.xml").read_text(encoding="utf-8")
+        self.assertIn('field name="gateway_sync_state"', source)
+        self.assertIn('field name="gateway_sync_message"', source)
+        self.assertNotIn('field name="enabled_sync_revision"', source)
+        self.assertNotIn('field name="last_enabled_sync_revision"', source)
+        self.assertNotIn('field name="last_enabled_sync_error"', source)
+        self.assertNotIn('field name="last_test_error"', source)
+        self.assertNotIn('confirm="This removes the installation API key', source)
+
     def test_binding_view_exposes_explicit_business_and_runtime_relationship(self):
         source = (VIEWS / "binding_views.xml").read_text(encoding="utf-8")
         for label in (
