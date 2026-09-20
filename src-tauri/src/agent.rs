@@ -448,7 +448,7 @@ fn terminate_owned_background_process(
         if unsafe { QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len) } == 0 || len == 0 {
             return Err(format!("cannot verify image path for owned agent PID {}", record.pid));
         }
-        let image = std::ffi::OsString::from_wide(&buf[..len as usize])
+        let image = <std::ffi::OsString as std::os::windows::ffi::OsStringExt>::from_wide(&buf[..len as usize])
             .to_string_lossy()
             .to_string();
 
