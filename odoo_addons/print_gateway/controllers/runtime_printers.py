@@ -8,6 +8,11 @@ from odoo.exceptions import ValidationError
 
 
 class PrintGatewayRuntimePrinterController(http.Controller):
+    @staticmethod
+    def _require_runtime_admin():
+        if not request.env.user.has_group("base.group_system"):
+            raise Forbidden("Access Denied: Runtime printer discovery is restricted to Odoo system administrators.")
+
     def _scope(self, company_id=None, branch_id=None, env=None):
         env = env or request.env
         if company_id:
@@ -58,6 +63,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
 
     @http.route('/print_gateway/runtime-agents', type='jsonrpc', auth='user', methods=['POST'])
     def runtime_agents(self, company_id=None, branch_id=None):
+        self._require_runtime_admin()
         company, branch = self._scope(company_id, branch_id)
         config, root_company = self._get_config(company)
         if not config or not config.enabled:
@@ -102,6 +108,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
 
     @http.route('/print_gateway/runtime-printers', type='jsonrpc', auth='user', methods=['POST'])
     def runtime_printers(self, company_id=None, branch_id=None, agent_id=None):
+        self._require_runtime_admin()
         company, branch = self._scope(company_id, branch_id)
         if not isinstance(agent_id, str) or not agent_id.strip():
             return {'enabled': True, 'selectedAgentId': False, 'printers': []}
