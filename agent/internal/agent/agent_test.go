@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yasser-agent/agent/internal/payload"
 	"github.com/yasser-agent/agent/internal/printer"
 )
 
@@ -895,5 +896,117 @@ func TestMergeDiscoveredPrinterIdenticalIsNoOp(t *testing.T) {
 	}
 	if got, ok := ag.getPrinter(device.ID); !ok || got != backend {
 		t.Fatal("identical rediscovery must retain the existing backend")
+	}
+}
+
+// TestPollJobsBoundsOversizedBatch pins the poll read to the documented
+// contract ceiling and proves an oversized response terminates instead of
+// being absorbed: the batch bound is exactly maxClaimBatch jobs times the
+// per-payload ceiling dispatch itself enforces, and a response past it never
+// reaches dispatch.
+func TestPollJobsBoundsOversizedBatch(t *testing.T) {
+	if got, want := maxPollJobsBytes(), int64(maxClaimBatch)*int64(payload.MaxPayloadBytes); got != want {
+		t.Fatalf("poll ceiling = %d, want the documented batch product %d", got, want)
+	}
+
+	original := pollJobsByteLimit
+	defer func() { pollJobsByteLimit = original }()
+	pollJobsByteLimit = 4 << 10
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agent/jobs" || r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Invalid JSON comfortably past the test ceiling: the read must stop
+		// and the truncated decode must fail closed rather than buffering
+		// the whole body first.
+		_, _ = w.Write(make([]byte, pollJobsByteLimit*2))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_poll_bound"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = server.URL
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	ag, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = ag.Close() }()
+
+	ag.pollJobs(context.Background())
+
+	ag.inFlightMu.Lock()
+	dispatched := len(ag.inFlight)
+	ag.inFlightMu.Unlock()
+	if dispatched != 0 {
+		t.Fatalf("oversized poll response must not dispatch jobs, got %d in flight", dispatched)
+	}
+}
+
+// TestPollJobsDispatchesBoundedBatch proves the ceiling does not reject a
+// legitimate response: a valid batch inside the limit is decoded and dispatched.
+func TestPollJobsDispatchesBoundedBatch(t *testing.T) {
+	original := pollJobsByteLimit
+	defer func() { pollJobsByteLimit = original }()
+	pollJobsByteLimit = 1 << 20
+
+	started := make(chan string, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agent/jobs" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPatch {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true}`))
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// The fake printer reads the job id out of the payload data itself.
+		job, _ := json.Marshal([]interface{}{map[string]interface{}{
+			"id":         "job-bounded-1",
+			"printerId":  "prt-bounded",
+			"claimToken": "tok",
+			"payload":    makeJobPayload("job-bounded-1"),
+		}})
+		_, _ = w.Write(job)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_poll_dispatch"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = server.URL
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	ag, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = ag.Close() }()
+
+	ag.printers = map[string]printer.Printer{"prt-bounded": &fakePrinter{startedCh: started}}
+	ag.printerConfigs = map[string]config.PrinterConfig{"prt-bounded": {ID: "prt-bounded", Name: "Bounded", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ag.pollJobs(ctx)
+
+	select {
+	case jobID := <-started:
+		if jobID != "job-bounded-1" {
+			t.Fatalf("unexpected dispatched job %q", jobID)
+		}
+	case <-ctx.Done():
+		t.Fatal("a valid in-limit batch must be dispatched")
 	}
 }

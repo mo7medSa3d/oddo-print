@@ -27,7 +27,7 @@
                     <group>
                         <field name="company_id" string="Odoo Company" options="{'no_create': True}"/>
                         <field name="branch_id" string="Odoo Branch" options="{'no_create': True}" help="Empty means this assignment applies to the whole company."/>
-                        <field name="runtime_agent_id" string="Gateway Runtime Agent" help="ID of the active agent as shown on the Gateway Agents page."/>
+                        <field name="runtime_agent_id" string="Gateway Runtime Agent" widget="gateway_runtime_agent" help="Select an active Agent registered in the same Gateway tenant."/>
                         <field name="enabled" widget="boolean_toggle"/>
                     </group>
                     <group string="Record">

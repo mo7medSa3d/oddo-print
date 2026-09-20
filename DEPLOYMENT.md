@@ -29,13 +29,19 @@ Internet → Caddy (TLS + reverse proxy) → Gateway (Node.js) → PostgreSQL 16
 | `TRUST_PROXY_SECRET` | ≥ 32 chars, shared with reverse proxy |
 | `APP_BASE_URL` | Public-facing Gateway URL used by email/billing callbacks |
 
-### Billing (Optional)
+### Email and Billing Providers (Optional)
+
+These variables are forwarded by `docker-compose.yml` as empty strings when unset, so missing optional providers do not prevent the core Gateway from starting.
 
 | Variable | Description |
 |----------|-------------|
+| `RESEND_API_KEY` | Resend API key; leave unset to disable provider-backed email |
+| `EMAIL_FROM` | Sender address used when email delivery is configured |
 | `STRIPE_SECRET_KEY` | Stripe API secret key |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe publishable key |
+| `STRIPE_API_VERSION` | Optional pinned Stripe API version |
+| `STRIPE_PLAN_CATALOG` | Optional plan catalog configuration |
 
 ### Platform Operations
 
@@ -86,7 +92,7 @@ Deploy `print-agent.exe` with a YAML config file pointing to the Gateway URL.
 docker-compose up -d
 ```
 
-The `docker-compose.yml` includes Gateway, PostgreSQL, and Caddy services.
+The `docker-compose.yml` includes Gateway, PostgreSQL, and Caddy services. Compose requires `APP_BASE_URL` and forwards the optional email/billing variables listed above; production secrets remain supplied through Compose secrets (`POSTGRES_PASSWORD`, `GATEWAY_JWT_SECRET`, `MANAGER_PASSWORD_HASH`, and `TRUST_PROXY_SECRET`).
 
 ## Health Checks
 

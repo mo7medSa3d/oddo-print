@@ -43,8 +43,46 @@ func testDesiredPrinter(id string, revision int64, lifecycle string) desiredPrin
 		ConnectionType:  "network",
 		Protocol:        "raw",
 		Lifecycle:       lifecycle,
-		Config:          map[string]interface{}{"ip": "192.0.2.10", "port": 9100},
+		Config:          map[string]interface{}{"ip": "192.168.2.10", "port": 9100},
 		DesiredRevision: revision,
+	}
+}
+
+func TestDesiredStatePassesExplicit80mmPaperWidthSeparatelyFromObservedCapabilities(t *testing.T) {
+	row := desiredPrinterRecord{Desired: testDesiredPrinter("paper-80", 1, "active")}
+	row.Desired.Config["paper_widths"] = []interface{}{80.0}
+	row.ObservedSupportedProtocolsKnown = true
+	row.ObservedSupportedProtocols = []string{"escpos"}
+	cfg := desiredPrinterConfig(row)
+	if cfg.PaperWidthMM != 80 {
+		t.Fatalf("desired paper width = %d, want 80", cfg.PaperWidthMM)
+	}
+	if _, mixed := cfg.Capabilities["paper_widths"]; mixed {
+		t.Fatal("desired paper width must not be mixed into observed capabilities")
+	}
+	backend, err := printer.New(cfg)
+	if err != nil {
+		t.Fatalf("create backend: %v", err)
+	}
+	network, ok := backend.(*printer.NetworkPrinter)
+	if !ok || network.RasterMaxWidth != 576 {
+		t.Fatalf("80mm desired width did not reach renderer backend: %#v", backend)
+	}
+}
+
+func TestDesiredStateRejectsConflictingAndPublicNetworkDestinations(t *testing.T) {
+	for name, cfg := range map[string]map[string]interface{}{
+		"conflicting address": {"ip": "192.168.2.10", "port": 9100, "address": "8.8.8.8:9100"},
+		"public ip":           {"ip": "8.8.8.8", "port": 9100},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := newDesiredStateTestAgent(t)
+			row := desiredPrinterRecord{Desired: testDesiredPrinter("unsafe", 1, "active")}
+			row.Desired.Config = cfg
+			if err := a.applyDesiredPrinter(row); err == nil {
+				t.Fatal("expected destination to be rejected before backend creation")
+			}
+		})
 	}
 }
 
@@ -68,9 +106,9 @@ func TestDesiredStateReconciliationConvergesAndRejectsStale(t *testing.T) {
 	if a.isPrinterExecutionAllowed("printer-1") {
 		t.Fatal("active printer must remain fenced until a real status probe observes it")
 	}
-	a.observeDesiredRevision("printer-1", "online")
+	a.observeDesiredRevision("printer-1", "unknown")
 	if !a.isPrinterExecutionAllowed("printer-1") {
-		t.Fatal("expected physically observed active printer to be executable")
+		t.Fatal("connected unidirectional network printer with unknown health should be executable")
 	}
 
 	updated := first
@@ -142,7 +180,7 @@ func TestDesiredStateDeletionRemovesLocalRegistryEntry(t *testing.T) {
 		PrinterType:    "thermal",
 		ConnectionType: "network",
 		Protocol:       "raw",
-		Endpoint:       "192.0.2.10:9100",
+		Endpoint:       "192.168.2.10:9100",
 		Status:         "online",
 		Enabled:        true,
 	}
@@ -173,7 +211,7 @@ func TestGatewayOwnedPrinterIsNotReintroducedFromStaleRegistry(t *testing.T) {
 		PrinterType:    "thermal",
 		ConnectionType: "network",
 		Protocol:       "raw",
-		Endpoint:       "192.0.2.30:9100",
+		Endpoint:       "192.168.2.30:9100",
 		Status:         "online",
 		Enabled:        true,
 	}
@@ -209,7 +247,7 @@ func TestDesiredStateDeletionTombstoneSurvivesRestart(t *testing.T) {
 		PrinterType:    "thermal",
 		ConnectionType: "network",
 		Protocol:       "raw",
-		Endpoint:       "192.0.2.40:9100",
+		Endpoint:       "192.168.2.40:9100",
 		Status:         "online",
 		Enabled:        true,
 	}
@@ -342,5 +380,99 @@ func TestDesiredStateLoaderRejectsOversizedFile(t *testing.T) {
 	}
 	if err := a.loadDesiredState(); err == nil {
 		t.Fatal("expected oversized desired-state file to be rejected")
+	}
+}
+
+func TestDesiredStatePreservesObservedProtocolCapabilitiesAcrossRestart(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	row := desiredPrinterRecord{
+		Desired:                         testDesiredPrinter("printer-capabilities", 3, "active"),
+		AppliedDesiredRevision:          3,
+		ObservedDesiredRevision:         3,
+		ObservedSupportedProtocols:      []string{"escpos"},
+		ObservedSupportedProtocolsKnown: true,
+	}
+	a.desiredStates[row.Desired.ID] = row
+	if err := a.persistDesiredState(); err != nil {
+		t.Fatalf("persistDesiredState: %v", err)
+	}
+
+	b := newDesiredStateTestAgent(t)
+	b.desiredStatePath = a.desiredStatePath
+	if err := b.loadDesiredState(); err != nil {
+		t.Fatalf("loadDesiredState: %v", err)
+	}
+	pc, ok := b.printerConfigs[row.Desired.ID]
+	if !ok {
+		t.Fatal("expected persisted desired printer to be restored")
+	}
+	caps, ok := pc.Capabilities["supported_protocols"].([]string)
+	if !ok {
+		t.Fatalf("expected supported_protocols capability to be restored, got %#v", pc.Capabilities)
+	}
+	if len(caps) != 1 || caps[0] != "escpos" {
+		t.Fatalf("expected observed capability list to survive restart, got %#v", caps)
+	}
+}
+
+func TestDesiredStateUpdatePreservesObservedProtocolCapabilities(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	a.desiredStateSynced = true
+	p := testDesiredPrinter("printer-capability-update", 1, "active")
+	a.reconcileGatewayDesiredState([]desiredPrinterWire{p})
+
+	a.desiredStateMu.Lock()
+	row := a.desiredStates[p.ID]
+	row.ObservedSupportedProtocols = []string{"escpos"}
+	row.ObservedSupportedProtocolsKnown = true
+	a.desiredStates[p.ID] = row
+	a.desiredStateMu.Unlock()
+	if err := a.applyDesiredPrinter(row); err != nil {
+		t.Fatalf("applyDesiredPrinter: %v", err)
+	}
+
+	updated := p
+	updated.Name = "Updated"
+	updated.DesiredRevision = 2
+	a.reconcileGatewayDesiredState([]desiredPrinterWire{updated})
+
+	pc := a.printerConfigs[p.ID]
+	caps, ok := pc.Capabilities["supported_protocols"].([]string)
+	if !ok || len(caps) != 1 || caps[0] != "escpos" {
+		t.Fatalf("desired-state update dropped observed capabilities, got %#v", pc.Capabilities)
+	}
+}
+
+func TestPrinterStatusPayloadPersistsObservedCapabilities(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	a.desiredStateSynced = true
+	const id = "printer-heartbeat-capabilities"
+	desired := testDesiredPrinter(id, 1, "active")
+	a.desiredStates[id] = desiredPrinterRecord{Desired: desired}
+	a.printers[id] = &fakePrinter{status: "online"}
+	a.printerConfigs[id] = config.PrinterConfig{
+		ID: id, Name: "Receipt", Type: "network", Endpoint: "192.168.2.10:9100", Protocol: "raw",
+		Capabilities: map[string]interface{}{"supported_protocols": []string{"zpl"}},
+	}
+	a.gatewayOwned[id] = struct{}{}
+
+	_ = a.printerStatusPayload()
+
+	row := a.desiredStates[id]
+	if !row.ObservedSupportedProtocolsKnown {
+		t.Fatal("heartbeat did not record observed supported_protocols")
+	}
+	if len(row.ObservedSupportedProtocols) != 1 || row.ObservedSupportedProtocols[0] != "zpl" {
+		t.Fatalf("unexpected observed capabilities: %#v", row.ObservedSupportedProtocols)
+	}
+
+	b := newDesiredStateTestAgent(t)
+	b.desiredStatePath = a.desiredStatePath
+	if err := b.loadDesiredState(); err != nil {
+		t.Fatalf("loadDesiredState: %v", err)
+	}
+	persisted := b.desiredStates[id]
+	if !persisted.ObservedSupportedProtocolsKnown || len(persisted.ObservedSupportedProtocols) != 1 || persisted.ObservedSupportedProtocols[0] != "zpl" {
+		t.Fatalf("heartbeat capability observation was not persisted: %#v", persisted)
 	}
 }

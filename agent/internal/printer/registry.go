@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -256,6 +257,12 @@ func RegisterManual(registryPath string, info DeviceInfo) ([]DeviceInfo, error) 
 			info.Protocol = "spooler"
 		case "ipp", "ipps":
 			info.Protocol = info.ConnectionType
+		case "usb":
+			if strings.TrimSpace(info.SpoolerName) != "" {
+				info.Protocol = "spooler"
+			} else {
+				return nil, fmt.Errorf("printer %q: --protocol is required for %s printers (raw, escpos, zpl, tspl); no default is guessed", info.ID, info.ConnectionType)
+			}
 		default:
 			return nil, fmt.Errorf("printer %q: --protocol is required for %s printers (raw, escpos, zpl, tspl); no default is guessed", info.ID, info.ConnectionType)
 		}

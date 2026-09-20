@@ -2,7 +2,7 @@ import { db } from "../db";
 import { printJobs } from "../db/schema";
 import { sql } from "drizzle-orm";
 import { fencedDeliveryWrite } from "./job-fencing";
-import { STALE_CLAIM_SECONDS, MAX_RETRIES } from "./job-maintenance";
+import { STALE_CLAIM_SECONDS, MAX_DELIVERY_ATTEMPTS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "./job-maintenance";
 import { agentStaleThresholdSeconds } from "./agent-availability";
 
 /**
@@ -43,7 +43,7 @@ export const MAX_AGENT_IN_FLIGHT_JOBS = 500;
  * stale/queued candidates); no path may claim past either.
  */
 export const CLAIM_LEASE_SECONDS = STALE_CLAIM_SECONDS;
-export const MAX_DELIVERY_ATTEMPTS = 5;
+export { MAX_DELIVERY_ATTEMPTS };
 
 export type ClaimedJobRow = {
   id: string;
@@ -91,7 +91,14 @@ export const CLAIM_RETURNING = sql`
  * re-deliveries refund/consume the RETRY budget, never the delivery budget -
  * zero bytes transmitted must not exhaust the physical-delivery allowance).
  */
-export async function claimJobForDelivery(jobId: string, agentId: string): Promise<ClaimedJobRow | null> {
+export async function claimJobForDelivery(
+  jobId: string,
+  agentId: string,
+  options: { markDeliveryEvidencePending?: boolean } = {},
+): Promise<ClaimedJobRow | null> {
+  const claimError = options.markDeliveryEvidencePending
+    ? sql`${DELIVERY_EVIDENCE_PENDING}`
+    : sql`${printJobs.error}`;
   return db.transaction(async (tx) => {
     // Same advisory lock the poll claim path and the creation admission
     // check take: concurrent WS pushes and polls for one agent serialize
@@ -112,7 +119,7 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
-        AND pr.status = 'online'
+        AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
         AND t.lifecycle = 'active'
     `);
@@ -136,7 +143,7 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
-        AND pr.status = 'online'
+        AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
         AND t.lifecycle = 'active'
       FOR UPDATE OF p, a, pr, t SKIP LOCKED
@@ -151,6 +158,7 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
           claim_token = gen_random_uuid()::text,
           delivered_at = NULL,
           acked_at = NULL,
+          error = ${claimError},
           delivery_attempts = print_jobs.delivery_attempts + 1
       WHERE id = ${jobId}
         AND tenant_id = (SELECT tenant_id FROM agents WHERE id = ${agentId})
@@ -165,7 +173,11 @@ export async function claimJobForDelivery(jobId: string, agentId: string): Promi
 
 export async function markJobDelivered(jobId: string, tenantId: string, agentId: string, claimToken: string | null): Promise<boolean> {
   const res = await db.update(printJobs)
-    .set({ deliveredAt: new Date(), updatedAt: new Date() })
+    .set({
+      deliveredAt: new Date(),
+      error: sql`CASE WHEN ${printJobs.error} = ${DELIVERY_EVIDENCE_PENDING} THEN NULL ELSE ${printJobs.error} END`,
+      updatedAt: new Date(),
+    })
     .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed", "printing"]))
     .returning({ id: printJobs.id });
   return res.length > 0;

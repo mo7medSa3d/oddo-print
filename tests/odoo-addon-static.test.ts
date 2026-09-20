@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import path from "node:path";
@@ -189,7 +189,9 @@ describe("Odoo addon static contracts", () => {
 
   it("stops automatic retry of unknown submission outcomes in outbox and restricts cron to queued jobs", () => {
     const jobs = read("models/print_job.py");
-    expect(jobs).toContain('("status", "=", "queued")');
+    // Cron selection is intentionally expressed as SQL; assert the invariant,
+    // not an obsolete ORM-domain string.
+    expect(jobs).toContain("WHERE status = 'queued'");
     expect(jobs).not.toContain('("status", "in", ["queued", "unknown"])');
     expect(jobs).toContain('"next_retry_at": False');
     expect(jobs).toContain("def action_force_reprint");
@@ -201,6 +203,94 @@ describe("Odoo addon static contracts", () => {
     expect(binding).toContain("records._ensure_branch_agent_assignment()");
     expect(binding).toContain("def unlink(self):");
     expect(binding).toContain("return super().unlink()");
+  });
+
+  it("keeps the Odoo migration tree unambiguous, ordered, and covered by the manifest version", () => {
+    const dir = path.join(ADDON, "migrations");
+    const versions = readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^\d+(\.\d+)*$/.test(entry.name))
+      .map((entry) => entry.name);
+    // No duplicate logical versions: every folder name is unique.
+    expect(new Set(versions).size).toBe(versions.length);
+    const key = (version: string) => version.split(".").map((part) => Number(part));
+    const compare = (a: string, b: string) => {
+      const pa = key(a);
+      const pb = key(b);
+      for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+        const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+        if (diff !== 0) return diff;
+      }
+      return 0;
+    };
+    // Ordering is strict and unambiguous: Odoo executes applicable
+    // migrations in ascending version order, so numeric and lexical order
+    // must agree (readdir order itself is filesystem-dependent and is not
+    // asserted).
+    const sorted = [...versions].sort(compare);
+    expect(sorted).toEqual([...versions].sort());
+    // Every migration step ships exactly one stage script defining migrate().
+    for (const version of versions) {
+      const pre = path.join(dir, version, "pre-migrate.py");
+      const post = path.join(dir, version, "post-migrate.py");
+      const hasPre = (() => {
+        try {
+          readFileSync(pre, "utf8");
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      const hasPost = (() => {
+        try {
+          readFileSync(post, "utf8");
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      expect(hasPre !== hasPost).toBe(true);
+      const source = readFileSync(hasPre ? pre : post, "utf8");
+      expect(source).toContain("def migrate(");
+    }
+    // The manifest target version covers every migration step.
+    const manifest = read("__manifest__.py");
+    const manifestVersion = manifest.match(/'version':\s*'([^']+)'/)?.[1];
+    expect(manifestVersion).toBeTruthy();
+    expect(compare(sorted[sorted.length - 1], manifestVersion as string)).toBeLessThanOrEqual(0);
+  });
+
+  it("keeps the PCL/RAW data guards and legacy-column removal in exactly one pre-migration stage", () => {
+    const legacy = read("migrations/1.1.0/pre-migrate.py");
+    expect(legacy).toContain("payload_hint) = 'pcl'");
+    expect(legacy).toContain("payload_type = 'raw'");
+    expect(legacy).toContain("DROP COLUMN IF EXISTS gateway_agent_id");
+    const constraints = read("migrations/19.0.1.1.0/pre-migrate.py");
+    // Constraint-name removal lives only in its own stage: neither stage may
+    // duplicate the other's behavior, so every piece of migration behavior
+    // executes exactly once in version order.
+    expect(constraints).toContain("remove_constraint");
+    expect(constraints).not.toContain("DROP COLUMN");
+    expect(legacy).not.toContain("remove_constraint");
+  });
+
+  it("keeps Odoo raster failover in parity with the Gateway image capability contract", () => {
+    const jobs = read("models/print_job.py");
+    const rasterFailover = jobs.match(/elif job\.payload_type == "raster_jpeg":\s*\n\s*protocol_compatible = fallback_proto in \(([^)]+)\)/);
+    expect(rasterFailover).toBeTruthy();
+    const failoverProtos = (rasterFailover as RegExpMatchArray)[1];
+    expect(failoverProtos).toContain('"spooler"');
+    expect(failoverProtos).toContain('"escpos"');
+    expect(failoverProtos).not.toContain("ipp");
+    // Gateway side: image payloads require a spooler transport or an
+    // ESC/POS raster device; IPP/IPPS transports are document-only here, so
+    // routing a raster to them would be a guaranteed CAPABILITY_MISMATCH.
+    const routing = readFileSync(path.join(ROOT, "src", "lib", "routing.ts"), "utf8");
+    const physicalImageIdx = routing.indexOf("const physicalImage");
+    expect(physicalImageIdx).toBeGreaterThan(-1);
+    const physicalImage = routing.slice(physicalImageIdx, physicalImageIdx + 300);
+    expect(physicalImage).toContain("spooler");
+    expect(physicalImage).toContain("escpos");
+    expect(physicalImage).not.toContain("ipp");
   });
 });
 

@@ -1,7 +1,6 @@
 package printer
 
 import (
-	"context"
 	"net"
 	"path/filepath"
 	"strings"
@@ -273,7 +272,7 @@ func TestEndpointParsing(t *testing.T) {
 		isNet    bool
 	}{
 		{"192.168.1.10:9100", true},
-		{"10.0.0.5:515", true},
+		{"10.0.0.5:9100", true},
 		{"HP LaserJet", false},
 		{"USB001", false},
 		{"\\\\server\\printer", false},
@@ -288,6 +287,7 @@ func TestEndpointParsing(t *testing.T) {
 		} else {
 			// For spooler type, network endpoint check not applicable
 			pc.Type = "spooler"
+			pc.Protocol = "spooler"
 			pc.SpoolerName = tc.endpoint
 			if err := config.ValidatePrinterConfig(pc); err != nil {
 				t.Errorf("spooler endpoint %q should be valid: %v", tc.endpoint, err)
@@ -296,19 +296,29 @@ func TestEndpointParsing(t *testing.T) {
 	}
 }
 
-func TestFactoryUSBWithoutSpoolerReturnsUSBPrinter(t *testing.T) {
-	pc := config.PrinterConfig{ID: "usb1", Name: "USB Direct", Type: "usb", Protocol: "raw", Endpoint: "", USBVID: "03f0", USBPID: "0c17", USBSerial: "SN123"}
+func TestFactoryUSBWithoutSpoolerUsesDirectDevicePath(t *testing.T) {
+	pc := config.PrinterConfig{
+		ID: "usb1", Name: "USB Direct", Type: "usb", Protocol: "raw",
+		Endpoint: `\\?\usb#vid_03f0&pid_0c17#SN123`, USBVID: "03f0", USBPID: "0c17", USBSerial: "SN123",
+	}
 	p, err := New(pc)
 	if err != nil {
-		t.Fatalf("expected USBPrinter not error, got %v", err)
+		t.Fatalf("expected USBPrinter, got %v", err)
 	}
 	if p == nil {
 		t.Fatalf("expected printer")
 	}
-	if err := p.Print(context.Background(), []byte("test")); err == nil {
-		t.Fatalf("expected error for direct USB without spooler")
-	} else if !containsStr(strings.ToLower(err.Error()), "spooler") {
-		t.Fatalf("expected spooler diagnostic, got %v", err)
+}
+
+func TestFactoryUSBRejectsAmbiguousEndpoint(t *testing.T) {
+	pc := config.PrinterConfig{
+		ID: "usb2", Name: "USB Ambiguous", Type: "usb", Protocol: "raw",
+		Endpoint: "HP LaserJet", USBVID: "03f0", USBPID: "0c17",
+	}
+	if _, err := New(pc); err == nil {
+		t.Fatal("USB endpoint display names must not be reinterpreted as spooler queues")
+	} else if !containsStr(strings.ToLower(err.Error()), "device path") || !containsStr(strings.ToLower(err.Error()), "spooler") {
+		t.Fatalf("expected explicit USB transport diagnostic, got %v", err)
 	}
 }
 

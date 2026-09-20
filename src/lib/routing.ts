@@ -68,13 +68,29 @@ export function validatePayloadForPrinter(
     ? names.some((name) => supported!.includes(name))
     : false;
   const transport = (...names: string[]) => !hasExplicitCaps && names.includes(family);
+  // Explicit capabilities can refine a device's language set, but they
+  // cannot add a PDF/image renderer that the concrete backend does not have.
+  const physicalPdf = conn === "spooler" || proto === "spooler"
+    || conn === "ipp" || conn === "ipps"
+    || (conn === "network" && proto === "ipp");
+  const physicalImage = conn === "spooler" || proto === "spooler"
+    || (conn === "network" && proto === "escpos");
+  const physicalByteProtocol = (protocol: string) => {
+    if (conn === "spooler" || proto === "spooler") {
+      return protocol === "raw" || protocol === "escpos";
+    }
+    return (conn === "network" || conn === "usb")
+      && proto === protocol
+      && (BYTE_PROTOCOLS as readonly string[]).includes(protocol);
+  };
 
   // PDF: requires a transport that can actually consume/render a document.
   if (pt === "pdf") {
     if (payloadProto) {
       return { ok: false, reason: "CAPABILITY_MISMATCH: pdf payloads cannot specify a printer protocol" };
     }
-    if (anyCap("pdf", "spooler", "ipp", "ipps") || transport("spooler", "ipp", "ipps")) return { ok: true };
+    if (!physicalPdf) return { ok: false, reason: "CAPABILITY_MISMATCH: pdf requires spooler or IPP transport" };
+    if (!hasExplicitCaps || anyCap("pdf", "spooler", "ipp", "ipps")) return { ok: true };
     return { ok: false, reason: "CAPABILITY_MISMATCH: pdf requires spooler or IPP transport" };
   }
 
@@ -84,7 +100,8 @@ export function validatePayloadForPrinter(
     if (payloadProto) {
       return { ok: false, reason: "CAPABILITY_MISMATCH: image payloads cannot specify a printer protocol" };
     }
-    if (anyCap("image", "jpeg", "spooler", "ipp", "ipps", "escpos") || transport("spooler", "escpos")) return { ok: true };
+    if (!physicalImage) return { ok: false, reason: "CAPABILITY_MISMATCH: image payload not supported by printer" };
+    if (!hasExplicitCaps || anyCap("image", "jpeg", "spooler", "escpos")) return { ok: true };
     return { ok: false, reason: "CAPABILITY_MISMATCH: image payload not supported by printer" };
   }
 
@@ -93,7 +110,7 @@ export function validatePayloadForPrinter(
     if (payloadProto && payloadProto !== "escpos") {
       return { ok: false, reason: `CAPABILITY_MISMATCH: escpos payload cannot use protocol ${payloadProto}` };
     }
-    if (anyCap("escpos") || transport("escpos")) return { ok: true };
+    if (physicalByteProtocol("escpos") && (!hasExplicitCaps || anyCap("escpos"))) return { ok: true };
     return { ok: false, reason: `CAPABILITY_MISMATCH: printer does not explicitly support ESC/POS (protocol=${proto || "unknown"})` };
   }
 
@@ -108,7 +125,7 @@ export function validatePayloadForPrinter(
     }
     // raw+escpos is exactly an escpos payload; every other byte protocol is
     // accepted only by devices that declare it.
-    if (anyCap(payloadProto) || transport(payloadProto)) return { ok: true };
+    if (physicalByteProtocol(payloadProto) && (!hasExplicitCaps || anyCap(payloadProto))) return { ok: true };
     return { ok: false, reason: `CAPABILITY_MISMATCH: printer does not explicitly support ${payloadProto.toUpperCase()} (protocol=${proto || "unknown"})` };
   }
 
@@ -120,6 +137,12 @@ export interface PrinterAvailability extends PrinterLike {
   status: string | null;
 }
 
+export function isPrinterStatusExecutable(printer: Pick<PrinterAvailability, "status" | "connectionType" | "protocol">): boolean {
+  if (printer.status === "online") return true;
+  if (printer.status !== "unknown" || printer.connectionType !== "network") return false;
+  return ["raw", "escpos", "zpl", "tspl"].includes(String(printer.protocol ?? "").toLowerCase());
+}
+
 export function isPrinterAvailableForJob(
   printer: PrinterAvailability,
   agent?: { lifecycle?: string | null; status?: string | null; lastSeenAt?: Date | string | null } | null,
@@ -128,7 +151,7 @@ export function isPrinterAvailableForJob(
   if (printer.lifecycle !== "active") return false;
   if (isVirtualPrinterRecord(printer)) return false;
   if (agent !== undefined && !isAgentAvailableForPrinter(agent, now)) return false;
-  return printer.status === "online";
+  return isPrinterStatusExecutable(printer);
 }
 
 export function isAgentAvailableForPrinter(

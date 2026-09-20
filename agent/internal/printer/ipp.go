@@ -82,9 +82,11 @@ func normalizeIPPURL(raw string) (*url.URL, error) {
 		}
 	}
 	lower := strings.ToLower(raw)
-	if strings.HasPrefix(lower, "ipp://") {
+	wasIPP := strings.HasPrefix(lower, "ipp://")
+	wasIPPS := strings.HasPrefix(lower, "ipps://")
+	if wasIPP {
 		raw = "http://" + raw[6:]
-	} else if strings.HasPrefix(lower, "ipps://") {
+	} else if wasIPPS {
 		raw = "https://" + raw[7:]
 	}
 	u, err := url.Parse(raw)
@@ -99,6 +101,9 @@ func normalizeIPPURL(raw string) (*url.URL, error) {
 	}
 	if u.RawQuery != "" || u.Fragment != "" {
 		return nil, fmt.Errorf("IPP URL must not carry a query or fragment")
+	}
+	if (wasIPP || wasIPPS) && u.Port() == "" {
+		u.Host = net.JoinHostPort(u.Hostname(), "631")
 	}
 	if u.Path == "" || u.Path == "/" {
 		u.Path = "/ipp/print"
@@ -220,11 +225,17 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 		return fmt.Errorf("%s: IPP response from %s was truncated (job state unknown): %w", ErrOutcomeUnknown, p.URL, readErr)
 	}
 	status, msg := parseIPPStatus(body)
-	if status != 0x0000 {
-		if status&0xF000 == 0x5000 {
-			return fmt.Errorf("%s: IPP printer %s returned server error 0x%04x (%s); the job may be queued (physical outcome unknown)", ErrOutcomeUnknown, p.URL, status, ippStatusText(status))
-		}
+	if status == 0xFFFF {
+		return fmt.Errorf("%s: IPP response from %s was truncated (job state unknown): %s", ErrOutcomeUnknown, p.URL, msg)
+	}
+	if status >= 0x0500 && status <= 0x05ff {
+		return fmt.Errorf("%s: IPP printer %s returned server error 0x%04x (%s); the job may be queued (physical outcome unknown)", ErrOutcomeUnknown, p.URL, status, ippStatusText(status))
+	}
+	if status >= 0x0400 && status <= 0x04ff {
 		return fmt.Errorf("IPP printer %s returned client error 0x%04x (%s): %s", p.URL, status, ippStatusText(status), msg)
+	}
+	if status > 0x00ff {
+		return fmt.Errorf("%s: IPP printer %s returned unknown status 0x%04x (%s)", ErrOutcomeUnknown, p.URL, status, ippStatusText(status))
 	}
 	log.Printf("IPP printed %d bytes to %s (IPP status 0x%04x)", len(data), p.URL, status)
 	return nil
@@ -315,8 +326,11 @@ func (p *IPPPrinter) getPrinterAttributes(ctx context.Context) (map[string]strin
 	if readErr != nil {
 		return nil, readErr
 	}
-	status, _ := parseIPPStatus(body)
-	if status != 0x0000 {
+	status, msg := parseIPPStatus(body)
+	if status == 0xFFFF {
+		return nil, fmt.Errorf("truncated IPP response: %s", msg)
+	}
+	if status > 0x00ff {
 		return nil, fmt.Errorf("IPP status 0x%04x: %w", status, errIPPStatusUnsupported)
 	}
 	return parseIPPAttributes(body), nil
@@ -488,7 +502,7 @@ func ippStatusText(status uint16) string {
 	case 0x0501:
 		return "server-error-operation-not-supported"
 	case 0x0503:
-		return "server-error-service-unavailable"
+		return "server-error-version-not-supported"
 	default:
 		return fmt.Sprintf("unknown-0x%04x", status)
 	}

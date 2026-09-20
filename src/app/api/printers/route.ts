@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { agents, printers } from "../../../db/schema";
-import { validateManager } from "../../../lib/manager-auth";
+import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { nanoid } from "../../../lib/nanoid";
-import { parsePrinterInput, validateConnectionConfig } from "../../../lib/printer-model";
+import { parsePrinterInput, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../lib/printer-model";
 import { writeAuditEvent } from "../../../lib/audit";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../../../lib/entitlements";
 import { getEffectivePrinterStatus } from "../../../lib/agent-availability";
@@ -13,14 +13,19 @@ import { getEffectivePrinterStatus } from "../../../lib/agent-availability";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const claims = await validateManager(req);
-  if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(claims, "printers.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  const auth = await validateConsoleAuth(req);
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
+  const agentId = auth.kind === "agent" ? auth.agent.id : null;
+  if (auth.kind === "manager") {
+    try { requireManagerPermission(auth.claims, "printers.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  }
 
   const rows = await db.select({ printer: printers, agent: agents })
     .from(printers)
-    .leftJoin(agents, and(eq(agents.id, printers.agentId), eq(agents.tenantId, claims.tenantId)))
-    .where(eq(printers.tenantId, claims.tenantId))
+    .leftJoin(agents, and(eq(agents.id, printers.agentId), eq(agents.tenantId, tenantId)))
+    .where(agentId ? and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId)) : eq(printers.tenantId, tenantId))
     .orderBy(desc(printers.createdAt));
   const now = new Date();
   return NextResponse.json(rows.map(({ printer, agent }) => ({
@@ -37,46 +42,72 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const claims = await validateManager(req);
-  if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(claims, "printers.manage"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  const auth = await validateConsoleAuth(req);
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (auth.kind === "manager") {
+    try { requireManagerPermission(auth.claims, "printers.manage"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  }
 
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
+  let data;
   try {
-    const data = parsePrinterInput(body);
+    data = parsePrinterInput(body);
+  } catch (error) {
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : "Invalid printer configuration",
+      code: "INVALID_PRINTER",
+    }, { status: 400 });
+  }
 
-    const error = validateConnectionConfig(data.connectionType, data.config);
+  try {
+    const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
+    if (auth.kind === "agent" && data.agentId !== auth.agent.id) {
+      return NextResponse.json({ error: "Agent may only register printers for itself" }, { status: 403 });
+    }
+
+    let connectionType = data.connectionType;
+    let protocol = data.protocol;
+    const config = { ...data.config };
+    if (connectionType === "usb" && typeof config.spooler_name === "string" && config.spooler_name.trim()) {
+      connectionType = "spooler";
+      protocol = "spooler";
+      config.address = config.spooler_name.trim();
+    }
+
+    const transportProtocolError = validatePrinterTransportProtocol(connectionType, protocol);
+    if (transportProtocolError) return NextResponse.json({ error: transportProtocolError }, { status: 400 });
+    const error = validateConnectionConfig(connectionType, config, protocol);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
     const id = data.id ?? `printer_${nanoid(8)}`;
     try {
       const row = await db.transaction(async (tx) => {
-        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printers:' || ${claims.tenantId}))`);
-        const lockedAgent = await tx.execute(sql`SELECT lifecycle FROM agents WHERE id = ${data.agentId} AND tenant_id = ${claims.tenantId} FOR UPDATE`);
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printers:' || ${tenantId}))`);
+        const lockedAgent = await tx.execute(sql`SELECT lifecycle FROM agents WHERE id = ${data.agentId} AND tenant_id = ${tenantId} FOR UPDATE`);
         const agentLifecycle = (lockedAgent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
         if (!agentLifecycle) throw new Error("agentId not found");
         if (agentLifecycle !== "active") throw new Error(`agent is ${agentLifecycle}`);
-        await enforceTenantResourceEntitlement(tx, claims.tenantId, "max_printers",
-          sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId} AND lifecycle <> 'retired'`);
+        await enforceTenantResourceEntitlement(tx, tenantId, "max_printers",
+          sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${tenantId} AND lifecycle <> 'retired'`);
         const inserted = await tx.insert(printers).values({
-          id, tenantId: claims.tenantId, agentId: data.agentId, name: data.name,
+          id, tenantId: tenantId, agentId: data.agentId, name: data.name,
           printerType: data.printerType, deviceClass: data.deviceClass,
-          connectionType: data.connectionType, protocol: data.protocol,
-          status: "unknown", lifecycle: "active", config: data.config,
+          connectionType, protocol,
+          status: "unknown", lifecycle: "active", config,
           capabilities: null,
-          managementSource: "manager",
-          desiredRevision: 1,
+          managementSource: auth.kind === "manager" ? "manager" : "agent",
+          desiredRevision: auth.kind === "manager" ? 1 : 0,
           appliedDesiredRevision: 0,
           observedDesiredRevision: 0,
           observedDeviceClass: null,
         }).returning();
         const created = inserted[0];
         await writeAuditEvent({
-          tenantId: claims.tenantId,
-          actorType: claims.userId ? "user" : "system",
-          actorId: claims.userId ?? "legacy-manager",
+          tenantId: tenantId,
+          actorType: auth.kind === "manager" && auth.claims.userId ? "user" : "system",
+          actorId: auth.kind === "manager" ? (auth.claims.userId ?? "legacy-manager") : auth.agent.id,
           action: "printer.registered",
           resourceType: "printer",
           resourceId: created.id,

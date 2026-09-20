@@ -15,6 +15,12 @@ func rasterWidthFromESCPOS(data []byte) int {
 	return int(lo) | int(hi)<<8
 }
 
+func TestRasterMaxWidthFromDesiredPaperWidth(t *testing.T) {
+	if got := RasterMaxWidthFromPaperWidthMM(80); got != 576 {
+		t.Fatalf("80mm desired paper width: got %d dots, want 576", got)
+	}
+}
+
 func TestRasterMaxWidthFromCapabilities(t *testing.T) {
 	cases := []struct {
 		name string

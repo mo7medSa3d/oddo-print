@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { agents, printers } from "../../../../../db/schema";
-import { validateManager } from "../../../../../lib/manager-auth";
+import { validateConsoleAuth } from "../../../../../lib/console-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { requestIdFrom } from "../../../../../lib/log";
 import { and, eq } from "drizzle-orm";
@@ -16,21 +16,28 @@ export const dynamic = "force-dynamic";
 // Real test print — creates a real printJobs row: queued → claimed → printing → success/failed
 // Tauri → Gateway → Agent → Printer (never Tauri → Printer directly).
 //
-// Manager-authenticated only: a queued test print reaches physical hardware,
-// so it is an operator-console action. The Odoo addon routes its own test
-// pages through the durable outbox (/api/print/jobs with a document-scoped
-// key), never this endpoint; an installation API key must not be able to
-// bypass per-key document-type scoping here.
+// Manager-authenticated or owning-Agent-authenticated only: a queued test
+// print reaches physical hardware, so the caller must already be authorized
+// for this tenant/printer. The Odoo addon routes its own test pages through
+// the durable outbox (/api/print/jobs with a document-scoped key), never this
+// endpoint; an installation API key cannot bypass document-type scoping.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const claims = await validateManager(req);
-  if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  const auth = await validateConsoleAuth(req);
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (auth.kind === "manager") {
+    try { requireManagerPermission(auth.claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  }
 
-  const printer = await db.query.printers.findFirst({ where: and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId)) });
+  const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
+  const printer = await db.query.printers.findFirst({
+    where: auth.kind === "agent"
+      ? and(eq(printers.id, id), eq(printers.tenantId, tenantId), eq(printers.agentId, auth.agent.id))
+      : and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
+  });
   if (!printer) return NextResponse.json({ error: "Printer not found" }, { status: 404 });
 
-  const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, claims.tenantId)) });
+  const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, tenantId)) });
   if (!agent) return NextResponse.json({ error: "Printer owner agent missing", code: "AGENT_NOT_FOUND" }, { status: 500 });
   if (printer.lifecycle !== "active") return NextResponse.json({ error: "printer disabled" }, { status: 409 });
 
@@ -55,7 +62,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       requestedBy: "manager-test",
       documentType: "test_page",
       idempotencyKey,
-      tenantId: claims.tenantId,
+      tenantId: tenantId,
       requestId: requestIdFrom(req),
     });
     return NextResponse.json({ ok: true, jobId: result.id, printerId: printer.id, status: result.status }, { status: 201 });

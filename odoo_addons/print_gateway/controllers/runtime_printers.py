@@ -8,6 +8,11 @@ from odoo.exceptions import ValidationError
 
 
 class PrintGatewayRuntimePrinterController(http.Controller):
+    @staticmethod
+    def _require_runtime_admin():
+        if not request.env.user.has_group("base.group_system"):
+            raise Forbidden("Access Denied: Runtime printer discovery is restricted to Odoo system administrators.")
+
     def _scope(self, company_id=None, branch_id=None, env=None):
         env = env or request.env
         if company_id:
@@ -58,6 +63,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
 
     @http.route('/print_gateway/runtime-agents', type='jsonrpc', auth='user', methods=['POST'])
     def runtime_agents(self, company_id=None, branch_id=None):
+        self._require_runtime_admin()
         company, branch = self._scope(company_id, branch_id)
         config, root_company = self._get_config(company)
         if not config or not config.enabled:
@@ -65,7 +71,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         try:
             response = requests.get(
                 '%s/api/odoo/agents' % config._gateway_base(for_request=True),
-                headers=config._gateway_headers(), timeout=(3, 5), allow_redirects=False,
+                headers=config._gateway_headers(), timeout=5, allow_redirects=False,
             )
             if response.status_code != 200:
                 raise ValidationError('Gateway agent discovery failed (HTTP %s).' % response.status_code)
@@ -92,25 +98,17 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 'name': raw_name,
                 'status': status,
             })
-        assignment_domain = [
-            ('company_id', '=', root_company.id),
-            ('branch_id', '=', branch.id if branch else False),
-            ('enabled', '=', True),
-        ]
-        assignments = request.env['print_gateway.runtime_agent_assignment'].sudo().search(
-            assignment_domain, order='id asc'
-        )
-        allowed_agent_ids = {
-            assignment.runtime_agent_id.strip()
-            for assignment in assignments
-            if isinstance(assignment.runtime_agent_id, str) and assignment.runtime_agent_id.strip()
-        }
-        sanitized = [a for a in sanitized if a['id'] in allowed_agent_ids]
+        # The dropdown is a discovery surface, not the authorization boundary.
+        # Show every active Agent belonging to the same Gateway tenant so the
+        # operator can choose an Agent before an explicit Odoo Branch → Agent
+        # assignment exists. The binding/assignment validation remains the
+        # authoritative write-time control.
         selected = sanitized[0]['id'] if len(sanitized) == 1 else False
         return {'enabled': True, 'selectedAgentId': selected, 'agents': sanitized}
 
     @http.route('/print_gateway/runtime-printers', type='jsonrpc', auth='user', methods=['POST'])
     def runtime_printers(self, company_id=None, branch_id=None, agent_id=None):
+        self._require_runtime_admin()
         company, branch = self._scope(company_id, branch_id)
         if not isinstance(agent_id, str) or not agent_id.strip():
             return {'enabled': True, 'selectedAgentId': False, 'printers': []}
@@ -118,21 +116,40 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         if not config or not config.enabled:
             return {'enabled': False, 'selectedAgentId': False, 'printers': []}
 
-        assigned = request.env['print_gateway.runtime_agent_assignment'].sudo().search_count([
-            ('company_id', '=', root_company.id),
-            ('branch_id', '=', branch.id if branch else False),
-            ('runtime_agent_id', '=', agent_id.strip()),
-            ('enabled', '=', True),
-        ])
-        if not assigned:
-            raise Forbidden('Access Denied: The selected Agent is not assigned to this Odoo Branch.')
+        selected_agent_id = agent_id.strip()
+        if not selected_agent_id:
+            return {'enabled': True, 'selectedAgentId': False, 'printers': []}
+
+        # Validate that the selected Agent is active and belongs to the same
+        # Gateway tenant before exposing its printer inventory. Assignment is
+        # intentionally not required at discovery time; it is created/checked
+        # when the Odoo binding is persisted.
+        try:
+            agent_response = requests.get(
+                '%s/api/odoo/agents' % config._gateway_base(for_request=True),
+                headers=config._gateway_headers(), timeout=5, allow_redirects=False,
+            )
+            if agent_response.status_code != 200:
+                raise ValidationError('Gateway agent discovery failed (HTTP %s).' % agent_response.status_code)
+            agent_body = agent_response.json() if agent_response.content else {}
+            active_agents = agent_body.get('agents') if isinstance(agent_body, dict) else None
+        except ValidationError:
+            raise
+        except (requests.RequestException, ValueError) as exc:
+            raise ValidationError('Gateway agent discovery is unavailable.') from exc
+        matched_agent = next(
+            (a for a in active_agents or [] if isinstance(a, dict) and a.get('id') == selected_agent_id and a.get('lifecycle') == 'active'),
+            None,
+        )
+        if not matched_agent:
+            raise Forbidden('Access Denied: The selected Gateway Agent is not active in this tenant.')
 
         try:
             response = requests.get(
                 '%s/api/odoo/printers' % config._gateway_base(for_request=True),
                 headers=config._gateway_headers(),
-                params={'agent_id': agent_id.strip()},
-                timeout=(3, 5), allow_redirects=False,
+                params={'agent_id': selected_agent_id},
+                timeout=5, allow_redirects=False,
             )
             if response.status_code != 200:
                 raise ValidationError('Gateway printer discovery failed (HTTP %s).' % response.status_code)
@@ -154,7 +171,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             lifecycle = printer.get('lifecycle') if isinstance(printer.get('lifecycle'), str) else 'active'
             agent = printer.get('agent') if isinstance(printer.get('agent'), dict) else {}
             returned_agent_id = agent.get('id') if isinstance(agent.get('id'), str) else ''
-            if lifecycle != 'active' or returned_agent_id != agent_id:
+            if lifecycle != 'active' or returned_agent_id != selected_agent_id:
                 continue
             sanitized.append({
                 'id': printer_id,
@@ -164,6 +181,6 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 'connectionType': printer.get('connectionType') if isinstance(printer.get('connectionType'), str) else 'unknown',
                 'protocol': printer.get('protocol') if isinstance(printer.get('protocol'), str) else 'unknown',
                 'agentId': returned_agent_id,
-                'agentName': agent.get('name') if isinstance(agent.get('name'), str) else agent_id,
+                'agentName': agent.get('name') if isinstance(agent.get('name'), str) else selected_agent_id,
             })
-        return {'enabled': True, 'selectedAgentId': agent_id, 'printers': sanitized}
+        return {'enabled': True, 'selectedAgentId': selected_agent_id, 'printers': sanitized}

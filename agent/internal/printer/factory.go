@@ -2,7 +2,6 @@ package printer
 
 import (
 	"fmt"
-	"net"
 	"strconv"
 	"strings"
 
@@ -14,9 +13,9 @@ import (
 // Supported:
 //   - type "network"/"tcp" with protocol "raw" or "escpos": RAW TCP (9100)
 //   - type "spooler": Windows Print Spooler via winspool.drv (or stub on non-Windows)
-//   - type "usb": USB printers exposed via Windows spooler fall back to spooler backend;
-//     raw USB transport (CreateFile + WriteFile) is used when no spooler queue
-//     is available but a Windows device path was discovered.
+//   - type "usb": direct USB transport requires a Windows device interface path;
+//     Windows spooler queues are represented by type "spooler" with spooler_name;
+//     an arbitrary USB endpoint is never treated as a spooler queue.
 //   - type "ipp"/"ipps" and network:ipp protocol: real IPP client (IPPPrinter).
 func New(cfg config.PrinterConfig) (Printer, error) {
 	if cfg.ID == "" {
@@ -33,7 +32,11 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		}
 		switch proto {
 		case "raw", "escpos", "zpl", "tspl":
-			return &NetworkPrinter{Address: cfg.Endpoint, Protocol: proto, RasterMaxWidth: RasterMaxWidthFromCapabilities(cfg.Capabilities)}, nil
+			rasterWidth := RasterMaxWidthFromCapabilities(cfg.Capabilities)
+			if cfg.PaperWidthMM > 0 {
+				rasterWidth = RasterMaxWidthFromPaperWidthMM(cfg.PaperWidthMM)
+			}
+			return &NetworkPrinter{Address: cfg.Endpoint, Protocol: proto, RasterMaxWidth: rasterWidth}, nil
 		case "ipp", "ipps":
 			// Network printer explicitly using IPP protocol -> treat as IPP
 			return NewIPPPrinter(cfg.Endpoint, cfg.Name)
@@ -60,32 +63,12 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		if protoErr != nil {
 			return nil, protoErr
 		}
-		// CASE A: Raw USB device path detected -> route directly to USBPrinter
-		if strings.HasPrefix(cfg.Endpoint, `\\?\`) || strings.HasPrefix(cfg.Endpoint, `\\.\`) {
-			vid := parseHex16(cfg.USBVID)
-			pid := parseHex16(cfg.USBPID)
-			return &USBPrinter{
-				ID:           cfg.ID,
-				Name:         cfg.Name,
-				VID:          vid,
-				PID:          pid,
-				SerialNumber: cfg.USBSerial,
-				DevicePath:   cfg.Endpoint,
-			}, nil
+		// A USB entry that reached this branch is direct USB transport. Any
+		// Windows spooler-backed USB printer is normalized to type=spooler by
+		// PrinterConfig.NormalizedType when spooler_name is present.
+		if !strings.HasPrefix(cfg.Endpoint, `\\?\`) && !strings.HasPrefix(cfg.Endpoint, `\\.\`) {
+			return nil, fmt.Errorf("printer %s: direct USB transport requires a Windows device path (\\?\\... or \\.\\...); configure type=spooler with spooler_name for a Windows print queue", cfg.ID)
 		}
-		// CASE B: USB device has a Windows spooler queue -> use spooler (preferred)
-		if cfg.SpoolerName != "" {
-			return NewSpooler(cfg.SpoolerName, cfg.Name), nil
-		}
-		if cfg.Endpoint != "" && !isNetworkEndpoint(cfg.Endpoint) {
-			// Endpoint is spooler name for USB-via-spooler (e.g., "HP LaserJet")
-			return NewSpooler(cfg.Endpoint, cfg.Name), nil
-		}
-		// CASE B: USB device exists as raw USB without a spooler queue.
-		// USBPrinter.Print uses the discovered Windows device path via
-		// CreateFile + WriteFile (see usb_windows.go). If no device path was
-		// discovered, Print returns an explicit diagnostic error telling the
-		// admin to install the printer as a Windows printer and use spooler.
 		vid := parseHex16(cfg.USBVID)
 		pid := parseHex16(cfg.USBPID)
 		return &USBPrinter{
@@ -110,17 +93,6 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 	default:
 		return nil, fmt.Errorf("printer %s: unknown printer type %q (expected network/usb/spooler/ipp)", cfg.ID, cfg.Type)
 	}
-}
-
-func isNetworkEndpoint(ep string) bool {
-	if ep == "" {
-		return false
-	}
-	if len(ep) > 0 && ep[0] == '\\' {
-		return false
-	}
-	_, _, err := net.SplitHostPort(ep)
-	return err == nil
 }
 
 func parseHex16(s string) uint16 {

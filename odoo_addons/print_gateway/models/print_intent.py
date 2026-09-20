@@ -336,8 +336,8 @@ class PrintGatewayIntent(models.Model):
             "|",
             "&", ("status", "=", "pending"), "|", ("next_retry_at", "=", False), ("next_retry_at", "<=", now),
             "|",
-            "&", ("status", "=", "claimed"), ("claimed_at", "<=", stale_threshold),
-            "&", ("status", "=", "failed"), ("next_retry_at", "<=", now),
+            "&", ("status", "=", "claimed"), "|", ("claimed_at", "=", False), ("claimed_at", "<=", stale_threshold),
+            "&", ("status", "=", "failed"), "|", ("next_retry_at", "=", False), ("next_retry_at", "<=", now),
         ], order="id asc", limit=50)
 
         recovered_count = 0

@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { agents } from "../../../db/schema";
 import { validateManager } from "../../../lib/manager-auth";
+import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { createAgent } from "../../actions";
 import { ActionError } from "../../../lib/action-error";
@@ -14,13 +15,19 @@ export const dynamic = "force-dynamic";
 const createAgentSchema = z.object({ name: z.string().trim().min(1).max(200) }).strict();
 
 export async function GET(req: Request) {
-  const claims = await validateManager(req);
-  if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(claims, "agents.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  const auth = await validateConsoleAuth(req);
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
+  if (auth.kind === "manager") {
+    try { requireManagerPermission(auth.claims, "agents.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  }
+  const where = auth.kind === "agent"
+    ? and(eq(agents.tenantId, tenantId), eq(agents.id, auth.agent.id))
+    : eq(agents.tenantId, tenantId);
   const rows = await db.select({
     id: agents.id, name: agents.name, status: agents.status, lifecycle: agents.lifecycle,
     metadata: agents.metadata, lastSeenAt: agents.lastSeenAt, createdAt: agents.createdAt,
-  }).from(agents).where(eq(agents.tenantId, claims.tenantId)).orderBy(desc(agents.createdAt));
+  }).from(agents).where(where).orderBy(desc(agents.createdAt));
   const now = new Date();
   return NextResponse.json(rows.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" })));
 }

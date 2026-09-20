@@ -99,6 +99,7 @@ export function AgentsPage({ s }: { s: DesktopState }) {
               <Button
                 variant="primary"
                 onClick={s.startAgent}
+                disabled={s.busy}
                 icon={<Play className="h-4 w-4" />}
               >
                 Start
@@ -106,6 +107,7 @@ export function AgentsPage({ s }: { s: DesktopState }) {
               <Button
                 variant="secondary"
                 onClick={s.requestStopAgent}
+                disabled={s.busy}
                 icon={<Square className="h-4 w-4" />}
               >
                 Stop
@@ -113,6 +115,7 @@ export function AgentsPage({ s }: { s: DesktopState }) {
               <Button
                 variant="ghost"
                 onClick={s.restartAgent}
+                disabled={s.busy}
                 icon={<RotateCcw className="h-4 w-4" />}
               >
                 Restart

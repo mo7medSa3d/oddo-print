@@ -109,13 +109,28 @@ export function Button({
   const baseClasses = `inline-flex items-center justify-center rounded-lg font-semibold transition-[background-color,border-color,color,box-shadow,filter] duration-150 disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] ${buttonVariants[variant]} ${sizes} ${className}`;
 
   if (href) {
+    const linkDisabled = loading || disabled;
+    const handleLinkClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+      if (linkDisabled) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      props.onClick?.(event as unknown as React.MouseEvent<HTMLButtonElement>);
+    };
+
     return (
       <Link
         href={href}
         target={target}
         rel={rel}
-        className={baseClasses}
-        aria-disabled={loading || disabled}
+        className={`${baseClasses} ${linkDisabled ? "pointer-events-none opacity-50" : ""}`}
+        aria-disabled={linkDisabled || undefined}
+        aria-busy={loading || undefined}
+        tabIndex={linkDisabled ? -1 : props.tabIndex}
+        onClick={handleLinkClick}
+        title={props.title}
+        id={props.id}
       >
         {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : icon}
         {children}
@@ -327,7 +342,7 @@ export function ErrorState({
   return (
     <div
       role="alert"
-      className={`flex items-start gap-3.5 rounded-xl border border-bad-edge bg-bad-bg px-5 py-4 text-sm ${className}`}
+      className={`flex flex-col items-start gap-3.5 rounded-xl border border-bad-edge bg-bad-bg px-5 py-4 text-sm sm:flex-row sm:items-start ${className}`}
     >
       <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-bad" aria-hidden />
       <div className="min-w-0 flex-1">
@@ -804,7 +819,7 @@ export function CopyButton({
   return (
     <button
       type="button"
-      aria-label={`${label} ${value}`}
+      aria-label={label}
       title={label}
       onClick={async (e) => {
         e.stopPropagation();

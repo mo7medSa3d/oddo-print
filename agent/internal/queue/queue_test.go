@@ -2,7 +2,9 @@ package queue
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -238,6 +240,11 @@ func TestBeginPrintCannotReopenTerminalOrUnknownStates(t *testing.T) {
 			if tc.status != "" {
 				settle(tc.id, tc.status, tc.lastErr)
 			}
+			if tc.id == "bp_printing" {
+				if _, err := q.db.Exec(`UPDATE print_jobs SET claim_token = ? WHERE id = ?`, "token-"+tc.id, tc.id); err != nil {
+					t.Fatalf("seed live claim token: %v", err)
+				}
+			}
 			err := q.BeginPrint(tc.id, "printer-1", []byte("payload"), "token-"+tc.id, tc.allowReopen)
 			if tc.wantErr {
 				if !errors.Is(err, ErrTerminalState) {
@@ -262,5 +269,117 @@ func TestBeginPrintCannotReopenTerminalOrUnknownStates(t *testing.T) {
 				t.Fatalf("allowed BeginPrint must record the attempt's claim token, got %q", claim)
 			}
 		})
+	}
+}
+
+func TestBeginPrintRejectsDifferentClaimTokenWhilePrinting(t *testing.T) {
+	dbPath := t.TempDir() + "/agent.db"
+	q, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer q.Close()
+
+	if err := q.BeginPrint("job_live", "printer-1", []byte("payload"), "claim-A", false); err != nil {
+		t.Fatalf("initial BeginPrint: %v", err)
+	}
+	if err := q.BeginPrint("job_live", "printer-1", []byte("payload"), "claim-B", false); !errors.Is(err, ErrTerminalState) {
+		t.Fatalf("different claim token must be rejected while printing, got %v", err)
+	}
+	if got := q.ClaimTokenFor("job_live"); got != "claim-A" {
+		t.Fatalf("rejected attempt must not replace live claim token, got %q", got)
+	}
+	if err := q.BeginPrint("job_live", "printer-1", []byte("payload"), "claim-A", false); err != nil {
+		t.Fatalf("same claim token should remain idempotent: %v", err)
+	}
+}
+
+func TestBeginPrintRejectsTokenedClaimAgainstLegacyTokenlessPrinting(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.Push("legacy-printing", "printer-1", []byte("payload")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.UpdateStatus("legacy-printing", "printing"); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+	if err := q.BeginPrint("legacy-printing", "printer-1", []byte("payload"), "new-token", false); !errors.Is(err, ErrTerminalState) {
+		t.Fatalf("tokened claimant must not steal tokenless printing row, got %v", err)
+	}
+	if got := q.ClaimTokenFor("legacy-printing"); got != "" {
+		t.Fatalf("legacy claim token must remain empty, got %q", got)
+	}
+}
+
+func TestBeginPrintSuccessIsTerminalEvenWhenReprintEnabled(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.Push("success-terminal", "printer-1", []byte("payload")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.UpdateStatus("success-terminal", "printing"); err != nil {
+		t.Fatalf("UpdateStatus printing: %v", err)
+	}
+	if err := q.UpdateStatus("success-terminal", "success"); err != nil {
+		t.Fatalf("UpdateStatus success: %v", err)
+	}
+	if err := q.BeginPrint("success-terminal", "printer-1", []byte("payload"), "reprint-token", true); !errors.Is(err, ErrTerminalState) {
+		t.Fatalf("success must never reopen, got %v", err)
+	}
+}
+
+func TestBeginPrintUnknownOutcomeRequiresExplicitReprint(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.Push("unknown-terminal", "printer-1", []byte("payload")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.UpdateStatus("unknown-terminal", "printing"); err != nil {
+		t.Fatalf("UpdateStatus printing: %v", err)
+	}
+	if err := q.UpdateStatusWithError("unknown-terminal", "failed", InterruptedMarker+": physical outcome unknown"); err != nil {
+		t.Fatalf("UpdateStatusWithError: %v", err)
+	}
+	if err := q.BeginPrint("unknown-terminal", "printer-1", []byte("payload"), "token-1", false); !errors.Is(err, ErrTerminalState) {
+		t.Fatalf("unknown outcome must be closed by normal delivery, got %v", err)
+	}
+	if err := q.BeginPrint("unknown-terminal", "printer-1", []byte("payload"), "token-2", true); err != nil {
+		t.Fatalf("explicit operator reprint should reopen unknown outcome: %v", err)
+	}
+	if got := q.ClaimTokenFor("unknown-terminal"); got != "token-2" {
+		t.Fatalf("explicit reprint must persist new claim token, got %q", got)
+	}
+}
+
+func TestBeginPrintConcurrentClaimersCannotStealToken(t *testing.T) {
+	q := newTestQueue(t)
+	const jobID = "concurrent-claim"
+	const attempts = 8
+	var wg sync.WaitGroup
+	results := make(chan error, attempts)
+	wg.Add(attempts)
+	for i := 0; i < attempts; i++ {
+		token := fmt.Sprintf("claim-%d", i)
+		go func() {
+			defer wg.Done()
+			results <- q.BeginPrint(jobID, "printer-1", []byte("payload"), token, false)
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	var success int
+	for err := range results {
+		if err == nil {
+			success++
+			continue
+		}
+		if !errors.Is(err, ErrTerminalState) {
+			t.Fatalf("unexpected concurrent BeginPrint error: %v", err)
+		}
+	}
+	if success != 1 {
+		t.Fatalf("expected exactly one claimant to own a new job, got %d", success)
+	}
+	owner := q.ClaimTokenFor(jobID)
+	if owner == "" {
+		t.Fatal("winning claim token must persist")
 	}
 }

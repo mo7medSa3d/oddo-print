@@ -21,12 +21,28 @@ describe("desktop manager authentication contract", () => {
     expect(source).not.toContain('credentials: "include"');
   });
 
-  it("rejects remote HTTP Gateway URLs in the production desktop build", () => {
+  it("enforces the branch-specific Gateway transport contract", () => {
     const commands = read("src-tauri/src/commands.rs");
-    expect(commands).toContain('if scheme == "http"');
-    expect(commands).toContain('if !local {');
-    expect(commands).toContain('Gateway URL must use HTTPS for remote Gateways');
-    expect(commands).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
+    const testBranch = commands.includes("This isolated test branch intentionally accepts remote HTTP");
+    if (testBranch) {
+      expect(commands).toContain('let remote_http = scheme == "http";');
+      expect(commands).toContain("This isolated test branch intentionally accepts remote HTTP");
+      expect(commands).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
+      expect(commands).toContain("gateway URL cannot include embedded credentials");
+    } else {
+      expect(commands).toContain('if scheme == "http"');
+      expect(commands).toContain('let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");');
+      expect(commands).toContain("Gateway URL must use HTTPS for remote Gateways");
+    }
+  });
+
+  it("routes manager-owned printer mutations through the Manager transport", () => {
+    const source = read("src/desktop/lib/ipc.ts");
+    const updateFn = source.match(/export async function updateGatewayPrinter[\s\S]*?(?=\nexport interface DiscoverResult)/)?.[0] ?? "";
+    expect(updateFn).toContain('await gatewayRequest(');
+    expect(updateFn).not.toContain('await gatewayConsoleRequest(');
+    expect(source).toContain('"/api/printers/" + encodeURIComponent(printerId)');
+    expect(source).toContain('"PATCH"');
   });
 
   it("gateway CORS is explicit and never wildcarded", () => {

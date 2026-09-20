@@ -9,13 +9,13 @@ import "strings"
 //
 //   - type=escpos            -> device must declare escpos
 //   - type=raw + protocol=X  -> device must declare X, X in
-//                                {raw, escpos, zpl, tspl}; there is NO
-//                               wildcard: "raw" is a byte sink, not "any
-//                               protocol compatible"
+//     {raw, escpos, zpl, tspl}; there is NO
+//     wildcard: "raw" is a byte sink, not "any
+//     protocol compatible"
 //   - type=pdf               -> spooler/ipp document transports (or an
-//                               explicit capability)
+//     explicit capability)
 //   - type=image             -> driver-backed transports or an ESC/POS
-//                               device that raster-converts
+//     device that raster-converts
 //   - peripherals            -> escpos only (enforced in payload.Parse)
 //
 // An explicit supported_protocols capability list is authoritative; without
@@ -32,9 +32,10 @@ import "strings"
 
 // DeviceFacts are the declared transport properties of one printer entry.
 type TransportFacts struct {
-	Protocol          string
-	Connection        string
-	SupportedProtocol []string
+	Protocol                  string
+	Connection                string
+	SupportedProtocol         []string
+	SupportedProtocolDeclared bool
 }
 
 // PayloadCompatibleForDevice reports whether the payload may physically be
@@ -48,7 +49,28 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 	if family == "" || family == "unknown" {
 		family = conn
 	}
-	hasCaps := len(d.SupportedProtocol) > 0
+	hasCaps := d.SupportedProtocolDeclared || d.SupportedProtocol != nil
+	physicalPDF := conn == "spooler" || proto == "spooler" || conn == "ipp" || conn == "ipps" ||
+		(conn == "network" && proto == "ipp")
+	physicalImage := conn == "spooler" || proto == "spooler" ||
+		(conn == "network" && proto == "escpos")
+	physicalByteProtocol := func(protocol string) bool {
+		if conn == "spooler" || proto == "spooler" {
+			return protocol == "raw" || protocol == "escpos"
+		}
+		if conn != "network" && conn != "usb" {
+			return false
+		}
+		if proto != protocol {
+			return false
+		}
+		switch protocol {
+		case "raw", "escpos", "zpl", "tspl":
+			return true
+		default:
+			return false
+		}
+	}
 
 	capabilityListed := func(names ...string) bool {
 		for _, name := range names {
@@ -70,9 +92,9 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 	}
 	declared := func(name string, transports ...string) bool {
 		if hasCaps {
-			return capabilityListed(name)
+			return capabilityListed(name) && physicalByteProtocol(name)
 		}
-		return transportIs(transports...)
+		return physicalByteProtocol(name) || transportIs(transports...)
 	}
 
 	switch pt {
@@ -80,10 +102,13 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		if pp != "" {
 			return false, "pdf payloads cannot specify a printer protocol"
 		}
+		if !physicalPDF {
+			return false, "pdf requires spooler or IPP transport"
+		}
 		if hasCaps && capabilityListed("pdf", "spooler", "ipp", "ipps") {
 			return true, ""
 		}
-		if !hasCaps && transportIs("spooler", "ipp", "ipps") {
+		if !hasCaps {
 			return true, ""
 		}
 		return false, "pdf requires spooler or IPP transport"
@@ -91,10 +116,13 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		if pp != "" {
 			return false, "image payloads cannot specify a printer protocol"
 		}
-		if hasCaps && capabilityListed("image", "jpeg", "spooler", "ipp", "ipps", "escpos") {
+		if !physicalImage {
+			return false, "image payload not supported by printer"
+		}
+		if hasCaps && capabilityListed("image", "jpeg", "spooler", "escpos") {
 			return true, ""
 		}
-		if !hasCaps && (transportIs("spooler") || declared("escpos", "escpos")) {
+		if !hasCaps {
 			return true, ""
 		}
 		return false, "image payload not supported by printer"
@@ -141,6 +169,9 @@ func SupportedProtocolsForDevice(d TransportFacts) []string {
 	}
 	switch family {
 	case "escpos":
+		if strings.ToLower(strings.TrimSpace(d.Connection)) == "usb" {
+			return []string{"escpos"}
+		}
 		return []string{"escpos", "image"}
 	case "zpl":
 		return []string{"zpl"}
@@ -149,7 +180,7 @@ func SupportedProtocolsForDevice(d TransportFacts) []string {
 	case "raw":
 		return []string{"raw"}
 	case "spooler":
-		return []string{"pdf", "image"}
+		return []string{"raw", "escpos", "pdf", "image"}
 	case "ipp", "ipps":
 		return []string{"pdf"}
 	default:

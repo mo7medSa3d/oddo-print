@@ -10,6 +10,7 @@ import {
 } from "./helpers/pg";
 import { createManagerSession } from "../src/lib/manager-auth";
 import { POST as discoveryReportPOST } from "../src/app/api/agent/discovery/route";
+import { POST as discoveryCancelPOST } from "../src/app/api/agents/[id]/discovery/[discoveryId]/cancel/route";
 import { POST as verifyPOST } from "../src/app/api/agents/[id]/discovered-printers/[deviceId]/verify/route";
 import { POST as provisionPOST } from "../src/app/api/agents/[id]/discovered-printers/[deviceId]/provision/route";
 
@@ -107,8 +108,9 @@ suite("discovery trust and approval flow", () => {
     expect(provision.status).toBe(201);
 
     const body = await provision.json();
-    const printer = await pool().query(`SELECT agent_id, lifecycle, status, protocol FROM printers WHERE id = $1`, [body.printerId]);
-    expect(printer.rows[0]).toEqual({ agent_id: f.agentId, lifecycle: "active", status: "unknown", protocol: "ipp" });
+    const printer = await pool().query(`SELECT agent_id, lifecycle, status, protocol, config FROM printers WHERE id = $1`, [body.printerId]);
+    expect(printer.rows[0]).toMatchObject({ agent_id: f.agentId, lifecycle: "active", status: "unknown", protocol: "ipp" });
+    expect(printer.rows[0].config).toMatchObject({ address: "ipp://192.168.10.50/ipp/print" });
 
     const device = await pool().query(`SELECT verification, confidence, candidate_status, provisioned_printer_id FROM discovered_devices WHERE id = $1`, ["device-provision-1"]);
     expect(device.rows[0].verification).toBe("verified");
@@ -117,7 +119,33 @@ suite("discovery trust and approval flow", () => {
     expect(device.rows[0].provisioned_printer_id).toBe(body.printerId);
   });
 
+  it("provisions a verified Windows spooler candidate with a routable queue config", async () => {
+    const discoveryId = await createDiscoverySession();
+    await agentRequest(discoveryId, [{
+      id: "device-spooler-1", source: ["windows_spooler"], protocol: "spooler",
+      deviceName: "HP LaserJet Enterprise", verification: "verified", confidence: "high",
+    }]);
+
+    const manager = await createManagerSession(f.tenantId);
+    const verify = await verifyPOST(
+      await managerRequest(manager.token, `/api/agents/${f.agentId}/discovered-printers/device-spooler-1/verify`),
+      { params: Promise.resolve({ id: f.agentId, deviceId: "device-spooler-1" }) } as any,
+    );
+    expect(verify.status).toBe(200);
+
+    const provision = await provisionPOST(
+      await managerRequest(manager.token, `/api/agents/${f.agentId}/discovered-printers/device-spooler-1/provision`),
+      { params: Promise.resolve({ id: f.agentId, deviceId: "device-spooler-1" }) } as any,
+    );
+    expect(provision.status).toBe(201);
+    const body = await provision.json();
+    const printer = await pool().query(`SELECT connection_type, protocol, config FROM printers WHERE id = $1`, [body.printerId]);
+    expect(printer.rows[0]).toMatchObject({ connection_type: "spooler", protocol: "spooler" });
+    expect(printer.rows[0].config).toMatchObject({ spooler_name: "HP LaserJet Enterprise", address: "HP LaserJet Enterprise" });
+  });
+
   it("refuses to provision an LPR-only candidate as raw (LAW: no heuristic protocol inference)", async () => {
+
     // An LPR probe only proves TCP 515 accepts connections. The LPD daemon
     // there does not consume a raw byte stream, so mapping lpr -> raw would
     // write raw job bytes to port 515 - the exact re-labeling the agent's
@@ -150,6 +178,49 @@ suite("discovery trust and approval flow", () => {
     expect(device.rows[0].candidate_status).not.toBe("provisioned");
   });
 
+  it("report wins over a later cancellation without lifecycle inconsistency", async () => {
+    const discoveryId = await createDiscoverySession("disc-report-before-cancel");
+    const report = await agentRequest(discoveryId, [{
+      id: "device-report-before-cancel", source: ["ipp"], protocol: "ipp", ipAddress: "192.168.10.90", port: 631,
+      uri: "ipp://192.168.10.90/ipp/print", deviceName: "Race Printer",
+    }]);
+    expect(report.status).toBe(200);
+
+    const manager = await createManagerSession(f.tenantId);
+    const cancel = await discoveryCancelPOST(
+      await managerRequest(manager.token, `/api/agents/${f.agentId}/discovery/${discoveryId}/cancel`),
+      { params: Promise.resolve({ id: f.agentId, discoveryId }) } as any,
+    );
+    expect(cancel.status).toBe(409);
+
+    const session = await pool().query(`SELECT status FROM discovery_sessions WHERE id = $1`, [discoveryId]);
+    const devices = await pool().query(`SELECT count(*)::int AS count FROM discovered_devices WHERE discovery_id = $1`, [discoveryId]);
+    expect(session.rows[0].status).toBe("completed");
+    expect(devices.rows[0].count).toBe(1);
+  });
+
+  it("cancellation wins over a later report without accepting late devices", async () => {
+    const discoveryId = await createDiscoverySession("disc-cancel-before-report");
+    const manager = await createManagerSession(f.tenantId);
+    const cancel = await discoveryCancelPOST(
+      await managerRequest(manager.token, `/api/agents/${f.agentId}/discovery/${discoveryId}/cancel`),
+      { params: Promise.resolve({ id: f.agentId, discoveryId }) } as any,
+    );
+    expect(cancel.status).toBe(200);
+
+    const report = await agentRequest(discoveryId, [{
+      id: "device-cancel-before-report", source: ["ipp"], protocol: "ipp", ipAddress: "192.168.10.91", port: 631,
+      uri: "ipp://192.168.10.91/ipp/print", deviceName: "Late Printer",
+    }]);
+    expect(report.status).toBe(409);
+
+    const session = await pool().query(`SELECT status FROM discovery_sessions WHERE id = $1`, [discoveryId]);
+    const devices = await pool().query(`SELECT count(*)::int AS count FROM discovered_devices WHERE discovery_id = $1`, [discoveryId]);
+    expect(session.rows[0].status).toBe("cancelled");
+    expect(devices.rows[0].count).toBe(0);
+  });
+
+
   it("serializes concurrent provisioning so one candidate cannot create two printers", async () => {
     const discoveryId = await createDiscoverySession();
     await agentRequest(discoveryId, [{
@@ -177,8 +248,8 @@ suite("discovery trust and approval flow", () => {
 
     expect([a.status, b.status].sort()).toEqual([200, 201]);
     const count = await pool().query(
-      `SELECT count(*)::int AS count FROM printers WHERE agent_id = $1 AND config->>'ip' = $2 AND (config->>'port')::int = $3`,
-      [f.agentId, "192.168.10.51", 631],
+      `SELECT count(*)::int AS count FROM printers WHERE agent_id = $1 AND config->>'address' = $2`,
+      [f.agentId, "ipp://192.168.10.51/ipp/print"],
     );
     expect(count.rows[0].count).toBe(1);
   });

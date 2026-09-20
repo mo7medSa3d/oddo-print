@@ -58,7 +58,7 @@ import {
   stopAgent as ipcStopAgent,
   normalizeGatewayUrl,
   discoverPrinters,
-  testPrinter,
+  testGatewayPrinter,
   setAutostart,
   type PrinterInfo,
 } from "./lib/ipc";
@@ -132,7 +132,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<ToastMessage>(null);
   const [confirmStop, setConfirmStop] = useState(false);
-  const [isAdmin, setIsAdmin] = useState<boolean>(true);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [adminDismissed, setAdminDismissed] = useState<boolean>(false);
   const busyRef = useRef(false);
   const setBusyBoth = useCallback((v: boolean) => {
@@ -157,7 +157,8 @@ export default function App() {
   const [editingPrinter, setEditingPrinter] = useState<PrinterInfo | null>(null);
   const [selectedJob, setSelectedJob] = useState<JobRecord | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [gatewaySaving, setGatewaySaving] = useState(false);
+  const [gatewayChecking, setGatewayChecking] = useState(false);
+  const [checkedGatewayUrl, setCheckedGatewayUrl] = useState("");
   const [collapsed, setCollapsed] = useState(false);
   const [jobPrinterFilter, setJobPrinterFilter] = useState<string | null>(null);
 
@@ -201,7 +202,7 @@ export default function App() {
       const status = Number((e as { status?: number })?.status ?? 0);
       setJobsError(
         status === 401 || status === 403
-          ? "Gateway requires a manager session — sign in below to view jobs."
+          ? "Gateway job access is unavailable — pair this PC with the Gateway and verify the connection."
           : `Could not load jobs: ${errMsg(e)}`
       );
     } finally {
@@ -209,21 +210,61 @@ export default function App() {
     }
   }, [savedGatewayUrl]);
 
-  const checkHealth = useCallback(async (targetUrl?: string) => {
-    const target = targetUrl ?? gatewayUrl;
-    if (!target) {
+  const probeGateway = useCallback(async (targetUrl: string): Promise<boolean> => {
+    try {
+      const h = await fetchGatewayHealth(targetUrl);
+      setHealth(h);
+      setCheckedGatewayUrl(targetUrl);
+      const gatewayError = (h as { error?: unknown })?.error;
+      if (gatewayError) {
+        setHealthError(errMsg(gatewayError));
+        return false;
+      }
+      setHealthError(null);
+      return true;
+    } catch (e) {
+      setHealth(null);
+      setCheckedGatewayUrl(targetUrl);
+      setHealthError(friendlyPrinterError(errMsg(e)));
+      return false;
+    }
+  }, []);
+
+  const checkHealth = useCallback(async () => {
+    const raw = gatewayUrl.trim();
+    if (!raw) {
+      setHealth(null);
+      setCheckedGatewayUrl("");
       setHealthError("Gateway URL not configured");
       return;
     }
+
+    let target: string;
+    try {
+      target = normalizeGatewayUrl(raw);
+    } catch (e) {
+      setHealth(null);
+      setCheckedGatewayUrl("");
+      setHealthError(errMsg(e));
+      return;
+    }
+
+    setGatewayChecking(true);
     setHealthError(null);
     try {
-      const h = await fetchGatewayHealth(target);
-      setHealth(h);
-      if ((h as { error?: string })?.error) setHealthError(String((h as { error?: string }).error));
+      const reachable = await probeGateway(target);
+      if (!reachable) return;
+
+      await setGatewayUrl(target);
+      setGw(target);
+      setSavedGatewayUrl(target);
+      setMsg({ text: "Gateway connection verified and saved", type: "success" });
     } catch (e) {
-      setHealthError(friendlyPrinterError(errMsg(e)));
+      setMsg({ text: errMsg(e), type: "error" });
+    } finally {
+      setGatewayChecking(false);
     }
-  }, [gatewayUrl]);
+  }, [gatewayUrl, probeGateway]);
 
   const handleDiscover = useCallback(async () => {
     if (!isTauri) return;
@@ -266,15 +307,25 @@ export default function App() {
     async (id: string) => {
       try {
         setBusyBoth(true);
-        await testPrinter(id);
-        setMsg({ text: "Local test page printed from this PC (bypasses the Gateway).", type: "success" });
+        if (!gatewayUrl) {
+          throw new Error("Gateway URL is not configured.");
+        }
+        const result = await testGatewayPrinter(gatewayUrl, id);
+        const jobId = typeof result.jobId === "string" ? result.jobId : null;
+        setMsg({
+          text: jobId
+            ? "Test print queued through the Gateway. Check Print Jobs for the final result."
+            : "Test print queued through the Gateway.",
+          type: "success",
+        });
+        if (jobId) void refreshJobs();
       } catch (e) {
         setMsg({ text: friendlyPrinterError(errMsg(e)), type: "error" });
       } finally {
         setBusyBoth(false);
       }
     },
-    [setBusyBoth]
+    [gatewayUrl, refreshJobs, setBusyBoth]
   );  const handleEditSaved = useCallback(async () => {
     setEditingPrinter(null);
     await refreshPrinters();
@@ -282,23 +333,6 @@ export default function App() {
   }, [refreshPrinters]);
 
 
-
-  const saveGateway = useCallback(async () => {
-    try {
-      const n = normalizeGatewayUrl(gatewayUrl);
-      setGatewaySaving(true);
-      await setGatewayUrl(n);
-      setSavedGatewayUrl(n);
-      setGw(n);
-      setMsg({ text: "Gateway saved", type: "success" });
-      // Check exactly the URL that was just persisted, not the previous React closure value.
-      await checkHealth(n);
-    } catch (e) {
-      setMsg({ text: errMsg(e), type: "error" });
-    } finally {
-      setGatewaySaving(false);
-    }
-  }, [gatewayUrl, checkHealth]);
 
   const startAgent = useCallback(async () => {
     try {
@@ -355,12 +389,13 @@ export default function App() {
       setMsg({ text: r || "Agent paired", type: "success" });
       setPairCode("");
       refreshStatus();
+      await Promise.all([refreshPrinters(), refreshJobs()]);
     } catch (e) {
       setMsg({ text: errMsg(e), type: "error" });
     } finally {
       setBusyBoth(false);
     }
-  }, [pairCode, gatewayUrl, refreshStatus, setBusyBoth]);
+  }, [pairCode, gatewayUrl, refreshJobs, refreshPrinters, refreshStatus, setBusyBoth]);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -374,14 +409,8 @@ export default function App() {
       .catch(() => {});
     getGatewayUrl()
       .then((v) => {
-        // Initial load updates both the editable draft and the committed URL exactly once.
-        // Do not make this effect depend on refresh callbacks that change while typing.
         setGw(v);
         setSavedGatewayUrl(v);
-        if (v)
-          fetchGatewayHealth(v)
-            .then((h) => setHealth(h))
-            .catch((e) => setHealthError(errMsg(e)));
       })
       .catch(() => {});
     getRuntimePaths()
@@ -396,6 +425,37 @@ export default function App() {
   }, [refreshStatus]);
 
   useEffect(() => {
+    if (!isTauri) return;
+
+    const raw = gatewayUrl.trim();
+    if (!raw) {
+      setHealth(null);
+      setCheckedGatewayUrl("");
+      setHealthError(null);
+      return;
+    }
+
+    // Do not probe every keystroke. Once a syntactically valid URL is present,
+    // check it automatically after a short pause so pasted/entered URLs become
+    // Reachable without an extra save step.
+    let target: string;
+    try {
+      target = normalizeGatewayUrl(raw);
+    } catch {
+      setHealth(null);
+      setCheckedGatewayUrl("");
+      setHealthError(null);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void probeGateway(target);
+    }, 450);
+
+    return () => window.clearTimeout(timer);
+  }, [gatewayUrl, probeGateway]);
+
+  useEffect(() => {
     if (savedGatewayUrl) refreshPrinters();
   }, [savedGatewayUrl, refreshPrinters]);
 
@@ -405,42 +465,74 @@ export default function App() {
 
   useEffect(() => {
     if (!isTauri) return;
-    onTrayNavigate((anchor) => {
-      const p = anchor.replace("#", "") as Page;
-      if (PAGES.includes(p)) navigate(p);
-    });
-    onTrayRestartAgent(() => restartAgent());
+    // Both tray subscriptions resolve asynchronously: capture the unlisten
+    // functions and release them on disposal, otherwise every re-run would
+    // stack another restart/navigate handler behind the same tray event.
+    let disposed = false;
+    const unlistens: Array<() => void> = [];
+    const track = (promise: Promise<() => void>) => {
+      promise
+        .then((unlisten) => {
+          if (disposed) unlisten();
+          else unlistens.push(unlisten);
+        })
+        .catch(() => {});
+    };
+    track(
+      onTrayNavigate((anchor) => {
+        const p = anchor.replace("#", "") as Page;
+        if (PAGES.includes(p)) navigate(p);
+      }),
+    );
+    track(onTrayRestartAgent(() => restartAgent()));
+    return () => {
+      disposed = true;
+      unlistens.splice(0).forEach((unlisten) => unlisten());
+    };
   }, [navigate, restartAgent]);
 
   useEffect(() => {
     if (!isTauri) return;
     let unlisten: (() => void) | undefined;
+    let disposed = false;
     onGatewayConfigChanged((url) => {
       setSavedGatewayUrl(url);
       setGw(url);
       if (url) {
-        checkHealth(url);
+        void probeGateway(url);
       } else {
         setHealth(null);
+        setCheckedGatewayUrl("");
         setHealthError("Gateway URL not configured");
       }
       refreshStatus();
     })
       .then((u) => {
-        unlisten = u;
+        if (disposed) u();
+        else unlisten = u;
       })
       .catch(() => {});
     return () => {
+      disposed = true;
       unlisten?.();
+      unlisten = undefined;
     };
-  }, [checkHealth, refreshStatus]);
+  }, [probeGateway, refreshStatus]);
 
   const isOnline =
     !!agentStatus && !(agentStatus as Record<string, unknown>).error && (agentStatus as { running?: boolean }).running !== false;
   const healthOk = Boolean(health && (health as { ok?: boolean }).ok !== false && !healthError);
   const agentRegistered = Boolean((agentStatus as { registered?: boolean } | null)?.registered);
+  let normalizedGatewayUrl = "";
+  try {
+    normalizedGatewayUrl = normalizeGatewayUrl(gatewayUrl);
+  } catch {
+    // The URL is still being edited; an invalid/partial draft is never connected.
+  }
   const gatewayConnected = Boolean(
-    savedGatewayUrl && gatewayUrl === savedGatewayUrl && (healthOk || agentRegistered)
+    normalizedGatewayUrl &&
+      checkedGatewayUrl === normalizedGatewayUrl &&
+      (healthOk || agentRegistered)
   );
   const gatewaySubLabel = !savedGatewayUrl
     ? "Set Gateway URL in Settings"
@@ -503,7 +595,7 @@ export default function App() {
         if (jobTab === "unassigned") {
           const dest = String(j.destination ?? "");
           const pid = jobPrinterId(j);
-          return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid && p.status === "online");
+          return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
         }
         if (jobTab === "printed") return st === "success";
         if (jobTab === "unknown") return outcome === "unknown";
@@ -533,7 +625,7 @@ export default function App() {
       unassigned: jobs.filter((j) => {
         const dest = String(j.destination ?? "");
         const pid = jobPrinterId(j);
-        return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid && p.status === "online");
+        return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
       }).length,
       printed: jobs.filter((j) => jobStatus(j) === "success").length,
       unknown: jobs.filter((j) => deriveOutcome(jobStatus(j), String(j.error ?? "")) === "unknown").length,
@@ -603,9 +695,8 @@ export default function App() {
     health,
     healthError,
     gatewayConnected,
-    gatewaySaving,
+    gatewayChecking,
     checkHealth,
-    saveGateway,
     pairCode,
     setPairCode,
     pair,
@@ -658,7 +749,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-app text-ink">
       <AdminPrivilegeDialog
-        open={!isAdmin && !adminDismissed}
+        open={isAdmin === false && !adminDismissed}
         onClose={() => setAdminDismissed(true)}
       />
       <Sidebar
@@ -730,7 +821,7 @@ export default function App() {
           </div>
         </header>
 
-        {!isAdmin && adminDismissed && (
+        {isAdmin === false && adminDismissed && (
           <div
             className="flex items-center justify-between gap-3 border-b border-warn-edge bg-warn-bg px-5 py-3 text-xs text-warn lg:px-8"
             role="status"
@@ -901,9 +992,8 @@ export default function App() {
               </Button>
             </div>
             <p className="text-[13px] leading-relaxed text-ink-3">
-              This prints a LOCAL test page directly from this PC - it does not exercise the
-              Gateway queue. Use &quot;Send Test Page&quot; on the Gateway console to validate the full
-              pipeline (queued, claimed by the agent, then printed).
+              This sends a test page through the Gateway queue and exercises the managed delivery path
+              (queued, claimed by this agent, then printed).
             </p>
           </div>
         )}

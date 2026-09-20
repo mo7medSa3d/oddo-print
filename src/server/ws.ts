@@ -5,7 +5,7 @@ import type { PoolClient } from "pg";
 import { isIP } from "node:net";
 import { pool } from "../db";
 import { validateAgent } from "../lib/agent-auth";
-import { reserveWsUpgradeAttempt } from "../lib/ws-rate-limit";
+import { recordWsUpgradeSuccess, reserveWsUpgradeAttempt } from "../lib/ws-rate-limit";
 import { isTrustedProxyUpgrade, trustProxyEnabled } from "./trusted-proxy";
 import { incrementMetric } from "../lib/metrics";
 import {
@@ -347,7 +347,7 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
   const startedAt = Date.now();
   if (!hasOpenAgentSocket(job.agentId)) return "no_socket";
   const claimStartedAt = Date.now();
-  const claimed = await claimJobForDelivery(job.id, job.agentId);
+  const claimed = await claimJobForDelivery(job.id, job.agentId, { markDeliveryEvidencePending: true });
   const claimLatencyMs = Date.now() - claimStartedAt;
   if (!claimed) {
     logInfo("print.trace.gateway_claim", { jobId: job.id, agentId: job.agentId, claimLatencyMs, outcome: "not_claimable" });
@@ -626,6 +626,17 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
           return;
         }
         writeWsHttpError(socket, 401, "Unauthorized");
+        return;
+      }
+
+      // Authentication succeeded: this upgrade must not consume the failure budget.
+      // Clearing the shared bucket also prevents a legitimate reconnect storm from
+      // eventually locking a healthy agent out of its own WebSocket.
+      try {
+        await recordWsUpgradeSuccess(clientKey);
+      } catch (error) {
+        logUpgradeError(error);
+        writeWsHttpError(socket, 503, "WebSocket authentication temporarily unavailable", 5);
         return;
       }
 

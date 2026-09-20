@@ -101,6 +101,20 @@ suite("permanent agent deletion lifecycle & invariants", () => {
     expect(row).toBeDefined();
   });
 
+  it("allows deletion of an agent whose online status is stale", async () => {
+    const agentId = "agt_stale_online";
+    await pool().query(
+      `INSERT INTO agents (id, tenant_id, name, secret, status, lifecycle, last_seen_at)
+       VALUES ($1, $2, 'Stale Online Agent', $3, 'online', 'active', now() - interval '10 minutes')`,
+      [agentId, TENANT_ID, sha256("secret123")],
+    );
+
+    await expect(deleteAgent(agentId)).resolves.toEqual({ ok: true });
+
+    const row = (await pool().query(`SELECT id FROM agents WHERE id = $1`, [agentId])).rows[0];
+    expect(row).toBeUndefined();
+  });
+
   it("rejects deletion of a retired agent to preserve audit history", async () => {
     const agentId = "agt_retired_test";
     await pool().query(

@@ -3,7 +3,7 @@ import { agents, printJobs, printers } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { DEVICE_CLASSES, PRINTER_TYPES, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABILITIES_MAX_BYTES, validateConnectionConfig } from "../../../../lib/printer-model";
+import { DEVICE_CLASSES, PRINTER_TYPES, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABILITIES_MAX_BYTES, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
 const MAX_HEARTBEAT_BODY_BYTES = 512 * 1024;
@@ -24,6 +24,10 @@ const KNOWN_CAPABILITY_TOKENS = new Set([
 const VALID_CONNECTION_TYPES = new Set(["network", "usb", "spooler", "ipp", "ipps"]);
 const VALID_PROTOCOLS = new Set(["raw", "escpos", "zpl", "tspl", "ipp", "ipps", "spooler", "windows_spooler", "unknown"]);
 const VALID_AGENT_STATUSES = new Set(["online", "offline"]);
+
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
 
 type DesiredStateAck = { printerId?: unknown; appliedDesiredRevision?: unknown; observedDesiredRevision?: unknown };
 
@@ -82,10 +86,20 @@ function sanitizePrinter(p: ReportedPrinter): {
   }
   if (!printerType) printerType = "physical";
   if (!(PRINTER_TYPES as readonly string[]).includes(printerType) || !(DEVICE_CLASSES as readonly string[]).includes(deviceClass)) return { ok: false, reason: "invalid_device_class_or_printer_type" };
-  const protocol = normalizeProtocol(p.protocol ?? (p.config as Record<string, unknown>)?.protocol);
+  let protocol = normalizeProtocol(p.protocol ?? (p.config as Record<string, unknown>)?.protocol);
   if (!protocol) return { ok: false, reason: "invalid_or_unsupported_protocol" };
   const config = p.config && typeof p.config === "object" ? { ...(p.config as Record<string, unknown>) } : {};
   delete config.protocol;
+  let canonicalConnectionType = connectionType;
+  if (
+    canonicalConnectionType === "usb" &&
+    typeof config.spooler_name === "string" &&
+    config.spooler_name.trim()
+  ) {
+    canonicalConnectionType = "spooler";
+    protocol = "spooler";
+    config.address = config.spooler_name.trim();
+  }
   let capabilities = p.capabilities && typeof p.capabilities === "object" ? { ...(p.capabilities as Record<string, unknown>) } : null;
   if (capabilities && "supported_protocols" in capabilities) {
     // Presence is authoritative: an explicitly empty/invalid list means the
@@ -96,19 +110,21 @@ function sanitizePrinter(p: ReportedPrinter): {
         .map((value) => String(value).toLowerCase().trim())
         .filter((token) => KNOWN_CAPABILITY_TOKENS.has(token));
     } else {
-      // Malformed type is treated as absent rather than authoritative. Only
-      // a valid array (including an explicit empty array) is a capability
-      // declaration; invalid JSON shape should not crash or create a
-      // synthetic deny-list that was never actually declared.
-      delete capabilities.supported_protocols;
+      // Presence is authoritative. A malformed supported_protocols value is
+      // rejected rather than erased, because erasing it would restore
+      // transport-based fallback and could broaden what this device can
+      // receive. The routing layer intentionally fails closed on this shape.
+      return { ok: false, reason: "invalid_supported_protocols" };
     }
   }
   const status = typeof p.status === "string" && VALID_PRINTER_STATUSES.has(p.status.trim().toLowerCase()) ? p.status.trim().toLowerCase() : "unknown";
-  if (JSON.stringify(config).length > PRINTER_CONFIG_MAX_BYTES) return { ok: false, reason: "config_payload_too_large" };
-  if (capabilities && JSON.stringify(capabilities).length > PRINTER_CAPABILITIES_MAX_BYTES) return { ok: false, reason: "capabilities_payload_too_large" };
-  const configErr = validateConnectionConfig(connectionType, config);
+  if (utf8ByteLength(JSON.stringify(config)) > PRINTER_CONFIG_MAX_BYTES) return { ok: false, reason: "config_payload_too_large" };
+  if (capabilities && utf8ByteLength(JSON.stringify(capabilities)) > PRINTER_CAPABILITIES_MAX_BYTES) return { ok: false, reason: "capabilities_payload_too_large" };
+  const configErr = validateConnectionConfig(canonicalConnectionType, config, protocol);
   if (configErr) return { ok: false, reason: `invalid_connection_config: ${configErr}` };
-  return { ok: true, printer: { id: p.id.trim(), name: p.name.trim(), printerType, deviceClass, connectionType, protocol, status, config, capabilities } };
+  const transportProtocolErr = validatePrinterTransportProtocol(canonicalConnectionType, protocol);
+  if (transportProtocolErr) return { ok: false, reason: `invalid_transport_protocol: ${transportProtocolErr}` };
+  return { ok: true, printer: { id: p.id.trim(), name: p.name.trim(), printerType, deviceClass, connectionType: canonicalConnectionType, protocol, status, config, capabilities } };
 }
 
 export async function POST(req: Request) {
@@ -124,7 +140,7 @@ export async function POST(req: Request) {
     const status = rawStatus;
     const reportedPrinters = Array.isArray(body?.printers) ? body.printers : [];
     if (reportedPrinters.length > 500) return NextResponse.json({ error: "too many printers in heartbeat" }, { status: 400 });
-    if (JSON.stringify(reportedPrinters).length > 256_000) return NextResponse.json({ error: "heartbeat printer metadata exceeds 256KB" }, { status: 400 });
+    if (utf8ByteLength(JSON.stringify(reportedPrinters)) > 256_000) return NextResponse.json({ error: "heartbeat printer metadata exceeds 256KB" }, { status: 400 });
 
     const gatewayOwnedPrinterIds = new Set<string>();
     if (Array.isArray(body?.gatewayOwnedPrinterIds)) {

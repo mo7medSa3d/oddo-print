@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { printJobs } from "../../../db/schema";
 import { validateManager } from "../../../lib/manager-auth";
+import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import {
@@ -18,9 +19,13 @@ const MAX_LIST_OFFSET = 10_000;
 const MAX_SEARCH_LENGTH = 64;
 
 export async function GET(req: Request) {
-  const claims = await validateManager(req);
-  if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(claims, "jobs.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  const auth = await validateConsoleAuth(req);
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
+  if (auth.kind === "manager") {
+    try { requireManagerPermission(auth.claims, "jobs.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  }
 
   const url = new URL(req.url);
   const statusParam = url.searchParams.get("status")?.trim().toLowerCase();
@@ -40,7 +45,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "invalid status filter" }, { status: 400 });
   }
 
-  const conditions = [eq(printJobs.tenantId, claims.tenantId)];
+  const conditions = [eq(printJobs.tenantId, tenantId)];
+  if (auth.kind === "agent") conditions.push(eq(printJobs.agentId, auth.agent.id));
 
   if (statusParam && statusParam !== "all") {
     if (statusParam === "active" || statusParam === "in_flight") {

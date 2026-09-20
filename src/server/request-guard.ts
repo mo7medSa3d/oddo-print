@@ -1,6 +1,7 @@
 import { IncomingMessage, type ServerResponse } from "http";
 import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { parseStrictContentLength } from "../lib/request-limits";
+import { runtimeSecret } from "../lib/runtime-secret";
 
 /**
  * API body limit. The custom Next server must never consume the IncomingMessage
@@ -13,6 +14,7 @@ export const MAX_UNAUTHENTICATED_CONCURRENT_BYTES = 8 * 1024 * 1024;
 export const MAX_CONCURRENT_CHUNKED_BYTES = MAX_AUTHENTICATED_CONCURRENT_BYTES;
 
 const MUTATING_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
+const SESSION_COOKIE_RE = /(?:^|;\s*)(?:mgr_session|plt_session)=/;
 let reservedAuthBytes = 0;
 let reservedUnauthBytes = 0;
 
@@ -33,7 +35,15 @@ function verifyJwtQuick(token: string): boolean {
   const parts = token.split(".");
   if (parts.length !== 3) return false;
   const [h, p, s] = parts;
-  const secret = process.env.GATEWAY_JWT_SECRET;
+  let secret: string | undefined;
+  try {
+    secret = runtimeSecret("GATEWAY_JWT_SECRET");
+  } catch {
+    // Admission classification must fail closed if the secret file is
+    // unavailable or unreadable. Route-level authentication will surface the
+    // actual configuration problem separately.
+    return false;
+  }
   // Resource-budget classification must fail closed. Route-level authentication
   // still decides access, but an unsigned JWT-shaped value must not let an
   // attacker reserve from the larger authenticated request pool.
@@ -47,6 +57,58 @@ function verifyJwtQuick(token: string): boolean {
   } catch {
     return false;
   }
+}
+
+function headerValue(req: IncomingMessage, name: string): string {
+  const value = req.headers[name.toLowerCase()];
+  return typeof value === "string" ? value.trim() : Array.isArray(value) ? (value[0] ?? "").trim() : "";
+}
+
+export function isCookieAuthenticatedMutation(req: IncomingMessage): boolean {
+  return SESSION_COOKIE_RE.test(headerValue(req, "cookie"));
+}
+
+/**
+ * Browser session mutations must prove same-origin at the HTTP boundary.
+ * Authorization-header agent/Odoo traffic is intentionally excluded: it does
+ * not rely on ambient browser cookies and must remain usable from native
+ * clients.
+ */
+export function isCookieMutationSameOrigin(req: IncomingMessage): boolean {
+  const method = (req.method ?? "GET").toUpperCase();
+  if (!MUTATING_METHODS.includes(method)) return true;
+  if (!isCookieAuthenticatedMutation(req)) return true;
+
+  const fetchSite = headerValue(req, "sec-fetch-site").toLowerCase();
+  if (fetchSite === "cross-site") return false;
+
+  const host = headerValue(req, "host").toLowerCase().replace(/\.$/, "");
+  if (!host || host.length > 255 || host.includes("/") || host.includes("@")) return false;
+
+  const origin = headerValue(req, "origin");
+  if (origin) {
+    try {
+      const parsed = new URL(origin);
+      return parsed.host.toLowerCase() === host;
+    } catch {
+      return false;
+    }
+  }
+
+  const referer = headerValue(req, "referer");
+  if (referer) {
+    try {
+      const parsed = new URL(referer);
+      return parsed.host.toLowerCase() === host;
+    } catch {
+      return false;
+    }
+  }
+
+  // A browser carrying ambient cookies without the modern fetch-metadata or
+  // standard origin signals is ambiguous; fail closed rather than treating
+  // SameSite as the sole CSRF boundary.
+  return fetchSite === "same-origin";
 }
 
 export function isLikelyAuthenticated(req: IncomingMessage): boolean {
@@ -64,7 +126,7 @@ export function isLikelyAuthenticated(req: IncomingMessage): boolean {
   const cookie = headers["cookie"];
   const cookieHeader = typeof cookie === "string" ? cookie : Array.isArray(cookie) ? cookie[0] : "";
   if (cookieHeader) {
-    const match = /(?:mgr_session|platform_session|customer_session)=([^;]+)/.exec(cookieHeader);
+    const match = /(?:mgr_session|plt_session)=([^;]+)/.exec(cookieHeader);
     if (match && match[1] && verifyJwtQuick(match[1].trim())) {
       return true;
     }
@@ -134,13 +196,12 @@ function isPayloadBearingEndpoint(url: string | undefined): boolean {
  *   the 32 MiB authenticated concurrency budget.
  * - Requests that are unauthenticated or possess unverifiable credentials are
  *   restricted to the smaller 8 MiB unauthenticated budget pool.
- * - Unauthenticated chunked requests to payload-bearing endpoints
- *   (`/api/agent/`, `/api/print/`) are rejected with 401 UNAUTHORIZED
- *   without reserving budget.
+ * - Chunked/missing-length mutating requests are rejected with 411 before
+ *   Next sees the stream, so every JSON body has an enforceable byte ceiling.
  * - Reservation applies ONLY to payload-bearing endpoints; other /api/*
  *   routes are size-checked but never charge the concurrency budget.
- * - Every reservation is released via releaseChunkedBody() on response
- *   `finish`/`close` and request `close`/`error`.
+ * - Every reservation remains held through route processing and is released
+ *   exactly once when the response finishes or closes.
  */
 export async function guardApiRequest(
   req: IncomingMessage,
@@ -154,6 +215,12 @@ export async function guardApiRequest(
   const payloadBearing = isPayloadBearingEndpoint(req.url);
   const authenticated = isLikelyAuthenticated(req);
 
+  if (!isCookieMutationSameOrigin(req)) {
+    rejectRequest(res, 403, "CSRF_VALIDATION_FAILED");
+    req.destroy();
+    return null;
+  }
+
   const rawLength = req.headers["content-length"];
   const transferEncoding = req.headers["transfer-encoding"];
 
@@ -163,13 +230,12 @@ export async function guardApiRequest(
     // to reach their route handler.
     if (transferEncoding === undefined) return req;
 
-    // Chunked / missing length: auth first, never allocate for anonymous
-    // Slowloris streams on payload-bearing endpoints.
-    if (payloadBearing && !authenticated) {
-      rejectRequest(res, 401, "UNAUTHORIZED");
-      req.destroy();
-      return null;
-    }
+    // Chunked requests cannot be hard-capped without consuming the stream,
+    // which previously allowed non-payload mutating endpoints (login, billing,
+    // settings, etc.) to hand an unbounded stream to Next's JSON parser. The
+    // safe contract is therefore: every mutating API request carrying a
+    // transfer-encoded body must declare Content-Length. Bodyless mutating
+    // requests with neither header remain valid.
     rejectRequest(res, 411, "CONTENT_LENGTH_REQUIRED");
     req.destroy();
     return null;
@@ -200,7 +266,5 @@ export async function guardApiRequest(
   };
   res.once("finish", releaseOnce);
   res.once("close", releaseOnce);
-  req.once("close", releaseOnce);
-  req.once("error", releaseOnce);
   return req;
 }

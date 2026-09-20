@@ -60,7 +60,9 @@ The architecture enforces strict separation between **how bytes are delivered** 
 | `network` | `raw`, `escpos`, `zpl`, `tspl` | `raw`, `escpos`, `image` (JPEG raster) | Network Thermal / Label Printers (Port 9100) |
 | `spooler` | `spooler`, `raw`, `escpos`, `zpl` | `pdf`, `raw`, `escpos`, `image` | Windows Spooler Queues, Laser/Inkjet Drivers |
 | `usb` | `escpos`, `zpl`, `tspl`, `raw` | `raw`, `escpos`, `image` | Direct USB Thermal / Label Printers |
-| `ipp` / `ipps` | `ipp`, `ipps`, `raw` | `pdf`, `raw` | Modern Network Office Printers / Cups (Port 631) |
+| `ipp` / `ipps` | `ipp`, `ipps` | `pdf` | Modern Network Office Printers / CUPS (default Port 631) |
+
+Printer destinations are canonicalized and validated at both control-plane and agent boundaries. Network printers use the private/link-local `config.ip` plus the protocol-approved port; a conflicting legacy `config.address` is rejected. IPP/IPPS URLs must resolve to an allowed private/link-local destination, and `ipp://` or `ipps://` without an explicit port defaults to 631.
 
 ---
 
@@ -89,7 +91,10 @@ sequenceDiagram
 ### Claim Fencing Invariant
 1. Every claim generates a cryptographically random `claimToken`.
 2. Any subsequent status transition (`printing`, `success`, `failed`, `queued`) must present the active `claimToken`.
-3. If the Gateway leases the job to a new delivery attempt due to a 90s timeout, the superseded attempt's `claimToken` is rejected with `409 Conflict / ErrStaleClaim`, preventing split-brain execution.
+3. Claims are admitted only while both ceilings remain: at most 5 delivery hand-offs and 5 safe queue returns.
+4. A proven pre-execution rejection refunds its delivery attempt but increments `retries`; failed or ambiguous hand-offs retain the delivery charge.
+5. Only a stale claim with no `delivered_at` or `acked_at` evidence is automatically requeued after 90 seconds. Delivered-but-silent and stale-printing outcomes are terminal and require manual reconciliation.
+6. A superseded attempt's `claimToken` is rejected with `409 Conflict / ErrStaleClaim`, preventing split-brain execution.
 
 ---
 
@@ -107,8 +112,8 @@ sequenceDiagram
 * **Delivery**: Gateway PDF Payload (`type='pdf', encoding='base64'`).
 
 ### 3. Kitchen & Label Pipelines
-* **Kitchen Tickets**: JPEG image rendering with per-printer category routing and operation IDs.
-* **Barcodes & Shipping Labels**: Native ZPL-II or TSPL commands submitted with `type='raw', protocol='zpl'`.
+* **Kitchen Tickets**: JPEG image rendering with per-printer category routing and operation IDs. The agent reads dimensions before full decode, rejecting either dimension above 16,384 pixels, more than 40,000,000 source pixels, or a projected ESC/POS raster above 32 MiB.
+* **Barcodes & Shipping Labels**: Native ZPL-II or TSPL commands submitted with `type='raw'` and the matching `protocol`. Diagnostic page names are command-language sanitized (`^`/`~` for ZPL; quotes/backslashes for TSPL).
 
 ---
 

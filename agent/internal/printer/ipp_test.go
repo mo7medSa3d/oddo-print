@@ -17,8 +17,12 @@ func TestIPPURLNormalization(t *testing.T) {
 		in, want  string
 		shouldErr bool
 	}{
-		{"ipp://192.168.1.60/ipp/print", "http://192.168.1.60/ipp/print", false},
-		{"ipps://192.168.1.60/ipp/print", "https://192.168.1.60/ipp/print", false},
+		{"ipp://192.168.1.60/ipp/print", "http://192.168.1.60:631/ipp/print", false},
+		{"ipps://192.168.1.60/ipp/print", "https://192.168.1.60:631/ipp/print", false},
+		{"ipp://192.168.1.60:8631/ipp/print", "http://192.168.1.60:8631/ipp/print", false},
+		{"ipps://192.168.1.60:9631/ipp/print", "https://192.168.1.60:9631/ipp/print", false},
+		{"http://192.168.1.60/ipp/print", "http://192.168.1.60/ipp/print", false},
+		{"https://192.168.1.60/ipp/print", "https://192.168.1.60/ipp/print", false},
 		{"http://192.168.1.60:631/ipp/print", "http://192.168.1.60:631/ipp/print", false},
 		{"https://192.168.1.60:631/ipp/print", "https://192.168.1.60:631/ipp/print", false},
 		{"192.168.1.60:631", "http://192.168.1.60:631/ipp/print", false},
@@ -90,6 +94,38 @@ func TestIPPPrintWithMockServer(t *testing.T) {
 	}
 	if !bytesHasSuffix(received, data) {
 		t.Fatalf("document not in IPP request")
+	}
+}
+
+func TestIPPPrintAcceptsSuccessStatusClass(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/ipp")
+		_, _ = w.Write([]byte{0x02, 0x00, 0x00, 0x01, 0, 0, 0, 1, 0x03})
+	}))
+	defer server.Close()
+	p, _ := NewIPPPrinter(server.URL, "Test")
+	if err := p.PrintDocument(context.Background(), Document{Kind: KindPDF, Data: validTestPDFBytes()}); err != nil {
+		t.Fatalf("0x0001 must be successful: %v", err)
+	}
+}
+
+func TestIPPPrintClassifiesServerAndTruncatedResponses(t *testing.T) {
+	for name, response := range map[string][]byte{
+		"server":    {0x02, 0x00, 0x05, 0x03, 0, 0, 0, 1, 0x03},
+		"truncated": {0x02, 0x00, 0x00},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(response) }))
+			defer server.Close()
+			p, _ := NewIPPPrinter(server.URL, "Test")
+			err := p.PrintDocument(context.Background(), Document{Kind: KindPDF, Data: validTestPDFBytes()})
+			if err == nil || !strings.Contains(err.Error(), ErrOutcomeUnknown.Error()) {
+				t.Fatalf("expected unknown outcome, got %v", err)
+			}
+		})
+	}
+	if got := ippStatusText(0x0503); got != "server-error-version-not-supported" {
+		t.Fatalf("unexpected 0x0503 description: %s", got)
 	}
 }
 
@@ -265,16 +301,16 @@ func TestIPPPrintJobDoesNotEmbedHTTPBasicAuthCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIPPPrinter: %v", err)
 	}
-	if p.URL != "http://192.168.1.60/ipp/print" {
+	if p.URL != "http://192.168.1.60:631/ipp/print" {
 		t.Fatalf("normalized transport URL leaked or retained credentials: %q", p.URL)
 	}
-	if p.PrinterURI != "ipp://192.168.1.60/ipp/print" {
+	if p.PrinterURI != "ipp://192.168.1.60:631/ipp/print" {
 		t.Fatalf("normalized IPP printer URI leaked or retained credentials: %q", p.PrinterURI)
 	}
 	if p.creds == nil {
 		t.Fatal("expected parsed credentials for HTTP Basic authentication")
 	}
-	if got := p.requestURL(); got != "http://192.168.1.60/ipp/print" {
+	if got := p.requestURL(); got != "http://192.168.1.60:631/ipp/print" {
 		t.Fatalf("request URL retained credentials: %q", got)
 	}
 	payload := []byte("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
@@ -282,7 +318,7 @@ func TestIPPPrintJobDoesNotEmbedHTTPBasicAuthCredentials(t *testing.T) {
 	if bytes.Contains(job, []byte("printuser")) || bytes.Contains(job, []byte("printpass")) {
 		t.Fatal("IPP printer-uri payload must never contain HTTP Basic Auth credentials")
 	}
-	if !bytes.Contains(job, []byte("ipp://192.168.1.60/ipp/print")) {
+	if !bytes.Contains(job, []byte("ipp://192.168.1.60:631/ipp/print")) {
 		t.Fatal("IPP payload should retain the credential-free IPP printer URI")
 	}
 }

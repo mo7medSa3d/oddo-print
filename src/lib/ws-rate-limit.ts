@@ -16,6 +16,11 @@ export function isWsUpgradeLocallyLocked(key: string, now = Date.now()): boolean
   return true;
 }
 
+export async function recordWsUpgradeSuccess(key: string): Promise<void> {
+  localLockedUntil.delete(key);
+  await db.execute(sql`DELETE FROM auth_rate_limits WHERE key = ${`ws-upgrade:${key}`}`);
+}
+
 export async function reserveWsUpgradeAttempt(key: string): Promise<{ allowed: true; retryAfterSec?: number } | { allowed: false; retryAfterSec: number }> {
   const now = new Date();
   const cutoff = new Date(now.getTime() - WINDOW_MS);

@@ -1,7 +1,7 @@
 import { createServer, type Server } from "http";
 import { connect, type AddressInfo } from "net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { guardApiRequest, isLikelyAuthenticated, MAX_API_BODY_BYTES } from "../src/server/request-guard";
+import { guardApiRequest, getReservedRequestBytes, isLikelyAuthenticated, MAX_API_BODY_BYTES } from "../src/server/request-guard";
 import { parseStrictContentLength } from "../src/lib/request-limits";
 
 /**
@@ -71,6 +71,13 @@ describe("request guard (real HTTP)", () => {
         res.end(JSON.stringify({ received: Buffer.concat(chunks).length, body: Buffer.concat(chunks).toString("base64") }));
         return;
       }
+      if (req.url === "/api/print/slow") {
+        for await (const _chunk of guarded) { /* upload completed */ }
+        await new Promise((resolve) => setTimeout(resolve, 75));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ reservedDuringHandler: getReservedRequestBytes() }));
+        return;
+      }
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
     });
@@ -112,6 +119,16 @@ describe("request guard (real HTTP)", () => {
       const data = (await res.json()) as { received: number; body: string };
       expect(data.received).toBe(Buffer.byteLength(payload));
       expect(Buffer.from(data.body, "base64").toString("utf8")).toBe(payload);
+    });
+
+    it("holds the reservation after upload completion until the slow response finishes", async () => {
+      const payload = "slow-body";
+      const res = await post(`${base}/api/print/slow`, { body: payload });
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { reservedDuringHandler: number };
+      expect(data.reservedDuringHandler).toBe(Buffer.byteLength(payload));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(getReservedRequestBytes()).toBe(0);
     });
 
     it("rejects a declared body over the ceiling with 413", async () => {
@@ -167,6 +184,19 @@ describe("request guard (real HTTP)", () => {
       expect(res.status).toBe(411);
       const data = (await res.json()) as { error: string };
       expect(data.error).toBe("CONTENT_LENGTH_REQUIRED");
+    });
+
+    it("rejects chunked bodies on non-payload mutating API routes too", async () => {
+      const { status, body } = await rawHttp(
+        "POST /api/auth/manager/login HTTP/1.1\r\n" +
+          "Host: 127.0.0.1\r\n" +
+          "Content-Type: application/json\r\n" +
+          "Transfer-Encoding: chunked\r\n" +
+          "Connection: close\r\n\r\n" +
+          "4\r\nAAAA\r\n0\r\n\r\n",
+      );
+      expect(status).toBe(411);
+      expect(body).toContain("CONTENT_LENGTH_REQUIRED");
     });
 
     it("admits requests only while the global byte budget has capacity", async () => {

@@ -9,8 +9,11 @@ class IrActionsReportGateway(models.Model):
 
     def report_action(self, docids, data=None, config=True):
         self.ensure_one()
-        normalized_ids = docids if isinstance(docids, (list, tuple)) else [docids] if docids else []
-        records = self.env[self.model].browse(normalized_ids).exists() if normalized_ids else self.env[self.model]
+        if getattr(docids, "_name", None) == self.model:
+            records = docids.exists()
+        else:
+            normalized_ids = docids if isinstance(docids, (list, tuple)) else [docids] if docids is not None else []
+            records = self.env[self.model].browse(normalized_ids).exists() if normalized_ids else self.env[self.model]
         # Same read authorization as the /report/download controller: when
         # the gateway dispatches a rendered document out of the database
         # perimeter, the caller must be allowed to read every source record.

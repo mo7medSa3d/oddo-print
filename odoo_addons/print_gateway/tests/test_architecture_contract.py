@@ -11,6 +11,7 @@ from unittest.mock import patch
 from odoo import api, fields
 from odoo.exceptions import ValidationError
 from odoo.tests.common import TransactionCase
+from odoo.addons.print_gateway.models.print_policy import sanitize_raw_value
 
 
 ADDON = Path(__file__).resolve().parents[1]
@@ -149,19 +150,74 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn('runtime_agent_assignment', source)
         self.assertIn('The selected Gateway Runtime Agent is not assigned to the current Odoo Branch.', source)
 
-    def test_runtime_printers_requires_agent_branch_assignment(self):
+    def test_runtime_agent_and_printer_discovery_is_tenant_scoped(self):
         source = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
-        self.assertIn('runtime_agent_assignment', source)
-        self.assertIn('is not assigned to this Odoo Branch', source)
+        self.assertIn("api/odoo/agents", source)
+        self.assertIn("selected_agent_id", source)
+        self.assertIn("same Gateway tenant", source)
+        self.assertNotIn("Access Denied: The selected Agent is not assigned to this Odoo Branch.", source)
+        self.assertNotIn("runtime_agent_assignment", source)
+
+        # Assignment remains mandatory for an actual branch binding; discovery
+        # must not be the chicken-and-egg gate that hides otherwise valid
+        # tenant Agents from the selector.
+        binding_source = (MODELS / "binding.py").read_text(encoding="utf-8")
+        self.assertIn('runtime_agent_assignment', binding_source)
+        self.assertIn("The selected Gateway Runtime Agent is not assigned to the current Odoo Branch.", binding_source)
 
     def test_agent_widget_clears_previous_printer_on_agent_change(self):
         source = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
         self.assertIn('updateData.printer_id = false', source)
 
+    def test_intent_recovery_accepts_legacy_null_timestamps(self):
+        source = (MODELS / "print_intent.py").read_text(encoding="utf-8")
+        # Recovery is implemented with raw SQL so it can claim legacy rows atomically
+        # across workers; assert the SQL predicates instead of an obsolete ORM-domain string.
+        self.assertIn("(status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= %s))", source)
+        self.assertIn("(status = 'claimed' AND attempts < max_attempts AND (claimed_at IS NULL OR claimed_at <= %s))", source)
+        self.assertIn("(status = 'failed' AND attempts < max_attempts AND (next_retry_at IS NULL OR next_retry_at <= %s))", source)
+
+    def test_raw_template_values_are_protocol_sanitized(self):
+        self.assertEqual(sanitize_raw_value(0, "zpl"), "0")
+        self.assertEqual(sanitize_raw_value(False, "zpl"), "")
+        self.assertEqual(sanitize_raw_value("A^XZ~B" + chr(10) + "C", "zpl"), "AXZB" + chr(10) + "C")
+        self.assertEqual(sanitize_raw_value("A" + chr(34) + chr(13) + chr(10) + "B", "tspl"), "AB")
+        self.assertEqual(sanitize_raw_value("A" + chr(27) + "B" + chr(127) + "C", "escpos"), "ABC")
+
     def test_runtime_agent_api_has_no_ai_status_emojis(self):
         source = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
         self.assertNotIn('🟢', source)
         self.assertNotIn('🔴', source)
+
+    def test_runtime_discovery_is_admin_only(self):
+        source = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
+        self.assertIn("def _require_runtime_admin():", source)
+        self.assertIn("Runtime printer discovery is restricted to Odoo system administrators.", source)
+        self.assertGreaterEqual(source.count("self._require_runtime_admin()"), 2)
+
+    def test_gateway_reconciliation_is_not_rpc_callable(self):
+        source = (MODELS / "gateway_config.py").read_text(encoding="utf-8")
+        method_idx = source.find("def cron_sync_enabled_state(self):")
+        self.assertGreaterEqual(method_idx, 0)
+        prefix = source[max(0, method_idx - 80):method_idx]
+        self.assertIn("@api.private", prefix)
+
+    def test_pos_gateway_unknown_outcome_cannot_enter_core_retry_path(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("import { RetryPrintPopup }", source)
+        self.assertIn("gatewayOutcome === \"unknown\"", source)
+        self.assertIn("gatewayOutcome === \"partial\"", source)
+        self.assertIn('gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial"', source)
+        ambiguous_idx = source.index('gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial"')
+        ambiguous_block = source[ambiguous_idx:source.index('if (result.successful)', ambiguous_idx)]
+        self.assertIn("continue;", ambiguous_block)
+        self.assertNotIn("retryPrinters.add(printer)", ambiguous_block)
+        self.assertIn('const recordPrintAttempt = !["failed", "unknown", "partial"].includes(result?.status);', source)
+
+    def test_report_interceptor_malformed_response_is_fail_closed(self):
+        source = (ADDON / "static/src/js/report_interceptor.js").read_text(encoding="utf-8")
+        self.assertIn('typeof res.has_binding !== "boolean"', source)
+        self.assertIn("Native PDF download cancelled.", source)
 
 
     def test_physical_pos_paths_fail_closed_when_gateway_binding_is_missing(self):

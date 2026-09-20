@@ -32,13 +32,13 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(viewsXml).not.toMatch(/<form[^>]*delete="0"/);
   });
 
-  it("enforces branch-scoped agent isolation and status indicators in runtime_printers.py", () => {
+  it("discovers active tenant agents without making branch assignment a discovery gate", () => {
     const ctrlPy = read("odoo_addons/print_gateway/controllers/runtime_printers.py");
-    expect(ctrlPy).toContain("print_gateway.runtime_agent_assignment");
-    expect(ctrlPy).toContain("('company_id', '=', root_company.id)");
-    expect(ctrlPy).toContain("('branch_id', '=', branch.id if branch else False)");
-    expect(ctrlPy).toContain("allowed_agent_ids = {");
-    expect(ctrlPy).toContain("sanitized = [a for a in sanitized if a['id'] in allowed_agent_ids]");
+    expect(ctrlPy).toContain("api/odoo/agents");
+    expect(ctrlPy).toContain("selected_agent_id");
+    expect(ctrlPy).toContain("same Gateway tenant");
+    expect(ctrlPy).not.toContain("allowed_agent_ids = {");
+    expect(ctrlPy).not.toContain("print_gateway.runtime_agent_assignment");
     expect(ctrlPy).toContain("'selectedAgentId': selected");
   });
 
@@ -50,6 +50,37 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     const agentFieldJs = read("odoo_addons/print_gateway/static/src/components/runtime_agent_field.js");
     expect(agentFieldJs).toContain("<t t-esc=\"agent.name\"/> — <t t-esc=\"agent.id\"/>");
     expect(agentFieldJs).not.toContain("<t t-esc=\"agent.name\"/> — <t t-esc=\"agent.id\"/> — <t t-esc=\"agent.status\"/>");
+  });
+
+  it("uses the paired Agent identity for the Desktop Gateway console without Manager login UI", () => {
+    const consoleAuth = read("src/lib/console-auth.ts");
+    expect(consoleAuth).toContain("validateAgent");
+    expect(consoleAuth).toContain('kind: "agent"');
+
+    const jobsPage = read("src/desktop/pages/Jobs.tsx");
+    expect(jobsPage).not.toContain("loginManager");
+    expect(jobsPage).not.toContain("Gateway manager sign-in");
+    expect(jobsPage).not.toContain("managerUsername");
+    expect(jobsPage).not.toContain("managerPassword");
+
+    const ipcTs = read("src/desktop/lib/ipc.ts");
+    expect(ipcTs).toContain('invoke<string>("gateway_agent_request"');
+    expect(ipcTs).toContain("async function gatewayConsoleRequest(");
+
+    const printersRoute = read("src/app/api/printers/route.ts");
+    expect(printersRoute).toContain("validateConsoleAuth");
+    expect(printersRoute).toContain("auth.agent.id");
+    expect(printersRoute).toContain("eq(printers.agentId, agentId)");
+
+    const jobsRoute = read("src/app/api/jobs/route.ts");
+    expect(jobsRoute).toContain("validateConsoleAuth");
+    expect(jobsRoute).toContain("eq(printJobs.agentId, auth.agent.id)");
+  });
+
+  it("does not classify an existing offline printer as an unassigned job", () => {
+    const mainTsx = read("src/desktop/main.tsx");
+    expect(mainTsx).toContain('dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid)');
+    expect(mainTsx).not.toContain('dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid && p.status === "online")');
   });
 
   it("emits and listens for gateway:config_changed and unifies gateway status across desktop UI", () => {
@@ -65,9 +96,14 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(mainTsx).toContain("onGatewayConfigChanged");
     expect(mainTsx).toContain("const healthOk = Boolean(health && (health as { ok?: boolean }).ok !== false && !healthError);");
     expect(mainTsx).toContain("const [savedGatewayUrl, setSavedGatewayUrl] = useState(\"\");");
+    expect(mainTsx).toContain("const [checkedGatewayUrl, setCheckedGatewayUrl] = useState(\"\");");
+    expect(mainTsx).toContain("const probeGateway = useCallback(async (targetUrl: string): Promise<boolean>");
+    expect(mainTsx).toContain("window.setTimeout(() => {");
     expect(mainTsx).toContain("const gatewayConnected = Boolean(");
-    expect(mainTsx).toContain("savedGatewayUrl && gatewayUrl === savedGatewayUrl && (healthOk || agentRegistered)");
-    expect(mainTsx).toContain("await checkHealth(n);");
+    expect(mainTsx).toContain("checkedGatewayUrl === normalizedGatewayUrl");
+    expect(mainTsx).toContain("await setGatewayUrl(target);");
+    expect(mainTsx).toContain("setMsg({ text: \"Gateway connection verified and saved\", type: \"success\" });");
+    expect(mainTsx).not.toContain("const saveGateway = useCallback");
 
     const overviewTsx = read("src/desktop/pages/Overview.tsx");
     expect(overviewTsx).toContain('s.gatewayUrl ? (s.gatewayConnected ? "Connected" : "Unreachable") : "Not configured"');

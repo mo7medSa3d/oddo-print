@@ -90,14 +90,14 @@ export async function deleteAgent(id: string) {
   await db.transaction(async (tx) => {
     // Acquire row-level lock to prevent concurrent state transitions or reconnect races
     const locked = await tx.execute(sql`
-      SELECT id, status, lifecycle
+      SELECT id, status, lifecycle, last_seen_at
       FROM agents
       WHERE id = ${agentId} AND tenant_id = ${manager.tenantId}
       FOR UPDATE
     `);
-    const agent = (locked as unknown as { rows?: { id: string; status: string; lifecycle: string }[] }).rows?.[0];
+    const agent = (locked as unknown as { rows?: { id: string; status: string; lifecycle: string; last_seen_at?: Date | string | null }[] }).rows?.[0];
     if (!agent) throw new ActionError("Agent not found", 404);
-    if (agent.status === "online") {
+    if (isAgentAvailableForJob({ lifecycle: agent.lifecycle, status: agent.status, lastSeenAt: agent.last_seen_at })) {
       throw new ActionError("This agent is still connected. Stop the agent service first, then delete it.", 409);
     }
     if (agent.lifecycle === "retired") {
@@ -156,11 +156,11 @@ export async function createPrintJob(printerId: string, payload: unknown) {
 /**
  * Deliberate operator reprint of an ORIGINAL document after a terminal,
  * possibly-printed outcome. This re-queues the job's stored payload — it is
- * NOT a test page — under a deterministic derived idempotency key
- * ("gw-reprint:{jobId}:{n}") so a double-click cannot create two reprints:
- * concurrent attempts compute the same key and PostgreSQL's idempotency
- * unique index collapses them. Like Odoo's action_force_reprint, physical
- * reprints of unknown outcomes are always an explicit operator action.
+ * NOT a test page. Concurrent requests for the same original job converge
+ * on one active reprint inside the Gateway enqueue transaction; once that
+ * reprint reaches a terminal state, a later explicit request creates a new
+ * reprint sequence. Like Odoo's action_force_reprint, physical reprints of
+ * unknown outcomes are always an explicit operator action.
  */
 export async function reprintJob(jobId: string) {
   const manager = await requireManager();
@@ -171,15 +171,13 @@ export async function reprintJob(jobId: string) {
   if (!isTerminal(job.status as JobStatus)) {
     throw new ActionError("Only finished, failed, or expired jobs can be reprinted. The current job is still in progress.", 409);
   }
-  const [attempts] = await db
-    .select({ c: count() })
-    .from(printJobs)
-    .where(and(eq(printJobs.tenantId, manager.tenantId), sql`idempotency_key LIKE ${`gw-reprint:${job.id}:%`}`));
-  const derivedKey = `gw-reprint:${job.id}:${Number(attempts?.c ?? 0) + 1}`;
   try {
+    // Reprint sequence allocation happens inside createPrintJobForPrinter's
+    // tenant enqueue transaction, so concurrent double-clicks cannot derive
+    // different keys from a stale COUNT(*).
     const result = await createPrintJobForPrinter(job.printerId, job.payload, {
       requestedBy: "manager-reprint",
-      idempotencyKey: derivedKey,
+      reprintOfJobId: job.id,
       destination: job.destination,
       documentType: job.documentType ?? undefined,
       tenantId: manager.tenantId,
@@ -331,7 +329,6 @@ export async function getDashboardState() {
       status: printJobs.status,
       error: printJobs.error,
       requestedBy: printJobs.requestedBy,
-      idempotencyKey: printJobs.idempotencyKey,
       retries: printJobs.retries,
       deliveryAttempts: printJobs.deliveryAttempts,
       claimedAt: printJobs.claimedAt,
@@ -422,7 +419,6 @@ export async function getDashboardJobs(options?: {
       status: printJobs.status,
       error: printJobs.error,
       requestedBy: printJobs.requestedBy,
-      idempotencyKey: printJobs.idempotencyKey,
       retries: printJobs.retries,
       deliveryAttempts: printJobs.deliveryAttempts,
       claimedAt: printJobs.claimedAt,

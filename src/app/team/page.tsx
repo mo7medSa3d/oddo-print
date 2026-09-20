@@ -94,51 +94,87 @@ export default function TeamPage() {
   async function updateRole(userId: string, nextRole: string) {
     setBusy(true);
     setMessage("");
-    const response = await fetch("/api/team/members", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ userId, role: nextRole }),
-    });
-    if (response.ok) {
+    try {
+      const response = await fetch("/api/team/members", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ userId, role: nextRole }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Role update failed"
+        );
+      }
+      showMessage("Member role updated.");
       await load();
-    } else {
-      showMessage((await response.json()).error ?? "Role update failed", true);
+    } catch (error) {
+      showMessage(
+        error instanceof Error ? error.message : "Role update failed",
+        true,
+      );
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   async function revokeInvitation(id: string) {
     setBusy(true);
     setMessage("");
-    const response = await fetch(
-      `/api/team/invitations?id=${encodeURIComponent(id)}`,
-      { method: "DELETE", credentials: "include" }
-    );
-    if (response.ok) {
-      await load();
-    } else {
-      showMessage(
-        (await response.json()).error ?? "Invitation revocation failed",
-        true
+    try {
+      const response = await fetch(
+        `/api/team/invitations?id=${encodeURIComponent(id)}`,
+        { method: "DELETE", credentials: "include" }
       );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : "Invitation revocation failed"
+        );
+      }
+      showMessage("Invitation revoked.");
+      await load();
+    } catch (error) {
+      showMessage(
+        error instanceof Error
+          ? error.message
+          : "Invitation revocation failed",
+        true,
+      );
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   async function remove(userId: string) {
     setBusy(true);
     setMessage("");
-    const response = await fetch(
-      `/api/team/members?userId=${encodeURIComponent(userId)}`,
-      { method: "DELETE", credentials: "include" }
-    );
-    if (response.ok) {
+    try {
+      const response = await fetch(
+        `/api/team/members?userId=${encodeURIComponent(userId)}`,
+        { method: "DELETE", credentials: "include" }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : "Member removal failed"
+        );
+      }
+      showMessage("Member removed.");
       await load();
-    } else {
-      showMessage((await response.json()).error ?? "Member removal failed", true);
+    } catch (error) {
+      showMessage(
+        error instanceof Error ? error.message : "Member removal failed",
+        true,
+      );
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   async function transfer(userId: string) {
@@ -151,20 +187,31 @@ export default function TeamPage() {
     }
     setBusy(true);
     setMessage("");
-    const response = await fetch("/api/team/ownership", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ userId }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      showMessage(data.error ?? "Ownership transfer failed", true);
+    try {
+      const response = await fetch("/api/team/ownership", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ userId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : "Ownership transfer failed"
+        );
+      }
+      router.push("/login");
+    } catch (error) {
+      showMessage(
+        error instanceof Error ? error.message : "Ownership transfer failed",
+        true,
+      );
       setBusy(false);
-      return;
     }
-    router.push("/login");
   }
+
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">

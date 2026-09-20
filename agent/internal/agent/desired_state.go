@@ -30,10 +30,12 @@ type desiredPrinterWire struct {
 }
 
 type desiredPrinterRecord struct {
-	Desired                 desiredPrinterWire `json:"desired"`
-	AppliedDesiredRevision  int64              `json:"appliedDesiredRevision"`
-	ObservedDesiredRevision int64              `json:"observedDesiredRevision"`
-	ApplyError              string             `json:"applyError,omitempty"`
+	Desired                         desiredPrinterWire `json:"desired"`
+	AppliedDesiredRevision          int64              `json:"appliedDesiredRevision"`
+	ObservedDesiredRevision         int64              `json:"observedDesiredRevision"`
+	ObservedSupportedProtocols      []string           `json:"observedSupportedProtocols,omitempty"`
+	ObservedSupportedProtocolsKnown bool               `json:"observedSupportedProtocolsKnown,omitempty"`
+	ApplyError                      string             `json:"applyError,omitempty"`
 }
 
 type desiredStateDisk struct {
@@ -293,25 +295,70 @@ func desiredNumberValue(m map[string]interface{}, key string) int {
 	return v
 }
 
+func desiredPaperWidthMM(config map[string]interface{}) int {
+	widths, ok := config["paper_widths"].([]interface{})
+	if !ok || len(widths) != 1 {
+		return 0
+	}
+	width := desiredNumberValue(map[string]interface{}{"width": widths[0]}, "width")
+	if width <= 0 || width > 1000 {
+		return 0
+	}
+	return width
+}
+
 func desiredEndpoint(c map[string]interface{}, connectionType string) string {
+	if connectionType == "network" {
+		if ip := desiredStringValue(c, "ip"); ip != "" {
+			port := desiredNumberValue(c, "port")
+			if port > 0 {
+				return net.JoinHostPort(strings.Trim(ip, "[]"), strconv.Itoa(port))
+			}
+			return ip
+		}
+		return ""
+	}
 	if value := desiredStringValue(c, "address"); value != "" {
 		return value
 	}
 	if value := desiredStringValue(c, "spooler_name"); value != "" && connectionType == "spooler" {
 		return value
 	}
-	if ip := desiredStringValue(c, "ip"); ip != "" {
-		port := desiredNumberValue(c, "port")
-		if port > 0 {
-			return net.JoinHostPort(strings.Trim(ip, "[]"), strconv.Itoa(port))
-		}
-		return ip
-	}
 	return ""
 }
 
-func desiredPrinterConfig(p desiredPrinterWire) config.PrinterConfig {
+func validateDesiredNetworkDestination(c map[string]interface{}) error {
+	host := strings.Trim(desiredStringValue(c, "ip"), "[]")
+	port := desiredNumberValue(c, "port")
+	if host == "" || port == 0 {
+		return fmt.Errorf("network printer requires config.ip and config.port")
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || ip.IsLoopback() || ip.IsUnspecified() || !(ip.IsPrivate() || ip.IsLinkLocalUnicast()) {
+		return fmt.Errorf("network printer destination must be a private or link-local IP address")
+	}
+	if host == "169.254.169.254" || strings.EqualFold(host, "fd00:ec2::254") {
+		return fmt.Errorf("network printer destination must not be a metadata endpoint")
+	}
+	canonical := net.JoinHostPort(host, strconv.Itoa(port))
+	if supplied := desiredStringValue(c, "address"); supplied != "" {
+		suppliedHost, suppliedPort, err := net.SplitHostPort(supplied)
+		if err != nil || net.JoinHostPort(strings.Trim(suppliedHost, "[]"), suppliedPort) != canonical {
+			return fmt.Errorf("network printer config.address conflicts with config.ip/config.port")
+		}
+	}
+	return nil
+}
+
+func desiredPrinterConfig(row desiredPrinterRecord) config.PrinterConfig {
+	p := row.Desired
 	enabled := p.Lifecycle == "active"
+	var capabilities map[string]interface{}
+	if row.ObservedSupportedProtocolsKnown {
+		capabilities = map[string]interface{}{
+			"supported_protocols": append([]string(nil), row.ObservedSupportedProtocols...),
+		}
+	}
 	return config.PrinterConfig{
 		ID:             p.ID,
 		Name:           p.Name,
@@ -324,6 +371,8 @@ func desiredPrinterConfig(p desiredPrinterWire) config.PrinterConfig {
 		USBVID:         desiredStringValue(p.Config, "vid"),
 		USBPID:         desiredStringValue(p.Config, "pid"),
 		USBSerial:      desiredStringValue(p.Config, "serial"),
+		Capabilities:   capabilities,
+		PaperWidthMM:   desiredPaperWidthMM(p.Config),
 		Enabled:        &enabled,
 	}
 }
@@ -347,7 +396,12 @@ func (a *Agent) applyDesiredPrinter(row desiredPrinterRecord) error {
 		return nil
 	}
 
-	pc := desiredPrinterConfig(row.Desired)
+	if row.Desired.ConnectionType == "network" {
+		if err := validateDesiredNetworkDestination(row.Desired.Config); err != nil {
+			return fmt.Errorf("initialize printer %s at desired revision %d: %w", row.Desired.ID, row.Desired.DesiredRevision, err)
+		}
+	}
+	pc := desiredPrinterConfig(row)
 	backend, err := printer.New(pc)
 	if err != nil {
 		return fmt.Errorf("initialize printer %s at desired revision %d: %w", pc.ID, row.Desired.DesiredRevision, err)

@@ -1,18 +1,25 @@
 import { agents, printJobs, printers } from "../db/schema";
 import { db } from "../db";
 import { isVirtualPrinterRecord } from "./printer-virtual";
-import { validatePayloadForPrinter } from "./routing";
+import { isPrinterStatusExecutable, validatePayloadForPrinter } from "./routing";
 import { validatePrintJobPayload } from "./payload";
 import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "./nanoid";
 import { canonicalize } from "./canonicalize";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "./job-delivery";
-import { isAgentAvailableForJob } from "./agent-availability";
+
 import { enforceTenantJobEntitlements } from "./entitlements";
 import { logInfo } from "./log";
 
 export const MAX_AGENT_QUEUED_JOBS = 256;
 export const MAX_AGENT_QUEUED_PAYLOAD_BYTES = 128 * 1024 * 1024;
+
+/**
+ * Queue admission intentionally does not require a fresh Agent heartbeat.
+ * Gateway jobs are durable until their expiry, so an active but temporarily
+ * offline Agent remains a valid owner. Heartbeat freshness is enforced when
+ * claiming/executing the job, not when the job is created.
+ */
 
 export class AgentQueueFullError extends Error {
   readonly code = "AGENT_QUEUE_FULL" as const;
@@ -71,6 +78,8 @@ export type CreatePrintJobOptions = {
   expiresAt?: Date;
   rateLimitKeyId?: string | null;
   requestId?: string | null;
+  /** Generate a serialized operator reprint key for this original job inside the enqueue transaction. */
+  reprintOfJobId?: string | null;
 };
 
 export type CreatePrintJobResult = {
@@ -89,7 +98,7 @@ function normalizeRequestedBy(value: string): string {
 
 async function insertQueuedJobAtomically({
   jobId, printerId, agentId, tenantId, validatedPayload, expiresAt, requestedBy,
-  idempotencyKey, destination, documentType, rateLimitKeyId, requestId,
+  idempotencyKey, destination, documentType, rateLimitKeyId, requestId, reprintOfJobId,
 }: {
   jobId: string;
   printerId: string;
@@ -103,6 +112,7 @@ async function insertQueuedJobAtomically({
   documentType?: string | null;
   rateLimitKeyId?: string | null;
   requestId?: string | null;
+  reprintOfJobId?: string | null;
 }): Promise<{ jobId: string; status: string; agentId: string; printerId: string; isReused: boolean }> {
   if (!tenantId || tenantId.length > 128) throw new PrintJobInputError("tenantId is invalid", "INVALID_TENANT", 400);
 
@@ -111,13 +121,46 @@ async function insertQueuedJobAtomically({
     // max_concurrent_jobs cannot be exceeded by racing requests.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${tenantId}`}))`);
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:agent:${agentId}`}))`);
-    if (idempotencyKey) {
-      const lockKey = `print_jobs:idempotency:${tenantId}:${idempotencyKey}`;
+
+    // Reprint coordination happens only after the tenant enqueue lock is
+    // held. While an earlier reprint of the same original job is still active,
+    // concurrent operator requests converge on that existing job instead of
+    // creating a second physical print. Once it is terminal, a new sequence is
+    // intentionally allocated for the next explicit reprint.
+    let effectiveIdempotencyKey = idempotencyKey ?? null;
+    if (reprintOfJobId) {
+      const activeReprint = await tx.execute(sql`
+        SELECT id, printer_id, agent_id, status
+        FROM print_jobs
+        WHERE tenant_id = ${tenantId}
+          AND idempotency_key LIKE ${`gw-reprint:${reprintOfJobId}:%`}
+          AND status IN ('queued', 'claimed', 'printing')
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE
+      `);
+      if (activeReprint.rows.length > 0) {
+        const row = activeReprint.rows[0] as { id: string; printer_id: string; agent_id: string; status: string };
+        return { jobId: row.id, status: row.status, agentId: row.agent_id, printerId: row.printer_id, isReused: true };
+      }
+
+      const countResult = await tx.execute(sql`
+        SELECT COUNT(*)::int AS count
+        FROM print_jobs
+        WHERE tenant_id = ${tenantId}
+          AND idempotency_key LIKE ${`gw-reprint:${reprintOfJobId}:%`}
+      `);
+      const count = Number((countResult.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
+      effectiveIdempotencyKey = `gw-reprint:${reprintOfJobId}:${count + 1}`;
+    }
+
+    if (effectiveIdempotencyKey) {
+      const lockKey = `print_jobs:idempotency:${tenantId}:${effectiveIdempotencyKey}`;
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
     }
 
-    if (idempotencyKey) {
-      const existing = await tx.execute(sql`SELECT id, printer_id, destination, document_type, payload, agent_id, status FROM print_jobs WHERE tenant_id = ${tenantId} AND idempotency_key = ${idempotencyKey} LIMIT 1 FOR UPDATE`);
+    if (effectiveIdempotencyKey) {
+      const existing = await tx.execute(sql`SELECT id, printer_id, destination, document_type, payload, agent_id, status FROM print_jobs WHERE tenant_id = ${tenantId} AND idempotency_key = ${effectiveIdempotencyKey} LIMIT 1 FOR UPDATE`);
       if (existing.rows.length > 0) {
         const row = existing.rows[0] as {
           id: string;
@@ -156,6 +199,94 @@ async function insertQueuedJobAtomically({
       }
     }
 
+    // Re-validate the runtime owner INSIDE the enqueue transaction.
+    // The initial pre-check in createPrintJobForPrinter intentionally happens
+    // before payload validation, but printer/agent lifecycle and health can
+    // change between that read and this INSERT. Without this second boundary
+    // the Gateway could persist a queued job against a retired/offline printer
+    // or a stale agent, leaving an apparently accepted job that can never be
+    // claimed. Lock order (agent -> printer) matches the manager printer PATCH
+    // path's row-lock order to avoid an enqueue-vs-reconfigure deadlock.
+    const runtimeOwner = await tx.execute(sql`
+      SELECT
+        p.lifecycle AS printer_lifecycle,
+        p.status AS printer_status,
+        p.connection_type AS printer_connection_type,
+        p.protocol AS printer_protocol,
+        p.agent_id AS printer_agent_id,
+        p.management_source AS management_source,
+        p.capabilities AS printer_capabilities,
+        p.applied_desired_revision AS applied_desired_revision,
+        p.desired_revision AS desired_revision,
+        a.lifecycle AS agent_lifecycle,
+        a.status AS agent_status,
+        a.last_seen_at AS agent_last_seen_at
+      FROM agents a
+      JOIN printers p
+        ON p.agent_id = a.id
+       AND p.tenant_id = a.tenant_id
+      WHERE a.id = ${agentId}
+        AND a.tenant_id = ${tenantId}
+        AND p.id = ${printerId}
+        AND p.tenant_id = ${tenantId}
+      FOR UPDATE OF a, p
+    `);
+    const owner = runtimeOwner.rows[0] as {
+      printer_lifecycle?: string;
+      printer_status?: string;
+      printer_connection_type?: string;
+      printer_protocol?: string;
+      printer_agent_id?: string;
+      management_source?: string;
+      printer_capabilities?: { supported_protocols?: string[] } | null;
+      applied_desired_revision?: number | string;
+      desired_revision?: number | string;
+      agent_lifecycle?: string;
+      agent_status?: string;
+      agent_last_seen_at?: Date | string | null;
+    } | undefined;
+    if (!owner || owner.printer_agent_id !== agentId) {
+      throw new PrintJobInputError("Printer owner changed during enqueue; retry the print operation", "PRINTER_OWNER_CHANGED", 409);
+    }
+    if (owner.printer_lifecycle !== "active") {
+      throw new PrintJobInputError(`Printer is ${owner.printer_lifecycle ?? "unavailable"}`, "PRINTER_UNAVAILABLE", 409);
+    }
+    if (!isPrinterStatusExecutable({
+      status: owner.printer_status ?? null,
+      connectionType: owner.printer_connection_type ?? null,
+      protocol: owner.printer_protocol ?? null,
+    })) {
+      throw new PrintJobInputError("Printer is not executable", "PRINTER_OFFLINE", 503);
+    }
+    if (owner.agent_lifecycle !== "active") {
+      throw new PrintJobInputError(`Agent is ${owner.agent_lifecycle ?? "unavailable"}`, "AGENT_UNAVAILABLE", 409);
+    }
+    // The Gateway queue is durable. An active Agent may be temporarily
+    // offline/stale and should still be allowed to receive a queued job; the
+    // Agent will claim it after reconnecting. Lifecycle remains the hard
+    // control-plane fence, while heartbeat freshness is execution availability,
+    // not admission eligibility.
+    if (
+      owner.management_source === "manager" &&
+      Number(owner.applied_desired_revision ?? 0) < Number(owner.desired_revision ?? 0)
+    ) {
+      throw new PrintJobInputError("Printer configuration is still applying; retry when the printer is ready", "PRINTER_UNAVAILABLE", 503);
+    }
+
+    // Capability validation is repeated under the authoritative printer row
+    // lock. The pre-check in createPrintJobForPrinter can race with a manager
+    // PATCH that changes protocol/connection/capabilities between the initial
+    // read and INSERT; without this second check, a payload accepted for the
+    // old capability set could be durably queued against the new one.
+    const runtimeCapability = validatePayloadForPrinter(validatedPayload, {
+      protocol: owner.printer_protocol,
+      connectionType: owner.printer_connection_type,
+      capabilities: owner.printer_capabilities,
+    });
+    if (!runtimeCapability.ok) {
+      throw new PrintJobCapabilityError(runtimeCapability.reason);
+    }
+
     await enforceTenantJobEntitlements(tx, tenantId);
 
     const counts = await tx.execute(sql`
@@ -190,7 +321,7 @@ async function insertQueuedJobAtomically({
       payload: validatedPayload,
       requestedBy,
       requestId: requestId ?? null,
-      idempotencyKey: idempotencyKey ?? null,
+      idempotencyKey: effectiveIdempotencyKey,
       expiresAt,
     });
 
@@ -218,7 +349,7 @@ export async function createPrintJobForPrinter(
   if (!printer) throw new PrintJobInputError("Printer not found", "PRINTER_NOT_FOUND", 404);
   if (printer.lifecycle !== "active") throw new PrintJobInputError(`Printer is ${printer.lifecycle}`, "PRINTER_UNAVAILABLE", 409);
   if (isVirtualPrinterRecord(printer)) throw new PrintJobInputError("Printer is virtual or redirected", "PRINTER_VIRTUAL", 409);
-  if (printer.status !== "online") throw new PrintJobInputError("Printer is not online", "PRINTER_OFFLINE", 503);
+  if (!isPrinterStatusExecutable(printer)) throw new PrintJobInputError("Printer is not executable", "PRINTER_OFFLINE", 503);
 
   const validatedPayload = validatePrintJobPayload(payload);
   const capability = validatePayloadForPrinter(validatedPayload, {
@@ -229,9 +360,6 @@ export async function createPrintJobForPrinter(
   const ownerAgent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, options.tenantId)) });
   if (!ownerAgent) throw new PrintJobInputError("Printer owner agent not found", "AGENT_NOT_FOUND", 404);
   if (ownerAgent.lifecycle !== "active") throw new PrintJobInputError(`Agent is ${ownerAgent.lifecycle}`, "AGENT_UNAVAILABLE", 409);
-  if (!isAgentAvailableForJob(ownerAgent)) {
-    throw new PrintJobInputError("Printer owner agent is offline or stale", "AGENT_UNAVAILABLE", 503);
-  }
 
   if (typeof options.tenantId !== "string" || !options.tenantId.trim()) throw new PrintJobInputError("tenant context is required", "TENANT_CONTEXT_REQUIRED", 500);
 
@@ -254,6 +382,7 @@ export async function createPrintJobForPrinter(
     documentType: options.documentType ?? null,
     rateLimitKeyId: options.rateLimitKeyId ?? null,
     requestId: options.requestId ?? null,
+    reprintOfJobId: options.reprintOfJobId ?? null,
     tenantId: options.tenantId,
   });
   logInfo("print.trace.gateway_enqueue", {

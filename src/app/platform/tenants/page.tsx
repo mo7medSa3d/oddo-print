@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   AlertOctagon,
   Building2,
@@ -77,6 +77,13 @@ export default function PlatformTenantsPage() {
     };
   }, [reloadKey]);
 
+  const closeDialog = useCallback(() => {
+    if (actionLoading) return;
+    setSelectedTenant(null);
+    setSuspendReason("");
+    setActionError(null);
+  }, [actionLoading]);
+
   useEffect(() => {
     if (!selectedTenant) return;
 
@@ -88,7 +95,7 @@ export default function PlatformTenantsPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedTenant, actionLoading]);
+  }, [selectedTenant, actionLoading, closeDialog]);
 
   function handleRefresh() {
     setLoading(true);
@@ -111,12 +118,7 @@ export default function PlatformTenantsPage() {
     setActionError(null);
   }
 
-  function closeDialog() {
-    if (actionLoading) return;
-    setSelectedTenant(null);
-    setSuspendReason("");
-    setActionError(null);
-  }
+
 
   async function handleLifecycleAction() {
     if (!selectedTenant) return;

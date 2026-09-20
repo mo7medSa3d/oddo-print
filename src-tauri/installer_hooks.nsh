@@ -7,13 +7,14 @@
   DetailPrint "Stopping existing Yasser Agent and Manager..."
   nsExec::Exec 'net stop YasserAgent'
   nsExec::Exec 'sc stop YasserAgent'
-  nsExec::Exec 'taskkill /F /T /IM YasserAgent.exe'
-  nsExec::Exec 'taskkill /F /T /IM yasser-manager.exe'
-  ; Legacy cleanup for smooth upgrade:
+  ; Never mass-kill by image name: a per-machine installer must not terminate
+  ; an unrelated process that happens to share the executable name. The
+  ; YasserAgent service is stopped explicitly below; the desktop manager is
+  ; allowed to exit through the installer/runtime lifecycle rather than a
+  ; broad taskkill.
+  ; Legacy service cleanup for smooth upgrade (service identity is explicit):
   nsExec::Exec 'net stop OdooPrintAgent'
   nsExec::Exec 'sc stop OdooPrintAgent'
-  nsExec::Exec 'taskkill /F /T /IM OdooPrintAgent.exe'
-  nsExec::Exec 'taskkill /F /T /IM OdooPrintManager.exe'
 !macroend
 
 
@@ -39,8 +40,8 @@
   DetailPrint "Stopping and removing Yasser Agent Windows Service..."
   nsExec::Exec 'net stop YasserAgent'
   nsExec::Exec 'sc stop YasserAgent'
-  nsExec::Exec 'taskkill /F /T /IM yasser-manager.exe'
-  nsExec::Exec 'taskkill /F /T /IM YasserAgent.exe'
+  ; Do not use image-name taskkill here. The service lifecycle commands below
+  ; target only the named YasserAgent Windows service.
   IfFileExists "$INSTDIR\resources\YasserAgent.exe" 0 +4
     nsExec::Exec '"$INSTDIR\resources\YasserAgent.exe" -service stop'
     nsExec::Exec '"$INSTDIR\resources\YasserAgent.exe" -service uninstall'

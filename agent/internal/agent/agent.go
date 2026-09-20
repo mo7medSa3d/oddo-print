@@ -43,6 +43,37 @@ const (
 	maxPendingJobsPerPrinter = 8
 )
 
+// Gateway response bounds. Every control-plane response read is capped so a
+// hostile or buggy server cannot make the agent allocate without limit:
+//   - error/diagnostic bodies are only logged, so 8 KiB keeps both the
+//     allocation and the log line bounded;
+//   - the job poll carries at most maxClaimBatch jobs, each bounded by
+//     payload.MaxPayloadBytes (the same ceiling dispatch enforces), so the
+//     product is the documented batch ceiling — a larger response is a
+//     contract violation and is rejected instead of absorbed;
+//   - the heartbeat carries manager-owned desired state: per-printer config
+//     is capped at 16 KiB by the gateway but max_printers may be unlimited,
+//     so this is a generous hard ceiling over any real fleet, not a
+//     contract value.
+const (
+	maxGatewayErrorBodyBytes = 8 << 10
+	maxClaimBatch            = 20
+	// Heartbeat is control-plane metadata only. Keep a hard multi-megabyte
+	// ceiling; real printer desired-state payloads are far smaller, and a
+	// bounded cap prevents a malformed gateway from consuming hundreds of MiB.
+	maxHeartbeatBytes = 32 << 20
+)
+
+func maxPollJobsBytes() int64 {
+	return int64(maxClaimBatch) * int64(payload.MaxPayloadBytes)
+}
+
+// pollJobsByteLimit is the live poll-response ceiling. It defaults to the
+// documented batch product and is only varied by tests in this package
+// (which run sequentially), so a bounded read can be exercised without
+// transferring the full production ceiling.
+var pollJobsByteLimit = maxPollJobsBytes()
+
 // shutdownGrace bounds how long Run waits for in-flight jobs after the agent
 // is asked to stop. The Windows SCM default stop timeout is 30s.
 const shutdownGrace = 25 * time.Second
@@ -129,6 +160,10 @@ type Agent struct {
 	shutdownCh  chan struct{}
 	shutdownOne sync.Once
 	closeOne    sync.Once
+	// shutdownGate serializes shutdown with dispatch registration.
+	shutdownGate sync.RWMutex
+	// runtimeWG tracks background goroutines owned by Run until shutdown drains them.
+	runtimeWG sync.WaitGroup
 
 	wsMu   sync.RWMutex
 	wsConn *websocket.Conn
@@ -211,13 +246,22 @@ func (a *Agent) deleteProbeState(printerID string) {
 // a real backend status probe returns a usable device state. Instantiating a
 // backend from configuration is not proof that the device is reachable.
 func (a *Agent) observeDesiredRevision(printerID, status string) {
-	if status != "online" && status != "busy" {
-		return
-	}
 	a.desiredStateMu.Lock()
 	defer a.desiredStateMu.Unlock()
 	row, ok := a.desiredStates[printerID]
 	if !ok || row.Desired.Lifecycle != "active" || row.ApplyError != "" {
+		return
+	}
+	usable := status == "online" || status == "busy"
+	if status == "unknown" && row.Desired.ConnectionType == "network" {
+		switch strings.ToLower(strings.TrimSpace(row.Desired.Protocol)) {
+		case "raw", "escpos", "zpl", "tspl":
+			// Status() reached the device but has no readable back-channel. This
+			// proves connectivity/config observation without claiming health.
+			usable = true
+		}
+	}
+	if !usable {
 		return
 	}
 	if row.AppliedDesiredRevision >= row.Desired.DesiredRevision &&
@@ -543,7 +587,17 @@ func (a *Agent) Close() error {
 // beginShutdown atomically closes the job-acceptance gate. Safe to call more
 // than once (e.g. service stop after an interactive Ctrl+C).
 func (a *Agent) beginShutdown() {
+	a.shutdownGate.Lock()
+	defer a.shutdownGate.Unlock()
 	a.shutdownOne.Do(func() { close(a.shutdownCh) })
+}
+
+func (a *Agent) launchTracked(fn func()) {
+	a.runtimeWG.Add(1)
+	go func() {
+		defer a.runtimeWG.Done()
+		fn()
+	}()
 }
 
 func (a *Agent) Run(ctx context.Context) error {
@@ -558,14 +612,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Crash recovery must run before any new delivery is accepted.
 	a.recoverInterruptedJobs(ctx)
 
-	go a.connectWebSocket(ctx)
-
-	var discoveryWg sync.WaitGroup
-	discoveryWg.Add(1)
-	go func() {
-		defer discoveryWg.Done()
-		a.runInitialAsyncDiscovery(ctx)
-	}()
+	a.launchTracked(func() { a.connectWebSocket(ctx) })
+	a.launchTracked(func() { a.runInitialAsyncDiscovery(ctx) })
 
 	heartbeatTicker := time.NewTicker(30 * time.Second)
 	pollTicker := time.NewTicker(10 * time.Second) // Fallback poll
@@ -577,9 +625,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer cleanupTicker.Stop()
 
 	// Send an immediate heartbeat/poll on startup instead of waiting a full tick.
-	go a.sendHeartbeatGuarded()
-	go a.pollJobsGuarded(ctx)
-	go a.pollDiscovery(ctx)
+	a.launchTracked(func() { a.sendHeartbeatGuarded() })
+	a.launchTracked(func() { a.pollJobsGuarded(ctx) })
+	a.launchTracked(func() { a.pollDiscovery(ctx) })
 
 	// Counts poll ticks skipped because the WebSocket is connected.
 	wsSafetyPollTicks := 0
@@ -592,13 +640,13 @@ func (a *Agent) Run(ctx context.Context) error {
 			if c := a.getWSConn(); c != nil {
 				_ = c.Close()
 			}
-			discoveryWg.Wait()
+			a.runtimeWG.Wait()
 			a.waitForJobs()
 			return nil
 		case <-heartbeatTicker.C:
 			// Never block the select loop: heartbeat probes TCP-reachability
 			// of every configured printer, which can take seconds when offline.
-			go a.sendHeartbeatGuarded()
+			a.launchTracked(func() { a.sendHeartbeatGuarded() })
 		case <-pollTicker.C:
 			// Poll is the primary delivery path while the WebSocket is down.
 			// While the socket IS up it still runs as a safety net every
@@ -609,25 +657,25 @@ func (a *Agent) Run(ctx context.Context) error {
 			// would sit claimed until the agent happened to disconnect.
 			if a.getWSConn() == nil {
 				wsSafetyPollTicks = 0
-				go a.pollJobsGuarded(ctx)
+				a.launchTracked(func() { a.pollJobsGuarded(ctx) })
 			} else {
 				wsSafetyPollTicks++
 				if wsSafetyPollTicks >= wsSafetyPollEvery {
 					wsSafetyPollTicks = 0
-					go a.pollJobsGuarded(ctx)
+					a.launchTracked(func() { a.pollJobsGuarded(ctx) })
 				}
 			}
 		case <-discoveryTicker.C:
-			go a.pollDiscovery(ctx)
+			a.launchTracked(func() { a.pollDiscovery(ctx) })
 		case <-cleanupTicker.C:
-			go func() {
+			a.launchTracked(func() {
 				deleted, err := a.queue.CleanupTerminal(7)
 				if err != nil {
 					log.Printf("Background queue cleanup failed: %v", err)
 				} else if deleted > 0 {
 					log.Printf("Background queue cleanup deleted %d old terminal jobs", deleted)
 				}
-			}()
+			})
 		}
 	}
 }
@@ -907,10 +955,12 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 	// closed, so any Add that passes the gate is guaranteed to happen before
 	// that Wait — a late Add can never race with a Wait observing a zero
 	// counter (sync.WaitGroup's forbidden interleaving).
+	a.shutdownGate.RLock()
 	a.inFlightMu.Lock()
 	select {
 	case <-a.shutdownCh:
 		a.inFlightMu.Unlock()
+		a.shutdownGate.RUnlock()
 		// The agent is stopping. Report a FENCED pre-execution rejection so
 		// the gateway can re-queue the job without burning attempts. If the
 		// PATCH fails (network down), the undelivered-claim sweep remains
@@ -921,26 +971,15 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 	default:
 	}
 	if _, dup := a.inFlight[jobID]; dup {
-		// A redelivery of a job this agent is ALREADY executing (the exact
-		// shape of a gateway reclaim after a lost delivery-evidence write):
-		// never print it a second time, but ADOPT the newer claim token and
-		// its delivery timestamp. Otherwise the keep-alive heartbeats and the
-		// eventual terminal report would stay bound to the superseded
-		// attempt's token, the gateway would fence-reject them as stale, and
-		// a physically real result would strand as an unknown outcome; and
-		// authorizeDispatchAfterReportFailure would judge the freshness
-		// window against the OLD envelope's arrival instead of the hand-off
-		// this agent just accepted. (The maps are first initialized by the
-		// normal registration below; a duplicate can only follow a
-		// successful registration, so they already exist here.)
-		if tok := jobClaimToken(job); tok != "" && a.inFlightTokens != nil {
-			a.inFlightTokens[jobID] = tok
-			if a.inFlightReceived != nil {
-				a.inFlightReceived[jobID] = time.Now()
-			}
-		}
+		// Never adopt a newer claim token while a physical attempt is already
+		// executing locally. Doing so would let the original hardware attempt
+		// finalize a newer Gateway claim and could make a second claimant look
+		// authoritative while bytes are still in flight. The local ledger is
+		// the final duplicate barrier; the newer delivery remains fenced by
+		// its own token and is reconciled by the Gateway's unknown-outcome path.
 		a.inFlightMu.Unlock()
-		log.Printf("Job %s is already in flight; duplicate delivery ignored (latest claim token adopted).", jobID)
+		a.shutdownGate.RUnlock()
+		log.Printf("Job %s is already in flight; duplicate delivery ignored without changing the active claim token.", jobID)
 		return
 	}
 	pendingPrinter := ""
@@ -949,6 +988,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 	}
 	if pendingPrinter != "" && a.pendingByPrinter[pendingPrinter] >= maxPendingJobsPerPrinter {
 		a.inFlightMu.Unlock()
+		a.shutdownGate.RUnlock()
 		log.Printf("Job %s dropped: printer %s has reached the per-printer pending ceiling (%d); handing it back to the gateway queue.", jobID, pendingPrinter, maxPendingJobsPerPrinter)
 		a.rejectJob(ctx, jobID, jobClaimToken(job), "printer_pending_full")
 		return
@@ -971,6 +1011,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 	a.inFlightReceived[jobID] = time.Now()
 	a.wg.Add(1)
 	a.inFlightMu.Unlock()
+	a.shutdownGate.RUnlock()
 
 	select {
 	case a.pendingSlots <- struct{}{}:
@@ -1148,7 +1189,7 @@ func (a *Agent) rejectJob(ctx context.Context, jobID, token, reason string) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes))
 		log.Printf("Job %s: server rejected the pending-full rejection (%d): %s", jobID, resp.StatusCode, string(respBody))
 	}
 }
@@ -1237,19 +1278,23 @@ func (a *Agent) deviceFacts(printerID string) (printer.TransportFacts, bool) {
 		family = "unknown"
 	}
 	var caps []string
+	supportedProtocolsDeclared := false
 	if explicit, ok := pc.Capabilities["supported_protocols"].([]interface{}); ok {
+		supportedProtocolsDeclared = true
 		for _, v := range explicit {
 			if str, ok := v.(string); ok {
 				caps = append(caps, strings.ToLower(strings.TrimSpace(str)))
 			}
 		}
 	} else if explicit, ok := pc.Capabilities["supported_protocols"].([]string); ok {
+		supportedProtocolsDeclared = true
 		caps = explicit
 	}
 	return printer.TransportFacts{
-		Protocol:          family,
-		Connection:        pc.NormalizedType(),
-		SupportedProtocol: caps,
+		Protocol:                  family,
+		Connection:                pc.NormalizedType(),
+		SupportedProtocol:         caps,
+		SupportedProtocolDeclared: supportedProtocolsDeclared,
 	}, true
 }
 
@@ -1374,6 +1419,7 @@ collect:
 		}
 	}
 
+	observedCapabilityStateChanged := false
 	result := make([]map[string]interface{}, 0, len(ids))
 	for i, id := range ids {
 		pc := configByID[id]
@@ -1448,24 +1494,41 @@ collect:
 		}
 		// Capabilities: always report which document kinds this backend can
 		// physically print, so the gateway routing layer can reject an
-		// incompatible job (e.g. PDF to an ESC/POS byte stream) before it is
-		// ever queued. An explicitly configured supported_protocols list is
-		// left untouched.
+		// incompatible job before it is ever queued. An explicitly configured
+		// supported_protocols list is left untouched.
 		caps := make(map[string]interface{}, len(pc.Capabilities)+1)
 		for k, v := range pc.Capabilities {
 			caps[k] = v
 		}
+		facts, _ := a.deviceFacts(id)
 		if _, ok := caps["supported_protocols"]; !ok {
 			// Derive the honest protocol list from the declared transport
 			// (mirrors the canonical capability table); never invent
 			// cross-protocol compatibility.
-			facts, _ := a.deviceFacts(id)
 			caps["supported_protocols"] = printer.SupportedProtocolsForDevice(facts)
+		}
+		if facts.SupportedProtocolDeclared {
+			a.desiredStateMu.Lock()
+			if row, managed := a.desiredStates[id]; managed {
+				observed := append([]string(nil), facts.SupportedProtocol...)
+				if !row.ObservedSupportedProtocolsKnown || !reflect.DeepEqual(row.ObservedSupportedProtocols, observed) {
+					row.ObservedSupportedProtocols = observed
+					row.ObservedSupportedProtocolsKnown = true
+					a.desiredStates[id] = row
+					observedCapabilityStateChanged = true
+				}
+			}
+			a.desiredStateMu.Unlock()
 		}
 		if len(caps) > 0 {
 			entry["capabilities"] = caps
 		}
 		result = append(result, entry)
+	}
+	if observedCapabilityStateChanged {
+		if err := a.persistDesiredState(); err != nil {
+			log.Printf("WARNING: failed to persist observed printer capabilities: %v", err)
+		}
 	}
 	return result
 }
@@ -1526,7 +1589,7 @@ func endpointToConfig(pc config.PrinterConfig) map[string]interface{} {
 		}
 		// Add diagnostic if direct USB without spooler
 		if pc.SpoolerName == "" {
-			cfgMap["diagnostic"] = "USB device requires Windows spooler queue for printing"
+			cfgMap["diagnostic"] = "Direct USB transport requires a Windows device interface path; use a spooler_name only for Windows print-queue transport"
 		}
 	case "ipp", "ipps":
 		cfgMap["address"] = pc.Endpoint
@@ -1668,7 +1731,7 @@ func (a *Agent) sendHeartbeat() {
 		return
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxHeartbeatBytes))
 	if resp.StatusCode >= 300 {
 		log.Printf("Heartbeat rejected (%d): %s", resp.StatusCode, string(body))
 		return
@@ -1713,13 +1776,13 @@ func (a *Agent) pollJobs(ctx context.Context) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes))
 		log.Printf("Poll rejected (%d): %s", resp.StatusCode, string(body))
 		return
 	}
 
 	var jobs []map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, pollJobsByteLimit)).Decode(&jobs); err != nil {
 		log.Printf("Poll: failed to decode job list: %v", err)
 		return
 	}
@@ -2029,7 +2092,7 @@ func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, clai
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes))
 		log.Printf("Job %s: server rejected status update to %q (%d): %s", jobID, status, resp.StatusCode, string(respBody))
 		// Fence rejection: the gateway no longer recognizes this claim
 		// (expired and reassigned, or never valid). Callers MUST treat this

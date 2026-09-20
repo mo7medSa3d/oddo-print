@@ -526,8 +526,8 @@ class PrintGatewayJob(models.Model):
                 raise ValidationError(_("Stored print payload decoded to empty content."))
         except Exception as exc:
             raise ValidationError(_("Stored print payload data is not valid base64.")) from exc
-        if len(decoded) > 8 * 1024 * 1024:
-            raise ValidationError(_("Stored print payload exceeds the 8 MiB safety limit."))
+        if len(decoded) > 5 * 1024 * 1024:
+            raise ValidationError(_("Stored print payload exceeds the 5 MiB Gateway/Agent safety limit."))
         # Content/signature parity with the Gateway and agent validators:
         # what claims to be a PDF must start with %PDF-, a raster must be a
         # JPEG, and byte streams must not smuggle PDF headers.
@@ -812,10 +812,22 @@ class PrintGatewayJob(models.Model):
         self = self.sudo()
         MAX_FAILOVER_DEPTH = 3
         for job in self:
-            # Terminal is terminal, with OR without a remote id: a job that
-            # failed before ever receiving a gateway id must not be silently
-            # re-submitted (attempts, state and audit would be rewritten).
-            # Only an explicit operator reprint creates a NEW operation.
+            # Once a Gateway job id exists, this Odoo outbox row has already
+            # crossed the remote dispatch boundary. Never POST the same row
+            # again: intent recovery after a crash must not turn a lost local
+            # finalize into a second physical print. Explicit reprint actions
+            # create a NEW outbox row with a NEW idempotency key.
+            if job.gateway_job_id:
+                _logger.info(
+                    "Skipping re-submit of Odoo print job %s; Gateway job %s already exists",
+                    job.id, job.gateway_job_id,
+                )
+                continue
+
+            # Terminal is terminal. A job that failed before ever receiving a
+            # gateway id must not be silently re-submitted (attempts, state
+            # and audit would be rewritten). Only an explicit operator reprint
+            # creates a NEW operation.
             if job.status in self._TERMINAL:
                 continue
 
@@ -829,8 +841,34 @@ class PrintGatewayJob(models.Model):
                     response = requests.post(
                         "%s/api/print/jobs" % gateway_config._gateway_base(for_request=True),
                         json=job._submission_body(), headers=gateway_config._gateway_headers(),
-                        timeout=(5, 20), allow_redirects=False,
+                        timeout=20, allow_redirects=False,
                     )
+                    if response.status_code == 429:
+                        # Quota/entitlement throttling is a definite server-side
+                        # rejection: the Gateway did not accept a new job, so
+                        # retrying the same idempotency key is physically safe.
+                        # Honor Retry-After when present and clamp it to a sane
+                        # range so a malformed header cannot create a runaway delay.
+                        retry_after = 60
+                        try:
+                            retry_after = int(response.headers.get("Retry-After", "60"))
+                        except (TypeError, ValueError):
+                            retry_after = 60
+                        retry_after = min(3600, max(5, retry_after))
+                        values = {
+                            "status": "queued",
+                            "attempts": job.attempts + 1,
+                            "last_error": "GATEWAY_RATE_LIMITED: Gateway returned HTTP 429",
+                            "next_retry_at": fields.Datetime.now() + datetime.timedelta(seconds=retry_after),
+                        }
+                        if raise_on_failure:
+                            job._persist_state(values)
+                        else:
+                            job.write(values)
+                        if raise_on_failure:
+                            raise ValidationError(_("Gateway is temporarily rate-limiting print submissions. The job was safely re-queued for retry.")) 
+                        break
+
                     if response.status_code not in (200, 201):
                         # Deterministic client-side rejections (invalid
                         # payload semantics, capability mismatch, idempotency
@@ -891,6 +929,8 @@ class PrintGatewayJob(models.Model):
                     }
                     if remote_status == "failed" and remote_error:
                         values["last_error"] = str(remote_error)[:4000]
+                    if remote_status in {"success", "failed", "unknown"}:
+                        values["completed_at"] = fields.Datetime.now()
                     # An idempotent replay may report the job beyond
                     # 'submitted' (claimed/printing/success at the Gateway).
                     # Record it hop-by-hop through the canonical chain rather
@@ -996,6 +1036,25 @@ class PrintGatewayJob(models.Model):
                     break
         return True
 
+    @api.private
+    def _apply_gateway_late_success(self, job, values):
+        """Apply the Gateway's explicitly-authorized late physical success.
+
+        The Gateway permits this only after an earlier unknown-outcome failure
+        and an explicit LATE_SUCCESS marker. Keep it outside the normal write
+        transition matrix so ordinary callers cannot turn a terminal failure
+        into success.
+        """
+        job.ensure_one()
+        if job.status != "failed" or job.physical_outcome != "unknown":
+            raise ValidationError(_("Gateway late success is only valid for an unknown-outcome failed job."))
+        gateway_error = str(values.get("last_error") or "")
+        if not gateway_error.startswith("LATE_SUCCESS:"):
+            raise ValidationError(_("Gateway late success requires its explicit LATE_SUCCESS marker."))
+        success_values = dict(values)
+        success_values["status"] = "success"
+        super(PrintGatewayJob, job).write(success_values)
+
     def _apply_synced_status(self, job, body):
         status = str(body.get("status") or "").strip().lower()
         if status in ("completed", "success"):
@@ -1023,7 +1082,10 @@ class PrintGatewayJob(models.Model):
             values["completed_at"] = fields.Datetime.now()
         if status == "submitted" and job.status in ("claimed", "printing"):
             return True
-        self._advance_status(job, status, values)
+        if status == "success" and job.status == "failed" and str(values.get("last_error") or "").startswith("LATE_SUCCESS:"):
+            self._apply_gateway_late_success(job, values)
+        else:
+            self._advance_status(job, status, values)
         if status == "success":
             job._post_source_audit(_("Print Job #%s completed by Gateway agent on '%s'") % (job.gateway_job_id or job.id, job.printer_id))
         elif status in ("partial", "unknown"):
@@ -1052,7 +1114,7 @@ class PrintGatewayJob(models.Model):
                 response = requests.get(
                     "%s/api/print/jobs" % gateway_config._gateway_base(for_request=True),
                     params={"id": job.gateway_job_id}, headers=gateway_config._gateway_headers(),
-                    timeout=(5, 10), allow_redirects=False,
+                    timeout=10, allow_redirects=False,
                 )
                 if response.status_code == 404:
                     job.write({
@@ -1238,14 +1300,15 @@ class PrintGatewayJob(models.Model):
     def cron_submit_pending(self):
         self._require_cron_runner()
         now = fields.Datetime.now()
-        # Bound query batch (limit=50) with FOR UPDATE SKIP LOCKED to prevent concurrent cron workers collision
-        # Equivalent domain: [("status", "=", "queued"), "|", ("next_retry_at", "=", False), ("next_retry_at", "<=", now)]
+        # Select a bounded batch without holding PostgreSQL row locks across
+        # outbound HTTP. Gateway idempotency makes overlapping cron workers
+        # safe: a concurrent submit of the same logical operation resolves to
+        # the same Gateway job instead of creating a second physical print.
         self.env.cr.execute("""
             SELECT id FROM print_gateway_print_job
             WHERE status = 'queued' AND (next_retry_at IS NULL OR next_retry_at <= %s)
             ORDER BY id ASC
             LIMIT 50
-            FOR UPDATE SKIP LOCKED
         """, (now,))
         job_ids = [row[0] for row in self.env.cr.fetchall()]
         if not job_ids:
@@ -1262,13 +1325,14 @@ class PrintGatewayJob(models.Model):
     @api.private
     def cron_sync_status(self):
         self._require_cron_runner()
-        # Bound query batch (limit=100) with FOR UPDATE SKIP LOCKED to prevent worker overlap
+        # Status synchronization is read/reconciliation work; no physical
+        # side effect occurs at selection time. Avoid keeping database row
+        # locks while waiting on remote HTTP responses.
         self.env.cr.execute("""
             SELECT id FROM print_gateway_print_job
-            WHERE gateway_job_id IS NOT NULL AND status NOT IN ('success', 'failed', 'unknown')
+            WHERE gateway_job_id IS NOT NULL AND status NOT IN ('success', 'failed', 'partial', 'unknown')
             ORDER BY id ASC
             LIMIT 100
-            FOR UPDATE SKIP LOCKED
         """)
         job_ids = [row[0] for row in self.env.cr.fetchall()]
         if not job_ids:
@@ -1295,7 +1359,7 @@ class PrintGatewayJob(models.Model):
                         "%s/api/print/jobs/batch-status" % config._gateway_base(for_request=True),
                         json={"jobIds": job_ids},
                         headers=config._gateway_headers(),
-                        timeout=(5, 15),
+                        timeout=15,
                         allow_redirects=False,
                     )
                     if response.status_code == 200:
@@ -1329,5 +1393,12 @@ class PrintGatewayJob(models.Model):
                             total_synced += 1
                         except Exception:
                             pass
+
+                # Let Odoo's scheduler commit each bounded unit of work and
+                # enforce its remaining-time budget instead of accumulating
+                # locks/state across the entire 100-job batch.
+                remaining = self.env["ir.cron"]._commit_progress(len(chunk))
+                if remaining <= 0:
+                    break
 
         return total_synced

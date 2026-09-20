@@ -92,6 +92,7 @@ fn main() {
             commands::get_gateway_config,
             commands::set_gateway_config,
             commands::gateway_request,
+            commands::gateway_agent_request,
             commands::clear_manager_session,
             commands::has_manager_session,
             commands::get_runtime_paths,

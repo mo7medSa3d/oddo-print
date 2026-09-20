@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { discoverySessions, discoveredDevices } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "../../../../lib/nanoid";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
@@ -28,7 +28,11 @@ const deviceSchema = z.object({
   ipAddress: z.string().max(45).optional(),
   hostname: z.string().max(255).optional(),
   port: z.number().int().min(1).max(65535).optional(),
+  uri: z.string().max(1024).optional(),
   deviceName: z.string().max(255).optional(),
+  spoolerName: z.string().max(255).optional(),
+  deviceClass: z.enum(["thermal", "laser", "inkjet", "label", "other", "unknown"]).optional(),
+  transport: z.string().max(32).optional(),
   manufacturer: z.string().max(120).optional(),
   model: z.string().max(255).optional(),
   serialNumber: z.string().max(120).optional(),
@@ -53,11 +57,6 @@ export async function POST(req: Request) {
   if (!discoveryId) return NextResponse.json({ error: "discoveryId required" }, { status: 400 });
   if (devices.length > MAX_DISCOVERY_DEVICES) return NextResponse.json({ error: `Too many devices in one discovery report; maximum is ${MAX_DISCOVERY_DEVICES}` }, { status: 413 });
 
-  const session = await db.query.discoverySessions.findFirst({ where: and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId)) });
-  if (!session) return NextResponse.json({ error: "Discovery not found" }, { status: 404 });
-  if (session.agentId !== agent.id) return NextResponse.json({ error: "Forbidden: discovery belongs to another agent" }, { status: 403 });
-  if (session.status !== "running") return NextResponse.json({ error: `Discovery already ${session.status}` }, { status: 409 });
-
   const parsedDevices = [] as Array<ReturnType<typeof deviceSchema.parse>>;
   for (const raw of devices) {
     const parsed = deviceSchema.safeParse(raw);
@@ -80,7 +79,11 @@ export async function POST(req: Request) {
     ipAddress: d.ipAddress ?? null,
     hostname: d.hostname ?? null,
     port: d.port ?? null,
+    uri: d.uri ?? null,
     deviceName: d.deviceName ?? null,
+    spoolerName: d.spoolerName ?? null,
+    deviceClass: d.deviceClass ?? "unknown",
+    transport: d.transport ?? null,
     manufacturer: d.manufacturer ?? null,
     model: d.model ?? null,
     serialNumber: d.serialNumber ?? null,
@@ -90,14 +93,41 @@ export async function POST(req: Request) {
     rawMetadata: d.rawMetadata ?? null,
     tenantId: agent.tenantId,
   }));
-  for (let i = 0; i < rows.length; i += DISCOVERY_INSERT_BATCH) {
-    await db.insert(discoveredDevices).values(rows.slice(i, i + DISCOVERY_INSERT_BATCH)).onConflictDoNothing();
-  }
+  const result = await db.transaction(async (tx) => {
+    // Serialize reporting against manager cancellation on the discovery session row.
+    // Once this lock is held, the running-state check and all device/status writes
+    // form one lifecycle decision: either the report lands before cancellation,
+    // or cancellation wins and no late device report is accepted.
+    const lockedSession = await tx.execute(sql`
+      SELECT id, status
+      FROM discovery_sessions
+      WHERE id = ${discoveryId}
+        AND agent_id = ${agent.id}
+        AND tenant_id = ${agent.tenantId}
+      FOR UPDATE
+    `);
+    const currentSession = lockedSession.rows[0] as { id?: string; status?: string } | undefined;
+    if (!currentSession?.id) return { kind: "not_found" as const };
+    if (currentSession.status !== "running") return { kind: "not_running" as const, status: currentSession.status ?? "unknown" };
 
-  if (status && ["completed", "partial", "failed", "cancelled"].includes(status)) {
-    await db.update(discoverySessions)
-      .set({ status, completedAt: new Date(), updatedAt: new Date(), stats: { candidates: parsedDevices.length } })
-      .where(and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId)));
-  }
-  return NextResponse.json({ ok: true, inserted: parsedDevices.length, verification: "candidate-only" });
+    let insertedCount = 0;
+    for (let i = 0; i < rows.length; i += DISCOVERY_INSERT_BATCH) {
+      const inserted = await tx.insert(discoveredDevices)
+        .values(rows.slice(i, i + DISCOVERY_INSERT_BATCH))
+        .onConflictDoNothing()
+        .returning({ id: discoveredDevices.id });
+      insertedCount += inserted.length;
+    }
+
+    if (status && ["completed", "partial", "failed", "cancelled"].includes(status)) {
+      await tx.update(discoverySessions)
+        .set({ status, completedAt: new Date(), updatedAt: new Date(), stats: { candidates: parsedDevices.length, inserted: insertedCount } })
+        .where(and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId)));
+    }
+    return { kind: "ok" as const, insertedCount };
+  });
+
+  if (result.kind === "not_found") return NextResponse.json({ error: "Discovery not found" }, { status: 404 });
+  if (result.kind === "not_running") return NextResponse.json({ error: `Discovery already ${result.status}` }, { status: 409 });
+  return NextResponse.json({ ok: true, inserted: result.insertedCount, verification: "candidate-only" });
 }

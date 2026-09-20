@@ -13,6 +13,19 @@ EVENT_TYPES = [
 ]
 
 
+def sanitize_raw_value(value, protocol):
+    """Keep Odoo field values inert inside protocol command templates."""
+    text = "" if value is False or value is None else str(value)
+    protocol = str(protocol or "").strip().lower()
+    if protocol == "zpl":
+        return "".join(ch for ch in text if ch not in "^~" and (ch >= " " or ch in "\n\t")).strip()[:200]
+    if protocol == "tspl":
+        return "".join(ch for ch in text if ch not in '"\r\n' and (ch >= " " or ch == "\t")).strip()[:200]
+    # ESC/POS values are text inside a command stream; remove C0 controls
+    # and DEL so an embedded ESC/control byte cannot create a new command.
+    return "".join(ch for ch in text if ch != "\x7f" and ch >= " ").strip()[:200]
+
+
 class PrintGatewayPolicy(models.Model):
     _name = "print_gateway.policy"
     _description = "Print Gateway Dispatch Policy"
@@ -87,21 +100,29 @@ class PrintGatewayPolicy(models.Model):
         if "." in field_name or "[" in field_name or "__" in field_name:
             raise ValueError("Attribute and index access are strictly forbidden in raw print templates.")
 
-    def render_raw_template(self, record):
-        """Deterministically render raw template string using safe scalar record attributes."""
+    def render_raw_template(self, record, protocol=None):
+        """Deterministically render a raw template while keeping field values inert.
+
+        The template itself may contain protocol commands by design, but values
+        coming from Odoo records are untrusted relative to the printer command
+        stream. Sanitize substituted values according to the declared protocol
+        so an order/customer/company field cannot inject a second command.
+        """
         self.ensure_one()
         template = self.raw_template or ""
         if not template:
             raise ValidationError(_("Raw template is empty for policy %s.") % self.name)
+
+        protocol = (protocol or self.raw_protocol or "").strip().lower()
         values = {}
         for field_name, field in record._fields.items():
             if field.type in ("char", "text", "integer", "float", "date", "datetime", "boolean", "selection"):
                 val = getattr(record, field_name)
-                values[field_name] = "" if val is False or val is None else str(val)
+                values[field_name] = sanitize_raw_value(val, protocol)
             elif field.type == "many2one":
                 rel = getattr(record, field_name)
-                values[field_name] = rel.display_name if rel else ""
-                values[f"{field_name}_id"] = rel.id if rel else ""
+                values[field_name] = sanitize_raw_value(rel.display_name if rel else "", protocol)
+                values[f"{field_name}_id"] = sanitize_raw_value(rel.id if rel else "", protocol)
         try:
             import string
             formatter = string.Formatter()
@@ -253,14 +274,24 @@ class PrintGatewayPolicy(models.Model):
             )
             binding_id = route.get("binding_id") or False
         else:
-            # Raw policy routing performs the same exact binding/protocol
-            # authorization immediately before dispatch. Explicit bindings are
-            # already authoritative and therefore safe as a dedup identity.
-            binding_id = self.binding_id.id if self.binding_id else False
+            # Resolve implicit raw targets too. Using False for every policy
+            # without an explicit binding caused unrelated branch/filter
+            # policies to collapse into one dedup key before routing.
+            route = self.env["print_gateway.print_router"].resolve_binding(
+                record=record,
+                company=record.company_id,
+                document_type="label",
+                explicit_binding=self.binding_id or None,
+                explicit_destination=self.binding_id.destination_ref if self.binding_id else None,
+                protocol=self.raw_protocol,
+                payload_type="raw",
+            )
+            binding_id = route.get("binding_id") or False
         return (
             binding_id,
             self.action_type,
             self.report_id.id if self.report_id else False,
+            self.raw_protocol or False,
             self.raw_template or False,
         )
 

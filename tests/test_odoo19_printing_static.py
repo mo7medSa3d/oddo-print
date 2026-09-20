@@ -129,3 +129,39 @@ def test_gateway_http_requires_explicit_development_opt_in():
     assert 'scheme == "http"' in source
     assert 'ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP' in source
     assert "Plain HTTP is allowed only for explicitly opted-in isolated development." in source
+
+
+def test_gateway_url_change_durably_disables_previous_endpoint_before_new_sync():
+    source = read("models/gateway_config.py")
+    assert "pending_disable_gateway_url" in source
+    assert "pending_disable_gateway_api_key" in source
+    assert "pending_disable_revision" in source
+    assert "def _sync_pending_gateway_disable" in source
+    assert 'body.get("enabled") is not False' in source
+    assert "url_migrations" in source
+    assert "new_revision = before_revision[record.id] + 1" in source
+    assert "previous Gateway endpoint has been successfully disabled" in source
+    assert "def _run_postcommit_enabled_sync" in source
+    assert "if not self._sync_pending_gateway_disable" in source
+    assert "self._sync_enabled_state_to_gateway(" in source
+    assert '"|"' in source
+    assert '"pending_disable_gateway_url", "!="' in source
+    assert "def create(self, vals_list):" in source
+    assert "Gateway URL migration state is incomplete" in source
+    assert "FOR UPDATE" in source
+    assert "invalidate_recordset" in source
+    assert "def _complete_gateway_migration" in source
+    assert "if synced and pending_disable" in source
+    assert "acknowledged_enabled is not enabled" in source
+    assert "acknowledged_revision != revision" in source
+    assert "config._complete_gateway_migration(revision)" in source
+
+
+def test_gateway_queue_admission_allows_active_agent_when_heartbeat_is_stale():
+    source = (ROOT / "src" / "lib" / "print-job-service.ts").read_text(encoding="utf-8")
+    service_start = source.index("export async function createPrintJobForPrinter")
+    service = source[service_start:]
+    assert 'ownerAgent.lifecycle !== "active"' in service
+    assert "isAgentAvailableForJob(ownerAgent)" not in service
+    assert 'owner.agent_status !== "online"' not in service
+    assert "owner.agent_last_seen_at" not in service

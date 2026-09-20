@@ -29,6 +29,12 @@ func main() {
 			handlePrintersSubcommand(args[1:], *configPath)
 			return
 		}
+		// The packaged desktop uses the paired Agent identity for Gateway
+		// console requests; it never needs a separate Manager login.
+		if args[0] == "gateway-request" {
+			handleGatewayRequest(args[1:], *configPath)
+			return
+		}
 		// Also support legacy flag style: -pair etc already handled, so unknown args => usage
 		fmt.Printf("Unknown command: %v\n", args)
 		printUsage()
@@ -71,6 +77,10 @@ func printUsage() {
 	fmt.Println("  -server is required for pairing and must be http(s).")
 	fmt.Println("  Default config path:", config.DefaultConfigPath())
 	fmt.Println("")
+	fmt.Println("Gateway console (Agent-authenticated):")
+	fmt.Println("  yasser-agent-cli.exe gateway-request -method GET -path /api/printers [-config <path>]")
+	fmt.Println("  yasser-agent-cli.exe gateway-request -method GET -path /api/jobs?limit=50 [-config <path>]")
+	fmt.Println("")
 	fmt.Println("Printer management:")
 	fmt.Println("  yasser-agent-cli.exe printers list [--json] [-config <path>]")
 	fmt.Println("  yasser-agent-cli.exe printers discover [--json] [-config <path>]")
@@ -91,13 +101,23 @@ func validateServerURL(raw string) error {
 	if err != nil {
 		return fmt.Errorf("parse url: %w", err)
 	}
-	if u.Scheme != "https" && u.Scheme != "http" {
-		return fmt.Errorf("scheme must be https or http")
-	}
-	if u.Host == "" {
+	if u.Hostname() == "" {
 		return fmt.Errorf("host is required")
 	}
-	return nil
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("server URL must not contain credentials, query strings, or fragments")
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
+			return nil
+		}
+		return fmt.Errorf("server URL must use HTTPS; plain HTTP requires an explicit development-only insecure-HTTP opt-in")
+	default:
+		return fmt.Errorf("scheme must be https or http")
+	}
 }
 
 func handlePrintersSubcommand(args []string, defaultConfigPath string) {
@@ -239,6 +259,22 @@ func handlePrintersTest(configPath, printerID string) {
 	fmt.Printf("Test print succeeded for %s (bytes submitted to spooler/TCP).\n", printerID)
 }
 
+func validateManualPrinterTransport(connectionType, endpoint, spoolerName string) error {
+	connection := strings.ToLower(strings.TrimSpace(connectionType))
+	ep := strings.TrimSpace(endpoint)
+	spooler := strings.TrimSpace(spoolerName)
+	if connection == "usb" && spooler == "" && ep == "" {
+		return fmt.Errorf("--endpoint is required for direct USB transport (Windows device path \\?\\... or \\.\\...); use --spooler-name for a Windows print queue")
+	}
+	if connection == "spooler" && spooler == "" && ep == "" {
+		return fmt.Errorf("--spooler-name or --endpoint is required for spooler printers")
+	}
+	if ep == "" && spooler == "" {
+		return fmt.Errorf("--endpoint or --spooler-name is required")
+	}
+	return nil
+}
+
 func handlePrintersAdd(configPath string, args []string) {
 	loaded := loadConfigForCLI(configPath)
 	registryPath := config.RegistryPath(loaded.path)
@@ -270,19 +306,12 @@ func handlePrintersAdd(configPath string, args []string) {
 	if strings.TrimSpace(*name) == "" {
 		log.Fatal("--name is required for printers add")
 	}
-	if strings.TrimSpace(*endpoint) == "" && strings.TrimSpace(*spoolerName) == "" && strings.TrimSpace(*vid) == "" {
-		if strings.ToLower(*typ) == "spooler" && *spoolerName != "" {
-			*endpoint = *spoolerName
-		} else {
-			log.Fatal("--endpoint or --spooler-name is required (or --vid for USB)")
-		}
+	if err := validateManualPrinterTransport(*typ, *endpoint, *spoolerName); err != nil {
+		log.Fatal(err)
 	}
 	effectiveEndpoint := *endpoint
 	if *spoolerName != "" && effectiveEndpoint == "" {
 		effectiveEndpoint = *spoolerName
-	}
-	if effectiveEndpoint == "" && *vid != "" {
-		effectiveEndpoint = fmt.Sprintf("usb-vid:%s pid:%s", *vid, *pid)
 	}
 	enabled := strings.ToLower(strings.TrimSpace(*enabledStr)) != "false"
 	var caps map[string]interface{}
@@ -326,7 +355,7 @@ func handlePrintersAdd(configPath string, args []string) {
 		fmt.Println("ID auto-generated deterministically; discover will not duplicate it.")
 	}
 	if strings.ToLower(info.ConnectionType) == "usb" && info.SpoolerName == "" {
-		fmt.Println("NOTE: USB without spooler queue will be discovered but printing requires Windows spooler queue. Install via Windows Settings > Printers and re-add with --spooler-name.")
+		fmt.Println("NOTE: direct USB uses the Windows device interface path from --endpoint; --vid/--pid identify the device but do not replace the required device path.")
 	}
 	_ = registryPath
 }

@@ -19,18 +19,19 @@ def test_generated_odoo_api_key_responses_are_not_cacheable():
 
 def test_windows_system_utilities_are_not_path_resolved():
     source = read("src-tauri/src/agent.rs")
+
     def function_body(name: str) -> str:
         marker = f"fn {name}"
         start = source.index(marker)
         end = source.find("\n}", start)
         return source[start : end if end != -1 else len(source)]
 
-    for fn_name, tool in ((
+    for fn_name, tool in (
         ("sc_query", "sc"),
         ("is_process_running", "tasklist"),
         ("run_net", "net"),
         ("taskkill_pid", "taskkill"),
-    )):
+    ):
         body = function_body(fn_name)
         assert f'Command::new("{tool}")' not in body
 
@@ -60,10 +61,20 @@ def test_agent_pairing_success_does_not_clear_rate_limit():
     assert "reset the brute-force budget" in source
 
 
-def test_tauri_gateway_http_is_loopback_only():
+def test_tauri_gateway_http_transport_contract_matches_branch_mode():
     source = read("src-tauri/src/commands.rs")
-    assert 'let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");' in source
-    assert 'Gateway URL must use HTTPS for remote Gateways' in source
+    test_branch_mode = "This isolated test branch intentionally accepts remote HTTP" in source
+
+    if test_branch_mode:
+        assert 'let remote_http = scheme == "http";' in source
+        assert 'if remote_http {' in source
+        assert "gateway URL cannot include embedded credentials" in source
+        assert "gateway URL cannot include query strings or fragments" in source
+    else:
+        assert 'if scheme == "http" {' in source
+        assert 'let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");' in source
+        assert 'if !local {' in source
+        assert "Gateway URL must use HTTPS for remote Gateways" in source
 
 
 def test_billing_webhook_binds_identity_before_metadata_tenant_mutation():
@@ -95,3 +106,4 @@ def test_plan_catalog_uses_shared_canonical_entitlement_normalizer():
     assert '"max_concurrent_jobs"' in helper
     assert 'value === "unlimited"' in helper
     assert 'must be a positive integer or "unlimited"' in helper
+

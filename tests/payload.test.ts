@@ -40,6 +40,8 @@ describe("payload", () => {
     expect(() => validatePrintJobPayload({ type: "pdf", encoding: "base64", data: Buffer.from("hello").toString("base64") })).toThrow(/PDF payload/);
     expect(() => validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: Buffer.from("%PDF-1.7").toString("base64") })).toThrow(/PDF bytes/);
     expect(() => validatePrintJobPayload({ type: "escpos", protocol: "escpos", encoding: "base64", data: Buffer.from("%PDF-1.7").toString("base64") })).toThrow(/PDF bytes/);
+    expect(() => validatePrintJobPayload({ type: "pdf", encoding: "base64", data: Buffer.from("\n%PDF-1.7").toString("base64") })).toThrow(/start with/);
+    expect(validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: Buffer.from("label %PDF- text").toString("base64") }).type).toBe("raw");
   });
   it("rejects bad type", () => {
     expect(() => validatePrintJobPayload({ type: "badtype", encoding: "base64", data: "aGVsbG8=" })).toThrow();
@@ -61,6 +63,73 @@ describe("payload", () => {
     const pdf = buildTestPdfPayload("Receipt) Tj /Injected", "Agent\\Backslash");
     expect(pdf).toContain("(Printer: Receipt\\) Tj /Injected)");
     expect(pdf).toContain("(Agent: Agent\\\\Backslash)");
+  });
+
+  it("test ticket follows the declared ZPL/TSPL protocol", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    const zpl = buildTestPrintPayloadForPrinter("Zebra", "Agent", {
+      connectionType: "network",
+      protocol: "zpl",
+      capabilities: null,
+    });
+    expect(zpl.type).toBe("raw");
+    expect(zpl.protocol).toBe("zpl");
+    expect(Buffer.from(zpl.data, "base64").toString("utf8")).toContain("^XA");
+
+    const tspl = buildTestPrintPayloadForPrinter("TSC", "Agent", {
+      connectionType: "network",
+      protocol: "tspl",
+      capabilities: null,
+    });
+    expect(tspl.type).toBe("raw");
+    expect(tspl.protocol).toBe("tspl");
+    expect(Buffer.from(tspl.data, "base64").toString("utf8")).toContain("SIZE 75 mm, 50 mm");
+  });
+
+  it("sanitizes ZPL and TSPL language delimiters in test-page names", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    const zpl = Buffer.from(buildTestPrintPayloadForPrinter("A^FS~JA", "B^XZ", { protocol: "zpl", connectionType: "network" }).data, "base64").toString("utf8");
+    expect(zpl).not.toContain("A^FS~JA");
+    expect(zpl.match(/\^XZ/g)).toHaveLength(1);
+
+    const tspl = Buffer.from(buildTestPrintPayloadForPrinter('A"\nPRINT 9,9', 'B\\"', { protocol: "tspl", connectionType: "network" }).data, "base64").toString("utf8");
+    expect(tspl).not.toContain('A"');
+    expect(tspl.match(/PRINT 1,1/g)).toHaveLength(1);
+  });
+
+  it("does not fabricate a document test for a byte-stream printer with PDF-only capabilities", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    expect(() => buildTestPrintPayloadForPrinter("RAW", "Agent", {
+      connectionType: "network",
+      protocol: "raw",
+      capabilities: { supported_protocols: ["pdf"] },
+    })).toThrow(/no supported test ticket format/i);
+  });
+
+  it("does not invent a test protocol for an unknown byte-stream printer", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    expect(() => buildTestPrintPayloadForPrinter("Unknown", "Agent", {
+      connectionType: "network",
+      protocol: "unknown",
+      capabilities: null,
+    })).toThrow(/no supported test ticket format/i);
+    expect(() => buildTestPrintPayloadForPrinter("Unknown USB", "Agent", {
+      connectionType: "usb",
+      protocol: "unknown",
+      capabilities: null,
+    })).toThrow(/no supported test ticket format/i);
+  });
+
+  it("routes network IPP test tickets to PDF instead of a byte-stream format", async () => {
+    const { buildTestPrintPayloadForPrinter, validatePrintJobPayload } = await import("../src/lib/payload");
+    const payload = buildTestPrintPayloadForPrinter("IPP Printer", "Agent", {
+      connectionType: "network",
+      protocol: "ipp",
+      capabilities: null,
+    });
+    expect(payload.type).toBe("pdf");
+    expect(payload.protocol).toBeUndefined();
+    expect(validatePrintJobPayload(payload).type).toBe("pdf");
   });
 
   it("test payload is decodable and has cut command", () => {

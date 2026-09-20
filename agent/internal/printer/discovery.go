@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -301,7 +302,7 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 						duplicate = true
 						break
 					}
-					if existing.Endpoint != "" && strings.Contains(existing.Endpoint, d.NetworkAddress) {
+					if endpointHasNetworkAddress(existing.Endpoint, d.NetworkAddress) {
 						all[i] = mergeDeviceInfo(existing, d)
 						seen[d.ID] = true
 						duplicate = true
@@ -520,9 +521,12 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		}
 		infos := discoverLPRPrinters(subCtx, lprTargets)
 		if len(infos) > 0 {
-			log.Printf("[discovery] LPR found %d printers", len(infos))
+			// LPR/LPD probing is discovery-only until a real LPR execution
+			// backend is implemented. Never promote protocol=lpr into the
+			// production printer inventory because Gateway/Agent routing
+			// intentionally supports only the implemented protocol vocabulary.
+			addErr(fmt.Sprintf("lpr discovery: found %d LPR/LPD endpoint(s), but LPR execution is not supported; candidates were not registered", len(infos)))
 		}
-		add(infos)
 	}()
 
 	// 8. SNMP (161) — read-only, public community
@@ -758,6 +762,23 @@ func ListPrinters(cfg *config.Config, registryPath string) ([]DeviceInfo, error)
 		}
 	}
 	return result.Printers, nil
+}
+
+func endpointHasNetworkAddress(endpoint, networkAddress string) bool {
+	endpoint = strings.TrimSpace(endpoint)
+	networkAddress = strings.TrimSpace(networkAddress)
+	if endpoint == "" || networkAddress == "" {
+		return false
+	}
+	if host, _, err := net.SplitHostPort(endpoint); err == nil {
+		return strings.EqualFold(strings.Trim(host, "[]"), networkAddress)
+	}
+	if strings.Contains(endpoint, "://") {
+		if u, err := url.Parse(endpoint); err == nil && u.Hostname() != "" {
+			return strings.EqualFold(u.Hostname(), networkAddress)
+		}
+	}
+	return false
 }
 
 func mergeDeviceInfo(existing, incoming DeviceInfo) DeviceInfo {

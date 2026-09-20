@@ -23,11 +23,15 @@ func TestCapabilityTableParity(t *testing.T) {
 		{"escpos device prints escpos", "escpos", "escpos", "escpos", "network", nil, true},
 		{"tspl device rejects zpl", "raw", "zpl", "tspl", "network", nil, false},
 		{"raw payload without protocol is malformed", "raw", "", "zpl", "network", nil, false},
+		{"spooler raw payload is supported", "raw", "raw", "spooler", "spooler", nil, true},
+		{"spooler escpos payload is supported", "escpos", "escpos", "spooler", "spooler", nil, true},
+		{"spooler does not imply zpl language", "raw", "zpl", "spooler", "spooler", nil, false},
 		{"pdf needs a document transport", "pdf", "", "raw", "network", nil, false},
 		{"pdf never carries a protocol", "pdf", "raw", "spooler", "spooler", nil, false},
 		{"image never carries a protocol", "image", "escpos", "escpos", "network", nil, false},
 		{"image is raster-converted by escpos", "image", "", "escpos", "network", nil, true},
 		{"image is not printable by ipp without caps", "image", "", "ipp", "ipp", nil, false},
+		{"image is raster-converted by network escpos", "image", "", "escpos", "network", nil, true},
 		// Authoritative unknown rule.
 		{"unknown+network routes nothing", "raw", "raw", "unknown", "network", nil, false},
 		{"unknown+network escpos rejected", "escpos", "escpos", "unknown", "network", nil, false},
@@ -37,16 +41,22 @@ func TestCapabilityTableParity(t *testing.T) {
 		{"unknown+spooler pdf accepted", "pdf", "", "unknown", "spooler", nil, true},
 		{"unknown+spooler image accepted", "image", "", "unknown", "spooler", nil, true},
 		{"unknown+ipp pdf accepted", "pdf", "", "unknown", "ipp", nil, true},
-		{"unknown+spooler escpos rejected", "escpos", "escpos", "unknown", "spooler", nil, false},
-		// Explicit caps are authoritative either way.
-		{"declared escpos caps allow escpos on raw pipe", "escpos", "escpos", "raw", "network", []string{"escpos"}, true},
-		{"declared pdf caps allow pdf on raw pipe", "pdf", "", "raw", "network", []string{"pdf"}, true},
+		{"unknown+spooler escpos uses spooler transport", "escpos", "escpos", "unknown", "spooler", nil, true},
+		// Explicit capability lists cannot override the concrete transport protocol;\n\t\t// they can only narrow/confirm what that backend actually speaks.
+		{"declared escpos caps cannot override raw device protocol", "escpos", "escpos", "raw", "network", []string{"escpos"}, false},
+		{"declared zpl caps cannot override raw USB device protocol", "raw", "zpl", "raw", "usb", []string{"zpl"}, false},
+		{"declared tspl caps cannot override raw TCP device protocol", "raw", "tspl", "raw", "network", []string{"tspl"}, false},
+		{"declared empty caps deny escpos even on escpos transport", "escpos", "escpos", "escpos", "network", []string{}, false},
+		{"declared pdf caps cannot add renderer to raw pipe", "pdf", "", "raw", "network", []string{"pdf"}, false},
 		{"declared caps cannot smuggle a protocol", "pdf", "raw", "spooler", "spooler", []string{"pdf"}, false},
 		// ipp and ipps are the same document transport everywhere checked.
+		{"USB-backed spooler prints pdf", "pdf", "", "spooler", "usb", nil, true},
+		{"USB-backed spooler prints image", "image", "", "spooler", "usb", nil, true},
+		{"USB-backed spooler prints escpos", "escpos", "escpos", "spooler", "usb", nil, true},
 		{"ipps transport prints pdf like ipp", "pdf", "", "ipps", "ipps", nil, true},
-		{"declared ipps caps allow pdf", "pdf", "", "raw", "network", []string{"ipps"}, true},
-		{"declared ipps caps allow image like ipp", "image", "", "raw", "network", []string{"ipps"}, true},
-		{"declared ipp caps allow image", "image", "", "raw", "network", []string{"ipp"}, true},
+		{"declared ipps caps cannot turn raw pipe into IPPS renderer", "pdf", "", "raw", "network", []string{"ipps"}, false},
+		{"declared ipps caps cannot add renderer to raw pipe", "image", "", "raw", "network", []string{"ipps"}, false},
+		{"declared ipp caps cannot add renderer to raw pipe", "image", "", "raw", "network", []string{"ipp"}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -60,6 +70,17 @@ func TestCapabilityTableParity(t *testing.T) {
 					tc.plType, tc.plProto, tc.devProto, tc.conn, tc.caps, ok, reason, tc.wantOK)
 			}
 		})
+	}
+}
+
+func TestSupportedProtocolsForUSBESCPos(t *testing.T) {
+	got := SupportedProtocolsForDevice(TransportFacts{Protocol: "escpos", Connection: "usb"})
+	if len(got) != 1 || got[0] != "escpos" {
+		t.Fatalf("direct USB ESC/POS must not advertise image rasterization, got %v", got)
+	}
+	got = SupportedProtocolsForDevice(TransportFacts{Protocol: "escpos", Connection: "network"})
+	if len(got) != 2 || got[0] != "escpos" || got[1] != "image" {
+		t.Fatalf("network ESC/POS should advertise image rasterization, got %v", got)
 	}
 }
 

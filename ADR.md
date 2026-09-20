@@ -9,7 +9,7 @@
 ## ADR-001: Modular Monolith vs. Microservices Architecture
 
 * **Context**: The Gateway platform requires user authentication, tenant management, billing, agent management, printer inventory, job queueing, and Odoo integration.
-* **Decision**: Adopt a **Modular Monolith** control plane (Next.js 15 App Router + custom HTTP/WebSocket server in a single codebase and deployment unit).
+* **Decision**: Adopt a **Modular Monolith** control plane (Next.js 16.3.4 App Router + custom HTTP/WebSocket server in a single codebase and deployment unit).
 * **Rationale**:
   * Eliminates distributed transaction failures, network latency between internal services, and complex service mesh overhead.
   * Simplifies CI/CD, local development, migration management, and operational debugging.

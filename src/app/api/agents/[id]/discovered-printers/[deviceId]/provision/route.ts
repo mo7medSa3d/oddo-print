@@ -20,6 +20,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (agent.lifecycle !== "active") return NextResponse.json({ error: `Agent is ${agent.lifecycle}` }, { status: 409 });
 
   const result = await db.transaction(async (tx) => {
+    // Lifecycle changes serialize on the same Agent row. Lock it before
+    // reading the discovery candidate so an Agent cannot be retired/disabled
+    // between the outer pre-check and printer creation.
+    const lockedAgent = await tx.execute(sql`
+      SELECT id, lifecycle
+      FROM agents
+      WHERE id = ${agentId} AND tenant_id = ${claims.tenantId}
+      FOR UPDATE
+    `);
+    const agentRow = lockedAgent.rows[0] as { id?: string; lifecycle?: string } | undefined;
+    if (!agentRow?.id) return { kind: "agent_not_found" as const };
+    if (agentRow.lifecycle !== "active") return { kind: "agent_not_active" as const };
+
     const locked = await tx.execute(sql`
       SELECT id, candidate_status, verification, provisioned_printer_id
       FROM discovered_devices
@@ -77,8 +90,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
     }
 
-    const printerConfig = { ip: device.ipAddress ?? undefined, port: device.port ?? undefined, address: device.uri ?? undefined };
-    const configError = validateConnectionConfig(transport.connectionType, printerConfig);
+    const ippAddress = device.uri
+      ?? (device.ipAddress && device.port
+        ? transport.protocol + "://" + device.ipAddress + ":" + String(device.port) + "/ipp/print"
+        : undefined);
+    const printerConfig = transport.connectionType === "spooler"
+      ? { spooler_name: device.spoolerName ?? device.deviceName ?? undefined, address: device.spoolerName ?? device.deviceName ?? undefined }
+      : transport.connectionType === "ipp" || transport.connectionType === "ipps"
+        ? { address: ippAddress }
+        : { ip: device.ipAddress ?? undefined, port: device.port ?? undefined };
+    const configError = validateConnectionConfig(transport.connectionType, printerConfig, transport.protocol);
     if (configError) return { kind: "invalid_endpoint" as const, error: configError };
 
     const printerId = `printer_${nanoid(10)}`;
@@ -105,6 +126,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return { kind: "created" as const, printerId };
   });
 
+  if (result.kind === "agent_not_found") return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+  if (result.kind === "agent_not_active") return NextResponse.json({ error: "Agent is no longer active" }, { status: 409 });
   if (result.kind === "not_found") return NextResponse.json({ error: "Device not found" }, { status: 404 });
   if (result.kind === "not_approved") {
     return NextResponse.json({ error: "DEVICE_NOT_APPROVED: a discovery candidate must be explicitly approved before provisioning", code: "DEVICE_NOT_APPROVED" }, { status: 409 });

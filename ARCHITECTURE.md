@@ -37,11 +37,11 @@ The Odoo Print Gateway is a multi-tenant SaaS platform that enables silent, hard
 
 ## 2. Component Architecture
 
-### 2.1 Central Gateway (Next.js 15 + Custom Server)
+### 2.1 Central Gateway (Next.js 16.3.4 + Custom Server)
 
 **Location**: `src/`, `server.ts`
 
-The Gateway is a Next.js 15 application with a **custom HTTP server** (`server.ts`) that:
+The Gateway is a Next.js 16.3.4 application with a **custom HTTP server** (`server.ts`) that:
 - Runs the Next.js request handler for API routes and dashboard UI
 - Attaches a WebSocket server for real-time agent communication (`/api/agent/ws`)
 - Runs periodic maintenance (job sweep, auth cleanup, agent presence sweep)
@@ -164,9 +164,10 @@ claimed → queued (fenced rejection / lease timeout)
 ### Input Validation
 
 - All API routes use Zod schema validation
-- Print job payloads validated against `payloadContractCheck` (database CHECK constraint)
+- Mutating `/api/*` requests require a valid `Content-Length`, are capped at 8 MiB, and reserve authenticated/unauthenticated concurrent-byte budgets until the response closes
+- Print job payloads are validated against `payloadContractCheck` (database CHECK constraint); PDF data must begin with `%PDF-`
 - Printer protocol/capability gating prevents incompatible job routing
-- ZPL/TSPL/ESC/POS command injection prevention via text sanitization
+- Diagnostic ZPL/TSPL/ESC/POS pages sanitize user-controlled names for their target command language
 
 ## 6. Database Architecture
 
@@ -187,16 +188,16 @@ claimed → queued (fenced rejection / lease timeout)
 
 ## 7. Job Delivery Guarantees
 
-The system implements **at-least-once delivery** with claim fencing:
+The system implements bounded at-least-once delivery with claim fencing:
 
-1. **Claim**: Gateway atomically claims a job with a unique `claim_token` and `delivery_attempts` increment
-2. **Deliver**: Job pushed to agent via WebSocket (or polled via HTTP fallback)
-3. **Evidence**: `delivered_at` timestamp written only when claim token matches
-4. **Ack**: Agent sends `job_ack` with claim token back over WebSocket
-5. **Print**: Agent executes physical print, reports terminal status with claim token
-6. **Fence**: All status transitions are fenced by claim token — stale claims are rejected
+1. **Claim**: Gateway atomically claims a job with a unique `claim_token`; both `delivery_attempts < 5` and `retries < 5` must hold.
+2. **Deliver**: Job is pushed to the agent by WebSocket or returned by HTTP polling. A hand-off consumes one delivery attempt.
+3. **Evidence**: `delivered_at` is written only when the claim token matches; an agent acknowledgement records `acked_at`.
+4. **Print**: Agent executes physical print and reports terminal status with the active claim token.
+5. **Fence**: All status transitions are fenced by claim token — stale claims are rejected.
+6. **Safe return**: A proven pre-execution rejection refunds its delivery attempt and consumes retry budget; ambiguous delivery is never retried freely.
 
-**Stale claim sweep**: Every 30s, jobs claimed for >90s without delivery evidence are requeued.
+**Stale claim sweep**: Every 30s, claims older than 90s with no delivery or acknowledgement evidence are requeued and consume retry budget. Delivered-but-silent claims and stale `printing` jobs become terminal failures with an unknown-physical-outcome marker for manual reconciliation.
 
 ## 8. WebSocket Architecture
 

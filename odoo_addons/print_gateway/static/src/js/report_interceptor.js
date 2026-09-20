@@ -78,7 +78,18 @@ async function silentPrintReportHandler(action, options, env) {
             }
         );
 
-        if (res && res.has_binding && (res.success === false || !res.dispatched)) {
+        // The controller contract always returns an explicit boolean
+        // has_binding. A malformed response is a dispatch failure and must
+        // remain fail-closed; it must never silently reopen native PDF printing.
+        if (!res || typeof res !== "object" || typeof res.has_binding !== "boolean") {
+            notification.add(
+                _t("Gateway print dispatch returned an invalid response. Native PDF download cancelled."),
+                { type: "danger", sticky: true, buttons: [openJobsButton(env)] }
+            );
+            return true;
+        }
+
+        if (res.has_binding && (res.success === false || !res.dispatched)) {
             // Sticky: a failed interception must stay visible — unlike the
             // transient success toast, a failure needs an explicit dismiss
             // so the operator never misses that no paper came out.

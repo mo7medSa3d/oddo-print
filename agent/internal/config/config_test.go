@@ -33,12 +33,87 @@ func TestValidatePrinterConfig(t *testing.T) {
 		{ID: "p1", Name: "", Type: "network", Endpoint: "1.1.1.1:9100"},
 		{ID: "p1", Name: "x", Type: "serial", Endpoint: "1.1.1.1:9100"},
 		{ID: "p1", Name: "x", Type: "network", Endpoint: "notanipport"},
-		{ID: "p1", Name: "x", Type: "network", Endpoint: "1.1.1.1:99999"},
+		{ID: "p1", Name: "x", Type: "network", Endpoint: "192.168.1.50:9101", Protocol: "raw"},
 	}
 	for i, c := range bad {
 		if err := ValidatePrinterConfig(c); err == nil {
 			t.Fatalf("case %d expected error for %+v", i, c)
 		}
+	}
+}
+
+func TestValidatePrinterConfigRejectsContradictoryTransportProtocols(t *testing.T) {
+	cases := []PrinterConfig{
+		{ID: "ipp-raw", Name: "IPP", Type: "ipp", Endpoint: "ipp://192.168.1.60/ipp/print", Protocol: "raw"},
+		{ID: "ipps-ipp", Name: "IPPS", Type: "ipps", Endpoint: "ipps://192.168.1.60/ipp/print", Protocol: "ipp"},
+		{ID: "spooler-raw", Name: "Spooler", Type: "spooler", SpoolerName: "HP", Protocol: "raw"},
+		{ID: "network-ipps", Name: "Network", Type: "network", Endpoint: "192.168.1.60:9100", Protocol: "ipps"},
+		{ID: "usb-ipp", Name: "USB IPP", Type: "usb", Protocol: "ipp", USBVID: "1234", USBPID: "5678", Endpoint: `\\\\?\\usb#device`},
+		{ID: "usb-ipps", Name: "USB IPPS", Type: "usb", Protocol: "ipps", USBVID: "1234", USBPID: "5678", Endpoint: `\\\\?\\usb#device`},
+		{ID: "usb-spooler", Name: "USB Spooler", Type: "usb", Protocol: "spooler", USBVID: "1234", USBPID: "5678", Endpoint: `\\\\?\\usb#device`},
+		{ID: "ipps-http", Name: "IPPS HTTP", Type: "ipps", Endpoint: "http://192.168.1.60:631/ipp/print", Protocol: "ipps"},
+		{ID: "ipp-creds", Name: "IPP Credentials", Type: "ipp", Endpoint: "http://user:pass@192.168.1.60:631/ipp/print", Protocol: "ipp"},
+	}
+	for _, tc := range cases {
+		if err := ValidatePrinterConfig(tc); err == nil {
+			t.Fatalf("expected contradictory transport/protocol rejection for %+v", tc)
+		}
+	}
+}
+
+func TestValidatePrinterConfigRejectsNonDeviceUSBEndpoint(t *testing.T) {
+	p := PrinterConfig{
+		ID:       "usb-bad-path",
+		Name:     "USB Bad Path",
+		Type:     "usb",
+		Protocol: "raw",
+		USBVID:   "1234",
+		USBPID:   "5678",
+		Endpoint: "HP LaserJet",
+	}
+	if err := ValidatePrinterConfig(p); err == nil {
+		t.Fatal("expected direct USB endpoint to require a Windows device path")
+	}
+}
+
+func TestValidatePrinterConfigAllowsUSBSpoolerWithoutVIDPID(t *testing.T) {
+	p := PrinterConfig{
+		ID:          "usb-spooler",
+		Name:        "USB Queue",
+		Type:        "usb",
+		Protocol:    "spooler",
+		SpoolerName: "Receipt Printer",
+	}
+	if err := ValidatePrinterConfig(p); err != nil {
+		t.Fatalf("USB printer backed by a Windows spooler should not require VID/PID: %v", err)
+	}
+}
+
+func TestValidatePrinterConfigAllowsCompatibleTransportProtocols(t *testing.T) {
+	cases := []PrinterConfig{
+		{ID: "network-raw", Name: "RAW", Type: "network", Endpoint: "192.168.1.60:9100", Protocol: "raw"},
+		{ID: "network-ipp", Name: "Network IPP", Type: "network", Endpoint: "192.168.1.60:631", Protocol: "ipp"},
+		{ID: "ipp", Name: "IPP", Type: "ipp", Endpoint: "ipp://192.168.1.60/ipp/print", Protocol: "ipp"},
+		{ID: "ipps", Name: "IPPS", Type: "ipps", Endpoint: "ipps://192.168.1.60/ipp/print", Protocol: "ipps"},
+		{ID: "spooler", Name: "Spooler", Type: "spooler", SpoolerName: "HP", Protocol: "spooler"},
+	}
+	for _, tc := range cases {
+		if err := ValidatePrinterConfig(tc); err != nil {
+			t.Fatalf("expected compatible transport/protocol pair for %+v, got %v", tc, err)
+		}
+	}
+}
+
+func TestUSBSpoolerConfigUsesSpoolerTransport(t *testing.T) {
+	p := PrinterConfig{ID: "usb-spooler", Name: "HP", Type: "usb", SpoolerName: "HP LaserJet"}
+	if got := p.NormalizedType(); got != "spooler" {
+		t.Fatalf("expected USB printer with spooler queue to normalize to spooler, got %q", got)
+	}
+	if got, err := p.NormalizedProtocol(); err != nil || got != "spooler" {
+		t.Fatalf("expected USB spooler config to normalize protocol to spooler, got %q err=%v", got, err)
+	}
+	if err := ValidatePrinterConfig(p); err != nil {
+		t.Fatalf("expected USB spooler config to validate, got %v", err)
 	}
 }
 

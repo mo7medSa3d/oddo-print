@@ -18,6 +18,9 @@ const (
 	maxRasterWidth             = 576
 	DefaultRasterSliceHeight   = 256
 	LowBufferRasterSliceHeight = 128
+	MaxJPEGDimension           = 16384
+	MaxJPEGPixels              = 40_000_000
+	MaxRasterOutputBytes       = 32 * 1024 * 1024
 )
 
 // JPEGToESCPOS converts an Odoo POS raster (JPEG) into an ESC/POS raster image.
@@ -57,6 +60,17 @@ func jpegToESCPOS(data []byte, sliceHeight, maxWidth int) ([]byte, error) {
 	if cfg.Width <= 0 || cfg.Height <= 0 {
 		return nil, fmt.Errorf("invalid JPEG dimensions %dx%d", cfg.Width, cfg.Height)
 	}
+	outputWidth, outputHeight := cfg.Width, cfg.Height
+	if outputWidth > maxWidth {
+		outputHeight = int(math.Round(float64(outputHeight) * float64(maxWidth) / float64(outputWidth)))
+		outputWidth = maxWidth
+	}
+	rowBytes := (outputWidth + 7) / 8
+	bands := (outputHeight + sliceHeight - 1) / sliceHeight
+	rasterBytes := int64(rowBytes)*int64(outputHeight) + int64(bands*8) + 2
+	if rasterBytes > MaxRasterOutputBytes {
+		return nil, fmt.Errorf("ESC/POS raster output %d bytes exceeds %d limit", rasterBytes, MaxRasterOutputBytes)
+	}
 
 	img, err := jpeg.Decode(bytes.NewReader(data))
 	if err != nil {
@@ -71,7 +85,7 @@ func jpegToESCPOS(data []byte, sliceHeight, maxWidth int) ([]byte, error) {
 
 	w := img.Bounds().Dx()
 	h := img.Bounds().Dy()
-	rowBytes := (w + 7) / 8
+	rowBytes = (w + 7) / 8
 
 	// Pre-convert or extract direct raster buffer for performance
 	rgbaImg, isRGBA := img.(*image.RGBA)
@@ -130,6 +144,16 @@ func decodeJPEGConfig(data []byte) (image.Config, error) {
 	cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return image.Config{}, fmt.Errorf("invalid JPEG image: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return image.Config{}, fmt.Errorf("invalid JPEG dimensions %dx%d", cfg.Width, cfg.Height)
+	}
+	if cfg.Width > MaxJPEGDimension || cfg.Height > MaxJPEGDimension {
+		return image.Config{}, fmt.Errorf("JPEG dimensions %dx%d exceed %d limit", cfg.Width, cfg.Height, MaxJPEGDimension)
+	}
+	pixels := int64(cfg.Width) * int64(cfg.Height)
+	if pixels > MaxJPEGPixels {
+		return image.Config{}, fmt.Errorf("JPEG pixel count %d exceeds %d limit", pixels, MaxJPEGPixels)
 	}
 	return cfg, nil
 }

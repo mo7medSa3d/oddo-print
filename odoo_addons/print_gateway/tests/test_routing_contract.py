@@ -268,6 +268,43 @@ class TestPrintGatewayRoutingContract(TransactionCase):
         result = self.env["print_gateway.print_router"].resolve_binding(record=self.env.company)
         self.assertTrue(result["native"])
 
+    def test_silent_report_dispatch_propagates_job_status(self):
+        """The web-client interceptor needs the durable Gateway/Odoo status so
+        an ambiguous submission can be shown as UNKNOWN instead of a generic
+        success toast."""
+        report = self.env.ref("sale.action_report_saleorder", raise_if_not_found=False)
+        self.assertTrue(report)
+        self._make_config(True)
+        binding = self.env["print_gateway.binding"].create({
+            "company_id": self.company.id,
+            "destination_type": "report",
+            "destination_report_id": report.id,
+            "report_id": report.id,
+            "printer_id": "printer_runtime_status_contract",
+            "printer_protocol": "spooler",
+            "enabled": True,
+            "priority": 10,
+        })
+
+        router = self.env["print_gateway.print_router"]
+        with patch.object(type(router), "route_report", return_value={
+            "gateway_enabled": True,
+            "native": False,
+            "status": "unknown",
+            "job_id": "job_status_contract",
+            "message": "accepted",
+        }):
+            result = binding.dispatch_report_action(
+                report_id=report.id,
+                res_ids=[],
+                context={},
+                data=None,
+            )
+
+        self.assertTrue(result["dispatched"])
+        self.assertTrue(result["success"])
+        self.assertEqual(result["status"], "unknown")
+
     def test_gateway_connection_test_is_authenticated(self):
         class Response:
             status_code = 200

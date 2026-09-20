@@ -15,16 +15,16 @@ import (
 	"github.com/yasser-agent/agent/internal/printer"
 )
 
-// TestRedeliveryAdoptsLiveClaimTokenForReports proves the full loop of the
+// TestRedeliveryKeepsOriginalClaimTokenForReports proves the full loop of the
 // WS-send/evidence-loss race on the agent side:
 //
 //  1. delivery #1 (token A) reaches the printer and parks mid-print;
 //  2. the Gateway (after a lost delivered_at write + release) re-claims and
 //     redelivers the SAME job under token B while A is still executing;
 //  3. the duplicate must NOT cause a second physical write;
-//  4. keep-alive bookkeeping and the terminal report must switch to token B,
-//     otherwise the gateway fences them away and a real printed result
-//     strands as an unknown outcome.
+//  4. the in-flight execution must retain token A. A fresh token B belongs to
+//     the Gateway's new claim and must never be adopted by the already-running
+//     physical attempt; otherwise a stale attempt could report success as B.
 func TestRedeliveryAdoptsLiveClaimTokenForReports(t *testing.T) {
 	var mu sync.Mutex
 	var patches []map[string]interface{}
@@ -80,20 +80,18 @@ func TestRedeliveryAdoptsLiveClaimTokenForReports(t *testing.T) {
 	second := dispatchTestJob("reclaim_token_race", "p1")
 	second["claimToken"] = "tok-B"
 	receivedBefore := ag.deliveryReceivedAt("reclaim_token_race")
-	time.Sleep(5 * time.Millisecond)
 	ag.dispatchJob(context.Background(), second)
 
-	// Bookkeeping must have adopted the live token for keep-alives.
+	// A duplicate with a fresh claim token must not overwrite the active local
+	// execution's token. The Gateway owns token B; this physical attempt owns A.
 	pairs := ag.inFlightJobIDs(64)
-	if len(pairs) != 1 || pairs[0]["jobId"] != "reclaim_token_race" || pairs[0]["claimToken"] != "tok-B" {
-		t.Fatalf("duplicate delivery must adopt the live claim token, got %v", pairs)
+	if len(pairs) != 1 || pairs[0]["jobId"] != "reclaim_token_race" || pairs[0]["claimToken"] != "tok-A" {
+		t.Fatalf("duplicate delivery must retain the active claim token, got %v", pairs)
 	}
-	// And the delivery-received timestamp must move to the hand-off THIS
-	// agent actually accepted last: the stale-claim safety window in
-	// authorizeDispatchAfterReportFailure is judged against the CURRENT
-	// envelope, not the superseded one.
-	if received := ag.deliveryReceivedAt("reclaim_token_race"); !received.After(receivedBefore) {
-		t.Fatalf("redelivery must refresh the delivery-received timestamp (before=%v after=%v)", receivedBefore, received)
+	// The duplicate is rejected by the local in-flight fence, so it must not
+	// refresh delivery metadata for the already-running attempt.
+	if received := ag.deliveryReceivedAt("reclaim_token_race"); !received.Equal(receivedBefore) {
+		t.Fatalf("duplicate delivery must not replace the active delivery timestamp (before=%v after=%v)", receivedBefore, received)
 	}
 
 	close(p.blocked)
@@ -115,8 +113,8 @@ func TestRedeliveryAdoptsLiveClaimTokenForReports(t *testing.T) {
 	if !sawSuccess {
 		t.Fatal("no terminal success report was sent")
 	}
-	if successToken != "tok-B" {
-		t.Fatalf("terminal report must carry the gateway's CURRENT token tok-B, got %v", successToken)
+	if successToken != "tok-A" {
+		t.Fatalf("terminal report must retain the original physical attempt token tok-A, got %v", successToken)
 	}
 }
 

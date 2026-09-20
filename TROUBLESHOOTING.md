@@ -67,7 +67,7 @@
 **Checklist**:
 1. Check the agent is online (heartbeat within last 90s)
 2. Check the printer status is "online" (not "error" or "offline")
-3. Check the job's `delivery_attempts` count — may have hit max retries
+3. Check both counters: `delivery_attempts` may have reached the delivery ceiling, while `retries` may have reached the safe requeue ceiling
 4. Check agent logs for the specific job ID
 5. Verify the printer protocol matches the payload type (e.g., PDF cannot go to ESC/POS)
 

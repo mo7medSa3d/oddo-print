@@ -372,6 +372,20 @@
       "when": 1790000000052,
       "tag": "0052_plan_catalog_management",
       "breakpoints": false
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1790000000053,
+      "tag": "0053_discovery_spooler_name",
+      "breakpoints": false
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1790000000054,
+      "tag": "0054_odoo_gateway_activation_state",
+      "breakpoints": false
     }
   ]
 }

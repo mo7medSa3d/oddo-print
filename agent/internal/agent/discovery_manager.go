@@ -5,12 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/yasser-agent/agent/internal/printer"
 )
+
+// maxDiscoverySessionsBytes bounds the pending-session list: sessions are
+// metadata only (no printer payloads), and the gateway runs at most one
+// session per agent, so this is a hard ceiling far above any real response.
+const maxDiscoverySessionsBytes = 8 << 20
 
 // pollDiscovery checks gateway for pending discovery sessions for this agent and executes them.
 func (a *Agent) pollDiscovery(ctx context.Context) {
@@ -24,7 +31,7 @@ func (a *Agent) pollDiscovery(ctx context.Context) {
 		return
 	}
 	var sessions []map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxDiscoverySessionsBytes)).Decode(&sessions); err != nil {
 		return
 	}
 	for _, s := range sessions {
@@ -116,8 +123,15 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string)
 				sources = append(sources, fmt.Sprint(v))
 			}
 		}
-		if di.Protocol == "ipp" {
-			sources = append(sources, "ipp")
+		if di.Protocol == "ipp" || di.Protocol == "ipps" {
+			sources = append(sources, di.Protocol)
+		}
+
+		deviceClass := strings.ToLower(strings.TrimSpace(di.PrinterType))
+		switch deviceClass {
+		case "thermal", "laser", "inkjet", "label", "other", "unknown":
+		default:
+			deviceClass = "unknown"
 		}
 
 		confidence := "low"
@@ -128,13 +142,26 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string)
 			}
 		}
 
+		uri := ""
+		if di.Protocol == "ipp" || di.Protocol == "ipps" {
+			uri = di.Endpoint
+		}
 		dev := map[string]interface{}{
-			"source":       sources,
-			"protocol":     di.Protocol,
-			"ipAddress":    di.NetworkAddress,
-			"port":         di.Port,
-			"deviceName":   di.Name,
-			"manufacturer": di.Capabilities["manufacturer"],
+			"source":      sources,
+			"protocol":    di.Protocol,
+			"ipAddress":   di.NetworkAddress,
+			"port":        di.Port,
+			"uri":         uri,
+			"deviceName":  di.Name,
+			"spoolerName": di.SpoolerName,
+			"deviceClass": deviceClass,
+			"transport":   di.ConnectionType,
+			"manufacturer": func() interface{} {
+				if di.Capabilities != nil {
+					return di.Capabilities["manufacturer"]
+				}
+				return nil
+			}(),
 			"model":        di.Name,
 			"confidence":   confidence,
 			"verification": verification,

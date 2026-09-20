@@ -95,6 +95,14 @@ function escapePdfText(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }
 
+function safeZplField(value: string): string {
+  return safeTestText(value).replace(/[\^~]/g, "_");
+}
+
+function safeTsplQuotedText(value: string): string {
+  return safeTestText(value).replace(/["\\]/g, "_");
+}
+
 export function buildTestPdfPayload(printerName: string, agentName: string): string {
   const safeName = escapePdfText(safeTestText(printerName));
   const safeAgent = escapePdfText(safeTestText(agentName));
@@ -164,20 +172,35 @@ export function buildTestPrintPayloadForPrinter(
   agentName: string,
   printer: { protocol?: string | null; connectionType?: string | null; capabilities?: { supported_protocols?: string[] } | null },
 ): PrintJobPayload {
-  const declared = (printer.protocol ?? "").toLowerCase();
-  const conn = (printer.connectionType ?? "").toLowerCase();
-  const supported = (printer.capabilities?.supported_protocols ?? []).map((p) => String(p).toLowerCase());
-  const byteProto = ["escpos", "zpl", "tspl", "raw"].includes(declared)
-    ? declared
-    : (["escpos", "zpl", "tspl", "raw"] as const).find((p) => supported.includes(p)) ?? "";
-  const name = safeTestText(printerName);
-  const agent = safeTestText(agentName);
+  const declared = (printer.protocol ?? "").toLowerCase().trim();
+  const conn = (printer.connectionType ?? "").toLowerCase().trim();
+  const capabilities = printer.capabilities ?? null;
+  const hasExplicitCaps = capabilities !== null && Object.prototype.hasOwnProperty.call(capabilities, "supported_protocols");
+  const supported = Array.isArray(capabilities?.supported_protocols)
+    ? capabilities.supported_protocols.map((p) => String(p).toLowerCase().trim())
+    : [];
+  const byteCandidates = ["escpos", "zpl", "tspl", "raw"] as const;
+  const declaredByteProtocol = byteCandidates.includes(declared as (typeof byteCandidates)[number])
+    ? declared as (typeof byteCandidates)[number]
+    : null;
+  const allows = (candidate: string) => !hasExplicitCaps || supported.includes(candidate);
+  const byteTransportEligible =
+    conn === "usb" ||
+    (conn === "network" && declared !== "ipp" && declared !== "ipps");
+  const byteProto =
+    (declaredByteProtocol && allows(declaredByteProtocol) ? declaredByteProtocol : null) ??
+    (byteTransportEligible && hasExplicitCaps ? byteCandidates.find((candidate) => allows(candidate)) : null) ??
+    "";
+  const plainName = safeTestText(printerName);
+  const plainAgent = safeTestText(agentName);
   const stamp = new Date().toISOString().replace("T", " ").slice(0, 19);
 
   if (byteProto === "escpos") {
     return buildTestPrintPayload(printerName, agentName);
   }
   if (byteProto === "zpl") {
+    const name = safeZplField(printerName);
+    const agent = safeZplField(agentName);
     const zpl = [
       "^XA",
       "^FO50,50^A0N,36,36^FDODOO PRINT GATEWAY TEST PAGE^FS",
@@ -191,6 +214,8 @@ export function buildTestPrintPayloadForPrinter(
     return { type: "raw", protocol: "zpl", encoding: "base64", data: Buffer.from(zpl, "utf-8").toString("base64") };
   }
   if (byteProto === "tspl") {
+    const name = safeTsplQuotedText(printerName);
+    const agent = safeTsplQuotedText(agentName);
     const tspl = [
       "SIZE 75 mm, 50 mm",
       "GAP 2 mm, 0 mm",
@@ -210,8 +235,8 @@ export function buildTestPrintPayloadForPrinter(
       "================================",
       "  ODOO PRINT GATEWAY TEST PAGE ",
       "================================",
-      `Printer : ${name}`,
-      `Agent   : ${agent}`,
+      `Printer : ${plainName}`,
+      `Agent   : ${plainAgent}`,
       "Protocol: RAW",
       "--------------------------------",
       `Status  : OK | ${stamp}`,
@@ -220,13 +245,13 @@ export function buildTestPrintPayloadForPrinter(
     return { type: "raw", protocol: "raw", encoding: "base64", data: Buffer.from(raw, "utf-8").toString("base64") };
   }
 
-  const isDocumentTransport =
-    ["spooler", "ipp", "ipps"].includes(conn) ||
-    ["spooler", "ipp", "ipps"].includes(declared) ||
-    supported.some((p) => ["pdf", "spooler", "ipp", "ipps"].includes(p));
+  const physicalDocumentTransport =
+    conn === "spooler" || conn === "ipp" || conn === "ipps" ||
+    (conn === "network" && declared === "ipp");
+  const pdfAllowed = !hasExplicitCaps || supported.includes("pdf") || supported.includes("spooler") || supported.includes("ipp") || supported.includes("ipps");
 
-  if (isDocumentTransport) {
-    const pdf = buildTestPdfPayload(name, agent);
+  if (physicalDocumentTransport && pdfAllowed) {
+    const pdf = buildTestPdfPayload(plainName, plainAgent);
     return {
       type: "pdf",
       encoding: "base64",

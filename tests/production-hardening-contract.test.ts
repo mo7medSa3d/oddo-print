@@ -199,7 +199,10 @@ describe("production hardening contracts", () => {
 
     const printService = read("src/lib/print-job-service.ts");
     expect(printService).toContain("print_jobs:idempotency:");
-    expect(printService).toContain("WHERE tenant_id = ${tenantId} AND idempotency_key = ${idempotencyKey}");
+    expect(printService).toContain("WHERE tenant_id = ${tenantId}");
+    expect(printService).toContain("idempotency_key = ${effectiveIdempotencyKey}");
+    expect(printService).toContain("status IN ('queued', 'claimed', 'printing')");
+    expect(printService).toContain("gw-reprint:${reprintOfJobId}:%");
 
     const printRoute = read("src/app/api/print/jobs/route.ts");
     expect(printRoute).not.toContain("eq(printJobs.apiKeyId, odoo.id), eq(printJobs.idempotencyKey");
@@ -223,7 +226,7 @@ describe("production hardening contracts", () => {
       expect(billingRoute).toContain("FROM tenant_subscriptions");
       expect(billingRoute).toContain("stripeRequest(");
       expect(billingRoute).toContain("billingOperationId");
-      expect(billingRoute).toContain(path.includes("cancel") ? "billing-cancel-" : "billing-resume-");
+      expect(billingRoute).toContain(`billing-${path.includes("cancel") ? "cancel" : "resume"}-`);
     }
   });
 

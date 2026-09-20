@@ -25,9 +25,6 @@ const (
 	pdfHeaderMarker = "%PDF-"
 	pdfEOFMarker    = "%%EOF"
 
-	// The header must appear at the very start of the file; a small window is
-	// tolerated only for a UTF-8 BOM / stray whitespace written by exporters.
-	pdfHeaderSearchWindow = 64
 	// %%EOF is the last token of a well-formed PDF; some writers append a few
 	// bytes of padding/newlines after it.
 	pdfEOFSearchWindow = 4096
@@ -48,11 +45,7 @@ func ValidatePDF(data []byte) error {
 	if len(data) > maxPrintBytes {
 		return fmt.Errorf("PDF payload %d bytes exceeds %d limit", len(data), maxPrintBytes)
 	}
-	head := data
-	if len(head) > pdfHeaderSearchWindow {
-		head = head[:pdfHeaderSearchWindow]
-	}
-	if !bytes.Contains(head, []byte(pdfHeaderMarker)) {
+	if !bytes.HasPrefix(data, []byte(pdfHeaderMarker)) {
 		return fmt.Errorf("payload is not a PDF document (missing %s header)", pdfHeaderMarker)
 	}
 	tail := data

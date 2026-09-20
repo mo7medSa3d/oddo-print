@@ -5,15 +5,17 @@ import { incrementMetric } from "./metrics";
 export const STALE_CLAIM_SECONDS = 90;
 export const STALE_PRINTING_SECONDS = 10 * 60;
 export const MAX_RETRIES = 5;
+export const MAX_DELIVERY_ATTEMPTS = 5;
+export const DELIVERY_EVIDENCE_PENDING = "DELIVERY_EVIDENCE_PENDING";
 
-export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<{ expired: number; requeuedClaims: number; silentDeliveries: number; stalePrinting: number; exhaustedClaims: number }> {
+export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<{ expired: number; requeuedClaims: number; silentDeliveries: number; stalePrinting: number; exhaustedClaims: number; exhaustedQueued: number }> {
   const agentFilter = scope.agentId ? sql`AND agent_id = ${scope.agentId}` : sql``;
 
   const expired = await db.execute(sql`
     UPDATE print_jobs SET status='expired',
       error=CASE
         WHEN status='printing' THEN 'JOB_EXPIRED_DURING_PRINT: physical output is unknown (full, partial or none)'
-        WHEN status='claimed' AND (delivered_at IS NOT NULL OR acked_at IS NOT NULL)
+        WHEN status='claimed' AND (delivered_at IS NOT NULL OR acked_at IS NOT NULL OR error = 'DELIVERY_EVIDENCE_PENDING')
           THEN 'UNKNOWN_PARTIAL_DELIVERY: job expired after delivery without an execution report (physical output is unknown)'
         ELSE NULL END,
       updated_at=now()
@@ -22,17 +24,18 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
   `);
 
   // A claim whose lease expired WITHOUT any evidence of delivery (no
-  // delivered_at, no ack) is provably pre-dispatch: the agent never received
-  // the job, so re-queueing it can print nothing twice. A claim that WAS
-  // delivered is never auto-requeued — the agent may have printed; it is
-  // failed with an unknown-outcome marker below (terminal, manual reprint
-  // only). delivered_at/acked_at are ownership evidence and are never cleared
-  // by the sweep.
+  // delivered_at, no ack, and no in-flight WebSocket evidence marker) is
+  // provably pre-dispatch: the agent never received the job, so re-queueing it
+  // can print nothing twice. A WebSocket delivery with evidence persistence
+  // still pending is deliberately NOT auto-requeued: the frame may already
+  // have reached the agent, and converting that ambiguity into a requeue can
+  // duplicate physical output.
   const requeuedClaims = await db.execute(sql`
     UPDATE print_jobs SET status='queued', claimed_at=NULL, claim_token=NULL,
       delivered_at=NULL, acked_at=NULL,
       retries=retries+1, updated_at=now()
     WHERE status='claimed' AND delivered_at IS NULL AND acked_at IS NULL
+      AND COALESCE(error, '') <> 'DELIVERY_EVIDENCE_PENDING'
       AND updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS})
       AND retries < ${MAX_RETRIES} AND expires_at > now() ${agentFilter}
     RETURNING id
@@ -46,7 +49,8 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
     UPDATE print_jobs SET status='failed',
       error='UNKNOWN_PARTIAL_DELIVERY: claim lease expired after delivery without an execution report (physical output is unknown; manual reconciliation required)',
       updated_at=now()
-    WHERE status='claimed' AND (delivered_at IS NOT NULL OR acked_at IS NOT NULL)
+    WHERE status='claimed'
+      AND (delivered_at IS NOT NULL OR acked_at IS NOT NULL OR error = 'DELIVERY_EVIDENCE_PENDING')
       AND updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS}) ${agentFilter}
     RETURNING id
   `);
@@ -65,7 +69,16 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
     UPDATE print_jobs SET status='failed',
       error='exceeded max retries after a stale claim (agent likely crashed or lost connection)', updated_at=now()
     WHERE status='claimed' AND delivered_at IS NULL AND acked_at IS NULL
+      AND COALESCE(error, '') <> 'DELIVERY_EVIDENCE_PENDING'
       AND updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS})
+      AND retries >= ${MAX_RETRIES} ${agentFilter}
+    RETURNING id
+  `);
+
+  const exhaustedQueued = await db.execute(sql`
+    UPDATE print_jobs SET status='failed',
+      error='exceeded max retries before delivery', updated_at=now()
+    WHERE status='queued' AND expires_at > now()
       AND retries >= ${MAX_RETRIES} ${agentFilter}
     RETURNING id
   `);
@@ -76,6 +89,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
     silentDeliveries: silentDeliveries.rows.length,
     stalePrinting: stalePrinting.rows.length,
     exhaustedClaims: exhaustedClaims.rows.length,
+    exhaustedQueued: exhaustedQueued.rows.length,
   };
   const unknownExpiryCount = expired.rows.filter((row) => String((row as { error?: unknown }).error ?? "").startsWith("JOB_EXPIRED_DURING_PRINT") || String((row as { error?: unknown }).error ?? "").startsWith("UNKNOWN_PARTIAL_DELIVERY")).length;
   if (result.expired > 0) incrementMetric("print_jobs_expired_total", result.expired);
@@ -90,5 +104,6 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
     incrementMetric("print_jobs_unknown_total", result.stalePrinting);
   }
   if (result.exhaustedClaims > 0) incrementMetric("print_jobs_failed_total", result.exhaustedClaims);
+  if (result.exhaustedQueued > 0) incrementMetric("print_jobs_failed_total", result.exhaustedQueued);
   return result;
 }

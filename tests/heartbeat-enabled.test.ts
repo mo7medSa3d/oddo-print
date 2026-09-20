@@ -340,7 +340,7 @@ suite("heartbeat validation and lifecycle preservation", () => {
     expect(row.rows[0].capabilities.supported_protocols).toEqual(["raw", "zpl"]);
   });
 
-  it("treats a non-array supported_protocols as absent instead of crashing the heartbeat", async () => {
+  it("rejects a non-array supported_protocols instead of restoring transport fallback", async () => {
     const res = await heartbeatPOST(new Request("http://gateway.test/api/agent/heartbeat", {
       method: "POST",
       headers: { Authorization: f.agentAuth, "content-type": "application/json" },
@@ -360,9 +360,10 @@ suite("heartbeat validation and lifecycle preservation", () => {
       }),
     }));
     expect(res.status).toBe(200);
-    const row = await pool().query(`SELECT capabilities FROM printers WHERE id = $1`, [f.printerId]);
-    const caps = row.rows[0].capabilities as Record<string, unknown>;
-    expect("supported_protocols" in caps).toBe(false);
+    const body = await res.json();
+    expect(body.skippedPrinters).toContainEqual({ id: f.printerId, reason: "invalid_supported_protocols" });
+    const row = await pool().query(`SELECT capabilities, name FROM printers WHERE id = $1`, [f.printerId]);
+    expect(row.rows[0].name).not.toBe("CapsMalformed");
   });
 
   it("fences keep-alive lease refresh to the live claim (stale worker TOCTOU)", async () => {

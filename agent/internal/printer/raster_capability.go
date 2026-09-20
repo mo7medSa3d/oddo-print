@@ -11,6 +11,13 @@ import (
 // max_paper_width is expressed in dots/pixels; paper_widths is accepted as a
 // legacy capability in millimetres (58/80). Unknown or malformed values use
 // SafeRasterMaxWidth so a narrow printer is never overrun by inference.
+func RasterMaxWidthFromPaperWidthMM(mm int) int {
+	if mm <= 0 {
+		return SafeRasterMaxWidth
+	}
+	return paperMillimetresToDots(mm)
+}
+
 func RasterMaxWidthFromCapabilities(caps map[string]interface{}) int {
 	if caps == nil {
 		return SafeRasterMaxWidth

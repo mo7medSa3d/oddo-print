@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { agents, printers } from "../../../../db/schema";
-import { validateManager } from "../../../../lib/manager-auth";
+import { validateConsoleAuth } from "../../../../lib/console-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { canTransitionLifecycle } from "../../../../lib/lifecycle";
-import { PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, assertPrinterMetadataLimits, validateConnectionConfig } from "../../../../lib/printer-model";
+import { PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, assertPrinterMetadataLimits, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { writeAuditEvent } from "../../../../lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -30,20 +30,32 @@ const patchSchema = z.object({
 }).strict();
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const claims = await validateManager(req);
-  if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(claims, "printers.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  const auth = await validateConsoleAuth(req);
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (auth.kind === "manager") {
+    try { requireManagerPermission(auth.claims, "printers.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  }
+  const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
   const { id } = await params;
-  const row = await db.query.printers.findFirst({ where: and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId)) });
+  const row = await db.query.printers.findFirst({
+    where: auth.kind === "agent"
+      ? and(eq(printers.id, id), eq(printers.tenantId, tenantId), eq(printers.agentId, auth.agent.id))
+      : and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
+  });
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(row);
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const claims = await validateManager(req);
-  if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(claims, "printers.manage"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  const auth = await validateConsoleAuth(req);
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Printer desired-state mutation is a manager control-plane operation.
+  // Agents may observe/register their own printers, but must never mutate
+  // manager-owned configuration or lifecycle through this route.
+  if (auth.kind !== "manager") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  try { requireManagerPermission(auth.claims, "printers.manage"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
+  const tenantId = auth.claims.tenantId;
   const { id } = await params;
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -57,9 +69,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "printer metadata exceeds limits" }, { status: 400 }); }
 
   const result = await db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${claims.tenantId} || ':' || ${id}))`);
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${tenantId} || ':' || ${id}))`);
 
-    const existing = await tx.query.printers.findFirst({ where: and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId)) });
+    const existing = await tx.query.printers.findFirst({
+      where: and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
+    });
     if (!existing) return { kind: "not_found" as const };
 
     if (parsed.data.lifecycle && !canTransitionLifecycle(existing.lifecycle, parsed.data.lifecycle)) {
@@ -67,16 +81,29 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     if (parsed.data.lifecycle === "active") {
-      const lockedAgent = await tx.execute(sql`SELECT lifecycle FROM agents WHERE id = ${existing.agentId} AND tenant_id = ${claims.tenantId} FOR UPDATE`);
+      const lockedAgent = await tx.execute(sql`SELECT lifecycle FROM agents WHERE id = ${existing.agentId} AND tenant_id = ${tenantId} FOR UPDATE`);
       const ownerLifecycle = (lockedAgent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
       if (!ownerLifecycle) return { kind: "error" as const, message: "Printer owner agent missing" };
       if (ownerLifecycle !== "active") return { kind: "conflict" as const, message: `cannot activate printer while agent is ${ownerLifecycle}` };
     }
 
-    const connectionType = parsed.data.connectionType ?? existing.connectionType;
+    let connectionType = parsed.data.connectionType ?? existing.connectionType;
+    let protocol = parsed.data.protocol ?? existing.protocol;
     const cfg = (parsed.data.config ?? existing.config ?? {}) as Record<string, unknown>;
-    if (parsed.data.connectionType !== undefined || parsed.data.config !== undefined) {
-      const err = validateConnectionConfig(connectionType, cfg);
+    if (connectionType === "usb" && typeof cfg.spooler_name === "string" && cfg.spooler_name.trim()) {
+      connectionType = "spooler";
+      protocol = "spooler";
+    }
+    if (
+      parsed.data.connectionType !== undefined ||
+      parsed.data.protocol !== undefined ||
+      parsed.data.config !== undefined
+    ) {
+      const transportProtocolError = validatePrinterTransportProtocol(connectionType, protocol);
+      if (transportProtocolError) {
+        return { kind: "invalid" as const, message: transportProtocolError };
+      }
+      const err = validateConnectionConfig(connectionType, cfg, protocol);
       if (err) return { kind: "invalid" as const, message: err };
     }
 
@@ -93,8 +120,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (parsed.data.name !== undefined) update.name = parsed.data.name;
     if (parsed.data.printerType !== undefined) update.printerType = parsed.data.printerType;
     if (parsed.data.deviceClass !== undefined) update.deviceClass = parsed.data.deviceClass;
-    if (parsed.data.connectionType !== undefined) update.connectionType = parsed.data.connectionType;
-    if (parsed.data.protocol !== undefined) update.protocol = parsed.data.protocol;
+    if (parsed.data.connectionType !== undefined || connectionType !== existing.connectionType) update.connectionType = connectionType;
+    if (parsed.data.protocol !== undefined || protocol !== existing.protocol) update.protocol = protocol;
     if (parsed.data.config !== undefined) update.config = parsed.data.config;
     if (parsed.data.lifecycle !== undefined) update.lifecycle = parsed.data.lifecycle;
 
@@ -108,13 +135,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const [row] = await tx.update(printers)
       .set(setValues)
-      .where(and(eq(printers.id, id), eq(printers.tenantId, claims.tenantId)))
+      .where(and(eq(printers.id, id), eq(printers.tenantId, tenantId)))
       .returning();
 
     await writeAuditEvent({
-      tenantId: claims.tenantId,
-      actorType: claims.userId ? "user" : "system",
-      actorId: claims.userId ?? "legacy-manager",
+      tenantId: tenantId,
+      actorType: auth.claims.userId ? "user" : "system",
+      actorId: auth.claims.userId ?? "legacy-manager",
       action: "printer.changed",
       resourceType: "printer",
       resourceId: id,

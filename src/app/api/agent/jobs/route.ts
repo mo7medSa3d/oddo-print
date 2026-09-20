@@ -56,7 +56,7 @@ export async function GET(req: Request) {
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
-        AND pr.status = 'online'
+        AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
         AND t.lifecycle = 'active'
     `);
@@ -84,7 +84,7 @@ export async function GET(req: Request) {
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
           AND pr.lifecycle = 'active'
-          AND pr.status = 'online'
+          AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
@@ -107,7 +107,7 @@ export async function GET(req: Request) {
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
           AND pr.lifecycle = 'active'
-          AND pr.status = 'online'
+          AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
@@ -130,7 +130,7 @@ export async function GET(req: Request) {
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
           AND pr.lifecycle = 'active'
-          AND pr.status = 'online'
+          AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
           AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC

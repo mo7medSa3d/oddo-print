@@ -27,7 +27,7 @@ printer produces pages of garbage, so it is refused with `CAPABILITY_MISMATCH`.
 
 | Backend | Implementation | `raw` | `escpos` | `pdf` | Physical verification |
 |---|---|---|---|---|---|
-| Network RAW TCP (usually :9100) | `network.go` | ✅ | ✅ | ❌ `CAPABILITY_MISMATCH` (a 9100 byte stream has no renderer) | **NOT VERIFIED** (tested against a local mock listener — VERIFIED at socket level) |
+| Network RAW TCP (:9100) | `network.go` | ✅ | ✅ | ❌ `CAPABILITY_MISMATCH` (a 9100 byte stream has no renderer) | **NOT VERIFIED** (tested against a local mock listener — VERIFIED at socket level) |
 | Windows spooler | `spooler_windows.go` | ✅ RAW datatype (`StartDocPrinterW`) | ✅ RAW datatype | ✅ PDF pipeline (§4) | **COMPILE VERIFIED** only |
 | Windows spooler (non-Windows build) | `spooler_stub.go` | `ERR_UNSUPPORTED_TRANSPORT` (simulated file write only under explicit opt-in, still reported as failure) | same | `ERR_UNSUPPORTED_TRANSPORT` (same opt-in rule) | **SIMULATED** |
 | IPP / IPPS | `ipp.go` | ❌ `CAPABILITY_MISMATCH` (IPP is a document transport here) | ❌ `CAPABILITY_MISMATCH` | ✅ `application/pdf` | **NOT VERIFIED** against a real IPP printer (`httptest` coverage only) |
@@ -47,8 +47,7 @@ is queued. An explicitly configured `supported_protocols` list is never overwrit
   `raw`/`escpos` may additionally travel over any byte-stream transport (spooler), but
   **`pdf` is never inferred from `raw` support**;
 * without a declared list the transport decides: `pdf` requires a spooler or IPP/IPPS
-  printer and is refused for raw-TCP/USB devices; `raw`/`escpos` are accepted by raw,
-  escpos, spooler and IPP transports.
+  printer and is refused for raw-TCP/USB devices; `raw`/`escpos` are accepted by byte-stream transports (RAW TCP, ESC/POS, and spooler RAW mode), not by IPP/IPPS.
 
 A mismatch is `CAPABILITY_MISMATCH` → HTTP **422** at job creation, and the routing layer
 tries the next binding by priority before giving up.
@@ -71,7 +70,7 @@ runtime renderer download, browser engine, or customer-installed PDF software.
 The PDFium WASM module is embedded in the Agent binary by go-pdfium, and the
 Wazero filesystem is explicitly isolated from the host filesystem.
 
-The shared Agent payload limit remains 5 MiB. PDF-specific protection also
+The shared Agent payload limit remains 5 MiB. PDF validation requires `%PDF-` at byte zero and a `%%EOF` marker within the final 4 KiB (trailing padding is allowed). PDF-specific protection also
 limits documents to 500 pages and caps one rendered page at 16 million pixels
 (about 64 MiB for the 32-bit bitmap before renderer overhead). The renderer pool
 has one live worker and PDF jobs are serialized so PDF rendering cannot create
@@ -100,7 +99,7 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 
 | Aspect | Detail |
 |---|---|
-| Protocol | Raw byte stream over TCP, normally port 9100 (JetDirect/AppSocket). No document model, no acknowledgement |
+| Protocol | Raw byte stream over TCP on canonical port 9100 (JetDirect/AppSocket). No document model, no acknowledgement |
 | Document kinds | `raw` ✅ · `escpos` ✅ · `pdf` ❌ → `CAPABILITY_MISMATCH` |
 | Configuration | `type: network` (alias `tcp`), `endpoint: <ip>:<port>`, `protocol: raw` or `escpos` |
 | Capability reporting | Heartbeat reports `supported_protocols: [raw, escpos]` unless the operator pinned a list |
@@ -110,21 +109,25 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Discovery | Active TCP 9100 scan of private IPv4 subnets (`network_discovery.go`) |
 | Physical verification | **NOT VERIFIED** on a real device. Byte-for-byte transmission is **VERIFIED** against a local mock listener (`network_test.go`, `pdf_test.go`, `internal/integration/mock_e2e_test.go`) |
 
-### 5.2 Windows print spooler — `SpoolerPrinter` (`spooler_windows.go`)
+### 5.2 JPEG raster limits and paper width
+
+JPEG dimensions are inspected with `jpeg.DecodeConfig` before full decode. Either source dimension above 16,384 pixels, a source image above 40,000,000 pixels, or a projected ESC/POS raster above 32 MiB is rejected. Raster width defaults conservatively to 384 dots. A single explicit desired-state `config.paper_widths` value is carried separately as millimetres (`paper_width_mm`) and mapped to the supported raster width (for example, 80 mm → 576 dots); ambiguous multi-width configuration does not widen the default.
+
+### 5.3 Windows print spooler — `SpoolerPrinter` (`spooler_windows.go`)
 
 | Aspect | Detail |
 |---|---|
 | Protocol | Win32 spooler API: `OpenPrinterW` → `StartDocPrinterW` (DOC_INFO_1, datatype `RAW`) → `StartPagePrinter` → `WritePrinter` loop → `EndPagePrinter` → `EndDocPrinter`. PDF jobs take the PDF pipeline instead (§4) |
 | Document kinds | `raw` ✅ · `escpos` ✅ · `pdf` ✅ (through the PDF pipeline, never the RAW datatype) |
 | Configuration | `type: spooler` plus `spooler_name` (falls back to `endpoint`). A USB printer installed as a Windows printer is configured this way |
-| Capability reporting | `supported_protocols: [raw, escpos, pdf]` |
+| Capability reporting | `supported_protocols: [raw, escpos, pdf, image]` |
 | Error handling | Every Win32 call is checked and the last error is wrapped into the job error (`OpenPrinterW`, `StartDocPrinterW`, `StartPagePrinter`, `WritePrinter`, 0-byte writes). `EndDocPrinter`/`EndPagePrinter` run through `defer` even after a failure. Context cancellation is honoured between chunks |
 | Status probe | `OpenPrinterW` → `online`, failure → `offline` |
 | Platform limits | Windows only. The `!windows` build is a simulation (§5.3) |
 | Discovery | `EnumPrintersW` level 2 with correct `PRINTER_INFO_2W` parsing; non-printer PnP entries are filtered out (`isValidSpoolerPrinter`), status/attributes mapped by `classify.go` |
 | Physical verification | **COMPILE VERIFIED** only (`GOOS=windows go build/vet`). No paper has been produced in CI |
 
-### 5.3 Spooler stub for non-Windows builds (`spooler_stub.go`)
+### 5.4 Spooler stub for non-Windows builds (`spooler_stub.go`)
 
 | Aspect | Detail |
 |---|---|
@@ -134,21 +137,21 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Status probe | `unknown` without a probe (an unreadable state, never healthy); `"online"` only under the explicit simulation opt-in |
 | Physical verification | **SIMULATED** — never counts as evidence of printing |
 
-### 5.4 IPP / IPPS — `IPPPrinter` (`ipp.go`)
+### 5.5 IPP / IPPS — `IPPPrinter` (`ipp.go`)
 
 | Aspect | Detail |
 |---|---|
 | Protocol | IPP 2.0 `Print-Job` (0x0002) over HTTP POST `application/ipp`, with `attributes-charset`, `attributes-natural-language`, `printer-uri`, `requesting-user-name`, `document-format`, `job-name` |
-| Document kinds | `raw` ✅ and `escpos` ✅ as `application/octet-stream` · `pdf` ✅ as `application/pdf` (the PDF bytes are validated before they are sent) |
-| Configuration | `type: ipp` or `ipps` (also `type: network` with `protocol: ipp`), `endpoint:` an `ipp://`, `ipps://`, `http://` URL or a bare `host:port` — normalised by `normalizeIPPURL` |
-| Capability reporting | `supported_protocols: [raw, escpos, pdf]` |
-| Error handling | Non-2xx HTTP and any IPP status other than `0x0000` become job errors with the decoded IPP status text; 15 s client timeout, shortened to the job deadline when smaller |
+| Document kinds | `pdf` ✅ as `application/pdf`; `raw` / `escpos` ❌ → `CAPABILITY_MISMATCH` |
+| Configuration | `type: ipp` or `ipps` (also `type: network` with `protocol: ipp`), `endpoint:` an `ipp://`, `ipps://`, `http://` URL or a bare `host:port` — normalised by `normalizeIPPURL`; `ipp://` and `ipps://` default to port 631 when omitted |
+| Capability reporting | `supported_protocols: [pdf]` |
+| Error handling | Non-2xx HTTP and IPP client/server error classes (`0x04xx`/`0x05xx`) become job errors with decoded status text; the complete `0x00xx` success class is accepted. Responses shorter than the IPP header are rejected. The client timeout is 15 s, shortened to the job deadline when smaller |
 | Status probe | `Get-Printer-Attributes` (5 s): `printer-state` 3/4/5 → `online`/`busy`/`offline`; `printer-state-reasons` containing `offline`/`shutdown` → `offline`, `media-needed`/`toner-empty` → `error`; unreachable → `offline` |
 | Platform limits | None |
 | Discovery | TCP 631 scan (`ipp_discovery.go`); the mDNS helper is a stub that returns nothing |
 | Physical verification | **NOT VERIFIED** against a real IPP printer. Request construction and status parsing are **VERIFIED** with `httptest` (`ipp_test.go`) |
 
-### 5.5 Direct USB — `USBPrinter` (`usb_windows.go`)
+### 5.6 Direct USB — `USBPrinter` (`usb_windows.go`)
 
 | Aspect | Detail |
 |---|---|
@@ -162,11 +165,11 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Discovery | `SetupDiGetClassDevsW` (`DIGCF_PRESENT|ALLCLASSES`) with VID/PID/serial parsing and a device-interface path map; not available on non-Windows |
 | Physical verification | **COMPILE VERIFIED** only |
 
-### 5.6 ESC/POS
+### 5.7 ESC/POS
 
 ESC/POS is **not a backend** — it is a payload dialect (`ESC @` initialise … `GS V` cut) carried
 by whichever byte-stream transport the printer uses: RAW TCP, the Windows spooler in RAW mode,
-direct USB, or IPP as `application/octet-stream`. The agent never generates or rewrites ESC/POS
+direct USB. IPP/IPPS is a document transport and accepts PDF as `application/pdf`; the agent never generates or rewrites ESC/POS
 for a job; the only ESC/POS the gateway produces itself is the test-print payload
 (`buildTestPrintPayload` in `src/lib/payload.ts`).
 
