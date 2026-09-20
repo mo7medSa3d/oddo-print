@@ -132,7 +132,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<ToastMessage>(null);
   const [confirmStop, setConfirmStop] = useState(false);
-  const [isAdmin, setIsAdmin] = useState<boolean>(true);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [adminDismissed, setAdminDismissed] = useState<boolean>(false);
   const busyRef = useRef(false);
   const setBusyBoth = useCallback((v: boolean) => {
@@ -494,6 +494,7 @@ export default function App() {
   useEffect(() => {
     if (!isTauri) return;
     let unlisten: (() => void) | undefined;
+    let disposed = false;
     onGatewayConfigChanged((url) => {
       setSavedGatewayUrl(url);
       setGw(url);
@@ -507,11 +508,14 @@ export default function App() {
       refreshStatus();
     })
       .then((u) => {
-        unlisten = u;
+        if (disposed) u();
+        else unlisten = u;
       })
       .catch(() => {});
     return () => {
+      disposed = true;
       unlisten?.();
+      unlisten = undefined;
     };
   }, [probeGateway, refreshStatus]);
 
@@ -745,7 +749,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-app text-ink">
       <AdminPrivilegeDialog
-        open={!isAdmin && !adminDismissed}
+        open={isAdmin === false && !adminDismissed}
         onClose={() => setAdminDismissed(true)}
       />
       <Sidebar
@@ -817,7 +821,7 @@ export default function App() {
           </div>
         </header>
 
-        {!isAdmin && adminDismissed && (
+        {isAdmin === false && adminDismissed && (
           <div
             className="flex items-center justify-between gap-3 border-b border-warn-edge bg-warn-bg px-5 py-3 text-xs text-warn lg:px-8"
             role="status"
