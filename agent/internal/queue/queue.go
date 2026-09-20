@@ -172,50 +172,102 @@ func (q *Queue) AbortPrint(id, reason string) error {
 // the stored outcome instead of mistaking it for ledger unavailability
 // (which would requeue the job).
 func (q *Queue) BeginPrint(id, printerID string, payload []byte, claimToken string, allowUnknownReprint bool) error {
-	unknown := "(" + unknownMarkerSQL("last_error") + ")"
-	// A row already in 'printing' belongs to a physical attempt that may still
-	// be writing to hardware. A different Gateway claim token must NEVER reopen
-	// that row: doing so would replace the durable owner token and allow the
-	// second delivery to print the same job concurrently. Re-entry is only
-	// idempotent for the same claim token (or legacy tokenless rows).
-	printingOwner := "(status = 'printing' AND ((claim_token IS NULL AND ? = '') OR claim_token = ?))"
-	guard := "(status = 'queued' OR " + printingOwner + " OR (status = 'failed' AND (last_error IS NULL OR NOT " + unknown + ")))"
-	if allowUnknownReprint {
-		guard = "(status = 'queued' OR " + printingOwner + " OR status = 'failed')"
-	}
+	// Keep the state machine explicit instead of dynamically concatenating SQL
+	// guards. The transaction is the local ownership fence: SQLite permits only
+	// one writer because Queue uses a single DB connection.
 	tx, err := q.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.Exec(
-		`INSERT OR IGNORE INTO print_jobs (id, printer_id, payload, status, claim_token) VALUES (?, ?, ?, 'queued', ?)`,
-		id, printerID, payload, claimToken,
-	); err != nil {
-		return err
-	}
-	var res sql.Result
+
+	// A first delivery creates the durable ledger row before any hardware I/O.
+	// Do not use the incoming token as an authorization decision yet; the row
+	// state below is authoritative for both fresh and redelivered jobs.
+	insertToken := interface{}(nil)
 	if claimToken != "" {
-		res, err = tx.Exec(
-			`UPDATE print_jobs SET status = 'printing', claim_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND `+guard,
-			claimToken, id, claimToken, claimToken,
-		)
-	} else {
-		res, err = tx.Exec(
-			`UPDATE print_jobs SET status = 'printing', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND `+guard,
-			id, "", "",
-		)
+		insertToken = claimToken
 	}
+	res, err := tx.Exec(
+		`INSERT OR IGNORE INTO print_jobs (id, printer_id, payload, status, claim_token) VALUES (?, ?, ?, 'queued', ?)`,
+		id, printerID, payload, insertToken,
+	)
 	if err != nil {
 		return err
 	}
-	rows, err := res.RowsAffected()
+	inserted, err := res.RowsAffected()
 	if err != nil {
 		return err
 	}
-	if rows == 0 {
+
+	var status string
+	var storedToken sql.NullString
+	var lastErr sql.NullString
+	if err := tx.QueryRow(
+		`SELECT status, claim_token, last_error FROM print_jobs WHERE id = ?`,
+		id,
+	).Scan(&status, &storedToken, &lastErr); err != nil {
+		return err
+	}
+
+	// A success row is permanently terminal. This check deliberately precedes
+	// allowUnknownReprint: operator reprint can only reopen an explicitly
+	// unknown failed outcome, never a proven success.
+	if status == "success" {
 		return ErrTerminalState
 	}
+
+	if status == "printing" {
+		// A live physical attempt owns this row. Re-entry is idempotent only for
+		// the same non-empty token. A legacy tokenless row may only be re-entered
+		// by a tokenless legacy caller; a new tokened claimant can never steal it.
+		stored := storedToken.String
+		if (stored != "" && stored == claimToken) || (stored == "" && claimToken == "") {
+			return tx.Commit()
+		}
+		return ErrTerminalState
+	}
+
+	if status == "failed" {
+		unknown := false
+		if lastErr.Valid {
+			for _, marker := range UnknownOutcomeMarkers {
+				if strings.HasPrefix(lastErr.String, marker) {
+					unknown = true
+					break
+				}
+			}
+		}
+		if unknown && !allowUnknownReprint {
+			return ErrTerminalState
+		}
+	}
+
+	// Only queued and retryable failed rows may enter printing. The UPDATE is
+	// intentionally simple: there is exactly one placeholder for each value.
+	// A fresh token becomes durable at the same transaction boundary.
+	var updateToken interface{} = nil
+	if claimToken != "" {
+		updateToken = claimToken
+	}
+	updated, err := tx.Exec(
+		`UPDATE print_jobs SET status = 'printing', claim_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('queued','failed')`,
+		updateToken, id,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := updated.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return ErrTerminalState
+	}
+	// inserted is intentionally read so the compiler and reviewers see that
+	// fresh-job creation is part of the same fenced transition; it is not used
+	// to alter the state-machine decision.
+	_ = inserted
 	return tx.Commit()
 }
 
