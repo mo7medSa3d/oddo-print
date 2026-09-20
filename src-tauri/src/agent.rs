@@ -542,6 +542,22 @@ fn write_background_pid(pid: u32) -> Result<(), String> {
 /// here keeps the invariant "no unowned spawned process is ever left behind"
 /// while preserving the original persistence error verbatim.
 #[cfg(windows)]
+fn taskkill_pid(pid: u32, force: bool) -> Result<std::process::Output, String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let pid_arg = pid.to_string();
+    let taskkill = system32_exe("taskkill.exe")?;
+    let mut cmd = Command::new(taskkill);
+    if force {
+        cmd.args(["/PID", &pid_arg, "/T", "/F"]);
+    } else {
+        cmd.args(["/PID", &pid_arg, "/T"]);
+    }
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    run_bounded_command(cmd, std::time::Duration::from_secs(30), 32 * 1024, 32 * 1024)
+}
+
+#[cfg(windows)]
 fn spawn_persist_or_reconcile(
     mut spawn: impl FnMut() -> Result<std::process::Child, String>,
     persist: impl FnOnce(u32) -> Result<(), String>,
@@ -636,11 +652,45 @@ pub fn stop(app: &tauri::AppHandle) -> Result<(), String> {
                     ));
                 }
 
-                terminate_owned_background_process(app, &record)?;
-                logging::info(&format!(
-                    "terminated exactly the owned YasserAgent.exe PID {} after identity verification",
-                    record.pid
-                ));
+                // Preserve the previous graceful-stop behavior, but only
+                // after verifying that the recorded PID still denotes our exact
+                // executable instance. If the process ignores graceful stop,
+                // re-verify identity and then use the same exact PID for force
+                // termination.
+                let out = taskkill_pid(record.pid, false)?;
+                if !out.status.success() {
+                    logging::warn(&format!(
+                        "graceful taskkill for owned agent pid={} reported: {}",
+                        record.pid,
+                        String::from_utf8_lossy(&out.stderr).trim()
+                    ));
+                } else {
+                    logging::info(&format!(
+                        "graceful shutdown requested for owned agent pid={}",
+                        record.pid
+                    ));
+                }
+
+                for _ in 0..5 {
+                    if !background_record_matches(app, &record) {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                }
+
+                if background_record_matches(app, &record) {
+                    terminate_owned_background_process(app, &record)?;
+                    logging::warn(&format!(
+                        "owned agent pid={} did not exit within the grace window; force-terminated after identity re-verification",
+                        record.pid
+                    ));
+                }
+                if background_record_matches(app, &record) {
+                    return Err(format!(
+                        "owned YasserAgent.exe PID {} is still running after forced termination",
+                        record.pid
+                    ));
+                }
                 clear_background_pid();
             }
         }
