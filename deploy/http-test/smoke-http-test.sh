@@ -17,10 +17,14 @@ set -a
 source "$ENV_FILE"
 set +a
 
-BASE="${SMOKE_BASE_URL:-http://127.0.0.1:${HTTP_TEST_PORT}}"
+BASE="${SMOKE_BASE_URL:-${APP_BASE_URL:-http://127.0.0.1:${HTTP_TEST_PORT}}}"
 EMAIL="test+$(date +%s)-${BASHPID}@yasser.invalid"
 PASSWORD="Yasser-Test-2026!"
 WORKSPACE="Yasser HTTP Test Workspace"
+
+# Browser-equivalent headers are required for cookie-authenticated mutations by the production CSRF boundary.
+ORIGIN="$BASE"
+BROWSER_HEADERS=(-H "Origin: $ORIGIN" -H "Sec-Fetch-Site: same-origin")
 
 rm -f "$COOKIE_JAR" "$MANAGER_COOKIE_JAR"
 : > "$TEST_DATA"
@@ -47,19 +51,19 @@ VERIFY_URL="$(grep -Eo 'https?://[^[:space:]]+/verify-email\?token=[^[:space:]]+
 VERIFY_TOKEN="${VERIFY_URL#*token=}"
 
 echo "[5/9] email verification + onboarding"
-curl -fsS -c "$COOKIE_JAR" -b "$COOKIE_JAR"   -H 'Content-Type: application/json'   -d "{\"token\":\"$VERIFY_TOKEN\"}"   "$BASE/api/auth/verify-email" | grep -q '"next":"/onboarding"'
+curl -fsS -c "$COOKIE_JAR" -b "$COOKIE_JAR"   "${BROWSER_HEADERS[@]}"   -H 'Content-Type: application/json'   -d "{\"token\":\"$VERIFY_TOKEN\"}"   "$BASE/api/auth/verify-email" | grep -q '"next":"/onboarding"'
 
-curl -fsS -c "$COOKIE_JAR" -b "$COOKIE_JAR"   -H 'Content-Type: application/json'   -d "{\"workspaceName\":\"$WORKSPACE\",\"planId\":\"http-test\",\"trial\":true}"   "$BASE/api/onboarding" | grep -q '"next":"/dashboard"'
+curl -fsS -c "$COOKIE_JAR" -b "$COOKIE_JAR"   "${BROWSER_HEADERS[@]}"   -H 'Content-Type: application/json'   -d "{\"workspaceName\":\"$WORKSPACE\",\"planId\":\"http-test\",\"trial\":true}"   "$BASE/api/onboarding" | grep -q '"next":"/dashboard"'
 
 echo "[6/9] customer login + authenticated session"
-LOGIN_STATUS="$(curl -sS -o /tmp/yasser-login.json -w '%{http_code}'   -c "$COOKIE_JAR" -b "$COOKIE_JAR"   -H 'Content-Type: application/json'   -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"   "$BASE/api/auth/login")"
+LOGIN_STATUS="$(curl -sS -o /tmp/yasser-login.json -w '%{http_code}'   -c "$COOKIE_JAR" -b "$COOKIE_JAR"   "${BROWSER_HEADERS[@]}"   -H 'Content-Type: application/json'   -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"   "$BASE/api/auth/login")"
 [[ "$LOGIN_STATUS" == "200" ]]
 
 curl -fsS -b "$COOKIE_JAR" "$BASE/api/auth/me" | grep -q '"authenticated":true'
 
 echo "[7/9] desktop-style Manager login"
 MANAGER_LOGIN_STATUS="$(
-  curl -sS --max-time 10 -o "$TMP_DIR/manager-login.json" -w '%{http_code}'     -c "$MANAGER_COOKIE_JAR" -b "$MANAGER_COOKIE_JAR"     -H 'Content-Type: application/json'     -H 'X-Odoo-Print-Desktop: 1'     -d "{\"username\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"     "$BASE/api/auth/manager/login"
+  curl -sS --max-time 10 -o "$TMP_DIR/manager-login.json" -w '%{http_code}'     -c "$MANAGER_COOKIE_JAR" -b "$MANAGER_COOKIE_JAR"     "${BROWSER_HEADERS[@]}"     -H 'Content-Type: application/json'     -H 'X-Odoo-Print-Desktop: 1'     -d "{\"username\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"     "$BASE/api/auth/manager/login"
 )"
 [[ "$MANAGER_LOGIN_STATUS" == "200" ]]
 MANAGER_TOKEN="$(grep -Eo '"accessToken":"[^"]+"' "$TMP_DIR/manager-login.json" | cut -d'"' -f4)"
@@ -74,7 +78,7 @@ MANAGER_AFTER_LOGOUT_STATUS="$(
 [[ "$MANAGER_AFTER_LOGOUT_STATUS" == "401" ]]
 
 echo "[9/9] customer logout + session revocation"
-curl -fsS -b "$COOKIE_JAR" -X POST "$BASE/api/auth/logout" >/dev/null
+curl -fsS "${BROWSER_HEADERS[@]}" -b "$COOKIE_JAR" -X POST "$BASE/api/auth/logout" >/dev/null
 CUSTOMER_AFTER_LOGOUT_STATUS="$(
   curl -sS --max-time 10 -o "$TMP_DIR/me-after-logout.json" -w '%{http_code}'     -b "$COOKIE_JAR"     "$BASE/api/auth/me"
 )"
