@@ -526,8 +526,8 @@ class PrintGatewayJob(models.Model):
                 raise ValidationError(_("Stored print payload decoded to empty content."))
         except Exception as exc:
             raise ValidationError(_("Stored print payload data is not valid base64.")) from exc
-        if len(decoded) > 8 * 1024 * 1024:
-            raise ValidationError(_("Stored print payload exceeds the 8 MiB safety limit."))
+        if len(decoded) > 5 * 1024 * 1024:
+            raise ValidationError(_("Stored print payload exceeds the 5 MiB Gateway/Agent safety limit."))
         # Content/signature parity with the Gateway and agent validators:
         # what claims to be a PDF must start with %PDF-, a raster must be a
         # JPEG, and byte streams must not smuggle PDF headers.
