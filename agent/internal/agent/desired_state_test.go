@@ -376,3 +376,31 @@ func TestDesiredStatePreservesObservedProtocolCapabilitiesAcrossRestart(t *testi
 		t.Fatalf("expected observed capability list to survive restart, got %#v", caps)
 	}
 }
+
+func TestDesiredStateUpdatePreservesObservedProtocolCapabilities(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	a.desiredStateSynced = true
+	p := testDesiredPrinter("printer-capability-update", 1, "active")
+	a.reconcileGatewayDesiredState([]desiredPrinterWire{p})
+
+	a.desiredStateMu.Lock()
+	row := a.desiredStates[p.ID]
+	row.ObservedSupportedProtocols = []string{"escpos"}
+	row.ObservedSupportedProtocolsKnown = true
+	a.desiredStates[p.ID] = row
+	a.desiredStateMu.Unlock()
+	if err := a.applyDesiredPrinter(row); err != nil {
+		t.Fatalf("applyDesiredPrinter: %v", err)
+	}
+
+	updated := p
+	updated.Name = "Updated"
+	updated.DesiredRevision = 2
+	a.reconcileGatewayDesiredState([]desiredPrinterWire{updated})
+
+	pc := a.printerConfigs[p.ID]
+	caps, ok := pc.Capabilities["supported_protocols"].([]string)
+	if !ok || len(caps) != 1 || caps[0] != "escpos" {
+		t.Fatalf("desired-state update dropped observed capabilities, got %#v", pc.Capabilities)
+	}
+}
