@@ -36,7 +36,7 @@ func validateServerURL(raw string) error {
 		return nil
 	}
 	if u.Scheme == "http" {
-		if os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
+		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
 			return nil
 		}
 		return fmt.Errorf("http URL %q requires explicit opt-in via ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP=1 environment variable", raw)
@@ -124,6 +124,7 @@ func Register(serverURL, pairingCode, configPath string) error {
 		return fmt.Errorf("load config before saving credentials: %w", err)
 	}
 	cfg.Server.URL = serverURL
+	cfg.Server.AllowInsecureHTTP = u.Scheme == "http"
 	cfg.Agent.ID = data.AgentID
 	cfg.Agent.Secret = data.Secret
 	if cfg.Agent.Name == "" {
