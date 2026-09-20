@@ -61,6 +61,10 @@ import {
   effectivePrinterStatus,
 } from "../../shared/job-vocabulary";
 import { copyTextToClipboard } from "../../lib/clipboard";
+import PrinterCapabilityMatrix from "../../components/PrinterCapabilityMatrix";
+import AgentHealthMatrix from "../../components/AgentHealthMatrix";
+import PrintCertificationWizard from "../../components/PrintCertificationWizard";
+import JobTimeline from "../../components/JobTimeline";
 
 export type Agent = {
   id: string;
@@ -1090,6 +1094,31 @@ export default function DashboardClient({
           <Button variant={pendingAgentAction?.next === "retired" ? "danger" : "primary"} disabled={busy} loading={busy} onClick={async () => { await confirmAgentAction(); }}>{pendingAgentAction?.next === "retired" ? "Retire agent" : "Disable agent"}</Button>
         </div>
       </Modal>
+
+      {/* Enterprise Observability — P0 */}
+      <Card className="overflow-hidden">
+        <CardHeader title="Enterprise Observability" subtitle="Agent health, capability matrix, certification, timeline, spooler linking" icon={<Server className="h-4 w-4 text-brand" />} />
+        <div className="space-y-6 px-5 pb-5">
+          <div>
+            <h3 className="mb-2 text-sm font-semibold">Agent Health (ONLINE/DEGRADED/OFFLINE/STARTING/RECOVERING)</h3>
+            <AgentHealthMatrix />
+          </div>
+          <div>
+            <h3 className="mb-2 text-sm font-semibold">Printer Capability Matrix (Transport/Protocol/Document/Duplex/Color/Status + Driver/Spooler)</h3>
+            <PrinterCapabilityMatrix />
+          </div>
+          <div>
+            <h3 className="mb-2 text-sm font-semibold">Real Print Certification</h3>
+            <p className="mb-2 text-[12px] text-ink-3">Select a printer from fleet to run certification wizard (Gateway→Auth→Queue→Claim→Agent→Transport→Physical→Ack→Final).</p>
+            <div className="grid gap-3 md:grid-cols-2">
+              {printers.slice(0,4).map(p=>(
+                <PrintCertificationWizard key={p.id} printerId={p.id} />
+              ))}
+              {printers.length===0 && <div className="text-xs text-ink-3">No printers to certify. Register an agent and printer first.</div>}
+            </div>
+          </div>
+        </div>
+      </Card>
 
       <Modal open={Boolean(agentToDelete)} onClose={() => { if (!busy) setAgentToDelete(null); }} title="Delete Agent" description="Permanently removes this agent from Gateway.">
         <div className="space-y-4 text-[13px] text-ink-2">
