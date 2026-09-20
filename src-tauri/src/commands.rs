@@ -219,8 +219,7 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
-    let out = cmd
-        agent::run_bounded_command(cmd, std::time::Duration::from_secs(60), 64 * 1024, 64 * 1024)?;
+    let out = agent::run_bounded_command(cmd, std::time::Duration::from_secs(60), 64 * 1024, 64 * 1024)?;
 
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
