@@ -34,7 +34,7 @@ describe("desktop manager authentication contract", () => {
     const source = read("src/desktop/lib/ipc.ts");
     expect(source).toContain('invoke<string>("gateway_agent_request"');
     expect(source).toContain('"/api/jobs"');
-    expect(source).toContain(`gatewayConsoleRequest(base, "/api/jobs"`);
+    expect(source).toMatch(/const endpoint = `\\/api\\/jobs\\?\\$\\{params\\.toString\(\)\\}`;/);\n    expect(source).toMatch(/gatewayConsoleRequest\(base, endpoint, "GET", headers\)/);
     expect(source).not.toContain('gatewayRequest(base, "/api/jobs"');
   });
 
