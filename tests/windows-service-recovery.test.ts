@@ -1,57 +1,68 @@
 import { describe, it, expect } from "vitest";
+import * as fs from "fs";
 
 describe("windows-service-recovery", () => {
-  it("service recovery config matches Microsoft SCM spec", () => {
-    const config = {
-      serviceName: "YasserPrintAgent",
-      resetPeriodSec: 86400,
-      actions: [
-        { type: "restart", delayMs: 5000 },
-        { type: "restart", delayMs: 10000 },
-        { type: "restart", delayMs: 30000 },
-      ],
-      failureFlag: true,
-      startType: "AUTOMATIC",
-      dependencies: ["Spooler"],
-    };
-    expect(config.resetPeriodSec).toBe(86400);
-    expect(config.actions[0].delayMs).toBe(5000);
-    expect(config.failureFlag).toBe(true);
-    expect(config.dependencies).toContain("Spooler");
+  it("service recovery config matches Microsoft SCM spec (from docs)", () => {
+    const doc = fs.readFileSync("docs/WINDOWS_SERVICE_RECOVERY.md", "utf8");
+    expect(doc).toContain("YasserPrintAgent");
+    expect(doc).toContain("86400");
+    expect(doc).toContain("restart/5000");
+    expect(doc).toContain("Spooler");
+    expect(doc).toContain("Service Control Manager");
   });
 
-  it("service state includes Running/Automatic/Restart on failure/Last restart/Failures/Exit code", () => {
-    const status = {
-      state: "Running",
-      startType: "Automatic",
-      recovery: "Restart on failure",
-      lastRestart: new Date().toISOString(),
-      failureCount: 0,
-      exitCode: 0,
-    };
-    expect(status.state).toBe("Running");
-    expect(status.startType).toBe("Automatic");
-    expect(status.recovery).toContain("Restart");
-    expect(status).toHaveProperty("lastRestart");
-    expect(status).toHaveProperty("failureCount");
-    expect(status).toHaveProperty("exitCode");
+  it("service status API returns BLOCKED explicit with required fields", () => {
+    const source = fs.readFileSync("src/app/api/agents/service-status/route.ts", "utf8");
+    expect(source).toContain("serviceName");
+    expect(source).toContain("state");
+    expect(source).toContain("startType");
+    expect(source).toContain("recovery");
+    expect(source).toContain("lastRestart");
+    expect(source).toContain("failureCount");
+    expect(source).toContain("exitCode");
+    expect(source).toContain("BLOCKED");
+    expect(source).toContain("Windows Service Control Manager");
   });
 
   it("kill→SCM restart→reconnect test procedure documented", () => {
-    const procedure = [
-      "sc start YasserPrintAgent",
-      "verify ONLINE via /api/agents/health",
-      "taskkill /F /PID <pid>",
-      "sc query YasserPrintAgent should show RUNNING after 5s",
-      "check failure count incremented",
-      "verify Gateway ONLINE within 90s",
-      "verify queue preserved",
-    ];
-    expect(procedure.length).toBeGreaterThan(5);
+    const doc = fs.readFileSync("docs/WINDOWS_SERVICE_RECOVERY.md", "utf8");
+    expect(doc).toContain("sc start");
+    expect(doc).toContain("taskkill");
+    expect(doc).toContain("sc query");
+    expect(doc).toContain("failure count");
+    expect(doc).toContain("Gateway");
+    expect(doc).toContain("90s");
+  });
+
+  it("Tauri updater claims verified — no updater if not implemented", () => {
+    // Check tauri.conf.json for updater
+    const tauriConfPath = "src-tauri/tauri.conf.json";
+    let hasUpdater = false;
+    try {
+      const conf = fs.readFileSync(tauriConfPath, "utf8");
+      hasUpdater = conf.includes("updater") || conf.includes("plugins") && conf.includes("updater");
+    } catch {
+      hasUpdater = false;
+    }
+    const cargoPath = "src-tauri/Cargo.toml";
+    let cargoHasUpdater = false;
+    try {
+      const cargo = fs.readFileSync(cargoPath, "utf8");
+      cargoHasUpdater = cargo.includes("updater");
+    } catch {
+      cargoHasUpdater = false;
+    }
+    // If no updater found, it must be marked BLOCKED/NOT IMPLEMENTED, not claimed PASS
+    const releaseReadiness = fs.readFileSync("src/app/release-readiness/release-readiness-client.tsx", "utf8");
+    if (!hasUpdater && !cargoHasUpdater) {
+      expect(releaseReadiness).toContain("Tauri updater");
+      expect(releaseReadiness).toMatch(/BLOCKED|NOT IMPLEMENTED|FAIL/);
+    }
   });
 
   it("BLOCKED handling explicit for sandbox", () => {
-    const blocked = "BLOCKED: Windows Service Control Manager query requires Windows host";
-    expect(blocked).toContain("BLOCKED");
+    const source = fs.readFileSync("src/app/api/agents/service-status/route.ts", "utf8");
+    expect(source).toContain("BLOCKED");
+    expect(source).toContain("requires Windows host");
   });
 });

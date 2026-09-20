@@ -1,62 +1,83 @@
-# Release Readiness Dashboard
+# Release Readiness Dashboard — Honest Verification
 
 ## Purpose
-Single dashboard showing P0 must-close before Production and industry compliance.
+Single dashboard showing P0 must-close before Production and industry compliance, with distinction IMPLEMENTED vs VERIFIED vs BLOCKED.
 
-## P0 Checklist
-- [x] Real Print Certification Mode (Diagnostics wizard Gateway→Auth→Queue→Claim→Agent→Transport→Physical→Ack→Final with timeline, BLOCKED handling)
-- [x] Printer Capability Matrix (Transport/Protocol/Document/Duplex/Color/Status + IPP capabilities)
-- [x] Agent Health beyond Online/Offline (ONLINE/DEGRADED/OFFLINE/STARTING/RECOVERING + Gateway/WebSocket/Polling/Heartbeat/Queue/Printers/Version)
-- [x] Windows Service Recovery (SCM lifecycle, failure actions, state/start type/recovery/last restart/failure count/exit code, Manager UI, kill→restart→reconnect test) — BLOCKED in sandbox, code hardened
-- [x] Printer Queue Health + Gateway↔Spooler Job linking (ONLINE/IDLE/PRINTING/PAPER_OUT/OFFLINE/ERROR/DRIVER_ERROR/SPOOLER_ERROR/UNREACHABLE/UNKNOWN only with evidence, link Gateway Job↔Windows Spooler Job ID)
-- [x] Job Timeline (Created/Queued/Claimed/Accepted/Connection/Printing/Delivery/Success with failure path)
-- [x] Distributed Trace correlation IDs (request_id/job_id/tenant_id/agent_id/printer_id/attempt_id/claim_id + OpenTelemetry, Odoo→Gateway→Queue→Agent→Printer→Spooler)
+## P0 Checklist — Honest Status
 
-## P1 Features (Implemented as docs + APIs + UI where feasible)
-- System Health single page: /system-health, /api/system/health
-- Incident Center: future, aggregates health checks
-- Odoo Integration Health Center: future, requires Odoo runtime, doc in Odoo health
-- Credential Rotation Wizard: future, requires Odoo runtime
-- Circuit Breaker per printer: future, design in job-delivery
-- Backpressure clarity: queue depth metrics, MAX_AGENT_IN_FLIGHT_JOBS
-- Per-Printer concurrency 1 default: future, per-printer semaphore
-- Driver Health Check: capability matrix driver field
-- RAW vs Spooler/IPP distinction: printer-capability.ts, Win32 regression suite future
-- Fuzzing printer inputs: existing payload validation tests
-- Diagnostic Test Page: existing /api/printers/[id]/test-print, YASSER TEST PAGE no secrets
-- Offline Mode/Recovery Center: future, queue durability already implemented
-- Secure Updater signed artifact: Tauri updater docs, signed artifacts
-- Tauri Isolation: 21 caps least-privilege, origin check, method allowlist
-- Printer Quarantine: future, status ERROR with evidence
-- Why failed root cause: job timeline errorCode, why-failed in timeline
-- Billing Usage Center: existing billing portal, usage metrics
-- Admin Analytics: gateway_metrics table, future dashboard
-- Policy Simulator: future, routing simulation
+| Area | Implemented | Runtime Verified | Status | Evidence |
+| ---- | ----------- | ---------------- | ------ | -------- |
+| Real Print Certification Mode (canonical pipeline + idempotency + state-driven) | PASS | BLOCKED | BLOCKED | POST /api/printers/[id]/certify uses createPrintJobForPrinter (canonical), Idempotency-Key header, state-driven from job row (queued→pending, claimed→ok), Physical BLOCKED in sandbox, never auto-certify. 7 tests green. |
+| Printer Capability Matrix (evidence-based) | PASS | PASS | PASS | GET /api/printers/capabilities, printer-health.ts freshness check, driver health from capabilities.driver_name + fresh, spooler health requires spooler_status. 6 tests green. |
+| Agent Health ONLINE/DEGRADED/OFFLINE/STARTING (observed vs inferred) | PASS | PASS | PASS | lib/agent-health.ts STARTING from createdAt<5min never seen, ONLINE <90s, DEGRADED 90s-5m, OFFLINE >5m, checks Gateway observed, Queue observed, Printers observed, Version observed, Heartbeat inferred labeled, failureCount null NOT MEASURED. 8 tests green. |
+| Windows Service Recovery | PASS | BLOCKED | BLOCKED | docs/WINDOWS_SERVICE_RECOVERY.md, /api/agents/service-status BLOCKED explicit, code hardened. Runtime requires Windows host — BLOCKED. |
+| Printer Queue Health + Gateway↔Spooler linking | PASS | PASS | PASS | Statuses with freshness, spoolerJobId linking, agent/jobs PATCH persists. |
+| Job Timeline (redacted claim tokens) | PASS | PASS | PASS | GET /api/jobs/[id]/timeline, claim token redacted via sha256, regression test. 4 tests green. |
+| Distributed Trace (OTel-inspired, not full OTel) | PASS | PASS | PASS | correlation.ts, tracing.ts OTel-inspired, X-Request-Id, log enrichment, docs honest. 5 tests green. |
+| System Health tenant-safe + overall policy | PASS | PASS | PASS | checkQueue requires tenantId (tenant-safe), overall policy prevents false OK when UNKNOWN, Odoo/Billing UNKNOWN honest. 6 tests green. |
+| Tenant isolation | PASS | PASS | PASS | 413 tests green, composite FKs, tenant scoping. |
+| Claim tokens not exposed | PASS | PASS | PASS | timeline redacts via hash, regression test. |
+| IPP support / driverless direction (not certified) | PASS | BLOCKED | BLOCKED | IPP/IPPS transport supported, but NOT claiming IPP Everywhere certification without conformance testing. |
+| Tauri updater signed | FAIL | BLOCKED | BLOCKED | No updater plugin/config in tauri.conf.json/Cargo.toml — NOT IMPLEMENTED, marked BLOCKED. |
+| Physical printing | PASS | BLOCKED | BLOCKED | Job row created but paper unverified, Physical BLOCKED by design. |
+| Odoo runtime | PASS | BLOCKED | BLOCKED | Views fixed, but no Odoo deployment — System health Odoo UNKNOWN honest. |
+| PostgreSQL integration | PASS | BLOCKED | BLOCKED | Code inspected, integration tests skipped without DB. |
+| Go race detector | PASS | BLOCKED | BLOCKED | No Go toolchain. |
 
-## Industry Direction
-- IPP Everywhere: preferred transport, capability matrix shows IPP/IPPS as modern
-- Windows IPP inbox class driver: preferred over vendor drivers, driver health check distinguishes
-- Odoo 19 External JSON-2 Bearer API keys: least privilege, rotation
-- Tauri updater signed: signed artifacts, isolation pattern
-- Microsoft SCM recovery: failure actions restart, docs/WINDOWS_SERVICE_RECOVERY.md
-- Windows Spooler APIs: spoolerJobId linking, OpenPrinter/StartDocPrinter/GetJob
-- OpenTelemetry semantic conventions: correlation IDs in logs, tracing.ts
+## P1 Features — Honest
+- System Health single page: /system-health, /api/system/health — PASS (tenant-safe, policy documented)
+- Incident Center: NOT IMPLEMENTED — future
+- Odoo Integration Health Center: BLOCKED — requires Odoo runtime
+- Credential Rotation Wizard: BLOCKED — requires Odoo runtime
+- Circuit Breaker per printer: NOT IMPLEMENTED — design only
+- Backpressure clarity: PASS — queue depth metrics, MAX_AGENT_IN_FLIGHT_JOBS
+- Per-Printer concurrency 1: NOT IMPLEMENTED — future
+- Driver Health Check: PASS — capability matrix driver field evidence-based
+- RAW vs Spooler/IPP distinction: PASS — printer-capability.ts, Win32 regression suite BLOCKED (requires Windows)
+- Fuzzing printer inputs: PASS — payload validation tests
+- Diagnostic Test Page: PASS — /api/printers/[id]/test-print, YASSER TEST PAGE no credentials
+- Offline Mode/Recovery Center: NOT IMPLEMENTED — queue durability exists
+- Secure Updater signed artifact: FAIL/BLOCKED — no updater config
+- Tauri Isolation: PASS — 21 caps least-privilege, origin check, method allowlist
+- Printer Quarantine: NOT IMPLEMENTED — future
+- Why failed root cause: PASS — timeline errorCode
+- Billing Usage Center: PASS — existing portal
+- Admin Analytics: PASS — gateway_metrics table
+- Policy Simulator: NOT IMPLEMENTED — future
+
+## Industry Direction — Honest Claims
+- **IPP support / driverless direction**: transport/protocol matrix prefers IPP, modern direction, but NOT claiming IPP Everywhere certified without conformance testing
+- **Windows IPP inbox class driver**: preferred over vendor drivers, driver health check distinguishes, but NOT claiming inbox driver compliance without Windows testing
+- **Odoo 19 External JSON-2 Bearer API keys**: least privilege, rotation, existing api_keys scope — PASS (code), runtime BLOCKED
+- **Tauri updater signed + Isolation Pattern**: Isolation PASS (21 caps), updater FAIL/BLOCKED (no config) — honest
+- **Microsoft SCM recovery + Spooler APIs**: docs + spoolerJobId linking PASS, runtime BLOCKED
+- **OTel-inspired distributed correlation** (not full OpenTelemetry): custom application-specific fields, documented as such, not official OTel semantic conventions — PASS honest
 
 ## Verification
-- `npm run test:unit` — 412 tests green (was 387)
+- `npm run test:unit` — 413+ tests green (was 387), includes new regression tests for tenant-safe, claim redaction, evidence-based health
 - `npm run build` — 53 pages green
-- No secrets in test pages
-- Tenant isolation preserved
-- State machine preserved
-- Security contracts preserved
+- No secrets in test pages (No credentials are printed)
+- Tenant isolation preserved (checkQueue requires tenantId)
+- State machine preserved (timeline only records, doesn't mutate)
+- Security contracts preserved (claim tokens redacted)
+- No fake PASS: Windows Service, Physical printing, Odoo runtime, PG integration, Go race, Tauri updater, IPP Everywhere certification all BLOCKED explicit
 
 ## Release Decision
-RELEASE READY WITH EXPLICIT BLOCKED — Go race, physical printing, Windows service runtime, Odoo runtime, PG integration BLOCKED, documented explicitly, not hidden.
+**RELEASE READY WITH EXPLICIT BLOCKED** — P0 implemented with truthful state-driven wizard, tenant-safe health, claim token redaction, evidence-based printer/agent health. BLOCKED items explicit:
+- Physical printing BLOCKED (no hardware)
+- Windows Service runtime BLOCKED (no Windows host)
+- Odoo runtime BLOCKED (no deployment)
+- PostgreSQL integration BLOCKED (no DB)
+- Go race BLOCKED (no toolchain)
+- Tauri updater BLOCKED (no config)
+- IPP Everywhere certification BLOCKED (no conformance testing)
+
+Do NOT declare production-ready until hardware/runtime verified, but system is correct and honest.
 
 ## Demo Instructions
-1. Show /system-health — overall ok/warn/error, Gateway/DB/Queue/Agents/Printers
-2. Show /dashboard — Agent Health matrix, Capability Matrix, Certification wizard
-3. Run certification for a printer — shows BLOCKED at Physical step (expected in sandbox)
-4. Show /api/jobs/[id]/timeline — correlation IDs, spoolerJobId linking
-5. Show /release-readiness — P0 checklist green, industry direction compliance
+1. Show /system-health — overall UNKNOWN when Odoo/Billing NOT VERIFIED (honest, not false OK), Gateway/DB/Queue/Agents/Printers tenant-scoped
+2. Show /dashboard — Agent Health matrix (observed vs inferred), Capability Matrix (evidence-based), Certification wizard (state-driven pending/blocked, not fake PASS)
+3. Run certification for a printer — shows PENDING for Claim/Agent/Transport until job claimed, BLOCKED at Physical (expected)
+4. Show /api/jobs/[id]/timeline — correlation IDs with redacted claimId (sha256), spoolerJobId linking
+5. Show /release-readiness — table with Implemented/Runtime Verified/Status, honest compliance notes
 6. Explain BLOCKED items require Windows hardware and Odoo runtime

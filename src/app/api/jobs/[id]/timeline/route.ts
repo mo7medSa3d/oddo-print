@@ -4,10 +4,37 @@ import { printJobs } from "../../../../../db/schema";
 import { validateConsoleAuth } from "../../../../../lib/console-auth";
 import { and, eq } from "drizzle-orm";
 import { getJobTimeline, buildTimelineFromJobRow } from "../../../../../lib/job-timeline";
-import { getCorrelationContext, runWithCorrelation, generateRequestId } from "../../../../../server/correlation";
+import { runWithCorrelation, generateRequestId } from "../../../../../server/correlation";
 import { requestIdFrom } from "../../../../../lib/log";
+import { createHash } from "crypto";
 
 export const dynamic = "force-dynamic";
+
+function redactClaimToken(token?: string | null): string | undefined {
+  if (!token) return undefined;
+  // Never expose raw claim token — security primitive
+  // Return opaque redacted identifier: sha256 hash first 12 chars + length
+  try {
+    const hash = createHash("sha256").update(token).digest("hex").slice(0, 12);
+    return `claim_${hash}...(${token.length})`;
+  } catch {
+    return `claim_${token.slice(0, 4)}...redacted`;
+  }
+}
+
+function redactClaimIdForTimeline(claimId?: string | null): string | undefined {
+  if (!claimId) return undefined;
+  // If claimId looks like a UUID (claim_token), redact it
+  if (claimId.length > 20 && /^[0-9a-f-]{20,}$/i.test(claimId)) {
+    return redactClaimToken(claimId);
+  }
+  // If already opaque (attempt_ or claim_ prefix with nanoid), allow but still redact if long
+  if (claimId.startsWith("claim_") && claimId.length > 20) {
+    // It's already opaque nanoid, but still redact to be safe if it contains token
+    return claimId.slice(0, 12) + "...";
+  }
+  return claimId;
+}
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -16,20 +43,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
 
-  // Correlation
-  const incomingReqId = (req as any).headers?.get?.("x-request-id") ?? new Request(req.url, { headers: req.headers }).headers.get("x-request-id");
   const requestId = requestIdFrom(req as any) || generateRequestId();
   const correlation = { requestId, tenantId, jobId: id };
 
   return runWithCorrelation(correlation as any, async () => {
-    // Fetch job row
     const rows = await db.select().from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.id, id))).limit(1);
     if (rows.length === 0) {
       return NextResponse.json({ error: "Not found" }, { status: 404, headers: { "x-request-id": requestId } });
     }
     const job = rows[0] as any;
 
-    // Try to get real events table; fallback to derived timeline if table empty/missing
     let events: any[] = [];
     try {
       events = await getJobTimeline(tenantId, id);
@@ -47,7 +70,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         message: e.message,
         errorCode: e.errorCode,
         attemptId: e.attemptId,
-        claimId: e.claimId,
+        // Redact claimId — never expose raw claim_token
+        claimId: redactClaimIdForTimeline(e.claimId),
         spoolerJobId: e.spoolerJobId,
         agentId: e.agentId,
         printerId: e.printerId,
@@ -55,7 +79,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         metadata: e.metadata,
       }));
     } else {
-      // Derived from job row (legacy)
       timeline = buildTimelineFromJobRow(job).map((t, idx) => ({
         id: `derived_${idx}`,
         stage: t.stage,
@@ -63,7 +86,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         at: t.at,
         message: t.message,
         attemptId: job.attemptId,
-        claimId: job.claimToken ? `${job.claimToken.slice(0, 8)}...` : undefined,
+        // Redact claimToken — never raw
+        claimId: redactClaimToken(job.claimToken),
         spoolerJobId: job.spoolerJobId,
         agentId: job.agentId,
         printerId: job.printerId,
@@ -72,7 +96,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       }));
     }
 
-    // Add correlation headers
     const res = NextResponse.json(
       {
         jobId: id,
@@ -88,7 +111,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           agentId: job.agentId,
           printerId: job.printerId,
           attemptId: job.attemptId,
-          claimId: job.claimToken,
+          // Redacted claimId — never raw token
+          claimId: redactClaimToken(job.claimToken),
           spoolerJobId: job.spoolerJobId,
         },
       },
