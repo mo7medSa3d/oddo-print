@@ -13,6 +13,19 @@ EVENT_TYPES = [
 ]
 
 
+def sanitize_raw_value(value, protocol):
+    """Keep Odoo field values inert inside protocol command templates."""
+    text = "" if value is False or value is None else str(value)
+    protocol = str(protocol or "").strip().lower()
+    if protocol == "zpl":
+        return "".join(ch for ch in text if ch not in "^~" and (ch >= " " or ch in "\n\t")).strip()[:200]
+    if protocol == "tspl":
+        return "".join(ch for ch in text if ch not in '"\r\n' and (ch >= " " or ch == "\t")).strip()[:200]
+    # ESC/POS values are text inside a command stream; remove C0 controls
+    # and DEL so an embedded ESC/control byte cannot create a new command.
+    return "".join(ch for ch in text if ch != "\x7f" and ch >= " ").strip()[:200]
+
+
 class PrintGatewayPolicy(models.Model):
     _name = "print_gateway.policy"
     _description = "Print Gateway Dispatch Policy"
@@ -101,22 +114,15 @@ class PrintGatewayPolicy(models.Model):
             raise ValidationError(_("Raw template is empty for policy %s.") % self.name)
 
         protocol = (protocol or self.raw_protocol or "").strip().lower()
-        sanitizers = {
-            "zpl": lambda value: "".join(ch for ch in str(value or "") if ch not in "^~" and (ch >= " " or ch in "\n\t")).strip()[:200],
-            "tspl": lambda value: "".join(ch for ch in str(value or "") if ch not in '"\r\n' and (ch >= " " or ch == "\t")).strip()[:200],
-            "escpos": lambda value: "".join(ch for ch in str(value or "") if ch != "\x7f" and ch >= " ").strip()[:200],
-        }
-        sanitize = sanitizers.get(protocol, sanitizers["escpos"])
-
         values = {}
         for field_name, field in record._fields.items():
             if field.type in ("char", "text", "integer", "float", "date", "datetime", "boolean", "selection"):
                 val = getattr(record, field_name)
-                values[field_name] = sanitize("" if val is False or val is None else val)
+                values[field_name] = sanitize_raw_value(val, protocol)
             elif field.type == "many2one":
                 rel = getattr(record, field_name)
-                values[field_name] = sanitize(rel.display_name if rel else "")
-                values[f"{field_name}_id"] = sanitize(rel.id if rel else "")
+                values[field_name] = sanitize_raw_value(rel.display_name if rel else "", protocol)
+                values[f"{field_name}_id"] = sanitize_raw_value(rel.id if rel else "", protocol)
         try:
             import string
             formatter = string.Formatter()
