@@ -542,7 +542,7 @@ class PrintGatewayRouter(models.AbstractModel):
         elif policy.action_type == "raw_template":
             if not policy.raw_protocol:
                 raise ValidationError(_("Policy '%s' raw protocol is required.") % policy.name)
-            raw_data = policy.render_raw_template(target_record)
+            raw_data = policy.render_raw_template(target_record, protocol=policy.raw_protocol)
             res = self.route_raw_command(
                 raw_data,
                 protocol=policy.raw_protocol,
