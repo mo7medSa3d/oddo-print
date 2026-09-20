@@ -172,9 +172,9 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
     def test_raw_template_values_are_protocol_sanitized(self):
         self.assertEqual(sanitize_raw_value(0, "zpl"), "0")
         self.assertEqual(sanitize_raw_value(False, "zpl"), "")
-        self.assertEqual(sanitize_raw_value("A^XZ~B\\nC", "zpl"), "AXZB\\nC")
-        self.assertEqual(sanitize_raw_value('A"\\r\\nB', "tspl"), "AB")
-        self.assertEqual(sanitize_raw_value("A\\x1bB\\x7fC", "escpos"), "ABC")
+        self.assertEqual(sanitize_raw_value("A^XZ~B" + chr(10) + "C", "zpl"), "AXB" + chr(10) + "C")
+        self.assertEqual(sanitize_raw_value("A" + chr(34) + chr(13) + chr(10) + "B", "tspl"), "AB")
+        self.assertEqual(sanitize_raw_value("A" + chr(27) + "B" + chr(127) + "C", "escpos"), "ABC")
 
     def test_runtime_agent_api_has_no_ai_status_emojis(self):
         source = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
