@@ -29,7 +29,25 @@ export default async function DashboardPage() {
     printerCount: number;
   }> = [];
   let allPrinters: Array<typeof printers.$inferSelect> = [];
-  type JobMeta = Omit<typeof printJobs.$inferSelect, "payload">;
+  type JobMeta = Pick<typeof printJobs.$inferSelect,
+    | "id"
+    | "tenantId"
+    | "destination"
+    | "documentType"
+    | "agentId"
+    | "printerId"
+    | "status"
+    | "error"
+    | "requestedBy"
+    | "retries"
+    | "deliveryAttempts"
+    | "claimedAt"
+    | "deliveredAt"
+    | "ackedAt"
+    | "expiresAt"
+    | "createdAt"
+    | "updatedAt"
+  >;
   let allJobs: JobMeta[] = [];
   let databaseError: string | null = null;
 
@@ -66,7 +84,6 @@ export default async function DashboardPage() {
       status: printJobs.status,
       error: printJobs.error,
       requestedBy: printJobs.requestedBy,
-      idempotencyKey: printJobs.idempotencyKey,
       retries: printJobs.retries,
       deliveryAttempts: printJobs.deliveryAttempts,
       claimedAt: printJobs.claimedAt,
@@ -75,9 +92,6 @@ export default async function DashboardPage() {
       expiresAt: printJobs.expiresAt,
       createdAt: printJobs.createdAt,
       updatedAt: printJobs.updatedAt,
-      apiKeyId: printJobs.apiKeyId,
-      requestId: printJobs.requestId,
-      claimToken: printJobs.claimToken,
     } as const;
     allJobs = await db
       .select(jobColumns)

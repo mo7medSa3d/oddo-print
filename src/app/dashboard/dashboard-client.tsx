@@ -123,6 +123,24 @@ function formatRelativeTime(dateInput: Date | string | null | undefined): string
   return `${diffDays}d ago`;
 }
 
+const MAX_DIAGNOSTIC_PREVIEW_CHARS = 64 * 1024;
+
+function stringifyDiagnosticPayload(payload: unknown): string {
+  if (payload === undefined) return "Loading payload…";
+  if (payload === null) return "No payload stored.";
+  try {
+    return JSON.stringify(payload, null, 2) || "No payload stored.";
+  } catch {
+    return "Payload could not be rendered.";
+  }
+}
+
+function diagnosticPayloadPreview(text: string): string {
+  if (text.length <= MAX_DIAGNOSTIC_PREVIEW_CHARS) return text;
+  return text.slice(0, MAX_DIAGNOSTIC_PREVIEW_CHARS) +
+    "\n\n… Preview truncated at 64 KiB. Use Copy Payload for the complete diagnostic payload.";
+}
+
 function formatCountdown(expiresAt: Date | string | null | undefined): { text: string; expired: boolean } {
   if (!expiresAt) return { text: "10:00", expired: false };
   const exp = typeof expiresAt === "string" ? new Date(expiresAt) : expiresAt;
@@ -1372,7 +1390,7 @@ export default function DashboardClient({
                 <CopyButton
                   value={(() => {
                     const p = selectedJob.payload ?? selectedJobPayload;
-                    return p === undefined ? "" : JSON.stringify(p, null, 2) || "";
+                    return p === undefined ? "" : stringifyDiagnosticPayload(p);
                   })()}
                   label="Copy Payload"
                 />
@@ -1381,10 +1399,7 @@ export default function DashboardClient({
                 {selectedJobPayloadLoading ? (
                   <span role="status">Loading payload…</span>
                 ) : (
-                  <pre>{(() => {
-                    const p = selectedJob.payload ?? selectedJobPayload;
-                    return p === undefined ? "Loading payload…" : JSON.stringify(p, null, 2) || "No payload stored.";
-                  })()}</pre>
+                  <pre>{diagnosticPayloadPreview(stringifyDiagnosticPayload(selectedJob.payload ?? selectedJobPayload))}</pre>
                 )}
               </div>
             </div>

@@ -819,7 +819,7 @@ export function CopyButton({
   return (
     <button
       type="button"
-      aria-label={`${label} ${value}`}
+      aria-label={label}
       title={label}
       onClick={async (e) => {
         e.stopPropagation();

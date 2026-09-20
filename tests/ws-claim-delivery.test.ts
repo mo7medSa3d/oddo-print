@@ -321,6 +321,42 @@ suite("WS claim-before-delivery", () => {
     expect(row.claim_token).toBeNull();
   });
 
+  it("socket delivery evidence exception never causes an automatic requeue", async () => {
+    // The frame is accepted by the socket, but persistence of delivered_at
+    // fails unexpectedly. The claim carries a durable pending-evidence marker,
+    // so maintenance must fail it as physically unknown rather than requeueing
+    // it and risking a duplicate print.
+    const ws = await connectAgent();
+    const messages: unknown[] = [];
+    ws.on("message", (data) => messages.push(JSON.parse(String(data))));
+    await insertQueuedJob(f, "job_evidence_exception");
+    (globalThis as unknown as { __markEvidenceImpl?: MarkFn }).__markEvidenceImpl = async () => {
+      throw new Error("simulated database failure while recording delivery evidence");
+    };
+    try {
+      await expect(claimAndPushJobToAgent({ id: "job_evidence_exception", agentId: f.agentId })).rejects.toThrow(
+        "simulated database failure while recording delivery evidence",
+      );
+    } finally {
+      delete (globalThis as unknown as { __markEvidenceImpl?: MarkFn }).__markEvidenceImpl;
+    }
+
+    let row = await jobRow("job_evidence_exception");
+    expect(row.status).toBe("claimed");
+    expect(row.delivered_at).toBeNull();
+    expect(row.error).toBe("DELIVERY_EVIDENCE_PENDING");
+    expect(messages.length).toBeGreaterThan(0);
+
+    await pool().query(
+      "UPDATE print_jobs SET updated_at = now() - interval '2 minutes' WHERE id = 'job_evidence_exception'",
+    );
+    await sweepPrintJobs({ agentId: f.agentId });
+
+    row = await jobRow("job_evidence_exception");
+    expect(row.status).toBe("failed");
+    expect(row.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY:/);
+  });
+
   it("duplicate push cannot deliver the same job twice", async () => {
     const ws = await connectAgent();
     const messages: any[] = [];

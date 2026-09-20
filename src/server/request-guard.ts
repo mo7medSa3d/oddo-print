@@ -14,6 +14,7 @@ export const MAX_UNAUTHENTICATED_CONCURRENT_BYTES = 8 * 1024 * 1024;
 export const MAX_CONCURRENT_CHUNKED_BYTES = MAX_AUTHENTICATED_CONCURRENT_BYTES;
 
 const MUTATING_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
+const SESSION_COOKIE_RE = /(?:^|;\s*)(?:mgr_session|plt_session)=/;
 let reservedAuthBytes = 0;
 let reservedUnauthBytes = 0;
 
@@ -56,6 +57,58 @@ function verifyJwtQuick(token: string): boolean {
   } catch {
     return false;
   }
+}
+
+function headerValue(req: IncomingMessage, name: string): string {
+  const value = req.headers[name.toLowerCase()];
+  return typeof value === "string" ? value.trim() : Array.isArray(value) ? (value[0] ?? "").trim() : "";
+}
+
+export function isCookieAuthenticatedMutation(req: IncomingMessage): boolean {
+  return SESSION_COOKIE_RE.test(headerValue(req, "cookie"));
+}
+
+/**
+ * Browser session mutations must prove same-origin at the HTTP boundary.
+ * Authorization-header agent/Odoo traffic is intentionally excluded: it does
+ * not rely on ambient browser cookies and must remain usable from native
+ * clients.
+ */
+export function isCookieMutationSameOrigin(req: IncomingMessage): boolean {
+  const method = (req.method ?? "GET").toUpperCase();
+  if (!MUTATING_METHODS.includes(method)) return true;
+  if (!isCookieAuthenticatedMutation(req)) return true;
+
+  const fetchSite = headerValue(req, "sec-fetch-site").toLowerCase();
+  if (fetchSite === "cross-site") return false;
+
+  const host = headerValue(req, "host").toLowerCase().replace(/\.$/, "");
+  if (!host || host.length > 255 || host.includes("/") || host.includes("@")) return false;
+
+  const origin = headerValue(req, "origin");
+  if (origin) {
+    try {
+      const parsed = new URL(origin);
+      return parsed.host.toLowerCase() === host;
+    } catch {
+      return false;
+    }
+  }
+
+  const referer = headerValue(req, "referer");
+  if (referer) {
+    try {
+      const parsed = new URL(referer);
+      return parsed.host.toLowerCase() === host;
+    } catch {
+      return false;
+    }
+  }
+
+  // A browser carrying ambient cookies without the modern fetch-metadata or
+  // standard origin signals is ambiguous; fail closed rather than treating
+  // SameSite as the sole CSRF boundary.
+  return fetchSite === "same-origin";
 }
 
 export function isLikelyAuthenticated(req: IncomingMessage): boolean {
@@ -161,6 +214,12 @@ export async function guardApiRequest(
 
   const payloadBearing = isPayloadBearingEndpoint(req.url);
   const authenticated = isLikelyAuthenticated(req);
+
+  if (!isCookieMutationSameOrigin(req)) {
+    rejectRequest(res, 403, "CSRF_VALIDATION_FAILED");
+    req.destroy();
+    return null;
+  }
 
   const rawLength = req.headers["content-length"];
   const transferEncoding = req.headers["transfer-encoding"];
