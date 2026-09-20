@@ -368,6 +368,18 @@ class PrintGatewayConfig(models.Model):
                 revision=old_revision,
             ):
                 return
+            if not self.gateway_api_key:
+                # A removed key cannot be used for a second no-op PATCH, but
+                # the successful shutdown already proves the requested
+                # disabled state for this revision.
+                self._persist_enabled_sync_result(
+                    dbname,
+                    success=True,
+                    revision=old_revision,
+                    error=False,
+                )
+                self._complete_gateway_migration(old_revision)
+                return True
         synced = self._sync_enabled_state_to_gateway(
             gateway_url,
             api_key,
@@ -557,6 +569,7 @@ class PrintGatewayConfig(models.Model):
         before_gateway_url = {record.id: record.gateway_url for record in self}
         before_revision = {record.id: int(record.enabled_sync_revision or 0) for record in self}
         pre_sync_credentials = {}
+        key_removal_shutdowns = {}
         if "gateway_api_key" in vals and not vals["gateway_api_key"]:
             for record in self:
                 if not record.gateway_api_key:
@@ -570,18 +583,25 @@ class PrintGatewayConfig(models.Model):
                     or record.last_enabled_sync_error
                     or int(record.last_enabled_sync_revision or -1) != before_revision[record.id]
                 )
+                if remote_may_still_be_enabled and record.last_test_status == "revoked":
+                    # The old credential is already known to be unusable. It
+                    # cannot safely be used to mutate the Gateway, so removing
+                    # it must not create an endless retry fence.
+                    continue
                 try:
-                    pre_sync_credentials[record.id] = (
+                    credentials = (
                         record._gateway_base(for_request=True),
                         record._gateway_api_key_plaintext(),
                     )
+                    pre_sync_credentials[record.id] = credentials
+                    if remote_may_still_be_enabled:
+                        key_removal_shutdowns[record.id] = credentials
                 except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError) as exc:
                     if remote_may_still_be_enabled:
                         raise ValidationError(
                             _("The existing Gateway API key cannot be decrypted, so Odoo will not remove it while the Gateway may still be active.")
                         ) from exc
         url_migrations = {}
-        key_removals = dict(pre_sync_credentials)
 
         if "gateway_url" in vals:
             requested_url = self._validate_gateway_url(vals.get("gateway_url"))
@@ -631,14 +651,18 @@ class PrintGatewayConfig(models.Model):
                 url_changed = record.id in url_migrations
                 api_key_changed = "gateway_api_key" in vals
                 key_removed = api_key_changed and not vals.get("gateway_api_key")
-                if url_changed or enabled_changed or api_key_changed:
+                if key_removed and before_enabled.get(record.id) and not enabled_changed:
+                    raise ValidationError(
+                        _("Disable Gateway printing before removing its installation API key.")
+                    )
+                if url_changed or enabled_changed:
                     new_revision = before_revision[record.id] + 1
                     technical_values = {
                         "enabled_sync_revision": new_revision,
                         "last_enabled_sync_error": False,
                     }
                     migration = url_migrations.get(record.id)
-                    pending_disable = migration if url_changed else (key_removals.get(record.id) if key_removed else None)
+                    pending_disable = migration if url_changed else (key_removal_shutdowns.get(record.id) if key_removed else None)
                     if pending_disable:
                         old_url, old_api_key_protected = pending_disable
                         technical_values.update({
