@@ -347,7 +347,7 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
   const startedAt = Date.now();
   if (!hasOpenAgentSocket(job.agentId)) return "no_socket";
   const claimStartedAt = Date.now();
-  const claimed = await claimJobForDelivery(job.id, job.agentId);
+  const claimed = await claimJobForDelivery(job.id, job.agentId, { markDeliveryEvidencePending: true });
   const claimLatencyMs = Date.now() - claimStartedAt;
   if (!claimed) {
     logInfo("print.trace.gateway_claim", { jobId: job.id, agentId: job.agentId, claimLatencyMs, outcome: "not_claimable" });
