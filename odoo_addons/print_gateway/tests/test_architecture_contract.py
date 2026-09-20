@@ -212,6 +212,15 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         prefix = source[max(0, method_idx - 80):method_idx]
         self.assertIn("@api.private", prefix)
 
+    def test_gateway_key_replacement_can_recover_same_endpoint_shutdown(self):
+        source = (MODELS / "gateway_config.py").read_text(encoding="utf-8")
+        self.assertIn("if self.gateway_api_key and old_url == gateway_url:", source)
+        self.assertIn(
+            "config.gateway_api_key and config.pending_disable_gateway_url == config.gateway_url",
+            source,
+        )
+        self.assertIn("key_removal_unconfirmed", source)
+
     def test_pos_gateway_unknown_outcome_cannot_enter_core_retry_path(self):
         source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
         self.assertIn("import { RetryPrintPopup }", source)
