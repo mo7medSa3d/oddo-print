@@ -1010,6 +1010,25 @@ class PrintGatewayJob(models.Model):
                     break
         return True
 
+    @api.private
+    def _apply_gateway_late_success(self, job, values):
+        """Apply the Gateway's explicitly-authorized late physical success.
+
+        The Gateway permits this only after an earlier unknown-outcome failure
+        and an explicit LATE_SUCCESS marker. Keep it outside the normal write
+        transition matrix so ordinary callers cannot turn a terminal failure
+        into success.
+        """
+        job.ensure_one()
+        if job.status != "failed" or job.physical_outcome != "unknown":
+            raise ValidationError(_("Gateway late success is only valid for an unknown-outcome failed job."))
+        gateway_error = str(values.get("last_error") or "")
+        if not gateway_error.startswith("LATE_SUCCESS:"):
+            raise ValidationError(_("Gateway late success requires its explicit LATE_SUCCESS marker."))
+        success_values = dict(values)
+        success_values["status"] = "success"
+        super(PrintGatewayJob, job).write(success_values)
+
     def _apply_synced_status(self, job, body):
         status = str(body.get("status") or "").strip().lower()
         if status in ("completed", "success"):
@@ -1037,7 +1056,10 @@ class PrintGatewayJob(models.Model):
             values["completed_at"] = fields.Datetime.now()
         if status == "submitted" and job.status in ("claimed", "printing"):
             return True
-        self._advance_status(job, status, values)
+        if status == "success" and job.status == "failed" and str(values.get("last_error") or "").startsWith("LATE_SUCCESS:"):
+            self._apply_gateway_late_success(job, values)
+        else:
+            self._advance_status(job, status, values)
         if status == "success":
             job._post_source_audit(_("Print Job #%s completed by Gateway agent on '%s'") % (job.gateway_job_id or job.id, job.printer_id))
         elif status in ("partial", "unknown"):
