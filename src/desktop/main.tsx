@@ -465,11 +465,30 @@ export default function App() {
 
   useEffect(() => {
     if (!isTauri) return;
-    onTrayNavigate((anchor) => {
-      const p = anchor.replace("#", "") as Page;
-      if (PAGES.includes(p)) navigate(p);
-    });
-    onTrayRestartAgent(() => restartAgent());
+    // Both tray subscriptions resolve asynchronously: capture the unlisten
+    // functions and release them on disposal, otherwise every re-run would
+    // stack another restart/navigate handler behind the same tray event.
+    let disposed = false;
+    const unlistens: Array<() => void> = [];
+    const track = (promise: Promise<() => void>) => {
+      promise
+        .then((unlisten) => {
+          if (disposed) unlisten();
+          else unlistens.push(unlisten);
+        })
+        .catch(() => {});
+    };
+    track(
+      onTrayNavigate((anchor) => {
+        const p = anchor.replace("#", "") as Page;
+        if (PAGES.includes(p)) navigate(p);
+      }),
+    );
+    track(onTrayRestartAgent(() => restartAgent()));
+    return () => {
+      disposed = true;
+      unlistens.splice(0).forEach((unlisten) => unlisten());
+    };
   }, [navigate, restartAgent]);
 
   useEffect(() => {
