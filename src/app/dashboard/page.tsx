@@ -29,7 +29,25 @@ export default async function DashboardPage() {
     printerCount: number;
   }> = [];
   let allPrinters: Array<typeof printers.$inferSelect> = [];
-  type JobMeta = Omit<typeof printJobs.$inferSelect, "payload">;
+  type JobMeta = Pick<typeof printJobs.$inferSelect,
+    | "id"
+    | "tenantId"
+    | "destination"
+    | "documentType"
+    | "agentId"
+    | "printerId"
+    | "status"
+    | "error"
+    | "requestedBy"
+    | "retries"
+    | "deliveryAttempts"
+    | "claimedAt"
+    | "deliveredAt"
+    | "ackedAt"
+    | "expiresAt"
+    | "createdAt"
+    | "updatedAt"
+  >;
   let allJobs: JobMeta[] = [];
   let databaseError: string | null = null;
 
