@@ -169,6 +169,11 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         source = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
         self.assertIn('updateData.printer_id = false', source)
 
+    def test_intent_recovery_accepts_legacy_null_timestamps(self):
+        source = (MODELS / "print_intent.py").read_text(encoding="utf-8")
+        self.assertIn('("&", ("status", "=", "claimed"), "|", ("claimed_at", "=", False), ("claimed_at", "<=", stale_threshold))', source)
+        self.assertIn('("&", ("status", "=", "failed"), "|", ("next_retry_at", "=", False), ("next_retry_at", "<=", now))', source)
+
     def test_raw_template_values_are_protocol_sanitized(self):
         self.assertEqual(sanitize_raw_value(0, "zpl"), "0")
         self.assertEqual(sanitize_raw_value(False, "zpl"), "")
