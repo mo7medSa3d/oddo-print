@@ -248,7 +248,7 @@ async function insertQueuedJobAtomically({
     if (
       owner.agent_status !== "online" ||
       !lastSeen ||
-      Date.now() - lastSeen.getTime() > 60_000
+      Date.now() - lastSeen.getTime() > agentStaleThresholdSeconds() * 1000
     ) {
       throw new PrintJobInputError("Printer owner agent is offline or stale", "AGENT_UNAVAILABLE", 503);
     }
