@@ -265,7 +265,7 @@ fn background_process_record_path() -> Result<PathBuf, String> {
 fn read_background_record() -> Option<BackgroundProcessRecord> {
     let pid_path = background_pid_path().ok()?;
     let raw_pid = std::fs::read_to_string(pid_path).ok()?;
-    let pid = raw_pid.trim().parse::<u32>().ok()?;
+    let mut pid = raw_pid.trim().parse::<u32>().ok()?;
 
     // The legacy contract remains agent.pid = plain decimal PID. The identity
     // metadata is optional for backward compatibility; when absent (old
