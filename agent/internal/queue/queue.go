@@ -173,9 +173,15 @@ func (q *Queue) AbortPrint(id, reason string) error {
 // (which would requeue the job).
 func (q *Queue) BeginPrint(id, printerID string, payload []byte, claimToken string, allowUnknownReprint bool) error {
 	unknown := "(" + unknownMarkerSQL("last_error") + ")"
-	guard := "(status = 'queued' OR status = 'printing' OR (status = 'failed' AND (last_error IS NULL OR NOT " + unknown + ")))"
+	// A row already in 'printing' belongs to a physical attempt that may still
+	// be writing to hardware. A different Gateway claim token must NEVER reopen
+	// that row: doing so would replace the durable owner token and allow the
+	// second delivery to print the same job concurrently. Re-entry is only
+	// idempotent for the same claim token (or legacy tokenless rows).
+	printingOwner := "(status = 'printing' AND ((claim_token IS NULL AND ? = '') OR claim_token = ?))"
+	guard := "(status = 'queued' OR " + printingOwner + " OR (status = 'failed' AND (last_error IS NULL OR NOT " + unknown + ")))"
 	if allowUnknownReprint {
-		guard = "status <> 'success'"
+		guard = "(status = 'queued' OR " + printingOwner + " OR status = 'failed')"
 	}
 	tx, err := q.db.Begin()
 	if err != nil {
@@ -192,7 +198,7 @@ func (q *Queue) BeginPrint(id, printerID string, payload []byte, claimToken stri
 	if claimToken != "" {
 		res, err = tx.Exec(
 			`UPDATE print_jobs SET status = 'printing', claim_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND `+guard,
-			claimToken, id,
+			claimToken, claimToken, id,
 		)
 	} else {
 		res, err = tx.Exec(
