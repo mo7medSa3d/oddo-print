@@ -189,7 +189,9 @@ describe("Odoo addon static contracts", () => {
 
   it("stops automatic retry of unknown submission outcomes in outbox and restricts cron to queued jobs", () => {
     const jobs = read("models/print_job.py");
-    expect(jobs).toContain('("status", "=", "queued")');
+    // Cron selection is intentionally expressed as SQL; assert the invariant,
+    // not an obsolete ORM-domain string.
+    expect(jobs).toContain("WHERE status = 'queued'");
     expect(jobs).not.toContain('("status", "in", ["queued", "unknown"])');
     expect(jobs).toContain('"next_retry_at": False');
     expect(jobs).toContain("def action_force_reprint");
