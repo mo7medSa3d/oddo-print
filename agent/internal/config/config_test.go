@@ -299,4 +299,3 @@ func TestConfigSaveLoadPreservesHTTPOptIn(t *testing.T) {
 		t.Fatal("HTTP opt-in must survive config round-trip for service restarts")
 	}
 }
-
