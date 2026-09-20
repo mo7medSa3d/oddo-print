@@ -154,6 +154,7 @@ def test_gateway_url_change_durably_disables_previous_endpoint_before_new_sync()
     assert "if synced and pending_disable" in source
     assert "acknowledged_enabled is not enabled" in source
     assert "acknowledged_revision != revision" in source
+    assert "config._complete_gateway_migration(revision)" in source
 
 
 def test_gateway_queue_admission_allows_active_agent_when_heartbeat_is_stale():
