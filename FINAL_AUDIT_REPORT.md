@@ -2,7 +2,7 @@
 
 Date: 2026-09-20 (Africa/Cairo)
 Branch: arena/01a0c076-oddo-print
-Commit: c5746a1 (premium SaaS 2026) + audit verification
+Commit: c5746a1 (premium SaaS 2026) + deep audit fixes
 
 ## 1. Repository Discovery
 
@@ -17,7 +17,7 @@ Commit: c5746a1 (premium SaaS 2026) + audit verification
 **Builds verified:**
 - `next build` → 51 static pages, all API routes dynamic, PASS
 - `vite build --config vite.desktop.config.mts` → 1910 modules, 87.55kB CSS, 412.93kB JS, PASS
-- `vitest run --config vitest.unit.config.mts` → 53 files, 382 tests PASS, 0 fail
+- `vitest run --config vitest.unit.config.mts` → 54 files, 384 tests PASS, 0 fail (added billing-portal-idempotency contract)
 
 ## 2. Source-of-Truth Map (Distributed State Machine)
 
@@ -159,28 +159,56 @@ Commit: c5746a1 (premium SaaS 2026) + audit verification
 |-------|--------|
 | `tsc --noEmit` | PASS |
 | `eslint .` | 0 errors, 1 warning (pre-existing exhaustive-deps) |
-| `vitest run --config vitest.unit.config.mts` | 53 files PASS, 382 tests PASS |
+| `vitest run --config vitest.unit.config.mts` | 54 files PASS, 384 tests PASS (portal idempotency added) |
 | `next build` | PASS 51 pages |
-| `vite build --config vite.desktop.config.mts` | PASS 1910 modules, 86-87kB CSS, 412kB JS |
+| `vite build --config vite.desktop.config.mts` | PASS 1910 modules, 87.55kB CSS, 412.93kB JS |
 | Tenant isolation (no tenantId from body) | PASS via grep + code review |
 | Job state machine (terminal guard, late success) | PASS |
 | Claim fencing (STALE_CLAIM, fencedJobWrite, inFlight dup ignore) | PASS |
 | Odoo sync (monotonic revision, pending_disable fence) | PASS |
-| Billing idempotency (event_id PK, checkout idempotency key) | PASS |
+| Billing idempotency (event_id PK, checkout idempotency key, portal unique) | PASS after fix |
 | Tauri capabilities explicit | PASS |
 | Go agent ledger + crash recovery | PASS |
 
-## 13. Root-Cause Repairs Applied Earlier (from previous session)
+## 13. Root-Cause Repairs — Deep Audit Findings
 
+### 13.1 Previous session (UI transformation)
 - `Sidebar.tsx` brand subtitle `Yasser Gateway • v{version}` to satisfy `desktop-ui-smoke.test.ts`
 - `api-keys/page.tsx` restored contract strings `Odoo controls whether printing is enabled.` + `API credentials are managed separately.` for `odoo-gateway-activation-sync.test.ts`
 - `gateway_config_views.xml` restored `string="Gateway Status"` badge
 - `dashboard-client.tsx` Test button label `Sending… : Send Test Page` for `production-fixes-contract.test.ts`
-- All 382 tests now green.
 
-## 14. No Further Code Changes Required
+### 13.2 Deep audit — Billing portal idempotency bug (CRITICAL, Stripe)
 
-Phase A investigation confirms distributed state machine is sound, no duplicated truth, no unsafe tenantId usage, no missing fences, no billing race, no invoice timestamp misuse, no lifetime conflict. All builds and contracts pass. System is production-ready for 2026 premium SaaS.
+**Symptom:** `src/app/api/billing/portal/route.ts` used static idempotency key `portal-${tenantId}`. Stripe docs: idempotency key saved 24h, replay returns same response. Portal sessions expire in minutes. Second click within 24h would receive same (now-expired) URL, causing  expired session error.
+
+**Root cause:** Misunderstanding of Stripe idempotency semantics for short-lived resources. Checkout and cancel/resume correctly used unique keys per operation (`checkout-intent-${intentId}`, `billing-cancel-${operationId}`), but portal used tenant-scoped static key.
+
+**Evidence:** `stripeRequest` implementation sets `Idempotency-Key` header, 15s timeout. Stripe official: "The key is saved for at least 24 hours." Portal sessions: short-lived. Replay of same key returns original URL even after expiration.
+
+**Fix:** Generate unique key per request: `portal-${tenantId}-${randomUUID()}`. Documented in code why static keys unsafe. Added import `randomUUID` from `node:crypto`.
+
+**Regression test:** `tests/billing-portal-idempotency.test.ts` verifies `randomUUID` present, static pattern absent, new pattern includes randomUUID, path `billing_portal/sessions`, and comment about short-lived/expired/24h.
+
+**Verification:** `vitest run` 54 files 384 tests PASS, `next build` PASS.
+
+### 13.3 Other areas verified — no defect
+
+- Tenant isolation: all queries tenant-scoped, no body/query tenantId, composite FKs, advisory locks
+- Job state machine: closed vocab, ALLOWED_TRANSITIONS, terminal guard, late success markers, grace window
+- Claim fencing: STALE_CLAIM 409, fencedJobWrite IS NOT DISTINCT FROM, inFlight duplicate ignore, delivered_at not stamped on poll, ack required
+- Odoo sync: monotonic lt, pending_disable fence, exact revision+state ack, independent cursor, cron retry
+- Agent hardening: recoverInterruptedJobs, local ledger BeginPrint before bytes, ledger_unavailable rejection, reprint_after_crash opt-in, panic recover
+- Tauri IPC: explicit capabilities, origin check, header budget 64KiB, body 8MiB, public path allowlist, token in Rust memory, agent console allowlist, arg_value dash check, virtual printer filter
+- Go agent: bounded commands, size-aware print budget, write deadlines, discovery semaphore 1
+- DB: unique partial indexes, CHECK constraints, FK tenant scoping, migrations ordered, journal idempotent
+
+## 14. Remaining Risks & Blocked Verification
+
+- **Go race tests BLOCKED:** `go` binary not available in sandbox, cannot run `go test -race ./...`. Static analysis of goroutines/mutexes/channels done via code review — no obvious races, but runtime race detector not executed.
+- **Physical printing BLOCKED:** No printer hardware in sandbox, cannot perform real physical print. Marked BLOCKED per protocol, not PASS.
+- **Gateway URL path handling:** Odoo enforces origin-only (no path), Go and Tauri allow path (for reverse proxy flexibility). Could cause double-path if user configures `https://example.com/api` in desktop (join logic replaces last segment, may work but inconsistent). Not fixed as not proven defect, noted as low-risk inconsistency.
+- **Clock skew:** Enqueue uses app clock for expiresAt default (1h), DB uses now() for expiry. Skew >1h could cause job inserted already expired per DB. Mitigated by 1h default, but could use DB now()+interval for perfect clock. Low risk.
 
 ## 15. References (Web Search)
 
