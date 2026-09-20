@@ -44,6 +44,7 @@ type PrinterConfig struct {
 	USBPID         string                 `yaml:"usb_pid,omitempty"`
 	USBSerial      string                 `yaml:"usb_serial,omitempty"`
 	Capabilities   map[string]interface{} `yaml:"capabilities,omitempty"`
+	PaperWidthMM   int                    `yaml:"paper_width_mm,omitempty"`
 	Enabled        *bool                  `yaml:"enabled,omitempty"`
 }
 
@@ -65,12 +66,16 @@ func validateServerURL(raw string) error {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return fmt.Errorf("server.url must not contain credentials, query strings, or fragments")
 	}
-	// This binary is built only from the isolated test/http-server-ready
-	// branch. The test Gateway intentionally runs over HTTP before production
-	// DNS/TLS exists. Production artifacts retain the HTTPS-only policy.
+	// HTTPS is the production/default transport. Plain HTTP is only permitted
+	// when explicitly opted into for isolated development or test environments.
 	switch strings.ToLower(u.Scheme) {
-	case "https", "http":
+	case "https":
 		return nil
+	case "http":
+		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
+			return nil
+		}
+		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASSER_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development")
 	default:
 		return fmt.Errorf("server.url scheme must be http or https, got %q", u.Scheme)
 	}
@@ -297,6 +302,15 @@ func (p PrinterConfig) NormalizedType() string {
 	switch t {
 	case "tcp":
 		return "network"
+	case "usb":
+		// A USB device with an installed Windows spooler queue is executed by
+		// the spooler backend, not by the raw USB backend. Normalize it here so
+		// discovery, validation, capability reporting and execution share one
+		// transport identity.
+		if strings.TrimSpace(p.SpoolerName) != "" {
+			return "spooler"
+		}
+		return "usb"
 	case "":
 		return "network"
 	default:
@@ -312,7 +326,7 @@ func (p PrinterConfig) NormalizedType() string {
 func (p PrinterConfig) NormalizedProtocol() (string, error) {
 	proto := strings.ToLower(strings.TrimSpace(p.Protocol))
 	if proto == "" {
-		switch nt := p.NormalizedConnectionTypeStrict(); nt {
+		switch nt := p.NormalizedType(); nt {
 		case "spooler":
 			// A spooler queue carries its own transport identity.
 			return "spooler", nil
@@ -401,19 +415,63 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 	if perr != nil {
 		return perr
 	}
-	_ = proto
+	// Transport and protocol are one physical contract. Reject combinations
+	// that the factory would otherwise interpret differently (for example an
+	// IPP transport declared as RAW, which would pass Gateway capability checks
+	// but fail only after the Agent starts execution).
+	switch nt {
+	case "network":
+		if proto == "ipps" {
+			return fmt.Errorf("printer %s: network connection requires an IPP URL for IPPS; use type ipps", p.ID)
+		}
+		if proto != "raw" && proto != "escpos" && proto != "zpl" && proto != "tspl" && proto != "ipp" && proto != "unknown" {
+			return fmt.Errorf("printer %s: protocol %q is incompatible with network connection", p.ID, proto)
+		}
+	case "ipp":
+		if proto != "ipp" && proto != "unknown" {
+			return fmt.Errorf("printer %s: protocol %q is incompatible with ipp connection", p.ID, proto)
+		}
+	case "ipps":
+		if proto != "ipps" && proto != "unknown" {
+			return fmt.Errorf("printer %s: protocol %q is incompatible with ipps connection", p.ID, proto)
+		}
+	case "spooler":
+		if proto != "spooler" && proto != "unknown" {
+			return fmt.Errorf("printer %s: protocol %q is incompatible with spooler connection", p.ID, proto)
+		}
+	case "usb":
+		if proto == "spooler" {
+			return fmt.Errorf("printer %s: usb spooler printers must use type spooler with spooler_name", p.ID)
+		}
+		if proto != "raw" && proto != "escpos" && proto != "zpl" && proto != "tspl" && proto != "unknown" {
+			return fmt.Errorf("printer %s: protocol %q is incompatible with usb connection", p.ID, proto)
+		}
+	}
 	if nt == "network" || nt == "ipp" || nt == "ipps" {
 		ep := strings.TrimSpace(p.Endpoint)
 		if ep == "" {
 			return fmt.Errorf("printer %s: network endpoint required", p.ID)
 		}
 		if nt == "ipp" || nt == "ipps" || strings.HasPrefix(proto, "ipp") || strings.HasPrefix(strings.ToLower(ep), "ipp://") || strings.HasPrefix(strings.ToLower(ep), "ipps://") || strings.HasPrefix(strings.ToLower(ep), "http://") || strings.HasPrefix(strings.ToLower(ep), "https://") {
-			u, err := url.Parse(ep)
+			normalizedEndpoint := ep
+			if proto == "ipp" && !strings.Contains(ep, "://") {
+				if host, port, splitErr := net.SplitHostPort(ep); splitErr == nil && host != "" && port != "" {
+					normalizedEndpoint = "http://" + net.JoinHostPort(strings.Trim(host, "[]"), port) + "/ipp/print"
+				}
+			}
+			u, err := url.Parse(normalizedEndpoint)
+			if u.User != nil {
+				return fmt.Errorf("printer %s: IPP endpoint must not contain embedded credentials", p.ID)
+			}
 			if err != nil || u.Hostname() == "" {
 				return fmt.Errorf("printer %s: invalid IPP endpoint %q", p.ID, p.Endpoint)
 			}
 			if u.RawQuery != "" || u.Fragment != "" {
 				return fmt.Errorf("printer %s: IPP endpoint must not contain query strings or fragments", p.ID)
+			}
+			scheme := strings.ToLower(u.Scheme)
+			if nt == "ipps" && scheme != "https" && scheme != "ipps" {
+				return fmt.Errorf("printer %s: IPPS endpoint must use https:// or ipps://", p.ID)
 			}
 			ip := net.ParseIP(strings.Trim(u.Hostname(), "[]"))
 			if ip == nil || !isAllowedPrinterIP(ip) {
@@ -440,17 +498,27 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 				return fmt.Errorf("printer %s: network endpoint host must be a private or link-local IP", p.ID)
 			}
 			parsed, err := strconv.Atoi(port)
-			// RAW TCP normally uses 9100, but the transport is a plain TCP byte
-			// stream and can legitimately target an explicitly configured private
-			// port. LPR remains a separate, unsupported protocol.
-			if err != nil || parsed < 1 || parsed > 65535 {
-				return fmt.Errorf("printer %s: network endpoint port must be 1-65535", p.ID)
+			// Gateway-managed network printers use the single canonical RAW TCP
+			// destination port 9100. Keeping the Agent boundary identical prevents
+			// a printer from being accepted into local config only to be rejected
+			// later by heartbeat inventory validation.
+			if err != nil || parsed != 9100 {
+				return fmt.Errorf("printer %s: network endpoint port must be 9100", p.ID)
 			}
 		}
 	}
 	if nt == "usb" {
-		if p.USBVID == "" || p.USBPID == "" {
-			return fmt.Errorf("printer %s: usb_vid and usb_pid are required", p.ID)
+		// USB entries backed by an explicitly named Windows spooler queue are
+		// executed through the spooler backend and therefore do not require raw
+		// USB VID/PID identifiers. Direct USB transport still requires both.
+		if strings.TrimSpace(p.SpoolerName) == "" {
+			if p.USBVID == "" || p.USBPID == "" {
+				return fmt.Errorf("printer %s: usb_vid and usb_pid are required for direct USB transport", p.ID)
+			}
+			ep := strings.TrimSpace(p.Endpoint)
+			if !strings.HasPrefix(ep, `\\?\`) && !strings.HasPrefix(ep, `\\.\`) {
+				return fmt.Errorf("printer %s: direct USB endpoint must be a Windows device path (\\?\\... or \\.\\...)", p.ID)
+			}
 		}
 	}
 	if nt == "spooler" && strings.TrimSpace(p.SpoolerName) == "" {
