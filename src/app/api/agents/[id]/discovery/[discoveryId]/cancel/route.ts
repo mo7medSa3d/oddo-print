@@ -15,14 +15,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const result = await db.transaction(async (tx) => {
     // Serialize cancellation with the Agent's discovery report. The row lock
     // makes the running-state check and terminal transition one atomic decision.
-    const locked = await tx.execute(sql\`
+    const locked = await tx.execute(sql`
       SELECT id, status
       FROM discovery_sessions
       WHERE id = ${discoveryId}
         AND agent_id = ${agentId}
         AND tenant_id = ${claims.tenantId}
       FOR UPDATE
-    \`);
+    `);
     const session = locked.rows[0] as { id?: string; status?: string } | undefined;
     if (!session?.id) return { kind: "not_found" as const };
     if (session.status !== "running") return { kind: "already" as const, status: session.status ?? "unknown" };
