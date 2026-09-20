@@ -168,7 +168,16 @@ jobs:
       - name: Go formatting gate
         working-directory: agent
         run: |
-          test -z "$(gofmt -l .)" || { echo 'gofmt required on:'; gofmt -l .; exit 1; }
+          files="$(gofmt -l .)"
+          if [ -n "$files" ]; then
+            echo 'gofmt required on:'
+            printf '%s\n' "$files"
+            for file in $files; do
+              echo "===== gofmt diff: $file ====="
+              gofmt -d "$file"
+            done
+            exit 1
+          fi
       - name: Go vet
         working-directory: agent
         run: go vet ./...
