@@ -171,15 +171,13 @@ export async function reprintJob(jobId: string) {
   if (!isTerminal(job.status as JobStatus)) {
     throw new ActionError("Only finished, failed, or expired jobs can be reprinted. The current job is still in progress.", 409);
   }
-  const [attempts] = await db
-    .select({ c: count() })
-    .from(printJobs)
-    .where(and(eq(printJobs.tenantId, manager.tenantId), sql`idempotency_key LIKE ${`gw-reprint:${job.id}:%`}`));
-  const derivedKey = `gw-reprint:${job.id}:${Number(attempts?.c ?? 0) + 1}`;
   try {
+    // Reprint sequence allocation happens inside createPrintJobForPrinter's
+    // tenant enqueue transaction, so concurrent double-clicks cannot derive
+    // different keys from a stale COUNT(*).
     const result = await createPrintJobForPrinter(job.printerId, job.payload, {
       requestedBy: "manager-reprint",
-      idempotencyKey: derivedKey,
+      reprintOfJobId: job.id,
       destination: job.destination,
       documentType: job.documentType ?? undefined,
       tenantId: manager.tenantId,
