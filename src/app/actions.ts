@@ -90,14 +90,14 @@ export async function deleteAgent(id: string) {
   await db.transaction(async (tx) => {
     // Acquire row-level lock to prevent concurrent state transitions or reconnect races
     const locked = await tx.execute(sql`
-      SELECT id, status, lifecycle
+      SELECT id, status, lifecycle, last_seen_at
       FROM agents
       WHERE id = ${agentId} AND tenant_id = ${manager.tenantId}
       FOR UPDATE
     `);
-    const agent = (locked as unknown as { rows?: { id: string; status: string; lifecycle: string }[] }).rows?.[0];
+    const agent = (locked as unknown as { rows?: { id: string; status: string; lifecycle: string; last_seen_at?: Date | string | null }[] }).rows?.[0];
     if (!agent) throw new ActionError("Agent not found", 404);
-    if (agent.status === "online") {
+    if (isAgentAvailableForJob({ lifecycle: agent.lifecycle, status: agent.status, lastSeenAt: agent.last_seen_at })) {
       throw new ActionError("This agent is still connected. Stop the agent service first, then delete it.", 409);
     }
     if (agent.lifecycle === "retired") {
