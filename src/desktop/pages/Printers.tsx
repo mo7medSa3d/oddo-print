@@ -217,17 +217,20 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                           Test
                         </Button>
                         {p.managementSource === "manager" && (p.lifecycle || "active") === "active" && (
-                          <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "disabled")}\n                          disabled={s.busy} icon={<Power className="h-4 w-4" />}>
+                          <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "disabled")}
+                          disabled={s.busy} icon={<Power className="h-4 w-4" />}>
                             Disable
                           </Button>
                         )}
                         {p.managementSource === "manager" && p.lifecycle === "disabled" && (
-                          <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "active")}\n                          disabled={s.busy} icon={<Power className="h-4 w-4" />}>
+                          <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "active")}
+                          disabled={s.busy} icon={<Power className="h-4 w-4" />}>
                             Enable
                           </Button>
                         )}
                         {p.managementSource === "manager" && p.lifecycle !== "retired" && (
-                          <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "retired")}\n                          disabled={s.busy} icon={<Archive className="h-4 w-4" />}>
+                          <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "retired")}
+                          disabled={s.busy} icon={<Archive className="h-4 w-4" />}>
                             Retire
                           </Button>
                         )}
