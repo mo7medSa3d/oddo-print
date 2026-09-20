@@ -87,21 +87,36 @@ class PrintGatewayPolicy(models.Model):
         if "." in field_name or "[" in field_name or "__" in field_name:
             raise ValueError("Attribute and index access are strictly forbidden in raw print templates.")
 
-    def render_raw_template(self, record):
-        """Deterministically render raw template string using safe scalar record attributes."""
+    def render_raw_template(self, record, protocol=None):
+        """Deterministically render a raw template while keeping field values inert.
+
+        The template itself may contain protocol commands by design, but values
+        coming from Odoo records are untrusted relative to the printer command
+        stream. Sanitize substituted values according to the declared protocol
+        so an order/customer/company field cannot inject a second command.
+        """
         self.ensure_one()
         template = self.raw_template or ""
         if not template:
             raise ValidationError(_("Raw template is empty for policy %s.") % self.name)
+
+        protocol = (protocol or self.raw_protocol or "").strip().lower()
+        sanitizers = {
+            "zpl": lambda value: "".join(ch for ch in str(value or "") if ch not in "^~" and (ch >= " " or ch in "\n\t")).strip()[:200],
+            "tspl": lambda value: "".join(ch for ch in str(value or "") if ch not in '"\r\n' and (ch >= " " or ch == "\t")).strip()[:200],
+            "escpos": lambda value: "".join(ch for ch in str(value or "") if ch != "\x7f" and ch >= " ").strip()[:200],
+        }
+        sanitize = sanitizers.get(protocol, sanitizers["escpos"])
+
         values = {}
         for field_name, field in record._fields.items():
             if field.type in ("char", "text", "integer", "float", "date", "datetime", "boolean", "selection"):
                 val = getattr(record, field_name)
-                values[field_name] = "" if val is False or val is None else str(val)
+                values[field_name] = sanitize("" if val is False or val is None else val)
             elif field.type == "many2one":
                 rel = getattr(record, field_name)
-                values[field_name] = rel.display_name if rel else ""
-                values[f"{field_name}_id"] = rel.id if rel else ""
+                values[field_name] = sanitize(rel.display_name if rel else "")
+                values[f"{field_name}_id"] = sanitize(rel.id if rel else "")
         try:
             import string
             formatter = string.Formatter()
