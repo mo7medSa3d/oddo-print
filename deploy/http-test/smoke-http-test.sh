@@ -18,7 +18,7 @@ source "$ENV_FILE"
 set +a
 
 BASE="${SMOKE_BASE_URL:-http://127.0.0.1:${HTTP_TEST_PORT}}"
-EMAIL="test+$(date +%s)-$@yasser.invalid"
+EMAIL="test+$(date +%s)-${BASHPID}@yasser.invalid"
 PASSWORD="Yasser-Test-2026!"
 WORKSPACE="Yasser HTTP Test Workspace"
 
