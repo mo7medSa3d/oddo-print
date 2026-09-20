@@ -355,13 +355,14 @@ func TestBeginPrintConcurrentClaimersCannotStealToken(t *testing.T) {
 	const attempts = 8
 	var wg sync.WaitGroup
 	results := make(chan error, attempts)
+	wg.Add(attempts)
 	for i := 0; i < attempts; i++ {
 		token := fmt.Sprintf("claim-%d", i)
 		go func() {
+			defer wg.Done()
 			results <- q.BeginPrint(jobID, "printer-1", []byte("payload"), token, false)
 		}()
 	}
-	wg.Add(0)
 	wg.Wait()
 	close(results)
 
