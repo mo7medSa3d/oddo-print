@@ -171,8 +171,11 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
 
     def test_intent_recovery_accepts_legacy_null_timestamps(self):
         source = (MODELS / "print_intent.py").read_text(encoding="utf-8")
-        self.assertIn('("&", ("status", "=", "claimed"), "|", ("claimed_at", "=", False), ("claimed_at", "<=", stale_threshold))', source)
-        self.assertIn('("&", ("status", "=", "failed"), "|", ("next_retry_at", "=", False), ("next_retry_at", "<=", now))', source)
+        # Recovery is implemented with raw SQL so it can claim legacy rows atomically
+        # across workers; assert the SQL predicates instead of an obsolete ORM-domain string.
+        self.assertIn("(status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= %s))", source)
+        self.assertIn("(status = 'claimed' AND attempts < max_attempts AND (claimed_at IS NULL OR claimed_at <= %s))", source)
+        self.assertIn("(status = 'failed' AND attempts < max_attempts AND (next_retry_at IS NULL OR next_retry_at <= %s))", source)
 
     def test_raw_template_values_are_protocol_sanitized(self):
         self.assertEqual(sanitize_raw_value(0, "zpl"), "0")
