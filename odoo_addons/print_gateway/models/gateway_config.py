@@ -688,7 +688,12 @@ class PrintGatewayConfig(models.Model):
                             )
                     record.sudo().write(technical_values)
                 elif "gateway_api_key" in vals:
-                    record.sudo().write({"last_enabled_sync_error": False})
+                    record.sudo().write({
+                        "last_enabled_sync_error": False,
+                        "last_test_status": "draft",
+                        "last_test_at": False,
+                        "last_test_error": False,
+                    })
             self._queue_enabled_state_sync(pre_sync_credentials)
 
         return result
