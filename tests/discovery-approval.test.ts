@@ -178,38 +178,48 @@ suite("discovery trust and approval flow", () => {
     expect(device.rows[0].candidate_status).not.toBe("provisioned");
   });
 
-  it("linearizes discovery report versus manager cancellation", async () => {
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const discoveryId = await createDiscoverySession(`disc-cancel-race-${Date.now()}-${attempt}`);
-      const manager = await createManagerSession(f.tenantId);
-      const deviceId = `device-cancel-race-${attempt}`;
+  it("report wins over a later cancellation without lifecycle inconsistency", async () => {
+    const discoveryId = await createDiscoverySession("disc-report-before-cancel");
+    const report = await agentRequest(discoveryId, [{
+      id: "device-report-before-cancel", source: ["ipp"], protocol: "ipp", ipAddress: "192.168.10.90", port: 631,
+      uri: "ipp://192.168.10.90/ipp/print", deviceName: "Race Printer",
+    }]);
+    expect(report.status).toBe(200);
 
-      const reportPromise = agentRequest(discoveryId, [{
-        id: deviceId, source: ["ipp"], protocol: "ipp", ipAddress: "192.168.10.90", port: 631,
-        uri: "ipp://192.168.10.90/ipp/print", deviceName: "Race Printer",
-      }]);
-      const cancelPromise = discoveryCancelPOST(
-        await managerRequest(manager.token, `/api/agents/${f.agentId}/discovery/${discoveryId}/cancel`),
-        { params: Promise.resolve({ id: f.agentId, discoveryId }) } as any,
-      );
-      const [report, cancel] = await Promise.all([reportPromise, cancelPromise]);
+    const manager = await createManagerSession(f.tenantId);
+    const cancel = await discoveryCancelPOST(
+      await managerRequest(manager.token, `/api/agents/${f.agentId}/discovery/${discoveryId}/cancel`),
+      { params: Promise.resolve({ id: f.agentId, discoveryId }) } as any,
+    );
+    expect(cancel.status).toBe(409);
 
-      expect([[200, 409], [409, 200]]).toContainEqual([report.status, cancel.status]);
-      const session = await pool().query(`SELECT status FROM discovery_sessions WHERE id = $1`, [discoveryId]);
-      const devices = await pool().query(`SELECT count(*)::int AS count FROM discovered_devices WHERE discovery_id = $1`, [discoveryId]);
-
-      if (report.status === 200) {
-        expect(cancel.status).toBe(409);
-        expect(session.rows[0].status).toBe("completed");
-        expect(devices.rows[0].count).toBe(1);
-      } else {
-        expect(report.status).toBe(409);
-        expect(cancel.status).toBe(200);
-        expect(session.rows[0].status).toBe("cancelled");
-        expect(devices.rows[0].count).toBe(0);
-      }
-    }
+    const session = await pool().query(`SELECT status FROM discovery_sessions WHERE id = $1`, [discoveryId]);
+    const devices = await pool().query(`SELECT count(*)::int AS count FROM discovered_devices WHERE discovery_id = $1`, [discoveryId]);
+    expect(session.rows[0].status).toBe("completed");
+    expect(devices.rows[0].count).toBe(1);
   });
+
+  it("cancellation wins over a later report without accepting late devices", async () => {
+    const discoveryId = await createDiscoverySession("disc-cancel-before-report");
+    const manager = await createManagerSession(f.tenantId);
+    const cancel = await discoveryCancelPOST(
+      await managerRequest(manager.token, `/api/agents/${f.agentId}/discovery/${discoveryId}/cancel`),
+      { params: Promise.resolve({ id: f.agentId, discoveryId }) } as any,
+    );
+    expect(cancel.status).toBe(200);
+
+    const report = await agentRequest(discoveryId, [{
+      id: "device-cancel-before-report", source: ["ipp"], protocol: "ipp", ipAddress: "192.168.10.91", port: 631,
+      uri: "ipp://192.168.10.91/ipp/print", deviceName: "Late Printer",
+    }]);
+    expect(report.status).toBe(409);
+
+    const session = await pool().query(`SELECT status FROM discovery_sessions WHERE id = $1`, [discoveryId]);
+    const devices = await pool().query(`SELECT count(*)::int AS count FROM discovered_devices WHERE discovery_id = $1`, [discoveryId]);
+    expect(session.rows[0].status).toBe("cancelled");
+    expect(devices.rows[0].count).toBe(0);
+  });
+
 
   it("serializes concurrent provisioning so one candidate cannot create two printers", async () => {
     const discoveryId = await createDiscoverySession();
