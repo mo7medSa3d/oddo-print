@@ -191,7 +191,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
 
     def test_runtime_discovery_is_admin_only(self):
         source = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
-        self.assertIn("def _require_runtime_admin(self):", source)
+        self.assertIn("def _require_runtime_admin():", source)
         self.assertIn("Runtime printer discovery is restricted to Odoo system administrators.", source)
         self.assertGreaterEqual(source.count("self._require_runtime_admin()"), 2)
 
