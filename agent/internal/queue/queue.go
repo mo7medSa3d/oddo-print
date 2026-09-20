@@ -198,7 +198,7 @@ func (q *Queue) BeginPrint(id, printerID string, payload []byte, claimToken stri
 	if claimToken != "" {
 		res, err = tx.Exec(
 			`UPDATE print_jobs SET status = 'printing', claim_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND `+guard,
-			claimToken, claimToken, id,
+			claimToken, id, claimToken, claimToken,
 		)
 	} else {
 		res, err = tx.Exec(
