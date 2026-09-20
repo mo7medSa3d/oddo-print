@@ -26,8 +26,22 @@ pub(crate) fn run_bounded_command(
 ) -> Result<std::process::Output, String> {
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("spawn command failed: {e}"))?;
-    let stdout = child.stdout.take().ok_or_else(|| "command stdout pipe unavailable".to_string())?;
-    let stderr = child.stderr.take().ok_or_else(|| "command stderr pipe unavailable".to_string())?;
+    let stdout = match child.stdout.take() {
+        Some(pipe) => pipe,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("command stdout pipe unavailable".to_string());
+        }
+    };
+    let stderr = match child.stderr.take() {
+        Some(pipe) => pipe,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("command stderr pipe unavailable".to_string());
+        }
+    };
 
     let overflow = Arc::new(AtomicBool::new(false));
     let overflow_out = Arc::clone(&overflow);
