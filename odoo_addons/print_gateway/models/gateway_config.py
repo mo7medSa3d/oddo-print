@@ -43,8 +43,8 @@ class PrintGatewayConfig(models.Model):
     )
     last_enabled_sync_at = fields.Datetime(readonly=True, copy=False)
     last_enabled_sync_error = fields.Text(readonly=True, copy=False)
-    # Durable one-item migration state for Gateway URL changes. The previous
-    # endpoint is explicitly disabled before the new endpoint is reconciled.
+    # Durable one-item shutdown/migration state. The previous endpoint is
+    # explicitly disabled before a new endpoint or credential is reconciled.
     # A second URL migration is blocked while this state is pending, preventing
     # remote endpoint drift and keeping reconciliation deterministic.
     pending_disable_gateway_url = fields.Char(readonly=True, copy=False, groups="base.group_system")
@@ -80,7 +80,7 @@ class PrintGatewayConfig(models.Model):
     last_test_error = fields.Text(readonly=True)
     gateway_sync_state = fields.Selection(
         [
-            ("active", "Active"),
+            ("active", "Enabled"),
             ("disabled", "Disabled"),
             ("syncing", "Syncing"),
             ("attention", "Action needed"),
