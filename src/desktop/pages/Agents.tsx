@@ -98,21 +98,21 @@ export function AgentsPage({ s }: { s: DesktopState }) {
             <div className="flex flex-wrap gap-3">
               <Button
                 variant="primary"
-                onClick={s.startAgent}
+                onClick={s.startAgent}\n                disabled={s.busy}
                 icon={<Play className="h-4 w-4" />}
               >
                 Start
               </Button>
               <Button
                 variant="secondary"
-                onClick={s.requestStopAgent}
+                onClick={s.requestStopAgent}\n                disabled={s.busy}
                 icon={<Square className="h-4 w-4" />}
               >
                 Stop
               </Button>
               <Button
                 variant="ghost"
-                onClick={s.restartAgent}
+                onClick={s.restartAgent}\n                disabled={s.busy}
                 icon={<RotateCcw className="h-4 w-4" />}
               >
                 Restart
