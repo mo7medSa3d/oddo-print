@@ -19,18 +19,19 @@ def test_generated_odoo_api_key_responses_are_not_cacheable():
 
 def test_windows_system_utilities_are_not_path_resolved():
     source = read("src-tauri/src/agent.rs")
+
     def function_body(name: str) -> str:
         marker = f"fn {name}"
         start = source.index(marker)
         end = source.find("\n}", start)
         return source[start : end if end != -1 else len(source)]
 
-    for fn_name, tool in ((
+    for fn_name, tool in (
         ("sc_query", "sc"),
         ("is_process_running", "tasklist"),
         ("run_net", "net"),
         ("taskkill_pid", "taskkill"),
-    )):
+    ):
         body = function_body(fn_name)
         assert f'Command::new("{tool}")' not in body
 
@@ -96,3 +97,4 @@ def test_plan_catalog_uses_shared_canonical_entitlement_normalizer():
     assert '"max_concurrent_jobs"' in helper
     assert 'value === "unlimited"' in helper
     assert 'must be a positive integer or "unlimited"' in helper
+
