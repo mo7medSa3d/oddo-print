@@ -68,7 +68,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
           {!collapsed && (
             <div className="mt-8 rounded-[12px] border border-white/[0.06] bg-white/[0.02] p-4">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">System health</div>
-              <div className="mt-3 flex items-center gap-2 text-[12px] text-slate-400"><span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /> Control plane live</div>
+              <div className="mt-3 flex items-center gap-2 text-[12px] text-slate-400"><span className="h-2 w-2 rounded-full bg-slate-500" /> Platform control plane</div>
               <div className="mt-2 text-[11px] text-slate-500">Tenant isolation enforced • Audit active</div>
             </div>
           )}
@@ -100,7 +100,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
           </div>
           <div className="ml-auto flex items-center gap-2">
             <span className="hidden items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.04] px-3 py-1.5 text-[11px] font-medium text-slate-400 sm:flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Operational
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" /> Platform Control Plane
             </span>
           </div>
         </header>

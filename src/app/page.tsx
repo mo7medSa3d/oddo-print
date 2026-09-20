@@ -112,12 +112,12 @@ function PublicHome() {
           <div className="mt-16 grid gap-4 sm:grid-cols-3 max-w-[960px]">
             <div className="rounded-[14px] border border-edge bg-surface p-5 shadow-card">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Live console</div>
-              <div className="mt-3 flex items-center gap-2 text-[13px] text-ink"><span className="h-2 w-2 rounded-full bg-ok-solid" /> 3 agents online</div>
-              <div className="mt-2 text-[12px] text-ink-3">Heartbeat checked 4s ago</div>
+              <div className="mt-3 flex items-center gap-2 text-[13px] text-ink"><span className="h-2 w-2 rounded-full bg-slate-400" /> Edge agents</div>
+              <div className="mt-2 text-[12px] text-ink-3">Heartbeat • Agent fleet</div>
             </div>
             <div className="rounded-[14px] border border-edge bg-surface p-5 shadow-card">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Printer fleet</div>
-              <div className="mt-3 text-[22px] font-bold tracking-tight text-ink tabular-nums">12 printers</div>
+              <div className="mt-3 text-[15px] font-semibold tracking-tight text-ink">Managed fleet</div>
               <div className="mt-1 text-[12px] text-ink-3">ESC/POS • ZPL • PDF spooler</div>
             </div>
             <div className="rounded-[14px] border border-edge-accent bg-brand-subtle p-5">
