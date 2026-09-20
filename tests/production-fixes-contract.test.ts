@@ -109,6 +109,16 @@ describe("production fixes contracts (2026-09)", () => {
     expect(server).not.toContain("ALLOW_PLAINTEXT_MANAGER_PASSWORD=1 in production: the manager password is held in the environment");
   });
 
+  it("active local execution never adopts a newer Gateway claim token", () => {
+    const agent = read("agent/internal/agent/agent.go");
+    const duplicateBlock = agent.slice(
+      agent.indexOf("if _, dup := a.inFlight[jobID]; dup {"),
+      agent.indexOf("pendingPrinter := \"\",", agent.indexOf("if _, dup := a.inFlight[jobID]; dup {")),
+    );
+    expect(duplicateBlock).toContain("duplicate delivery ignored without changing the active claim token");
+    expect(duplicateBlock).not.toContain("a.inFlightTokens[jobID] = tok");
+  });
+
   it("Tauri background stop uses exact recorded PID and re-verifies process identity", () => {
     const agent = read("src-tauri/src/agent.rs");
     expect(agent).toContain('const BACKGROUND_PID_FILE: &str = "agent.pid";');
