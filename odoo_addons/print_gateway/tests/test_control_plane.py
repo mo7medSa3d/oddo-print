@@ -1087,6 +1087,59 @@ class TestControlPlane(TransactionCase):
         with self.assertRaises(ValidationError):
             job_pdf_active._submission_body()
 
+    def test_20_gateway_late_success_reconciles_unknown_failure(self):
+        """A Gateway-authorized late physical success must converge Odoo too."""
+        job = self.env["print_gateway.print_job"].create({
+            "company_id": self.company.id,
+            "gateway_config_id": self.gateway_config.id,
+            "printer_id": self.primary_binding.printer_id,
+            "destination": "Primary Destination",
+            "document_type": "invoice",
+            "status": "queued",
+            "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
+            "idempotency_key": "late-success-odoo-%s" % uuid.uuid4().hex[:10],
+        })
+        job.write({
+            "status": "submitted",
+            "gateway_job_id": "gw-late-success",
+        })
+        job.write({
+            "status": "claimed",
+        })
+        job.write({
+            "status": "printing",
+        })
+        job.write({
+            "status": "failed",
+            "last_error": "AGENT_EXECUTION_TIMEOUT: physical output is unknown",
+        })
+        job._apply_synced_status(job, {
+            "status": "success",
+            "error": "LATE_SUCCESS: agent completed after Gateway timeout",
+        })
+        self.assertEqual(job.status, "success")
+        self.assertEqual(job.physical_outcome, "printed")
+        self.assertIn("LATE_SUCCESS:", job.last_error or "")
+
+    def test_20b_gateway_late_success_is_not_a_general_failed_to_success_write(self):
+        """Only the explicit Gateway marker may use the private exception path."""
+        job = self.env["print_gateway.print_job"].create({
+            "company_id": self.company.id,
+            "gateway_config_id": self.gateway_config.id,
+            "printer_id": self.primary_binding.printer_id,
+            "destination": "Primary Destination",
+            "document_type": "invoice",
+            "status": "queued",
+            "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
+            "idempotency_key": "no-late-success-odoo-%s" % uuid.uuid4().hex[:10],
+        })
+        job.write({"status": "failed", "last_error": "CONNECTION_ERROR: printer offline"})
+        with self.assertRaises(ValidationError):
+            job._apply_synced_status(job, {
+                "status": "success",
+                "error": "LATE_SUCCESS: fabricated marker on a non-unknown failure",
+            })
+
     def test_21_raw_payload_requires_explicit_protocol(self):
         """Verify raw payload creation strictly requires explicit printer protocol without fallback inference."""
         with self.assertRaises(ValidationError):
