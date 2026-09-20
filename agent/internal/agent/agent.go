@@ -987,6 +987,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 			}
 		}
 		a.inFlightMu.Unlock()
+		a.shutdownGate.RUnlock()
 		log.Printf("Job %s is already in flight; duplicate delivery ignored (latest claim token adopted).", jobID)
 		return
 	}
@@ -996,6 +997,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 	}
 	if pendingPrinter != "" && a.pendingByPrinter[pendingPrinter] >= maxPendingJobsPerPrinter {
 		a.inFlightMu.Unlock()
+		a.shutdownGate.RUnlock()
 		log.Printf("Job %s dropped: printer %s has reached the per-printer pending ceiling (%d); handing it back to the gateway queue.", jobID, pendingPrinter, maxPendingJobsPerPrinter)
 		a.rejectJob(ctx, jobID, jobClaimToken(job), "printer_pending_full")
 		return
