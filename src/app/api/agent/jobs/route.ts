@@ -11,6 +11,8 @@ import { CLAIM_RETURNING, MAX_DELIVERY_ATTEMPTS, MAX_AGENT_IN_FLIGHT_JOBS } from
 import { fencedJobWrite } from "../../../../lib/job-fencing";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { agentStaleThresholdSeconds } from "../../../../lib/agent-availability";
+import { recordJobEvent } from "../../../../lib/job-timeline";
+import { getCorrelationContext, generateAttemptId } from "../../../../server/correlation";
 
 export const dynamic = "force-dynamic";
 const MAX_CLAIM_BATCH = 20;
@@ -167,6 +169,16 @@ export async function GET(req: Request) {
   })));
 }
 
+function stageForStatus(status: string): "printing" | "success" | "failed" | "expired" | "blocked" | "delivery" | "accepted" | "connection" {
+  switch(status){
+    case "printing": return "printing";
+    case "success": return "success";
+    case "failed": return "failed";
+    case "expired": return "expired";
+    default: return "printing";
+  }
+}
+
 export async function PATCH(req: Request) {
   const requestId = requestIdFrom(req);
   const agent = await validateAgent(req.headers.get("Authorization"));
@@ -176,15 +188,18 @@ export async function PATCH(req: Request) {
   }
   if (hasBodyOverLimit(req, 64 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
 
-  let body: { jobId?: unknown; status?: unknown; error?: unknown; reason?: unknown; claimToken?: unknown };
+  let body: { jobId?: unknown; status?: unknown; error?: unknown; reason?: unknown; claimToken?: unknown; spoolerJobId?: unknown; attemptId?: unknown; transport?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
 
-  const { jobId, status: requestedStatus, error: rawError, reason: rawReason, claimToken: rawClaimToken } = body;
+  const { jobId, status: requestedStatus, error: rawError, reason: rawReason, claimToken: rawClaimToken, spoolerJobId: rawSpoolerJobId, attemptId: rawAttemptId, transport: rawTransport } = body;
   if (typeof jobId !== "string" || !jobId) return NextResponse.json({ error: "jobId is required" }, { status: 400 });
   if (!isJobStatus(requestedStatus)) return NextResponse.json({ error: "status must be a valid job status" }, { status: 400 });
   const errorMessage = typeof rawError === "string" && rawError.length > 0 ? rawError.slice(0, MAX_ERROR_LENGTH) : null;
   const reason = typeof rawReason === "string" ? rawReason.trim() : "";
   const claimToken = typeof rawClaimToken === "string" && rawClaimToken.length > 0 && rawClaimToken.length <= 120 ? rawClaimToken : null;
+  const spoolerJobId = typeof rawSpoolerJobId === "string" && rawSpoolerJobId.length > 0 && rawSpoolerJobId.length <= 64 ? rawSpoolerJobId.trim() : null;
+  const incomingAttemptId = typeof rawAttemptId === "string" && rawAttemptId.length > 0 && rawAttemptId.length <= 64 ? rawAttemptId.trim() : null;
+  const transport = typeof rawTransport === "string" ? rawTransport.trim().slice(0,32) : null;
 
   const whereClause = and(eq(printJobs.id, jobId), eq(printJobs.tenantId, agent.tenantId), eq(printJobs.agentId, agent.id));
   const job = await db.query.printJobs.findFirst({ where: whereClause });
@@ -233,6 +248,18 @@ export async function PATCH(req: Request) {
       if (expiryError) incrementMetric("print_jobs_unknown_total");
       const physicalOutcome = derivePhysicalOutcome("expired", expiryError);
       logInfo("print.job.expired", { requestId, jobId, agentId: agent.id, physicalOutcome });
+      try {
+        await recordJobEvent({
+          jobId,
+          tenantId: agent.tenantId,
+          stage: "expired",
+          status: "error",
+          message: expiryError ?? "Job expired",
+          agentId: agent.id,
+          printerId: job.printerId,
+          requestId,
+        });
+      } catch {}
       return NextResponse.json({ success: true, status: "expired", physicalOutcome });
     }
 
@@ -264,6 +291,19 @@ export async function PATCH(req: Request) {
     }
     incrementMetric("print_jobs_rejected_total");
     logInfo("print.job.rejected", { requestId, jobId, agentId: agent.id, reason, physicalOutcome: "not_printed" });
+    try {
+      await recordJobEvent({
+        jobId,
+        tenantId: agent.tenantId,
+        stage: "blocked",
+        status: "blocked",
+        message: `Agent returned before execution: ${reason}`,
+        agentId: agent.id,
+        printerId: job.printerId,
+        requestId,
+        metadata: { reason },
+      });
+    } catch {}
     return NextResponse.json({ success: true, status: "queued", physicalOutcome: "not_printed" });
   }
 
@@ -337,6 +377,34 @@ export async function PATCH(req: Request) {
     incrementMetric("print_jobs_late_success_total");
     logInfo("print.job.late_success", { requestId, jobId, agentId: agent.id, physicalOutcome });
   }
-  logInfo(`print.job.${requestedStatus}`, { requestId, jobId, agentId: agent.id, physicalOutcome });
-  return NextResponse.json({ success: true, status: requestedStatus, physicalOutcome });
+  logInfo(`print.job.${requestedStatus}`, { requestId, jobId, agentId: agent.id, physicalOutcome, spoolerJobId, attemptId: incomingAttemptId, transport });
+
+  // Persist spoolerJobId if provided (Gateway↔Spooler linking) — enterprise requirement
+  if (spoolerJobId) {
+    try {
+      await db.update(printJobs).set({ spoolerJobId, updatedAt: sql`now()` } as any).where(and(eq(printJobs.id, jobId), eq(printJobs.tenantId, agent.tenantId)));
+    } catch {}
+  }
+
+  // Record timeline event (non-blocking for main flow)
+  try {
+    const stage = stageForStatus(requestedStatus);
+    await recordJobEvent({
+      jobId,
+      tenantId: agent.tenantId,
+      stage,
+      status: requestedStatus === "success" ? "ok" : requestedStatus === "failed" ? "error" : "ok",
+      message: requestedStatus === "printing" ? `Agent started printing (transport=${transport ?? "unknown"})` : requestedStatus === "success" ? `Print success (spoolerJobId=${spoolerJobId ?? "n/a"})` : nextError ?? requestedStatus,
+      errorCode: requestedStatus === "failed" ? nextError ?? undefined : undefined,
+      spoolerJobId: spoolerJobId ?? undefined,
+      attemptId: incomingAttemptId ?? job.attemptId ?? undefined,
+      claimId: claimToken ?? job.claimToken ?? undefined,
+      agentId: agent.id,
+      printerId: job.printerId,
+      requestId,
+      metadata: { transport, physicalOutcome, lateSuccess },
+    });
+  } catch {}
+
+  return NextResponse.json({ success: true, status: requestedStatus, physicalOutcome, spoolerJobId });
 }

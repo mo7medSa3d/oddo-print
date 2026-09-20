@@ -5,11 +5,11 @@ import Link from "next/link";
 import { X, Check, Loader2, Copy, AlertTriangle, ChevronDown } from "lucide-react";
 
 /* ============================================================
-   Odoo Print Gateway — shared UI primitives
+   YASSER — Premium SaaS UI Primitives 2026
    One source for Button / Badge / Status / Card / Empty &
-   error states / Modal / Drawer / Field. Used by the Desktop
-   Manager (vite) and the Web console (Next), so the two
-   surfaces stay visually and semantically consistent.
+   error states / Modal / Drawer / Field.
+   Used by Gateway (Next), Platform Admin, and Desktop (Vite)
+   so all surfaces stay visually coherent.
    ============================================================ */
 
 export { BrandMark } from "./brand";
@@ -27,8 +27,6 @@ export const toneBg: Record<Tone, string> = {
   brand: "bg-brand-subtle text-brand-subtle-text border-edge-accent",
 };
 
-/* Dots use the `-solid` fills: saturated enough to read at 8px,
-   while the text tokens above stay AA-legible on tinted surfaces. */
 const toneDot: Record<Tone, string> = {
   ok: "bg-ok-solid",
   warn: "bg-warn-solid",
@@ -38,8 +36,6 @@ const toneDot: Record<Tone, string> = {
   brand: "bg-brand",
 };
 
-/* Tone Mappers for consistent status mapping across Web & Desktop */
-
 export function agentTone(status: string): Tone {
   const s = String(status).toLowerCase();
   if (s === "online" || s === "running" || s === "active") return "ok";
@@ -48,9 +44,6 @@ export function agentTone(status: string): Tone {
   return "neutral";
 }
 
-// Tone vocabulary is defined ONCE in src/shared/job-vocabulary.ts and shared
-// with the desktop app; these wrappers only adapt it to this module's Tone
-// union (which additionally allows "brand").
 export function printerTone(status: string): Tone {
   return sharedPrinterTone(String(status)) as Tone;
 }
@@ -59,21 +52,21 @@ export function jobTone(status: string): Tone {
   return sharedJobTone(String(status)) as Tone;
 }
 
-/* ---------- Buttons ---------- */
+/* ---------- Buttons — premium, restrained ---------- */
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success";
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary:
-    "bg-brand text-brand-contrast border border-transparent shadow-xs hover:bg-brand-hover active:bg-brand-active",
+    "bg-brand text-white border border-transparent shadow-[0_1px_2px_rgba(37,99,235,0.18)] hover:bg-brand-hover hover:shadow-[0_2px_6px_rgba(37,99,235,0.22)] active:bg-brand-active active:shadow-none",
   secondary:
-    "bg-surface text-ink border border-edge shadow-xs hover:bg-surface-2 hover:border-edge-strong active:bg-surface-3",
+    "bg-surface text-ink border border-edge shadow-xs hover:bg-surface-2 hover:border-edge-strong hover:shadow-sm active:bg-surface-3",
   ghost:
-    "bg-transparent text-ink-2 border border-transparent hover:bg-brand-subtle hover:text-brand-subtle-text",
+    "bg-transparent text-ink-2 border border-transparent hover:bg-surface-2 hover:text-ink active:bg-surface-3",
   danger:
-    "bg-bad-solid text-white border border-transparent shadow-xs hover:brightness-95 active:brightness-90",
+    "bg-bad-solid text-white border border-transparent shadow-xs hover:bg-[#be123c] active:bg-[#9f1239]",
   success:
-    "bg-ok-solid text-white border border-transparent shadow-xs hover:brightness-95 active:brightness-90",
+    "bg-ok-solid text-white border border-transparent shadow-xs hover:brightness-[0.96] active:brightness-[0.92]",
 };
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -101,12 +94,12 @@ export function Button({
 }: ButtonProps) {
   const sizes =
     size === "sm"
-      ? "h-10 px-3.5 text-[13px] gap-1.5"
+      ? "h-9 px-3 text-[13px] gap-1.5 rounded-[8px]"
       : size === "lg"
-      ? "h-12 px-5 text-[15px] gap-2.5"
-      : "h-11 px-4 text-sm gap-2";
+        ? "h-11 px-5 text-[14px] gap-2.5 rounded-[10px]"
+        : "h-10 px-4 text-[13.5px] gap-2 rounded-[9px]";
 
-  const baseClasses = `inline-flex items-center justify-center rounded-lg font-semibold transition-[background-color,border-color,color,box-shadow,filter] duration-150 disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] ${buttonVariants[variant]} ${sizes} ${className}`;
+  const baseClasses = `inline-flex items-center justify-center font-[600] tracking-[-0.01em] transition-all duration-150 disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 focus-visible:border-brand ${buttonVariants[variant]} ${sizes} ${className}`;
 
   if (href) {
     const linkDisabled = loading || disabled;
@@ -139,11 +132,7 @@ export function Button({
   }
 
   return (
-    <button
-      className={baseClasses}
-      disabled={loading || disabled}
-      {...props}
-    >
+    <button className={baseClasses} disabled={loading || disabled} {...props}>
       {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : icon}
       {children}
     </button>
@@ -163,7 +152,7 @@ export function IconButton({
     <button
       aria-label={label}
       title={label}
-      className={`inline-flex items-center justify-center h-10 w-10 rounded-lg text-ink-3 transition-colors duration-150 hover:bg-brand-subtle hover:text-brand-subtle-text focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] disabled:opacity-50 ${className}`}
+      className={`inline-flex items-center justify-center h-9 w-9 rounded-[9px] text-ink-3 transition-all duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 disabled:opacity-50 ${className}`}
       {...props}
     >
       {children}
@@ -177,9 +166,7 @@ export function StatusDot({ tone, pulse = false }: { tone: Tone; pulse?: boolean
   return (
     <span
       aria-hidden
-      className={`inline-block h-2.5 w-2.5 rounded-full ${toneDot[tone]} ${
-        pulse ? "animate-pulse" : ""
-      }`}
+      className={`inline-block h-2 w-2 rounded-full ${toneDot[tone]} ${pulse ? "animate-pulse" : ""}`}
     />
   );
 }
@@ -200,7 +187,7 @@ export function StatusBadge({
   const shouldPulse = pulse ?? (tone === "info");
   return (
     <span
-      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[13px] font-semibold whitespace-nowrap ${toneBg[tone]} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-semibold tracking-wide whitespace-nowrap ${toneBg[tone]} ${className}`}
     >
       {icon ?? <StatusDot tone={tone} pulse={shouldPulse} />}
       {label}
@@ -238,25 +225,35 @@ export function StatCard({
   className?: string;
 }) {
   return (
-    <div className={`card p-5 flex flex-col justify-between transition-shadow hover:shadow-md ${className}`}>
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[13px] font-semibold text-ink-3 uppercase tracking-wider">{title}</span>
+    <div
+      className={`group relative overflow-hidden rounded-[14px] border border-edge bg-surface p-5 shadow-card transition-all duration-200 hover:shadow-card-hover hover:border-edge-strong hover:-translate-y-[1px] ${className}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-ink-3">{title}</span>
         {icon && (
-          <div className={`flex h-10 w-10 items-center justify-center rounded-xl border ${toneBg[tone]}`}>
+          <div
+            className={`flex h-9 w-9 items-center justify-center rounded-[10px] border ${toneBg[tone]} shadow-xs`}
+          >
             {icon}
           </div>
         )}
       </div>
       <div className="mt-4">
-        <div className="text-3xl font-bold tracking-tight text-ink tabular-nums">{value}</div>
+        <div className="text-[28px] font-bold tracking-[-0.02em] leading-none text-ink tabular-nums">
+          {value}
+        </div>
         {(subtitle || trend) && (
-          <div className="mt-1.5 flex items-center gap-2 text-[12px] text-ink-3">
+          <div className="mt-2.5 flex items-center gap-2 text-[12px] leading-snug text-ink-3">
             {trend && (
-              <span className={`font-semibold ${trend.positive ? "text-ok" : "text-bad"}`}>
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                  trend.positive ? "bg-ok-bg text-ok border border-ok-edge" : "bg-bad-bg text-bad border border-bad-edge"
+                }`}
+              >
                 {trend.text}
               </span>
             )}
-            {subtitle && <span>{subtitle}</span>}
+            {subtitle && <span className="truncate">{subtitle}</span>}
           </div>
         )}
       </div>
@@ -276,17 +273,119 @@ export function CardHeader({
   icon?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-4">
+    <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-4">
       <div className="min-w-0">
-        <h2 className="flex items-center gap-2.5 text-[17px] font-semibold leading-tight tracking-[-0.01em] text-ink">
+        <h2 className="flex items-center gap-2.5 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-ink">
           {icon}
           {title}
         </h2>
-        {subtitle && <p className="mt-1 text-[13px] text-ink-3">{subtitle}</p>}
+        {subtitle && <p className="mt-1 text-[13px] leading-snug text-ink-3">{subtitle}</p>}
       </div>
-      {actions && (
-        <div className="flex items-center gap-2 shrink-0">{actions}</div>
+      {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+    </div>
+  );
+}
+
+/* ---------- Premium financial cards ---------- */
+
+export function BillingPremiumCard({
+  plan,
+  status,
+  balance,
+  usagePercent,
+  renewal,
+  actions,
+  entitlements,
+}: {
+  plan: string;
+  status?: string;
+  balance?: string;
+  usagePercent?: number;
+  renewal?: string;
+  actions?: React.ReactNode;
+  entitlements?: Array<{ label: string; value: string }>;
+}) {
+  return (
+    <div className="billing-premium p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-edge-accent bg-brand-subtle px-2.5 py-1 text-[11px] font-semibold tracking-wide text-brand-subtle-text">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand" />
+            PLAN
+          </div>
+          <div className="mt-3 text-[22px] font-bold tracking-tight text-ink">{plan}</div>
+          {status && <div className="mt-1 text-[13px] text-ink-3">{status}</div>}
+        </div>
+        {balance && (
+          <div className="text-right">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-3">Balance</div>
+            <div className="mt-1 text-financial-lg text-ink tabular-nums">{balance}</div>
+          </div>
+        )}
+      </div>
+
+      {typeof usagePercent === "number" && (
+        <div className="mt-6">
+          <div className="flex items-center justify-between text-[12px]">
+            <span className="text-ink-3">Usage</span>
+            <span className="font-semibold text-ink tabular-nums">{usagePercent}% used</span>
+          </div>
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
+            <div
+              className="h-full rounded-full bg-brand transition-all duration-500"
+              style={{ width: `${Math.min(100, Math.max(0, usagePercent))}%` }}
+            />
+          </div>
+        </div>
       )}
+
+      {entitlements && entitlements.length > 0 && (
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          {entitlements.slice(0, 6).map((e) => (
+            <div key={e.label} className="rounded-[10px] border border-edge bg-surface-2 px-3 py-2.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-3">{e.label}</div>
+              <div className="mt-0.5 text-[13px] font-semibold text-ink tabular-nums">{e.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {renewal && <div className="mt-5 text-[12px] text-ink-3">Renews on {renewal}</div>}
+
+      {actions && <div className="mt-5 flex flex-wrap gap-2">{actions}</div>}
+    </div>
+  );
+}
+
+export function BalanceCard({
+  amount,
+  subtitle,
+  trend,
+  actions,
+  footer,
+}: {
+  amount: React.ReactNode;
+  subtitle?: React.ReactNode;
+  trend?: string;
+  actions?: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  return (
+    <div className="balance-card p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-3">Current balance</div>
+          <div className="mt-2 text-[34px] font-bold tracking-[-0.03em] leading-none text-ink tabular-nums">{amount}</div>
+          {subtitle && <div className="mt-2 text-[13px] text-ink-3">{subtitle}</div>}
+        </div>
+        {trend && (
+          <div className="rounded-full bg-ok-bg border border-ok-edge px-2.5 py-1 text-[11px] font-semibold text-ok">
+            {trend}
+          </div>
+        )}
+      </div>
+      {actions && <div className="mt-5 flex gap-2">{actions}</div>}
+      {footer && <div className="mt-5 border-t border-edge pt-4 text-[12px] text-ink-3">{footer}</div>}
     </div>
   );
 }
@@ -308,21 +407,17 @@ export function EmptyState({
 }) {
   return (
     <div
-      className={`flex flex-col items-center justify-center text-center px-8 py-16 sm:py-20 ${className}`}
+      className={`flex flex-col items-center justify-center text-center px-8 py-14 sm:py-16 ${className}`}
     >
-      <div className="flex h-16 w-16 sm:h-20 sm:w-20 items-center justify-center rounded-2xl border border-edge-accent bg-surface-accent text-brand">
+      <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-[14px] border border-edge-accent bg-surface-accent text-brand shadow-xs">
         {icon}
       </div>
-      <h3 className="mt-5 text-[18px] font-semibold text-ink">{title}</h3>
+      <h3 className="mt-4 text-[16px] font-semibold tracking-[-0.01em] text-ink">{title}</h3>
       {description && (
-        <p className="mt-2 max-w-md text-sm leading-relaxed text-ink-3">
-          {description}
-        </p>
+        <p className="mt-2 max-w-[36ch] text-[13.5px] leading-relaxed text-ink-3">{description}</p>
       )}
       {action && (
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-          {action}
-        </div>
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">{action}</div>
       )}
     </div>
   );
@@ -342,12 +437,12 @@ export function ErrorState({
   return (
     <div
       role="alert"
-      className={`flex flex-col items-start gap-3.5 rounded-xl border border-bad-edge bg-bad-bg px-5 py-4 text-sm sm:flex-row sm:items-start ${className}`}
+      className={`flex flex-col items-start gap-3 rounded-xl border border-bad-edge bg-bad-bg px-4 py-3.5 text-sm sm:flex-row sm:items-start ${className}`}
     >
-      <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-bad" aria-hidden />
+      <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-bad" aria-hidden />
       <div className="min-w-0 flex-1">
-        <div className="text-[15px] font-semibold text-bad">{title}</div>
-        <p className="mt-1 break-words leading-relaxed text-ink-2">{message}</p>
+        <div className="text-[14px] font-semibold text-bad">{title}</div>
+        <p className="mt-1 break-words leading-relaxed text-[13px] text-ink-2">{message}</p>
       </div>
       {retry && (
         <Button size="sm" variant="secondary" onClick={retry} className="shrink-0">
@@ -368,13 +463,26 @@ export function LoadingState({
   return (
     <div role="status" aria-label="Loading" className={`space-y-3 ${className}`}>
       {Array.from({ length: rows }).map((_, i) => (
-        <div
-          key={i}
-          className="skeleton h-9"
-          style={{ width: `${100 - (i % 3) * 12}%` }}
-        />
+        <div key={i} className="skeleton h-8" style={{ width: `${100 - (i % 3) * 14}%` }} />
       ))}
       <span className="sr-only">Loading…</span>
+    </div>
+  );
+}
+
+export function PageSkeleton({ className = "" }: { className?: string }) {
+  return (
+    <div className={`space-y-6 ${className}`}>
+      <div className="space-y-3">
+        <div className="skeleton h-7 w-48" />
+        <div className="skeleton h-4 w-80" />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="skeleton skeleton-card" />
+        <div className="skeleton skeleton-card" />
+        <div className="skeleton skeleton-card" />
+      </div>
+      <div className="skeleton h-[320px] rounded-[14px]" />
     </div>
   );
 }
@@ -413,30 +521,19 @@ export function Field({
       : undefined;
 
   return (
-    <FieldContext.Provider
-      value={{ controlId, descriptionId, invalid: Boolean(error) }}
-    >
+    <FieldContext.Provider value={{ controlId, descriptionId, invalid: Boolean(error) }}>
       <div className={className}>
-        <label
-          htmlFor={controlId}
-          className="block text-[13px] font-semibold text-ink"
-        >
+        <label htmlFor={controlId} className="block text-[12.5px] font-semibold tracking-[-0.01em] text-ink">
           {label}
         </label>
-        <div className="mt-2">{children}</div>
+        <div className="mt-1.5">{children}</div>
         {error && (
-          <p
-            id={descriptionId}
-            className="mt-1.5 text-[13px] font-medium text-bad"
-          >
+          <p id={descriptionId} className="mt-1.5 text-[12.5px] font-medium text-bad">
             {error}
           </p>
         )}
         {hint && !error && (
-          <p
-            id={descriptionId}
-            className="mt-2 text-[13px] leading-relaxed text-ink-3"
-          >
+          <p id={descriptionId} className="mt-1.5 text-[12.5px] leading-relaxed text-ink-3">
             {hint}
           </p>
         )}
@@ -446,7 +543,7 @@ export function Field({
 }
 
 export const inputClass =
-  "w-full h-11 rounded-lg border border-edge bg-surface px-3.5 text-sm text-ink placeholder:text-ink-3 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-edge-strong focus:border-brand focus:outline-none focus:shadow-[var(--focus-ring-shadow)] disabled:opacity-50 disabled:bg-surface-2";
+  "w-full h-10 rounded-[9px] border border-edge bg-surface px-3.5 text-[13.5px] text-ink placeholder:text-ink-4 shadow-xs transition-all duration-150 hover:border-edge-strong focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/15 disabled:opacity-50 disabled:bg-surface-2";
 
 export function Input({
   className = "",
@@ -465,9 +562,7 @@ export function Input({
       aria-invalid={ariaInvalid ?? (invalid || undefined)}
       aria-describedby={ariaDescribedBy ?? field?.descriptionId}
       className={`${inputClass} ${
-        invalid
-          ? "border-bad-edge focus:border-bad focus:shadow-[0_0_0_3px_var(--danger-border)]"
-          : ""
+        invalid ? "border-bad-edge focus:border-bad focus:ring-bad/15" : ""
       } ${className}`}
       {...props}
     />
@@ -493,9 +588,7 @@ export function Select({
         aria-invalid={ariaInvalid ?? (invalid || undefined)}
         aria-describedby={ariaDescribedBy ?? field?.descriptionId}
         className={`${inputClass} w-full appearance-none pr-8 ${
-          invalid
-            ? "border-bad-edge focus:border-bad focus:shadow-[0_0_0_3px_var(--danger-border)]"
-            : ""
+          invalid ? "border-bad-edge focus:border-bad focus:ring-bad/15" : ""
         }`}
         {...props}
       >
@@ -506,11 +599,8 @@ export function Select({
   );
 }
 
-/* ---------- Modal / Drawer ---------- */
+/* ---------- Modal / Drawer — premium ---------- */
 
-// Tracks elements made inert while a dialog is open so background access
-// can be restored exactly on close. Module-level: shared by every Modal
-// and Drawer instance (including nested dialogs) on the page.
 const inertedBackground = new Set<HTMLElement>();
 let openDialogCount = 0;
 
@@ -523,10 +613,6 @@ function refreshBackgroundIsolation(): void {
     inertedBackground.clear();
     return;
   }
-  // Inert every top-level background branch that does not host an open
-  // dialog root. Walking up from each [data-dialog-root] keeps nested
-  // dialogs reachable while everything behind them stays inert to both
-  // keyboard (Tab) and assistive technology.
   document.querySelectorAll<HTMLElement>("[data-dialog-root]").forEach((root) => {
     let el: HTMLElement | null = root;
     while (el && el !== document.body) {
@@ -565,8 +651,6 @@ function useDialog(
       const nodes = panel.querySelectorAll<HTMLElement>(
         'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
       );
-      // offsetParent is null for hidden elements; treat as non-tabbable.
-      // Fall back to the full list when layout is unavailable (e.g. tests).
       const visible = [...nodes].filter((el) => el.offsetParent !== null);
       return visible.length > 0 ? visible : [...nodes];
     };
@@ -576,7 +660,6 @@ function useDialog(
         onClose();
         return;
       }
-      // Focus trap: Tab cycles inside the panel while the modal is active.
       if (e.key !== "Tab") return;
       const items = focusables();
       if (items.length === 0) {
@@ -641,24 +724,26 @@ export function Modal({
         aria-label={title}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
-        className={`pg-rise-in relative w-full ${
-          wide ? "sm:max-w-3xl" : "sm:max-w-xl"
-        } max-h-[92vh] overflow-auto rounded-t-2xl sm:rounded-panel border border-edge bg-surface shadow-xl outline-none`}
+        className={`pg-scale-in relative w-full ${
+          wide ? "sm:max-w-2xl" : "sm:max-w-[480px]"
+        } max-h-[90vh] overflow-auto rounded-t-[16px] sm:rounded-[16px] border border-edge bg-surface shadow-2xl outline-none`}
       >
         <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-edge bg-surface px-6 py-5">
           <div className="min-w-0">
-            <h2 className="text-[19px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
+            <h2 className="text-[16px] font-semibold tracking-[-0.015em] text-ink">{title}</h2>
             {description && (
-              <p id={descId} className="mt-1 text-[13px] leading-relaxed text-ink-3">{description}</p>
+              <p id={descId} className="mt-1 text-[13px] leading-snug text-ink-3">
+                {description}
+              </p>
             )}
           </div>
-          <IconButton label="Close dialog" onClick={onClose}>
-            <X className="h-5 w-5" />
+          <IconButton label="Close dialog" onClick={onClose} className="-mr-1">
+            <X className="h-4 w-4" />
           </IconButton>
         </div>
-        <div className="px-6 py-6">{children}</div>
+        <div className="px-6 py-5">{children}</div>
         {footer && (
-          <div className="sticky bottom-0 flex justify-end gap-3 border-t border-edge bg-surface px-6 py-4">
+          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-edge bg-surface-2/80 px-6 py-4 backdrop-blur-sm">
             {footer}
           </div>
         )}
@@ -687,7 +772,7 @@ export function Drawer({
   return (
     <div data-dialog-root className="fixed inset-0 z-50 flex justify-end">
       <div
-        className="pg-fade-in absolute inset-0"
+        className="pg-fade-in absolute inset-0 backdrop-blur-[1px]"
         style={{ backgroundColor: "var(--overlay)" }}
         onClick={onClose}
         aria-hidden
@@ -699,20 +784,22 @@ export function Drawer({
         aria-label={title}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
-        className="pg-slide-in-right relative flex h-full w-full max-w-lg flex-col border-l border-edge bg-surface shadow-xl outline-none"
+        className="pg-slide-in-right relative flex h-full w-full max-w-[480px] flex-col border-l border-edge bg-surface shadow-2xl outline-none"
       >
         <div className="flex items-start justify-between gap-4 border-b border-edge px-6 py-5">
           <div className="min-w-0">
-            <h2 className="text-[19px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
+            <h2 className="text-[16px] font-semibold tracking-[-0.015em] text-ink">{title}</h2>
             {description && (
-              <p id={descId} className="mt-1 truncate text-[13px] text-ink-3">{description}</p>
+              <p id={descId} className="mt-1 truncate text-[13px] text-ink-3">
+                {description}
+              </p>
             )}
           </div>
-          <IconButton label="Close panel" onClick={onClose}>
-            <X className="h-5 w-5" />
+          <IconButton label="Close panel" onClick={onClose} className="-mr-1">
+            <X className="h-4 w-4" />
           </IconButton>
         </div>
-        <div className="flex-1 overflow-auto px-6 py-6">{children}</div>
+        <div className="flex-1 overflow-auto px-6 py-5">{children}</div>
       </div>
     </div>
   );
@@ -735,9 +822,6 @@ export function Tabs<T extends string>({
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const onListKeyDown = (e: React.KeyboardEvent) => {
-    // Roving focus per the ARIA tab pattern: arrows move between tabs
-    // (and activate), Home/End jump to the ends. Tabs stay in the Tab
-    // sequence via roving tabindex so Tab enters/exits the list once.
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
     e.preventDefault();
     const idx = tabs.indexOf(active);
@@ -748,11 +832,8 @@ export function Tabs<T extends string>({
     else if (e.key === "End") next = tabs.length - 1;
     if (next !== idx) {
       onChange(tabs[next]);
-      // Focus follows the newly selected tab after re-render.
       requestAnimationFrame(() => {
-        listRef.current
-          ?.querySelector<HTMLElement>(`[data-tab="${tabs[next]}"]`)
-          ?.focus();
+        listRef.current?.querySelector<HTMLElement>(`[data-tab="${tabs[next]}"]`)?.focus();
       });
     }
   };
@@ -762,7 +843,7 @@ export function Tabs<T extends string>({
       role="tablist"
       aria-label="Filter options"
       onKeyDown={onListKeyDown}
-      className={`flex items-center gap-1 overflow-x-auto border-b border-edge ${className}`}
+      className={`flex items-center gap-0.5 overflow-x-auto border-b border-edge ${className}`}
     >
       {tabs.map((t) => {
         const selected = t === active;
@@ -775,24 +856,19 @@ export function Tabs<T extends string>({
             tabIndex={selected ? 0 : -1}
             data-tab={t}
             onClick={() => onChange(t)}
-            className={`relative flex items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] ${
-              selected ? "text-ink" : "text-ink-3 hover:text-ink-2"
+            className={`relative flex items-center gap-2 whitespace-nowrap px-3.5 py-2.5 text-[13px] font-[600] tracking-[-0.01em] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 rounded-[8px] ${
+              selected ? "text-ink bg-surface-2" : "text-ink-3 hover:text-ink hover:bg-surface-2"
             }`}
           >
             <span className="capitalize">{t}</span>
             {count !== undefined && (
               <span
-                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${
-                  selected
-                    ? "bg-brand-subtle text-brand-subtle-text"
-                    : "bg-surface-2 text-ink-3"
+                className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${
+                  selected ? "bg-brand-subtle text-brand-subtle-text" : "bg-surface-3 text-ink-3"
                 }`}
               >
                 {count}
               </span>
-            )}
-            {selected && (
-              <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-brand" />
             )}
           </button>
         );
@@ -828,11 +904,9 @@ export function CopyButton({
           setCopied(true);
           onCopied?.();
           setTimeout(() => setCopied(false), 2000);
-        } catch {
-          /* clipboard unavailable inside WebView without focus; ignore */
-        }
+        } catch {}
       }}
-      className={`inline-flex h-8 items-center gap-1.5 rounded-md border border-edge bg-surface px-2.5 text-[12px] font-medium text-ink-2 transition-colors duration-150 hover:border-edge-accent hover:bg-brand-subtle hover:text-brand-subtle-text focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] ${className}`}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-edge bg-surface px-2.5 text-[12px] font-medium text-ink-2 transition-all duration-150 hover:border-edge-accent hover:bg-brand-subtle hover:text-brand-subtle-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 ${className}`}
     >
       {copied ? (
         <>
@@ -859,8 +933,6 @@ export function Toast({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!toast) return;
-    // Errors stay until dismissed: a 5-second error toast disappears before
-    // the operator can read or act on it.
     if (toast.type === "error") return;
     timer.current = setTimeout(onDismiss, 5000);
     return () => {
@@ -872,14 +944,14 @@ export function Toast({
   return (
     <div
       role="status"
-      className={`pg-toast-in fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-xl border px-5 py-4 text-sm shadow-lg ${toneBg[tone]}`}
+      className={`pg-toast-in fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-[12px] border px-4 py-3.5 text-[13px] shadow-xl backdrop-blur-sm ${toneBg[tone]}`}
     >
       {toast.type === "success" ? (
-        <Check className="mt-0.5 h-5 w-5 flex-shrink-0 text-ok" aria-hidden />
+        <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-ok" aria-hidden />
       ) : (
-        <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" aria-hidden />
+        <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
       )}
-      <span className="min-w-0 flex-1 break-words">{toast.text}</span>
+      <span className="min-w-0 flex-1 break-words leading-snug">{toast.text}</span>
       <button
         onClick={onDismiss}
         aria-label="Dismiss notification"
@@ -891,8 +963,6 @@ export function Toast({
   );
 }
 
-/* ---------- Monospace data / metadata ---------- */
-
 export function Mono({
   children,
   className = "",
@@ -900,11 +970,7 @@ export function Mono({
   children: React.ReactNode;
   className?: string;
 }) {
-  return (
-    <code className={`font-mono text-[12px] text-ink-2 ${className}`}>
-      {children}
-    </code>
-  );
+  return <code className={`font-mono text-[11.5px] tracking-[-0.01em] text-ink-2 ${className}`}>{children}</code>;
 }
 
 export function MetaRow({
@@ -916,8 +982,84 @@ export function MetaRow({
 }) {
   return (
     <div className="flex items-start justify-between gap-6 py-2.5 text-sm">
-      <span className="shrink-0 text-[13px] text-ink-3">{label}</span>
-      <span className="min-w-0 text-right text-[14px] font-semibold text-ink">{children}</span>
+      <span className="shrink-0 text-[12.5px] text-ink-3">{label}</span>
+      <span className="min-w-0 text-right text-[13px] font-semibold text-ink">{children}</span>
+    </div>
+  );
+}
+
+/* ---------- New premium components ---------- */
+
+export function PageHeader({
+  title,
+  description,
+  actions,
+  breadcrumbs,
+  className = "",
+}: {
+  title: React.ReactNode;
+  description?: React.ReactNode;
+  actions?: React.ReactNode;
+  breadcrumbs?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`border-b border-edge bg-surface ${className}`}>
+      <div className="mx-auto max-w-[1440px] px-6 py-6 sm:px-8">
+        {breadcrumbs && <div className="mb-3 text-[12px] text-ink-3">{breadcrumbs}</div>}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-[22px] font-bold tracking-[-0.02em] leading-tight text-ink">{title}</h1>
+            {description && (
+              <p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-ink-3">{description}</p>
+            )}
+          </div>
+          {actions && <div className="flex shrink-0 items-center gap-2.5">{actions}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function Section({
+  title,
+  description,
+  actions,
+  children,
+  className = "",
+}: {
+  title?: React.ReactNode;
+  description?: React.ReactNode;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`card overflow-hidden ${className}`}>
+      {(title || description || actions) && (
+        <div className="flex items-start justify-between gap-4 border-b border-edge px-6 py-4">
+          <div className="min-w-0">
+            {title && <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>}
+            {description && <p className="mt-0.5 text-[13px] text-ink-3">{description}</p>}
+          </div>
+          {actions && <div className="flex items-center gap-2">{actions}</div>}
+        </div>
+      )}
+      <div className="p-6">{children}</div>
+    </div>
+  );
+}
+
+export function DataTableShell({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`overflow-hidden rounded-[14px] border border-edge bg-surface shadow-card ${className}`}>
+      {children}
     </div>
   );
 }

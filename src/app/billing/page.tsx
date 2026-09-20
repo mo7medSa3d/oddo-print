@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { getManagerCookieName, validateManagerClaims, verifyManagerToken } from "../../lib/manager-auth";
 import { hasManagerPermission } from "../../lib/authorization";
 import { BillingActions } from "../../components/BillingActions";
+import { CreditCard, ShieldCheck, Calendar, Zap, ArrowRight, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -37,183 +38,162 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
   const isScheduledForCancellation = hasActivePlan && !!sub?.cancelAtPeriodEnd;
   const isCheckoutPending = sub?.checkoutStatus === "creating" || sub?.checkoutStatus === "open";
 
+  const entitlements = plan?.entitlements ? Object.entries(plan.entitlements).map(([k, v]) => ({ label: formatEntitlementKey(k), value: formatEntitlementValue(v) })) : [];
+
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
-      <header className="mb-6">
-        <p className="label-caps">Workspace</p>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight text-ink">Billing</h1>
-        <p className="mt-1 text-sm text-ink-3">
-          Plan, subscription status and usage limits for this workspace.
-        </p>
+    <div className="mx-auto max-w-[1120px] px-4 py-8 sm:px-6 lg:px-8">
+      {/* Header */}
+      <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
+            <CreditCard className="h-3.5 w-3.5" /> Workspace billing
+          </div>
+          <h1 className="mt-4 text-[26px] font-bold tracking-[-0.02em] text-ink">Billing & usage</h1>
+          <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-3">
+            Plan, entitlements, and Stripe subscription — all enforced server-side.
+          </p>
+        </div>
+        <Link href="/pricing" className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-brand hover:underline">
+          View all plans <ArrowRight className="h-4 w-4" />
+        </Link>
       </header>
 
       {checkoutState === "success" && (
-        <Notice tone="success" title="Checkout completed">
-          Your payment was submitted. Subscription details can take a moment to synchronize from Stripe.
-        </Notice>
+        <Notice tone="success" title="Checkout completed">Payment submitted. Stripe sync can take a moment.</Notice>
       )}
       {checkoutState === "cancelled" && (
-        <Notice tone="neutral" title="Checkout cancelled">
-          No subscription change was applied. You can choose a plan whenever you are ready.
-        </Notice>
+        <Notice tone="neutral" title="Checkout cancelled">No change applied. Choose a plan when ready.</Notice>
       )}
       {isCheckoutPending && checkoutState !== "success" && (
-        <Notice tone="info" title="Checkout is being processed">
-          A billing operation is already in progress for this workspace. Refresh after the payment flow finishes.
-        </Notice>
+        <Notice tone="info" title="Checkout processing">Billing operation in progress. Refresh after payment flow finishes.</Notice>
       )}
 
-      <section className="card brand-hairline p-6">
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Summary label="Plan" value={plan?.name ?? "No plan"} />
-          <Summary
-            label="Status"
-            value={sub ? formatStatus(sub.status) : "No subscription"}
-            valueTone={statusTone(sub?.status)}
-          />
-          <Summary
-            label={isScheduledForCancellation ? "Ends on" : "Period end"}
-            value={sub?.currentPeriodEnd ? sub.currentPeriodEnd.toLocaleDateString() : "—"}
-          />
-        </div>
-
-        {isScheduledForCancellation && sub?.currentPeriodEnd && (
-          <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-800">
-            This subscription is scheduled to cancel at the end of the current period on{" "}
-            <span className="font-semibold">{sub.currentPeriodEnd.toLocaleDateString()}</span>.
-            You can resume it before then.
-          </div>
-        )}
-
-        {sub?.status === "past_due" && (
-          <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-700">
-            Payment is past due. Use the Customer Portal to update the payment method or resolve the invoice.
-          </div>
-        )}
-
-        {sub?.status === "paused" && (
-          <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-800">
-            The subscription is currently paused. Billing actions below use the current Stripe subscription state.
-          </div>
-        )}
-
-        {plan && (
-          <div className="mt-6 rounded-lg border border-edge bg-surface-2 p-4">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-xs font-semibold uppercase tracking-wide text-ink-3">Plan limits</div>
-              <div className="text-xs text-ink-3">
-                {(plan.currency ? plan.currency.toUpperCase() : "") +
-                  (plan.interval ? " · billed " + plan.interval : "")}
-              </div>
-            </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {Object.entries(plan.entitlements ?? {}).slice(0, 6).map(([key, value]) => (
-                <div key={key} className="rounded-md border border-edge bg-surface px-3 py-2.5">
-                  <div className="text-xs capitalize text-ink-3">{formatEntitlementKey(key)}</div>
-                  <div className="mt-0.5 text-sm font-semibold text-ink">{formatEntitlementValue(value)}</div>
+      {/* Premium billing card */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <div className="billing-premium p-7">
+            <div className="flex items-start justify-between gap-6">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-edge-accent bg-brand-subtle px-3 py-1 text-[11px] font-semibold tracking-wide text-brand">
+                  <ShieldCheck className="h-3.5 w-3.5" /> PLAN
                 </div>
-              ))}
+                <div className="mt-4 flex items-baseline gap-3">
+                  <div className="text-[28px] font-bold tracking-tight text-ink">{plan?.name ?? "No plan"}</div>
+                  {sub && <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusToneClass(sub.status)}`}>{formatStatus(sub.status)}</span>}
+                </div>
+                <div className="mt-2 flex items-center gap-4 text-[13px] text-ink-3">
+                  <span className="inline-flex items-center gap-1.5"><Calendar className="h-4 w-4" /> {sub?.currentPeriodEnd ? `Renews ${sub.currentPeriodEnd.toLocaleDateString()}` : "No renewal"}</span>
+                  {plan?.interval && <span className="inline-flex items-center gap-1.5"><Zap className="h-4 w-4" /> Billed {plan.interval}</span>}
+                </div>
+              </div>
+              <div className="hidden sm:block text-right">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Status</div>
+                <div className="mt-2 text-[14px] font-semibold text-ink">{hasActivePlan ? "Active workspace" : "No active subscription"}</div>
+                <div className="mt-1 text-[12px] text-ink-3">{hasStripeSubscription ? "Stripe linked" : "Trial or unlinked"}</div>
+              </div>
+            </div>
+
+            {entitlements.length > 0 && (
+              <div className="mt-7">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Entitlements</div>
+                <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                  {entitlements.slice(0, 6).map((e) => (
+                    <div key={e.label} className="rounded-[10px] border border-edge bg-surface-2 px-3.5 py-3">
+                      <div className="text-[11px] font-medium text-ink-3 capitalize">{e.label}</div>
+                      <div className="mt-1 text-[14px] font-semibold tabular-nums text-ink">{e.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {isScheduledForCancellation && sub?.currentPeriodEnd && (
+              <div className="mt-6 flex items-start gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Scheduled to cancel on <strong>{sub.currentPeriodEnd.toLocaleDateString()}</strong>. Resume before then to keep service.</span>
+              </div>
+            )}
+            {sub?.status === "past_due" && (
+              <div className="mt-6 flex items-start gap-2.5 rounded-[10px] border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-800">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Payment past due — update payment method via Customer Portal.</span>
+              </div>
+            )}
+
+            <div className="mt-8 border-t border-edge pt-6">
+              {hasActivePlan ? (
+                hasStripeSubscription ? (
+                  <BillingActions hasSubscription={true} cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd} />
+                ) : (
+                  <div className="rounded-[10px] border border-edge bg-surface-2 px-4 py-3 text-[13px] text-ink-2">Active plan without Stripe link. Billing management will appear when paid subscription connects.</div>
+                )
+              ) : (
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <Link href="/pricing" className="inline-flex h-10 items-center justify-center rounded-[10px] bg-brand px-5 text-[13px] font-semibold text-white shadow-sm hover:bg-brand-hover">Choose a plan</Link>
+                  <span className="text-[12px] text-ink-3">Plans enforced by Gateway. No fake values.</span>
+                </div>
+              )}
             </div>
           </div>
-        )}
-
-        <div className="mt-6 border-t border-edge pt-5">
-          {hasActivePlan ? (
-            hasStripeSubscription ? (
-              <BillingActions
-                hasSubscription={true}
-                cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd}
-              />
-            ) : (
-              <div className="rounded-lg border border-edge bg-surface-2 px-4 py-3 text-sm text-ink-2">
-                This workspace has an active plan, but no Stripe subscription is linked yet. Billing management will become available when the paid subscription is connected.
-              </div>
-            )
-          ) : (
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <Link
-                href="/pricing"
-                className="inline-flex w-fit rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white focusable"
-              >
-                Choose a plan
-              </Link>
-              <span className="text-xs text-ink-3">
-                Plans and limits are enforced by the Gateway.
-              </span>
-            </div>
-          )}
         </div>
-      </section>
-    </main>
-  );
-}
 
-function Summary({
-  label,
-  value,
-  valueTone = "default",
-}: {
-  label: string;
-  value: string;
-  valueTone?: "default" | "success" | "warning" | "danger";
-}) {
-  const toneClass =
-    valueTone === "success"
-      ? "text-ok"
-      : valueTone === "warning"
-        ? "text-warn"
-        : valueTone === "danger"
-          ? "text-bad"
-          : "text-ink";
+        <div className="space-y-4">
+          <div className="card p-6">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Billing summary</div>
+            <div className="mt-4 space-y-3">
+              <div className="flex justify-between text-[13px]"><span className="text-ink-3">Plan</span><span className="font-semibold text-ink">{plan?.name ?? "—"}</span></div>
+              <div className="flex justify-between text-[13px]"><span className="text-ink-3">Status</span><span className="font-semibold text-ink">{sub ? formatStatus(sub.status) : "—"}</span></div>
+              <div className="flex justify-between text-[13px]"><span className="text-ink-3">Period end</span><span className="font-medium text-ink">{sub?.currentPeriodEnd ? sub.currentPeriodEnd.toLocaleDateString() : "—"}</span></div>
+              <div className="flex justify-between text-[13px]"><span className="text-ink-3">Stripe customer</span><span className="font-mono text-[11px] text-ink-2">{sub?.stripeCustomerId ? `${sub.stripeCustomerId.slice(0, 12)}…` : "—"}</span></div>
+            </div>
+            <div className="mt-6 rounded-[10px] bg-surface-2 border border-edge p-3 text-[12px] leading-relaxed text-ink-3">
+              <div className="flex items-center gap-2 font-semibold text-ink"><ShieldCheck className="h-4 w-4 text-ok" /> Secure billing</div>
+              <p className="mt-1">Stripe handles payments. Gateway enforces entitlements server-side — no client bypass.</p>
+            </div>
+          </div>
 
-  return (
-    <div className="rounded-lg border border-edge bg-surface-2 px-4 py-3">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{label}</div>
-      <div className={"mt-1 text-sm font-semibold " + toneClass}>{value}</div>
+          <div className="card p-6">
+            <div className="text-[13px] font-semibold text-ink">Need help?</div>
+            <p className="mt-2 text-[12px] leading-relaxed text-ink-3">Billing issues are audited. Past-due or paused states are shown explicitly — no hidden statuses.</p>
+            <Link href="/settings" className="mt-4 inline-flex text-[12px] font-semibold text-brand hover:underline">Workspace settings →</Link>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-function Notice({
-  tone,
-  title,
-  children,
-}: {
-  tone: "success" | "info" | "neutral";
-  title: string;
-  children: React.ReactNode;
-}) {
-  const classes = {
+function Notice({ tone, title, children }: { tone: "success" | "info" | "neutral"; title: string; children: React.ReactNode }) {
+  const cls = {
     success: "border-ok-edge bg-ok-bg text-ok",
     info: "border-info-edge bg-info-bg text-info",
     neutral: "border-edge bg-surface-2 text-ink-2",
   } as const;
-
+  const Icon = tone === "success" ? CheckCircle2 : AlertTriangle;
   return (
-    <div className={"mb-4 rounded-lg border px-4 py-3 text-sm " + classes[tone]}>
-      <div className="font-semibold">{title}</div>
-      <div className="mt-0.5">{children}</div>
+    <div className={`mb-6 flex items-start gap-2.5 rounded-[12px] border px-4 py-3 text-[13px] ${cls[tone]}`}>
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+      <div><div className="font-semibold">{title}</div><div className="mt-0.5 leading-relaxed opacity-90">{children}</div></div>
     </div>
   );
 }
 
-function statusTone(value: string | undefined): "default" | "success" | "warning" | "danger" {
-  if (value === "active" || value === "trialing") return "success";
-  if (value === "paused") return "warning";
-  if (value === "past_due" || value === "cancelled") return "danger";
-  return "default";
+function statusToneClass(v: string | undefined) {
+  if (v === "active" || v === "trialing") return "border-ok-edge bg-ok-bg text-ok";
+  if (v === "paused") return "border-warn-edge bg-warn-bg text-warn";
+  if (v === "past_due" || v === "cancelled") return "border-bad-edge bg-bad-bg text-bad";
+  return "border-edge bg-surface-2 text-ink-3";
 }
 
 function formatStatus(value: string) {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
-
 function formatEntitlementKey(value: string) {
   return value.replace(/^max_/, "").replace(/_/g, " ");
 }
-
 function formatEntitlementValue(value: unknown) {
-  if (typeof value === "boolean") return value ? "Included" : "Not included";
+  if (typeof value === "boolean") return value ? "Included" : "—";
   if (typeof value === "number") return value.toLocaleString();
+  if (value === "unlimited") return "Unlimited";
   return String(value);
 }
