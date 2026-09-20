@@ -198,8 +198,9 @@ func inferSNMPProtocol(sysDescrLower, nameLower string) string {
 	case strings.Contains(combined, "tsc") || strings.Contains(combined, "tspl"):
 		return "tspl"
 	case strings.Contains(combined, "escpos") || strings.Contains(combined, "esc/pos") ||
-		strings.Contains(combined, "pos") || strings.Contains(combined, "receipt") ||
-		strings.Contains(combined, "thermal") || strings.Contains(combined, "star"):
+		strings.Contains(combined, "receipt") ||
+		strings.Contains(combined, "thermal") || strings.Contains(combined, "star micronics") ||
+		strings.Contains(combined, "star tsp"):
 		return "escpos"
 	default:
 		return "unknown"
