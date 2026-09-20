@@ -174,9 +174,11 @@ export async function claimJobForDelivery(
 export async function markJobDelivered(jobId: string, tenantId: string, agentId: string, claimToken: string | null): Promise<boolean> {
   const res = await db.update(printJobs)
     .set({
-      deliveredAt: new Date(),
+      // DB-native now() so delivered_at and updated_at are on the same clock
+      // as the sweeper's updated_at < now() - interval comparisons.
+      deliveredAt: sql`now()`,
       error: sql`CASE WHEN ${printJobs.error} = ${DELIVERY_EVIDENCE_PENDING} THEN NULL ELSE ${printJobs.error} END`,
-      updatedAt: new Date(),
+      updatedAt: sql`now()`,
     })
     .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed", "printing"]))
     .returning({ id: printJobs.id });
@@ -185,7 +187,8 @@ export async function markJobDelivered(jobId: string, tenantId: string, agentId:
 
 export async function recordJobAck(jobId: string, tenantId: string, agentId: string, claimToken?: string | null): Promise<boolean> {
   const res = await db.update(printJobs)
-    .set({ ackedAt: sql`COALESCE(${printJobs.ackedAt}, now())`, deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`, updatedAt: new Date() })
+    // DB-native now() for clock consistency with the sweeper's updated_at comparisons.
+    .set({ ackedAt: sql`COALESCE(${printJobs.ackedAt}, now())`, deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`, updatedAt: sql`now()` })
     .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed", "printing"]))
     .returning({ id: printJobs.id });
   return res.length > 0;

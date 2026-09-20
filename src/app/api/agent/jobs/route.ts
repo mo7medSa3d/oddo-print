@@ -197,6 +197,16 @@ export async function PATCH(req: Request) {
   }
 
   if (requestedStatus === "expired") {
+    // Guard: a terminal job (success, failed, expired) must never be re-expired.
+    // The claim-token check above is intentionally skipped for expired requests
+    // (line 194), so this is the only in-memory gate preventing a stale agent
+    // from flipping an already-success/failed job to expired. The fenced DB write
+    // below is a second layer, but an explicit 409 here avoids unnecessary DB
+    // round-trips and is self-documenting.
+    if (isTerminal(currentStatus)) {
+      logWarn("job.status.expired_on_terminal", { requestId, jobId, agentId: agent.id, currentStatus });
+      return NextResponse.json({ error: `Job is already terminal (${currentStatus}); expiry not allowed`, code: "JOB_ALREADY_TERMINAL", status: currentStatus }, { status: 409 });
+    }
     const expiryError = currentStatus === "printing"
       ? "JOB_EXPIRED_DURING_PRINT: physical output is unknown"
       : currentStatus === "claimed" && Boolean(job.deliveredAt || job.ackedAt)
@@ -207,7 +217,9 @@ export async function PATCH(req: Request) {
       .set({
         status: "expired",
         error: expiryError,
-        updatedAt: new Date(),
+        // Use DB-native now() to match the sweeper's clock (updated_at < now() - interval).
+        // JS new Date() is the app-server clock and can drift from the DB host.
+        updatedAt: sql`now()`,
         deliveredAt: sql`CASE WHEN ${printJobs.status} IN ('claimed', 'printing') THEN COALESCE(${printJobs.deliveredAt}, now()) ELSE ${printJobs.deliveredAt} END`,
       })
       .where(and(
@@ -239,7 +251,7 @@ export async function PATCH(req: Request) {
         ackedAt: null,
         claimedAt: null,
         error: `Agent returned job before execution (${reason})`,
-        updatedAt: new Date(),
+        updatedAt: sql`now()`,
         deliveryAttempts: sql`GREATEST(${printJobs.deliveryAttempts} - 1, 0)`,
         retries: sql`${printJobs.retries} + 1`,
       })
@@ -272,7 +284,11 @@ export async function PATCH(req: Request) {
       .set({
         status: "success",
         error: postExpiryError,
-        updatedAt: new Date(),
+        // Invalidate the claim token on terminal success: completed jobs must
+        // not retain a live token that could confuse future status checks.
+        claimToken: sql`NULL`,
+        // DB-native now() to stay on the same clock as the sweeper.
+        updatedAt: sql`now()`,
         deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
       })
       .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
@@ -298,7 +314,11 @@ export async function PATCH(req: Request) {
     .set({
       status: requestedStatus,
       error: nextError,
-      updatedAt: new Date(),
+      // Invalidate the claim token when the job reaches a terminal state
+      // (success, failed). A completed job must never retain a live token.
+      ...(isTerminal(requestedStatus) ? { claimToken: sql`NULL` } : {}),
+      // DB-native now() to match the sweeper's clock (updated_at < now() - interval).
+      updatedAt: sql`now()`,
       deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
     })
     .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
