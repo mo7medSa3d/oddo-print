@@ -342,7 +342,7 @@ export function ErrorState({
   return (
     <div
       role="alert"
-      className={`flex items-start gap-3.5 rounded-xl border border-bad-edge bg-bad-bg px-5 py-4 text-sm ${className}`}
+      className={`flex flex-col items-start gap-3.5 rounded-xl border border-bad-edge bg-bad-bg px-5 py-4 text-sm sm:flex-row sm:items-start ${className}`}
     >
       <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-bad" aria-hidden />
       <div className="min-w-0 flex-1">
