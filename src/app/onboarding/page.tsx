@@ -23,21 +23,25 @@ export default function Onboarding() {
   const [plansError, setPlansError] = useState("");
   const router = useRouter();
 
+  const fetchPlans = useCallback(async (): Promise<Plan[]> => {
+    const response = await fetch("/api/billing/plans", {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(typeof data.error === "string" ? data.error : "Unable to load available plans.");
+    }
+    return Array.isArray(data.plans) ? data.plans : [];
+  }, []);
+
   const loadPlans = useCallback(async () => {
     setPlansLoading(true);
     setPlansError("");
     try {
-      const response = await fetch("/api/billing/plans", {
-        credentials: "include",
-        cache: "no-store",
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(typeof data.error === "string" ? data.error : "Unable to load available plans.");
-      }
-      const nextPlans = Array.isArray(data.plans) ? data.plans : [];
+      const nextPlans = await fetchPlans();
       setPlans(nextPlans);
-      setPlanId((current) => current && nextPlans.some((plan: Plan) => plan.id === current) ? current : nextPlans[0]?.id ?? "");
+      setPlanId((current) => current && nextPlans.some((plan) => plan.id === current) ? current : nextPlans[0]?.id ?? "");
     } catch (error) {
       setPlans([]);
       setPlanId("");
@@ -45,11 +49,29 @@ export default function Onboarding() {
     } finally {
       setPlansLoading(false);
     }
-  }, []);
+  }, [fetchPlans]);
 
   useEffect(() => {
-    void loadPlans();
-  }, [loadPlans]);
+    let cancelled = false;
+    void fetchPlans()
+      .then((nextPlans) => {
+        if (cancelled) return;
+        setPlans(nextPlans);
+        setPlanId((current) => current && nextPlans.some((plan) => plan.id === current) ? current : nextPlans[0]?.id ?? "");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setPlans([]);
+        setPlanId("");
+        setPlansError(error instanceof Error ? error.message : "Unable to load available plans.");
+      })
+      .finally(() => {
+        if (!cancelled) setPlansLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchPlans]);
 
   async function submit(trial: boolean) {
     setErr("");
