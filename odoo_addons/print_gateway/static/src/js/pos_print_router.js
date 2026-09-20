@@ -5,6 +5,7 @@ import { PosStore } from "@point_of_sale/app/services/pos_store";
 import { renderToElement } from "@web/core/utils/render";
 import { htmlToCanvas } from "@point_of_sale/app/services/render_service";
 import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt";
+import { RetryPrintPopup } from "@point_of_sale/app/components/popups/retry_print_popup/retry_print_popup";
 
 function canvasToJpeg(canvas) {
     const ctx = canvas.getContext("2d");
@@ -126,7 +127,11 @@ patch(PosStore.prototype, {
                 );
             }
 
-            if (!printBillActionTriggered) {
+            // Count only accepted/known print outcomes. A definite Gateway
+            // rejection or an ambiguous physical outcome must not be recorded
+            // as a completed POS print.
+            const recordPrintAttempt = !["failed", "unknown", "partial"].includes(result?.status);
+            if (!printBillActionTriggered && recordPrintAttempt) {
                 const count = currentOrder.nb_print ? currentOrder.nb_print + 1 : 1;
                 try {
                     await this.data.silentCall("pos.order", "write", [[orderId], { nb_print: count }]);
@@ -175,6 +180,75 @@ patch(PosStore.prototype, {
         return receiptsData;
     },
 
+    async printChanges(order, orderChange, reprint = false, printers = this.unwatched.printers) {
+        let isPrinted = false;
+        const unsuccessfulPrints = [];
+        const retryPrinters = new Set();
+
+        // Odoo 19 core retries every { successful: false } result. A Gateway
+        // "unknown"/"partial" outcome has crossed the physical boundary and
+        // therefore must never enter that retry path: the ticket may already
+        // exist on paper.
+        for (const printer of printers) {
+            for (const change of orderChange) {
+                const { orderData, changes } = this.generateOrderChange(
+                    order,
+                    change,
+                    printer.config.product_categories_ids,
+                    reprint
+                );
+                const receiptsData = await this.generateReceiptsDataToPrint(
+                    orderData,
+                    changes,
+                    change
+                );
+                for (const data of receiptsData) {
+                    const result = await this.printOrderChanges(data, printer);
+
+                    if (result?.gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial") {
+                        this.notification.add(
+                            result.message?.body ||
+                                "Kitchen print outcome is unknown. Verify the printer before any manual reprint.",
+                            { type: "warning", sticky: true }
+                        );
+                        continue;
+                    }
+
+                    if (result.successful) {
+                        isPrinted = true;
+                    } else {
+                        retryPrinters.add(printer);
+                        unsuccessfulPrints.push(
+                            printer.config.name + ": " +
+                            (result.message?.body || "Kitchen print failed.")
+                        );
+                    }
+
+                    if (result.successful && result.warningCode) {
+                        this.displayPrinterWarning(result, printer.config.name);
+                    }
+                }
+            }
+        }
+
+        if (!reprint && isPrinted && orderChange.length) {
+            order.uiState.lastPrints.push(orderChange[0]);
+        }
+
+        if (unsuccessfulPrints.length) {
+            const failedReceipts = unsuccessfulPrints.join("\n");
+            this.dialog.add(RetryPrintPopup, {
+                message: failedReceipts,
+                canRetry: true,
+                retry: () => {
+                    this.printChanges(order, orderChange, reprint, retryPrinters);
+                },
+            });
+        }
+
+        return isPrinted;
+    },
+
     async printOrderChanges(data, printer) {
         const orderId = data?.orderData?.__gateway_order_id;
         const sessionId = data?.orderData?.__gateway_session_id;
@@ -207,9 +281,24 @@ patch(PosStore.prototype, {
                 { printer_id: printer.config.id, image, reprint, operation_id: operationId },
                 true
             );
+            const status = result?.status;
+            if (["unknown", "partial"].includes(status)) {
+                return {
+                    successful: false,
+                    gatewayOutcome: status,
+                    warningCode: undefined,
+                    message: {
+                        title: "Print Gateway",
+                        body: status === "unknown"
+                            ? "Kitchen print outcome is unknown. The ticket may already have printed; automatic retry is disabled."
+                            : "Kitchen print has an ambiguous/partial outcome. Automatic retry is disabled.",
+                    },
+                };
+            }
             return {
-                successful: ["queued", "submitted", "claimed", "printing", "success"].includes(result?.status),
+                successful: ["queued", "submitted", "claimed", "printing", "success"].includes(status),
                 warningCode: undefined,
+                gatewayOutcome: status,
             };
         } catch (error) {
             this.notification.add(error?.message || "Kitchen / Preparation printing failed.", { type: "danger" });

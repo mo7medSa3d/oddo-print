@@ -22,6 +22,7 @@ env:
   TRUST_PROXY_SECRET: ci-only-proxy-secret-012345678901234567890123456789
   ODOO_DATABASE_NAME: app_db
   GATEWAY_DOMAIN: print.example.com
+  APP_BASE_URL: https://print.example.com
 
 jobs:
   docker-build-runtime:
