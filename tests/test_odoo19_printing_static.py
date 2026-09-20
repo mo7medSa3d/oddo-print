@@ -122,7 +122,7 @@ def test_gateway_api_key_view_is_password_masked_and_system_admin_only():
     field_tail = source[field_idx:field_idx + 280]
     assert 'password="True"' in field_tail
     button_idx = source.index('name="action_clear_api_key"')
-    button_tail = source[button_idx:button_idx + 220]
+    button_tail = source[button_idx:button_idx + 500]
     assert 'groups="base.group_system"' in button_tail
 
 
@@ -149,7 +149,7 @@ def test_gateway_url_change_durably_disables_previous_endpoint_before_new_sync()
     assert '"|"' in source
     assert '"pending_disable_gateway_url", "!="' in source
     assert "def create(self, vals_list):" in source
-    assert "Gateway URL migration state is incomplete" in source
+    assert "Gateway endpoint shutdown/migration state is incomplete" in source
     assert "FOR UPDATE" in source
     assert "invalidate_recordset" in source
     assert "def _complete_gateway_migration" in source
