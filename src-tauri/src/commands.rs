@@ -289,7 +289,14 @@ pub struct GatewayResponse {
 }
 
 fn method_from_str(value: &str) -> Result<reqwest::Method, String> {
-    value.parse::<reqwest::Method>().map_err(|_| "unsupported HTTP method".into())
+    let method = value
+        .trim()
+        .parse::<reqwest::Method>()
+        .map_err(|_| "unsupported HTTP method".to_string())?;
+    match method {
+        reqwest::Method::GET | reqwest::Method::POST | reqwest::Method::PATCH => Ok(method),
+        _ => Err("HTTP method is not permitted by the desktop Gateway boundary".into()),
+    }
 }
 
 /// Read a Gateway response incrementally. Buffering the complete body before
@@ -346,16 +353,28 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
 
     // The renderer cannot supply its own Authorization header. Manager bearer
     // credentials are held only in Rust process memory for the packaged app.
-    if args.headers.keys().any(|name| {
-        name.eq_ignore_ascii_case("authorization")
+    let mut header_budget = 0usize;
+    for (name, value) in &args.headers {
+        if name.eq_ignore_ascii_case("authorization")
             || name.eq_ignore_ascii_case("cookie")
             || name.eq_ignore_ascii_case("host")
+            || name.eq_ignore_ascii_case("content-length")
+            || name.eq_ignore_ascii_case("transfer-encoding")
+            || name.eq_ignore_ascii_case("connection")
+            || name.eq_ignore_ascii_case("upgrade")
             || name.eq_ignore_ascii_case("x-forwarded-for")
             || name.eq_ignore_ascii_case("x-forwarded-host")
             || name.eq_ignore_ascii_case("x-forwarded-proto")
             || name.eq_ignore_ascii_case("x-real-ip")
-    }) {
-        return Err("restricted authentication/proxy headers are managed by the desktop authentication boundary".into());
+        {
+            return Err("restricted authentication/proxy/transport headers are managed by the desktop boundary".into());
+        }
+        header_budget = header_budget
+            .saturating_add(name.len())
+            .saturating_add(value.len());
+        if header_budget > 64 * 1024 {
+            return Err("Gateway request headers exceed the 64 KiB limit".into());
+        }
     }
     let manager_token = if is_public_gateway_path(path) {
         None
