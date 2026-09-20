@@ -10,6 +10,7 @@ import {
 } from "./helpers/pg";
 import { createManagerSession } from "../src/lib/manager-auth";
 import { POST as discoveryReportPOST } from "../src/app/api/agent/discovery/route";
+import { POST as discoveryCancelPOST } from "../src/app/api/agents/[id]/discovery/[discoveryId]/cancel/route";
 import { POST as verifyPOST } from "../src/app/api/agents/[id]/discovered-printers/[deviceId]/verify/route";
 import { POST as provisionPOST } from "../src/app/api/agents/[id]/discovered-printers/[deviceId]/provision/route";
 
@@ -175,6 +176,39 @@ suite("discovery trust and approval flow", () => {
     expect(printers.rows).toEqual([]);
     const device = await pool().query(`SELECT candidate_status FROM discovered_devices WHERE id = 'device-lpr-1'`);
     expect(device.rows[0].candidate_status).not.toBe("provisioned");
+  });
+
+  it("linearizes discovery report versus manager cancellation", async () => {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const discoveryId = await createDiscoverySession(`disc-cancel-race-${Date.now()}-${attempt}`);
+      const manager = await createManagerSession(f.tenantId);
+      const deviceId = `device-cancel-race-${attempt}`;
+
+      const reportPromise = agentRequest(discoveryId, [{
+        id: deviceId, source: ["ipp"], protocol: "ipp", ipAddress: "192.168.10.90", port: 631,
+        uri: "ipp://192.168.10.90/ipp/print", deviceName: "Race Printer",
+      }]);
+      const cancelPromise = discoveryCancelPOST(
+        await managerRequest(manager.token, `/api/agents/${f.agentId}/discovery/${discoveryId}/cancel`),
+        { params: Promise.resolve({ id: f.agentId, discoveryId }) } as any,
+      );
+      const [report, cancel] = await Promise.all([reportPromise, cancelPromise]);
+
+      expect([[report.status, cancel.status], [cancel.status, report.status]]).toContainEqual([report.status, cancel.status]);
+      const session = await pool().query(`SELECT status FROM discovery_sessions WHERE id = $1`, [discoveryId]);
+      const devices = await pool().query(`SELECT count(*)::int AS count FROM discovered_devices WHERE discovery_id = $1`, [discoveryId]);
+
+      if (report.status === 200) {
+        expect(cancel.status).toBe(409);
+        expect(session.rows[0].status).toBe("completed");
+        expect(devices.rows[0].count).toBe(1);
+      } else {
+        expect(report.status).toBe(409);
+        expect(cancel.status).toBe(200);
+        expect(session.rows[0].status).toBe("cancelled");
+        expect(devices.rows[0].count).toBe(0);
+      }
+    }
   });
 
   it("serializes concurrent provisioning so one candidate cannot create two printers", async () => {
