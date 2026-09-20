@@ -419,7 +419,6 @@ export async function getDashboardJobs(options?: {
       status: printJobs.status,
       error: printJobs.error,
       requestedBy: printJobs.requestedBy,
-      idempotencyKey: printJobs.idempotencyKey,
       retries: printJobs.retries,
       deliveryAttempts: printJobs.deliveryAttempts,
       claimedAt: printJobs.claimedAt,
