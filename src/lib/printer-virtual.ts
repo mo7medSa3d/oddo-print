@@ -181,7 +181,7 @@ export function isVirtualPrinterRecord(printer: PrinterLike | null | undefined):
   const type = lower(printer.printerType);
   const connection = lower(printer.connectionType);
   const protocol = lower(printer.protocol);
-  if (type === "virtual" || connection === "virtual" || protocol === "virtual") return true;
+  if (type === "virtual" || type === "redirected" || connection === "virtual" || protocol === "virtual") return true;
 
   const caps = capabilitiesRecord(printer.capabilities);
   if (caps) {
