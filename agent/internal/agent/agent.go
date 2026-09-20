@@ -397,11 +397,6 @@ func (a *Agent) Discover() printer.DiscoveryResult {
 		}
 	}
 	log.Printf("Discovery completed: %d printers found", len(result.Printers))
-	if observedCapabilityStateChanged {
-		if err := a.persistDesiredState(); err != nil {
-			log.Printf("WARNING: failed to persist observed printer capabilities: %v", err)
-		}
-	}
 	return result
 }
 
