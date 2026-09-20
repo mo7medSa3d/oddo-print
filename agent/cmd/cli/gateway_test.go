@@ -24,7 +24,7 @@ func TestAllowedGatewayConsolePath(t *testing.T) {
 		{"create printer", "/api/printers", "POST", true},
 		{"test connection", "/api/printers/p1/test-connection", "POST", true},
 		{"test print", "/api/printers/p1/test-print", "POST", true},
-		{"patch printer", "/api/printers/p1", "PATCH", true},
+		{"patch printer is manager-only", "/api/printers/p1", "PATCH", false},
 		{"delete printer", "/api/printers/p1", "DELETE", false},
 		{"branch endpoint", "/api/branches", "GET", false},
 		{"external url", "https://example.com/api/printers", "GET", false},
@@ -58,4 +58,19 @@ func readGatewaySourceForTest(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func TestValidateManualPrinterTransport(t *testing.T) {
+	if err := validateManualPrinterTransport("usb", "", ""); err == nil {
+		t.Fatal("direct USB must require an explicit Windows device path")
+	}
+	if err := validateManualPrinterTransport("usb", `\\?\usb#vid_03f0&pid_0c17#SN123`, ""); err != nil {
+		t.Fatalf("valid direct USB device path rejected: %v", err)
+	}
+	if err := validateManualPrinterTransport("usb", "", "Receipt Printer"); err != nil {
+		t.Fatalf("USB spooler-backed printer should accept spooler name: %v", err)
+	}
+	if err := validateManualPrinterTransport("spooler", "", "Receipt Printer"); err != nil {
+		t.Fatalf("spooler printer should accept spooler name: %v", err)
+	}
 }
