@@ -32,8 +32,8 @@ describe("desktop manager authentication contract", () => {
   it("uses the paired Agent identity for packaged-console jobs instead of requiring Manager login", () => {
     const source = read("src/desktop/lib/ipc.ts");
     expect(source).toContain('invoke<string>("gateway_agent_request"');
-    expect(source).toContain('"/api/jobs"');
-    expect(source).toContain("const endpoint = `/api/jobs?${params.toString()}`;");
+    expect(source).toContain("/api/jobs?");
+    expect(source).toContain("const endpoint = `/api/jobs?\${params.toString()}`;");
     expect(source).toContain('gatewayConsoleRequest(base, endpoint, "GET", headers)');
     expect(source).not.toContain('gatewayRequest(base, "/api/jobs"');
   });
