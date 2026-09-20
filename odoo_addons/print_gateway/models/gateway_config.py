@@ -570,6 +570,7 @@ class PrintGatewayConfig(models.Model):
         before_revision = {record.id: int(record.enabled_sync_revision or 0) for record in self}
         pre_sync_credentials = {}
         key_removal_shutdowns = {}
+        key_removal_unconfirmed = {}
         if "gateway_api_key" in vals and not vals["gateway_api_key"]:
             for record in self:
                 if not record.gateway_api_key:
@@ -586,7 +587,10 @@ class PrintGatewayConfig(models.Model):
                 if remote_may_still_be_enabled and record.last_test_status == "revoked":
                     # The old credential is already known to be unusable. It
                     # cannot safely be used to mutate the Gateway, so removing
-                    # it must not create an endless retry fence.
+                    # it must not create an endless retry fence. Keep the
+                    # activation revision unacknowledged so the UI reports
+                    # that the remote state still needs a valid credential.
+                    key_removal_unconfirmed[record.id] = True
                     continue
                 try:
                     credentials = (
@@ -678,6 +682,10 @@ class PrintGatewayConfig(models.Model):
                             "pending_disable_revision": -1,
                             "last_gateway_migration_sync_error": False,
                         })
+                        if key_removed and key_removal_unconfirmed.get(record.id):
+                            technical_values["last_enabled_sync_error"] = _(
+                                "The previous Gateway API key was already revoked, so Odoo could not confirm the remote Gateway was disabled. Add a new key and test the connection to finish synchronization."
+                            )
                     record.sudo().write(technical_values)
                 elif "gateway_api_key" in vals:
                     record.sudo().write({"last_enabled_sync_error": False})
