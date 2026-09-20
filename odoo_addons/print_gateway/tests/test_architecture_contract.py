@@ -208,7 +208,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("gatewayOutcome === \"unknown\"", source)
         self.assertIn("gatewayOutcome === \"partial\"", source)
         self.assertIn('gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial"', source)
-        ambiguous_idx = source.indexOf('gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial"')
+        ambiguous_idx = source.index('gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial"')
         ambiguous_block = source[ambiguous_idx:source.indexOf('if (result.successful)', ambiguous_idx)]
         self.assertIn("continue;", ambiguous_block)
         self.assertNotIn("retryPrinters.add(printer)", ambiguous_block)
