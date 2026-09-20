@@ -71,6 +71,8 @@ export type CreatePrintJobOptions = {
   expiresAt?: Date;
   rateLimitKeyId?: string | null;
   requestId?: string | null;
+  /** Generate a serialized operator reprint key for this original job inside the enqueue transaction. */
+  reprintOfJobId?: string | null;
 };
 
 export type CreatePrintJobResult = {
@@ -89,7 +91,7 @@ function normalizeRequestedBy(value: string): string {
 
 async function insertQueuedJobAtomically({
   jobId, printerId, agentId, tenantId, validatedPayload, expiresAt, requestedBy,
-  idempotencyKey, destination, documentType, rateLimitKeyId, requestId,
+  idempotencyKey, destination, documentType, rateLimitKeyId, requestId, reprintOfJobId,
 }: {
   jobId: string;
   printerId: string;
@@ -103,6 +105,7 @@ async function insertQueuedJobAtomically({
   documentType?: string | null;
   rateLimitKeyId?: string | null;
   requestId?: string | null;
+  reprintOfJobId?: string | null;
 }): Promise<{ jobId: string; status: string; agentId: string; printerId: string; isReused: boolean }> {
   if (!tenantId || tenantId.length > 128) throw new PrintJobInputError("tenantId is invalid", "INVALID_TENANT", 400);
 
@@ -111,13 +114,31 @@ async function insertQueuedJobAtomically({
     // max_concurrent_jobs cannot be exceeded by racing requests.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${tenantId}`}))`);
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:agent:${agentId}`}))`);
-    if (idempotencyKey) {
-      const lockKey = `print_jobs:idempotency:${tenantId}:${idempotencyKey}`;
+
+    // Reprint keys are allocated only after the tenant enqueue lock is held.
+    // Computing COUNT(*) outside this transaction allowed two concurrent
+    // operator reprints to observe different counts and create two distinct
+    // idempotency keys for the same original job. The tenant lock serializes
+    // all enqueue operations, so the sequence is deterministic here.
+    let effectiveIdempotencyKey = idempotencyKey ?? null;
+    if (reprintOfJobId) {
+      const countResult = await tx.execute(sql`
+        SELECT COUNT(*)::int AS count
+        FROM print_jobs
+        WHERE tenant_id = ${tenantId}
+          AND idempotency_key LIKE ${`gw-reprint:${reprintOfJobId}:%`}
+      `);
+      const count = Number((countResult.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
+      effectiveIdempotencyKey = `gw-reprint:${reprintOfJobId}:${count + 1}`;
+    }
+
+    if (effectiveIdempotencyKey) {
+      const lockKey = `print_jobs:idempotency:${tenantId}:${effectiveIdempotencyKey}`;
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
     }
 
-    if (idempotencyKey) {
-      const existing = await tx.execute(sql`SELECT id, printer_id, destination, document_type, payload, agent_id, status FROM print_jobs WHERE tenant_id = ${tenantId} AND idempotency_key = ${idempotencyKey} LIMIT 1 FOR UPDATE`);
+    if (effectiveIdempotencyKey) {
+      const existing = await tx.execute(sql`SELECT id, printer_id, destination, document_type, payload, agent_id, status FROM print_jobs WHERE tenant_id = ${tenantId} AND idempotency_key = ${effectiveIdempotencyKey} LIMIT 1 FOR UPDATE`);
       if (existing.rows.length > 0) {
         const row = existing.rows[0] as {
           id: string;
@@ -190,7 +211,7 @@ async function insertQueuedJobAtomically({
       payload: validatedPayload,
       requestedBy,
       requestId: requestId ?? null,
-      idempotencyKey: idempotencyKey ?? null,
+      idempotencyKey: effectiveIdempotencyKey,
       expiresAt,
     });
 
@@ -254,6 +275,7 @@ export async function createPrintJobForPrinter(
     documentType: options.documentType ?? null,
     rateLimitKeyId: options.rateLimitKeyId ?? null,
     requestId: options.requestId ?? null,
+    reprintOfJobId: options.reprintOfJobId ?? null,
     tenantId: options.tenantId,
   });
   logInfo("print.trace.gateway_enqueue", {
