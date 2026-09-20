@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use std::io::Read;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -248,6 +248,13 @@ fn background_process_record_path() -> Result<PathBuf, String> {
 fn read_background_record() -> Option<BackgroundProcessRecord> {
     let path = background_process_record_path().ok()?;
     let raw = std::fs::read_to_string(path).ok()?;
+    // Older releases stored only the PID. Upgrade that record in memory by
+    // reading the current process identity now; the later ownership check
+    // still requires the executable path to match the bundled agent.
+    if let Ok(pid) = raw.trim().parse::<u32>() {
+        let (image, creation_time) = process_identity(pid).ok()?;
+        return Some(BackgroundProcessRecord { pid, creation_time, image });
+    }
     let mut pid = None;
     let mut creation_time = None;
     let mut image = None;
@@ -487,21 +494,6 @@ fn write_background_pid(pid: u32) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(windows)]
-fn taskkill_pid(pid: u32, force: bool) -> Result<std::process::Output, String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let pid_arg = pid.to_string();
-    let taskkill = system32_exe("taskkill.exe")?;
-    let mut cmd = Command::new(taskkill);
-    if force {
-        cmd.args(["/PID", &pid_arg, "/T", "/F"]);
-    } else {
-        cmd.args(["/PID", &pid_arg, "/T"]);
-    }
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    run_bounded_command(cmd, std::time::Duration::from_secs(30), 32 * 1024, 32 * 1024)
-}
 
 /// Spawn a background agent and record ownership metadata for it. If the
 /// PID cannot be persisted the child is terminated and reaped BEFORE the
