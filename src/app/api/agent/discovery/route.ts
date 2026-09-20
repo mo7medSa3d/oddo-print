@@ -57,20 +57,6 @@ export async function POST(req: Request) {
   if (!discoveryId) return NextResponse.json({ error: "discoveryId required" }, { status: 400 });
   if (devices.length > MAX_DISCOVERY_DEVICES) return NextResponse.json({ error: `Too many devices in one discovery report; maximum is ${MAX_DISCOVERY_DEVICES}` }, { status: 413 });
 
-  const session = await db.query.discoverySessions.findFirst({ where: and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId)) });
-  if (!session) return NextResponse.json({ error: "Discovery not found" }, { status: 404 });
-  if (session.agentId !== agent.id) return NextResponse.json({ error: "Forbidden: discovery belongs to another agent" }, { status: 403 });
-  if (session.status !== "running") return NextResponse.json({ error: `Discovery already ${session.status}` }, { status: 409 });
-
-  const parsedDevices = [] as Array<ReturnType<typeof deviceSchema.parse>>;
-  for (const raw of devices) {
-    const parsed = deviceSchema.safeParse(raw);
-    if (!parsed.success) return NextResponse.json({ error: `Invalid device: ${parsed.error.issues[0]?.message}` }, { status: 400 });
-    const ip = parsed.data.ipAddress;
-    if (ip && !isPrivateNetworkAddress(ip)) return NextResponse.json({ error: `Device IP must be private or link-local, got ${ip}` }, { status: 400 });
-    parsedDevices.push(parsed.data);
-  }
-
   // Discovery is observation, not authorization. Approval is handled by the
   // manager endpoint before a discovered device can become a runtime printer.
   // Keep the report bounded and batch writes so one authenticated Agent cannot
@@ -98,14 +84,36 @@ export async function POST(req: Request) {
     rawMetadata: d.rawMetadata ?? null,
     tenantId: agent.tenantId,
   }));
-  for (let i = 0; i < rows.length; i += DISCOVERY_INSERT_BATCH) {
-    await db.insert(discoveredDevices).values(rows.slice(i, i + DISCOVERY_INSERT_BATCH)).onConflictDoNothing();
-  }
+  const result = await db.transaction(async (tx) => {
+    // Serialize reporting against manager cancellation on the discovery session row.
+    // Once this lock is held, the running-state check and all device/status writes
+    // form one lifecycle decision: either the report lands before cancellation,
+    // or cancellation wins and no late device report is accepted.
+    const lockedSession = await tx.execute(sql\`
+      SELECT id, status
+      FROM discovery_sessions
+      WHERE id = ${discoveryId}
+        AND agent_id = ${agent.id}
+        AND tenant_id = ${agent.tenantId}
+      FOR UPDATE
+    \`);
+    const currentSession = lockedSession.rows[0] as { id?: string; status?: string } | undefined;
+    if (!currentSession?.id) return { kind: "not_found" as const };
+    if (currentSession.status !== "running") return { kind: "not_running" as const, status: currentSession.status ?? "unknown" };
 
-  if (status && ["completed", "partial", "failed", "cancelled"].includes(status)) {
-    await db.update(discoverySessions)
-      .set({ status, completedAt: new Date(), updatedAt: new Date(), stats: { candidates: parsedDevices.length } })
-      .where(and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId)));
-  }
+    for (let i = 0; i < rows.length; i += DISCOVERY_INSERT_BATCH) {
+      await tx.insert(discoveredDevices).values(rows.slice(i, i + DISCOVERY_INSERT_BATCH)).onConflictDoNothing();
+    }
+
+    if (status && ["completed", "partial", "failed", "cancelled"].includes(status)) {
+      await tx.update(discoverySessions)
+        .set({ status, completedAt: new Date(), updatedAt: new Date(), stats: { candidates: parsedDevices.length } })
+        .where(and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId)));
+    }
+    return { kind: "ok" as const };
+  });
+
+  if (result.kind === "not_found") return NextResponse.json({ error: "Discovery not found" }, { status: 404 });
+  if (result.kind === "not_running") return NextResponse.json({ error: `Discovery already ${result.status}` }, { status: 409 });
   return NextResponse.json({ ok: true, inserted: parsedDevices.length, verification: "candidate-only" });
 }
