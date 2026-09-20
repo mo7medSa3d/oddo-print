@@ -113,7 +113,10 @@ export async function seedFixture(opts?: { printerCapabilities?: unknown }): Pro
       if (schema) await client.query(`SET search_path TO ${quoteIdent(schema)}, public`);
       await client.query("BEGIN");
       const tenantId = `tenant_${suffix}`;
-      await client.query(`INSERT INTO tenants (id, name) VALUES ($1, $2)`, [tenantId, `Tenant ${suffix}`]);
+      await client.query(
+        `INSERT INTO tenants (id, name, odoo_enabled) VALUES ($1, $2, true)`,
+        [tenantId, `Tenant ${suffix}`],
+      );
       // Entitlement enforcement is fail-closed: every print-job admission
       // requires an eligible subscription with canonical limits. Fixtures
       // carry an active unlimited plan so job/print tests exercise delivery,
