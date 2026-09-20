@@ -6,7 +6,7 @@ import { requireManagerPermission } from "../../../../lib/authorization";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { canTransitionLifecycle } from "../../../../lib/lifecycle";
-import { PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, assertPrinterMetadataLimits, validateConnectionConfig } from "../../../../lib/printer-model";
+import { PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, assertPrinterMetadataLimits, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { writeAuditEvent } from "../../../../lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -49,11 +49,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await validateConsoleAuth(req);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (auth.kind === "manager") {
-    try { requireManagerPermission(auth.claims, "printers.manage"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
-  }
+  // Printer desired-state mutation is a manager control-plane operation.
+  // Agents may observe/register their own printers, but must never mutate
+  // manager-owned configuration or lifecycle through this route.
+  if (auth.kind !== "manager") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  try { requireManagerPermission(auth.claims, "printers.manage"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
-  const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
+  const tenantId = auth.claims.tenantId;
   const { id } = await params;
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -70,9 +72,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${tenantId} || ':' || ${id}))`);
 
     const existing = await tx.query.printers.findFirst({
-      where: auth.kind === "agent"
-        ? and(eq(printers.id, id), eq(printers.tenantId, tenantId), eq(printers.agentId, auth.agent.id))
-        : and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
+      where: and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
     });
     if (!existing) return { kind: "not_found" as const };
 
@@ -87,10 +87,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (ownerLifecycle !== "active") return { kind: "conflict" as const, message: `cannot activate printer while agent is ${ownerLifecycle}` };
     }
 
-    const connectionType = parsed.data.connectionType ?? existing.connectionType;
+    let connectionType = parsed.data.connectionType ?? existing.connectionType;
+    let protocol = parsed.data.protocol ?? existing.protocol;
     const cfg = (parsed.data.config ?? existing.config ?? {}) as Record<string, unknown>;
-    if (parsed.data.connectionType !== undefined || parsed.data.config !== undefined) {
-      const err = validateConnectionConfig(connectionType, cfg);
+    if (connectionType === "usb" && typeof cfg.spooler_name === "string" && cfg.spooler_name.trim()) {
+      connectionType = "spooler";
+      protocol = "spooler";
+    }
+    if (
+      parsed.data.connectionType !== undefined ||
+      parsed.data.protocol !== undefined ||
+      parsed.data.config !== undefined
+    ) {
+      const transportProtocolError = validatePrinterTransportProtocol(connectionType, protocol);
+      if (transportProtocolError) {
+        return { kind: "invalid" as const, message: transportProtocolError };
+      }
+      const err = validateConnectionConfig(connectionType, cfg, protocol);
       if (err) return { kind: "invalid" as const, message: err };
     }
 
@@ -107,8 +120,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (parsed.data.name !== undefined) update.name = parsed.data.name;
     if (parsed.data.printerType !== undefined) update.printerType = parsed.data.printerType;
     if (parsed.data.deviceClass !== undefined) update.deviceClass = parsed.data.deviceClass;
-    if (parsed.data.connectionType !== undefined) update.connectionType = parsed.data.connectionType;
-    if (parsed.data.protocol !== undefined) update.protocol = parsed.data.protocol;
+    if (parsed.data.connectionType !== undefined || connectionType !== existing.connectionType) update.connectionType = connectionType;
+    if (parsed.data.protocol !== undefined || protocol !== existing.protocol) update.protocol = protocol;
     if (parsed.data.config !== undefined) update.config = parsed.data.config;
     if (parsed.data.lifecycle !== undefined) update.lifecycle = parsed.data.lifecycle;
 
@@ -127,8 +140,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     await writeAuditEvent({
       tenantId: tenantId,
-      actorType: auth.kind === "manager" && auth.claims.userId ? "user" : "system",
-      actorId: auth.kind === "manager" ? (auth.claims.userId ?? "legacy-manager") : auth.agent.id,
+      actorType: auth.claims.userId ? "user" : "system",
+      actorId: auth.claims.userId ?? "legacy-manager",
       action: "printer.changed",
       resourceType: "printer",
       resourceId: id,
