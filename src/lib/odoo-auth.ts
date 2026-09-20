@@ -39,7 +39,10 @@ export function isOdooKeyAllowedForDocumentType(
   return allowed.some((value) => normalizeDocumentType(value) === normalized);
 }
 
-export async function validateOdooKey(req: Request) {
+export async function validateOdooKey(
+  req: Request,
+  options: { requireIntegrationEnabled?: boolean } = {},
+) {
   // Odoo Gateway authentication is based on the Odoo installation API key.
   // The Odoo database name is not used as an authentication requirement:
   // X-Odoo-Database may be sent for informational purposes and is ignored.
@@ -61,15 +64,17 @@ export async function validateOdooKey(req: Request) {
   } catch {
     return null;
   }
-  // Odoo integration gate: the tenant may have the integration disabled via the
-  // /api/odoo/configuration toggle while still having valid, un-revoked keys.
-  // Treat a disabled integration as auth failure (null → 401) to avoid leaking
-  // whether the rejection is key-based or integration-based.
-  const tenantRow = await db.query.tenants.findFirst({
-    where: eq(tenants.id, row.tenantId),
-    columns: { odooEnabled: true },
-  });
-  if (!tenantRow?.odooEnabled) return null;
+  // Credential validity and integration activation are deliberately separate.
+  // Configuration/health must remain callable while Odoo is disabled so a
+  // valid key can re-enable the integration and a connection test can tell the
+  // user that the credential is valid without conflating it with activation.
+  if (options.requireIntegrationEnabled !== false) {
+    const tenantRow = await db.query.tenants.findFirst({
+      where: eq(tenants.id, row.tenantId),
+      columns: { odooEnabled: true },
+    });
+    if (!tenantRow?.odooEnabled) return null;
+  }
 
   return row;
 }
