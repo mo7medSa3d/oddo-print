@@ -222,7 +222,7 @@ export default function ApiKeysPage() {
               {gatewayConfig ? (
                 <StatusBadge
                   tone={gatewayConfig.enabled ? "ok" : "neutral"}
-                  label={gatewayConfig.enabled ? "Active" : "Inactive"}
+                  label={gatewayConfig.enabled ? "Enabled in Odoo" : "Disabled in Odoo"}
                 />
               ) : (
                 <StatusBadge tone="neutral" label="Checking Odoo state…" />
