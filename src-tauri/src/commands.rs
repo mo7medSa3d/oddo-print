@@ -210,6 +210,11 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
         .arg("-config")
         .arg(&config)
         .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root());
+    // The isolated HTTP-test branch requires explicit insecure-HTTP opt-in in
+    // the bundled CLI as well as at Agent runtime. Never set this for HTTPS.
+    if gateway_url.starts_with("http://") {
+        cmd.env("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1");
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
