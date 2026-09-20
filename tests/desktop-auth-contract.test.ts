@@ -25,7 +25,7 @@ describe("desktop manager authentication contract", () => {
     const commands = read("src-tauri/src/commands.rs");
     expect(commands).toContain('if scheme == "http"');
     expect(commands).toContain("This isolated test branch intentionally accepts remote HTTP");
-    expect(commands).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
+    expect(commands).toContain('cmd.env("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1")');
     expect(commands).not.toContain("Gateway URL must use HTTPS for remote Gateways");
   });
 
