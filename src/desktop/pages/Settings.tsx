@@ -246,7 +246,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
             ))}
           </ol>
           <div className="flex w-full max-w-sm flex-col gap-3">
-            <Field label="6-Digit Pairing Code" htmlFor="pair-code" className="flex-1">
+            <Field label="6-Character Pairing Code" htmlFor="pair-code" className="flex-1">
               <div className="flex items-center gap-2">
                 <Input
                   id="pair-code"
