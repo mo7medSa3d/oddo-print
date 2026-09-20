@@ -29,13 +29,12 @@ describe("desktop manager authentication contract", () => {
     expect(commands).not.toContain("Gateway URL must use HTTPS for remote Gateways");
   });
 
-
   it("uses the paired Agent identity for packaged-console jobs instead of requiring Manager login", () => {
     const source = read("src/desktop/lib/ipc.ts");
     expect(source).toContain('invoke<string>("gateway_agent_request"');
     expect(source).toContain('"/api/jobs"');
-    expect(source).toMatch(/const endpoint = `\\/api\\/jobs\\?\\$\\{params\\.toString\(\)\\}`;/);
-    expect(source).toMatch(/gatewayConsoleRequest\(base, endpoint, "GET", headers\)/);
+    expect(source).toContain("const endpoint = `/api/jobs?${params.toString()}`;");
+    expect(source).toContain('gatewayConsoleRequest(base, endpoint, "GET", headers)');
     expect(source).not.toContain('gatewayRequest(base, "/api/jobs"');
   });
 
