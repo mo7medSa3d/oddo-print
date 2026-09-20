@@ -121,7 +121,7 @@ export async function POST(req: Request) {
 
     if (status && ["completed", "partial", "failed", "cancelled"].includes(status)) {
       await tx.update(discoverySessions)
-        .set({ status, completedAt: new Date(), updatedAt: new Date(), stats: { candidates: parsedDevices.length, verified: insertedCount } })
+        .set({ status, completedAt: new Date(), updatedAt: new Date(), stats: { candidates: parsedDevices.length, inserted: insertedCount } })
         .where(and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId)));
     }
     return { kind: "ok" as const, insertedCount };
