@@ -18,7 +18,6 @@ import (
 
 const gatewayRequestMaxBody = 8 * 1024 * 1024
 
-var gatewayPrinterPathRe = regexp.MustCompile("^/api/printers(?:/[A-Za-z0-9._~-]+(?:/(?:test-connection|test-print))?)?$")
 var gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/(?:test-connection|test-print)$")
 var gatewayAgentPathRe = regexp.MustCompile("^/api/agents(?:/[A-Za-z0-9._~-]+)?$")
 
@@ -107,29 +106,32 @@ func handleGatewayRequest(args []string, configPath string) {
 		fmt.Fprintln(os.Stderr, "Gateway response exceeds 8 MiB")
 		os.Exit(1)
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		fmt.Fprintln(os.Stderr, strings.TrimSpace(string(data)))
+	// Return the real HTTP status and body for every application response.
+	// The Tauri desktop bridge uses this envelope to preserve 4xx/5xx semantics;
+	// only transport/configuration failures use a non-zero process exit.
+	response := struct {
+		Status uint16 `json:"status"`
+		Body   string `json:"body"`
+	}{
+		Status: uint16(resp.StatusCode),
+		Body:   string(data),
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "encode Gateway response failed: %v\n", err)
 		os.Exit(1)
 	}
-
-	if len(bytes.TrimSpace(data)) == 0 {
-		fmt.Fprintln(os.Stdout, "{}")
-		return
-	}
-	if !json.Valid(data) {
-		fmt.Fprintln(os.Stderr, "Gateway returned a non-JSON response")
-		os.Exit(1)
-	}
-	_, _ = os.Stdout.Write(data)
-	if data[len(data)-1] != '\n' {
-		fmt.Fprintln(os.Stdout)
-	}
+	_, _ = os.Stdout.Write(encoded)
+	fmt.Fprintln(os.Stdout)
 }
 
 func isAllowedJobsPath(path string) bool {
 	parsed, err := url.Parse(path)
 	if err != nil || parsed.Path != "/api/jobs" || parsed.RawPath != "" || parsed.Fragment != "" {
 		return false
+	}
+	if parsed.RawQuery == "" {
+		return true
 	}
 	for _, pair := range strings.Split(parsed.RawQuery, "&") {
 		if pair == "" || !strings.Contains(pair, "=") {
@@ -157,8 +159,9 @@ func isAllowedGatewayConsolePath(path, method string) bool {
 			gatewayAgentPathRe.MatchString(path)
 	case "POST":
 		return path == "/api/printers" || gatewayPrinterActionPathRe.MatchString(path)
-	case "PATCH":
-		return gatewayPrinterPathRe.MatchString(path) && path != "/api/printers"
+	// Printer desired-state mutation is manager-only at the HTTP
+	// boundary. Agent credentials may observe/register/test, but never
+	// modify manager-owned printer configuration or lifecycle.
 	default:
 		return false
 	}
