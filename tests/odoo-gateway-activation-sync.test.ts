@@ -19,6 +19,11 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(route).toContain("Conflicting Odoo gateway activation update");
     expect(route).not.toContain("tenants.lifecycle");
 
+    const auth = read("src/lib/odoo-auth.ts");
+    expect(auth).toContain("requireIntegrationEnabled?: boolean");
+    expect(auth).toContain("requireActiveTenant?: boolean");
+    expect(auth).toContain("options.requireIntegrationEnabled !== false");
+
     expect(schema).toContain('odooEnabled: boolean("odoo_enabled")');
     expect(schema).toContain('odooEnabledRevision: integer("odoo_enabled_revision")');
     expect(schema).toContain('odooEnabledUpdatedAt: timestamp("odoo_enabled_updated_at")');
