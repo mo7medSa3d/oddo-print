@@ -168,6 +168,15 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         source = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
         self.assertIn('updateData.printer_id = false', source)
 
+    def test_raw_template_values_are_protocol_sanitized(self):
+        source = (MODELS / "print_policy.py").read_text(encoding="utf-8")
+        self.assertIn("def sanitize_raw_value(value, protocol):", source)
+        self.assertIn('if protocol == "zpl":', source)
+        self.assertIn('if protocol == "tspl":', source)
+        self.assertIn('value is False or value is None', source)
+        router = (MODELS / "print_router.py").read_text(encoding="utf-8")
+        self.assertIn("policy.render_raw_template(target_record, protocol=policy.raw_protocol)", router)
+
     def test_runtime_agent_api_has_no_ai_status_emojis(self):
         source = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
         self.assertNotIn('🟢', source)
