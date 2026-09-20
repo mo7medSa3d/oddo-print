@@ -3,8 +3,10 @@
 
     const printService = read("src/lib/print-job-service.ts");
     expect(printService).toContain("print_jobs:idempotency:");
-    expect(printService).toContain("SELECT idempotency_key = ${effectiveIdempotencyKey}");
-    expect(printService).toContain("idempotency_key LIKE ${`gw-reprint:${reprintOfJobId}:%`}");
+    expect(printService).toContain("WHERE tenant_id = ${tenantId}");
+    expect(printService).toContain("idempotency_key = ${effectiveIdempotencyKey}");
+    expect(printService).toContain("status IN ('queued', 'claimed', 'printing')");
+    expect(printService).toContain("gw-reprint:${reprintOfJobId}:%");
 
     const printRoute = read("src/app/api/print/jobs/route.ts");
     expect(printRoute).not.toContain("eq(printJobs.apiKeyId, odoo.id), eq(printJobs.idempotencyKey");
