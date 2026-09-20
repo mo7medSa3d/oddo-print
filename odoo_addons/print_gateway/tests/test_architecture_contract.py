@@ -221,6 +221,11 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         )
         self.assertIn("key_removal_unconfirmed", source)
 
+    def test_gateway_config_cannot_be_deleted_while_remote_state_is_unconfirmed(self):
+        source = (MODELS / "gateway_config.py").read_text(encoding="utf-8")
+        self.assertIn("Disable Gateway printing and wait until the Gateway status is confirmed as Disabled", source)
+        self.assertIn("or record.pending_disable_gateway_url", source)
+
     def test_pos_gateway_unknown_outcome_cannot_enter_core_retry_path(self):
         source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
         self.assertIn("import { RetryPrintPopup }", source)
