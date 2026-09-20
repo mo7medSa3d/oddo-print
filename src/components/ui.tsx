@@ -124,7 +124,7 @@ export function Button({
         href={href}
         target={target}
         rel={rel}
-        className={baseClasses}
+        className={`${baseClasses} ${linkDisabled ? "pointer-events-none opacity-50" : ""}`}
         aria-disabled={linkDisabled || undefined}
         aria-busy={loading || undefined}
         tabIndex={linkDisabled ? -1 : props.tabIndex}
