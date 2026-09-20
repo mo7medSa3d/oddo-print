@@ -57,6 +57,15 @@ export async function POST(req: Request) {
   if (!discoveryId) return NextResponse.json({ error: "discoveryId required" }, { status: 400 });
   if (devices.length > MAX_DISCOVERY_DEVICES) return NextResponse.json({ error: `Too many devices in one discovery report; maximum is ${MAX_DISCOVERY_DEVICES}` }, { status: 413 });
 
+  const parsedDevices = [] as Array<ReturnType<typeof deviceSchema.parse>>;
+  for (const raw of devices) {
+    const parsed = deviceSchema.safeParse(raw);
+    if (!parsed.success) return NextResponse.json({ error: `Invalid device: ${parsed.error.issues[0]?.message}` }, { status: 400 });
+    const ip = parsed.data.ipAddress;
+    if (ip && !isPrivateNetworkAddress(ip)) return NextResponse.json({ error: `Device IP must be private or link-local, got ${ip}` }, { status: 400 });
+    parsedDevices.push(parsed.data);
+  }
+
   // Discovery is observation, not authorization. Approval is handled by the
   // manager endpoint before a discovered device can become a runtime printer.
   // Keep the report bounded and batch writes so one authenticated Agent cannot
@@ -89,14 +98,14 @@ export async function POST(req: Request) {
     // Once this lock is held, the running-state check and all device/status writes
     // form one lifecycle decision: either the report lands before cancellation,
     // or cancellation wins and no late device report is accepted.
-    const lockedSession = await tx.execute(sql\`
+    const lockedSession = await tx.execute(sql`
       SELECT id, status
       FROM discovery_sessions
       WHERE id = ${discoveryId}
         AND agent_id = ${agent.id}
         AND tenant_id = ${agent.tenantId}
       FOR UPDATE
-    \`);
+    `);
     const currentSession = lockedSession.rows[0] as { id?: string; status?: string } | undefined;
     if (!currentSession?.id) return { kind: "not_found" as const };
     if (currentSession.status !== "running") return { kind: "not_running" as const, status: currentSession.status ?? "unknown" };
