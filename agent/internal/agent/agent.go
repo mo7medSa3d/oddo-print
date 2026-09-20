@@ -1489,6 +1489,11 @@ collect:
 		}
 		result = append(result, entry)
 	}
+	if observedCapabilityStateChanged {
+		if err := a.persistDesiredState(); err != nil {
+			log.Printf("WARNING: failed to persist observed printer capabilities: %v", err)
+		}
+	}
 	return result
 }
 
