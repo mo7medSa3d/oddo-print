@@ -58,7 +58,7 @@ import {
   stopAgent as ipcStopAgent,
   normalizeGatewayUrl,
   discoverPrinters,
-  testPrinter,
+  testGatewayPrinter,
   setAutostart,
   type PrinterInfo,
 } from "./lib/ipc";
@@ -132,7 +132,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<ToastMessage>(null);
   const [confirmStop, setConfirmStop] = useState(false);
-  const [isAdmin, setIsAdmin] = useState<boolean>(true);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [adminDismissed, setAdminDismissed] = useState<boolean>(false);
   const busyRef = useRef(false);
   const setBusyBoth = useCallback((v: boolean) => {
@@ -307,15 +307,25 @@ export default function App() {
     async (id: string) => {
       try {
         setBusyBoth(true);
-        await testPrinter(id);
-        setMsg({ text: "Local test page printed from this PC (bypasses the Gateway).", type: "success" });
+        if (!gatewayUrl) {
+          throw new Error("Gateway URL is not configured.");
+        }
+        const result = await testGatewayPrinter(gatewayUrl, id);
+        const jobId = typeof result.jobId === "string" ? result.jobId : null;
+        setMsg({
+          text: jobId
+            ? "Test print queued through the Gateway. Check Print Jobs for the final result."
+            : "Test print queued through the Gateway.",
+          type: "success",
+        });
+        if (jobId) void refreshJobs();
       } catch (e) {
         setMsg({ text: friendlyPrinterError(errMsg(e)), type: "error" });
       } finally {
         setBusyBoth(false);
       }
     },
-    [setBusyBoth]
+    [gatewayUrl, refreshJobs, setBusyBoth]
   );  const handleEditSaved = useCallback(async () => {
     setEditingPrinter(null);
     await refreshPrinters();
@@ -455,16 +465,36 @@ export default function App() {
 
   useEffect(() => {
     if (!isTauri) return;
-    onTrayNavigate((anchor) => {
-      const p = anchor.replace("#", "") as Page;
-      if (PAGES.includes(p)) navigate(p);
-    });
-    onTrayRestartAgent(() => restartAgent());
+    // Both tray subscriptions resolve asynchronously: capture the unlisten
+    // functions and release them on disposal, otherwise every re-run would
+    // stack another restart/navigate handler behind the same tray event.
+    let disposed = false;
+    const unlistens: Array<() => void> = [];
+    const track = (promise: Promise<() => void>) => {
+      promise
+        .then((unlisten) => {
+          if (disposed) unlisten();
+          else unlistens.push(unlisten);
+        })
+        .catch(() => {});
+    };
+    track(
+      onTrayNavigate((anchor) => {
+        const p = anchor.replace("#", "") as Page;
+        if (PAGES.includes(p)) navigate(p);
+      }),
+    );
+    track(onTrayRestartAgent(() => restartAgent()));
+    return () => {
+      disposed = true;
+      unlistens.splice(0).forEach((unlisten) => unlisten());
+    };
   }, [navigate, restartAgent]);
 
   useEffect(() => {
     if (!isTauri) return;
     let unlisten: (() => void) | undefined;
+    let disposed = false;
     onGatewayConfigChanged((url) => {
       setSavedGatewayUrl(url);
       setGw(url);
@@ -478,11 +508,14 @@ export default function App() {
       refreshStatus();
     })
       .then((u) => {
-        unlisten = u;
+        if (disposed) u();
+        else unlisten = u;
       })
       .catch(() => {});
     return () => {
+      disposed = true;
       unlisten?.();
+      unlisten = undefined;
     };
   }, [probeGateway, refreshStatus]);
 
@@ -562,7 +595,7 @@ export default function App() {
         if (jobTab === "unassigned") {
           const dest = String(j.destination ?? "");
           const pid = jobPrinterId(j);
-          return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid && p.status === "online");
+          return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
         }
         if (jobTab === "printed") return st === "success";
         if (jobTab === "unknown") return outcome === "unknown";
@@ -592,7 +625,7 @@ export default function App() {
       unassigned: jobs.filter((j) => {
         const dest = String(j.destination ?? "");
         const pid = jobPrinterId(j);
-        return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid && p.status === "online");
+        return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
       }).length,
       printed: jobs.filter((j) => jobStatus(j) === "success").length,
       unknown: jobs.filter((j) => deriveOutcome(jobStatus(j), String(j.error ?? "")) === "unknown").length,
@@ -716,7 +749,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-app text-ink">
       <AdminPrivilegeDialog
-        open={!isAdmin && !adminDismissed}
+        open={isAdmin === false && !adminDismissed}
         onClose={() => setAdminDismissed(true)}
       />
       <Sidebar
@@ -788,7 +821,7 @@ export default function App() {
           </div>
         </header>
 
-        {!isAdmin && adminDismissed && (
+        {isAdmin === false && adminDismissed && (
           <div
             className="flex items-center justify-between gap-3 border-b border-warn-edge bg-warn-bg px-5 py-3 text-xs text-warn lg:px-8"
             role="status"
@@ -959,9 +992,8 @@ export default function App() {
               </Button>
             </div>
             <p className="text-[13px] leading-relaxed text-ink-3">
-              This prints a LOCAL test page directly from this PC - it does not exercise the
-              Gateway queue. Use &quot;Send Test Page&quot; on the Gateway console to validate the full
-              pipeline (queued, claimed by the agent, then printed).
+              This sends a test page through the Gateway queue and exercises the managed delivery path
+              (queued, claimed by this agent, then printed).
             </p>
           </div>
         )}
