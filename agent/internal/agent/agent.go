@@ -397,6 +397,11 @@ func (a *Agent) Discover() printer.DiscoveryResult {
 		}
 	}
 	log.Printf("Discovery completed: %d printers found", len(result.Printers))
+	if observedCapabilityStateChanged {
+		if err := a.persistDesiredState(); err != nil {
+			log.Printf("WARNING: failed to persist observed printer capabilities: %v", err)
+		}
+	}
 	return result
 }
 
@@ -1378,6 +1383,7 @@ collect:
 		}
 	}
 
+	observedCapabilityStateChanged := false
 	result := make([]map[string]interface{}, 0, len(ids))
 	for i, id := range ids {
 		pc := configByID[id]
@@ -1452,19 +1458,31 @@ collect:
 		}
 		// Capabilities: always report which document kinds this backend can
 		// physically print, so the gateway routing layer can reject an
-		// incompatible job (e.g. PDF to an ESC/POS byte stream) before it is
-		// ever queued. An explicitly configured supported_protocols list is
-		// left untouched.
+		// incompatible job before it is ever queued. An explicitly configured
+		// supported_protocols list is left untouched.
 		caps := make(map[string]interface{}, len(pc.Capabilities)+1)
 		for k, v := range pc.Capabilities {
 			caps[k] = v
 		}
+		facts, _ := a.deviceFacts(id)
 		if _, ok := caps["supported_protocols"]; !ok {
 			// Derive the honest protocol list from the declared transport
 			// (mirrors the canonical capability table); never invent
 			// cross-protocol compatibility.
-			facts, _ := a.deviceFacts(id)
 			caps["supported_protocols"] = printer.SupportedProtocolsForDevice(facts)
+		}
+		if facts.SupportedProtocolDeclared {
+			a.desiredStateMu.Lock()
+			if row, managed := a.desiredStates[id]; managed {
+				observed := append([]string(nil), facts.SupportedProtocol...)
+				if !row.ObservedSupportedProtocolsKnown || !reflect.DeepEqual(row.ObservedSupportedProtocols, observed) {
+					row.ObservedSupportedProtocols = observed
+					row.ObservedSupportedProtocolsKnown = true
+					a.desiredStates[id] = row
+					observedCapabilityStateChanged = true
+				}
+			}
+			a.desiredStateMu.Unlock()
 		}
 		if len(caps) > 0 {
 			entry["capabilities"] = caps
