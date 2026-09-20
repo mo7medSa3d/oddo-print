@@ -189,6 +189,32 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertNotIn('🟢', source)
         self.assertNotIn('🔴', source)
 
+    def test_runtime_discovery_is_admin_only(self):
+        source = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
+        self.assertIn("def _require_runtime_admin(self):", source)
+        self.assertIn("Runtime printer discovery is restricted to Odoo system administrators.", source)
+        self.assertGreaterEqual(source.count("self._require_runtime_admin()"), 2)
+
+    def test_gateway_reconciliation_is_not_rpc_callable(self):
+        source = (MODELS / "gateway_config.py").read_text(encoding="utf-8")
+        method_idx = source.find("def cron_sync_enabled_state(self):")
+        self.assertGreaterEqual(method_idx, 0)
+        prefix = source[max(0, method_idx - 80):method_idx]
+        self.assertIn("@api.private", prefix)
+
+    def test_pos_gateway_unknown_outcome_cannot_enter_core_retry_path(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("import { RetryPrintPopup }", source)
+        self.assertIn("gatewayOutcome === \"unknown\"", source)
+        self.assertIn("gatewayOutcome === \"partial\"", source)
+        self.assertIn("do not add this printer to retryPrinters", source)
+        self.assertIn('const recordPrintAttempt = !["failed", "unknown", "partial"].includes(result?.status);', source)
+
+    def test_report_interceptor_malformed_response_is_fail_closed(self):
+        source = (ADDON / "static/src/js/report_interceptor.js").read_text(encoding="utf-8")
+        self.assertIn('typeof res.has_binding !== "boolean"', source)
+        self.assertIn("Native PDF download cancelled.", source)
+
 
     def test_physical_pos_paths_fail_closed_when_gateway_binding_is_missing(self):
         source = (MODELS / "print_router.py").read_text(encoding="utf-8")
