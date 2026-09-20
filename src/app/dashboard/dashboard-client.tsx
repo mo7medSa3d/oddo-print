@@ -30,10 +30,12 @@ import {
   Layers,
   Clock,
   AlertTriangle,
-  Key,
   RotateCcw,
   Eye,
   Trash2,
+  Cpu,
+  Zap,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Button,
@@ -47,7 +49,6 @@ import {
   Drawer,
   Modal,
   CopyButton,
-  agentTone,
 } from "../../components/ui";
 import {
   agentLiveView,
@@ -227,7 +228,6 @@ export default function DashboardClient({
   const [pendingAgentAction, setPendingAgentAction] = useState<{ agent: Agent; next: "disabled" | "retired" } | null>(null);
   const [reprintCandidate, setReprintCandidate] = useState<Job | null>(null);
 
-  // Filter & view states
   const [printerViewMode, setPrinterViewMode] = useState<"grid" | "table">("grid");
   const [printerSearch, setPrinterSearch] = useState("");
   const [printerStatusFilter, setPrinterStatusFilter] = useState<string>("all");
@@ -236,11 +236,6 @@ export default function DashboardClient({
   const [debouncedJobSearch, setDebouncedJobSearch] = useState("");
   const [jobStatusFilter, setJobStatusFilter] = useState<string>("all");
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  // The job list is metadata-only (payload bytes can be multi-MB per job).
-  // The inspector loads the full payload lazily, per selected job, and never
-  // keeps it in the polling snapshots. Loading state is derived (no separate
-  // state variable): payload is loading while a job without an inline
-  // payload is selected and no fetch has settled yet.
   const [selectedJobPayload, setSelectedJobPayload] = useState<unknown>(undefined);
   const selectedJobPayloadLoading =
     selectedJob !== null && selectedJob.payload === undefined && selectedJobPayload === undefined;
@@ -263,11 +258,8 @@ export default function DashboardClient({
       });
     return () => {
       cancelled = true;
-      // Clear the previous job's payload when the selection changes so a
-      // stale document is never shown while the next fetch is in flight.
       setSelectedJobPayload(undefined);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedJob?.id]);
 
   const filterRef = React.useRef({ status: "all", search: "" });
@@ -307,8 +299,6 @@ export default function DashboardClient({
     };
   }, [jobStatusFilter, debouncedJobSearch]);
 
-  // Wall-clock used for heartbeat freshness (stale agents are not shown as online).
-  // Ticked every 5s so heartbeat lapses (90s stale rule) update presence immediately without page reload.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 5000);
@@ -362,11 +352,9 @@ export default function DashboardClient({
       if (error instanceof Error && error.message.includes("session has expired")) {
         router.push("/login");
       }
-      // other background polling errors ignored
     }
   }, [router]);
 
-  // Periodic background state reconciliation: 3s during active pairing, 6s otherwise when tab is visible
   useEffect(() => {
     const intervalMs = activePairing ? 3000 : 6000;
     const timer = setInterval(() => {
@@ -377,7 +365,6 @@ export default function DashboardClient({
     return () => clearInterval(timer);
   }, [activePairing, refreshData]);
 
-  // Active pairing countdown tick
   useEffect(() => {
     if (!activePairing) return;
     const interval = setInterval(() => {
@@ -390,11 +377,8 @@ export default function DashboardClient({
     return () => clearInterval(interval);
   }, [activePairing]);
 
-  // KPI calculations
   const kpis = useMemo(() => {
     const totalAgents = agents.length;
-    // A stale heartbeat is NOT an online agent: availability follows the
-    // same 90s rule the gateway itself enforces.
     const onlineAgents = agents.filter((a) => agentLiveView(a, nowMs).tone === "ok").length;
 
     const totalPrinters = printers.length;
@@ -410,16 +394,11 @@ export default function DashboardClient({
     }).length;
 
     const completedJobs = kpiJobs.filter((j) => j.status.toLowerCase() === "success").length;
-
-    // "Needs attention" = the physical outcome is UNKNOWN (paper may exist),
-    // regardless of whether the row says failed or expired.
     const attentionJobs = kpiJobs.filter(
       (j) => deriveOutcome(j.status, j.error) === "unknown"
     ).length;
-
     const failedJobs = kpiJobs.filter((j) => j.status.toLowerCase() === "failed" && deriveOutcome(j.status, j.error) === "not_printed").length;
     const expiredJobs = kpiJobs.filter((j) => j.status.toLowerCase() === "expired").length;
-
     const successRate =
       kpiJobs.length > 0 ? Math.round((completedJobs / kpiJobs.length) * 100) : null;
 
@@ -524,7 +503,6 @@ export default function DashboardClient({
     }
   };
 
-  // Filtered printers
   const filteredPrinters = useMemo(() => {
     const agentMap = new Map(agents.map((a) => [a.id, a]));
     return printers.filter((p) => {
@@ -545,7 +523,6 @@ export default function DashboardClient({
     });
   }, [printers, agents, nowMs, printerStatusFilter, printerSearch]);
 
-  // Filtered jobs (database-queried via getDashboardJobs with immediate typing refinement)
   const filteredJobs = useMemo(() => {
     if (!jobSearch.trim()) return jobs;
     const q = jobSearch.toLowerCase();
@@ -559,252 +536,208 @@ export default function DashboardClient({
     });
   }, [jobs, jobSearch]);
 
-  // Helper for printer capability chips
   const getPrinterBadges = (printer: Printer) => {
     const badges: Array<{ label: string }> = [];
     const cls = (printer.deviceClass || "").toLowerCase();
     const conn = (printer.connectionType || "").toLowerCase();
     const proto = (printer.protocol || "").toLowerCase();
 
-    if (cls === "thermal" || proto === "escpos") {
-      badges.push({ label: "ESC/POS" });
-    }
-    if (cls === "label") {
-      badges.push({ label: "ZPL / TSPL" });
-    }
-    if (conn === "spooler" || cls === "laser" || proto === "ipp") {
-      badges.push({ label: "PDF / Spooler" });
-    }
+    if (cls === "thermal" || proto === "escpos") badges.push({ label: "ESC/POS" });
+    if (cls === "label") badges.push({ label: "ZPL / TSPL" });
+    if (conn === "spooler" || cls === "laser" || proto === "ipp") badges.push({ label: "PDF / Spooler" });
     return badges;
   };
 
-  // Helper for printer connection icon
   const getConnectionIcon = (connectionType: string) => {
     const c = connectionType.toLowerCase();
-    if (c === "usb") return <span role="img" aria-label="USB Connection"><Usb className="h-4 w-4 text-ink-3" aria-hidden="true" /></span>;
-    if (c === "network" || c === "tcp")
-      return <span role="img" aria-label="Network Connection"><Wifi className="h-4 w-4 text-ink-3" aria-hidden="true" /></span>;
-    return <span role="img" aria-label="Spooler or system connection"><Layers className="h-4 w-4 text-ink-3" aria-hidden="true" /></span>;
+    if (c === "usb") return <Usb className="h-4 w-4 text-ink-3" aria-hidden="true" />;
+    if (c === "network" || c === "tcp") return <Wifi className="h-4 w-4 text-ink-3" aria-hidden="true" />;
+    return <Layers className="h-4 w-4 text-ink-3" aria-hidden="true" />;
   };
 
   return (
-    <div className="space-y-8">
-      {/* 1. KPI Summary Cards */}
-      <section aria-label="Operational Metrics" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8 space-y-6">
+      {/* Header — operational context */}
+      <header className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <h1 className="text-[24px] font-bold tracking-[-0.02em] leading-tight text-ink">Operations</h1>
+            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-edge bg-surface text-ink-2"}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${databaseError ? "bg-bad-solid" : "bg-ok-solid animate-pulse"}`} />
+              {databaseError ? "Database unavailable" : "Live"}
+            </span>
+          </div>
+          <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">
+            Runtime agents, printer fleet, and job execution — business context stays in Odoo.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => void refreshData()} icon={<RefreshCw className="h-4 w-4" />}>
+            Refresh
+          </Button>
+          <div className="hidden h-6 w-px bg-edge sm:block" />
+          <div className="hidden items-center gap-2 text-[12px] text-ink-3 sm:flex">
+            <Clock className="h-3.5 w-3.5" />
+            <span>Auto-refresh every 6s</span>
+          </div>
+        </div>
+      </header>
+
+      {/* KPI Layer — financial clarity + operational */}
+      <section aria-label="Metrics" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          title="Active Agents"
+          title="Agents"
           value={`${kpis.onlineAgents} / ${kpis.totalAgents}`}
-          subtitle={`${kpis.onlineAgents} edge agent${kpis.onlineAgents === 1 ? "" : "s"} online`}
-          icon={<Activity className="h-5 w-5 text-brand" />}
+          subtitle={`${kpis.onlineAgents} online • ${kpis.totalAgents - kpis.onlineAgents} offline`}
+          icon={<Cpu className="h-5 w-5 text-brand" />}
           tone={kpis.onlineAgents > 0 ? "ok" : "warn"}
         />
         <StatCard
-          title="Discovered Printers"
-          value={kpis.totalPrinters}
-          subtitle={`${kpis.onlinePrinters} ready for jobs`}
+          title="Printers"
+          value={`${kpis.onlinePrinters} / ${kpis.totalPrinters}`}
+          subtitle={kpis.onlinePrinters === kpis.totalPrinters ? "All ready" : `${kpis.totalPrinters - kpis.onlinePrinters} need attention`}
           icon={<PrinterIcon className="h-5 w-5 text-brand" />}
-          tone={kpis.onlinePrinters > 0 ? "ok" : "neutral"}
+          tone={kpis.onlinePrinters > 0 ? (kpis.onlinePrinters === kpis.totalPrinters ? "ok" : "warn") : "neutral"}
         />
         <StatCard
-          title="Active Jobs"
+          title="In Flight"
           value={kpis.inFlightJobs}
-          subtitle={`${kpis.inFlightJobs} queued, claimed, or printing right now`}
-          icon={<Server className="h-5 w-5 text-info" />}
+          subtitle="Queued, claimed, printing"
+          icon={<Zap className="h-5 w-5 text-info" />}
           tone="info"
         />
         <StatCard
           title="Success Rate"
           value={kpis.successRate === null ? "—" : `${kpis.successRate}%`}
           subtitle={
-            jobs.length === 0
-              ? "No jobs in the recent list yet"
+            kpiJobs.length === 0
+              ? "No jobs yet"
               : kpis.attentionJobs > 0
-                ? `${kpis.attentionJobs} with unknown outcome - verify the printer`
+                ? `${kpis.attentionJobs} unknown — verify printer`
                 : kpis.failedJobs > 0
-                  ? `${kpis.failedJobs} failed before printing`
-                  : kpis.expiredJobs > 0
-                    ? `${kpis.expiredJobs} expired unclaimed`
-                    : "All recent jobs accounted for"
+                  ? `${kpis.failedJobs} failed pre-dispatch`
+                  : "All accounted for"
           }
-          icon={<CheckCircle2 className="h-5 w-5 text-ok" />}
+          icon={<ShieldCheck className="h-5 w-5 text-ok" />}
           tone={kpis.successRate === null || kpis.attentionJobs > 0 ? (kpis.successRate === null ? "neutral" : "warn") : kpis.successRate >= 90 ? "ok" : "warn"}
         />
       </section>
 
-      {/* Global alert / message banner */}
       {message && (
         <div
           role={message.type === "ok" ? "status" : "alert"}
-          className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm shadow-xs ${
-            message.type === "ok"
-              ? "border-ok-edge bg-ok-bg text-ok"
-              : "border-bad-edge bg-bad-bg text-bad"
+          className={`flex items-start justify-between gap-3 rounded-[12px] border px-4 py-3 text-[13px] shadow-card ${
+            message.type === "ok" ? "border-ok-edge bg-ok-bg text-ok" : "border-bad-edge bg-bad-bg text-bad"
           }`}
         >
-          <div className="flex items-center gap-2">
-            {message.type === "ok" ? (
-              <Check className="h-4 w-4 shrink-0" />
-            ) : (
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-            )}
-            <span>{message.text}</span>
+          <div className="flex items-start gap-2.5">
+            {message.type === "ok" ? <Check className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
+            <span className="leading-relaxed">{message.text}</span>
           </div>
-          <button
-            onClick={() => setMessage(null)}
-            className="text-xs font-semibold underline opacity-80 hover:opacity-100"
-          >
+          <button onClick={() => setMessage(null)} className="shrink-0 text-[12px] font-semibold underline opacity-80 hover:opacity-100">
             Dismiss
           </button>
         </div>
       )}
 
-      {/* 2. Pairing Hero Card (when active code present) */}
       {activePairing && (
-        <div className="rounded-2xl border border-edge bg-surface p-6 shadow-xs">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="flex h-2 w-2 rounded-full bg-brand" aria-hidden="true" />
-                <span className="text-xs font-bold uppercase tracking-wider text-brand">
-                  Active Pairing Session
-                </span>
+        <div className="relative overflow-hidden rounded-[16px] border border-edge-accent bg-gradient-to-br from-white to-[#f8fbff] p-6 shadow-[0_4px_24px_rgba(37,99,235,0.08)]">
+          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-brand via-brand-400 to-transparent opacity-80" />
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <div className="inline-flex items-center gap-2 rounded-full bg-brand-subtle border border-edge-accent px-2.5 py-1 text-[11px] font-semibold tracking-wide text-brand">
+                <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulse" />
+                PAIRING ACTIVE
               </div>
-              <h3 className="text-lg font-bold text-ink">Ready to Pair Edge Agent</h3>
-              <p className="text-sm text-ink-3 max-w-xl">
-                Enter this 6-character code into the Windows Print Agent application or the Odoo
-                Gateway Pairing Wizard to bind your local printer queue.
+              <h3 className="mt-3 text-[18px] font-bold tracking-tight text-ink">Ready to pair edge agent</h3>
+              <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-ink-3">
+                Enter this code in the Windows Agent or Odoo pairing wizard. It expires automatically — the agent must connect before timeout.
               </p>
             </div>
-
-            <div className="flex flex-col sm:items-end gap-2">
+            <div className="flex flex-col gap-2.5 lg:items-end">
               <div className="flex items-center gap-3">
-                <div className="rounded-xl border border-edge-accent bg-surface px-5 py-3 shadow-inner">
-                  <span className="font-mono text-3xl font-extrabold tracking-[0.35em] text-brand">
+                <div className="rounded-[12px] border border-edge bg-surface px-5 py-3 shadow-inner">
+                  <span className="font-mono text-[28px] font-bold tracking-[0.32em] text-brand leading-none">
                     {activePairing.code}
                   </span>
                 </div>
-                <Button
-                  variant="primary"
-                  size="md"
-                  onClick={() => copyPairingCode(activePairing.code)}
-                  icon={copiedCode ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                >
-                  {copiedCode ? "Copied" : "Copy Code"}
+                <Button variant="primary" onClick={() => copyPairingCode(activePairing.code)} icon={copiedCode ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}>
+                  {copiedCode ? "Copied" : "Copy"}
                 </Button>
               </div>
-              <div className="flex items-center gap-1.5 text-xs text-ink-3">
+              <div className="flex items-center gap-1.5 text-[12px] text-ink-3">
                 <Clock className="h-3.5 w-3.5 text-warn" />
-                <span>
-                  Expires in <strong className="font-semibold text-ink">{countdownText}</strong>
-                </span>
+                Expires in <span className="font-semibold text-ink tabular-nums">{countdownText}</span>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* 3. Main Dashboard Workspace (Agents & Printers) */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Left column: Runtime Agents & Registration */}
-        <Card className="lg:col-span-1 flex flex-col h-full">
+      {/* Main workspace */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        {/* Agents */}
+        <Card className="lg:col-span-4 flex flex-col overflow-hidden">
           <CardHeader
             title="Runtime Agents"
-            subtitle="Edge machines hosting local print drivers"
-            icon={<Activity className="h-5 w-5 text-brand" />}
+            subtitle={`${kpis.onlineAgents} online of ${kpis.totalAgents}`}
+            icon={<Cpu className="h-4 w-4 text-brand" />}
             actions={
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void refreshData()}
-                icon={<RefreshCw className="h-3.5 w-3.5" />}
-              >
+              <Button variant="ghost" size="sm" onClick={() => void refreshData()} icon={<RefreshCw className="h-3.5 w-3.5" />}>
                 Refresh
               </Button>
             }
           />
-          <div className="flex-1 space-y-4 px-6 pb-6">
-            {/* Registration Form */}
+          <div className="flex-1 space-y-4 px-5 pb-5">
             <form
-              className="rounded-xl border border-edge bg-surface-2/50 p-3.5 space-y-2.5"
+              className="rounded-[12px] border border-edge bg-surface-2 p-3.5"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!agentName.trim()) return;
                 void handleCreateAgent(agentName.trim());
               }}
             >
-              <span className="text-xs font-semibold text-ink-2 uppercase tracking-wide">
-                Register New Agent
-              </span>
-              <div className="flex gap-2">
-                <Input
-                  value={agentName}
-                  onChange={(e) => setAgentName(e.target.value)}
-                  placeholder="e.g. Warehouse-Windows-PC"
-                  disabled={busy || databaseError !== null}
-                  required
-                  maxLength={200}
-                />
-                <Button
-                  type="submit"
-                  variant="primary"
-                  disabled={busy || !agentName.trim() || databaseError !== null}
-                  icon={<Plus className="h-4 w-4" />}
-                >
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Register new agent</div>
+              <div className="mt-2.5 flex gap-2">
+                <Input value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="e.g. Warehouse-PC-01" disabled={busy || databaseError !== null} required maxLength={200} className="h-9" />
+                <Button type="submit" variant="primary" size="sm" disabled={busy || !agentName.trim() || databaseError !== null} icon={<Plus className="h-4 w-4" />}>
                   Pair
                 </Button>
               </div>
             </form>
 
-            {/* Agent List */}
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {agents.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-edge p-6 text-center text-sm text-ink-3">
-                  No runtime agents registered yet.
+                <div className="rounded-[12px] border border-dashed border-edge p-8 text-center">
+                  <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-surface-2 text-ink-3">
+                    <Cpu className="h-5 w-5" />
+                  </div>
+                  <div className="mt-3 text-[13px] font-medium text-ink">No agents yet</div>
+                  <div className="mt-1 text-[12px] text-ink-3">Register your first edge machine to start printing.</div>
                 </div>
               ) : (
                 agents.map((agent) => {
                   const meta = agent.metadata as { hostname?: string; os?: string } | undefined;
+                  const view = agentLiveView(agent);
                   return (
-                    <div
-                      key={agent.id}
-                      className="group relative rounded-xl border border-edge bg-surface p-4 transition-all hover:border-edge-strong hover:shadow-xs"
-                    >
+                    <div key={agent.id} className="group rounded-[12px] border border-edge bg-surface p-4 transition-all hover:border-edge-strong hover:shadow-card">
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate font-semibold text-ink">{agent.name}</div>
-                          <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-3">
-                            <Mono>{agent.id}</Mono>
-                            {meta?.os && <span>· {meta.os}</span>}
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[14px] font-semibold tracking-[-0.01em] text-ink">{agent.name}</div>
+                          <div className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-3">
+                            <Mono className="truncate">{agent.id.slice(0, 12)}…</Mono>
+                            {meta?.os && <span>• {meta.os}</span>}
                           </div>
                         </div>
-                        {(() => {
-                          const view = agentLiveView(agent);
-                          return (
-                            <StatusBadge
-                              label={view.label}
-                              tone={view.tone}
-                              pulse={view.tone === "ok"}
-                            />
-                          );
-                        })()}
+                        <StatusBadge label={view.label} tone={view.tone} pulse={view.tone === "ok"} />
                       </div>
-
-                      <div className="mt-3 flex items-center justify-between border-t border-edge/60 pt-3 text-xs text-ink-3">
-                        <span>
-                          {agent.printerCount} printer{agent.printerCount === 1 ? "" : "s"}
-                        </span>
-                        <span>Seen {formatRelativeTime(agent.lastSeenAt)}</span>
+                      <div className="mt-3 flex items-center justify-between border-t border-edge-subtle pt-3 text-[11px] text-ink-3">
+                        <span className="inline-flex items-center gap-1"><PrinterIcon className="h-3 w-3" /> {agent.printerCount} printers</span>
+                        <span>{formatRelativeTime(agent.lastSeenAt)}</span>
                       </div>
-
-                      <div className="mt-3 flex items-center gap-2">
+                      <div className="mt-3 flex items-center gap-1.5">
                         {agent.lifecycle === "active" ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => setPendingAgentAction({ agent, next: "disabled" })}
-                            disabled={busy}
-                            icon={<PauseCircle className="h-3.5 w-3.5" />}
-                          >
+                          <Button size="sm" variant="secondary" onClick={() => setPendingAgentAction({ agent, next: "disabled" })} disabled={busy} icon={<PauseCircle className="h-3.5 w-3.5" />}>
                             Disable
                           </Button>
                         ) : agent.lifecycle === "disabled" ? (
@@ -812,13 +745,11 @@ export default function DashboardClient({
                             size="sm"
                             variant="secondary"
                             onClick={async () => {
-                              const result = (await runAction(() => setAgentLifecycle(agent.id, "active"))) as
-                                | { pairingCode?: string | null }
-                                | undefined;
+                              const result = (await runAction(() => setAgentLifecycle(agent.id, "active"))) as { pairingCode?: string | null } | undefined;
                               if (result?.pairingCode) {
                                 setActivePairing({ code: result.pairingCode, expiresAt: new Date(Date.now() + 1000 * 60 * 10) });
                                 setMessage({
-                                  text: `Agent ${agent.name} re-enabled. Pair it within 10 minutes using the code below - the old credentials no longer work.`,
+                                  text: `Agent ${agent.name} re-enabled. Pair it within 10 minutes using the code below.`,
                                   type: "ok",
                                 });
                               }
@@ -829,28 +760,12 @@ export default function DashboardClient({
                             Re-enable
                           </Button>
                         ) : null}
-
                         {agent.lifecycle !== "retired" && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setPendingAgentAction({ agent, next: "retired" })}
-                            disabled={busy}
-                            title="Retire keeps the agent and its print history for auditing; it can no longer receive jobs."
-                          >
+                          <Button size="sm" variant="ghost" onClick={() => setPendingAgentAction({ agent, next: "retired" })} disabled={busy}>
                             Retire
                           </Button>
                         )}
-
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-bad hover:bg-bad-bg/60 hover:text-bad"
-                          onClick={() => setAgentToDelete(agent)}
-                          disabled={busy}
-                          icon={<Trash2 className="h-3.5 w-3.5" />}
-                          title="Permanently delete agent"
-                        >
+                        <Button size="sm" variant="ghost" className="ml-auto text-bad hover:bg-bad-bg hover:text-bad" onClick={() => setAgentToDelete(agent)} disabled={busy} icon={<Trash2 className="h-3.5 w-3.5" />}>
                           Delete
                         </Button>
                       </div>
@@ -862,167 +777,82 @@ export default function DashboardClient({
           </div>
         </Card>
 
-        {/* Right column: Discovered Runtime Printers with View Toggle */}
-        <Card className="lg:col-span-2 flex flex-col h-full">
+        {/* Printers */}
+        <Card className="lg:col-span-8 flex flex-col overflow-hidden">
           <CardHeader
-            title="Discovered Runtime Printers"
-            subtitle="Hardware devices auto-detected and reported by agents"
-            icon={<PrinterIcon className="h-5 w-5 text-brand" />}
+            title="Runtime Printers"
+            subtitle={`${kpis.onlinePrinters} online • ${filteredPrinters.length} shown`}
+            icon={<PrinterIcon className="h-4 w-4 text-brand" />}
             actions={
-              <div className="flex items-center gap-2">
-                <div className="flex rounded-lg border border-edge bg-surface-2 p-0.5" role="group" aria-label="Printer list layout">
-                  <button
-                    type="button"
-                    title="Grid view"
-                    aria-label="Grid view"
-                    aria-pressed={printerViewMode === "grid"}
-                    onClick={() => setPrinterViewMode("grid")}
-                    className={`rounded-md p-1.5 transition-colors ${
-                      printerViewMode === "grid"
-                        ? "bg-surface text-brand shadow-xs"
-                        : "text-ink-3 hover:text-ink"
-                    }`}
-                  >
-                    <LayoutGrid className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Table view"
-                    aria-label="Table view"
-                    aria-pressed={printerViewMode === "table"}
-                    onClick={() => setPrinterViewMode("table")}
-                    className={`rounded-md p-1.5 transition-colors ${
-                      printerViewMode === "table"
-                        ? "bg-surface text-brand shadow-xs"
-                        : "text-ink-3 hover:text-ink"
-                    }`}
-                  >
-                    <List className="h-4 w-4" />
-                  </button>
-                </div>
+              <div className="flex items-center gap-1 rounded-[10px] border border-edge bg-surface-2 p-0.5">
+                <button type="button" aria-pressed={printerViewMode === "grid"} onClick={() => setPrinterViewMode("grid")} className={`rounded-[7px] p-1.5 transition ${printerViewMode === "grid" ? "bg-surface text-brand shadow-xs" : "text-ink-3 hover:text-ink"}`}>
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+                <button type="button" aria-pressed={printerViewMode === "table"} onClick={() => setPrinterViewMode("table")} className={`rounded-[7px] p-1.5 transition ${printerViewMode === "table" ? "bg-surface text-brand shadow-xs" : "text-ink-3 hover:text-ink"}`}>
+                  <List className="h-4 w-4" />
+                </button>
               </div>
             }
           />
-
-          <div className="flex-1 space-y-4 px-6 pb-6">
-            {/* Filter & Search Bar */}
-            <div className="flex flex-col sm:flex-row items-center gap-3">
-              <div className="relative w-full flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-3" aria-hidden="true" />
-                <Input
-                  className="pl-9"
-                  placeholder="Search printers by name, ID, or connection..."
-                  aria-label="Search printers by name, ID, or connection"
-                  value={printerSearch}
-                  onChange={(e) => setPrinterSearch(e.target.value)}
-                />
+          <div className="flex-1 space-y-4 px-5 pb-5">
+            <div className="flex flex-col gap-2.5 sm:flex-row">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" />
+                <Input className="pl-9 h-9" placeholder="Search printers…" value={printerSearch} onChange={(e) => setPrinterSearch(e.target.value)} />
               </div>
-              <div className="flex w-full sm:w-auto items-center gap-2">
-                <Select
-                  value={printerStatusFilter}
-                  onChange={(e) => setPrinterStatusFilter(e.target.value)}
-                  className="w-full sm:w-36"
-                  aria-label="Filter printers by status"
-                >
-                  <option value="all">All Status</option>
-                  <option value="online">Online</option>
-                  <option value="offline">Offline</option>
-                  <option value="busy">Busy</option>
-                </Select>
-              </div>
+              <Select value={printerStatusFilter} onChange={(e) => setPrinterStatusFilter(e.target.value)} className="sm:w-[148px]">
+                <option value="all">All status</option>
+                <option value="online">Online</option>
+                <option value="offline">Offline</option>
+                <option value="busy">Busy</option>
+              </Select>
             </div>
 
-            {/* Printers Content */}
             {filteredPrinters.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-edge p-12 text-center text-sm text-ink-3">
-                No matching printers found. Ensure an Edge Agent is online and reporting hardware.
+              <div className="rounded-[12px] border border-dashed border-edge p-10 text-center">
+                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-surface-2 text-ink-3">
+                  <PrinterIcon className="h-5 w-5" />
+                </div>
+                <div className="mt-3 text-[13px] text-ink-3">No printers match. Check agent connectivity.</div>
               </div>
             ) : printerViewMode === "grid" ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {filteredPrinters.map((printer) => {
                   const caps = getPrinterBadges(printer);
                   const parentAgent = agents.find((a) => a.id === printer.agentId);
                   const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs);
                   return (
-                    <div
-                      key={printer.id}
-                      className="rounded-xl border border-edge bg-surface p-4 flex flex-col justify-between transition-all hover:border-edge-strong hover:shadow-xs"
-                    >
+                    <div key={printer.id} className="group flex flex-col justify-between rounded-[12px] border border-edge bg-surface p-4 transition-all hover:border-edge-strong hover:shadow-card">
                       <div>
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="truncate font-semibold text-ink text-[15px]">
-                              {printer.name}
-                            </div>
-                            <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-3">
+                            <div className="truncate text-[14px] font-semibold text-ink">{printer.name}</div>
+                            <div className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-3">
                               {getConnectionIcon(printer.connectionType)}
                               <span className="capitalize">{printer.connectionType}</span>
-                              <span>·</span>
-                              <Mono className="text-[11px]">{printer.id}</Mono>
+                              <span>•</span>
+                              <Mono className="truncate">{printer.id.slice(0, 10)}</Mono>
                             </div>
                           </div>
-                          <StatusBadge
-                            label={printerLabel(effStatus)}
-                            tone={sharedPrinterTone(effStatus)}
-                          />
+                          <StatusBadge label={printerLabel(effStatus)} tone={sharedPrinterTone(effStatus)} />
                         </div>
-
-                        {/* Capabilities Chips */}
-                        <div className="mt-3 flex flex-wrap gap-1.5">
+                        <div className="mt-3 flex flex-wrap gap-1">
                           {caps.map((c, i) => (
-                            <span
-                              key={i}
-                              className="rounded-md border border-edge-accent bg-surface-2 px-2 py-0.5 text-[11px] font-semibold text-ink-2"
-                            >
-                              {c.label}
-                            </span>
+                            <span key={i} className="rounded-[6px] border border-edge bg-surface-2 px-2 py-0.5 text-[10px] font-semibold text-ink-2">{c.label}</span>
                           ))}
-                          {printer.deviceClass && (
-                            <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-ink-3 capitalize">
-                              {printer.deviceClass}
-                            </span>
-                          )}
                         </div>
                       </div>
-
-                      <div className="mt-4 pt-3 border-t border-edge flex items-center justify-between gap-2">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => void handleGatewayTestPrint(printer.id, printer.name)}
-                          loading={testingPrinterId === printer.id}
-                          disabled={busy || testingPrinterId !== null || printer.lifecycle !== "active"}
-                          icon={<PlayCircle className="h-3.5 w-3.5" />}
-                        >
+                      <div className="mt-4 flex items-center justify-between border-t border-edge-subtle pt-3">
+                        <Button size="sm" variant="secondary" onClick={() => void handleGatewayTestPrint(printer.id, printer.name)} loading={testingPrinterId === printer.id} disabled={busy || testingPrinterId !== null || printer.lifecycle !== "active"} icon={<PlayCircle className="h-3.5 w-3.5" />}>
                           {testingPrinterId === printer.id ? "Sending…" : "Send Test Page"}
                         </Button>
                         {printer.lifecycle === "active" ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() =>
-                              void runAction(
-                                () => setPrinterLifecycle(printer.id, "disabled"),
-                                "Printer disabled."
-                              )
-                            }
-                            disabled={busy}
-                          >
+                          <Button size="sm" variant="ghost" onClick={() => void runAction(() => setPrinterLifecycle(printer.id, "disabled"), "Printer disabled.")} disabled={busy}>
                             Disable
                           </Button>
                         ) : (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() =>
-                              void runAction(
-                                () => setPrinterLifecycle(printer.id, "active"),
-                                "Printer re-enabled."
-                              )
-                            }
-                            disabled={busy}
-                          >
-                            Re-enable
+                          <Button size="sm" variant="ghost" onClick={() => void runAction(() => setPrinterLifecycle(printer.id, "active"), "Printer enabled.")} disabled={busy}>
+                            Enable
                           </Button>
                         )}
                       </div>
@@ -1031,15 +861,15 @@ export default function DashboardClient({
                 })}
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-edge bg-surface">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-edge bg-surface-2 text-xs font-semibold text-ink-3 uppercase">
+              <div className="overflow-x-auto rounded-[12px] border border-edge">
+                <table className="w-full text-left text-[13px]">
+                  <thead className="border-b border-edge bg-surface-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
                     <tr>
-                      <th className="px-4 py-3">Printer Name / ID</th>
-                      <th className="px-4 py-3">Connection</th>
-                      <th className="px-4 py-3">Capabilities</th>
-                      <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3 text-right">Actions</th>
+                      <th className="px-4 py-2.5">Printer</th>
+                      <th className="px-4 py-2.5">Connection</th>
+                      <th className="px-4 py-2.5">Caps</th>
+                      <th className="px-4 py-2.5">Status</th>
+                      <th className="px-4 py-2.5 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-edge">
@@ -1048,44 +878,27 @@ export default function DashboardClient({
                       const parentAgent = agents.find((a) => a.id === printer.agentId);
                       const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs);
                       return (
-                        <tr key={printer.id} className="hover:bg-surface-2/40">
+                        <tr key={printer.id} className="hover:bg-surface-2/60 transition-colors">
                           <td className="px-4 py-3">
-                            <div className="font-semibold text-ink">{printer.name}</div>
-                            <Mono className="text-[11px] text-ink-3">{printer.id}</Mono>
+                            <div className="font-semibold text-ink text-[13px]">{printer.name}</div>
+                            <Mono className="text-[11px]">{printer.id.slice(0, 16)}</Mono>
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex items-center gap-1.5 text-ink-2 capitalize">
-                              {getConnectionIcon(printer.connectionType)}
-                              {printer.connectionType}
-                            </div>
+                            <span className="inline-flex items-center gap-1.5 capitalize text-ink-2">
+                              {getConnectionIcon(printer.connectionType)} {printer.connectionType}
+                            </span>
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap gap-1">
                               {caps.map((c, i) => (
-                                <span
-                                  key={i}
-                                  className="rounded border border-edge bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-ink-2"
-                                >
-                                  {c.label}
-                                </span>
+                                <span key={i} className="rounded border border-edge bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold">{c.label}</span>
                               ))}
                             </div>
                           </td>
-                          <td className="px-4 py-3">
-                            <StatusBadge
-                              label={printerLabel(effStatus)}
-                              tone={sharedPrinterTone(effStatus)}
-                            />
-                          </td>
+                          <td className="px-4 py-3"><StatusBadge label={printerLabel(effStatus)} tone={sharedPrinterTone(effStatus)} /></td>
                           <td className="px-4 py-3 text-right">
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => void handleGatewayTestPrint(printer.id, printer.name)}
-                              loading={testingPrinterId === printer.id}
-                              disabled={busy || testingPrinterId !== null || printer.lifecycle !== "active"}
-                            >
-                              {testingPrinterId === printer.id ? "Sending…" : "Send Test Page"}
+                            <Button size="sm" variant="secondary" onClick={() => void handleGatewayTestPrint(printer.id, printer.name)} loading={testingPrinterId === printer.id} disabled={busy || testingPrinterId !== null || printer.lifecycle !== "active"}>
+                              Test
                             </Button>
                           </td>
                         </tr>
@@ -1099,60 +912,34 @@ export default function DashboardClient({
         </Card>
       </div>
 
-      {/* 4. Job Queue Inspector */}
-      <Card>
+      {/* Jobs */}
+      <Card className="overflow-hidden">
         <CardHeader
           title="Recent Print Jobs"
-          subtitle="Latest queue snapshot, execution tracking, and diagnostic payload inspector"
-          icon={<Server className="h-5 w-5 text-brand" />}
-          actions={
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => void refreshData()}
-              icon={<RefreshCw className="h-3.5 w-3.5" />}
-            >
-              Refresh Queue
-            </Button>
-          }
+          subtitle="Queue snapshot, execution tracking, diagnostics"
+          icon={<Server className="h-4 w-4 text-brand" />}
+          actions={<Button variant="secondary" size="sm" onClick={() => void refreshData()} icon={<RefreshCw className="h-3.5 w-3.5" />}>Refresh</Button>}
         />
-
-        <div className="space-y-4 px-6 pb-6">
-          {/* Search and Status Filters */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="relative w-full sm:w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-3" aria-hidden="true" />
-              <Input
-                className="pl-9"
-                placeholder="Search by job ID, destination..."
-                aria-label="Search jobs by ID or destination"
-                value={jobSearch}
-                onChange={(e) => setJobSearch(e.target.value)}
-              />
+        <div className="space-y-4 px-5 pb-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative w-full lg:w-[320px]">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" />
+              <Input className="pl-9 h-9" placeholder="Search jobs…" value={jobSearch} onChange={(e) => setJobSearch(e.target.value)} />
             </div>
-
-            <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto w-full sm:w-auto" role="group" aria-label="Filter jobs by status">
+            <div className="flex flex-wrap gap-1.5">
               {[
-                { id: "all", label: "All Jobs" },
+                { id: "all", label: "All" },
                 { id: "active", label: "In Flight" },
                 { id: "queued", label: "Queued" },
-                { id: "claimed", label: "Claimed" },
-                { id: "printing", label: "Printing" },
-                { id: "unassigned", label: "Unassigned" },
                 { id: "success", label: "Printed" },
                 { id: "failed", label: "Failed" },
-                { id: "unknown", label: "Unknown Outcome" },
+                { id: "unknown", label: "Unknown" },
                 { id: "expired", label: "Expired" },
               ].map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setJobStatusFilter(tab.id)}
-                  aria-pressed={jobStatusFilter === tab.id}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    jobStatusFilter === tab.id
-                      ? "bg-brand text-brand-contrast shadow-xs"
-                      : "bg-surface-2 text-ink-3 hover:text-ink"
-                  }`}
+                  className={`rounded-[9px] px-3 py-1.5 text-[12px] font-semibold transition ${jobStatusFilter === tab.id ? "bg-brand text-white shadow-sm" : "bg-surface-2 text-ink-3 hover:text-ink hover:bg-surface-3 border border-edge"}`}
                 >
                   {tab.label}
                 </button>
@@ -1160,84 +947,43 @@ export default function DashboardClient({
             </div>
           </div>
 
-          {/* Job Queue Table */}
           {jobsLoading && filteredJobs.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-edge p-12 text-center text-sm text-ink-3">
-              Loading print jobs from database...
-            </div>
+            <div className="rounded-[12px] border border-dashed border-edge p-10 text-center text-[13px] text-ink-3">Loading jobs…</div>
           ) : filteredJobs.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-edge p-12 text-center text-sm text-ink-3">
-              No print jobs match the current filters.
+            <div className="rounded-[12px] border border-dashed border-edge p-10 text-center">
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-surface-2 text-ink-3">
+                <Server className="h-5 w-5" />
+              </div>
+              <div className="mt-3 text-[13px] text-ink-3">No jobs match filters.</div>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-edge bg-surface">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-edge bg-surface-2 text-xs font-semibold text-ink-3 uppercase">
+            <div className="overflow-x-auto rounded-[12px] border border-edge">
+              <table className="w-full text-left text-[13px]">
+                <thead className="sticky top-0 z-10 border-b border-edge bg-surface-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
                   <tr>
-                    <th className="px-4 py-3">Job ID</th>
-                    <th className="px-4 py-3">Target Printer</th>
-                    <th className="px-4 py-3">Context / Doc</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Created</th>
-                    <th className="px-4 py-3 text-right">Inspect</th>
+                    <th className="px-4 py-2.5">Job</th>
+                    <th className="px-4 py-2.5">Printer</th>
+                    <th className="px-4 py-2.5">Document</th>
+                    <th className="px-4 py-2.5">Status</th>
+                    <th className="px-4 py-2.5">Created</th>
+                    <th className="px-4 py-2.5 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-edge">
                   {filteredJobs.map((job) => {
                     const outcome = deriveOutcome(job.status, job.error);
                     return (
-                      <tr
-                        key={job.id}
-                        onClick={() => setSelectedJob(job)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setSelectedJob(job);
-                          }
-                        }}
-                        tabIndex={0}
-                        aria-label={`Inspect job ${job.id}`}
-                        className="cursor-pointer transition-colors hover:bg-surface-2/50 focus-visible:outline-2 focus-visible:outline-brand"
-                      >
-                        <td className="px-4 py-3 font-mono font-medium text-ink">
-                          <Mono>{job.id}</Mono>
-                        </td>
+                      <tr key={job.id} onClick={() => setSelectedJob(job)} tabIndex={0} className="cursor-pointer hover:bg-surface-2/60 transition-colors focus-visible:outline-none focus-visible:bg-surface-2">
+                        <td className="px-4 py-3"><Mono>{job.id.slice(0, 12)}</Mono></td>
+                        <td className="px-4 py-3"><Mono className="text-ink-2">{job.printerId.slice(0, 10)}</Mono></td>
                         <td className="px-4 py-3">
-                          <Mono className="text-ink-2">{job.printerId}</Mono>
+                          <div className="font-medium text-ink text-[13px]">{job.destination || "Direct"}</div>
+                          <div className="text-[11px] text-ink-3">{job.documentType || "—"}</div>
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="text-ink font-medium">
-                            {job.destination || "Direct Hardware"}
-                          </div>
-                          {job.documentType && (
-                            <div className="text-xs text-ink-3">{job.documentType}</div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <StatusBadge
-                            label={jobLabel(job.status, outcome)}
-                            tone={sharedJobTone(job.status, outcome)}
-                            pulse={
-                              job.status.toLowerCase() === "printing" ||
-                              job.status.toLowerCase() === "claimed"
-                            }
-                          />
-                        </td>
-                        <td className="px-4 py-3 text-xs text-ink-3">
-                          {formatRelativeTime(job.createdAt)}
-                        </td>
+                        <td className="px-4 py-3"><StatusBadge label={jobLabel(job.status, outcome)} tone={sharedJobTone(job.status, outcome)} pulse={["printing","claimed"].includes(job.status.toLowerCase())} /></td>
+                        <td className="px-4 py-3 text-[12px] text-ink-3">{formatRelativeTime(job.createdAt)}</td>
                         <td className="px-4 py-3 text-right">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedJob(job);
-                            }}
-                            icon={<Eye className="h-3.5 w-3.5" />}
-                          >
-                            Inspect
-                          </Button>
+                          <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelectedJob(job); }} icon={<Eye className="h-3.5 w-3.5" />}>Inspect</Button>
                         </td>
                       </tr>
                     );
@@ -1249,158 +995,64 @@ export default function DashboardClient({
         </div>
       </Card>
 
-      {/* 5. Slide-Over Drawer for Selected Job Payload & Diagnostics */}
-      <Drawer
-        open={selectedJob !== null}
-        onClose={() => setSelectedJob(null)}
-        title={selectedJob ? `Job ${selectedJob.id}` : "Job Details"}
-        description="Full runtime execution parameters and payload inspection"
-      >
+      <Drawer open={selectedJob !== null} onClose={() => setSelectedJob(null)} title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : "Job Details"} description="Runtime execution & diagnostics">
         {selectedJob && (() => {
           const outcome = deriveOutcome(selectedJob.status, selectedJob.error);
           const isTerminal = ["success", "failed", "expired"].includes(selectedJob.status.toLowerCase());
           return (
-          <div className="space-y-6">
-            {/* Status Callout Banner */}
-            <div className="flex items-center justify-between rounded-xl border border-edge bg-surface-2 p-4">
-              <div className="space-y-1">
-                <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
-                  Current State
-                </span>
-                <div className="text-lg font-bold text-ink">
-                  {jobLabel(selectedJob.status, outcome)}
-                </div>
-                {jobGuidance(selectedJob.status, outcome) && (
-                  <p className="text-xs text-ink-3 max-w-md">{jobGuidance(selectedJob.status, outcome)}</p>
-                )}
+          <div className="space-y-5">
+            <div className="flex items-center justify-between rounded-[12px] border border-edge bg-surface-2 p-4">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Current State</div>
+                <div className="mt-1 text-[16px] font-bold text-ink">{jobLabel(selectedJob.status, outcome)}</div>
+                {jobGuidance(selectedJob.status, outcome) && <p className="mt-1 max-w-md text-[12px] text-ink-3">{jobGuidance(selectedJob.status, outcome)}</p>}
               </div>
-              <StatusBadge
-                label={jobLabel(selectedJob.status, outcome)}
-                tone={sharedJobTone(selectedJob.status, outcome)}
-                pulse={
-                  selectedJob.status.toLowerCase() === "printing" ||
-                  selectedJob.status.toLowerCase() === "claimed"
-                }
-              />
+              <StatusBadge label={jobLabel(selectedJob.status, outcome)} tone={sharedJobTone(selectedJob.status, outcome)} pulse={["printing","claimed"].includes(selectedJob.status.toLowerCase())} />
             </div>
 
-            {/* Unknown outcome: physical ambiguity is a DELIBERATE action */}
             {outcome === "unknown" && isTerminal && (
-              <div className="rounded-xl border border-warn-edge bg-warn-bg p-4 space-y-3">
+              <div className="rounded-[12px] border border-warn-edge bg-warn-bg p-4 space-y-3">
                 <div className="flex items-start gap-2.5 text-warn">
-                  <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                   <div>
-                    <h4 className="font-bold text-sm">Print status is unknown</h4>
-                    <p className="text-xs leading-relaxed mt-1 text-ink-2">
-                      The printer may have received part or all of the job. Automatic retry is paused
-                      to prevent duplicate printing. Verify the printer (paper tray, last page) before
-                      reprinting. Reprinting sends the ORIGINAL document again - you may get a second
-                      copy.
-                    </p>
+                    <h4 className="text-[13px] font-bold">Outcome unknown — verify printer</h4>
+                    <p className="mt-1 text-[12px] leading-relaxed text-ink-2">Paper may have printed. Automatic retry paused to avoid duplicates. Check tray before reprinting.</p>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    onClick={() => setReprintCandidate(selectedJob)}
-                    disabled={busy}
-                    icon={<RotateCcw className="h-3.5 w-3.5" />}
-                  >
-                    Reprint original document...
-                  </Button>
-                </div>
+                <Button size="sm" variant="primary" onClick={() => setReprintCandidate(selectedJob)} disabled={busy} icon={<RotateCcw className="h-3.5 w-3.5" />}>Reprint…</Button>
               </div>
             )}
 
-            {/* Provable pre-dispatch failure: retry is safe and honest */}
             {selectedJob.status.toLowerCase() === "failed" && outcome === "not_printed" && (
-              <div className="rounded-xl border border-edge bg-surface-2 p-4 space-y-3">
-                <p className="text-xs leading-relaxed text-ink-2">
-                  This job failed before the printer started, so nothing was printed. Reprinting
-                  queues the original document again under a new operation key.
-                </p>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => setReprintCandidate(selectedJob)}
-                  disabled={busy}
-                  icon={<RotateCcw className="h-3.5 w-3.5" />}
-                >
-                  Retry print...
-                </Button>
+              <div className="rounded-[12px] border border-edge bg-surface-2 p-4 space-y-3">
+                <p className="text-[12px] leading-relaxed text-ink-2">Failed before dispatch — safe to retry. Queues original document anew.</p>
+                <Button size="sm" variant="secondary" onClick={() => setReprintCandidate(selectedJob)} disabled={busy} icon={<RotateCcw className="h-3.5 w-3.5" />}>Retry print…</Button>
               </div>
             )}
 
-            {/* Error Banner */}
             {selectedJob.error && (
-              <div className="rounded-xl border border-bad-edge bg-bad-bg p-4 text-bad space-y-1">
-                <div className="flex items-center gap-2 font-bold text-sm">
-                  <AlertTriangle className="h-4 w-4" />
-                  <span>Execution Error</span>
-                </div>
-                <p className="text-xs leading-relaxed text-ink-2 font-mono break-all">
-                  {selectedJob.error}
-                </p>
+              <div className="rounded-[12px] border border-bad-edge bg-bad-bg p-4 space-y-1">
+                <div className="flex items-center gap-2 text-[13px] font-semibold text-bad"><AlertTriangle className="h-4 w-4" />Execution Error</div>
+                <p className="text-[11px] leading-relaxed font-mono break-all text-ink-2">{selectedJob.error}</p>
               </div>
             )}
 
-            {/* Core Metadata */}
-            <div className="rounded-xl border border-edge bg-surface divide-y divide-edge text-xs">
-              <div className="flex justify-between p-3">
-                <span className="text-ink-3">Printer Runtime ID</span>
-                <Mono>{selectedJob.printerId}</Mono>
-              </div>
-              <div className="flex justify-between p-3">
-                <span className="text-ink-3">Hosting Agent ID</span>
-                <Mono>{selectedJob.agentId}</Mono>
-              </div>
-              <div className="flex justify-between p-3">
-                <span className="text-ink-3">Document Context</span>
-                <span className="font-semibold text-ink">
-                  {selectedJob.destination || "Direct"} · {selectedJob.documentType || "Standard"}
-                </span>
-              </div>
-              <div className="flex justify-between p-3">
-                <span className="text-ink-3">Delivery Retries</span>
-                <span className="font-semibold text-ink">{selectedJob.retries ?? 0}</span>
-              </div>
-              <div className="flex justify-between p-3">
-                <span className="text-ink-3">Created At</span>
-                <span className="text-ink">
-                  {new Date(selectedJob.createdAt).toLocaleString()}
-                </span>
-              </div>
-              {selectedJob.deliveredAt && (
-                <div className="flex justify-between p-3">
-                  <span className="text-ink-3">Delivered At</span>
-                  <span className="text-ink">
-                    {new Date(selectedJob.deliveredAt).toLocaleString()}
-                  </span>
-                </div>
-              )}
+            <div className="rounded-[12px] border border-edge bg-surface divide-y divide-edge text-[12px]">
+              <div className="flex justify-between p-3"><span className="text-ink-3">Printer</span><Mono>{selectedJob.printerId}</Mono></div>
+              <div className="flex justify-between p-3"><span className="text-ink-3">Agent</span><Mono>{selectedJob.agentId}</Mono></div>
+              <div className="flex justify-between p-3"><span className="text-ink-3">Document</span><span className="font-semibold text-ink">{selectedJob.destination || "Direct"} · {selectedJob.documentType || "Standard"}</span></div>
+              <div className="flex justify-between p-3"><span className="text-ink-3">Retries</span><span className="font-semibold">{selectedJob.retries ?? 0}</span></div>
+              <div className="flex justify-between p-3"><span className="text-ink-3">Created</span><span>{new Date(selectedJob.createdAt).toLocaleString()}</span></div>
+              {selectedJob.deliveredAt && <div className="flex justify-between p-3"><span className="text-ink-3">Delivered</span><span>{new Date(selectedJob.deliveredAt).toLocaleString()}</span></div>}
             </div>
 
-            {/* Formatted Diagnostic Payload Inspector */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
-                  Diagnostic Payload
-                </span>
-                <CopyButton
-                  value={(() => {
-                    const p = selectedJob.payload ?? selectedJobPayload;
-                    return p === undefined ? "" : stringifyDiagnosticPayload(p);
-                  })()}
-                  label="Copy Payload"
-                />
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Diagnostic Payload</span>
+                <CopyButton value={(() => { const p = selectedJob.payload ?? selectedJobPayload; return p === undefined ? "" : stringifyDiagnosticPayload(p); })()} label="Copy" />
               </div>
-              <div className="max-h-72 overflow-auto rounded-xl border border-edge bg-surface-2 p-3 font-mono text-[11px] text-ink-2 shadow-inner leading-relaxed" aria-live="polite">
-                {selectedJobPayloadLoading ? (
-                  <span role="status">Loading payload…</span>
-                ) : (
-                  <pre>{diagnosticPayloadPreview(stringifyDiagnosticPayload(selectedJob.payload ?? selectedJobPayload))}</pre>
-                )}
+              <div className="max-h-72 overflow-auto rounded-[12px] border border-edge bg-surface-2 p-3 font-mono text-[11px] leading-relaxed text-ink-2" aria-live="polite">
+                {selectedJobPayloadLoading ? <span>Loading payload…</span> : <pre>{diagnosticPayloadPreview(stringifyDiagnosticPayload(selectedJob.payload ?? selectedJobPayload))}</pre>}
               </div>
             </div>
           </div>
@@ -1408,160 +1060,48 @@ export default function DashboardClient({
         })()}
       </Drawer>
 
-      {/* Reprint confirmation: a physical operation deserves a deliberate one */}
-      <Modal
-        open={Boolean(reprintCandidate)}
-        onClose={() => { if (!busy) setReprintCandidate(null); }}
-        title="Reprint this document?"
-        description="This sends the ORIGINAL document to the printer again."
-        footer={
-          <div className="flex items-center justify-end gap-3">
-            <Button variant="secondary" onClick={() => setReprintCandidate(null)} disabled={busy}>
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              disabled={busy}
-              loading={busy}
-              onClick={async () => {
-                const job = reprintCandidate;
-                setReprintCandidate(null);
-                if (!job) return;
-                await runAction(
-                  () => reprintJob(job.id),
-                  `Reprint queued for ${job.printerId} - watch it in the job list.`
-                );
-              }}
-              icon={<RotateCcw className="h-4 w-4" />}
-            >
-              Reprint original document
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-3 text-sm text-ink-2">
-          <p>
-            Printer: <strong className="text-ink">{reprintCandidate?.printerId}</strong>
-            {" "}· Document: {reprintCandidate?.documentType || "standard"}
-          </p>
+      <Modal open={Boolean(reprintCandidate)} onClose={() => { if (!busy) setReprintCandidate(null); }} title="Reprint this document?" description="Sends ORIGINAL document again.">
+        <div className="space-y-3 text-[13px] text-ink-2">
+          <p>Printer: <strong className="text-ink">{reprintCandidate?.printerId}</strong> · Doc: {reprintCandidate?.documentType || "standard"}</p>
           {reprintCandidate && deriveOutcome(reprintCandidate.status, reprintCandidate.error) === "unknown" && (
-            <div className="rounded-xl border border-warn-edge bg-warn-bg/60 p-3 text-xs text-ink-2">
-              The previous attempt has an <strong>unknown outcome</strong>. If any pages already
-              printed, this reprint produces a duplicate. Confirm only after checking the printer.
-            </div>
+            <div className="rounded-[10px] border border-warn-edge bg-warn-bg p-3 text-[12px]">Unknown outcome — duplicate possible. Check printer first.</div>
           )}
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setReprintCandidate(null)} disabled={busy}>Cancel</Button>
+          <Button variant="danger" disabled={busy} loading={busy} onClick={async () => { const job = reprintCandidate; setReprintCandidate(null); if (!job) return; await runAction(() => reprintJob(job.id), `Reprint queued for ${job.printerId}`); }} icon={<RotateCcw className="h-4 w-4" />}>Reprint</Button>
         </div>
       </Modal>
 
-      {/* Disable / Retire agent confirmation */}
-      <Modal
-        open={Boolean(pendingAgentAction)}
-        onClose={() => { if (!busy) setPendingAgentAction(null); }}
-        title={pendingAgentAction?.next === "retired" ? "Retire this agent?" : "Disable this agent?"}
-        description={
-          pendingAgentAction?.next === "retired"
-            ? "Retirement is permanent and keeps the agent for audit history."
-            : "Disabling revokes the agent's credentials immediately."
-        }
-        footer={
-          <div className="flex items-center justify-end gap-3">
-            <Button variant="secondary" onClick={() => setPendingAgentAction(null)} disabled={busy}>
-              Cancel
-            </Button>
-            <Button
-              variant={pendingAgentAction?.next === "retired" ? "danger" : "primary"}
-              disabled={busy}
-              loading={busy}
-              onClick={async () => { await confirmAgentAction(); }}
-            >
-              {pendingAgentAction?.next === "retired" ? "Retire agent" : "Disable agent"}
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-3 text-sm text-ink-2">
+      <Modal open={Boolean(pendingAgentAction)} onClose={() => { if (!busy) setPendingAgentAction(null); }} title={pendingAgentAction?.next === "retired" ? "Retire this agent?" : "Disable this agent?"} description={pendingAgentAction?.next === "retired" ? "Retirement is permanent, kept for audit." : "Disabling revokes credentials immediately."}>
+        <div className="space-y-3 text-[13px] text-ink-2">
           {pendingAgentAction?.next === "disabled" ? (
-            <>
-              <p>
-                Disabling <strong className="text-ink">{pendingAgentAction.agent.name}</strong>:
-              </p>
-              <ul className="list-disc pl-5 text-xs space-y-1">
-                <li>Revokes the agent&apos;s secret - it cannot reconnect or receive jobs.</li>
-                <li>Disables its {pendingAgentAction.agent.printerCount} printer(s).</li>
-                <li>Re-enabling requires pairing again with a fresh single-use code.</li>
-              </ul>
-            </>
+            <ul className="list-disc pl-5 text-[12px] space-y-1">
+              <li>Revokes secret — cannot reconnect.</li>
+              <li>Disables its {pendingAgentAction.agent.printerCount} printer(s).</li>
+              <li>Re-enabling needs fresh pairing code.</li>
+            </ul>
           ) : (
-            <>
-              <p>
-                Retiring <strong className="text-ink">{pendingAgentAction?.agent.name}</strong> keeps
-                the agent and its print history for auditing. A retired agent cannot be re-activated
-                or deleted.
-              </p>
-              <p className="text-xs text-ink-3">If you only need to pause it temporarily, use Disable instead.</p>
-            </>
+            <p className="text-[12px]">Retiring <strong className="text-ink">{pendingAgentAction?.agent.name}</strong> keeps history for auditing. Cannot be re-activated.</p>
           )}
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setPendingAgentAction(null)} disabled={busy}>Cancel</Button>
+          <Button variant={pendingAgentAction?.next === "retired" ? "danger" : "primary"} disabled={busy} loading={busy} onClick={async () => { await confirmAgentAction(); }}>{pendingAgentAction?.next === "retired" ? "Retire agent" : "Disable agent"}</Button>
         </div>
       </Modal>
 
-      {/* Permanent Agent Deletion Confirmation Modal */}
-      <Modal
-        open={Boolean(agentToDelete)}
-        onClose={() => {
-          if (!busy) setAgentToDelete(null);
-        }}
-        title="Delete Agent"
-        description="This permanently removes this runtime agent from the Gateway."
-        footer={
-          <div className="flex items-center justify-end gap-3">
-            <Button
-              variant="secondary"
-              onClick={() => setAgentToDelete(null)}
-              disabled={busy}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              onClick={async () => {
-                if (!agentToDelete) return;
-                const id = agentToDelete.id;
-                await runAction(() => deleteAgent(id), "Agent permanently deleted.");
-                setAgentToDelete(null);
-              }}
-              disabled={busy}
-              loading={busy}
-              icon={<Trash2 className="h-4 w-4" />}
-            >
-              Delete Agent
-            </Button>
+      <Modal open={Boolean(agentToDelete)} onClose={() => { if (!busy) setAgentToDelete(null); }} title="Delete Agent" description="Permanently removes this agent from Gateway.">
+        <div className="space-y-4 text-[13px] text-ink-2">
+          <div className="rounded-[12px] border border-bad-edge bg-bad-bg p-4 text-[12px]">
+            <div className="flex items-center gap-2 font-semibold text-bad"><AlertTriangle className="h-4 w-4" />Cannot be undone.</div>
+            <p className="mt-2 text-ink-2">Agent must be offline. Historical records may require retiring instead.</p>
           </div>
-        }
-      >
-        <div className="space-y-4 text-sm text-ink-2">
-          <div className="rounded-xl border border-bad-edge bg-bad-bg/50 p-4 text-xs leading-relaxed text-bad">
-            <div className="flex items-center gap-2 font-semibold">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-bad" />
-              <span>This action cannot be undone.</span>
-            </div>
-            <p className="mt-2 text-ink-2">
-              The agent must be offline before it can be deleted. Historical print/audit records may
-              require the agent to be retired instead.
-            </p>
-          </div>
-
-          <p>
-            Are you sure you want to permanently delete agent{" "}
-            <strong className="font-semibold text-ink">{agentToDelete?.name}</strong>{" "}
-            (<Mono>{agentToDelete?.id}</Mono>)?
-          </p>
-
-          {agentToDelete?.status === "online" && (
-            <p className="text-xs font-semibold text-warn">
-              Note: This agent is currently marked as online. You must shut down or disconnect the
-              agent before deleting it.
-            </p>
-          )}
+          <p>Delete <strong className="text-ink">{agentToDelete?.name}</strong> (<Mono>{agentToDelete?.id}</Mono>)?</p>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setAgentToDelete(null)} disabled={busy}>Cancel</Button>
+          <Button variant="danger" onClick={async () => { if (!agentToDelete) return; const id = agentToDelete.id; await runAction(() => deleteAgent(id), "Agent deleted."); setAgentToDelete(null); }} disabled={busy} loading={busy} icon={<Trash2 className="h-4 w-4" />}>Delete Agent</Button>
         </div>
       </Modal>
     </div>

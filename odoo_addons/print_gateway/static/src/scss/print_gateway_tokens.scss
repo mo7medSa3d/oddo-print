@@ -1,6 +1,6 @@
-/* PRINT GATEWAY — Odoo light theme tokens
-   Mirrors the Web gateway and Desktop Manager. Odoo Bootstrap variables
-   remain untouched and every value is namespaced under --pg-*. */
+/* PRINT GATEWAY — Premium 2026 Odoo tokens
+   Mirrors Gateway SaaS + Desktop Manager design system.
+   Namespaced --pg-* to avoid Odoo leaks. */
 
 :root {
     --pg-brand-50: #eff6ff;
@@ -21,36 +21,36 @@
     --pg-brand-subtle: var(--pg-brand-50);
     --pg-brand-subtle-hover: var(--pg-brand-100);
     --pg-brand-subtle-text: var(--pg-brand-700);
-    --pg-brand-ring: rgba(37, 99, 235, 0.26);
+    --pg-brand-ring: rgba(37, 99, 235, 0.18);
 
-    --pg-bg: #ffffff;
+    --pg-bg: #f8fafc;
     --pg-surface: #ffffff;
-    --pg-surface-2: #f5f8fc;
-    --pg-surface-3: #e8eef7;
-    --pg-surface-accent: #eef5ff;
-    --pg-surface-accent-2: #dce9ff;
-    --pg-border: #dfe7f2;
-    --pg-border-strong: #c8d4e6;
-    --pg-border-accent: #c9ddff;
+    --pg-surface-2: #f8fafc;
+    --pg-surface-3: #f1f5f9;
+    --pg-surface-accent: #eff6ff;
+    --pg-surface-accent-2: #dbeafe;
+    --pg-border: #e2e8f0;
+    --pg-border-strong: #cbd5e1;
+    --pg-border-accent: #bfdbfe;
 
     --pg-text: #0f172a;
     --pg-text-2: #475569;
     --pg-text-3: #64748b;
     --pg-text-4: #94a3b8;
 
-    --pg-ok: #059669;
+    --pg-ok: #047857;
     --pg-ok-solid: #10b981;
     --pg-ok-bg: #ecfdf5;
     --pg-ok-border: #a7f3d0;
-    --pg-warn: #d97706;
+    --pg-warn: #b45309;
     --pg-warn-solid: #f59e0b;
     --pg-warn-bg: #fffbeb;
     --pg-warn-border: #fde68a;
-    --pg-bad: #e11d48;
-    --pg-bad-solid: #f43f5e;
+    --pg-bad: #be123c;
+    --pg-bad-solid: #e11d48;
     --pg-bad-bg: #fff1f2;
     --pg-bad-border: #fecdd3;
-    --pg-info: #2563eb;
+    --pg-info: #1d4ed8;
     --pg-info-solid: #3b82f6;
     --pg-info-bg: #eff6ff;
     --pg-info-border: #bfdbfe;
@@ -59,15 +59,45 @@
     --pg-neutral-bg: #f8fafc;
     --pg-neutral-border: #e2e8f0;
 
-    --pg-r-sm: 6px;
-    --pg-r-md: 8px;
-    --pg-r-lg: 10px;
-    --pg-r-xl: 12px;
+    /* Distinct state tokens */
+    --pg-cred-ok-bg: #ecfdf5;
+    --pg-cred-ok-border: #a7f3d0;
+    --pg-cred-ok-text: #047857;
+    --pg-cred-missing-bg: #fff1f2;
+    --pg-cred-missing-border: #fecdd3;
+    --pg-cred-missing-text: #be123c;
+
+    --pg-activation-enabled-bg: #eff6ff;
+    --pg-activation-enabled-border: #bfdbfe;
+    --pg-activation-enabled-text: #1d4ed8;
+    --pg-activation-disabled-bg: #f8fafc;
+    --pg-activation-disabled-border: #e2e8f0;
+    --pg-activation-disabled-text: #64748b;
+
+    --pg-conn-active-bg: #ecfdf5;
+    --pg-conn-active-border: #a7f3d0;
+    --pg-conn-active-text: #047857;
+    --pg-conn-syncing-bg: #eff6ff;
+    --pg-conn-syncing-border: #bfdbfe;
+    --pg-conn-syncing-text: #1d4ed8;
+    --pg-conn-attention-bg: #fffbeb;
+    --pg-conn-attention-border: #fde68a;
+    --pg-conn-attention-text: #b45309;
+    --pg-conn-disabled-bg: #f8fafc;
+    --pg-conn-disabled-border: #e2e8f0;
+    --pg-conn-disabled-text: #94a3b8;
+
+    --pg-r-sm: 8px;
+    --pg-r-md: 10px;
+    --pg-r-lg: 12px;
+    --pg-r-xl: 14px;
+    --pg-r-2xl: 16px;
     --pg-r-pill: 9999px;
 
     --pg-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
-    --pg-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
-    --pg-shadow-md: 0 4px 12px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+    --pg-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.04);
+    --pg-shadow-md: 0 4px 12px -2px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+    --pg-shadow-card: 0 1px 3px rgba(15,23,42,0.04), 0 8px 24px rgba(15,23,42,0.04);
 
     --pg-space-1: 4px;
     --pg-space-2: 8px;
@@ -84,19 +114,18 @@
     --pg-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Keep the add-on light even when Odoo is running with its global dark theme. */
-.o_dark_mode,
-body.o_dark_mode {
+/* Force light even in Odoo dark */
+.o_dark_mode, body.o_dark_mode {
     color-scheme: light;
-    --pg-bg: #ffffff;
+    --pg-bg: #f8fafc;
     --pg-surface: #ffffff;
-    --pg-surface-2: #f5f8fc;
-    --pg-surface-3: #e8eef7;
-    --pg-surface-accent: #eef5ff;
-    --pg-surface-accent-2: #dce9ff;
-    --pg-border: #dfe7f2;
-    --pg-border-strong: #c8d4e6;
-    --pg-border-accent: #c9ddff;
+    --pg-surface-2: #f8fafc;
+    --pg-surface-3: #f1f5f9;
+    --pg-surface-accent: #eff6ff;
+    --pg-surface-accent-2: #dbeafe;
+    --pg-border: #e2e8f0;
+    --pg-border-strong: #cbd5e1;
+    --pg-border-accent: #bfdbfe;
     --pg-text: #0f172a;
     --pg-text-2: #475569;
     --pg-text-3: #64748b;
@@ -108,21 +137,16 @@ body.o_dark_mode {
     --pg-brand-subtle: #eff6ff;
     --pg-brand-subtle-hover: #dbeafe;
     --pg-brand-subtle-text: #1d4ed8;
-    --pg-brand-ring: rgba(37, 99, 235, 0.26);
+    --pg-brand-ring: rgba(37, 99, 235, 0.18);
 }
 
 @keyframes pg-pulse {
-    0%, 100% {
-        opacity: 1;
-        transform: scale(1);
-    }
-    50% {
-        opacity: 0.55;
-        transform: scale(1.1);
-    }
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(1.1); }
 }
+.pg-pulse { animation: pg-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 
-.pg-pulse {
-    animation: pg-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+@keyframes pg-shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
 }
-
