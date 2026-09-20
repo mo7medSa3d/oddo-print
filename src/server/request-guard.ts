@@ -14,7 +14,7 @@ export const MAX_UNAUTHENTICATED_CONCURRENT_BYTES = 8 * 1024 * 1024;
 export const MAX_CONCURRENT_CHUNKED_BYTES = MAX_AUTHENTICATED_CONCURRENT_BYTES;
 
 const MUTATING_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
-const SESSION_COOKIE_RE = /(?:^|;\\s*)(?:mgr_session|plt_session)=/;
+const SESSION_COOKIE_RE = /(?:^|;\s*)(?:mgr_session|plt_session)=/;
 let reservedAuthBytes = 0;
 let reservedUnauthBytes = 0;
 
