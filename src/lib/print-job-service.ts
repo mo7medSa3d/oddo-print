@@ -7,7 +7,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "./nanoid";
 import { canonicalize } from "./canonicalize";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "./job-delivery";
-import { isAgentAvailableForJob } from "./agent-availability";
+import { agentStaleThresholdSeconds, isAgentAvailableForJob } from "./agent-availability";
 import { enforceTenantJobEntitlements } from "./entitlements";
 import { logInfo } from "./log";
 
