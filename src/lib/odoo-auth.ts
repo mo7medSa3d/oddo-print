@@ -61,9 +61,9 @@ export async function validateOdooKey(
   if (!row || row.revokedAt || !timingSafeEqualStr(row.hashedKey, hashed)) return null;
 
   await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(and(eq(apiKeys.id, row.id), eq(apiKeys.tenantId, row.tenantId))).catch(() => undefined);
-  // Tenant lifecycle and integration activation are separate state
-  // domains. Configuration/health probes may authenticate with a valid key
-  // while the integration is disabled, so they can recover safely.
+  // Tenant lifecycle gate: suspended/deleted tenants cannot perform normal
+  // Odoo operations. Health probes may opt out so the caller can return the
+  // correct 403 lifecycle status instead of misclassifying it as bad credentials.
   if (options.requireActiveTenant !== false) {
     try {
       await requireActiveTenant(row.tenantId);
@@ -71,6 +71,10 @@ export async function validateOdooKey(
       return null;
     }
   }
+  // Credential validity and integration activation are deliberately separate.
+  // Configuration/health must remain callable while Odoo is disabled so a
+  // valid key can re-enable the integration and a connection test can tell the
+  // user that the credential is valid without conflating it with activation.
   if (options.requireIntegrationEnabled !== false) {
     const tenantRow = await db.query.tenants.findFirst({
       where: eq(tenants.id, row.tenantId),
