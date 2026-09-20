@@ -50,6 +50,16 @@ jobs:
             echo "TypeScript path mapping is forbidden."
             exit 1
           fi
+      - name: Validate HTTP test deployment scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n deploy/http-test/setup-http-test.sh
+          bash -n deploy/http-test/smoke-http-test.sh
+          bash -n deploy/http-test/cleanup-previous-server.sh
+          docker compose --env-file deploy/http-test/.env.test.example -f deploy/http-test/docker-compose.yml config >/dev/null
+          echo "HTTP test deployment scripts and Compose configuration are syntactically valid."
+
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
