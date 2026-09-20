@@ -215,6 +215,7 @@ async function insertQueuedJobAtomically({
         p.protocol AS printer_protocol,
         p.agent_id AS printer_agent_id,
         p.management_source AS management_source,
+        p.capabilities AS printer_capabilities,
         p.applied_desired_revision AS applied_desired_revision,
         p.desired_revision AS desired_revision,
         a.lifecycle AS agent_lifecycle,
@@ -237,6 +238,7 @@ async function insertQueuedJobAtomically({
       printer_protocol?: string;
       printer_agent_id?: string;
       management_source?: string;
+      printer_capabilities?: { supported_protocols?: string[] } | null;
       applied_desired_revision?: number | string;
       desired_revision?: number | string;
       agent_lifecycle?: string;
@@ -269,6 +271,20 @@ async function insertQueuedJobAtomically({
       Number(owner.applied_desired_revision ?? 0) < Number(owner.desired_revision ?? 0)
     ) {
       throw new PrintJobInputError("Printer configuration is still applying; retry when the printer is ready", "PRINTER_UNAVAILABLE", 503);
+    }
+
+    // Capability validation is repeated under the authoritative printer row
+    // lock. The pre-check in createPrintJobForPrinter can race with a manager
+    // PATCH that changes protocol/connection/capabilities between the initial
+    // read and INSERT; without this second check, a payload accepted for the
+    // old capability set could be durably queued against the new one.
+    const runtimeCapability = validatePayloadForPrinter(validatedPayload, {
+      protocol: owner.printer_protocol,
+      connectionType: owner.printer_connection_type,
+      capabilities: owner.printer_capabilities,
+    });
+    if (!runtimeCapability.ok) {
+      throw new PrintJobCapabilityError(runtimeCapability.reason);
     }
 
     await enforceTenantJobEntitlements(tx, tenantId);
