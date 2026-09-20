@@ -31,8 +31,9 @@ describe("Odoo Gateway activation synchronization", () => {
     const page = read("src/app/api-keys/page.tsx");
     expect(page).toContain('fetch("/api/odoo/configuration"');
     expect(page).toContain("window.setInterval(loadGatewayConfiguration, 5000)");
-    expect(page).toContain('label={gatewayConfig.enabled ? "Active" : "Inactive"}');
-    expect(page).toContain("Odoo is the source of truth.");
+    expect(page).toContain('label={gatewayConfig.enabled ? "Enabled in Odoo" : "Disabled in Odoo"}');
+    expect(page).toContain("Odoo controls whether printing is enabled.");
+    expect(page).toContain("API credentials are managed separately.");
   });
 
   it("pushes the Odoo checkbox after commit and retries failed replication", () => {
@@ -57,7 +58,9 @@ describe("Odoo Gateway activation synchronization", () => {
 
     expect(cron).toContain('id="cron_sync_gateway_enabled_state"');
     expect(cron).toContain("model.cron_sync_enabled_state()");
-    expect(view).toContain('string="Gateway Activation Sync"');
-    expect(view).toContain('name="last_enabled_sync_revision"');
+    expect(view).toContain('string="Gateway Status"');
+    expect(view).toContain('field name="gateway_sync_message"');
+    expect(view).not.toContain('name="last_enabled_sync_revision"');
+    expect(view).not.toContain('name="last_enabled_sync_error"');
   });
 });
