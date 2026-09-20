@@ -497,7 +497,7 @@ class PrintGatewayConfig(models.Model):
                     and int(record.pending_disable_revision or -1) >= 0
                 ):
                     raise ValidationError(
-                        _("Gateway URL migration state is incomplete; automatic reconciliation is blocked until it is repaired.")
+                        _("Gateway endpoint shutdown/migration state is incomplete; automatic reconciliation is blocked until it is repaired.")
                     )
                 pending_disable = (
                     record.pending_disable_gateway_url,
@@ -713,15 +713,18 @@ class PrintGatewayConfig(models.Model):
                         revision=int(config.pending_disable_revision),
                     ):
                         continue
+                    if not config.gateway_api_key:
+                        config._complete_gateway_migration(
+                            int(config.pending_disable_revision or -1)
+                        )
+                        continue
                 except (ValidationError, requests.RequestException, ValueError) as exc:
                     config._persist_gateway_migration_result(success=False, error=str(exc))
                     _logger.warning(
-                        "Gateway URL migration retry failed for config %s: %s",
+                        "Gateway endpoint shutdown retry failed for config %s: %s",
                         config.id,
                         exc,
                     )
-                    if not config.gateway_api_key:
-                        config._complete_gateway_migration(int(config.pending_disable_revision or -1))
                     continue
 
             if (
