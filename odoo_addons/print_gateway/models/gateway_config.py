@@ -362,9 +362,17 @@ class PrintGatewayConfig(models.Model):
         """Reconcile old endpoint shutdown before the new endpoint state."""
         if pending_disable:
             old_url, old_api_key, old_revision = pending_disable
+            # When the pending shutdown is for the SAME endpoint as the
+            # current configuration, a newly supplied credential can recover
+            # a previous key-removal that was interrupted by key revocation.
+            # URL migrations must still use the credential belonging to the
+            # previous endpoint.
+            shutdown_api_key = old_api_key
+            if self.gateway_api_key and old_url == gateway_url:
+                shutdown_api_key = api_key
             if not self._sync_pending_gateway_disable(
                 gateway_url=old_url,
-                api_key=old_api_key,
+                api_key=shutdown_api_key,
                 revision=old_revision,
             ):
                 return
@@ -744,9 +752,15 @@ class PrintGatewayConfig(models.Model):
                     old_api_key = config._gateway_api_key_plaintext_from_value(
                         config.pending_disable_gateway_api_key
                     )
+                    shutdown_api_key = old_api_key
+                    if (
+                        config.gateway_api_key
+                        and config.pending_disable_gateway_url == config.gateway_url
+                    ):
+                        shutdown_api_key = config._gateway_api_key_plaintext()
                     if not config._sync_pending_gateway_disable(
                         gateway_url=config.pending_disable_gateway_url,
-                        api_key=old_api_key,
+                        api_key=shutdown_api_key,
                         revision=int(config.pending_disable_revision),
                     ):
                         continue
