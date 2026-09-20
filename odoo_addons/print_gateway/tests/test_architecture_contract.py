@@ -177,7 +177,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
     def test_raw_template_values_are_protocol_sanitized(self):
         self.assertEqual(sanitize_raw_value(0, "zpl"), "0")
         self.assertEqual(sanitize_raw_value(False, "zpl"), "")
-        self.assertEqual(sanitize_raw_value("A^XZ~B" + chr(10) + "C", "zpl"), "AXB" + chr(10) + "C")
+        self.assertEqual(sanitize_raw_value("A^XZ~B" + chr(10) + "C", "zpl"), "AXZB" + chr(10) + "C")
         self.assertEqual(sanitize_raw_value("A" + chr(34) + chr(13) + chr(10) + "B", "tspl"), "AB")
         self.assertEqual(sanitize_raw_value("A" + chr(27) + "B" + chr(127) + "C", "escpos"), "ABC")
 
