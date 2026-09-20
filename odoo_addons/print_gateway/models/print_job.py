@@ -812,10 +812,22 @@ class PrintGatewayJob(models.Model):
         self = self.sudo()
         MAX_FAILOVER_DEPTH = 3
         for job in self:
-            # Terminal is terminal, with OR without a remote id: a job that
-            # failed before ever receiving a gateway id must not be silently
-            # re-submitted (attempts, state and audit would be rewritten).
-            # Only an explicit operator reprint creates a NEW operation.
+            # Once a Gateway job id exists, this Odoo outbox row has already
+            # crossed the remote dispatch boundary. Never POST the same row
+            # again: intent recovery after a crash must not turn a lost local
+            # finalize into a second physical print. Explicit reprint actions
+            # create a NEW outbox row with a NEW idempotency key.
+            if job.gateway_job_id:
+                _logger.info(
+                    "Skipping re-submit of Odoo print job %s; Gateway job %s already exists",
+                    job.id, job.gateway_job_id,
+                )
+                continue
+
+            # Terminal is terminal. A job that failed before ever receiving a
+            # gateway id must not be silently re-submitted (attempts, state
+            # and audit would be rewritten). Only an explicit operator reprint
+            # creates a NEW operation.
             if job.status in self._TERMINAL:
                 continue
 
