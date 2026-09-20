@@ -396,8 +396,9 @@ pub struct AgentGatewayRequestArgs {
 }
 
 fn valid_gateway_printer_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.chars().all(|c| {
+    let mut chars = id.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphanumeric())
+        && chars.all(|c| {
             c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '~')
         })
 }
