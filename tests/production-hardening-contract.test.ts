@@ -51,6 +51,18 @@ describe("production hardening contracts", () => {
     expect(guard).toContain("CONTENT_LENGTH_REQUIRED");
   });
 
+  it("fails closed when heartbeat capabilities declare an invalid supported_protocols shape", () => {
+    const heartbeat = read("src/app/api/agent/heartbeat/route.ts");
+    expect(heartbeat).toContain('return { ok: false, reason: "invalid_supported_protocols" }');
+    expect(heartbeat).not.toContain('delete capabilities.supported_protocols');
+  });
+
+  it("rechecks invitation expiry at the transactional consume boundary", () => {
+    const accept = read("src/app/api/team/invitations/accept/route.ts");
+    expect(accept).toContain("gt(tenantInvitations.expiresAt, new Date())");
+    expect(accept).toContain("Invitation already consumed or expired");
+  });
+
   it("keeps the bundled Caddy sanitizing forwarded-IP headers and capping request bodies", () => {
     const caddy = read("Caddyfile");
     expect(caddy).toContain("header_up X-Forwarded-For {http.request.remote.host}");
