@@ -65,6 +65,6 @@ describe("cookie-authenticated mutation CSRF boundary", () => {
       cookie: "mgr_session=token",
       origin: "https://attacker.example",
       "sec-fetch-site": "cross-site",
-    }, "GET")).toBe(true);
+    })).toBe(true);
   });
 });
