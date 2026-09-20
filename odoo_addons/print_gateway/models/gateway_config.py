@@ -335,6 +335,7 @@ class PrintGatewayConfig(models.Model):
         return super().unlink()
 
     @api.model
+    @api.private
     def cron_sync_enabled_state(self):
         """Retry activation-state replication for configurations not yet acknowledged."""
         configs = self.sudo().search([
