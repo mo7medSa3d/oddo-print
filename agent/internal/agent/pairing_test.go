@@ -30,12 +30,11 @@ func TestValidateServerURLRequiresExplicitHTTPOptIn(t *testing.T) {
 	}
 }
 
-func TestValidateServerURLAcceptsHTTPOptInWithoutEnvAfterPairing(t *testing.T) {
+func TestValidateServerURLRejectsNonHTTPSchemes(t *testing.T) {
 	if err := validateServerURL("ftp://gateway.example.com/x"); err == nil {
 		t.Fatal("expected non-HTTP(S) scheme to be rejected")
 	}
 }
-
 func TestValidateServerURLRejectsCredentialsAndQuery(t *testing.T) {
 	if err := validateServerURL("http://user:pass@gateway.example.com/"); err == nil {
 		t.Fatal("expected embedded credentials to be rejected")
