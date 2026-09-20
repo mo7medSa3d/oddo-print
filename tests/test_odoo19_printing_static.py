@@ -150,6 +150,10 @@ def test_gateway_url_change_durably_disables_previous_endpoint_before_new_sync()
     assert "Gateway URL migration state is incomplete" in source
     assert "FOR UPDATE" in source
     assert "invalidate_recordset" in source
+    assert "def _complete_gateway_migration" in source
+    assert "if synced and pending_disable" in source
+    assert "acknowledged_enabled is not enabled" in source
+    assert "acknowledged_revision != revision" in source
 
 
 def test_gateway_queue_admission_allows_active_agent_when_heartbeat_is_stale():
