@@ -36,10 +36,36 @@ function sanitize(fields: LogFields): LogFields {
 }
 
 function emit(level: "info" | "warn" | "error", event: string, fields: LogFields): void {
+  let correlation: Record<string, unknown> = {};
+  try {
+    // Avoid hard import cycle: correlation lives in server/, log lives in lib/
+    // Use dynamic check via AsyncLocalStorage if available, otherwise skip
+    const { getCorrelationContext } = require("../server/correlation") as typeof import("../server/correlation");
+    const ctx = getCorrelationContext?.();
+    if (ctx) {
+      correlation = {
+        requestId: ctx.requestId,
+        tenantId: ctx.tenantId,
+        jobId: ctx.jobId,
+        agentId: ctx.agentId,
+        printerId: ctx.printerId,
+        attemptId: ctx.attemptId,
+        claimId: ctx.claimId,
+        spoolerJobId: ctx.spoolerJobId,
+      };
+      // Remove undefined
+      for (const k of Object.keys(correlation)) {
+        if ((correlation as any)[k] === undefined) delete (correlation as any)[k];
+      }
+    }
+  } catch {
+    // correlation unavailable in this context (e.g., tests without server)
+  }
   const line = {
     ts: new Date().toISOString(),
     level,
     event,
+    ...correlation,
     ...sanitize(fields),
   };
   const text = JSON.stringify(line);
