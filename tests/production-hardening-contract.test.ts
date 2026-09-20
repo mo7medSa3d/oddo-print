@@ -44,6 +44,13 @@ describe("production hardening contracts", () => {
     expect(printJob).toContain("Explicit reprint actions");
   });
 
+  it("keeps the Odoo persisted payload limit aligned with the Gateway/Agent 5 MiB wire contract", () => {
+    const printJob = read("odoo_addons/print_gateway/models/print_job.py");
+    expect(printJob).toContain("len(decoded) > 5 * 1024 * 1024");
+    expect(printJob).not.toContain('len(decoded) > 8 * 1024 * 1024');
+    expect(read("src/lib/payload.ts")).toContain("const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024;");
+  });
+
   it("keeps the API body guard stream-safe without request cloning", () => {
     const server = read("server.ts");
     const guard = read("src/server/request-guard.ts");
