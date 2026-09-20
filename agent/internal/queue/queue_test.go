@@ -264,3 +264,25 @@ func TestBeginPrintCannotReopenTerminalOrUnknownStates(t *testing.T) {
 		})
 	}
 }
+
+func TestBeginPrintRejectsDifferentClaimTokenWhilePrinting(t *testing.T) {
+	dbPath := t.TempDir() + "/agent.db"
+	q, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer q.Close()
+
+	if err := q.BeginPrint("job_live", "printer-1", []byte("payload"), "claim-A", false); err != nil {
+		t.Fatalf("initial BeginPrint: %v", err)
+	}
+	if err := q.BeginPrint("job_live", "printer-1", []byte("payload"), "claim-B", false); !errors.Is(err, ErrTerminalState) {
+		t.Fatalf("different claim token must be rejected while printing, got %v", err)
+	}
+	if got := q.ClaimTokenFor("job_live"); got != "claim-A" {
+		t.Fatalf("rejected attempt must not replace live claim token, got %q", got)
+	}
+	if err := q.BeginPrint("job_live", "printer-1", []byte("payload"), "claim-A", false); err != nil {
+		t.Fatalf("same claim token should remain idempotent: %v", err)
+	}
+}
