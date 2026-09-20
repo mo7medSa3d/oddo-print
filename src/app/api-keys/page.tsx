@@ -195,8 +195,8 @@ export default function ApiKeysPage() {
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-brand"><KeyRound className="h-4 w-4" /> Gateway API Keys</div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">Generate, revoke, and remove Odoo access</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-3">Keys are shown only once. The Gateway stores only a cryptographic hash; there is no branch or document-type scope here.</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">Manage Odoo access</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-3">Create a connection key for Odoo, replace it when needed, and safely revoke old credentials.</p>
         </div>
         <Link href="/dashboard" className="text-sm font-semibold text-brand hover:underline">Back to Console</Link>
       </div>
@@ -282,7 +282,6 @@ export default function ApiKeysPage() {
                   />
                 </div>
                 <div className="mt-1 text-xs text-ink-3">Created {new Date(item.createdAt).toLocaleString()} · Last used {item.lastUsedAt ? new Date(item.lastUsedAt).toLocaleString() : "Never"}</div>
-                <div className="mt-1 font-mono text-[11px] text-ink-3">{item.id}</div>
               </div>
               {!item.revokedAt ? (
                 <Button
