@@ -344,3 +344,35 @@ func TestDesiredStateLoaderRejectsOversizedFile(t *testing.T) {
 		t.Fatal("expected oversized desired-state file to be rejected")
 	}
 }
+
+func TestDesiredStatePreservesObservedProtocolCapabilitiesAcrossRestart(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	row := desiredPrinterRecord{
+		Desired:                         testDesiredPrinter("printer-capabilities", 3, "active"),
+		AppliedDesiredRevision:          3,
+		ObservedDesiredRevision:         3,
+		ObservedSupportedProtocols:      []string{"escpos"},
+		ObservedSupportedProtocolsKnown: true,
+	}
+	a.desiredStates[row.Desired.ID] = row
+	if err := a.persistDesiredState(); err != nil {
+		t.Fatalf("persistDesiredState: %v", err)
+	}
+
+	b := newDesiredStateTestAgent(t)
+	b.desiredStatePath = a.desiredStatePath
+	if err := b.loadDesiredState(); err != nil {
+		t.Fatalf("loadDesiredState: %v", err)
+	}
+	pc, ok := b.printerConfigs[row.Desired.ID]
+	if !ok {
+		t.Fatal("expected persisted desired printer to be restored")
+	}
+	caps, ok := pc.Capabilities["supported_protocols"].([]string)
+	if !ok {
+		t.Fatalf("expected supported_protocols capability to be restored, got %#v", pc.Capabilities)
+	}
+	if len(caps) != 1 || caps[0] != "escpos" {
+		t.Fatalf("expected observed capability list to survive restart, got %#v", caps)
+	}
+}
