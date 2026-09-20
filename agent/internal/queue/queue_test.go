@@ -3,8 +3,8 @@ package queue
 import (
 	"errors"
 	"fmt"
-	"sync"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
