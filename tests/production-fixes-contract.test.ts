@@ -109,11 +109,14 @@ describe("production fixes contracts (2026-09)", () => {
     expect(server).not.toContain("ALLOW_PLAINTEXT_MANAGER_PASSWORD=1 in production: the manager password is held in the environment");
   });
 
-  it("Tauri background stop never uses global taskkill by image name", () => {
+  it("Tauri background stop uses exact recorded PID and re-verifies process identity", () => {
     const agent = read("src-tauri/src/agent.rs");
-    expect(agent).toContain("const BACKGROUND_PID_FILE: &str = \"agent.pid\";");
-    expect(agent).toContain("taskkill_pid(pid, false)");
-    expect(agent).toContain("taskkill_pid(pid, true)");
+    expect(agent).toContain('const BACKGROUND_PID_FILE: &str = "agent.pid";');
+    expect(agent).toContain("fn taskkill_pid(pid: u32, force: bool)");
+    expect(agent).toContain('cmd.args(["/PID", &pid_arg, "/T"]);');
+    expect(agent).toContain('cmd.args(["/PID", &pid_arg, "/T", "/F"]);');
+    expect(agent).toContain("background_record_matches(app, &record)");
+    expect(agent).toContain("terminate_owned_background_process(app, &record)");
     expect(agent).not.toContain('.args(["/IM", "OdooPrintAgent.exe"])');
     expect(agent).not.toContain('.args(["/F", "/IM", "OdooPrintAgent.exe"])');
   });
