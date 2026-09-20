@@ -386,7 +386,20 @@ class PrintGatewayConfig(models.Model):
             revision = int(record.enabled_sync_revision or 0)
             enabled = bool(record.enabled)
             pending_disable = None
-            if record.pending_disable_gateway_url and record.pending_disable_gateway_api_key and record.pending_disable_revision >= 0:
+            has_pending_disable_state = bool(
+                record.pending_disable_gateway_url
+                or record.pending_disable_gateway_api_key
+                or int(record.pending_disable_revision or -1) >= 0
+            )
+            if has_pending_disable_state:
+                if not (
+                    record.pending_disable_gateway_url
+                    and record.pending_disable_gateway_api_key
+                    and int(record.pending_disable_revision or -1) >= 0
+                ):
+                    raise ValidationError(
+                        _("Gateway URL migration state is incomplete; automatic reconciliation is blocked until it is repaired.")
+                    )
                 pending_disable = (
                     record.pending_disable_gateway_url,
                     record._gateway_api_key_plaintext_from_value(record.pending_disable_gateway_api_key),
@@ -537,9 +550,13 @@ class PrintGatewayConfig(models.Model):
     @api.private
     def cron_sync_enabled_state(self):
         """Retry activation replication, including pending old-endpoint shutdowns."""
+        # Include pending migrations even when the CURRENT Gateway API
+        # key has already been cleared. The old encrypted credential is enough
+        # to finish disabling the previous endpoint safely.
         configs = self.sudo().search([
+            "|",
             ("gateway_url", "!=", False),
-            ("gateway_api_key", "!=", False),
+            ("pending_disable_gateway_url", "!=", False),
         ])
         for config in configs:
             if (
@@ -567,8 +584,12 @@ class PrintGatewayConfig(models.Model):
                     continue
 
             if (
-                int(config.last_enabled_sync_revision or -1) != int(config.enabled_sync_revision or 0)
-                or bool(config.last_enabled_sync_error)
+                config.gateway_url
+                and config.gateway_api_key
+                and (
+                    int(config.last_enabled_sync_revision or -1) != int(config.enabled_sync_revision or 0)
+                    or bool(config.last_enabled_sync_error)
+                )
             ):
                 try:
                     gateway_url = config._gateway_base(for_request=True)
