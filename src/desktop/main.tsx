@@ -86,7 +86,6 @@ import type {
   DesktopState,
   JobRecord,
   JobTab,
-  JobTabExtended,
   Page,
   PrinterStatusFilter,
   ToastMessage,
@@ -149,7 +148,7 @@ export default function App() {
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
-  const [jobTab, setJobTab] = useState<JobTabExtended>("all");
+  const [jobTab, setJobTab] = useState<JobTab>("all");
   const [jobSearch, setJobSearch] = useState("");
   const [autostart, setAutostartState] = useState<boolean | null>(null);
   const [lastStatusCheck, setLastStatusCheck] = useState<string | null>(null);
@@ -592,8 +591,6 @@ export default function App() {
         const outcome = deriveOutcome(st, String(j.error ?? ""));
         if (jobTab === "in_flight") return st === "claimed" || st === "printing";
         if (jobTab === "queued") return st === "queued";
-        if (jobTab === "claimed") return st === "claimed";
-        if (jobTab === "printing") return st === "printing";
         if (jobTab === "unassigned") {
           const dest = String(j.destination ?? "");
           const pid = jobPrinterId(j);
@@ -623,8 +620,6 @@ export default function App() {
       all: jobs.length,
       in_flight: jobs.filter((j) => ["claimed", "printing"].includes(jobStatus(j))).length,
       queued: jobs.filter((j) => jobStatus(j) === "queued").length,
-      claimed: jobs.filter((j) => jobStatus(j) === "claimed").length,
-      printing: jobs.filter((j) => jobStatus(j) === "printing").length,
       unassigned: jobs.filter((j) => {
         const dest = String(j.destination ?? "");
         const pid = jobPrinterId(j);
