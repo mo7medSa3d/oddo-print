@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { discoverySessions, discoveredDevices } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "../../../../lib/nanoid";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
