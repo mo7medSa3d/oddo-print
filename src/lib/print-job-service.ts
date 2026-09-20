@@ -7,12 +7,19 @@ import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "./nanoid";
 import { canonicalize } from "./canonicalize";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "./job-delivery";
-import { agentStaleThresholdSeconds, isAgentAvailableForJob } from "./agent-availability";
+
 import { enforceTenantJobEntitlements } from "./entitlements";
 import { logInfo } from "./log";
 
 export const MAX_AGENT_QUEUED_JOBS = 256;
 export const MAX_AGENT_QUEUED_PAYLOAD_BYTES = 128 * 1024 * 1024;
+
+/**
+ * Queue admission intentionally does not require a fresh Agent heartbeat.
+ * Gateway jobs are durable until their expiry, so an active but temporarily
+ * offline Agent remains a valid owner. Heartbeat freshness is enforced when
+ * claiming/executing the job, not when the job is created.
+ */
 
 export class AgentQueueFullError extends Error {
   readonly code = "AGENT_QUEUE_FULL" as const;
@@ -208,6 +215,7 @@ async function insertQueuedJobAtomically({
         p.protocol AS printer_protocol,
         p.agent_id AS printer_agent_id,
         p.management_source AS management_source,
+        p.capabilities AS printer_capabilities,
         p.applied_desired_revision AS applied_desired_revision,
         p.desired_revision AS desired_revision,
         a.lifecycle AS agent_lifecycle,
@@ -230,6 +238,7 @@ async function insertQueuedJobAtomically({
       printer_protocol?: string;
       printer_agent_id?: string;
       management_source?: string;
+      printer_capabilities?: { supported_protocols?: string[] } | null;
       applied_desired_revision?: number | string;
       desired_revision?: number | string;
       agent_lifecycle?: string;
@@ -252,19 +261,30 @@ async function insertQueuedJobAtomically({
     if (owner.agent_lifecycle !== "active") {
       throw new PrintJobInputError(`Agent is ${owner.agent_lifecycle ?? "unavailable"}`, "AGENT_UNAVAILABLE", 409);
     }
-    const lastSeen = owner.agent_last_seen_at ? new Date(owner.agent_last_seen_at) : null;
-    if (
-      owner.agent_status !== "online" ||
-      !lastSeen ||
-      Date.now() - lastSeen.getTime() > agentStaleThresholdSeconds() * 1000
-    ) {
-      throw new PrintJobInputError("Printer owner agent is offline or stale", "AGENT_UNAVAILABLE", 503);
-    }
+    // The Gateway queue is durable. An active Agent may be temporarily
+    // offline/stale and should still be allowed to receive a queued job; the
+    // Agent will claim it after reconnecting. Lifecycle remains the hard
+    // control-plane fence, while heartbeat freshness is execution availability,
+    // not admission eligibility.
     if (
       owner.management_source === "manager" &&
       Number(owner.applied_desired_revision ?? 0) < Number(owner.desired_revision ?? 0)
     ) {
       throw new PrintJobInputError("Printer configuration is still applying; retry when the printer is ready", "PRINTER_UNAVAILABLE", 503);
+    }
+
+    // Capability validation is repeated under the authoritative printer row
+    // lock. The pre-check in createPrintJobForPrinter can race with a manager
+    // PATCH that changes protocol/connection/capabilities between the initial
+    // read and INSERT; without this second check, a payload accepted for the
+    // old capability set could be durably queued against the new one.
+    const runtimeCapability = validatePayloadForPrinter(validatedPayload, {
+      protocol: owner.printer_protocol,
+      connectionType: owner.printer_connection_type,
+      capabilities: owner.printer_capabilities,
+    });
+    if (!runtimeCapability.ok) {
+      throw new PrintJobCapabilityError(runtimeCapability.reason);
     }
 
     await enforceTenantJobEntitlements(tx, tenantId);
@@ -340,9 +360,6 @@ export async function createPrintJobForPrinter(
   const ownerAgent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, options.tenantId)) });
   if (!ownerAgent) throw new PrintJobInputError("Printer owner agent not found", "AGENT_NOT_FOUND", 404);
   if (ownerAgent.lifecycle !== "active") throw new PrintJobInputError(`Agent is ${ownerAgent.lifecycle}`, "AGENT_UNAVAILABLE", 409);
-  if (!isAgentAvailableForJob(ownerAgent)) {
-    throw new PrintJobInputError("Printer owner agent is offline or stale", "AGENT_UNAVAILABLE", 503);
-  }
 
   if (typeof options.tenantId !== "string" || !options.tenantId.trim()) throw new PrintJobInputError("tenant context is required", "TENANT_CONTEXT_REQUIRED", 500);
 

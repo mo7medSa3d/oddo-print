@@ -110,19 +110,24 @@ export async function POST(req: Request) {
     if (!currentSession?.id) return { kind: "not_found" as const };
     if (currentSession.status !== "running") return { kind: "not_running" as const, status: currentSession.status ?? "unknown" };
 
+    let insertedCount = 0;
     for (let i = 0; i < rows.length; i += DISCOVERY_INSERT_BATCH) {
-      await tx.insert(discoveredDevices).values(rows.slice(i, i + DISCOVERY_INSERT_BATCH)).onConflictDoNothing();
+      const inserted = await tx.insert(discoveredDevices)
+        .values(rows.slice(i, i + DISCOVERY_INSERT_BATCH))
+        .onConflictDoNothing()
+        .returning({ id: discoveredDevices.id });
+      insertedCount += inserted.length;
     }
 
     if (status && ["completed", "partial", "failed", "cancelled"].includes(status)) {
       await tx.update(discoverySessions)
-        .set({ status, completedAt: new Date(), updatedAt: new Date(), stats: { candidates: parsedDevices.length } })
+        .set({ status, completedAt: new Date(), updatedAt: new Date(), stats: { candidates: parsedDevices.length, inserted: insertedCount } })
         .where(and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId)));
     }
-    return { kind: "ok" as const };
+    return { kind: "ok" as const, insertedCount };
   });
 
   if (result.kind === "not_found") return NextResponse.json({ error: "Discovery not found" }, { status: 404 });
   if (result.kind === "not_running") return NextResponse.json({ error: `Discovery already ${result.status}` }, { status: 409 });
-  return NextResponse.json({ ok: true, inserted: parsedDevices.length, verification: "candidate-only" });
+  return NextResponse.json({ ok: true, inserted: result.insertedCount, verification: "candidate-only" });
 }

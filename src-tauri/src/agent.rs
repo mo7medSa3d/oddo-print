@@ -265,7 +265,7 @@ fn background_process_record_path() -> Result<PathBuf, String> {
 fn read_background_record() -> Option<BackgroundProcessRecord> {
     let pid_path = background_pid_path().ok()?;
     let raw_pid = std::fs::read_to_string(pid_path).ok()?;
-    let pid = raw_pid.trim().parse::<u32>().ok()?;
+    let mut pid = raw_pid.trim().parse::<u32>().ok()?;
 
     // The legacy contract remains agent.pid = plain decimal PID. The identity
     // metadata is optional for backward compatibility; when absent (old
@@ -282,7 +282,9 @@ fn read_background_record() -> Option<BackgroundProcessRecord> {
     for line in raw.lines() {
         let (key, value) = line.split_once('=')?;
         match key {
-            "pid" => pid = value.trim().parse::<u32>().ok(),
+            "pid" => {
+                pid = value.trim().parse::<u32>().ok()?;
+            }
             "creation_time" => creation_time = value.trim().parse::<u64>().ok(),
             "image" => image = Some(value.trim().to_string()),
             _ => {}
@@ -446,7 +448,7 @@ fn terminate_owned_background_process(
         if unsafe { QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len) } == 0 || len == 0 {
             return Err(format!("cannot verify image path for owned agent PID {}", record.pid));
         }
-        let image = std::os::windows::ffi::OsStringExt::from_wide(&buf[..len as usize])
+        let image = <std::ffi::OsString as std::os::windows::ffi::OsStringExt>::from_wide(&buf[..len as usize])
             .to_string_lossy()
             .to_string();
 
