@@ -66,7 +66,6 @@ export default async function DashboardPage() {
       status: printJobs.status,
       error: printJobs.error,
       requestedBy: printJobs.requestedBy,
-      idempotencyKey: printJobs.idempotencyKey,
       retries: printJobs.retries,
       deliveryAttempts: printJobs.deliveryAttempts,
       claimedAt: printJobs.claimedAt,
@@ -75,9 +74,6 @@ export default async function DashboardPage() {
       expiresAt: printJobs.expiresAt,
       createdAt: printJobs.createdAt,
       updatedAt: printJobs.updatedAt,
-      apiKeyId: printJobs.apiKeyId,
-      requestId: printJobs.requestId,
-      claimToken: printJobs.claimToken,
     } as const;
     allJobs = await db
       .select(jobColumns)
