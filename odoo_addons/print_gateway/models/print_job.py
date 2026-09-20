@@ -903,6 +903,8 @@ class PrintGatewayJob(models.Model):
                     }
                     if remote_status == "failed" and remote_error:
                         values["last_error"] = str(remote_error)[:4000]
+                    if remote_status in {"success", "failed", "unknown"}:
+                        values["completed_at"] = fields.Datetime.now()
                     # An idempotent replay may report the job beyond
                     # 'submitted' (claimed/printing/success at the Gateway).
                     # Record it hop-by-hop through the canonical chain rather
