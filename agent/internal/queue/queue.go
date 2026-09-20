@@ -195,11 +195,6 @@ func (q *Queue) BeginPrint(id, printerID string, payload []byte, claimToken stri
 	if err != nil {
 		return err
 	}
-	inserted, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-
 	var status string
 	var storedToken sql.NullString
 	var lastErr sql.NullString
@@ -264,10 +259,6 @@ func (q *Queue) BeginPrint(id, printerID string, payload []byte, claimToken stri
 	if rows != 1 {
 		return ErrTerminalState
 	}
-	// inserted is intentionally read so the compiler and reviewers see that
-	// fresh-job creation is part of the same fenced transition; it is not used
-	// to alter the state-machine decision.
-	_ = inserted
 	return tx.Commit()
 }
 
