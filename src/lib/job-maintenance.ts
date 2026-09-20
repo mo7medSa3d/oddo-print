@@ -6,6 +6,7 @@ export const STALE_CLAIM_SECONDS = 90;
 export const STALE_PRINTING_SECONDS = 10 * 60;
 export const MAX_RETRIES = 5;
 export const MAX_DELIVERY_ATTEMPTS = 5;
+export const DELIVERY_EVIDENCE_PENDING = "DELIVERY_EVIDENCE_PENDING";
 
 export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<{ expired: number; requeuedClaims: number; silentDeliveries: number; stalePrinting: number; exhaustedClaims: number; exhaustedQueued: number }> {
   const agentFilter = scope.agentId ? sql`AND agent_id = ${scope.agentId}` : sql``;
