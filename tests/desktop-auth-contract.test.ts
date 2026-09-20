@@ -25,8 +25,17 @@ describe("desktop manager authentication contract", () => {
     const commands = read("src-tauri/src/commands.rs");
     expect(commands).toContain('if scheme == "http"');
     expect(commands).toContain("This isolated test branch intentionally accepts remote HTTP");
-    expect(commands).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
+    expect(commands).toContain('cmd.env("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1")');
     expect(commands).not.toContain("Gateway URL must use HTTPS for remote Gateways");
+  });
+
+
+  it("uses the paired Agent identity for packaged-console jobs instead of requiring Manager login", () => {
+    const source = read("src/desktop/lib/ipc.ts");
+    expect(source).toContain('invoke<string>("gateway_agent_request"');
+    expect(source).toContain('"/api/jobs"');
+    expect(source).toContain(`gatewayConsoleRequest(base, "/api/jobs"`);
+    expect(source).not.toContain('gatewayRequest(base, "/api/jobs"');
   });
 
   it("gateway CORS is explicit and never wildcarded", () => {
