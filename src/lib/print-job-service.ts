@@ -115,13 +115,28 @@ async function insertQueuedJobAtomically({
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${tenantId}`}))`);
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:agent:${agentId}`}))`);
 
-    // Reprint keys are allocated only after the tenant enqueue lock is held.
-    // Computing COUNT(*) outside this transaction allowed two concurrent
-    // operator reprints to observe different counts and create two distinct
-    // idempotency keys for the same original job. The tenant lock serializes
-    // all enqueue operations, so the sequence is deterministic here.
+    // Reprint coordination happens only after the tenant enqueue lock is
+    // held. While an earlier reprint of the same original job is still active,
+    // concurrent operator requests converge on that existing job instead of
+    // creating a second physical print. Once it is terminal, a new sequence is
+    // intentionally allocated for the next explicit reprint.
     let effectiveIdempotencyKey = idempotencyKey ?? null;
     if (reprintOfJobId) {
+      const activeReprint = await tx.execute(sql`
+        SELECT id, printer_id, agent_id, status
+        FROM print_jobs
+        WHERE tenant_id = ${tenantId}
+          AND idempotency_key LIKE ${`gw-reprint:${reprintOfJobId}:%`}
+          AND status IN ('queued', 'claimed', 'printing')
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE
+      `);
+      if (activeReprint.rows.length > 0) {
+        const row = activeReprint.rows[0] as { id: string; printer_id: string; agent_id: string; status: string };
+        return { jobId: row.id, status: row.status, agentId: row.agent_id, printerId: row.printer_id, isReused: true };
+      }
+
       const countResult = await tx.execute(sql`
         SELECT COUNT(*)::int AS count
         FROM print_jobs
