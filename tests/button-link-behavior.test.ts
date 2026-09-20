@@ -27,9 +27,7 @@ function render(node: React.ReactNode) {
 
 describe("shared Button link behavior", () => {
   it("preserves onClick for enabled links", () => {
-    const onClick = vi.fn((event: React.MouseEvent<HTMLAnchorElement>) => {
-      event.preventDefault();
-    });
+    const onClick = vi.fn() as React.MouseEventHandler<HTMLButtonElement>;
     const view = render(React.createElement(Button, { href: "/dashboard", onClick, title: "Open dashboard" }, "Open"));
     const link = view.querySelector("a")!;
     expect(link.getAttribute("href")).toBe("/dashboard");
