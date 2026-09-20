@@ -112,8 +112,8 @@ describe("production fixes contracts (2026-09)", () => {
   it("Tauri background stop never uses global taskkill by image name", () => {
     const agent = read("src-tauri/src/agent.rs");
     expect(agent).toContain("const BACKGROUND_PID_FILE: &str = \"agent.pid\";");
-    expect(agent).toContain("taskkill_pid(pid, false)");
-    expect(agent).toContain("taskkill_pid(pid, true)");
+    expect(agent).toContain("taskkill_pid(record.pid, false)");
+    expect(agent).toContain("taskkill_pid(record.pid, true)");
     expect(agent).not.toContain('.args(["/IM", "OdooPrintAgent.exe"])');
     expect(agent).not.toContain('.args(["/F", "/IM", "OdooPrintAgent.exe"])');
   });
