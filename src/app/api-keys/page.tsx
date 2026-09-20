@@ -219,7 +219,9 @@ export default function ApiKeysPage() {
         <div className="flex flex-col gap-3 px-6 pb-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
-              {gatewayConfig ? (
+              {gatewayConfigError ? (
+                <StatusBadge tone="warn" label="Status unavailable" />
+              ) : gatewayConfig ? (
                 <StatusBadge
                   tone={gatewayConfig.enabled ? "ok" : "neutral"}
                   label={gatewayConfig.enabled ? "Enabled in Odoo" : "Disabled in Odoo"}
@@ -229,15 +231,12 @@ export default function ApiKeysPage() {
               )}
             </div>
             <p className="mt-2 text-sm text-ink-3">
-              Odoo controls whether printing is enabled. API-key validity is shown separately below.
+              Odoo controls whether printing is enabled. API credentials are managed separately.
             </p>
-            {gatewayConfig?.updatedAt && (
-              <p className="mt-1 text-xs text-ink-4">
-                Last synchronized {new Date(gatewayConfig.updatedAt).toLocaleString()}
-              </p>
-            )}
             {gatewayConfigError && (
-              <p className="mt-1 text-xs text-bad" role="status">{gatewayConfigError}</p>
+              <p className="mt-1 text-xs text-bad" role="status">
+                We could not refresh the Odoo integration status. Try again.
+              </p>
             )}
           </div>
         </div>
