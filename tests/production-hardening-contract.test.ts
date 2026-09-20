@@ -37,6 +37,13 @@ describe("production hardening contracts", () => {
     expect(intent).not.toContain('claim_token, exc)');
   });
 
+  it("never re-submits an Odoo outbox row after it has a remote Gateway job id", () => {
+    const printJob = read("odoo_addons/print_gateway/models/print_job.py");
+    expect(printJob).toContain("if job.gateway_job_id:");
+    expect(printJob).toContain("Never POST the same row again");
+    expect(printJob).toContain("Explicit reprint actions");
+  });
+
   it("keeps the API body guard stream-safe without request cloning", () => {
     const server = read("server.ts");
     const guard = read("src/server/request-guard.ts");
