@@ -294,7 +294,6 @@ func TestBeginPrintRejectsDifferentClaimTokenWhilePrinting(t *testing.T) {
 	}
 }
 
-
 func TestBeginPrintRejectsTokenedClaimAgainstLegacyTokenlessPrinting(t *testing.T) {
 	q := newTestQueue(t)
 	if err := q.Push("legacy-printing", "printer-1", []byte("payload")); err != nil {
