@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Ban, Copy, KeyRound, Shield, Trash2 } from "lucide-react";
-import { Button, Card, CardHeader, Input, Field, StatusBadge } from "../../components/ui";
+import { AlertTriangle, Ban, Copy, KeyRound, Shield, Trash2, X } from "lucide-react";
+import { Button, Card, CardHeader, Input, Field, Modal, StatusBadge } from "../../components/ui";
 import { copyTextToClipboard } from "../../lib/clipboard";
 
 type ApiKey = {
@@ -31,6 +31,9 @@ export default function ApiKeysPage() {
   const [copied, setCopied] = useState(false);
   const [gatewayConfig, setGatewayConfig] = useState<GatewayConfigurationState | null>(null);
   const [gatewayConfigError, setGatewayConfigError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<
+    { kind: "revoke" | "remove"; id: string; name: string } | null
+  >(null);
 
   async function load() {
     const response = await fetch("/api/odoo/keys", { cache: "no-store", credentials: "include" });
@@ -143,8 +146,10 @@ export default function ApiKeysPage() {
     }
   }
 
-  async function revoke(id: string) {
-    if (!window.confirm("Revoke this API key? Odoo will immediately lose access, and this cannot be undone.")) return;
+  async function confirmAction() {
+    if (!pendingAction) return;
+    const action = pendingAction;
+    setPendingAction(null);
     setBusy(true);
     setError(null);
     try {
@@ -152,32 +157,21 @@ export default function ApiKeysPage() {
         method: "DELETE",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ id }),
+        body: JSON.stringify(
+          action.kind === "revoke"
+            ? { id: action.id }
+            : { id: action.id, remove: true },
+        ),
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Unable to revoke API key.");
-      setRawKey(null);
-      setKeys(await load());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeKey(id: string) {
-    if (!window.confirm("Permanently remove this revoked API key? This cannot be undone. Keys with print-job history cannot be removed.")) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/odoo/keys", {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ id, remove: true }),
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Unable to remove API key.");
+      if (!response.ok) {
+        throw new Error(
+          body.error ??
+            (action.kind === "revoke"
+              ? "Unable to revoke API key."
+              : "Unable to remove API key."),
+        );
+      }
       setRawKey(null);
       setKeys(await load());
     } catch (err) {
@@ -218,8 +212,8 @@ export default function ApiKeysPage() {
 
       <Card className="mb-6">
         <CardHeader
-          title="Gateway Configuration"
-          subtitle="Live status from the Odoo Gateway Configuration checkbox."
+          title="Odoo integration"
+          subtitle="This status reflects the activation state synchronized from Odoo."
           icon={<Shield className="h-5 w-5 text-brand" />}
         />
         <div className="flex flex-col gap-3 px-6 pb-6 sm:flex-row sm:items-center sm:justify-between">
@@ -231,11 +225,11 @@ export default function ApiKeysPage() {
                   label={gatewayConfig.enabled ? "Active" : "Inactive"}
                 />
               ) : (
-                <StatusBadge tone="neutral" label="Sync pending" />
+                <StatusBadge tone="neutral" label="Checking Odoo state…" />
               )}
             </div>
             <p className="mt-2 text-sm text-ink-3">
-              Odoo is the source of truth. Changing the checkbox in Odoo updates this status automatically.
+              Odoo controls whether printing is enabled. API-key validity is shown separately below.
             </p>
             {gatewayConfig?.updatedAt && (
               <p className="mt-1 text-xs text-ink-4">
@@ -283,20 +277,95 @@ export default function ApiKeysPage() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="truncate font-semibold text-ink">{item.name}</span>
-                  <StatusBadge tone={item.revokedAt ? "bad" : "ok"} label={item.revokedAt ? "Revoked" : "Active"} />
+                  <StatusBadge
+                    tone={item.revokedAt ? "bad" : "ok"}
+                    label={item.revokedAt ? "Revoked credential" : "Valid credential"}
+                  />
                 </div>
                 <div className="mt-1 text-xs text-ink-3">Created {new Date(item.createdAt).toLocaleString()} · Last used {item.lastUsedAt ? new Date(item.lastUsedAt).toLocaleString() : "Never"}</div>
                 <div className="mt-1 font-mono text-[11px] text-ink-3">{item.id}</div>
               </div>
               {!item.revokedAt ? (
-                <Button type="button" variant="secondary" onClick={() => revoke(item.id)} disabled={busy} icon={<Ban className="h-4 w-4" />}>Revoke</Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setPendingAction({ kind: "revoke", id: item.id, name: item.name })}
+                  disabled={busy}
+                  icon={<Ban className="h-4 w-4" />}
+                >
+                  Revoke
+                </Button>
               ) : (
-                <Button type="button" variant="danger" onClick={() => removeKey(item.id)} disabled={busy} icon={<Trash2 className="h-4 w-4" />}>Remove</Button>
+                <Button
+                  type="button"
+                  variant="danger"
+                  onClick={() => setPendingAction({ kind: "remove", id: item.id, name: item.name })}
+                  disabled={busy}
+                  icon={<Trash2 className="h-4 w-4" />}
+                >
+                  Remove
+                </Button>
               )}
             </div>
           ))}
         </div>
       </Card>
+    <Modal
+      open={pendingAction !== null}
+      onClose={() => {
+        if (!busy) setPendingAction(null);
+      }}
+      title={pendingAction?.kind === "revoke" ? "Revoke API key?" : "Remove revoked API key?"}
+      description={
+        pendingAction?.kind === "revoke"
+          ? "Odoo will lose access immediately. The key stays in the audit history as revoked."
+          : "This permanently removes an already-revoked credential. Existing print-job history prevents removal when the key is referenced."
+      }
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setPendingAction(null)}
+            disabled={busy}
+            icon={<X className="h-4 w-4" />}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant={pendingAction?.kind === "revoke" ? "secondary" : "danger"}
+            onClick={() => void confirmAction()}
+            loading={busy}
+            disabled={busy}
+            icon={
+              pendingAction?.kind === "revoke"
+                ? <Ban className="h-4 w-4" />
+                : <Trash2 className="h-4 w-4" />
+            }
+          >
+            {pendingAction?.kind === "revoke" ? "Revoke key" : "Remove key"}
+          </Button>
+        </>
+      }
+    >
+      <div className="rounded-xl border border-edge bg-surface-2 px-4 py-4">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warn-bg text-warn">
+            <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-ink">{pendingAction?.name}</p>
+            <p className="mt-1 text-sm leading-6 text-ink-3">
+              {pendingAction?.kind === "revoke"
+                ? "Only the credential is affected. Your Odoo integration setting remains controlled by Odoo."
+                : "This action cannot be undone and is separate from the Odoo integration enabled/disabled state."}
+            </p>
+          </div>
+        </div>
+      </div>
+    </Modal>
+
     </main>
   );
 }
