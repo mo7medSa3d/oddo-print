@@ -49,7 +49,7 @@ export async function GET(req: Request) {
  * a stale state after a newer toggle has already reached the Gateway.
  */
 export async function PATCH(req: Request) {
-  const apiKey = await validateOdooKey(req);
+  const apiKey = await validateOdooKey(req, { requireIntegrationEnabled: false });
   if (!apiKey) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   let body: unknown;
