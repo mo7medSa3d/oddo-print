@@ -11,6 +11,7 @@ use crate::logging;
 
 const SERVICE_NAME: &str = "YasserAgent";
 const BACKGROUND_PID_FILE: &str = "agent.pid";
+const BACKGROUND_PID_META_FILE: &str = "agent.pid.meta";
 const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const MAX_COMMAND_OUTPUT_BYTES: usize = 64 * 1024;
 
@@ -255,21 +256,27 @@ struct BackgroundProcessRecord {
 
 #[cfg(windows)]
 fn background_process_record_path() -> Result<PathBuf, String> {
-    background_pid_path()
+    paths::ensure_agent_data_root()
+        .map(|root| root.join(BACKGROUND_PID_META_FILE))
+        .map_err(|e| format!("create agent data dir: {e}"))
 }
 
 #[cfg(windows)]
 fn read_background_record() -> Option<BackgroundProcessRecord> {
-    let path = background_process_record_path().ok()?;
-    let raw = std::fs::read_to_string(path).ok()?;
-    // Older releases stored only the PID. Upgrade that record in memory by
-    // reading the current process identity now; the later ownership check
-    // still requires the executable path to match the bundled agent.
-    if let Ok(pid) = raw.trim().parse::<u32>() {
+    let pid_path = background_pid_path().ok()?;
+    let raw_pid = std::fs::read_to_string(pid_path).ok()?;
+    let pid = raw_pid.trim().parse::<u32>().ok()?;
+
+    // The legacy contract remains agent.pid = plain decimal PID. The identity
+    // metadata is optional for backward compatibility; when absent (old
+    // installs) reconstruct it from the live process before any termination.
+    let meta_path = background_process_record_path().ok()?;
+    let raw = std::fs::read_to_string(meta_path).ok();
+    let Some(raw) = raw else {
         let (image, creation_time) = process_identity(pid).ok()?;
         return Some(BackgroundProcessRecord { pid, creation_time, image });
-    }
-    let mut pid = None;
+    };
+
     let mut creation_time = None;
     let mut image = None;
     for line in raw.lines() {
@@ -282,7 +289,7 @@ fn read_background_record() -> Option<BackgroundProcessRecord> {
         }
     }
     Some(BackgroundProcessRecord {
-        pid: pid?,
+        pid,
         creation_time: creation_time?,
         image: image?.trim().to_string(),
     })
@@ -290,6 +297,9 @@ fn read_background_record() -> Option<BackgroundProcessRecord> {
 
 #[cfg(windows)]
 fn clear_background_pid() {
+    if let Ok(path) = background_pid_path() {
+        let _ = std::fs::remove_file(path);
+    }
     if let Ok(path) = background_process_record_path() {
         let _ = std::fs::remove_file(path);
     }
@@ -491,20 +501,35 @@ fn background_record_matches(app: &tauri::AppHandle, record: &BackgroundProcessR
 
 #[cfg(windows)]
 fn write_background_pid(pid: u32) -> Result<(), String> {
-    let path = background_process_record_path()?;
+    let pid_path = background_pid_path()?;
+    let meta_path = background_process_record_path()?;
     let (image, creation_time) = process_identity(pid)?;
-    let tmp = path.with_extension("tmp");
     let image = std::fs::canonicalize(&image).unwrap_or_else(|_| PathBuf::from(&image));
-    let contents = format!(
-        "pid={}\ncreation_time={}\nimage={}\n",
-        pid,
+
+    let pid_tmp = pid_path.with_extension("tmp");
+    std::fs::write(&pid_tmp, pid.to_string())
+        .map_err(|e| pid_permission_guidance(&pid_tmp, "write", &e))?;
+    if let Err(e) = std::fs::rename(&pid_tmp, &pid_path) {
+        let _ = std::fs::remove_file(&pid_tmp);
+        return Err(pid_permission_guidance(&pid_path, "commit", &e));
+    }
+
+    let meta_tmp = meta_path.with_extension("tmp");
+    let meta_contents = format!(
+        "creation_time={}\nimage={}\n",
         creation_time,
         image.display()
     );
-    std::fs::write(&tmp, contents)
-        .map_err(|e| pid_permission_guidance(&tmp, "write", &e))?;
-    std::fs::rename(&tmp, &path)
-        .map_err(|e| pid_permission_guidance(&path, "commit", &e))?;
+    if let Err(e) = std::fs::write(&meta_tmp, meta_contents)
+        .map_err(|e| pid_permission_guidance(&meta_tmp, "write", &e))
+        .and_then(|_| {
+            std::fs::rename(&meta_tmp, &meta_path)
+                .map_err(|e| pid_permission_guidance(&meta_path, "commit", &e))
+        }) {
+        let _ = std::fs::remove_file(&meta_tmp);
+        let _ = std::fs::remove_file(&pid_path);
+        return Err(e);
+    }
     Ok(())
 }
 
