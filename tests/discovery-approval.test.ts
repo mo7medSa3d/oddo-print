@@ -194,7 +194,7 @@ suite("discovery trust and approval flow", () => {
       );
       const [report, cancel] = await Promise.all([reportPromise, cancelPromise]);
 
-      expect([[report.status, cancel.status], [cancel.status, report.status]]).toContainEqual([report.status, cancel.status]);
+      expect([[200, 409], [409, 200]]).toContainEqual([report.status, cancel.status]);
       const session = await pool().query(`SELECT status FROM discovery_sessions WHERE id = $1`, [discoveryId]);
       const devices = await pool().query(`SELECT count(*)::int AS count FROM discovered_devices WHERE discovery_id = $1`, [discoveryId]);
 
