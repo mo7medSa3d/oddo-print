@@ -20,7 +20,8 @@ const secretStoreKey = "agent_secret"
 
 type Config struct {
 	Server struct {
-		URL string `yaml:"url"`
+		URL               string `yaml:"url"`
+		AllowInsecureHTTP bool   `yaml:"allow_insecure_http,omitempty"`
 	} `yaml:"server"`
 	Agent struct {
 		ID                string `yaml:"id"`
@@ -56,6 +57,10 @@ func (c *Config) ReprintAfterCrashEnabled() bool {
 }
 
 func validateServerURL(raw string) error {
+	return validateServerURLWithOptIn(raw, false)
+}
+
+func validateServerURLWithOptIn(raw string, allowInsecureHTTP bool) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
 		return fmt.Errorf("server.url invalid: %w", err)
@@ -72,7 +77,7 @@ func validateServerURL(raw string) error {
 	case "https":
 		return nil
 	case "http":
-		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
+		if allowInsecureHTTP || os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
 			return nil
 		}
 		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASSER_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development")
@@ -273,7 +278,7 @@ func DefaultConfigPath() string {
 
 func (c *Config) Validate() error {
 	if c.Server.URL != "" {
-		if err := validateServerURL(c.Server.URL); err != nil {
+		if err := validateServerURLWithOptIn(c.Server.URL, c.Server.AllowInsecureHTTP); err != nil {
 			return err
 		}
 	}
