@@ -404,3 +404,37 @@ func TestDesiredStateUpdatePreservesObservedProtocolCapabilities(t *testing.T) {
 		t.Fatalf("desired-state update dropped observed capabilities, got %#v", pc.Capabilities)
 	}
 }
+
+func TestPrinterStatusPayloadPersistsObservedCapabilities(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	a.desiredStateSynced = true
+	const id = "printer-heartbeat-capabilities"
+	desired := testDesiredPrinter(id, 1, "active")
+	a.desiredStates[id] = desiredPrinterRecord{Desired: desired}
+	a.printers[id] = &fakePrinter{status: "online"}
+	a.printerConfigs[id] = config.PrinterConfig{
+		ID: id, Name: "Receipt", Type: "network", Endpoint: "192.0.2.10:9100", Protocol: "raw",
+		Capabilities: map[string]interface{}{"supported_protocols": []string{"zpl"}},
+	}
+	a.gatewayOwned[id] = struct{}{}
+
+	_ = a.printerStatusPayload()
+
+	row := a.desiredStates[id]
+	if !row.ObservedSupportedProtocolsKnown {
+		t.Fatal("heartbeat did not record observed supported_protocols")
+	}
+	if len(row.ObservedSupportedProtocols) != 1 || row.ObservedSupportedProtocols[0] != "zpl" {
+		t.Fatalf("unexpected observed capabilities: %#v", row.ObservedSupportedProtocols)
+	}
+
+	b := newDesiredStateTestAgent(t)
+	b.desiredStatePath = a.desiredStatePath
+	if err := b.loadDesiredState(); err != nil {
+		t.Fatalf("loadDesiredState: %v", err)
+	}
+	persisted := b.desiredStates[id]
+	if !persisted.ObservedSupportedProtocolsKnown || len(persisted.ObservedSupportedProtocols) != 1 || persisted.ObservedSupportedProtocols[0] != "zpl" {
+		t.Fatalf("heartbeat capability observation was not persisted: %#v", persisted)
+	}
+}
