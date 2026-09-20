@@ -27,9 +27,12 @@ pub async fn cleanup_local_jobs(app: tauri::AppHandle) -> Result<u64, String> {
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x0800_0000);
         }
-        let output = cmd
-            .output()
-            .map_err(|e| format!("failed to run yasser-agent-cli.exe: {e}"))?;
+        let output = agent::run_bounded_command(
+            cmd,
+            std::time::Duration::from_secs(30),
+            64 * 1024,
+            64 * 1024,
+        )?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
