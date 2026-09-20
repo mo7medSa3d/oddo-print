@@ -655,13 +655,15 @@ class PrintGatewayConfig(models.Model):
                 try:
                     gateway_url = config._gateway_base(for_request=True)
                     api_key = config._gateway_api_key_plaintext()
-                    config._sync_enabled_state_to_gateway(
+                    revision = int(config.enabled_sync_revision or 0)
+                    if config._sync_enabled_state_to_gateway(
                         gateway_url,
                         api_key,
                         self.env.cr.dbname,
-                        int(config.enabled_sync_revision or 0),
+                        revision,
                         bool(config.enabled),
-                    )
+                    ) and config.pending_disable_gateway_url:
+                        config._complete_gateway_migration(revision)
                 except (ValidationError, requests.RequestException, ValueError) as exc:
                     message = str(exc)[:4000]
                     config._persist_enabled_sync_result(
