@@ -29,6 +29,7 @@ import { getAutostart, setAutostart } from "../lib/ipc";
 
 export function SettingsPage({ s }: { s: DesktopState }) {
   const anyStatus = s.agentStatus as Record<string, unknown> | null;
+  const [autostartBusy, setAutostartBusy] = React.useState(false);
 
   const paths: [string, string][] = s.runtimePaths
     ? [
@@ -127,6 +128,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
               <Button
                 variant="primary"
                 onClick={s.startAgent}
+                disabled={s.busy}
                 icon={<Play className="h-[18px] w-[18px]" />}
               >
                 Start
@@ -134,6 +136,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
               <Button
                 variant="secondary"
                 onClick={s.requestStopAgent}
+                disabled={s.busy}
                 icon={<Square className="h-[18px] w-[18px]" />}
               >
                 Stop
@@ -141,6 +144,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
               <Button
                 variant="ghost"
                 onClick={s.restartAgent}
+                disabled={s.busy}
                 icon={<RotateCcw className="h-[18px] w-[18px]" />}
               >
                 Restart
@@ -162,22 +166,42 @@ export function SettingsPage({ s }: { s: DesktopState }) {
               <button
                 role="switch"
                 aria-checked={!!s.autostart}
-                aria-busy={s.autostart === null}
-                disabled={s.autostart === null}
+                aria-busy={s.autostart === null || autostartBusy}
+                disabled={s.autostart === null || autostartBusy}
                 aria-label="Start agent with Windows"
-                title={s.autostart === null ? "Checking current setting..." : undefined}
+                title={
+                  s.autostart === null
+                    ? "Checking current setting..."
+                    : autostartBusy
+                      ? "Saving startup preference..."
+                      : undefined
+                }
                 onClick={async () => {
-                  if (s.autostart === null) return;
+                  if (s.autostart === null || autostartBusy) return;
                   const next = !s.autostart;
-                  const res = await setAutostart(next);
-                  s.setMsg({ text: next ? "Launch at sign-in turned on." : "Launch at sign-in turned off.", type: "success" });
-                  const st = await getAutostart();
-                  s.setAutostartState(st.enabled);
+                  setAutostartBusy(true);
+                  try {
+                    await setAutostart(next);
+                    const st = await getAutostart();
+                    s.setAutostartState(st.enabled);
+                    s.setMsg({
+                      text: st.enabled ? "Launch at sign-in is on." : "Launch at sign-in is off.",
+                      type: "success",
+                    });
+                  } catch (error) {
+                    s.setMsg({
+                      text: friendlyPrinterError(
+                        error instanceof Error ? error.message : "Could not update the startup preference."
+                      ),
+                      type: "error",
+                    });
+                  } finally {
+                    setAutostartBusy(false);
+                  }
                 }}
                 className={`relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] ${
                   s.autostart ? "bg-brand" : "bg-surface-3"
-                }`}
-              >
+                }`}              >
                 <span
                   className={`inline-block h-5 w-5 transform rounded-full bg-surface shadow-xs transition-transform ${
                     s.autostart ? "translate-x-6" : "translate-x-1"
