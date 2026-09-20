@@ -85,8 +85,10 @@ describe("production fixes contracts (2026-09)", () => {
 
   it("Odoo cron reconciliation is bounded and uses the current runtime job API", () => {
     const jobs = read("odoo_addons/print_gateway/models/print_job.py");
-    expect(jobs).toContain("limit=50");
-    expect(jobs).toContain("limit=100");
+    // The implementation uses SQL LIMIT clauses rather than the old ORM
+    // domain/limit spelling. The contract is the bounded batch size itself.
+    expect(jobs).toContain("LIMIT 50");
+    expect(jobs).toContain("LIMIT 100");
     expect(jobs).toContain("/api/print/jobs");
     expect(jobs).toContain("job.gateway_job_id");
     expect(jobs).not.toContain("/api/odoo/sync");
