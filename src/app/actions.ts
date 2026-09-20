@@ -156,11 +156,11 @@ export async function createPrintJob(printerId: string, payload: unknown) {
 /**
  * Deliberate operator reprint of an ORIGINAL document after a terminal,
  * possibly-printed outcome. This re-queues the job's stored payload — it is
- * NOT a test page — under a deterministic derived idempotency key
- * ("gw-reprint:{jobId}:{n}") so a double-click cannot create two reprints:
- * concurrent attempts compute the same key and PostgreSQL's idempotency
- * unique index collapses them. Like Odoo's action_force_reprint, physical
- * reprints of unknown outcomes are always an explicit operator action.
+ * NOT a test page. Concurrent requests for the same original job converge
+ * on one active reprint inside the Gateway enqueue transaction; once that
+ * reprint reaches a terminal state, a later explicit request creates a new
+ * reprint sequence. Like Odoo's action_force_reprint, physical reprints of
+ * unknown outcomes are always an explicit operator action.
  */
 export async function reprintJob(jobId: string) {
   const manager = await requireManager();
