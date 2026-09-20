@@ -85,8 +85,10 @@ describe("production fixes contracts (2026-09)", () => {
 
   it("Odoo cron reconciliation is bounded and uses the current runtime job API", () => {
     const jobs = read("odoo_addons/print_gateway/models/print_job.py");
-    expect(jobs).toContain("limit=50");
-    expect(jobs).toContain("limit=100");
+    // The implementation uses SQL LIMIT clauses rather than the old ORM
+    // domain/limit spelling. The contract is the bounded batch size itself.
+    expect(jobs).toContain("LIMIT 50");
+    expect(jobs).toContain("LIMIT 100");
     expect(jobs).toContain("/api/print/jobs");
     expect(jobs).toContain("job.gateway_job_id");
     expect(jobs).not.toContain("/api/odoo/sync");
@@ -107,11 +109,24 @@ describe("production fixes contracts (2026-09)", () => {
     expect(server).not.toContain("ALLOW_PLAINTEXT_MANAGER_PASSWORD=1 in production: the manager password is held in the environment");
   });
 
-  it("Tauri background stop never uses global taskkill by image name", () => {
+  it("active local execution never adopts a newer Gateway claim token", () => {
+    const agent = read("agent/internal/agent/agent.go");
+    const duplicateBlock = agent.slice(
+      agent.indexOf("if _, dup := a.inFlight[jobID]; dup {"),
+      agent.indexOf("pendingPrinter := \"\",", agent.indexOf("if _, dup := a.inFlight[jobID]; dup {")),
+    );
+    expect(duplicateBlock).toContain("duplicate delivery ignored without changing the active claim token");
+    expect(duplicateBlock).not.toContain("a.inFlightTokens[jobID] = tok");
+  });
+
+  it("Tauri background stop uses exact recorded PID and re-verifies process identity", () => {
     const agent = read("src-tauri/src/agent.rs");
-    expect(agent).toContain("const BACKGROUND_PID_FILE: &str = \"agent.pid\";");
-    expect(agent).toContain("taskkill_pid(pid, false)");
-    expect(agent).toContain("taskkill_pid(pid, true)");
+    expect(agent).toContain('const BACKGROUND_PID_FILE: &str = "agent.pid";');
+    expect(agent).toContain("fn taskkill_pid(pid: u32, force: bool)");
+    expect(agent).toContain('cmd.args(["/PID", &pid_arg, "/T"]);');
+    expect(agent).toContain('cmd.args(["/PID", &pid_arg, "/T", "/F"]);');
+    expect(agent).toContain("background_record_matches(app, &record)");
+    expect(agent).toContain("terminate_owned_background_process(app, &record)");
     expect(agent).not.toContain('.args(["/IM", "OdooPrintAgent.exe"])');
     expect(agent).not.toContain('.args(["/F", "/IM", "OdooPrintAgent.exe"])');
   });
