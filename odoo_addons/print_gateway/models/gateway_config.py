@@ -509,6 +509,26 @@ class PrintGatewayConfig(models.Model):
 
         return result
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        self._check_admin()
+        normalized = []
+        for original in vals_list:
+            vals = dict(original)
+            vals.setdefault("company_id", (self.env.company.parent_id or self.env.company).id)
+            self._validate_gateway_url(vals.get("gateway_url"))
+            if vals.get("gateway_api_key"):
+                try:
+                    vals["gateway_api_key"] = self._protected_gateway_api_key(vals["gateway_api_key"])
+                except (CredentialKeyUnavailable, CredentialDecryptError, ValueError) as exc:
+                    raise ValidationError(
+                        _("Gateway credential protection is unavailable. Configure the deployment-managed credential encryption key before creating a Gateway configuration.")
+                    ) from exc
+            normalized.append(vals)
+        records = super().create(normalized)
+        records._queue_enabled_state_sync()
+        return records
+
     def unlink(self):
         self._check_admin()
         return super().unlink()
