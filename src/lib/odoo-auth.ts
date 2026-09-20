@@ -39,7 +39,13 @@ export function isOdooKeyAllowedForDocumentType(
   return allowed.some((value) => normalizeDocumentType(value) === normalized);
 }
 
-export async function validateOdooKey(req: Request) {
+export async function validateOdooKey(
+  req: Request,
+  options: {
+    requireIntegrationEnabled?: boolean;
+    requireActiveTenant?: boolean;
+  } = {},
+) {
   // Odoo Gateway authentication is based on the Odoo installation API key.
   // The Odoo database name is not used as an authentication requirement:
   // X-Odoo-Database may be sent for informational purposes and is ignored.
@@ -55,21 +61,23 @@ export async function validateOdooKey(req: Request) {
   if (!row || row.revokedAt || !timingSafeEqualStr(row.hashedKey, hashed)) return null;
 
   await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(and(eq(apiKeys.id, row.id), eq(apiKeys.tenantId, row.tenantId))).catch(() => undefined);
-  // Tenant lifecycle gate: suspended/deleted tenants cannot submit jobs via Odoo.
-  try {
-    await requireActiveTenant(row.tenantId);
-  } catch {
-    return null;
+  // Tenant lifecycle and integration activation are separate state
+  // domains. Configuration/health probes may authenticate with a valid key
+  // while the integration is disabled, so they can recover safely.
+  if (options.requireActiveTenant !== false) {
+    try {
+      await requireActiveTenant(row.tenantId);
+    } catch {
+      return null;
+    }
   }
-  // Odoo integration gate: the tenant may have the integration disabled via the
-  // /api/odoo/configuration toggle while still having valid, un-revoked keys.
-  // Treat a disabled integration as auth failure (null → 401) to avoid leaking
-  // whether the rejection is key-based or integration-based.
-  const tenantRow = await db.query.tenants.findFirst({
-    where: eq(tenants.id, row.tenantId),
-    columns: { odooEnabled: true },
-  });
-  if (!tenantRow?.odooEnabled) return null;
+  if (options.requireIntegrationEnabled !== false) {
+    const tenantRow = await db.query.tenants.findFirst({
+      where: eq(tenants.id, row.tenantId),
+      columns: { odooEnabled: true },
+    });
+    if (!tenantRow?.odooEnabled) return null;
+  }
 
   return row;
 }
