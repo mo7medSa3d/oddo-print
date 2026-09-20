@@ -46,8 +46,8 @@ export function normalizeGatewayUrl(raw: string): string {
       throw new Error("Gateway URL cannot include embedded credentials");
     }
     // The packaged Tauri app enforces the real transport policy in Rust.
-    // The HTTP-test branch intentionally allows the draft through here so the
-    // Rust boundary can apply the explicit YASSER_AGENT_ALLOW_INSECURE_HTTP test gate.
+    // The packaged desktop and Rust backend both enforce the same transport policy:
+    // remote Gateways must use HTTPS; HTTP is accepted only for local development.
     if (parsed.search || parsed.hash) {
       throw new Error("Gateway URL cannot include query strings or fragments");
     }
@@ -160,10 +160,14 @@ async function gatewayConsoleRequest(
   if (!isTauri) {
     return gatewayRequest(base, path, method, headers, body);
   }
-  const responseBody = await invoke<string>("gateway_agent_request", {
+  const responseEnvelope = await invoke<string>("gateway_agent_request", {
     args: { path, method, body: body ?? null },
   });
-  return { status: 200, body: responseBody };
+  const response = JSON.parse(responseEnvelope) as Partial<GatewayResponse>;
+  if (typeof response.status !== "number" || typeof response.body !== "string") {
+    throw new Error("Invalid Gateway response envelope");
+  }
+  return { status: response.status, body: response.body };
 }
 
 export async function loginManager(
@@ -379,27 +383,48 @@ export async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterI
     throw err;
   }
   const rows = JSON.parse(body) as Array<Record<string, unknown>>;
-  return rows.map((row) => ({
-    ...row,
-    enabled: row.lifecycle === "active",
-  })) as unknown as PrinterInfo[];
+  return rows.map((row) => {
+    const config = row.config && typeof row.config === "object"
+      ? row.config as Record<string, unknown>
+      : {};
+    const numberOrNull = (value: unknown): number | null =>
+      typeof value === "number" && Number.isFinite(value) ? value : null;
+    const stringOrUndefined = (value: unknown): string | undefined =>
+      typeof value === "string" && value.trim() ? value : undefined;
+    return {
+      ...row,
+      enabled: row.lifecycle === "active",
+      endpoint: stringOrUndefined(row.endpoint) ?? stringOrUndefined(config.address),
+      spooler_name: stringOrUndefined(row.spooler_name) ?? stringOrUndefined(config.spooler_name),
+      network_address: stringOrUndefined(row.network_address) ?? stringOrUndefined(config.ip),
+      port: numberOrNull(row.port) ?? numberOrNull(config.port),
+      usbVid: row.usbVid != null ? String(row.usbVid) : config.vid != null ? String(config.vid) : undefined,
+      usbPid: row.usbPid != null ? String(row.usbPid) : config.pid != null ? String(config.pid) : undefined,
+      usbSerial: row.usbSerial != null ? String(row.usbSerial) : config.serial != null ? String(config.serial) : undefined,
+    };
+  }) as unknown as PrinterInfo[];
 }
 
-function networkConfigFromEndpoint(endpoint: string): { ip: string; port: number } {
+function networkConfigFromEndpoint(endpoint: string, protocol = ""): { ip: string; port: number } {
   const raw = endpoint.trim();
+  const normalizedProtocol = protocol.trim().toLowerCase();
+  const allowedPorts = normalizedProtocol === "ipp" ? new Set([80, 443, 631]) : new Set([9100]);
+  const portError = normalizedProtocol === "ipp"
+    ? "Network IPP printer endpoint port must be 80, 443, or 631"
+    : "Network printer endpoint port must be 9100";
   if (raw.startsWith("[")) {
     const close = raw.indexOf("]");
     if (close <= 1 || raw.charAt(close + 1) !== ":") throw new Error("Network printer endpoint must be host:9100");
     const ip = raw.slice(1, close);
     const port = Number(raw.slice(close + 2));
-    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Network printer endpoint port is invalid");
+    if (!Number.isInteger(port) || !allowedPorts.has(port)) throw new Error(portError);
     return { ip, port };
   }
   const idx = raw.lastIndexOf(":");
   if (idx <= 0) throw new Error("Network printer endpoint must be host:port");
   const ip = raw.slice(0, idx);
   const port = Number(raw.slice(idx + 1));
-  if (!ip || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Network printer endpoint is invalid");
+  if (!ip || !Number.isInteger(port) || !allowedPorts.has(port)) throw new Error(portError);
   return { ip, port };
 }
 
@@ -412,7 +437,7 @@ export async function registerGatewayPrinter(
   const connectionType = req.connectionType.toLowerCase();
 
   if (connectionType === "network") {
-    const network = networkConfigFromEndpoint(req.endpoint || "");
+    const network = networkConfigFromEndpoint(req.endpoint || "", req.protocol || "");
     config.ip = network.ip;
     config.port = network.port;
   } else if (connectionType === "spooler") {
@@ -460,7 +485,9 @@ export async function updateGatewayPrinter(
 ): Promise<PrinterInfo> {
   const base = normalizeGatewayUrl(gatewayUrl);
   const headers = { "Content-Type": "application/json", ...(await managerGatewayHeaders()) };
-  const { status, body } = await gatewayConsoleRequest(
+  // Printer desired-state mutations are Manager-only at the Gateway HTTP boundary.
+  // Use the Rust manager transport, not the Agent console allowlist.
+  const { status, body } = await gatewayRequest(
     base,
     "/api/printers/" + encodeURIComponent(printerId),
     "PATCH",
@@ -489,8 +516,25 @@ export function discoverPrinters(): Promise<DiscoverResult> {
   return invoke<DiscoverResult>("discover_printers");
 }
 
-export function testPrinter(printerId: string): Promise<string> {
-  return invoke<string>("test_printer", { printerId });
+export async function testGatewayPrinter(
+  gatewayUrl: string,
+  printerId: string,
+): Promise<Record<string, unknown>> {
+  const base = normalizeGatewayUrl(gatewayUrl);
+  const headers = await managerGatewayHeaders();
+  const { status, body } = await gatewayConsoleRequest(
+    base,
+    "/api/printers/" + encodeURIComponent(printerId) + "/test-print",
+    "POST",
+    headers,
+  );
+  if (status === 401 || status === 403) await clearManagerSession();
+  if (status < 200 || status >= 300) {
+    const err: Error & { status?: number } = new Error(body || "Gateway test print failed (" + status + ")");
+    err.status = status;
+    throw err;
+  }
+  return JSON.parse(body) as Record<string, unknown>;
 }
 
 export function cleanupLocalJobs(): Promise<number> {
