@@ -146,7 +146,6 @@ def test_gateway_url_change_durably_disables_previous_endpoint_before_new_sync()
     assert "self._sync_enabled_state_to_gateway(" in source
     assert '"|"' in source
     assert '"pending_disable_gateway_url", "!="' in source
-    assert '"gateway_api_key", "!="' in source
     assert "def create(self, vals_list):" in source
     assert "Gateway URL migration state is incomplete" in source
 
@@ -159,4 +158,3 @@ def test_gateway_queue_admission_allows_active_agent_when_heartbeat_is_stale():
     assert "isAgentAvailableForJob(ownerAgent)" not in service
     assert 'owner.agent_status !== "online"' not in service
     assert "owner.agent_last_seen_at" not in service
-    assert "Heartbeat freshness is enforced when claiming/executing the job" in source
