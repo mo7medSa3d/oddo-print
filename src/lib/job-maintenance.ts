@@ -35,7 +35,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       delivered_at=NULL, acked_at=NULL,
       retries=retries+1, updated_at=now()
     WHERE status='claimed' AND delivered_at IS NULL AND acked_at IS NULL
-      AND error <> 'DELIVERY_EVIDENCE_PENDING'
+      AND COALESCE(error, '') <> 'DELIVERY_EVIDENCE_PENDING'
       AND updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS})
       AND retries < ${MAX_RETRIES} AND expires_at > now() ${agentFilter}
     RETURNING id
@@ -69,7 +69,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
     UPDATE print_jobs SET status='failed',
       error='exceeded max retries after a stale claim (agent likely crashed or lost connection)', updated_at=now()
     WHERE status='claimed' AND delivered_at IS NULL AND acked_at IS NULL
-      AND error <> 'DELIVERY_EVIDENCE_PENDING'
+      AND COALESCE(error, '') <> 'DELIVERY_EVIDENCE_PENDING'
       AND updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS})
       AND retries >= ${MAX_RETRIES} ${agentFilter}
     RETURNING id
