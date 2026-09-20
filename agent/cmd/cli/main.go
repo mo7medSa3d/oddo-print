@@ -101,13 +101,23 @@ func validateServerURL(raw string) error {
 	if err != nil {
 		return fmt.Errorf("parse url: %w", err)
 	}
-	if u.Scheme != "https" && u.Scheme != "http" {
-		return fmt.Errorf("scheme must be https or http")
-	}
-	if u.Host == "" {
+	if u.Hostname() == "" {
 		return fmt.Errorf("host is required")
 	}
-	return nil
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("server URL must not contain credentials, query strings, or fragments")
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
+			return nil
+		}
+		return fmt.Errorf("server URL must use HTTPS; plain HTTP requires an explicit development-only insecure-HTTP opt-in")
+	default:
+		return fmt.Errorf("scheme must be https or http")
+	}
 }
 
 func handlePrintersSubcommand(args []string, defaultConfigPath string) {
