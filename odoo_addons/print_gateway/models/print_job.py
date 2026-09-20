@@ -1056,7 +1056,7 @@ class PrintGatewayJob(models.Model):
             values["completed_at"] = fields.Datetime.now()
         if status == "submitted" and job.status in ("claimed", "printing"):
             return True
-        if status == "success" and job.status == "failed" and str(values.get("last_error") or "").startsWith("LATE_SUCCESS:"):
+        if status == "success" and job.status == "failed" and str(values.get("last_error") or "").startswith("LATE_SUCCESS:"):
             self._apply_gateway_late_success(job, values)
         else:
             self._advance_status(job, status, values)
