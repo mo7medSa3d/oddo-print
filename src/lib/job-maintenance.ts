@@ -73,12 +73,9 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
 
   const exhaustedQueued = await db.execute(sql`
     UPDATE print_jobs SET status='failed',
-      error=CASE
-        WHEN retries >= ${MAX_RETRIES} THEN 'exceeded max retries before delivery'
-        ELSE 'exceeded max delivery attempts' END,
-      updated_at=now()
+      error='exceeded max retries before delivery', updated_at=now()
     WHERE status='queued' AND expires_at > now()
-      AND (retries >= ${MAX_RETRIES} OR delivery_attempts >= ${MAX_DELIVERY_ATTEMPTS}) ${agentFilter}
+      AND retries >= ${MAX_RETRIES} ${agentFilter}
     RETURNING id
   `);
 
