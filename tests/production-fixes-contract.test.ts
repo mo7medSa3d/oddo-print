@@ -147,7 +147,7 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
     expect(source).toContain("/api/printers/${encodeURIComponent(printerId)}/test-print");
     expect(source).toContain("response.ok");
     expect(source).toContain('credentials: "same-origin"');
-    expect(source).toContain('"Idempotency-Key": crypto.randomUUID()');
+    expect(source).toMatch(/Idempotency-Key.*generateIdempotencyKey|crypto\.randomUUID/);
     expect(source).toContain('testingPrinterId === printer.id');
     expect(source).toContain('"Sending…" : "Send Test Page"');
     expect(source).not.toContain("createTestPrintJob(printer.id)");

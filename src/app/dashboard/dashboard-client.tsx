@@ -61,6 +61,7 @@ import {
   effectivePrinterStatus,
 } from "../../shared/job-vocabulary";
 import { copyTextToClipboard } from "../../lib/clipboard";
+import { generateIdempotencyKey } from "../../lib/idempotency";
 import PrinterCapabilityMatrix from "../../components/PrinterCapabilityMatrix";
 import AgentHealthMatrix from "../../components/AgentHealthMatrix";
 import PrintCertificationWizard from "../../components/PrintCertificationWizard";
@@ -165,7 +166,7 @@ async function sendGatewayTestPage(printerId: string): Promise<{ jobId?: string;
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "Idempotency-Key": crypto.randomUUID(),
+      "Idempotency-Key": generateIdempotencyKey(),
     },
     credentials: "same-origin",
   });
@@ -1051,6 +1052,11 @@ export default function DashboardClient({
             </div>
 
             <div className="space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Job Timeline (Gateway→Spooler→Physical, claim redacted)</div>
+              {selectedJob && <JobTimeline jobId={selectedJob.id} />}
+            </div>
+
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Diagnostic Payload</span>
                 <CopyButton value={(() => { const p = selectedJob.payload ?? selectedJobPayload; return p === undefined ? "" : stringifyDiagnosticPayload(p); })()} label="Copy" />
@@ -1100,7 +1106,7 @@ export default function DashboardClient({
         <CardHeader title="Enterprise Observability" subtitle="Agent health, capability matrix, certification, timeline, spooler linking" icon={<Server className="h-4 w-4 text-brand" />} />
         <div className="space-y-6 px-5 pb-5">
           <div>
-            <h3 className="mb-2 text-sm font-semibold">Agent Health (ONLINE/DEGRADED/OFFLINE/STARTING/RECOVERING)</h3>
+            <h3 className="mb-2 text-sm font-semibold">Agent Health (ONLINE/DEGRADED/OFFLINE/STARTING — observed vs inferred)</h3>
             <AgentHealthMatrix />
           </div>
           <div>
