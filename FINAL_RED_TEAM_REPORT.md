@@ -729,22 +729,23 @@ Total: 65 files 441 passed, 29 skipped integration (no DB), 218 skipped total (l
 | Workflow | Commit | Status | Conclusion |
 |----------|--------|--------|------------|
 | CI (local) | arena branch HEAD | PASS | typecheck 0 errors lint 1 warning (existing) build 53 pages unit tests 65 files 441 PASS 29 integration skipped |
-| CI (GitHub) | 930c113 PR #28 | IN_PROGRESS (2026-09-20T22:22Z) | typecheck PASS, lint PASS, build PASS, unit tests PASS, odoo19 PASS, integration tests (PostgreSQL) in_progress, Go vet/race pending — must wait before claiming PASS |
-| Docker | 930c113 | SUCCESS | docker-build-runtime success |
-| Security and Resilience Gates | 930c113 | SUCCESS | supply-chain success, postgres-failure-injection success |
-| Build Windows Installer | 930c113 | IN_PROGRESS | build-windows in_progress at last poll |
+| CI (GitHub) | 70c19fa PR #28 | SUCCESS (2026-09-20T22:42Z) | CI success — typecheck PASS, lint PASS, build PASS, unit tests PASS, odoo19 PASS, integration tests PASS (PostgreSQL), Go vet PASS, Go tests PASS, Go race PASS — https://github.com/mo7medSa3d/oddo-print/actions/runs/35542015153 |
+| Docker | 70c19fa | SUCCESS | docker-build-runtime success — https://github.com/mo7medSa3d/oddo-print/actions/runs/35542015154 |
+| Security and Resilience Gates | 70c19fa | SUCCESS | supply-chain success, postgres-failure-injection success — https://github.com/mo7medSa3d/oddo-print/actions/runs/35542015126 |
+| Build Windows Installer | 70c19fa | SUCCESS | build-windows success — https://github.com/mo7medSa3d/oddo-print/actions/runs/35542015135 |
 
-**Previous report saying "No CI workflow run in sandbox" is outdated — GitHub Actions now running on same commit 930c113. Must wait for completion and handle any failure from logs, not local simulation.**
+**CI now SUCCESS on 70c19fa (all 4 workflows) after Math.random fix — https://github.com/mo7medSa3d/oddo-print/actions/runs/35542015153 — previous 'No CI workflow run' outdated. Must still handle any future failure from logs, not local simulation.**
 
 **Final SHA after Math.random fix**: new SHA after this commit (removes Math.random, throws explicit).
 
-**Accurate Conclusion (per review):**
+**Accurate Conclusion (per review, updated after CI success):**
 - Code / static / contract verification: PASS
-- Runtime integration verification: PARTIALLY BLOCKED (CI in_progress on 930c113, Odoo/Windows/Go/Tauri/Physical BLOCKED)
+- Runtime integration verification: PARTIALLY BLOCKED (CI SUCCESS on 70c19fa including integration tests, Odoo/Windows/Tauri/Physical still BLOCKED)
 - Physical printing: BLOCKED — only PASS after real print
-- CI: IN_PROGRESS — Docker success, Security success, CI and Build Windows in_progress, must wait
-- No PROVEN CORRECT / INTEGRATED claim until runtime and physical printing verified
-- No merge of PR #28 until CI completes, Math.random fixed (done), and final runtime verification for what can actually be run
+- CI: SUCCESS on 70c19fa — Docker success, Security success, CI success (integration + Go + odoo19), Build Windows success — all 4 workflows success at 2026-09-20T22:42Z
+- No PROVEN CORRECT / INTEGRATED claim until physical printing and Odoo/Windows runtime verified (mental simulation ≠ runtime proof)
+- Math.random fixed per review (CSPRNG-only explicit throw) — done in 70c19fa
+- PR #28 now has green CI, but still should NOT be considered fully integrated until physical printing and Odoo/Windows runtime smoke flow executed per review
 
 ---
 
