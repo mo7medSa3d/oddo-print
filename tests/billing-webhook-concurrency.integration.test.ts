@@ -1,10 +1,28 @@
-import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac } from "node:crypto";
 import { POST } from "../src/app/api/billing/webhook/route";
 import { db } from "../src/db";
 import { auditEvents, billingEvents, plans, tenantSubscriptions, tenants } from "../src/db/schema";
 import { eq } from "drizzle-orm";
 import { applyMigrations, closePool, hasTestDatabase, truncateAll } from "./helpers/pg";
+const { stripeRetrieveMock } = vi.hoisted(() => ({ stripeRetrieveMock: vi.fn() }));
+
+vi.mock("../src/lib/stripe", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/stripe")>();
+  return {
+    ...actual,
+    stripeRetrieve: stripeRetrieveMock,
+  };
+});
+
+stripeRetrieveMock.mockImplementation(async (path: string) => ({
+  id: decodeURIComponent(path.split("/").pop() ?? ""),
+  object: "subscription",
+  status: "active",
+  items: { data: [] },
+  metadata: {},
+}));
+
 import { nanoid } from "../src/lib/nanoid";
 
 const suite = describe.skipIf(!hasTestDatabase);
@@ -29,7 +47,7 @@ function requestFor(payload: string, timestamp: number): Request {
 
 suite("billing webhook concurrency", () => {
   beforeAll(async () => { await applyMigrations(); });
-  beforeEach(async () => { await truncateAll(); });
+  beforeEach(async () => { await truncateAll(); stripeRetrieveMock.mockClear(); });
   afterAll(async () => { await closePool(); });
 
   async function seed() {
