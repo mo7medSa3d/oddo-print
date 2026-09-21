@@ -34,24 +34,12 @@ describe("Odoo Gateway activation synchronization", () => {
   it("renders Gateway Configuration status from the Odoo-sourced state and refreshes it", () => {
     const page = read("src/app/api-keys/page.tsx");
     expect(page).toContain('fetch("/api/odoo/configuration"');
-<<<<<<< ours
-    expect(page).toContain("window.setInterval(loadGatewayConfiguration, 5000)");
-    expect(page).toContain('label={gatewayConfig.enabled ? "Enabled in Odoo" : "No active Odoo configuration"}');
-    expect(page).toContain("Removing Gateway Configuration in Odoo disables Odoo printing here.");
-    expect(page).toContain("credentials are separate.");
-||||||| base
-    expect(page).toContain("window.setInterval(loadGatewayConfiguration, 5000)");
-    expect(page).toContain('label={gatewayConfig.enabled ? "Enabled in Odoo" : "Disabled in Odoo"}');
-    expect(page).toContain("Odoo controls whether printing is enabled.");
-    expect(page).toContain("API credentials are managed separately.");
-=======
     expect(page).toContain("setInterval");
     // Professional concise labels — verifies Odoo-sourced state still shown
     expect(page).toContain("Credential");
     expect(page).toContain("Odoo");
     expect(page).toContain("Gateway");
     expect(page).toContain("API Keys");
->>>>>>> theirs
   });
 
   it("pushes the Odoo checkbox after commit and retries failed replication", () => {
@@ -93,7 +81,6 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(model).toContain("index=True");
   });
 });
-
 
 describe("Operations observability presentation", () => {
   it("does not expose raw diagnostic JSON in agent or printer observability components", () => {
