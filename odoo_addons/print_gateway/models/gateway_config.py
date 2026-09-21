@@ -88,6 +88,8 @@ class PrintGatewayConfig(models.Model):
         ],
         string="Gateway Status",
         compute="_compute_gateway_sync_state",
+        store=True,
+        index=True,
         readonly=True,
     )
     gateway_sync_message = fields.Char(
