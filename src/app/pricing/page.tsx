@@ -70,7 +70,7 @@ export default async function Pricing() {
       {currentPlanId && (
         <div className="mx-auto mt-7 flex max-w-[1280px] items-center justify-between gap-4 rounded-[12px] border border-brand-subtle-border bg-brand-subtle px-4 py-3.5">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-white text-brand shadow-xs">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-surface-2 text-brand shadow-xs">
               <ShieldCheck className="h-4 w-4" />
             </span>
             <div className="min-w-0">
