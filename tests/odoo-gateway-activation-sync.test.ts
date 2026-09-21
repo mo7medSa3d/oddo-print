@@ -108,6 +108,24 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(page).toContain("Activation is tracked independently for each Odoo API key.");
   });
 
+  it("fences stale sync outcomes so an older worker cannot create Action needed", () => {
+    const model = read("odoo_addons/print_gateway/models/gateway_config.py");
+    const client = read("odoo_addons/print_gateway/static/src/js/gateway_config_auto_sync.js");
+
+    expect(model).toContain("expected_revision=None");
+    expect(model).toContain("SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE");
+    expect(model).toContain("int(row[0] or 0) != guard_revision");
+    expect(model).toContain('"pending_sync_revision": next_revision');
+    expect(model).toContain('"pending_sync_started_at": fields.Datetime.now()');
+    expect(model).toContain('expected_revision=revision');
+
+    // The save hook must not hand a server "reload" action back to the global
+    // action manager: doing so can race the record-level refresh. It must reload
+    // the persisted record locally after synchronization completes.
+    expect(client).toContain('if (action?.tag === "display_notification")');
+    expect(client).toContain("await this.model.load({ resId });");
+  });
+
   it("pushes the Odoo checkbox after commit and retries failed replication", () => {
     const model = read("odoo_addons/print_gateway/models/gateway_config.py");
     const cron = read("odoo_addons/print_gateway/data/cron.xml");
