@@ -170,7 +170,7 @@ export async function GET(req: Request) {
   const id = new URL(req.url).searchParams.get("id")?.trim();
   if (!id) return NextResponse.json({ error: "id query param required" }, { status: 400 });
   const row = await db.query.printJobs.findFirst({
-    where: and(eq(printJobs.id, id), eq(printJobs.tenantId, odoo.tenantId)),
+    where: and(eq(printJobs.id, id), eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.apiKeyId, odoo.id)),
   });
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!isOdooKeyAllowedForDocumentType(odoo, row.documentType, "read")) {
