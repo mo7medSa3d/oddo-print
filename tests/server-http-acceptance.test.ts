@@ -126,9 +126,11 @@ suite("production server HTTP acceptance (real Next.js + guard)", () => {
 
   // /api/billing/plans is the one intentionally public-cacheable route
   // (PUBLIC_VARY_CACHE_CONTROL); the boundary default must not clobber it.
-  // The catalog read needs the database, so this leg only runs where
-  // DATABASE_URL is configured (CI runs unit tests without a DB).
-  const plansOverride = describe.skipIf(!process.env.DATABASE_URL);
+  // This assertion requires a migrated database. The CI unit-test stage has
+  // DATABASE_URL configured for shared application code, but migrations run
+  // later in the workflow, so DATABASE_URL alone is not a valid readiness
+  // signal.
+  const plansOverride = describe.skipIf(process.env.RUN_DB_BACKED_ACCEPTANCE !== "1");
   plansOverride("response policy defaults (database-backed)", () => {
     it("lets routes override the default with their own cache policy", async () => {
       const res = await fetch(`http://127.0.0.1:${PORT}/api/billing/plans`);
