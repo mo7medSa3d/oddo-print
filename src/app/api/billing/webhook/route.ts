@@ -10,7 +10,8 @@ import { writeAuditEvent } from "../../../../lib/audit";
 function statusOf(status: string): "trialing" | "active" | "past_due" | "paused" | "cancelled" {
   if (status === "trialing") return "trialing";
   if (status === "active") return "active";
-  if (status === "past_due" || status === "unpaid") return "past_due";
+  if (status === "past_due") return "past_due";
+  if (status === "unpaid") return "cancelled";
   if (status === "paused" || status === "incomplete") return "paused";
   return "cancelled";
 }
@@ -174,13 +175,6 @@ export async function POST(req: Request) {
             return { kind: "ignored" as const };
           }
           if (current?.stripeCustomerId && customerId && current.stripeCustomerId !== customerId) {
-            // Permanent identity mismatch: the checkout session names a
-            // different Stripe customer than the one already bound to this
-            // subscription row. Retrying the same event can never succeed,
-            // so record it as processed and audit it instead of throwing
-            // into a 500-retry loop — a poison event must not risk Stripe
-            // auto-disabling the endpoint for every tenant. This mirrors the
-            // generic billingIdentityConflict handling above.
             await tx.update(billingEvents)
               .set({ tenantId, processedAt: new Date() })
               .where(eq(billingEvents.eventId, eventId));
@@ -241,27 +235,16 @@ export async function POST(req: Request) {
           const storedTime = timestampMillis(tenantRow.stripeLastEventCreatedAt);
           let newerThanStored = storedTime === null || eventCreatedAt.getTime() > storedTime;
           if (storedTime !== null && eventCreatedAt.getTime() === storedTime) {
-            // Same-second tie: Stripe event IDs (evt_1XYZ...) are NOT
-            // chronologically sortable by lexicographic order. A newer event can
-            // have a lexicographically smaller ID, so `eventId > latest.eventId`
-            // does NOT reliably identify the later event. The safe behavior on a
-            // same-second tie is to skip (not overwrite): the already-processed
-            // event holds state, and the next event (with a different timestamp)
-            // will apply the correct update. This is idempotency-safe because the
-            // event is still recorded in billing_events with processed_at set.
+            // Same-second tie: Stripe event IDs are not a reliable chronology key.
+            // Skip rather than let an ambiguous ordering overwrite a known state;
+            // a later event with a newer timestamp will reconcile the subscription.
             newerThanStored = false;
           }
           const differentSubscription = Boolean(tenantRow.stripeSubscriptionId && tenantRow.stripeSubscriptionId !== subId);
-          if (differentSubscription && tenantRow.status !== "cancelled" ) {
-            // The tenant is bound to a different live subscription. A
-            // delayed event from an old/new unrelated subscription must not
-            // silently steal billing identity.
+          if (differentSubscription && tenantRow.status !== "cancelled") {
             newerThanStored = false;
           }
           if (differentSubscription && tenantRow.status === "cancelled" && !newerThanStored) {
-            // A cancelled tenant may legitimately start a new subscription,
-            // but only an event newer than the cancellation state may replace
-            // the previous subscription identity.
             newerThanStored = false;
           }
           if (newerThanStored) {
@@ -289,39 +272,12 @@ export async function POST(req: Request) {
           }
         }
       } else if (eventType === "invoice.paid" || eventType === "invoice.payment_failed") {
-        const subId = typeof obj.subscription === "string" ? obj.subscription : undefined;
-        if (subId) {
-          const rowResult = await tx.execute(sql`
-            SELECT tenant_id AS "tenantId"
-            FROM tenant_subscriptions
-            WHERE stripe_subscription_id = ${subId}
-            FOR UPDATE
-          `);
-          const row = rowResult.rows[0] as { tenantId?: string } | undefined;
-          if (row?.tenantId) {
-            tenantId = row.tenantId;
-            const currentResult = await tx.execute(sql`
-              SELECT stripe_last_event_created_at AS "stripeLastEventCreatedAt"
-              FROM tenant_subscriptions
-              WHERE tenant_id = ${row.tenantId}
-              FOR UPDATE
-            `);
-            const current = currentResult.rows[0] as { stripeLastEventCreatedAt?: Date | null } | undefined;
-            const storedTime = timestampMillis(current?.stripeLastEventCreatedAt);
-            let newerThanStored = storedTime === null || eventCreatedAt.getTime() > storedTime;
-            if (storedTime !== null && eventCreatedAt.getTime() === storedTime) {
-              // Same-second tie: conservative skip — see customer.subscription.* branch comment.
-              newerThanStored = false;
-            }
-            if (newerThanStored) {
-              await tx.update(tenantSubscriptions).set({
-                status: eventType === "invoice.paid" ? "active" : "past_due",
-                stripeLastEventCreatedAt: eventCreatedAt,
-                updatedAt: new Date(),
-              }).where(eq(tenantSubscriptions.tenantId, row.tenantId));
-            }
-          }
-        }
+        // Invoice events are payment facts, not authoritative subscription lifecycle
+        // snapshots. Stripe's subscription lifecycle events own access state; in
+        // particular, invoice.paid must not reactivate a subscription that Stripe
+        // currently reports as canceled/unpaid, and invoice.payment_failed must not
+        // manufacture a past_due state when the subscription object is still active,
+        // incomplete, or otherwise in a different lifecycle state.
       }
 
       await tx.update(billingEvents)
