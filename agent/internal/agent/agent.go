@@ -893,7 +893,7 @@ func (a *Agent) handleWSMessages(ctx context.Context) error {
 			continue
 		}
 
-				// ACK is an admission acknowledgement, not a transport receipt. The
+		// ACK is an admission acknowledgement, not a transport receipt. The
 		// Agent sends it only after dispatchJob successfully reserves a local
 		// executor slot. Rejected/saturated/duplicate deliveries are not ACKed;
 		// this prevents the Gateway from mistaking a pre-execution rejection for
