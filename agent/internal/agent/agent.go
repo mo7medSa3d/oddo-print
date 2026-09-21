@@ -996,7 +996,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) boo
 		// the safe backstop: it only re-queues claims that never showed
 		// delivery evidence.
 		a.rejectJob(ctx, jobID, jobClaimToken(job), "agent_shutting_down")
-		return
+		return false
 	default:
 	}
 	if _, dup := a.inFlight[jobID]; dup {
