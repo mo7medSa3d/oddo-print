@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { TenantDeletedError, TenantSuspendedError, requireActiveTenant } from "../../../../lib/tenant-guard";
-import { db } from "../../../../db";
-import { tenants } from "../../../../db/schema";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
 
 export const dynamic = "force-dynamic";
@@ -26,12 +24,8 @@ export async function GET(req: Request) {
     throw error;
   }
 
-  const tenant = await db.query.tenants.findFirst({
-    where: eq(tenants.id, key.tenantId),
-    columns: { odooEnabled: true },
-  });
   return NextResponse.json(
-    { ok: true, enabled: tenant?.odooEnabled === true },
+    { ok: true, enabled: key.odooEnabled === true },
     { status: 200, headers: { "Cache-Control": "no-store" } },
   );
 }
