@@ -1352,9 +1352,34 @@ class PrintGatewayConfig(models.Model):
         ])
         return {"type": "ir.actions.client", "tag": "reload"}
 
+    def _write_test_result_if_current(self, expected_revision, values):
+        """Persist a connection-test result only if no newer sync revision won."""
+        self.ensure_one()
+        self.env.cr.execute(
+            "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE" % self._table,
+            [self.id],
+        )
+        row = self.env.cr.fetchone()
+        if not row or int(row[0] or 0) != int(expected_revision):
+            return False
+        self.invalidate_recordset([
+            "enabled",
+            "enabled_sync_revision",
+            "last_enabled_sync_revision",
+            "last_enabled_sync_error",
+        ])
+        self.write(values)
+        return True
+
     def action_test_connection(self):
         self.ensure_one()
         self._check_admin()
+        # A connection test is bound to the activation revision it started
+        # against. If a newer save/revision lands while the network request is
+        # in flight, this request becomes observationally stale and must not
+        # overwrite the newer credential/activation state.
+        self.invalidate_recordset(["enabled_sync_revision", "enabled"])
+        expected_revision = int(self.enabled_sync_revision or 0)
         try:
             response = requests.get(
                 "%s/api/odoo/health" % self._gateway_base(for_request=True),
@@ -1368,12 +1393,13 @@ class PrintGatewayConfig(models.Model):
             # explicit revoked state.
             if response.status_code == 401:
                 message = _("The Gateway rejected the API key. Replace the key and test the connection again.")
-                self.write({
+                if not self._write_test_result_if_current(expected_revision, {
                     "last_test_at": fields.Datetime.now(),
                     "last_test_status": "revoked",
                     "last_test_error": message,
                     "enabled": False,
-                })
+                }):
+                    return {"type": "ir.actions.client", "tag": "reload"}
                 return {
                     "type": "ir.actions.client",
                     "tag": "display_notification",
@@ -1386,11 +1412,12 @@ class PrintGatewayConfig(models.Model):
                     if isinstance(body, dict) and body.get("error")
                     else _("The Gateway workspace is not available for printing.")
                 )
-                self.write({
+                if not self._write_test_result_if_current(expected_revision, {
                     "last_test_at": fields.Datetime.now(),
                     "last_test_status": "failed",
                     "last_test_error": message,
-                })
+                }):
+                    return {"type": "ir.actions.client", "tag": "reload"}
                 return {
                     "type": "ir.actions.client",
                     "tag": "display_notification",
@@ -1402,7 +1429,6 @@ class PrintGatewayConfig(models.Model):
             body = response.json() if response.content else {}
             if response.status_code != 200 or not isinstance(body, dict) or body.get("ok") is not True:
                 raise ValidationError(_("Gateway connection test failed (HTTP %s).") % response.status_code)
-            self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "success", "last_test_error": False})
 
             # A connection test is an explicit operator action, so finish the
             # activation reconciliation in this request instead of leaving the
@@ -1413,7 +1439,7 @@ class PrintGatewayConfig(models.Model):
                 self._gateway_base(for_request=True),
                 self._gateway_api_key_plaintext(),
                 self.env.cr.dbname,
-                int(self.enabled_sync_revision or 0),
+                expected_revision,
                 bool(self.enabled),
             )
             if not sync_succeeded:
@@ -1428,15 +1454,37 @@ class PrintGatewayConfig(models.Model):
                     "tag": "reload",
                 }
 
-            # _sync_enabled_state_to_gateway persists its result through a
-            # fresh cursor. Reload the form so the web client reads the
-            # authoritative post-sync state immediately.
+            # _sync_enabled_state_to_gateway persists the authoritative state
+            # through a fresh cursor. Record the connection-test success only
+            # when the same revision is still current; an overlapping newer
+            # save must retain ownership of the record state.
+            self.invalidate_recordset([
+                "enabled_sync_revision",
+                "last_enabled_sync_revision",
+                "last_enabled_sync_error",
+            ])
+            current_revision = int(self.enabled_sync_revision or 0)
+            if not self._write_test_result_if_current(current_revision, {
+                "last_test_at": fields.Datetime.now(),
+                "last_test_status": "success",
+                "last_test_error": False,
+            }):
+                return {"type": "ir.actions.client", "tag": "reload"}
+
+            # The save hook intentionally ignores the server "reload" action
+            # and performs a record-level model.load, so the Gateway status
+            # becomes Active immediately after the persisted sync result lands.
             return {
                 "type": "ir.actions.client",
                 "tag": "reload",
             }
         except ValidationError as exc:
-            self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "failed", "last_test_error": str(exc)[:4000]})
+            if not self._write_test_result_if_current(expected_revision, {
+                "last_test_at": fields.Datetime.now(),
+                "last_test_status": "failed",
+                "last_test_error": str(exc)[:4000],
+            }):
+                return {"type": "ir.actions.client", "tag": "reload"}
             return {
                 "type": "ir.actions.client",
                 "tag": "display_notification",
@@ -1444,7 +1492,12 @@ class PrintGatewayConfig(models.Model):
             }
         except requests.RequestException as exc:
             msg = _("Gateway is unavailable or the connection timed out.")
-            self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "failed", "last_test_error": msg})
+            if not self._write_test_result_if_current(expected_revision, {
+                "last_test_at": fields.Datetime.now(),
+                "last_test_status": "failed",
+                "last_test_error": msg,
+            }):
+                return {"type": "ir.actions.client", "tag": "reload"}
             return {
                 "type": "ir.actions.client",
                 "tag": "display_notification",
@@ -1452,12 +1505,18 @@ class PrintGatewayConfig(models.Model):
             }
         except ValueError as exc:
             msg = _("Gateway returned an invalid health response.")
-            self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "failed", "last_test_error": msg})
+            if not self._write_test_result_if_current(expected_revision, {
+                "last_test_at": fields.Datetime.now(),
+                "last_test_status": "failed",
+                "last_test_error": msg,
+            }):
+                return {"type": "ir.actions.client", "tag": "reload"}
             return {
                 "type": "ir.actions.client",
                 "tag": "display_notification",
                 "params": {"title": _("Gateway Connection"), "message": msg, "type": "danger", "sticky": True},
             }
+
 
     def action_clear_api_key(self):
         """Remove the stored installation API key and reset test state."""
