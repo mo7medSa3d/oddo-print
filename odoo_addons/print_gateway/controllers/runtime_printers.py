@@ -66,7 +66,11 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         self._require_runtime_admin()
         company, branch = self._scope(company_id, branch_id)
         config, root_company = self._get_config(company)
-        if not config or not config.enabled:
+        # Agent pairing/discovery must remain available while Odoo printing is
+        # disabled. `enabled` controls print dispatch, not whether an admin can
+        # choose a runtime agent in the Pair New Agent wizard. Authentication
+        # remains inside the server-side Gateway configuration helpers.
+        if not config:
             return {'enabled': False, 'selectedAgentId': False, 'agents': []}
         try:
             response = requests.get(
@@ -77,7 +81,10 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 raise ValidationError('Gateway agent discovery failed (HTTP %s).' % response.status_code)
             body = response.json()
         except ValidationError:
-            raise
+            # Missing/invalid server-side configuration is not a client-side
+            # secret error; render an empty dropdown and let the form explain
+            # that the Gateway connection needs attention.
+            return {'enabled': False, 'selectedAgentId': False, 'agents': []}
         except (requests.RequestException, ValueError) as exc:
             raise ValidationError('Gateway agent discovery is unavailable.') from exc
         agents = body.get('agents') if isinstance(body, dict) else None

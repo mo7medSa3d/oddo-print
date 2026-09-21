@@ -115,13 +115,17 @@ export class RuntimeAgentField extends Component {
     }
 }
 
+const runtimeAgentField = {
+    component: RuntimeAgentField,
+    supportedTypes: ["char"],
+};
+
+// The binding field keeps its original technical name. The picker alias is
+// used by the Pair New Agent wizard so the wizard can evolve independently
+// from the binding widget and remains explicit about being a selection UI.
 if (!registry.category("fields").contains("gateway_runtime_agent")) {
-    // The widget is bound exclusively to print_gateway.binding.runtime_agent_id,
-    // an opaque Gateway runtime identifier stored as Char (see models/binding.py).
-    // Declaring ["char"] keeps the descriptor truthful so Odoo 19 does not log
-    // a misleading "don't support the type" warning on every form open.
-    registry.category("fields").add("gateway_runtime_agent", {
-        component: RuntimeAgentField,
-        supportedTypes: ["char"],
-    });
+    registry.category("fields").add("gateway_runtime_agent", runtimeAgentField);
+}
+if (!registry.category("fields").contains("gateway_runtime_agent_picker")) {
+    registry.category("fields").add("gateway_runtime_agent_picker", runtimeAgentField);
 }
