@@ -11,7 +11,10 @@ import { agentStaleThresholdSeconds } from "./agent-availability";
  * admission check (print-job-service) and the poll batch sizer
  * (agent/jobs route), so the three sites can never diverge.
  */
-export const MAX_AGENT_IN_FLIGHT_JOBS = 500;
+// The Gateway must never claim more jobs than the Agent can accept locally.
+// Agent maxPendingJobs is 64 (executing + waiting), so this is the shared
+// Gateway-side ceiling for both WebSocket and polling claim paths.
+export const MAX_AGENT_IN_FLIGHT_JOBS = 64;
 
 /**
  * Ownership rules for handing a job to an agent.
@@ -187,8 +190,9 @@ export async function markJobDelivered(jobId: string, tenantId: string, agentId:
 
 export async function recordJobAck(jobId: string, tenantId: string, agentId: string, claimToken?: string | null): Promise<boolean> {
   const res = await db.update(printJobs)
-    // DB-native now() for clock consistency with the sweeper's updated_at comparisons.
-    .set({ ackedAt: sql`COALESCE(${printJobs.ackedAt}, now())`, deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`, updatedAt: sql`now()` })
+    // ACK means the Agent admitted the job into its bounded local executor.
+    // Transport delivery evidence is recorded separately by markJobDelivered().
+    .set({ ackedAt: sql`COALESCE(${printJobs.ackedAt}, now())`, updatedAt: sql`now()` })
     .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed", "printing"]))
     .returning({ id: printJobs.id });
   return res.length > 0;
