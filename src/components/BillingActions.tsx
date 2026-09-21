@@ -96,12 +96,14 @@ export function BillingActions({
             <div className="flex flex-col gap-1.5 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
-                  <CreditCard className="h-3.5 w-3.5" /> Available plans
+                  <CreditCard className="h-3.5 w-3.5" /> Plans
                 </div>
                 <p className="mt-1 text-[12px] text-ink-3">
                   {hasSubscription
-                    ? "Higher tiers open the Stripe Customer Portal so the subscription stays managed by Stripe."
-                    : "Choose a plan to start Stripe Checkout."}
+                    ? "Upgrades and plan changes are completed through Stripe's secure Customer Portal."
+                    : currentPlanId
+                      ? "Keep your trial plan by subscribing, or choose a different one."
+                      : "Choose a plan to start Stripe Checkout."}
                 </p>
               </div>
               {selectedPlan && selectedPlan.id !== currentPlanId && (
@@ -113,7 +115,11 @@ export function BillingActions({
 
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {plans.map((plan) => {
-                const isCurrent = hasSubscription && currentPlanId === plan.id;
+                // Two distinct "current" meanings: a paid subscription marks
+                // the plan as managed by the portal; a trial marks the plan
+                // the workspace is already using and can convert by paying.
+                const isCurrentPaid = hasSubscription && currentPlanId === plan.id;
+                const isTrialPlan = !hasSubscription && currentPlanId === plan.id;
                 const isUpgrade = !!currentPlan && plan.displayOrder > currentPlan.displayOrder;
                 const isSelected = selectedPlanId === plan.id;
 
@@ -121,7 +127,7 @@ export function BillingActions({
                   <div
                     key={plan.id}
                     className={`rounded-[12px] border bg-surface p-4 transition ${
-                      isSelected ? "border-brand ring-2 ring-brand/10" : "border-edge"
+                      isSelected || isTrialPlan ? "border-brand ring-2 ring-brand/10" : "border-edge"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -131,9 +137,13 @@ export function BillingActions({
                           {plan.currency?.toUpperCase() ?? "USD"} · {plan.interval ?? "month"}
                         </div>
                       </div>
-                      {isCurrent ? (
+                      {isCurrentPaid ? (
                         <span className="rounded-full border border-ok-edge bg-ok-bg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-ok">
                           Current
+                        </span>
+                      ) : isTrialPlan ? (
+                        <span className="rounded-full border border-edge-accent bg-brand-subtle px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-brand">
+                          Trial plan
                         </span>
                       ) : null}
                     </div>
@@ -152,10 +162,10 @@ export function BillingActions({
 
                     <button
                       type="button"
-                      disabled={!!busy || isCurrent}
+                      disabled={!!busy || isCurrentPaid}
                       onClick={() => choosePlan(plan)}
                       className={`mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-[10px] px-3 text-[12px] font-semibold transition disabled:cursor-default disabled:opacity-60 ${
-                        isCurrent
+                        isCurrentPaid
                           ? "border border-edge bg-surface-2 text-ink-3"
                           : hasSubscription
                             ? "bg-brand text-white hover:bg-brand-hover"
@@ -164,8 +174,10 @@ export function BillingActions({
                     >
                       {busy === `checkout-${plan.id}` || busy === `portal-${plan.id}` ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : isCurrent ? (
+                      ) : isCurrentPaid ? (
                         "Current plan"
+                      ) : isTrialPlan ? (
+                        "Keep this plan"
                       ) : hasSubscription ? (
                         isUpgrade ? (
                           <>Upgrade <ArrowUpRight className="h-3.5 w-3.5" /></>

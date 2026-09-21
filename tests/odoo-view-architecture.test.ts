@@ -54,3 +54,17 @@ describe("Odoo 19 view architecture contract — gateway_config_views.xml", () =
     expect(xml).toContain("Odoo 19 form view uses invisible");
   });
 });
+
+describe("Odoo 19 module layout contract — full-width pages", () => {
+  it("renders module forms at full viewport width with a centered sheet, at any screen size or zoom", () => {
+    // Odoo caps .o_form_sheet at a fixed pixel max-width; the module opts its
+    // forms out through the .o_pg_view class carried by every print_gateway
+    // form view. The pairing wizard is a modal and keeps its compact layout.
+    const scss = read("odoo_addons/print_gateway/static/src/scss/print_gateway_backend.scss");
+    expect(scss).toContain(".o_pg_view.o_form_view:not(.o_pg_pairing_wizard) .o_form_sheet_bg .o_form_sheet");
+    expect(scss).toContain("max-width: 100%");
+    // The stylesheet must stay registered as a backend asset or the rule dies.
+    const manifest = read("odoo_addons/print_gateway/__manifest__.py");
+    expect(manifest).toContain("print_gateway_backend.scss");
+  });
+});

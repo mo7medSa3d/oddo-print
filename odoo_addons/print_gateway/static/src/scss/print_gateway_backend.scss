@@ -309,3 +309,14 @@
     &.not_printed::before { background: var(--pg-bad-solid); }
     &.unknown::before { background: var(--pg-warn-solid); animation: pg-pulse 1.5s infinite; }
 }
+
+/* Full-width pages: every print_gateway form uses the whole viewport width
+   while the sheet stays horizontally centered, independent of screen size or
+   browser zoom. Odoo caps .o_form_sheet at a fixed pixel max-width; module
+   views opt in through the .o_pg_view class they already carry. The pairing
+   wizard is a modal dialog and keeps its compact centered layout. This rule
+   sits after the web backend assets, so equal specificity resolves in the
+   module's favor without !important. */
+.o_pg_view.o_form_view:not(.o_pg_pairing_wizard) .o_form_sheet_bg .o_form_sheet {
+    max-width: 100%;
+}

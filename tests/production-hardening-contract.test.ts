@@ -223,14 +223,25 @@ describe("production hardening contracts", () => {
     expect(auth).toContain("if (!row || !row.emailVerifiedAt) return null;");
     expect(auth).toContain("if (upgradedRows.length !== 1) return null;");
 
-    for (const path of ["src/app/api/billing/cancel/route.ts", "src/app/api/billing/resume/route.ts"]) {
+    // The cancel/resume operation protocol (persistent claim fence, Stripe
+    // idempotency, guarded finalization) lives once in the shared billing
+    // operation module; the routes are thin per-operation descriptors.
+    const billingOp = read("src/lib/billing-operation.ts");
+    expect(billingOp).toContain("FROM tenants");
+    expect(billingOp).toContain("FOR UPDATE");
+    expect(billingOp).toContain("FROM tenant_subscriptions");
+    expect(billingOp).toContain("stripeRequest(");
+    expect(billingOp).toContain("billingOperationId");
+    expect(billingOp).toContain('`billing-${operation.type}-${operationId}`');
+    for (const [path, type] of [
+      ["src/app/api/billing/cancel/route.ts", "cancel"],
+      ["src/app/api/billing/resume/route.ts", "resume"],
+    ] as const) {
       const billingRoute = read(path);
-      expect(billingRoute).toContain("FROM tenants");
-      expect(billingRoute).toContain("FOR UPDATE");
-      expect(billingRoute).toContain("FROM tenant_subscriptions");
-      expect(billingRoute).toContain("stripeRequest(");
-      expect(billingRoute).toContain("billingOperationId");
-      expect(billingRoute).toContain(`billing-${path.includes("cancel") ? "cancel" : "resume"}-`);
+      expect(billingRoute).toContain("runBillingOperation(");
+      expect(billingRoute).toContain(`type: "${type}"`);
+      expect(billingRoute).toContain(`cancel_at_period_end: "${type === "cancel" ? "true" : "false"}"`);
+      expect(billingRoute).toContain(`cancelAtPeriodEnd: ${type === "cancel"}`);
     }
   });
 
