@@ -35,6 +35,7 @@ describe("Odoo API-key authentication ignores the database name", () => {
     allowedDocumentTypes: null,
     hashedKey: hash,
     revokedAt: null,
+    odooEnabled: true,
   };
 
   beforeEach(() => {
