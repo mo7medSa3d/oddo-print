@@ -39,7 +39,7 @@ export default function ApiKeysPage() {
 
   async function load() {
     const response = await fetch("/api/odoo/keys", { cache: "no-store", credentials: "include" });
-    if (!response.ok) throw new Error("Unable to load API keys.");
+    if (!response.ok) throw new Error("Failed to load API keys.");
     return await response.json() as ApiKey[];
   }
 
@@ -67,7 +67,7 @@ export default function ApiKeysPage() {
     let cancelled = false;
     void fetch("/api/odoo/keys", { cache: "no-store", credentials: "include" })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Unable to load API keys. Check Gateway connection and try again.");
+        if (!response.ok) throw new Error("Failed to load API keys. Check Gateway connection and try again.");
         const data = await response.json() as ApiKey[];
         if (!cancelled) setKeys(data);
       })
@@ -81,7 +81,7 @@ export default function ApiKeysPage() {
     setLoading(true);
     void fetch("/api/odoo/keys", { cache: "no-store", credentials: "include" })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Unable to load API keys. Check Gateway connection and try again.");
+        if (!response.ok) throw new Error("Failed to load API keys. Check Gateway connection and try again.");
         setKeys(await response.json() as ApiKey[]);
       })
       .catch((err) => { setError(err instanceof Error ? err.message : String(err)); })
