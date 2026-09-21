@@ -38,13 +38,15 @@ describe("Odoo Gateway activation synchronization", () => {
 
   it("renders Gateway Configuration status from the Odoo-sourced state and refreshes it", () => {
     const page = read("src/app/api-keys/page.tsx");
-    expect(page).toContain('fetch("/api/odoo/configuration"');
+    expect(page).toContain('fetch("/api/odoo/keys"');
     expect(page).toContain("setInterval");
     // Professional concise labels — verifies Odoo-sourced state still shown
     expect(page).toContain("Credential");
     expect(page).toContain("Odoo");
     expect(page).toContain("Gateway");
     expect(page).toContain("API Keys");
+    expect(page).toContain("odooEnabledRevision");
+    expect(page).toContain("Activation is tracked independently for each Odoo API key.");
   });
 
   it("pushes the Odoo checkbox after commit and retries failed replication", () => {
