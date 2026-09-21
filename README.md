@@ -75,13 +75,3 @@ For a production server first deployment and end-to-end smoke test, follow [SERV
 
 See [API.md](API.md), [INSTALLATION.md](INSTALLATION.md), [DEPLOYMENT.md](DEPLOYMENT.md), [OPERATIONS.md](OPERATIONS.md), and [SECURITY_MODEL.md](SECURITY_MODEL.md).
 
-## Audit and verification records
-
-The repository contains several dated or baseline-specific audit and verification reports. These files are retained as engineering history and are explicitly marked **Historical / Superseded**. Their environment-specific `BLOCKED`, `FAIL`, or `NOT PRODUCTION READY` conclusions do not describe the current `main` branch. Current release status must be determined from the current commit, source review, and current GitHub Actions/release evidence.
-
-Historical reports:
-- [Odoo 19 Printing Forensic Report](ODOO19_PRINTING_FORENSIC_REPORT.md)
-- [Production Completion Report](PRODUCTION_COMPLETION_REPORT.md)
-- [Production Fix & Verification Report](PRODUCTION_FIX_VERIFICATION_REPORT.md)
-- [Test & CI Recertification Report](TEST_AND_CI_RECERTIFICATION_REPORT.md)
-
