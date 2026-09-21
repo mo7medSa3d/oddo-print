@@ -14,7 +14,7 @@ function entitlementLabel(value: string) {
 
 function entitlementValue(value: unknown) {
   if (value === "unlimited") return "Unlimited";
-  if (value === boolean) return value ? "Included" : "Not included";
+  if (typeof value === "boolean") return value ? "Included" : "Not included";
   if (typeof value === "number") return value.toLocaleString();
   return String(value);
 }
