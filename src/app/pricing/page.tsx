@@ -34,7 +34,7 @@ export default async function Pricing() {
     <div className="mx-auto w-full max-w-[1480px] px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
       <header className="mx-auto max-w-3xl text-center">
         <div className="inline-flex items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
-          <ShieldCheck className="h-3.5 w-3.5" /> Plans enforced server-side
+          <ShieldCheck className="h-3.5 w-3.5" /> Pricing
         </div>
         <h1 className="mt-6 text-[40px] font-bold tracking-[-0.04em] leading-tight text-ink sm:text-[48px]">A plan that scales with every print</h1>
         <p className="mx-auto mt-4 max-w-2xl text-[15px] leading-relaxed text-ink-3">Reliable infrastructure for Odoo print operations — with hard limits, secure agents, and a clear upgrade path as your fleet grows.</p>

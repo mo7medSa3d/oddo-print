@@ -106,8 +106,8 @@ export default function ApiKeysPage() {
     <div className="mx-auto w-full max-w-[1520px] px-5 py-8 sm:px-8 lg:px-12 lg:py-10">
       <header className="mb-8 flex flex-col gap-4 border-b border-edge pb-7 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-brand"><KeyRound className="h-3.5 w-3.5" /> Odoo Gateway</div>
-          <h1 className="text-[32px] font-bold tracking-[-0.03em] text-ink">API Keys &amp; Integration</h1>
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3"><KeyRound className="h-3.5 w-3.5" /> Odoo Gateway</div>
+          <h1 className="text-[26px] font-bold tracking-[-0.02em] text-ink">API Keys &amp; Integration</h1>
           <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">Create, rotate, and revoke credentials for Odoo. Credential security, Odoo activation, and Gateway connectivity are tracked independently.</p>
         </div>
         {active > 0 ? (
@@ -119,14 +119,14 @@ export default function ApiKeysPage() {
 
       <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-edge bg-surface px-4 py-4">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Credential</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Credential</div>
           <div className="mt-2 flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${active ? "bg-ok-solid" : "bg-ink-4"}`} />
             <span className="text-[13px] font-semibold text-ink">{active ? `${active} Active` : "None"}</span>
           </div>
         </div>
         <div className="rounded-xl border border-edge bg-surface px-4 py-4">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Odoo</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Odoo</div>
           <div className="mt-2 flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${gw?.enabled ? "bg-ok-solid" : "bg-ink-4"}`} />
             <span className="text-[13px] font-semibold text-ink">{gw ? (gw.enabled ? "Enabled" : "Disabled") : "—"}</span>
@@ -138,7 +138,7 @@ export default function ApiKeysPage() {
           </div>
         </div>
         <div className="rounded-xl border border-edge bg-surface px-4 py-4">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Gateway</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Gateway</div>
           <div className="mt-2 flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${gw?.enabled ? (active > 0 ? "bg-ok-solid" : "bg-warn-solid") : "bg-ink-4"}`} />
             <span className="text-[13px] font-semibold text-ink">
@@ -184,7 +184,7 @@ export default function ApiKeysPage() {
       </Card>
 
       <div className="mt-6 overflow-hidden rounded-xl border border-edge bg-surface">
-        <div className="border-b border-edge-subtle bg-surface-2 px-5 py-2.5 text-[10px] font-bold uppercase tracking-widest text-ink-4">Keys • {keys.length}</div>
+        <div className="border-b border-edge-subtle bg-surface-2 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink-3">Keys • {keys.length}</div>
         {loading ? <div className="p-10 text-center text-[13px] text-ink-3">Loading…</div> : keys.length === 0 ? <div className="p-12 text-center text-[13px] font-medium text-ink-3">No keys.</div> : (
           <div className="divide-y divide-edge-subtle">
             {keys.map(k => (
