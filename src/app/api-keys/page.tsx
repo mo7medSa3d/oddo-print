@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Ban, Copy, KeyRound, Shield, Trash2, X, Lock, Clock } from "lucide-react";
+import { Copy, KeyRound, Shield } from "lucide-react";
 import { Button, Card, CardHeader, Input, Field, Modal, Select, StatusBadge } from "../../components/ui";
 import { copyTextToClipboard } from "../../lib/clipboard";
 
@@ -219,15 +219,6 @@ export default function ApiKeysPage() {
                 ["03", "Agent executes locally", "Jobs are queued safely, then claimed by the right agent."],
                 ["04", "Rotate without downtime", "Create a replacement key before revoking the old one."],
               ].map(([step, title, body]) => <div key={step} className="flex gap-3"><span className="font-mono text-[11px] font-bold text-brand">{step}</span><div><div className="font-semibold text-ink">{title}</div><p className="mt-1 text-[12px] leading-relaxed text-ink-3">{body}</p></div></div>)}
-            </div>
-          </Card>
-          <Card>
-            <CardHeader title="State separation" subtitle="Each status reflects a different control plane." icon={<Lock className="h-4 w-4 text-brand" />} />
-            <div className="space-y-2 px-5 pb-5 text-[12px]">
-              <div className="rounded-[10px] border border-ok-edge bg-ok-bg px-3 py-2 font-semibold text-ok">Valid credential <span className="font-normal opacity-80">— key is usable</span></div>
-              <div className="rounded-[10px] border border-edge bg-surface-2 px-3 py-2 font-semibold text-ink-2">Odoo activation <span className="font-normal text-ink-3">— printing flag</span></div>
-              <div className="rounded-[10px] border border-warn-edge bg-warn-bg px-3 py-2 font-semibold text-warn">Sync pending <span className="font-normal opacity-80">— latest state is processing</span></div>
-              <div className="rounded-[10px] border border-bad-edge bg-bad-bg px-3 py-2 font-semibold text-bad">Invalid credential <span className="font-normal opacity-80">— revoked or missing</span></div>
             </div>
           </Card>
         </aside>
