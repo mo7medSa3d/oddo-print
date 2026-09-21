@@ -209,7 +209,7 @@ func TestExtractJobFromWSMessage(t *testing.T) {
 	}
 }
 
-func TestDuplicateWSDeliveryPrintsOnceAndAcksBoth(t *testing.T) {
+func TestDuplicateWSDeliveryPrintsOnceAndAcksAcceptedDeliveries(t *testing.T) {
 	gw := newRecordingGateway(t)
 	p := &fakePrinter{}
 	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
@@ -223,9 +223,8 @@ func TestDuplicateWSDeliveryPrintsOnceAndAcksBoth(t *testing.T) {
 	ag.waitForJobs()
 	gw.sendCh <- claimedEnvelope("job_dup", "p1")
 	waitFor(t, 5*time.Second, func() bool { return len(gw.Acks()) == 2 })
-	// No wait needed here: the duplicate takes dispatchJob's dedupe path,
-	// which never calls wg.Add, and the handler is sequential, so the
-	// observed second ack already proves the first delivery's Add is done.
+	// The second frame arrives after the first terminal result, so it is admitted
+	// into the local executor and may be acknowledged without printing again.
 	ag.waitForJobs()
 	if p.calls != 1 {
 		t.Fatalf("duplicate delivery must print exactly once, got %d prints", p.calls)
@@ -242,6 +241,43 @@ func TestDuplicateWSDeliveryPrintsOnceAndAcksBoth(t *testing.T) {
 	}
 	if successes < 2 {
 		t.Fatalf("terminal result must be re-reported on duplicate delivery, got %d success updates", successes)
+	}
+}
+
+func TestWSDeliveryDoesNotAckWhenLocalExecutorIsFull(t *testing.T) {
+	gw := newRecordingGateway(t)
+	p := &fakePrinter{}
+	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go ag.connectWebSocket(ctx)
+	waitFor(t, 5*time.Second, func() bool { return ag.getWSConn() != nil })
+
+	// Exhaust the exact bounded local admission capacity. A WS frame may arrive,
+	// but the Agent must reject it without acknowledging local admission.
+	for i := 0; i < maxPendingJobs; i++ {
+		ag.pendingSlots <- struct{}{}
+	}
+	defer func() {
+		for i := 0; i < maxPendingJobs; i++ {
+			<-ag.pendingSlots
+		}
+	}()
+
+	gw.sendCh <- claimedEnvelope("job_ws_full", "p1")
+	waitFor(t, 5*time.Second, func() bool {
+		for _, update := range gw.Updates() {
+			if update.JobID == "job_ws_full" && update.Status == "queued" && update.Reason == "pending_full" {
+				return true
+			}
+		}
+		return false
+	})
+	if acks := gw.Acks(); len(acks) != 0 {
+		t.Fatalf("executor-full delivery must not be acknowledged before local admission, got %v", acks)
+	}
+	if p.calls != 0 {
+		t.Fatalf("executor-full delivery must never reach the printer, got %d calls", p.calls)
 	}
 }
 
@@ -300,13 +336,10 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 	t.Fatal("condition not met within timeout")
 }
 
-// waitForPrintStarted waits until the dispatched job's executor has entered
-// the printer. The WS ack is sent BEFORE dispatchJob's wg.Add, so a test
-// that only waits for the ack can reach waitForJobs (wg.Wait) while the
-// handler goroutine has not yet called Add — sync.WaitGroup forbids Add
-// concurrent with Wait, and the race detector fails the test (seen on the
-// Windows CI runner). The print call happens strictly after Add, so
-// observing it proves the Add is in the past and Wait is safe.
+// waitForPrintStarted waits until the admitted job enters the printer. The
+// WebSocket ACK is sent only AFTER dispatchJob has reserved its local executor
+// slot, so observing the ACK is itself an admission boundary; the print wait
+// additionally proves the worker has started before shutdown waits are used.
 func waitForPrintStarted(t *testing.T, p *fakePrinter) {
 	t.Helper()
 	waitFor(t, 5*time.Second, func() bool { return p.Calls() >= 1 })
