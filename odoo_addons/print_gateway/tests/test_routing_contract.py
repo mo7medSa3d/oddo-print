@@ -315,10 +315,10 @@ class TestPrintGatewayRoutingContract(TransactionCase):
 
         class SyncResponse:
             status_code = 200
-            content = b'{"ok": true, "enabled": true, "revision": 1}'
+            content = b'{"ok": true, "enabled": true, "revision": 0}'
 
             def json(self):
-                return {"ok": True, "enabled": True, "revision": 1}
+                return {"ok": True, "enabled": True, "revision": 0}
 
         with patch.object(PrintGatewayConfig, "_validate_gateway_host"), patch(
             "odoo.addons.print_gateway.models.gateway_config.requests.get",
@@ -339,7 +339,7 @@ class TestPrintGatewayRoutingContract(TransactionCase):
                 "https://gateway.example.com/api/odoo/configuration",
             )
             self.assertEqual(mocked_patch.call_args.kwargs["json"]["enabled"], True)
-            self.assertEqual(mocked_patch.call_args.kwargs["json"]["revision"], 1)
+            self.assertEqual(mocked_patch.call_args.kwargs["json"]["revision"], 0)
             self.assertIn("Authorization", mocked_patch.call_args.kwargs["headers"])
             self.assertEqual(action["type"], "ir.actions.client")
             self.assertEqual(action["tag"], "reload")
