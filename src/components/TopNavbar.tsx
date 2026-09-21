@@ -43,7 +43,7 @@ export function TopNavbar({
   return (
     <header
       className={isPlatform
-        ? "sticky top-0 z-40 border-b border-white/[0.06] bg-[#0c0e1a]/90 text-slate-100 backdrop-blur-xl"
+        ? "sticky top-0 z-40 border-b border-white/[0.06] bg-[var(--platform-bg)]/92 text-slate-100 backdrop-blur-xl"
         : "sticky top-0 z-40 border-b border-edge/80 bg-surface/88 text-ink backdrop-blur-xl"}
     >
       <div className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-3 sm:px-6">
@@ -82,7 +82,7 @@ export function TopNavbar({
             menuOpen ? "flex" : "hidden",
             "absolute left-3 right-3 top-[68px] z-50 flex-col gap-1 rounded-[14px] border p-2 shadow-xl",
             "sm:static sm:flex sm:min-w-0 sm:flex-1 sm:flex-row sm:items-center sm:gap-1 sm:overflow-x-auto sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none",
-            isPlatform ? "border-white/10 bg-[#10131d]" : "border-edge bg-surface",
+            isPlatform ? "border-white/10 bg-[var(--platform-surface)]" : "border-edge bg-surface",
           ].join(" ")}
         >
           {items.map((item, index) => {
