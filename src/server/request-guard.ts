@@ -43,28 +43,52 @@ function rejectRequest(req: IncomingMessage, res: ServerResponse, status: number
   res.statusCode = status;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader("connection", "close");
-  res.end(JSON.stringify({ success: false, error: code }));
 
-  let tornDown = false;
-  const teardown = () => {
-    if (tornDown) return;
-    tornDown = true;
-    req.destroy();
-  };
+  const payload = JSON.stringify({ success: false, error: code });
+  let finalized = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let drained = 0;
-  let timer: ReturnType<typeof setTimeout>;
+
+  const finishResponse = () => {
+    if (finalized) return;
+    finalized = true;
+    if (timer) clearTimeout(timer);
+    if (!res.writableEnded) res.end();
+  };
+
+  const teardownAfterResponse = () => {
+    if (!res.writableEnded && !res.headersSent) return;
+    // Only tear down after Node has finished handing the rejection response to
+    // the socket. Destroying the IncomingMessage before that point can race
+    // the response on Windows and surface ECONNRESET instead of the 4xx.
+    if (!req.destroyed) req.destroy();
+  };
+
+  res.writeHead(status);
+  // Flush the status line/headers immediately. The response body remains
+  // buffered until the bounded request drain finishes, allowing the client to
+  // observe the rejection even while it is still uploading.
+  if (typeof res.flushHeaders === "function") res.flushHeaders();
+  res.write(payload);
+
   req.on("data", (chunk: Buffer) => {
     drained += chunk.length;
-    if (drained > REJECT_DRAIN_MAX_BYTES) teardown();
+    if (drained >= REJECT_DRAIN_MAX_BYTES) {
+      finishResponse();
+      res.once("finish", teardownAfterResponse);
+    }
   });
-  req.once("end", () => {
-    clearTimeout(timer);
+  req.once("end", finishResponse);
+  req.once("error", () => {
+    finishResponse();
   });
-  req.once("error", teardown);
-  timer = setTimeout(teardown, REJECT_DRAIN_TIMEOUT_MS);
+
+  timer = setTimeout(() => {
+    finishResponse();
+    res.once("finish", teardownAfterResponse);
+  }, REJECT_DRAIN_TIMEOUT_MS);
   if (typeof timer.unref === "function") timer.unref();
 }
-
 function verifyJwtQuick(token: string): boolean {
   if (typeof token !== "string" || token.length < 40 || token.length > 4096) return false;
   const parts = token.split(".");
