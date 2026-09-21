@@ -121,7 +121,7 @@ export default function ApiKeysPage() {
         <div className="rounded-xl border border-edge bg-surface px-4 py-4">
           <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Credential</div>
           <div className="mt-2 flex items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${active ? "bg-ink" : "bg-ink-4"}`} />
+            <div className={`h-2 w-2 rounded-full ${active ? "bg-ok-solid" : "bg-ink-4"}`} />
             <span className="text-[13px] font-semibold text-ink">{active ? `${active} Active` : "None"}</span>
           </div>
         </div>
@@ -144,11 +144,11 @@ export default function ApiKeysPage() {
       </div>
 
       {rawKey && (
-        <div className="mb-6 rounded-xl border border-ink bg-ink p-5 text-white">
+        <div className="mb-6 rounded-xl border border-brand-200 bg-brand-50 p-5 text-ink">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-[12px] font-bold uppercase tracking-widest text-ink-4">New key — copy once</div>
-              <div className="mt-2 font-mono text-[13px] break-all">{rawKey}</div>
+              <div className="text-[11px] font-bold uppercase tracking-widest text-brand">New API key — copy it now</div>
+              <div className="mt-2 rounded-[10px] border border-brand-200 bg-surface px-3 py-3 font-mono text-[13px] font-medium break-all text-ink shadow-sm">{rawKey}</div>
             </div>
             <Button variant="secondary" size="sm" onClick={async () => { if (await copyTextToClipboard(rawKey)) setCopied(true); }} icon={<Copy className="h-4 w-4" />}>{copied ? "Copied" : "Copy"}</Button>
           </div>
@@ -187,7 +187,7 @@ export default function ApiKeysPage() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[13px] font-semibold text-ink">{k.name}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${k.revokedAt ? "bg-surface-3 text-ink-3" : "bg-ink text-white"}`}>{k.revokedAt ? "Revoked" : "Active"}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${k.revokedAt ? "border border-edge bg-surface-3 text-ink-3" : "border border-ok-edge bg-ok-bg text-ok"}`}>{k.revokedAt ? "Revoked" : "Active"}</span>
                     {!k.revokedAt ? (
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${k.scope === "read_only" ? "bg-bad-bg text-bad" : "bg-surface-3 text-ink-3"}`} title={k.scope === "read_only" ? "This key cannot create print jobs" : "This key can read and print"}>
                         {k.scope === "read_only" ? "Read only" : "Standard"}
