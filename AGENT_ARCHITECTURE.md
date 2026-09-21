@@ -55,7 +55,7 @@ agent/
 ```
 WS/Poll delivers job
   → Shutdown check (reject if stopping)
-  → Dedup check (skip if already in-flight, adopt newer claim token)
+  → Dedup check (skip if already in-flight; never adopt a newer claim token)
   → Register in-flight (atomic with WaitGroup.Add)
   → Acquire pending slot (drop + reject if full)
   → Acquire exec semaphore (wait or reject on shutdown)
@@ -65,10 +65,11 @@ WS/Poll delivers job
 ### Claim Fencing
 
 The agent carries a `claimToken` through the entire lifecycle:
-1. **Ack**: Send `job_ack` with token immediately on receipt
-2. **Status transitions**: All PATCH calls include the token
-3. **Heartbeat keep-alive**: Token echoed so gateway can fence lease refresh
-4. **Duplicate adoption**: On redelivery, adopts the newer claim token
+1. **Admission**: Reserve a local executor slot before acknowledging the delivery
+2. **Ack**: Send `job_ack` only after the job is admitted locally; this is not a print-success signal
+3. **Status transitions**: All PATCH calls include the token
+4. **Heartbeat keep-alive**: Token echoed so Gateway can fence lease refresh
+5. **Duplicate delivery**: An already in-flight job is ignored without replacing the active physical attempt claim token
 
 ### Crash Recovery
 
