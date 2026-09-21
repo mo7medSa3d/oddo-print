@@ -7,7 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { nanoid } from "../../../../../lib/nanoid";
 import { recordJobEvent } from "../../../../../lib/job-timeline";
 import { runWithCorrelation, generateRequestId, generateAttemptId } from "../../../../../server/correlation";
-import { requestIdFrom, logError } from "../../../../../lib/log";
+import { requestIdFrom, logError, logWarn } from "../../../../../lib/log";
 import { getPrinterCapabilityMatrix } from "../../../../../lib/printer-health";
 import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError, PrintJobCapabilityError, PrintJobInputError } from "../../../../../lib/print-job-service";
 import { TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../../../../../lib/entitlements";
@@ -143,7 +143,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           agentId: printer.agentId,
           requestId,
           metadata: { certification: true, testPage, idempotencyKey },
-        }).catch(() => {});
+        }).catch((e: unknown) => logWarn("print.certification.event_persist_failed", { requestId, printerId, jobId, error: e instanceof Error ? e.message : "unknown" }));
       }
 
     } catch (e) {

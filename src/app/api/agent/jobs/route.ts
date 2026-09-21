@@ -259,7 +259,7 @@ export async function PATCH(req: Request) {
           printerId: job.printerId,
           requestId,
         });
-      } catch {}
+      } catch (e) { logWarn("print.job.event_persist_failed", { requestId, jobId, stage: "expired", error: e instanceof Error ? e.message : "unknown" }); }
       return NextResponse.json({ success: true, status: "expired", physicalOutcome });
     }
 
@@ -404,7 +404,7 @@ export async function PATCH(req: Request) {
       requestId,
       metadata: { transport, physicalOutcome, lateSuccess },
     });
-  } catch {}
+  } catch (e) { logWarn("print.job.event_persist_failed", { requestId, jobId, stage: stageForStatus(requestedStatus), error: e instanceof Error ? e.message : "unknown" }); }
 
   return NextResponse.json({ success: true, status: requestedStatus, physicalOutcome, spoolerJobId });
 }
