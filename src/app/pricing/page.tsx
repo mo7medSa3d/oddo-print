@@ -28,7 +28,7 @@ export default async function Pricing() {
 
   const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
   const claims = await validateManagerClaims(token ? verifyManagerToken(token) : null);
-  const destination = claims ? "/billing" : "/signup";
+  const destination = (planId: string) => claims ? `/billing?plan=${encodeURIComponent(planId)}` : "/signup";
 
   return (
     <div className="mx-auto w-full max-w-[1480px] px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
@@ -79,8 +79,8 @@ export default async function Pricing() {
                   </dl>
                 </div>
 
-                <Link href={destination} className={`mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-[11px] text-[14px] font-semibold transition ${isFeatured ? "bg-brand text-white shadow-sm hover:bg-brand-hover" : isPopular ? "bg-brand text-white shadow-sm hover:bg-brand-hover" : "border border-edge bg-surface text-ink hover:bg-surface-2"}`}>
-                  {claims ? "Open billing" : "Get started"} <ArrowRight className="h-4 w-4" />
+                <Link href={destination(plan.id)} className={`mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-[11px] text-[14px] font-semibold transition ${isFeatured ? "bg-brand text-white shadow-sm hover:bg-brand-hover" : isPopular ? "bg-brand text-white shadow-sm hover:bg-brand-hover" : "border border-edge bg-surface text-ink hover:bg-surface-2"}`}>
+                  {claims ? "Choose plan" : "Get started"} <ArrowRight className="h-4 w-4" />
                 </Link>
                 <div className="mt-3 text-center text-[11px] text-ink-3">Stripe checkout • No fake values</div>
               </article>
