@@ -135,9 +135,9 @@ export default function ApiKeysPage() {
         <div className="rounded-xl border border-edge bg-surface px-4 py-4">
           <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Gateway</div>
           <div className="mt-2 flex items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${gw ? "bg-ok-solid" : "bg-ink-4"}`} />
+            <div className={`h-2 w-2 rounded-full ${gw?.enabled ? "bg-ok-solid" : "bg-ink-4"}`} />
             <span className="text-[13px] font-semibold text-ink">
-              {gw ? "Serving workspace" : "—"}
+              {gw ? (gw.enabled ? "Ready to print" : "Connected · printing off") : "Not connected"}
             </span>
           </div>
         </div>
