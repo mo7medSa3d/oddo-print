@@ -10,11 +10,11 @@ describe("Odoo Gateway activation synchronization", () => {
   it("keeps Odoo activation separate from tenant lifecycle and fences updates by revision", () => {
     const route = read("src/app/api/odoo/configuration/route.ts");
     const schema = read("src/db/schema.ts");
-    const migration = read("drizzle/0054_odoo_gateway_activation_state.sql");
+    const migration = read("drizzle/0058_scope_odoo_activation_to_api_key.sql");
 
     expect(route).toContain("validateOdooKey");
     expect(route).toContain("odooEnabledRevision");
-    expect(route).toContain("lt(tenants.odooEnabledRevision");
+    expect(route).toContain("lt(apiKeys.odooEnabledRevision");
     expect(route).toContain("stale_revision");
     expect(route).toContain("Conflicting Odoo gateway activation update");
     expect(route).not.toContain("tenants.lifecycle");
@@ -26,9 +26,14 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(schema).toContain('odooEnabled: boolean("odoo_enabled")');
     expect(schema).toContain('odooEnabledRevision: integer("odoo_enabled_revision")');
     expect(schema).toContain('odooEnabledUpdatedAt: timestamp("odoo_enabled_updated_at")');
+    expect(schema).toContain("apiKeys");
+    expect(schema).toContain("api_keys_odoo_enabled_revision_check");
+    expect(route).not.toContain("tenants.odooEnabled");
+    expect(auth).not.toContain("tenants.odooEnabled");
 
-    expect(migration).toContain('ADD COLUMN IF NOT EXISTS "odoo_enabled"');
-    expect(migration).toContain('ADD COLUMN IF NOT EXISTS "odoo_enabled_revision"');
+    expect(migration).toContain('ALTER TABLE "api_keys"');
+    expect(migration).toContain('UPDATE "api_keys" AS k');
+    expect(migration).toContain('DROP COLUMN IF EXISTS "odoo_enabled"');
   });
 
   it("renders Gateway Configuration status from the Odoo-sourced state and refreshes it", () => {
