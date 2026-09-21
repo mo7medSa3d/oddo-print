@@ -6,11 +6,11 @@ import { Activity, Building2, CreditCard, Tags, Shield } from "lucide-react";
 import { TopNavbar, type TopNavItem } from "../../components/TopNavbar";
 
 const NAV_ITEMS: TopNavItem[] = [
-  { href: "/platform/dashboard", label: "Overview", icon: Activity },
-  { href: "/platform/tenants", label: "Tenants", icon: Building2 },
-  { href: "/platform/subscriptions", label: "Subscriptions", icon: CreditCard },
-  { href: "/platform/plans", label: "Plans", icon: Tags },
-  { href: "/platform/audit", label: "Audit", icon: Shield },
+  { href: "/platform/dashboard", label: "Overview", icon: Activity, section: "Operations" },
+  { href: "/platform/tenants", label: "Tenants", icon: Building2, section: "Operations" },
+  { href: "/platform/subscriptions", label: "Subscriptions", icon: CreditCard, section: "Commerce" },
+  { href: "/platform/plans", label: "Plans", icon: Tags, section: "Commerce" },
+  { href: "/platform/audit", label: "Audit", icon: Shield, section: "Security" },
 ];
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
@@ -56,7 +56,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
   // flashes privileged chrome before proving the session.
   if (authenticated === null) {
     return (
-      <div className="min-h-screen bg-[#080a12]" aria-busy="true">
+      <div className="min-h-screen bg-[var(--platform-bg)]" aria-busy="true">
         <span className="sr-only">Checking session…</span>
       </div>
     );
@@ -71,7 +71,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
   }
 
   return (
-    <div className="min-h-screen bg-[#080a12] text-slate-100 font-sans selection:bg-indigo-500/20">
+    <div className="min-h-screen bg-[var(--platform-bg)] text-slate-100 font-sans selection:bg-brand-500/20">
       <TopNavbar
         items={NAV_ITEMS}
         brandHref="/platform/dashboard"
@@ -81,7 +81,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         variant="platform"
       />
       <main className="min-h-screen bg-[#080a12]">
-        <div className="mx-auto w-full max-w-[1800px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
+        <div className="mx-auto w-full max-w-[1600px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9">{children}</div>
       </main>
     </div>
   );
