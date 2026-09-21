@@ -80,7 +80,7 @@ function VerifyEmailContent() {
 
         {(state === "error" || state === "pending") && (
           <div className="p-6 sm:p-7">
-            <h2 className="text-[13px] font-semibold text-ink">Didn't receive a link?</h2>
+            <h2 className="text-[13px] font-semibold text-ink">Didn&apos;t receive a link?</h2>
             <form onSubmit={handleResend} className="mt-4 space-y-4">
               <Field label="Email address" htmlFor="resend-email">
                 <Input id="resend-email" type="email" value={resendEmail} onChange={(e) => setResendEmail(e.target.value)} placeholder="name@example.com" required />
