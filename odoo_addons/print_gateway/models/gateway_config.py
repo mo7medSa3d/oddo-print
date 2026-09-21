@@ -463,6 +463,7 @@ class PrintGatewayConfig(models.Model):
                         success=True,
                         revision=old_revision,
                         error=False,
+                        expected_revision=old_revision,
                     )
                     self._complete_gateway_migration(old_revision)
                     return True
@@ -486,6 +487,7 @@ class PrintGatewayConfig(models.Model):
                     success=False,
                     revision=None,
                     error="POSTCOMMIT_ERROR: unexpected synchronization failure (see Odoo server log)",
+                    expected_revision=revision,
                 )
             except Exception:
                 _logger.exception(
@@ -540,6 +542,8 @@ class PrintGatewayConfig(models.Model):
                     "last_enabled_sync_revision": remote_revision,
                     "last_enabled_sync_at": fields.Datetime.now(),
                     "last_enabled_sync_error": False,
+                    "pending_sync_revision": -1,
+                    "pending_sync_started_at": False,
                 })
                 cr.commit()
                 return {"kind": "converged", "revision": remote_revision}
@@ -552,6 +556,8 @@ class PrintGatewayConfig(models.Model):
             config.with_context(skip_enabled_sync=True).write({
                 "enabled_sync_revision": next_revision,
                 "last_enabled_sync_error": False,
+                "pending_sync_revision": next_revision,
+                "pending_sync_started_at": fields.Datetime.now(),
             })
             cr.commit()
             return {"kind": "retry", "revision": next_revision}
@@ -648,6 +654,7 @@ class PrintGatewayConfig(models.Model):
                         success=True,
                         revision=acknowledged_revision,
                         error=False,
+                        expected_revision=revision,
                     )
                     return True
 
@@ -688,19 +695,53 @@ class PrintGatewayConfig(models.Model):
                 success=False,
                 revision=None,
                 error=message,
+                expected_revision=revision,
             )
             _logger.warning("Gateway activation synchronization failed for config %s: %s", self.id, exc)
             return False
 
-    def _persist_enabled_sync_result(self, dbname, *, success, revision, error):
-        """Persist post-commit sync bookkeeping using an independent cursor."""
+    def _persist_enabled_sync_result(
+        self,
+        dbname,
+        *,
+        success,
+        revision,
+        error,
+        expected_revision=None,
+    ):
+        """Persist sync bookkeeping only while the recorded revision is still authoritative.
+
+        Post-commit syncs can overlap. A result from an older revision must never
+        erase the error/success state of a newer revision that is already pending
+        or confirmed.
+        """
         cr = self.env.registry.cursor()
         try:
             env = api.Environment(cr, api.SUPERUSER_ID, {})
             config = env["print_gateway.gateway_config"].browse(self.id).exists()
             if config:
+                guard_revision = (
+                    int(expected_revision)
+                    if expected_revision is not None
+                    else (int(revision) if revision is not None else None)
+                )
+                if guard_revision is not None:
+                    cr.execute(
+                        "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE" % self._table,
+                        [self.id],
+                    )
+                    row = cr.fetchone()
+                    if not row or int(row[0] or 0) != guard_revision:
+                        # A newer local revision owns the state now. Do not let
+                        # this older worker overwrite its synchronization result.
+                        cr.rollback()
+                        return False
+
                 values = {"last_enabled_sync_error": error or False}
                 if success:
+                    if revision is None:
+                        cr.rollback()
+                        return False
                     values.update({
                         "last_enabled_sync_revision": int(revision),
                         "last_enabled_sync_at": fields.Datetime.now(),
@@ -708,11 +749,13 @@ class PrintGatewayConfig(models.Model):
                         "pending_sync_revision": -1,
                         "pending_sync_started_at": False,
                     })
-                config.write(values)
+                config.with_context(skip_enabled_sync=True).write(values)
             cr.commit()
+            return True
         except Exception:
             cr.rollback()
             _logger.exception("Could not persist Gateway activation sync result for config %s", self.id)
+            return False
         finally:
             cr.close()
 
@@ -1229,6 +1272,7 @@ class PrintGatewayConfig(models.Model):
                         success=False,
                         revision=None,
                         error=message,
+                        expected_revision=revision,
                     )
                     _logger.warning(
                         "Gateway activation reconciliation failed for config %s: %s",
@@ -1241,6 +1285,7 @@ class PrintGatewayConfig(models.Model):
                         success=False,
                         revision=None,
                         error="CRON_ERROR: unexpected activation reconciliation failure (see Odoo server log)",
+                        expected_revision=revision,
                     )
                     _logger.exception(
                         "Gateway activation cron crashed for config %s", config.id
@@ -1284,6 +1329,7 @@ class PrintGatewayConfig(models.Model):
                     success=False,
                     revision=None,
                     error=str(exc)[:4000],
+                    expected_revision=revision,
                 )
                 return {"type": "ir.actions.client", "tag": "reload"}
         try:
