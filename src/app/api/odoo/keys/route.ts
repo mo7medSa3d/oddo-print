@@ -34,6 +34,10 @@ export async function GET(req: Request) {
   const manager = await validateManager(req);
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(manager, "integrations.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  // Intentionally uncapped: the list page has no pagination and revoked keys
+  // must remain visible (they cannot be removed while referenced by jobs), so
+  // a limit would silently hide credentials. The table is low-cardinality and
+  // tenant-scoped via api_keys_tenant_id_unique (tenantId, id).
   const rows = await db
     .select({
       id: apiKeys.id,

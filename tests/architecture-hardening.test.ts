@@ -57,6 +57,20 @@ describe("architecture hardening", () => {
     expect(src).toContain("agent_secret: secret");
   });
 
+  it("declares discovered_devices.device_class NOT NULL and ships the reconciling migration", () => {
+    // The runtime schema is the documented source of truth, so every .notNull()
+    // it declares must be enforced by the migration chain. device_class was once
+    // created nullable by 0010 while schema.ts already declared notNull(); a
+    // later reconciliation migration closes that gap and a regression here would
+    // re-open the schema/code drift.
+    const schema = readFileSync("src/db/schema.ts", "utf8");
+    expect(schema).toContain('deviceClass: text("device_class").notNull().default("unknown")');
+    const migration = readFileSync("drizzle/0056_discovered_device_class_not_null.sql", "utf8");
+    expect(migration).toContain('UPDATE "discovered_devices"');
+    expect(migration).toContain("SET \"device_class\" = 'unknown'");
+    expect(migration).toContain('ALTER TABLE "discovered_devices" ALTER COLUMN "device_class" SET NOT NULL');
+  });
+
   it("installs security headers without forcing HSTS on development HTTP", () => {
     const src = readFileSync("next.config.ts", "utf8");
     expect(src).toContain("X-Content-Type-Options");

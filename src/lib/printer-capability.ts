@@ -58,6 +58,30 @@ export function isRawTransport(protocol: string): boolean {
   return protocol === "raw" || protocol === "escpos" || protocol === "zpl" || protocol === "tspl";
 }
 
+/**
+ * Human-readable language/capability chips for a printer, derived ONLY from
+ * the declared protocol and connection type. Device class must never invent
+ * a language: a `laser` printer declared `raw` (9100 byte sink) cannot be
+ * sent PDF, and a `label` printer declared `escpos` does not speak ZPL.
+ * This is the same truth `routing.ts` enforces server-side; the UI must
+ * not claim more than the printer provably supports.
+ */
+export function getPrinterLanguageBadges(
+  protocol: string,
+  connectionType: string,
+): string[] {
+  const conn = (connectionType ?? "").trim().toLowerCase();
+  const proto = (protocol ?? "unknown").trim().toLowerCase();
+  const badges: string[] = [];
+  if (proto === "escpos") badges.push("ESC/POS");
+  if (proto === "zpl") badges.push("ZPL");
+  if (proto === "tspl") badges.push("TSPL");
+  if (proto === "ipp" || proto === "ipps" || conn === "ipp" || conn === "ipps") badges.push("IPP · PDF");
+  if (proto === "spooler" || proto === "windows_spooler" || conn === "spooler") badges.push("Spooler · PDF");
+  if (proto === "raw") badges.push("Raw 9100");
+  return badges;
+}
+
 export function getTransportDisplayName(transport: TransportType): string {
   const map: Record<string, string> = {
     network: "Network (TCP)",

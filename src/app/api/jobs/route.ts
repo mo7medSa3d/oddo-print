@@ -70,7 +70,13 @@ export async function GET(req: Request) {
       );
     } else if (statusParam === "unassigned") {
       conditions.push(
-        or(eq(printJobs.destination, "unassigned"), eq(printJobs.printerId, "unassigned"), sql`${printJobs.printerId} NOT IN (SELECT id FROM printers WHERE lifecycle = 'active')`, sql`${printJobs.agentId} NOT IN (SELECT id FROM agents WHERE lifecycle = 'active')`)!
+        // The NOT IN subqueries were previously untenant-fenced full scans
+        // (`id FROM printers`/`id FROM agents`) rebuilt on every poll even
+        // though the outer row is tenant-scoped. Composite tenant+id indexes
+        // exist (printers_tenant_id_unique / agents_tenant_id_unique), so
+        // fencing the subqueries by tenant_id lets PostgreSQL answer them
+        // with index-only scans.
+        or(eq(printJobs.destination, "unassigned"), eq(printJobs.printerId, "unassigned"), sql`${printJobs.printerId} NOT IN (SELECT id FROM printers WHERE tenant_id = ${printJobs.tenantId} AND lifecycle = 'active')`, sql`${printJobs.agentId} NOT IN (SELECT id FROM agents WHERE tenant_id = ${printJobs.tenantId} AND lifecycle = 'active')`)!
       );
     }
   }

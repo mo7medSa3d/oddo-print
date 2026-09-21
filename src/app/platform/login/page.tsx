@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ShieldAlert, Lock, Loader2 } from "lucide-react";
 
@@ -10,6 +10,31 @@ export default function PlatformLoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/platform/auth/me", { credentials: "include", cache: "no-store" })
+      .then((res) => {
+        if (!cancelled && res.ok) router.replace("/platform/dashboard");
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setCheckingSession(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  if (checkingSession) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 text-slate-100">
+        <Loader2 className="h-5 w-5 animate-spin text-indigo-400" />
+        <span className="mt-3 text-sm text-slate-400">Checking session…</span>
+      </div>
+    );
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

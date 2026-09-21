@@ -2,9 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { createServer, type Server } from "http";
 import { AddressInfo } from "net";
 import type { PoolClient } from "pg";
-import { hasTestDatabase, applyMigrations, closePool, pool } from "./helpers/pg";
+import { hasTestDatabase, applyMigrations, closePool } from "./helpers/pg";
 import { pool as gatewayPool } from "../src/db";
-import { attachAgentWSS } from "../src/server/ws";
+import { attachAgentWSS, __getNotificationListenerPidForTests } from "../src/server/ws";
 
 // LISTEN-setup race: if the LISTEN statements themselves throw (DB restart
 // landing between pool.connect() and LISTEN), the listener must keep
@@ -32,7 +32,12 @@ suite("PostgreSQL notification listener setup race", () => {
     await closePool();
   });
 
-  it("retries LISTEN continuously when setup itself keeps failing, then recovers", async () => {
+  // The recovery loop can legitimately wait up to 40s for the real LISTEN
+  // backend to reappear (reconnect backoff is up to 30s with jitter). The
+  // global integration timeout is 30s, so scope this test explicitly to 60s;
+  // otherwise a slow CI database turns a correct recovery into a spurious
+  // timeout. This timeout is per-test and does not weaken the assertion.
+  it("retries LISTEN continuously when setup itself keeps failing, then recovers", { timeout: 60_000 }, async () => {
     let listenAttempts = 0;
     const released: unknown[][] = [];
     const fakeClient = {
@@ -68,15 +73,19 @@ suite("PostgreSQL notification listener setup race", () => {
     expect(released.length).toBeGreaterThanOrEqual(3);
 
     // Recovery: restore the real pool and prove a live LISTEN backend
-    // appears (same observable the CI failure-injection script uses).
+    // appears. Read the SAME observable the CI failure-injection gate uses
+    // (the listener PID published by ws.ts after adoption) instead of
+    // scanning pg_stat_activity: the listener runs LISTEN on three channels
+    // and pg_stat_activity only reports the LAST one (the discovery channel,
+    // "print_gateway_discovery"), so matching the "print_gateway_agent%"
+    // prefix can never find it — that prefix mismatch is exactly what made
+    // this recovery phase time out after the discovery channel was added.
     connectSpy.mockRestore();
     const found = await (async () => {
       const begin = Date.now();
       while (Date.now() - begin < 40_000) {
-        const result = await pool().query<{ pid: number }>(
-          `SELECT pid FROM pg_stat_activity WHERE query ILIKE 'LISTEN print_gateway_agent%' AND pid <> pg_backend_pid()`,
-        );
-        if (result.rows.length > 0) return result.rows[0].pid;
+        const pid = __getNotificationListenerPidForTests();
+        if (typeof pid === "number" && pid > 0) return pid;
         await sleep(250);
       }
       return null;

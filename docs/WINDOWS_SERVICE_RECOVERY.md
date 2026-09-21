@@ -10,22 +10,24 @@ The Go agent and Tauri manager must survive crashes, restarts, and host reboots.
 - Tauri Windows service integration via `cargo` + NSSM or native SCM API (Go `golang.org/x/sys/windows/svc`)
 
 ## Service Definition
-- Service Name: `YasserPrintAgent`
-- Display Name: `Yasser Print Agent`
+- Service Name: `YasserAgent` (matches the `service.Config{Name: "YasserAgent"}` registration in `agent/cmd/agent/main.go` and the `SERVICE_NAME` constant in `src-tauri/src/agent.rs`)
+- Display Name: `Yasser Agent`
 - Start Type: Automatic (delayed start allowed)
-- Dependencies: `Spooler` (Windows Print Spooler must be running for spooler transport)
-- Binary: `yasser-agent.exe` with config path
+- Dependencies: `Tcpip` (matches the actual `Dependencies: []string{"Tcpip"}` in `main.go`; the Windows Print Spooler is a runtime requirement only when the optional `spooler` transport is used)
+- Binary: `YasserAgent.exe` with config path (produced by `build-windows.yml` as `YasserAgent.exe`)
 - Log On As: `LocalSystem` or dedicated service account with `SeServiceLogonRight` and printer access
 
 ## Failure Actions (SCM)
-Configure via `sc failure` or API:
+Configure via `sc failure` or API. The Go agent applies this automatically on
+`YasserAgent.exe -service install` (see `configureServiceRecovery` in
+`agent/cmd/agent/main.go`):
 ```
-sc failure YasserPrintAgent reset= 86400 actions= restart/5000/restart/10000/restart/30000
-sc failureflag YasserPrintAgent 1
+sc failure YasserAgent reset= 86400 actions= restart/60000/restart/60000/restart/60000
+sc failureflag YasserAgent 1
 ```
-- First failure: restart after 5s
-- Second failure: restart after 10s
-- Subsequent: restart after 30s
+- First failure: restart after 60s
+- Second failure: restart after 60s
+- Subsequent: restart after 60s
 - Reset failure count after 86400s (1 day)
 - Failure flag: enabled (failure actions on non-crash failures too)
 
@@ -40,11 +42,15 @@ Expose via `/api/agents/health` and Tauri manager UI:
 - Uptime: seconds
 
 ## Implementation in Go Agent
-- Use `golang.org/x/sys/windows/svc` to implement service main
-- Handle `Interrogate`, `Stop`, `Shutdown` controls
-- On stop, graceful shutdown: close WS, drain queue, save state
-- Write event log on failure with correlation IDs
-- Heartbeat file for watchdog
+- The agent uses `github.com/kardianos/service` (see `agent/cmd/agent/main.go`) with
+  `service.Config{Name: "YasserAgent"}` — not the raw `golang.org/x/sys/windows/svc`
+  handle. `program.Start/Stop` implement the service interface.
+- Handle `Stop`/`Shutdown` controls via the kardianos `service.Service` contract
+- On stop, graceful shutdown (bounded 27s): cancel context, drain queue, close WS, save state
+- Recovery actions are applied automatically on install via `configureServiceRecovery`
+  (shells to `sc.exe`, warn-only)
+- No separate heartbeat file / external watchdog exists; liveness is the Gateway
+  heartbeat (`POST /api/agent/heartbeat`) plus SCM state.
 
 ## Implementation in Tauri (Desktop Manager)
 - Tauri command `get_service_status` returns SCM status via PowerShell `Get-Service` or Win32 API
@@ -54,22 +60,22 @@ Expose via `/api/agents/health` and Tauri manager UI:
 
 ## Kill → Restart → Reconnect Test
 Manual test for client demo:
-1. Start agent as service: `sc start YasserPrintAgent`
+1. Start agent as service: `sc start YasserAgent`
 2. Verify Gateway sees agent ONLINE via `/api/agents/health`
 3. Kill process: `taskkill /F /PID <pid>` or `Stop-Process -Id <pid> -Force`
-4. Wait for SCM recovery (5s): `sc query YasserPrintAgent` should show RUNNING again
-5. Verify new PID, check failure count incremented: `sc qfailure YasserPrintAgent`
+4. Wait for SCM recovery (60s): `sc query YasserAgent` should show RUNNING again
+5. Verify new PID, check failure count incremented: `sc qfailure YasserAgent`
 6. Verify Gateway sees agent ONLINE again within 90s (heartbeat)
 7. Verify queue depth preserved (jobs not lost)
 8. Verify printer status still reported
 
 Automated test (Windows only):
 ```powershell
-$svc = "YasserPrintAgent"
+$svc = "YasserAgent"
 $before = (Get-Service $svc).Status
-$proc = Get-Process yasser-agent -ErrorAction SilentlyContinue
+$proc = Get-Process YasserAgent -ErrorAction SilentlyContinue
 if ($proc) { Stop-Process -Id $proc.Id -Force }
-Start-Sleep 10
+Start-Sleep 65
 $after = (Get-Service $svc).Status
 if ($after -ne "Running") { throw "Service did not recover" }
 # Check Gateway health

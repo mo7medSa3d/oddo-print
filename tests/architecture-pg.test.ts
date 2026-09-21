@@ -29,6 +29,19 @@ suite("real PostgreSQL runtime architecture gate", () => {
     expect(result.rows).toEqual([]);
   });
 
+  it("reconciles discovered_devices.device_class NOT NULL with the runtime schema", async () => {
+    const result = await pool().query(`
+      SELECT is_nullable, column_default
+      FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = 'discovered_devices'
+        AND column_name = 'device_class'
+    `);
+    expect(result.rows).toEqual([
+      { is_nullable: "NO", column_default: "'unknown'::text" },
+    ]);
+  });
+
   it("keeps printers owned only by runtime agents", async () => {
     const cols = await pool().query(`
       SELECT column_name FROM information_schema.columns

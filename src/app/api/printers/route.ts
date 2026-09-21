@@ -7,10 +7,12 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { nanoid } from "../../../lib/nanoid";
 import { parsePrinterInput, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../lib/printer-model";
 import { writeAuditEvent } from "../../../lib/audit";
-import { enforceTenantResourceEntitlement, TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../../../lib/entitlements";
+import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../lib/entitlements";
 import { getEffectivePrinterStatus } from "../../../lib/agent-availability";
 
 export const dynamic = "force-dynamic";
+const MAX_PRINTERS_LIST = 1000;
+const MAX_PRINTERS_OFFSET = 10_000;
 
 export async function GET(req: Request) {
   const auth = await validateConsoleAuth(req);
@@ -22,11 +24,22 @@ export async function GET(req: Request) {
     try { requireManagerPermission(auth.claims, "printers.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   }
 
+  // Hard ceiling so cadence/abuse cannot force an unbounded scan. Entitlements
+  // cap the row count per tenant (max_printers); 1000 is purely defensive.
+  const { searchParams } = new URL(req.url);
+  const limit = Math.min(parseInt(searchParams.get("limit") ?? "1000", 10) || 1000, 1000);
+  const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10) || 0, 0);
+  if (offset > MAX_PRINTERS_OFFSET) {
+    return NextResponse.json({ error: `offset must be <= ${MAX_PRINTERS_OFFSET}` }, { status: 400 });
+  }
+
   const rows = await db.select({ printer: printers, agent: agents })
     .from(printers)
     .leftJoin(agents, and(eq(agents.id, printers.agentId), eq(agents.tenantId, tenantId)))
     .where(agentId ? and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId)) : eq(printers.tenantId, tenantId))
-    .orderBy(desc(printers.createdAt));
+    .orderBy(desc(printers.createdAt))
+    .limit(limit)
+    .offset(offset);
   const now = new Date();
   return NextResponse.json(rows.map(({ printer, agent }) => ({
     ...printer,
@@ -117,7 +130,7 @@ export async function POST(req: Request) {
       return NextResponse.json(row, { status: 201 });
     } catch (error) {
       if (error instanceof TenantEntitlementError) return NextResponse.json({ error: error.message, code: error.code }, { status: 429, headers: { "Retry-After": "60" } });
-      if (error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
+      if (isTenantBillingError(error)) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
       if (error instanceof Error && /already exists|duplicate/i.test(error.message)) return NextResponse.json({ error: "printer id already exists" }, { status: 409 });
       throw error;
     }

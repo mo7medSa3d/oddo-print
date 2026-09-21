@@ -6,7 +6,7 @@ export default function NotFound() {
   return (
     <div className="canvas-wash min-h-[calc(100vh-8rem)] flex items-center justify-center py-12">
       <div className="container mx-auto flex max-w-xl flex-col items-start px-4">
-        <BrandMark size="lg" title="Print Gateway" subtitle="Enterprise print operations" />
+        <BrandMark size="lg" title="Yasser" subtitle="Cloud printing" />
         <div className="card brand-hairline mt-8 w-full p-8 shadow-md">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-edge-accent bg-brand-subtle text-brand">
             <Compass className="h-6 w-6" aria-hidden />

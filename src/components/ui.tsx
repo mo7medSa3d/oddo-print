@@ -340,7 +340,7 @@ export function BillingPremiumCard({
       )}
 
       {entitlements && entitlements.length > 0 && (
-        <div className="mt-5 grid grid-cols-3 gap-2">
+        <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
           {entitlements.slice(0, 6).map((e) => (
             <div key={e.label} className="rounded-[10px] border border-edge bg-surface-2 px-3 py-2.5">
               <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-3">{e.label}</div>

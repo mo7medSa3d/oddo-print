@@ -23,9 +23,9 @@ type SystemHealth = {
 function badgeColor(state: HealthState) {
   switch (state) {
     case "ok": return "bg-ok-bg text-ok border-ok-edge";
-    case "warn": return "bg-amber-50 text-amber-700 border-amber-200";
+    case "warn": return "bg-warn-bg text-warn border-warn-edge";
     case "error": return "bg-bad-bg text-bad border-bad-edge";
-    default: return "bg-zinc-100 text-zinc-600 border-zinc-200";
+    default: return "bg-surface-3 text-ink-2 border-edge";
   }
 }
 
@@ -80,7 +80,7 @@ export default function SystemHealthClient() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {health.checks.map((c) => (
-          <div key={c.name} className="rounded-xl border border-edge bg-white p-4 shadow-xs">
+          <div key={c.name} className="rounded-xl border border-edge bg-surface p-4 shadow-xs">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-ink">{c.name}</h3>
               <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-bold ${badgeColor(c.state)}`}>{stateLabel(c.state)}</span>
@@ -88,16 +88,16 @@ export default function SystemHealthClient() {
             <p className="mt-2 text-[13px] leading-relaxed text-ink-2">{c.message}</p>
             {c.latencyMs !== undefined && <div className="mt-1 text-[11px] text-ink-3">{c.latencyMs}ms</div>}
             {c.details && (
-              <pre className="mt-2 max-h-32 overflow-auto rounded bg-zinc-50 p-2 text-[11px] text-zinc-600">{JSON.stringify(c.details, null, 2)}</pre>
+              <pre className="mt-2 max-h-32 overflow-auto rounded bg-surface-2 p-2 text-[11px] text-ink-2">{JSON.stringify(c.details, null, 2)}</pre>
             )}
           </div>
         ))}
       </div>
 
-      <div className="rounded-xl border border-edge bg-white p-5">
+      <div className="rounded-xl border border-edge bg-surface p-5">
         <h2 className="text-sm font-semibold">Distributed Tracing</h2>
         <p className="mt-1 text-[13px] text-ink-3">Correlation IDs propagated: request_id / job_id / tenant_id / agent_id / printer_id / attempt_id / claim_id / spooler_job_id. Check X-Request-Id header and structured logs.</p>
-        <div className="mt-3 rounded bg-zinc-50 p-3 text-[11px] font-mono text-zinc-700">
+        <div className="mt-3 rounded bg-surface-2 p-3 text-[11px] font-mono text-ink-2">
           Example log: {`{"ts":"...","level":"info","event":"print.job.success","requestId":"req_...","jobId":"job_...","tenantId":"...","agentId":"...","printerId":"...","attemptId":"attempt_...","claimId":"...","spoolerJobId":"..."}`}
         </div>
       </div>
