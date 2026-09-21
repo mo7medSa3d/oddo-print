@@ -33,6 +33,7 @@ describe("Odoo Gateway activation synchronization", () => {
 
     expect(migration).toContain('ALTER TABLE "api_keys"');
     expect(migration).toContain('UPDATE "api_keys" AS k');
+    expect(migration).toContain('Every existing key in a tenant inherits the former tenant-wide activation');
     expect(migration).toContain('DROP COLUMN IF EXISTS "odoo_enabled"');
   });
 
