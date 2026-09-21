@@ -167,56 +167,6 @@
         </field>
     </record>
 
-<<<<<<< ours
-    <record id="view_print_gateway_config_search" model="ir.ui.view">
-        <field name="name">print_gateway.gateway_config.search</field>
-        <field name="model">print_gateway.gateway_config</field>
-        <field name="arch" type="xml">
-            <search string="Gateway Configuration">
-                <field name="company_id"/>
-                <field name="gateway_url"/>
-                <field name="enabled"/>
-                <field name="gateway_sync_state"/>
-                <filter string="Enabled" name="filter_enabled" domain="[('enabled', '=', True)]"/>
-                <filter string="Disabled" name="filter_disabled" domain="[('enabled', '=', False)]"/>
-                <filter string="Needs Attention" name="filter_attention" domain="[('gateway_sync_state', '=', 'attention')]"/>
-                <filter string="Syncing" name="filter_syncing" domain="[('gateway_sync_state', '=', 'syncing')]"/>
-                <filter string="Setup Required" name="filter_not_configured" domain="[('gateway_sync_state', '=', 'not_configured')]"/>
-                <group string="Group By">
-                    <filter string="Company" name="group_company" context="{'group_by': 'company_id'}"/>
-                    <filter string="Gateway Status" name="group_gateway_status" context="{'group_by': 'gateway_sync_state'}"/>
-                </group>
-            </search>
-        </field>
-    </record>
-
-||||||| base
-=======
-    <record id="view_print_gateway_config_search" model="ir.ui.view">
-        <field name="name">print_gateway.gateway_config.search</field>
-        <field name="model">print_gateway.gateway_config</field>
-        <field name="arch" type="xml">
-            <search string="Gateway Configuration">
-                <field name="company_id"/>
-                <field name="gateway_url"/>
-                <field name="gateway_sync_state"/>
-                <field name="enabled"/>
-                <filter string="Enabled" name="filter_enabled" domain="[('enabled','=',True)]"/>
-                <filter string="Disabled" name="filter_disabled" domain="[('enabled','=',False)]"/>
-                <separator/>
-                <filter string="Active" name="filter_active" domain="[('gateway_sync_state','=','active')]"/>
-                <filter string="Attention" name="filter_attention" domain="[('gateway_sync_state','=','attention')]"/>
-                <filter string="Syncing" name="filter_syncing" domain="[('gateway_sync_state','=','syncing')]"/>
-                <filter string="Not Configured" name="filter_not_configured" domain="[('gateway_sync_state','=','not_configured')]"/>
-                <filter string="Gw Disabled" name="filter_gw_disabled" domain="[('gateway_sync_state','=','disabled')]"/>
-                <separator/>
-                <filter string="Company" name="group_company" context="{'group_by':'company_id'}"/>
-                <filter string="Gateway Status" name="group_sync_state" context="{'group_by':'gateway_sync_state'}"/>
-            </search>
-        </field>
-    </record>
-
->>>>>>> theirs
     <record id="action_print_gateway_config" model="ir.actions.act_window">
         <field name="name">Gateway Configuration</field>
         <field name="res_model">print_gateway.gateway_config</field>
