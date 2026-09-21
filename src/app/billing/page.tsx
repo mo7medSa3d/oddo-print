@@ -11,7 +11,7 @@ import { CreditCard, ShieldCheck, Calendar, Zap, ArrowRight, AlertTriangle, Chec
 
 export const dynamic = "force-dynamic";
 
-type SearchParams = Promise<{ checkout?: string | string[] }>;
+type SearchParams = Promise<{ checkout?: string | string[]; plan?: string | string[] }>;
 
 export default async function BillingPage({ searchParams }: { searchParams: SearchParams }) {
   const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
@@ -135,24 +135,13 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
             )}
 
             <div className="mt-8 border-t border-edge pt-6">
-              {hasActivePlan ? (
-                hasStripeSubscription ? (
-                  <BillingActions
-                      hasSubscription={true}
-                      cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd}
-                      currentPlanId={sub?.planId ?? null}
-                      plans={availablePlans}
-                      selectedPlanId={selectedPlanId}
-                    />
-                ) : (
-                  <div className="rounded-[10px] border border-edge bg-surface-2 px-4 py-3 text-[13px] text-ink-2">Active plan without Stripe link. Billing management will appear when paid subscription connects.</div>
-                )
-              ) : (
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <Link href="/pricing" className="inline-flex h-10 items-center justify-center rounded-[10px] bg-brand px-5 text-[13px] font-semibold text-white shadow-sm hover:bg-brand-hover">Choose a plan</Link>
-                  <span className="text-[12px] text-ink-3">Plans enforced by Gateway. No fake values.</span>
-                </div>
-              )}
+              <BillingActions
+                hasSubscription={hasActivePlan && hasStripeSubscription}
+                cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd}
+                currentPlanId={hasActivePlan ? (sub?.planId ?? null) : null}
+                plans={availablePlans}
+                selectedPlanId={selectedPlanId}
+              />
             </div>
           </div>
         </div>
