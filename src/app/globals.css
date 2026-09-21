@@ -125,6 +125,12 @@
   --sidebar-collapsed: 72px;
   --header-height: 64px;
   --content-max: 1440px;
+
+  --platform-bg: #0b1018;
+  --platform-surface: #111824;
+  --platform-border: #202b3a;
+  --platform-text: #f4f7fb;
+  --platform-muted: #93a4b8;
 }
 
 @theme inline {
