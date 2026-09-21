@@ -775,7 +775,7 @@ export default function App() {
 
       <div
         className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-200 ${
-          collapsed ? "lg:pl-[72px]" : "lg:pl-[248px]"
+          collapsed ? "lg:pl-[72px]" : "lg:pl-[280px]"
         }`}
       >
         <header className="sticky top-0 z-20 border-b border-edge bg-surface/90 px-5 py-5 backdrop-blur-md lg:px-8">
@@ -839,7 +839,7 @@ export default function App() {
           </div>
         )}
 
-        <main className="mx-auto w-full max-w-[1400px] flex-1 px-5 py-7 lg:px-8 lg:py-8">
+        <main className="w-full flex-1 px-5 py-7 lg:px-8 lg:py-8">
           {page === "dashboard" && <OverviewPage s={state} />}
           {page === "printers" && <PrintersPage s={state} />}
           {page === "jobs" && <JobsPage s={state} />}

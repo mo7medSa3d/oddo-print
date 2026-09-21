@@ -31,51 +31,58 @@ export default async function Pricing() {
   const destination = claims ? "/billing" : "/signup";
 
   return (
-    <div className="mx-auto w-full max-w-[1120px] px-6 py-12 sm:py-16">
+    <div className="mx-auto w-full max-w-[1480px] px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
       <header className="mx-auto max-w-3xl text-center">
         <div className="inline-flex items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
           <ShieldCheck className="h-3.5 w-3.5" /> Plans enforced server-side
         </div>
-        <h1 className="mt-6 text-[36px] font-bold tracking-[-0.03em] leading-tight text-ink">Simple plans for production print ops</h1>
-        <p className="mt-4 text-[15px] leading-relaxed text-ink-3">No fake usage. Limits are enforced by Gateway — agents, printers, jobs per minute, concurrent jobs. Choose what matches your fleet.</p>
+        <h1 className="mt-6 text-[40px] font-bold tracking-[-0.04em] leading-tight text-ink sm:text-[48px]">A plan that scales with every print</h1>
+        <p className="mx-auto mt-4 max-w-2xl text-[15px] leading-relaxed text-ink-3">Reliable infrastructure for Odoo print operations — with hard limits, secure agents, and a clear upgrade path as your fleet grows.</p>
       </header>
 
       {rows.length === 0 ? (
         <div className="mx-auto mt-12 max-w-xl rounded-[14px] border border-dashed border-edge bg-surface p-8 text-center text-[14px] text-ink-3">No public plans configured yet. Contact Platform Admin.</div>
       ) : (
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
+        <div className="mt-14 grid items-stretch gap-6 md:grid-cols-3 lg:gap-8">
           {rows.map((plan, idx) => {
+            // The third tier is the growth/scale path and should be the
+            // strongest visual anchor on the page.
             const isPopular = idx === 1;
+            const isFeatured = idx === 2;
             return (
-              <article key={plan.id} className={`relative flex flex-col rounded-[16px] border p-6 shadow-card transition-all hover:shadow-card-hover hover:-translate-y-[2px] ${isPopular ? "border-brand bg-gradient-to-br from-white to-brand-50/50 shadow-[0_8px_32px_rgba(37,99,235,0.12)]" : "border-edge bg-surface"}`}>
-                {isPopular && <div className="absolute -top-3 left-6 inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-[11px] font-semibold text-white shadow-sm"><Zap className="h-3 w-3" /> Most popular</div>}
+              <article key={plan.id} className={`relative flex min-h-[430px] flex-col rounded-[20px] border p-7 shadow-card transition-all duration-200 hover:-translate-y-1 hover:shadow-xl ${isFeatured ? "border-slate-950 bg-slate-950 text-white shadow-[0_18px_55px_rgba(15,23,42,0.28)] md:-mt-5 md:mb-5" : isPopular ? "border-brand bg-gradient-to-br from-white to-brand-50/50 shadow-[0_8px_32px_rgba(37,99,235,0.12)]" : "border-edge bg-surface"}`}>
+                {isFeatured && <div className="absolute -top-3 left-7 inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-300 to-yellow-400 px-3 py-1 text-[11px] font-bold text-slate-950 shadow-lg"><Zap className="h-3 w-3" /> Best for scale</div>}
+                {isPopular && !isFeatured && <div className="absolute -top-3 left-6 inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-[11px] font-semibold text-white shadow-sm"><Zap className="h-3 w-3" /> Most popular</div>}
                 <div>
-                  <h2 className="text-[18px] font-bold tracking-tight text-ink">{plan.name}</h2>
-                  {plan.description && <p className="mt-2 text-[13px] leading-relaxed text-ink-3">{plan.description}</p>}
-                  <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-surface-2 border border-edge px-2.5 py-1 text-[11px] font-medium text-ink-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <h2 className={`text-[20px] font-bold tracking-tight ${isFeatured ? "text-white" : "text-ink"}`}>{plan.name}</h2>
+                    {isFeatured && <span className="rounded-full border border-white/20 bg-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200">Scale tier</span>}
+                  </div>
+                  {plan.description && <p className={`mt-2 text-[13px] leading-relaxed ${isFeatured ? "text-slate-300" : "text-ink-3"}`}>{plan.description}</p>}
+                  <div className={`mt-3 inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-medium ${isFeatured ? "border-white/15 bg-white/10 text-slate-300" : "border-edge bg-surface-2 text-ink-3"}`}>
                     {plan.currency ? plan.currency.toUpperCase() : "USD"} {plan.interval ? `• ${plan.interval}` : ""}
                   </div>
                 </div>
 
-                <div className="mt-6 flex-1 rounded-[12px] border border-edge bg-surface-2 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Included</div>
+                <div className={`mt-6 flex-1 rounded-[14px] border p-4 ${isFeatured ? "border-white/15 bg-white/[0.07]" : "border-edge bg-surface-2"}`}>
+                  <div className={`text-[11px] font-semibold uppercase tracking-wide ${isFeatured ? "text-slate-400" : "text-ink-3"}`}>Included</div>
                   <dl className="mt-3 space-y-2.5">
                     {Object.entries(plan.entitlements ?? {}).slice(0, 6).map(([key, value]) => (
                       <div key={key} className="flex items-center justify-between gap-3 text-[13px]">
-                        <dt className="flex items-center gap-2 text-ink-3 capitalize">
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-ok-bg border border-ok-edge text-ok"><Check className="h-3 w-3" /></span>
+                        <dt className={`flex items-center gap-2 capitalize ${isFeatured ? "text-slate-300" : "text-ink-3"}`}>
+                          <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${isFeatured ? "border-emerald-300/30 bg-emerald-400/15 text-emerald-300" : "border-ok-edge bg-ok-bg text-ok"}`}><Check className="h-3 w-3" /></span>
                           {key.replace(/^max_/, "").replace(/_/g, " ")}
                         </dt>
-                        <dd className="font-semibold tabular-nums text-ink">{String(value)}</dd>
+                        <dd className={`font-semibold tabular-nums ${isFeatured ? "text-white" : "text-ink"}`}>{String(value)}</dd>
                       </div>
                     ))}
                   </dl>
                 </div>
 
-                <Link href={destination} className={`mt-6 inline-flex h-11 items-center justify-center gap-2 rounded-[10px] text-[14px] font-semibold transition ${isPopular ? "bg-brand text-white shadow-sm hover:bg-brand-hover" : "border border-edge bg-surface text-ink hover:bg-surface-2"}`}>
+                <Link href={destination} className={`mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-[11px] text-[14px] font-semibold transition ${isFeatured ? "bg-white text-slate-950 shadow-lg hover:bg-slate-100" : isPopular ? "bg-brand text-white shadow-sm hover:bg-brand-hover" : "border border-edge bg-surface text-ink hover:bg-surface-2"}`}>
                   {claims ? "Open billing" : "Get started"} <ArrowRight className="h-4 w-4" />
                 </Link>
-                <div className="mt-3 text-center text-[11px] text-ink-3">Stripe checkout • No fake values</div>
+                <div className={`mt-3 text-center text-[11px] ${isFeatured ? "text-slate-400" : "text-ink-3"}`}>Stripe checkout • No fake values</div>
               </article>
             );
           })}

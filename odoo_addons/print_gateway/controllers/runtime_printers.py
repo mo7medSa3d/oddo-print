@@ -66,7 +66,12 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         self._require_runtime_admin()
         company, branch = self._scope(company_id, branch_id)
         config, root_company = self._get_config(company)
-        if not config or not config.enabled:
+        # Agent pairing/discovery must remain available while Odoo printing is
+        # disabled. `enabled` controls print dispatch, not whether an admin can
+        # choose a runtime agent in the Pair New Agent wizard. The API key is
+        # still required by _gateway_headers and therefore remains the auth
+        # boundary for this endpoint.
+        if not config or not config.gateway_api_key:
             return {'enabled': False, 'selectedAgentId': False, 'agents': []}
         try:
             response = requests.get(

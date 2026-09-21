@@ -103,11 +103,12 @@ export default function ApiKeysPage() {
   const active = keys.filter(k => !k.revokedAt).length;
 
   return (
-    <div className="mx-auto max-w-[1400px] px-6 py-10">
-      <header className="mb-10 flex items-end justify-between">
+    <div className="mx-auto w-full max-w-[1520px] px-5 py-8 sm:px-8 lg:px-12 lg:py-10">
+      <header className="mb-8 flex flex-col gap-4 border-b border-edge pb-7 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-[28px] font-bold tracking-tight text-ink">API Keys</h1>
-          <p className="mt-1 text-[13px] text-ink-3">Odoo gateway credentials.</p>
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-brand"><KeyRound className="h-3.5 w-3.5" /> Odoo Gateway</div>
+          <h1 className="text-[32px] font-bold tracking-[-0.03em] text-ink">API Keys &amp; Integration</h1>
+          <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">Create, rotate, and revoke credentials for Odoo. Credential security, Odoo activation, and Gateway connectivity are tracked independently.</p>
         </div>
         {active > 0 ? (
           <span className="text-[12px] font-semibold text-ink-3">{active} active</span>
@@ -154,8 +155,10 @@ export default function ApiKeysPage() {
         </div>
       )}
 
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.75fr)]">
+        <div className="space-y-6">
       <Card>
-        <CardHeader title="Generate" />
+        <CardHeader title="Generate API Key" subtitle="Used in Odoo Gateway Configuration" icon={<KeyRound className="h-4 w-4 text-brand" />} />
         <form onSubmit={e => { e.preventDefault(); void generate(); }} className="px-5 pb-5 space-y-4">
           <div className="flex gap-3">
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="Odoo Production" className="h-9 flex-1" aria-label="Key name" />
@@ -203,6 +206,31 @@ export default function ApiKeysPage() {
             ))}
           </div>
         )}
+      </div>
+        </div>
+
+        <aside className="space-y-6">
+          <Card>
+            <CardHeader title="How it works" icon={<Shield className="h-4 w-4 text-ok" />} />
+            <div className="space-y-4 px-5 pb-5 text-[13px] text-ink-2">
+              {[
+                ["01", "Odoo sends print intent", "Odoo uses this key when it calls the Gateway API."],
+                ["02", "Gateway validates access", "The key is checked for tenant, scope, and entitlement."],
+                ["03", "Agent executes locally", "Jobs are queued safely, then claimed by the right agent."],
+                ["04", "Rotate without downtime", "Create a replacement key before revoking the old one."],
+              ].map(([step, title, body]) => <div key={step} className="flex gap-3"><span className="font-mono text-[11px] font-bold text-brand">{step}</span><div><div className="font-semibold text-ink">{title}</div><p className="mt-1 text-[12px] leading-relaxed text-ink-3">{body}</p></div></div>)}
+            </div>
+          </Card>
+          <Card>
+            <CardHeader title="State separation" subtitle="Each status reflects a different control plane." icon={<Lock className="h-4 w-4 text-brand" />} />
+            <div className="space-y-2 px-5 pb-5 text-[12px]">
+              <div className="rounded-[10px] border border-ok-edge bg-ok-bg px-3 py-2 font-semibold text-ok">Valid credential <span className="font-normal opacity-80">— key is usable</span></div>
+              <div className="rounded-[10px] border border-edge bg-surface-2 px-3 py-2 font-semibold text-ink-2">Odoo activation <span className="font-normal text-ink-3">— printing flag</span></div>
+              <div className="rounded-[10px] border border-warn-edge bg-warn-bg px-3 py-2 font-semibold text-warn">Sync pending <span className="font-normal opacity-80">— latest state is processing</span></div>
+              <div className="rounded-[10px] border border-bad-edge bg-bad-bg px-3 py-2 font-semibold text-bad">Invalid credential <span className="font-normal opacity-80">— revoked or missing</span></div>
+            </div>
+          </Card>
+        </aside>
       </div>
 
       <Modal open={!!pending} onClose={() => setPending(null)} title={pending?.kind === "revoke" ? "Revoke key?" : "Remove key?"}>
