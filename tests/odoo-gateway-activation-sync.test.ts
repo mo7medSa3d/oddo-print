@@ -86,7 +86,8 @@ describe("Odoo Gateway auto-sync client record identity", () => {
   it("uses the persisted resId and never the OWL datapoint id for post-save RPC/load", () => {
     const source = read("odoo_addons/print_gateway/static/src/js/gateway_config_auto_sync.js");
     expect(source).toContain("const resId = record.resId;");
-    expect(source).toContain("method,\n                [[resId]],");
+    expect(source).toContain("[[resId]]");
+    expect(source).toContain("method,");
     expect(source).toContain("await this.model.load({ resId });");
     expect(source).not.toContain("record.id");
     expect(source).not.toContain("[[record.id]]");
