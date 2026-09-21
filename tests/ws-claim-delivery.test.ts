@@ -305,26 +305,44 @@ suite("WS claim-before-delivery", () => {
     expect((await jobRow("job_t3d")).retries).toBe(1);
   });
 
-  it("socket success without persisted evidence is NOT a delivery", async () => {
+  it("socket success without persisted evidence becomes an explicit unknown outcome, never a requeue", async () => {
     // The socket write succeeds, but the delivered_at evidence write for
-    // the same claim token fails (row expired/terminal mid-send). The
-    // gateway must NOT report "delivered" on the socket alone: it falls
-    // back to the fenced release path instead of stranding a phantom
-    // delivery that the agent actually holds.
+    // the same claim token fails. The Agent may already have admitted or
+    // printed the job, so the Gateway must not put the same job back in
+    // queued state where it could be physically duplicated.
     const ws = await connectAgent();
     const messages: unknown[] = [];
     ws.on("message", (data) => messages.push(JSON.parse(String(data))));
     await insertQueuedJob(f, "job_phantom");
     (globalThis as unknown as { __markEvidenceImpl?: MarkFn }).__markEvidenceImpl = async () => false;
     try {
-      expect(await claimAndPushJobToAgent({ id: "job_phantom", agentId: f.agentId })).toBe("requeued");
+      expect(await claimAndPushJobToAgent({ id: "job_phantom", agentId: f.agentId })).toBe("delivery_unknown");
     } finally {
       delete (globalThis as unknown as { __markEvidenceImpl?: MarkFn }).__markEvidenceImpl;
     }
     const row = await jobRow("job_phantom");
-    expect(row.status).toBe("queued");
-    expect(row.delivered_at).toBeNull();
+    expect(row.status).toBe("failed");
+    expect(row.delivered_at).not.toBeNull();
     expect(row.claim_token).toBeNull();
+    expect(row.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY:/);
+    expect(messages.length).toBeGreaterThan(0);
+  });
+
+  it("explicit printer pre-execution rejection is immediately requeued without burning retry budget", async () => {
+    await insertQueuedJob(f, "job_printer_preexec_reject");
+    const claim = await claimJobForDelivery("job_printer_preexec_reject", f.agentId);
+    expect(claim).not.toBeNull();
+    const res = await agentJobsPATCH(agentRequest(f, "PATCH", {
+      jobId: "job_printer_preexec_reject",
+      status: "queued",
+      reason: "printer_pending_full",
+      claimToken: claim!.claimToken,
+    }));
+    expect(res.status).toBe(200);
+    const row = await jobRow("job_printer_preexec_reject");
+    expect(row.status).toBe("queued");
+    expect(row.retries).toBe(0);
+    expect(row.delivery_attempts).toBe(0);
   });
 
   it("socket delivery evidence exception never causes an automatic requeue", async () => {
