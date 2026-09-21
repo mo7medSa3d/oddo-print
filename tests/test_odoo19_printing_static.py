@@ -167,3 +167,16 @@ def test_gateway_queue_admission_allows_active_agent_when_heartbeat_is_stale():
     assert "isAgentAvailableForJob(ownerAgent)" not in service
     assert 'owner.agent_status !== "online"' not in service
     assert "owner.agent_last_seen_at" not in service
+
+def test_gateway_config_auto_syncs_after_api_key_save():
+    source = (ADDON_ROOT / "static" / "src" / "js" / "gateway_config_auto_sync.js").read_text(encoding="utf-8")
+    manifest = (ADDON_ROOT / "__manifest__.py").read_text(encoding="utf-8")
+    assert "gateway_config_auto_sync.js" in manifest
+    assert 'this.model.root.resModel !== "print_gateway.gateway_config"' in source
+    assert 'hasOwnProperty.call(changes, "gateway_api_key")' in source
+    assert 'record.data.gateway_api_key' in source
+    assert 'this.orm.call(' in source
+    assert '"print_gateway.gateway_config"' in source
+    assert '"action_test_connection"' in source
+    assert 'await this.model.load({ resId: record.id });' in source
+
