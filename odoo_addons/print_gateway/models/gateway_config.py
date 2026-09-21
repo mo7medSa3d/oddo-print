@@ -876,24 +876,7 @@ class PrintGatewayConfig(models.Model):
                         continue
                     new_revision = int(record.enabled_sync_revision or 0) + 1
                     try:
-                        response = requests.patch(
-                            "%s/api/odoo/configuration" % gateway_url,
-                            headers={
-                                "Authorization": "Bearer %s" % api_key,
-                                "Accept": "application/json",
-                                "Cache-Control": "no-store",
-                                "Content-Type": "application/json",
-                                "X-Odoo-Database": self.env.cr.dbname,
-                            },
-                            json={"enabled": False, "revision": new_revision},
-                            timeout=2,
-                            allow_redirects=False,
-                        )
-                        _logger.info(
-                            "Gateway disable during unlink completed for config %s (HTTP %s)",
-                            record.id,
-                            response.status_code,
-                        )
+                        record._disable_gateway_for_unlink(gateway_url, api_key, new_revision)
                     except Exception:
                         _logger.debug(
                             "Gateway disable during unlink failed for config %s",
