@@ -43,6 +43,21 @@ class PrintGatewayConfig(models.Model):
     )
     last_enabled_sync_at = fields.Datetime(readonly=True, copy=False)
     last_enabled_sync_error = fields.Text(readonly=True, copy=False)
+    # Canonical pending-sync bookkeeping. The staleness fence must be bound to
+    # the revision awaiting confirmation, not to record activity: write_date
+    # moves on ANY write and would postpone stale detection while the same
+    # revision stays unconfirmed. pending_sync_revision is stamped exactly
+    # when a new enabled_sync_revision starts awaiting the Gateway (write
+    # bumps and credential rotation alike), and both fields are cleared when
+    # an outcome is recorded. Stale rule:
+    #   pending_sync_revision != last_enabled_sync_revision
+    #   AND now() - pending_sync_started_at >= _SYNC_PENDING_STALE_AFTER_SECONDS
+    pending_sync_revision = fields.Integer(
+        string="Pending Sync Revision", default=-1, readonly=True, copy=False,
+    )
+    pending_sync_started_at = fields.Datetime(
+        string="Pending Sync Started At", readonly=True, copy=False,
+    )
     # Durable one-item shutdown/migration state. The previous endpoint is
     # explicitly disabled before a new endpoint or credential is reconciled.
     # A second URL migration is blocked while this state is pending, preventing
@@ -98,6 +113,17 @@ class PrintGatewayConfig(models.Model):
         readonly=True,
     )
 
+    # "Syncing" must never be an absorbing state. The retry cron runs every
+    # minute, so a healthy deployment records an outcome (success OR failure)
+    # well within this window. Beyond it the UI escalates to "attention" with
+    # an actionable message instead of spinning forever.
+    _SYNC_PENDING_STALE_AFTER_SECONDS = 300
+
+    def _pending_stale_message(self):
+        return _(
+            "Sync did not receive confirmation within %d minutes. Retry Sync or verify Gateway connectivity."
+        ) % (self._SYNC_PENDING_STALE_AFTER_SECONDS // 60)
+
     _company_unique = models.Constraint(
         "UNIQUE(company_id)",
         "Only one Print Gateway configuration is allowed per Odoo company.",
@@ -136,6 +162,7 @@ class PrintGatewayConfig(models.Model):
         "last_enabled_sync_error",
         "enabled_sync_revision",
         "last_enabled_sync_revision",
+        "pending_sync_started_at",
     )
     def _compute_gateway_sync_state(self):
         for record in self:
@@ -158,6 +185,25 @@ class PrintGatewayConfig(models.Model):
                 ) % (_("enabled") if record.enabled else _("disabled"))
                 continue
             if int(record.last_enabled_sync_revision or -1) != int(record.enabled_sync_revision or 0):
+                # The Gateway has not confirmed the current revision yet. The
+                # staleness fence is bound to the pending revision's own start
+                # timestamp, never to write_date: any unrelated write would
+                # otherwise postpone stale detection while the same revision
+                # stays unconfirmed.
+                # A fresh revision bump always stamps the start time, so a
+                # pending row without one predates the fence (legacy row or
+                # anomalous state) and is already past any staleness window:
+                # escalate instead of spinning.
+                started_at = record.pending_sync_started_at
+                pending_seconds = (
+                    (fields.Datetime.now() - started_at).total_seconds()
+                    if started_at
+                    else float("inf")
+                )
+                if pending_seconds > self._SYNC_PENDING_STALE_AFTER_SECONDS:
+                    record.gateway_sync_state = "attention"
+                    record.gateway_sync_message = self._pending_stale_message()
+                    continue
                 record.gateway_sync_state = "syncing"
                 record.gateway_sync_message = _(
                     "Sending the current Odoo activation state to the Gateway."
@@ -351,6 +397,30 @@ class PrintGatewayConfig(models.Model):
             )
             return False
 
+    def _pending_disable_credentials(self):
+        """Return (url, api_key, revision) for a pending old-endpoint shutdown, or None."""
+        self.ensure_one()
+        has_pending_disable_state = bool(
+            self.pending_disable_gateway_url
+            or self.pending_disable_gateway_api_key
+            or int(self.pending_disable_revision or -1) >= 0
+        )
+        if not has_pending_disable_state:
+            return None
+        if not (
+            self.pending_disable_gateway_url
+            and self.pending_disable_gateway_api_key
+            and int(self.pending_disable_revision or -1) >= 0
+        ):
+            raise ValidationError(
+                _("Gateway endpoint shutdown/migration state is incomplete; automatic reconciliation is blocked until it is repaired.")
+            )
+        return (
+            self.pending_disable_gateway_url,
+            self._gateway_api_key_plaintext_from_value(self.pending_disable_gateway_api_key),
+            int(self.pending_disable_revision),
+        )
+
     def _run_postcommit_enabled_sync(
         self,
         *,
@@ -361,45 +431,139 @@ class PrintGatewayConfig(models.Model):
         enabled,
         pending_disable=None,
     ):
-        """Reconcile old endpoint shutdown before the new endpoint state."""
-        if pending_disable:
-            old_url, old_api_key, old_revision = pending_disable
-            # When the pending shutdown is for the SAME endpoint as the
-            # current configuration, a newly supplied credential can recover
-            # a previous key-removal that was interrupted by key revocation.
-            # URL migrations must still use the credential belonging to the
-            # previous endpoint.
-            shutdown_api_key = old_api_key
-            if self.gateway_api_key and old_url == gateway_url:
-                shutdown_api_key = api_key
-            if not self._sync_pending_gateway_disable(
-                gateway_url=old_url,
-                api_key=shutdown_api_key,
-                revision=old_revision,
-            ):
-                return
-            if not self.gateway_api_key:
-                # A removed key cannot be used for a second no-op PATCH, but
-                # the successful shutdown already proves the requested
-                # disabled state for this revision.
+        """Reconcile old endpoint shutdown before the new endpoint state.
+
+        Post-commit hooks must never die silently: any unexpected crash is
+        logged with its traceback AND persisted as a sync error, so the form
+        cannot remain stuck on "Syncing" without a visible trail.
+        """
+        try:
+            if pending_disable:
+                old_url, old_api_key, old_revision = pending_disable
+                # When the pending shutdown is for the SAME endpoint as the
+                # current configuration, a newly supplied credential can recover
+                # a previous key-removal that was interrupted by key revocation.
+                # URL migrations must still use the credential belonging to the
+                # previous endpoint.
+                shutdown_api_key = old_api_key
+                if self.gateway_api_key and old_url == gateway_url:
+                    shutdown_api_key = api_key
+                if not self._sync_pending_gateway_disable(
+                    gateway_url=old_url,
+                    api_key=shutdown_api_key,
+                    revision=old_revision,
+                ):
+                    return
+                if not self.gateway_api_key:
+                    # A removed key cannot be used for a second no-op PATCH, but
+                    # the successful shutdown already proves the requested
+                    # disabled state for this revision.
+                    self._persist_enabled_sync_result(
+                        dbname,
+                        success=True,
+                        revision=old_revision,
+                        error=False,
+                    )
+                    self._complete_gateway_migration(old_revision)
+                    return True
+            synced = self._sync_enabled_state_to_gateway(
+                gateway_url,
+                api_key,
+                dbname,
+                revision,
+                enabled,
+            )
+            if synced and pending_disable:
+                self._complete_gateway_migration(revision)
+            return synced
+        except Exception:  # noqa: BLE001 - a post-commit crash must surface as "attention", never as a silent hang
+            _logger.exception(
+                "Gateway activation post-commit sync crashed for config %s", self.id
+            )
+            try:
                 self._persist_enabled_sync_result(
                     dbname,
-                    success=True,
-                    revision=old_revision,
-                    error=False,
+                    success=False,
+                    revision=None,
+                    error="POSTCOMMIT_ERROR: unexpected synchronization failure (see Odoo server log)",
                 )
-                self._complete_gateway_migration(old_revision)
-                return True
-        synced = self._sync_enabled_state_to_gateway(
-            gateway_url,
-            api_key,
-            dbname,
-            revision,
-            enabled,
-        )
-        if synced and pending_disable:
-            self._complete_gateway_migration(revision)
-        return synced
+            except Exception:
+                _logger.exception(
+                    "Could not persist the post-commit crash marker for config %s", self.id
+                )
+            return False
+
+    def _reconcile_remote_enabled_revision(
+        self,
+        *,
+        expected_revision,
+        remote_revision,
+        remote_enabled,
+        desired_enabled,
+    ):
+        """Reconcile an endpoint whose revision is ahead of Odoo's local fence.
+
+        Reconnecting an Odoo configuration to an existing Gateway can legitimately
+        encounter a Gateway revision greater than the local Odoo revision. When
+        the remote state already matches Odoo, adopt that revision. When it does
+        not, advance the local fence beyond the Gateway revision and let the
+        normal fenced PATCH apply the desired state. If another local write won
+        the race, abort so its newer post-commit sync remains authoritative.
+        """
+        self.ensure_one()
+        remote_revision = int(remote_revision)
+        desired_enabled = bool(desired_enabled)
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, api.SUPERUSER_ID, {})
+            config = env["print_gateway.gateway_config"].browse(self.id).exists()
+            if not config:
+                cr.rollback()
+                return {"kind": "stale_local"}
+            cr.execute(
+                "SELECT enabled, enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE" % self._table,
+                [self.id],
+            )
+            row = cr.fetchone()
+            if not row:
+                cr.rollback()
+                return {"kind": "stale_local"}
+            local_enabled = bool(row[0])
+            local_revision = int(row[1] or 0)
+            if local_revision != int(expected_revision) or local_enabled is not desired_enabled:
+                cr.rollback()
+                return {"kind": "stale_local"}
+
+            if remote_enabled is desired_enabled and remote_revision >= local_revision:
+                config.with_context(skip_enabled_sync=True).write({
+                    "enabled_sync_revision": remote_revision,
+                    "last_enabled_sync_revision": remote_revision,
+                    "last_enabled_sync_at": fields.Datetime.now(),
+                    "last_enabled_sync_error": False,
+                })
+                cr.commit()
+                return {"kind": "converged", "revision": remote_revision}
+
+            if remote_revision < local_revision:
+                cr.rollback()
+                return {"kind": "invalid"}
+
+            next_revision = remote_revision + 1
+            config.with_context(skip_enabled_sync=True).write({
+                "enabled_sync_revision": next_revision,
+                "last_enabled_sync_error": False,
+            })
+            cr.commit()
+            return {"kind": "retry", "revision": next_revision}
+        except Exception:
+            cr.rollback()
+            _logger.exception(
+                "Could not reconcile Gateway activation revision for config %s",
+                self.id,
+            )
+            return {"kind": "invalid"}
+        finally:
+            cr.close()
 
     def _reconcile_remote_enabled_revision(
         self,
@@ -612,6 +776,9 @@ class PrintGatewayConfig(models.Model):
                     values.update({
                         "last_enabled_sync_revision": int(revision),
                         "last_enabled_sync_at": fields.Datetime.now(),
+                        # The revision is confirmed: end its staleness window.
+                        "pending_sync_revision": -1,
+                        "pending_sync_started_at": False,
                     })
                 config.write(values)
             cr.commit()
@@ -636,26 +803,7 @@ class PrintGatewayConfig(models.Model):
             dbname = self.env.cr.dbname
             revision = int(record.enabled_sync_revision or 0)
             enabled = bool(record.enabled)
-            pending_disable = None
-            has_pending_disable_state = bool(
-                record.pending_disable_gateway_url
-                or record.pending_disable_gateway_api_key
-                or int(record.pending_disable_revision or -1) >= 0
-            )
-            if has_pending_disable_state:
-                if not (
-                    record.pending_disable_gateway_url
-                    and record.pending_disable_gateway_api_key
-                    and int(record.pending_disable_revision or -1) >= 0
-                ):
-                    raise ValidationError(
-                        _("Gateway endpoint shutdown/migration state is incomplete; automatic reconciliation is blocked until it is repaired.")
-                    )
-                pending_disable = (
-                    record.pending_disable_gateway_url,
-                    record._gateway_api_key_plaintext_from_value(record.pending_disable_gateway_api_key),
-                    int(record.pending_disable_revision),
-                )
+            pending_disable = record._pending_disable_credentials()
             self.env.cr.postcommit.add(
                 lambda record_id=record_id, gateway_url=gateway_url, api_key=api_key,
                        dbname=dbname, revision=revision, enabled=enabled,
@@ -804,6 +952,11 @@ class PrintGatewayConfig(models.Model):
                     technical_values = {
                         "enabled_sync_revision": new_revision,
                         "last_enabled_sync_error": False,
+                        # Bound the staleness fence to THIS revision: stamped
+                        # exactly when the revision starts awaiting the
+                        # Gateway, cleared when an outcome is recorded.
+                        "pending_sync_revision": new_revision,
+                        "pending_sync_started_at": fields.Datetime.now(),
                     }
                     if api_key_changed:
                         technical_values.update({
@@ -864,6 +1017,8 @@ class PrintGatewayConfig(models.Model):
                     record.sudo().write({
                         "enabled_sync_revision": before_revision[record.id] + 1,
                         "last_enabled_sync_error": False,
+                        "pending_sync_revision": before_revision[record.id] + 1,
+                        "pending_sync_started_at": fields.Datetime.now(),
                         "last_test_status": "draft",
                         "last_test_at": False,
                         "last_test_error": False,
@@ -890,6 +1045,9 @@ class PrintGatewayConfig(models.Model):
         for original in vals_list:
             vals = dict(original)
             vals.setdefault("company_id", (self.env.company.parent_id or self.env.company).id)
+            # The initial revision starts awaiting the Gateway immediately.
+            vals["pending_sync_revision"] = int(vals.get("enabled_sync_revision") or 0)
+            vals["pending_sync_started_at"] = fields.Datetime.now()
             self._validate_gateway_url(vals.get("gateway_url"))
             if vals.get("gateway_api_key"):
                 try:
@@ -1079,25 +1237,24 @@ class PrintGatewayConfig(models.Model):
                 and int(config.pending_disable_revision or -1) >= 0
             ):
                 try:
-                    old_api_key = config._gateway_api_key_plaintext_from_value(
-                        config.pending_disable_gateway_api_key
-                    )
+                    pending_disable = config._pending_disable_credentials()
+                    if not pending_disable:
+                        continue
+                    old_url, old_api_key, old_revision = pending_disable
                     shutdown_api_key = old_api_key
                     if (
                         config.gateway_api_key
-                        and config.pending_disable_gateway_url == config.gateway_url
+                        and old_url == config.gateway_url
                     ):
                         shutdown_api_key = config._gateway_api_key_plaintext()
                     if not config._sync_pending_gateway_disable(
-                        gateway_url=config.pending_disable_gateway_url,
+                        gateway_url=old_url,
                         api_key=shutdown_api_key,
-                        revision=int(config.pending_disable_revision),
+                        revision=old_revision,
                     ):
                         continue
                     if not config.gateway_api_key:
-                        config._complete_gateway_migration(
-                            int(config.pending_disable_revision or -1)
-                        )
+                        config._complete_gateway_migration(old_revision)
                         continue
                 except (ValidationError, requests.RequestException, ValueError) as exc:
                     config._persist_gateway_migration_result(success=False, error=str(exc))
@@ -1105,6 +1262,15 @@ class PrintGatewayConfig(models.Model):
                         "Gateway endpoint shutdown retry failed for config %s: %s",
                         config.id,
                         exc,
+                    )
+                    continue
+                except Exception:  # noqa: BLE001 - a crashing config must surface, never hang pending silently
+                    config._persist_gateway_migration_result(
+                        success=False,
+                        error="CRON_ERROR: unexpected shutdown reconciliation failure (see Odoo server log)",
+                    )
+                    _logger.exception(
+                        "Gateway shutdown cron crashed for config %s", config.id
                     )
                     continue
 
@@ -1141,7 +1307,76 @@ class PrintGatewayConfig(models.Model):
                         config.id,
                         exc,
                     )
+                except Exception:  # noqa: BLE001 - a crashing config must surface as "attention", never spin forever
+                    config._persist_enabled_sync_result(
+                        self.env.cr.dbname,
+                        success=False,
+                        revision=None,
+                        error="CRON_ERROR: unexpected activation reconciliation failure (see Odoo server log)",
+                    )
+                    _logger.exception(
+                        "Gateway activation cron crashed for config %s", config.id
+                    )
         return True
+
+    def action_retry_enabled_sync(self):
+        """Run the pending activation synchronization immediately.
+
+        The post-commit hook and the retry cron already converge automatically;
+        this is the operator's explicit recovery path when the staleness fence
+        has escalated the form to "attention". The shared runner persists the
+        outcome (success or error) on a fresh cursor either way.
+        """
+        self.ensure_one()
+        self._check_admin()
+        dbname = self.env.cr.dbname
+        if not self.gateway_api_key and not self.pending_disable_gateway_url:
+            raise ValidationError(_("Add an installation API key before synchronizing."))
+        # Never replay a revision the fence has already moved past: read the
+        # desired revision/state fresh at trigger time, exactly like the retry
+        # cron does. If a concurrent write bumps the revision between this
+        # read and the PATCH, the Gateway-side reconciliation cursor
+        # (_reconcile_remote_enabled_revision) re-locks the row, detects the
+        # mismatch, and aborts this older attempt so the newer local
+        # transaction stays authoritative. Like every caller of the shared
+        # runner, no manual commit happens inside this RPC transaction;
+        # outcome persistence uses its own dedicated cursor.
+        self.invalidate_recordset(["enabled_sync_revision", "enabled"])
+        revision = int(self.enabled_sync_revision or 0)
+        enabled = bool(self.enabled)
+        gateway_url = None
+        api_key = None
+        if self.gateway_api_key:
+            try:
+                gateway_url = self._gateway_base(for_request=True)
+                api_key = self._gateway_api_key_plaintext()
+            except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError) as exc:
+                self._persist_enabled_sync_result(
+                    dbname,
+                    success=False,
+                    revision=None,
+                    error=str(exc)[:4000],
+                )
+                return {"type": "ir.actions.client", "tag": "reload"}
+        try:
+            pending_disable = self._pending_disable_credentials()
+        except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError):
+            pending_disable = None
+        self._run_postcommit_enabled_sync(
+            gateway_url=gateway_url,
+            api_key=api_key,
+            dbname=dbname,
+            revision=revision,
+            enabled=enabled,
+            pending_disable=pending_disable,
+        )
+        self.invalidate_recordset([
+            "gateway_sync_state",
+            "gateway_sync_message",
+            "last_enabled_sync_revision",
+            "last_enabled_sync_error",
+        ])
+        return {"type": "ir.actions.client", "tag": "reload"}
 
     def action_test_connection(self):
         self.ensure_one()

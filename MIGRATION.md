@@ -23,8 +23,24 @@ This runs `scripts/db-migrate.ts` which applies all pending migrations from `dri
 | 0029–0039 | 11 | Post-tenancy features (billing, audit, lifecycle, rate limits) |
 | 0040 | 1 | Tenant lifecycle (suspend/delete) |
 | 0041 | 1 | Composite FK prerequisite fix (idempotent) |
+| 0042 | 1 | Denial-of-service protection indexes |
+| 0043 | 1 | Platform owner account |
+| 0044 | 1 | Single platform owner uniqueness |
+| 0045 | 1 | Audit events platform scope |
+| 0046 | 1 | Internal print-job idempotency scope |
+| 0047 | 1 | Desired printer state reconciliation |
+| 0048 | 1 | Running discovery session per-agent uniqueness |
+| 0049 | 1 | Tenant-scoped idempotency and owner uniqueness |
+| 0050 | 1 | Billing single-flight operation state |
+| 0051 | 1 | Agent lifecycle revision |
+| 0052 | 1 | Plan catalog management |
+| 0053 | 1 | Discovery spooler name |
+| 0054 | 1 | Odoo Gateway activation state |
+| 0055 | 1 | Job events and spooler job id |
+| 0056 | 1 | Discovered device class NOT NULL |
+| 0057 | 1 | API key composite index |
 
-**Total**: 42 migrations (0000–0041)
+**Total**: 58 migrations (0000–0057)
 
 ## Migration Policy
 

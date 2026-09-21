@@ -24,25 +24,6 @@ type StripeEvent = {
   data?: { object?: Record<string, unknown> };
 };
 
-async function latestProcessedEventForSubscription(
-  tx: { execute: typeof db.execute },
-  subscriptionId: string,
-): Promise<{ created: number; eventId: string } | null> {
-  const result = await tx.execute(sql`
-    SELECT event_id AS "eventId",
-           (payload->'__yasser'->>'event_created')::bigint AS created
-    FROM billing_events
-    WHERE processed_at IS NOT NULL
-      AND payload->'__yasser'->>'subscription_id' = ${subscriptionId}
-      AND payload->'__yasser'->>'event_created' ~ '^[0-9]+$'
-    ORDER BY created DESC, event_id DESC
-    LIMIT 1
-  `);
-  const row = result.rows[0] as { created?: number | string; eventId?: string } | undefined;
-  if (!row || !row.eventId || row.created === undefined) return null;
-  return { created: Number(row.created), eventId: row.eventId };
-}
-
 function subscriptionIdForEvent(eventType: string, object: Record<string, unknown>): string | undefined {
   if (typeof object.subscription === "string") return object.subscription;
   if (eventType.startsWith("customer.subscription.") && typeof object.id === "string") return object.id;

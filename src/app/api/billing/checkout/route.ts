@@ -42,8 +42,10 @@ export async function POST(req: Request) {
 
   type CheckoutState =
     | { kind: "already_subscribed" }
-    | { kind: "existing"; url: string }
+    // An open, unexpired session for the SAME plan: replaying it and finding
+    // one mid-flight are the same outcome, so one kind carries both.
     | { kind: "in_progress"; url?: string }
+    | { kind: "plan_conflict"; openPlanId: string }
     | { kind: "proceed"; intentId: string; idempotencyKey: string; customerId: string | null };
 
   let state: CheckoutState;
@@ -78,7 +80,7 @@ export async function POST(req: Request) {
         !checkoutIntentExpired(sub.checkoutSessionExpiresAt);
 
       if (sub && openUnexpired) {
-        return { kind: "existing" as const, url: sub.checkoutSessionUrl! };
+        return { kind: "in_progress" as const, url: sub.checkoutSessionUrl! };
       }
 
       if (
@@ -86,13 +88,23 @@ export async function POST(req: Request) {
         sub.checkoutPlanId &&
         sub.checkoutPlanId !== plan.id
       ) {
-        return { kind: "in_progress" as const };
+        // The pending intent may already exist as a live Checkout Session at
+        // Stripe; it can never be superseded by a different plan here without
+        // risking a double charge, so the caller must finish or let it expire.
+        return { kind: "plan_conflict" as const, openPlanId: sub.checkoutPlanId };
       }
 
       if (
         sub?.checkoutStatus === "open" &&
         !checkoutIntentExpired(sub.checkoutSessionExpiresAt)
       ) {
+        if (sub.checkoutPlanId && sub.checkoutPlanId !== plan.id) {
+          // Never hand back another plan's checkout URL: the client redirects
+          // to `url` directly, so a mismatched URL would silently send the
+          // user to pay for a plan they did not choose. The fence stands —
+          // only the response becomes an explicit, named conflict.
+          return { kind: "plan_conflict" as const, openPlanId: sub.checkoutPlanId };
+        }
         return {
           kind: "in_progress" as const,
           ...(sub.checkoutSessionUrl ? { url: sub.checkoutSessionUrl } : {}),
@@ -189,15 +201,29 @@ export async function POST(req: Request) {
       { status: 409 },
     );
   }
-  if (state.kind === "existing") {
-    return NextResponse.json({ ok: true, url: state.url, existing: true });
-  }
   if (state.kind === "in_progress") {
     if (state.url) {
       return NextResponse.json({ ok: true, url: state.url, existing: true });
     }
     return NextResponse.json(
       { error: "A checkout operation is already in progress for this workspace." },
+      { status: 409 },
+    );
+  }
+  if (state.kind === "plan_conflict") {
+    // Name the plan that owns the open session so the operator understands
+    // which checkout must finish (or expire) before a different plan works.
+    const openPlan = await db.query.plans.findFirst({
+      where: eq(plans.id, state.openPlanId),
+      columns: { name: true },
+    });
+    const openPlanName = openPlan?.name ?? "another plan";
+    return NextResponse.json(
+      {
+        error: `You already have an open checkout for ${openPlanName}. Complete it or let it expire before choosing a different plan.`,
+        code: "CHECKOUT_PLAN_CONFLICT",
+        openPlanId: state.openPlanId,
+      },
       { status: 409 },
     );
   }
