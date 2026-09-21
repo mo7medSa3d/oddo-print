@@ -46,7 +46,7 @@ export default function Forgot() {
         <div className="border-b border-edge bg-surface-2/55 px-6 py-6">
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Account recovery</div>
           <h1 className="mt-2 text-[28px] font-bold tracking-[-0.035em] text-ink">Forgot password</h1>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-3">We'll send a reset link when the account is eligible.</p>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-3">We&apos;ll send a reset link when the account is eligible.</p>
         </div>
         <div className="p-6 sm:p-7">
           {done ? (
