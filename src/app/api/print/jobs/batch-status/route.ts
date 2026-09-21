@@ -51,6 +51,7 @@ export async function POST(req: Request) {
     where: and(
       inArray(printJobs.id, uniqueIds),
       eq(printJobs.tenantId, odoo.tenantId),
+      eq(printJobs.apiKeyId, odoo.id),
     ),
   });
 

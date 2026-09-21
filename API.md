@@ -46,7 +46,7 @@ Request:
 
 No Gateway branch ID, Gateway destination ID, Gateway document-type ID, agent provisioning data, or printer-creation data is accepted.
 
-The Gateway validates the Odoo key, payload, expiration and idempotency before queueing the runtime job. A created Odoo-originated job is stamped with the authenticated API-key identity so status lookup and idempotency are installation-scoped. Internal Manager-created jobs may omit that identity and are not exposed through this Odoo status endpoint.
+The Gateway validates the Odoo key, payload, expiration and idempotency before queueing the runtime job. A created Odoo-originated job is stamped with the authenticated API-key identity. Status lookup is scoped to that API key; idempotency remains tenant-scoped so credential rotation can safely replay an existing logical operation. Internal Manager-created jobs may omit that identity and are not exposed through this Odoo status endpoint.
 
 `201` means a new job was accepted. `200` means an idempotent retry matched an existing job and returns that job identity. A reused key with different routing/payload data returns `409 IDEMPOTENCY_CONFLICT`.
 
@@ -62,7 +62,7 @@ Gateway APIs for Branches, business destinations, business document catalogs and
 
 ## Reliability contract
 
-The Odoo addon commits a durable outbox row before making the HTTP submission. The same idempotency key is reused for retry attempts of that logical operation. Network timeouts are recorded as an unknown physical outcome instead of a definite failure. Gateway-side idempotency is installation-scoped for Odoo keys, while the durable database uniqueness constraint prevents duplicate logical jobs within one installation.
+The Odoo addon commits a durable outbox row before making the HTTP submission. The same idempotency key is reused for retry attempts of that logical operation. Network timeouts are recorded as an unknown physical outcome instead of a definite failure. Gateway-side Odoo idempotency is tenant-scoped so credential rotation does not strand retries; Odoo status reads remain installation/API-key scoped.
 
 ## Customer SaaS authentication and billing
 

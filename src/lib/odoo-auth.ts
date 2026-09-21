@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { apiKeys, tenants } from "../db/schema";
+import { apiKeys } from "../db/schema";
 import { and, eq } from "drizzle-orm";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { requireActiveTenant } from "./tenant-guard";
@@ -72,16 +72,9 @@ export async function validateOdooKey(
     }
   }
   // Credential validity and integration activation are deliberately separate.
-  // Configuration/health must remain callable while Odoo is disabled so a
-  // valid key can re-enable the integration and a connection test can tell the
-  // user that the credential is valid without conflating it with activation.
-  if (options.requireIntegrationEnabled !== false) {
-    const tenantRow = await db.query.tenants.findFirst({
-      where: eq(tenants.id, row.tenantId),
-      columns: { odooEnabled: true },
-    });
-    if (!tenantRow?.odooEnabled) return null;
-  }
+  // Configuration/health must remain callable while this integration is disabled
+  // so the same authenticated credential can re-enable it.
+  if (options.requireIntegrationEnabled !== false && !row.odooEnabled) return null;
 
   return row;
 }

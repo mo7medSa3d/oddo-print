@@ -318,7 +318,7 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
       { stripeStatus: "trialing", expectedDbStatus: "trialing" },
       { stripeStatus: "active", expectedDbStatus: "active" },
       { stripeStatus: "past_due", expectedDbStatus: "past_due" },
-      { stripeStatus: "unpaid", expectedDbStatus: "past_due" },
+      { stripeStatus: "unpaid", expectedDbStatus: "paused" },
       { stripeStatus: "paused", expectedDbStatus: "paused" },
       { stripeStatus: "incomplete", expectedDbStatus: "paused" },
       { stripeStatus: "canceled", expectedDbStatus: "cancelled" },
@@ -355,7 +355,7 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     }
   });
 
-  it("7. invoice paid event: invoice.paid transitions tenant subscription status to active", async () => {
+  it("7. invoice paid event: records the payment fact without overriding subscription lifecycle state", async () => {
     const tenantId = `tenant_${nanoid(8)}`;
     const planId = `plan_${nanoid(8)}`;
     const stripePriceId = `price_${nanoid(8)}`;
@@ -385,10 +385,15 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     const sub = await db.query.tenantSubscriptions.findFirst({
       where: eq(tenantSubscriptions.tenantId, tenantId),
     });
-    expect(sub?.status).toBe("active");
+    expect(sub?.status).toBe("past_due");
+
+    const storedEvent = await db.query.billingEvents.findFirst({
+      where: eq(billingEvents.eventId, eventId),
+    });
+    expect(storedEvent?.processedAt).toBeInstanceOf(Date);
   });
 
-  it("8. invoice payment failed event: invoice.payment_failed transitions tenant subscription status to past_due without affecting other tenants", async () => {
+  it("8. invoice payment failed event: records the payment fact without overriding subscription lifecycle state or other tenants", async () => {
     const tenantA = `tenant_a_${nanoid(8)}`;
     const tenantB = `tenant_b_${nanoid(8)}`;
     const planId = `plan_${nanoid(8)}`;
@@ -417,11 +422,11 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     const res = await POST(createWebhookRequest(payload, signPayload(payload)));
     expect(res.status).toBe(200);
 
-    // Tenant A transitioned to past_due
+    // Tenant A remains active; subscription lifecycle events are authoritative.
     const storedA = await db.query.tenantSubscriptions.findFirst({
       where: eq(tenantSubscriptions.tenantId, tenantA),
     });
-    expect(storedA?.status).toBe("past_due");
+    expect(storedA?.status).toBe("active");
 
     // Tenant B remains active
     const storedB = await db.query.tenantSubscriptions.findFirst({

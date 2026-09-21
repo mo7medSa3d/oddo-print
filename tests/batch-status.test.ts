@@ -29,11 +29,11 @@ suite("POST /api/print/jobs/batch-status", () => {
     body: JSON.stringify(body),
   }));
 
-  it("returns tenant jobs regardless of API-key incarnation", async () => {
+  it("returns only jobs created by the authenticated API key", async () => {
     const keyId = await keyIdFor(f.odooKey);
     const rotatedKey = "odoo_rotated_batch";
     await pool().query(
-      `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key) VALUES ($1, $2, 'standard', 'rotated', $3)`,
+      `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key, odoo_enabled) VALUES ($1, $2, 'standard', 'rotated', $3, true)`,
       ["key_rotated_batch", f.tenantId, sha256(rotatedKey)],
     );
     await insertJob("batch_owned_1", keyId);
@@ -42,7 +42,7 @@ suite("POST /api/print/jobs/batch-status", () => {
     const res = await post(rotatedKey, { jobIds: ["batch_owned_1", "batch_rotated_1", "batch_internal_1", "batch_missing_1"] });
     expect(res.status).toBe(200);
     const ids = ((await res.json()) as { jobs: { jobId: string }[] }).jobs.map((j) => j.jobId).sort();
-    expect(ids).toEqual(["batch_internal_1", "batch_owned_1", "batch_rotated_1"]);
+    expect(ids).toEqual(["batch_rotated_1"]);
   });
 
   it("rejects invalid keys and malformed bodies", async () => {

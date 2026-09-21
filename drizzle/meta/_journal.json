@@ -407,6 +407,13 @@
       "when": 1790000000057,
       "tag": "0057_api_key_composite_index",
       "breakpoints": false
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1790000000058,
+      "tag": "0058_scope_odoo_activation_to_api_key",
+      "breakpoints": false
     }
   ]
 }

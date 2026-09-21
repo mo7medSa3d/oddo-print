@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { and, eq, lt } from "drizzle-orm";
 import { db } from "../../../../db";
-import { tenants } from "../../../../db/schema";
+import { apiKeys } from "../../../../db/schema";
 import { validateManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 /**
  * Gateway-side read for operators.
  * The activation state shown here is a replicated Odoo business setting,
- * not the tenant lifecycle and not the API-key credential lifecycle.
+ * scoped independently to each Odoo integration API key; it is not tenant lifecycle.
  */
 export async function GET(req: Request) {
   const manager = await validateManager(req);
@@ -23,21 +23,19 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const tenant = await db.query.tenants.findFirst({
-    where: eq(tenants.id, manager.tenantId),
+  const integrations = await db.query.apiKeys.findMany({
+    where: eq(apiKeys.tenantId, manager.tenantId),
     columns: {
+      id: true,
+      name: true,
       odooEnabled: true,
       odooEnabledRevision: true,
       odooEnabledUpdatedAt: true,
+      revokedAt: true,
     },
   });
-  if (!tenant) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
 
-  return NextResponse.json({
-    enabled: tenant.odooEnabled,
-    revision: tenant.odooEnabledRevision,
-    updatedAt: tenant.odooEnabledUpdatedAt,
-  }, {
+  return NextResponse.json({ integrations }, {
     status: 200,
     headers: { "Cache-Control": "no-store" },
   });
@@ -72,21 +70,21 @@ export async function PATCH(req: Request) {
 
   const now = new Date();
   const updated = await db.transaction(async (tx) => {
-    const result = await tx.update(tenants)
+    const result = await tx.update(apiKeys)
       .set({
         odooEnabled: enabled,
         odooEnabledRevision: Number(revision),
         odooEnabledUpdatedAt: now,
-        updatedAt: now,
       })
       .where(and(
-        eq(tenants.id, apiKey.tenantId),
-        lt(tenants.odooEnabledRevision, Number(revision)),
+        eq(apiKeys.id, apiKey.id),
+        eq(apiKeys.tenantId, apiKey.tenantId),
+        lt(apiKeys.odooEnabledRevision, Number(revision)),
       ))
       .returning({
-        enabled: tenants.odooEnabled,
-        revision: tenants.odooEnabledRevision,
-        updatedAt: tenants.odooEnabledUpdatedAt,
+        enabled: apiKeys.odooEnabled,
+        revision: apiKeys.odooEnabledRevision,
+        updatedAt: apiKeys.odooEnabledUpdatedAt,
       });
 
     if (result.length) {
@@ -95,8 +93,8 @@ export async function PATCH(req: Request) {
         actorType: "odoo",
         actorId: apiKey.id,
         action: "odoo.gateway_configuration.updated",
-        resourceType: "tenant",
-        resourceId: apiKey.tenantId,
+        resourceType: "api_key",
+        resourceId: apiKey.id,
         metadata: { enabled, revision: Number(revision) },
       }, tx);
     }
@@ -110,8 +108,8 @@ export async function PATCH(req: Request) {
     });
   }
 
-  const current = await db.query.tenants.findFirst({
-    where: eq(tenants.id, apiKey.tenantId),
+  const current = await db.query.apiKeys.findFirst({
+    where: and(eq(apiKeys.id, apiKey.id), eq(apiKeys.tenantId, apiKey.tenantId)),
     columns: {
       odooEnabled: true,
       odooEnabledRevision: true,

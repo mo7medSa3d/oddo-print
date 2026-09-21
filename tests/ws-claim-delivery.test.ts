@@ -36,6 +36,9 @@ function agentRequest(f: Fixture, method: "GET" | "PATCH", body?: unknown) {
 }
 
 suite("WS claim-before-delivery", () => {
+  it("keeps the Gateway claim ceiling aligned with Agent local capacity", () => {
+    expect(MAX_AGENT_IN_FLIGHT_JOBS).toBe(64);
+  });
   let server: Server; let port: number; let f: Fixture; const sockets: WebSocket[] = [];
   beforeAll(async () => {
     await applyMigrations();
@@ -136,7 +139,7 @@ suite("WS claim-before-delivery", () => {
     expect(row.delivered_at).not.toBeNull();
   });
 
-  it("job_ack records receipt without changing print status", async () => {
+  it("job_ack records local admission without inventing transport evidence", async () => {
     const ws = await connectAgent();
     await insertQueuedJob(f, "job_ack");
     const delivered = new Promise<{ claimToken?: string }>((resolve) => ws.once("message", (d) => resolve(JSON.parse(String(d)).job ?? {})));
@@ -146,9 +149,12 @@ suite("WS claim-before-delivery", () => {
     // tokenized live claim.
     expect(await recordJobAck("job_ack", f.tenantId, f.agentId)).toBe(false);
     expect((await jobRow("job_ack")).acked_at).toBeNull();
+    expect((await jobRow("job_ack")).delivered_at).not.toBeNull();
     ws.send(JSON.stringify({ type: "job_ack", jobId: "job_ack", claimToken: envelope.claimToken }));
     await expect.poll(async () => (await jobRow("job_ack")).acked_at !== null, { timeout: 5000 }).toBe(true);
-    expect((await jobRow("job_ack")).status).toBe("claimed");
+    const afterAck = await jobRow("job_ack");
+    expect(afterAck.status).toBe("claimed");
+    expect(afterAck.delivered_at).not.toBeNull();
   });
 
   it("a forged ack cannot stamp delivery evidence onto a live claim", async () => {
