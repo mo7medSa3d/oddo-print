@@ -279,8 +279,11 @@ export async function PATCH(req: Request) {
         claimedAt: null,
         error: `Agent returned job before execution (${reason})`,
         updatedAt: sql`now()`,
+        // This is a provably pre-execution hand-back: no printer bytes were
+        // sent. Refund the delivery attempt and do NOT burn the retry budget.
+        // The Gateway/Agent contract reserves retries for actual requeue
+        // recovery (stale claims/sweeps), not transient local admission pressure.
         deliveryAttempts: sql`GREATEST(${printJobs.deliveryAttempts} - 1, 0)`,
-        retries: sql`${printJobs.retries} + 1`,
       })
       .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
       .returning({ status: printJobs.status, error: printJobs.error });
