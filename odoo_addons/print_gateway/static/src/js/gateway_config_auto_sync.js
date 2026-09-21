@@ -28,7 +28,7 @@ patch(FormController.prototype, {
         }
         // Without a stored credential there is nothing to synchronize against;
         // the status row already reports "Setup required" in that case.
-        if (!record.id || !record.data.gateway_api_key) {
+        const resId = record.resId ?? this.model.root.resId;\n        if (!resId || !record.data.gateway_api_key) {
             return;
         }
         // A key change re-validates the credential (401 becomes an explicit
@@ -40,7 +40,7 @@ patch(FormController.prototype, {
             const action = await this.orm.call(
                 "print_gateway.gateway_config",
                 method,
-                [[record.id]],
+                [[resId]],
             );
 
             if (action?.tag === "display_notification") {
@@ -50,7 +50,7 @@ patch(FormController.prototype, {
             // The RPC above persists the authoritative sync revision/result
             // through a fresh cursor. Always reload the saved record so the
             // form cannot remain stuck on the pre-sync "Syncing" snapshot.
-            await this.model.load({ resId: record.id });
+            await this.model.load({ resId });
         }
     },
 });
