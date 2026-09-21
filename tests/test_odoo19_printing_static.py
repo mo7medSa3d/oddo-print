@@ -199,7 +199,7 @@ def test_gateway_config_auto_sync_uses_persisted_res_id_never_datapoint_id():
     source = (ADDON / "static" / "src" / "js" / "gateway_config_auto_sync.js").read_text(encoding="utf-8")
     # The persisted database id accessor, exactly as the stock web client
     # reads it inside onRecordSaved.
-    assert "const resId = this.model.root.resId;" in source
+    assert "const resId = record.resId;" in source
     # The RPC and the reload address the persisted record, never the
     # client-side datapoint id.
     assert "[[resId]]," in source
