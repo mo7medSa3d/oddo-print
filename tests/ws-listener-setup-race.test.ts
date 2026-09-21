@@ -32,7 +32,12 @@ suite("PostgreSQL notification listener setup race", () => {
     await closePool();
   });
 
-  it("retries LISTEN continuously when setup itself keeps failing, then recovers", async () => {
+  // The recovery loop can legitimately wait up to 40s for the real LISTEN
+  // backend to reappear (reconnect backoff is up to 30s with jitter). The
+  // global integration timeout is 30s, so scope this test explicitly to 60s;
+  // otherwise a slow CI database turns a correct recovery into a spurious
+  // timeout. This timeout is per-test and does not weaken the assertion.
+  it("retries LISTEN continuously when setup itself keeps failing, then recovers", { timeout: 60_000 }, async () => {
     let listenAttempts = 0;
     const released: unknown[][] = [];
     const fakeClient = {

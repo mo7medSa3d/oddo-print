@@ -545,6 +545,14 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
         return;
       }
       activeClient = client;
+      // Publish the live LISTEN backend PID. This is the observable the CI
+      // failure-injection gate and the setup-race test poll to prove the
+      // listener actually reconnected (as opposed to having silently wedged).
+      // node-postgres populates Client.processID from BackendKeyData during
+      // connection startup; @types/pg does not declare it, so read it through
+      // a local typed lens. When unknown, the gate keeps waiting (fail-closed)
+      // rather than accepting a false-positive PID.
+      notificationListenerPid = (client as PoolClient & { readonly processID?: number | null }).processID ?? null;
       reconnectAttempt = 0;
     } catch (error) {
       void incrementMetric("postgres_notification_failures_total");
