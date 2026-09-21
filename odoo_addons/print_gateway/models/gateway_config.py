@@ -730,12 +730,28 @@ class PrintGatewayConfig(models.Model):
                         "last_enabled_sync_error",
                     ])
                 elif "gateway_api_key" in vals:
+                    # Rotating or restoring a credential must start a fresh
+                    # fenced reconciliation. Reusing the previous activation
+                    # revision can leave the UI stuck on Action needed when
+                    # the Gateway never observed the key transition.
                     record.sudo().write({
+                        "enabled_sync_revision": before_revision[record.id] + 1,
                         "last_enabled_sync_error": False,
                         "last_test_status": "draft",
                         "last_test_at": False,
                         "last_test_error": False,
                     })
+                    record.invalidate_recordset([
+                        "enabled_sync_revision",
+                        "last_enabled_sync_revision",
+                        "last_enabled_sync_error",
+                        "gateway_sync_state",
+                        "gateway_sync_message",
+                    ])
+                    record.modified([
+                        "enabled_sync_revision",
+                        "last_enabled_sync_error",
+                    ])
             self._queue_enabled_state_sync(pre_sync_credentials)
 
         return result
