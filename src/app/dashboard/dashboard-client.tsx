@@ -1103,19 +1103,19 @@ export default function DashboardClient({
 
       {/* Enterprise Observability — P0 */}
       <Card className="overflow-hidden">
-        <CardHeader title="Enterprise Observability" subtitle="Agent health, capability matrix, certification, timeline, spooler linking" icon={<Server className="h-4 w-4 text-brand" />} />
+        <CardHeader title="Operations" subtitle="Agent status, printer readiness, and print certification" icon={<Server className="h-4 w-4 text-brand" />} />
         <div className="space-y-6 px-5 pb-5">
           <div>
-            <h3 className="mb-2 text-sm font-semibold">Agent Health (ONLINE/DEGRADED/OFFLINE/STARTING — observed vs inferred)</h3>
+            <h3 className="mb-2 text-sm font-semibold">Agent Status</h3>
             <AgentHealthMatrix />
           </div>
           <div>
-            <h3 className="mb-2 text-sm font-semibold">Printer Capability Matrix (Transport/Protocol/Document/Duplex/Color/Status + Driver/Spooler)</h3>
+            <h3 className="mb-2 text-sm font-semibold">Printer Fleet</h3>
             <PrinterCapabilityMatrix />
           </div>
           <div>
-            <h3 className="mb-2 text-sm font-semibold">Real Print Certification</h3>
-            <p className="mb-2 text-[12px] text-ink-3">Select a printer from fleet to run certification wizard (Gateway→Auth→Queue→Claim→Agent→Transport→Physical→Ack→Final).</p>
+            <h3 className="mb-2 text-sm font-semibold">Print Certification</h3>
+            <p className="mb-2 text-[12px] text-ink-3">Run a real print-path certification for a selected printer.</p>
             <div className="grid gap-3 md:grid-cols-2">
               {printers.slice(0,4).map(p=>(
                 <PrintCertificationWizard key={p.id} printerId={p.id} />
