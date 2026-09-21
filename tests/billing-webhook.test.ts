@@ -1,10 +1,20 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { POST } from "../src/app/api/billing/webhook/route";
 import { db } from "../src/db";
 import { billingEvents, plans, tenantSubscriptions, tenants, auditEvents } from "../src/db/schema";
 import { eq } from "drizzle-orm";
 import { hasTestDatabase, applyMigrations, truncateAll, closePool } from "./helpers/pg";
 import { createHmac } from "node:crypto";
+const { stripeRetrieveMock } = vi.hoisted(() => ({ stripeRetrieveMock: vi.fn() }));
+
+vi.mock("../src/lib/stripe", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/stripe")>();
+  return {
+    ...actual,
+    stripeRetrieve: stripeRetrieveMock,
+  };
+});
+
 import { nanoid } from "../src/lib/nanoid";
 
 const suite = describe.skipIf(!hasTestDatabase);
@@ -44,6 +54,17 @@ async function createTenant(id: string, name = "Test Tenant") {
   await db.insert(tenants).values({ id, name });
 }
 
+async function postWebhook(body: string, signature = signPayload(body)) {
+  const parsed = JSON.parse(body) as { data?: { object?: unknown } };
+  stripeRetrieveMock.mockResolvedValueOnce(
+    parsed.data?.object && typeof parsed.data.object === "object"
+      ? parsed.data.object
+      : {},
+  );
+  return POST(createWebhookRequest(body, signature));
+}
+
+
 async function createSubscription(
   tenantId: string,
   planId: string,
@@ -73,6 +94,7 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
 
   beforeEach(async () => {
     await truncateAll();
+    stripeRetrieveMock.mockReset();
   });
 
   it("1. valid Stripe signature: 200 OK, event persisted in billing_events with processedAt populated, tenant subscription updated", async () => {
@@ -345,7 +367,7 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
         },
       });
 
-      const res = await POST(createWebhookRequest(payload, signPayload(payload)));
+      const res = await postWebhook(payload, signPayload(payload));
       expect(res.status).toBe(200);
 
       const sub = await db.query.tenantSubscriptions.findFirst({
@@ -379,7 +401,7 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
       },
     });
 
-    const res = await POST(createWebhookRequest(payload, signPayload(payload)));
+    const res = await postWebhook(payload, signPayload(payload));
     expect(res.status).toBe(200);
 
     const sub = await db.query.tenantSubscriptions.findFirst({
@@ -419,7 +441,7 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
       },
     });
 
-    const res = await POST(createWebhookRequest(payload, signPayload(payload)));
+    const res = await postWebhook(payload, signPayload(payload));
     expect(res.status).toBe(200);
 
     // Tenant A remains active; subscription lifecycle events are authoritative.
@@ -459,7 +481,7 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
       },
     });
 
-    const res = await POST(createWebhookRequest(payload, signPayload(payload)));
+    const res = await postWebhook(payload, signPayload(payload));
     expect(res.status).toBe(200);
 
     // Event persisted with null tenant_id
@@ -529,7 +551,7 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
         },
       },
     });
-    const res = await POST(createWebhookRequest(payload, signPayload(payload)));
+    const res = await postWebhook(payload, signPayload(payload));
     // Acknowledged, not 500: Stripe must not retry.
     expect(res.status).toBe(200);
     const json = await res.json();
