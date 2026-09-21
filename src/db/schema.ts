@@ -338,7 +338,12 @@ export const printJobs = pgTable("print_jobs", {
   printerStatusIdx: index("print_jobs_printer_status_idx").on(table.printerId, table.status),
   statusExpiresIdx: index("print_jobs_status_expires_idx").on(table.status, table.expiresAt),
   claimedAtIdx: index("print_jobs_claimed_at_idx").on(table.status, table.claimedAt),
-  apiKeyIdIdx: index("print_jobs_api_key_id_idx").on(table.apiKeyId),
+  // Single key on (tenantId, apiKeyId): every apiKeyId lookup in the console /
+  // agent paths also filters by tenant (API-key scoping is always
+  // tenant-scoped), so the composite index fully serves those queries and the
+  // legacy single-column api_key_id index is redundant — dropped to avoid a
+  // second btree that never wins the planner and only costs write time.
+  apiKeyTenantIdx: index("print_jobs_tenant_api_key_idx").on(table.tenantId, table.apiKeyId),
   requestIdIdx: index("print_jobs_request_id_idx").on(table.requestId),
   idempotencyUnique: uniqueIndex("print_jobs_tenant_idempotency_unique").on(table.tenantId, table.idempotencyKey).where(sql`idempotency_key IS NOT NULL`),
   statusCheck: check("print_jobs_status_check", sql`${table.status} in ('queued','claimed','printing','success','failed','expired')`),

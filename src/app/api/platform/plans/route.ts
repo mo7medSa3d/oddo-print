@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
+import { queryWithTimeout } from "../../../../db/client";
 import { plans, tenantSubscriptions } from "../../../../db/schema";
 import { asc, eq, sql } from "drizzle-orm";
 import { requirePlatformOwner } from "../../../../lib/platform-auth";
@@ -47,26 +48,35 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Platform Owner authentication required" }, { status: 401 });
   }
 
-  const rows = await db
-    .select({
-      id: plans.id,
-      name: plans.name,
-      description: plans.description,
-      entitlements: plans.entitlements,
-      stripePriceId: plans.stripePriceId,
-      stripeProductId: plans.stripeProductId,
-      currency: plans.currency,
-      interval: plans.interval,
-      isActive: plans.isActive,
-      isPublic: plans.isPublic,
-      displayOrder: plans.displayOrder,
-      createdAt: plans.createdAt,
-      updatedAt: plans.updatedAt,
-      subscriberCount: sql<number>`(SELECT count(*)::int FROM ${tenantSubscriptions} WHERE ${tenantSubscriptions.planId} = ${plans.id})`,
-      activeSubscriberCount: sql<number>`(SELECT count(*)::int FROM ${tenantSubscriptions} WHERE ${tenantSubscriptions.planId} = ${plans.id} AND ${tenantSubscriptions.status} IN ('trialing','active','past_due','paused'))`,
-    })
-    .from(plans)
-    .orderBy(asc(plans.displayOrder), asc(plans.name));
+  const { searchParams } = new URL(req.url);
+  const limitParam = parseInt(searchParams.get("limit") ?? "200", 10);
+  const limit = Math.min(Math.max(1, isNaN(limitParam) ? 200 : limitParam), 1000);
+
+  const rows = await queryWithTimeout(
+    db
+      .select({
+        id: plans.id,
+        name: plans.name,
+        description: plans.description,
+        entitlements: plans.entitlements,
+        stripePriceId: plans.stripePriceId,
+        stripeProductId: plans.stripeProductId,
+        currency: plans.currency,
+        interval: plans.interval,
+        isActive: plans.isActive,
+        isPublic: plans.isPublic,
+        displayOrder: plans.displayOrder,
+        createdAt: plans.createdAt,
+        updatedAt: plans.updatedAt,
+        subscriberCount: sql<number>`(SELECT count(*)::int FROM ${tenantSubscriptions} WHERE ${tenantSubscriptions.planId} = ${plans.id})`,
+        activeSubscriberCount: sql<number>`(SELECT count(*)::int FROM ${tenantSubscriptions} WHERE ${tenantSubscriptions.planId} = ${plans.id} AND ${tenantSubscriptions.status} IN ('trialing','active','past_due','paused'))`,
+      })
+      .from(plans)
+      .orderBy(asc(plans.displayOrder), asc(plans.name))
+      .limit(limit),
+    5_000,
+    "platformPlansList",
+  );
 
   return NextResponse.json({ plans: rows });
 }

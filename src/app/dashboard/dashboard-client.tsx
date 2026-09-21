@@ -62,6 +62,7 @@ import {
 } from "../../shared/job-vocabulary";
 import { copyTextToClipboard } from "../../lib/clipboard";
 import { generateIdempotencyKey } from "../../lib/idempotency";
+import { getPrinterLanguageBadges } from "../../lib/printer-capability";
 import PrinterCapabilityMatrix from "../../components/PrinterCapabilityMatrix";
 import AgentHealthMatrix from "../../components/AgentHealthMatrix";
 import PrintCertificationWizard from "../../components/PrintCertificationWizard";
@@ -542,15 +543,14 @@ export default function DashboardClient({
   }, [jobs, jobSearch]);
 
   const getPrinterBadges = (printer: Printer) => {
-    const badges: Array<{ label: string }> = [];
-    const cls = (printer.deviceClass || "").toLowerCase();
-    const conn = (printer.connectionType || "").toLowerCase();
-    const proto = (printer.protocol || "").toLowerCase();
-
-    if (cls === "thermal" || proto === "escpos") badges.push({ label: "ESC/POS" });
-    if (cls === "label") badges.push({ label: "ZPL / TSPL" });
-    if (conn === "spooler" || cls === "laser" || proto === "ipp") badges.push({ label: "PDF / Spooler" });
-    return badges;
+    // deviceClass must not invent printer languages. The declared
+    // protocol/connection are authoritative (mirrors server-side routing).
+    // See getPrinterLanguageBadges in ../lib/printer-capability.
+    const badges = getPrinterLanguageBadges(
+      printer.protocol ?? "",
+      printer.connectionType ?? "",
+    );
+    return badges.map((label) => ({ label }));
   };
 
   const getConnectionIcon = (connectionType: string) => {
@@ -561,31 +561,31 @@ export default function DashboardClient({
   };
 
   return (
-    <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8 space-y-6">
+    <div className="mx-auto max-w-[1800px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8 space-y-6">
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-[22px] font-bold tracking-tight text-zinc-900">Console</h1>
-          <span className={`inline-flex h-5 items-center rounded-full border px-2.5 text-[10px] font-bold uppercase tracking-widest ${databaseError ? "border-red-200 bg-red-50 text-red-600" : "border-zinc-900 bg-zinc-900 text-white"}`}>{databaseError ? "Down" : "Live"}</span>
+          <h1 className="text-[22px] font-bold tracking-tight text-ink">Console</h1>
+          <span className={`inline-flex h-5 items-center rounded-full border px-2.5 text-[10px] font-bold uppercase tracking-widest ${databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-ink bg-ink text-white"}`}>{databaseError ? "Down" : "Live"}</span>
         </div>
         <Button variant="ghost" size="sm" onClick={() => void refreshData()} icon={<RefreshCw className="h-4 w-4" />}>Refresh</Button>
       </header>
 
-      <section className="grid grid-cols-4 gap-3">
-        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3.5">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Agents</div>
-          <div className="mt-1 text-[20px] font-bold tracking-tight text-zinc-900">{kpis.onlineAgents}<span className="text-zinc-300">/{kpis.totalAgents}</span></div>
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <div className="rounded-xl border border-edge bg-surface px-4 py-3.5">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Agents</div>
+          <div className="mt-1 text-[20px] font-bold tracking-tight text-ink">{kpis.onlineAgents}<span className="text-ink-4">/{kpis.totalAgents}</span></div>
         </div>
-        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3.5">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Printers</div>
-          <div className="mt-1 text-[20px] font-bold tracking-tight text-zinc-900">{kpis.onlinePrinters}<span className="text-zinc-300">/{kpis.totalPrinters}</span></div>
+        <div className="rounded-xl border border-edge bg-surface px-4 py-3.5">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Printers</div>
+          <div className="mt-1 text-[20px] font-bold tracking-tight text-ink">{kpis.onlinePrinters}<span className="text-ink-4">/{kpis.totalPrinters}</span></div>
         </div>
-        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3.5">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Queue</div>
-          <div className="mt-1 text-[20px] font-bold tracking-tight text-zinc-900">{kpis.inFlightJobs}</div>
+        <div className="rounded-xl border border-edge bg-surface px-4 py-3.5">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Queue</div>
+          <div className="mt-1 text-[20px] font-bold tracking-tight text-ink">{kpis.inFlightJobs}</div>
         </div>
-        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3.5">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Success</div>
-          <div className="mt-1 text-[20px] font-bold tracking-tight text-zinc-900">{kpis.successRate === null ? "—" : `${kpis.successRate}%`}</div>
+        <div className="rounded-xl border border-edge bg-surface px-4 py-3.5">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Success</div>
+          <div className="mt-1 text-[20px] font-bold tracking-tight text-ink">{kpis.successRate === null ? "—" : `${kpis.successRate}%`}</div>
         </div>
       </section>
 
@@ -606,11 +606,11 @@ export default function DashboardClient({
       )}
 
       {activePairing && (
-        <div className="flex items-center justify-between rounded-xl border border-zinc-900 bg-zinc-900 px-6 py-4 text-white">
+        <div className="flex items-center justify-between rounded-xl border border-ink bg-ink px-6 py-4 text-white">
           <div className="flex items-center gap-5">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Pairing</div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Pairing</div>
             <div className="font-mono text-[24px] font-bold tracking-[0.3em]">{activePairing.code}</div>
-            <div className="text-[12px] tabular-nums text-zinc-400">{countdownText}</div>
+            <div className="text-[12px] tabular-nums text-ink-4">{countdownText}</div>
           </div>
           <Button variant="secondary" size="sm" onClick={() => copyPairingCode(activePairing.code)} icon={<Copy className="h-4 w-4" />}>{copiedCode ? "Copied" : "Copy"}</Button>
         </div>
@@ -1040,23 +1040,23 @@ export default function DashboardClient({
 
       {/* System Health — professional, concise */}
       <Card className="overflow-hidden">
-        <CardHeader title="Infrastructure" icon={<Server className="h-4 w-4 text-zinc-900" />} />
+        <CardHeader title="Infrastructure" icon={<Server className="h-4 w-4 text-ink" />} />
         <div className="space-y-10 px-5 pb-6">
           <div>
-            <h3 className="mb-4 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Agents</h3>
+            <h3 className="mb-4 text-[11px] font-bold uppercase tracking-widest text-ink-4">Agents</h3>
             <AgentHealthMatrix />
           </div>
           <div>
-            <h3 className="mb-4 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Printers</h3>
+            <h3 className="mb-4 text-[11px] font-bold uppercase tracking-widest text-ink-4">Printers</h3>
             <PrinterCapabilityMatrix />
           </div>
           <div>
-            <h3 className="mb-4 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Certification</h3>
+            <h3 className="mb-4 text-[11px] font-bold uppercase tracking-widest text-ink-4">Certification</h3>
             <div className="grid gap-3 md:grid-cols-2">
               {printers.slice(0, 4).map(p => (
                 <PrintCertificationWizard key={p.id} printerId={p.id} />
               ))}
-              {printers.length === 0 && <div className="rounded-xl border border-dashed border-zinc-200 bg-white p-8 text-center text-[13px] font-medium text-zinc-500">No printers.</div>}
+              {printers.length === 0 && <div className="rounded-xl border border-dashed border-edge bg-surface p-8 text-center text-[13px] font-medium text-ink-3">No printers.</div>}
             </div>
           </div>
         </div>

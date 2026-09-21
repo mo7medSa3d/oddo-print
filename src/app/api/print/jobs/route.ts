@@ -4,7 +4,7 @@ import { printJobs } from "../../../../db/schema";
 import { isOdooKeyAllowedForDocumentType, validateOdooKey } from "../../../../lib/odoo-auth";
 import { validatePrintJobPayload, type PrintJobPayload } from "../../../../lib/payload";
 import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError, PrintJobCapabilityError, PrintJobInputError, idempotencyFingerprint } from "../../../../lib/print-job-service";
-import { TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../../../../lib/entitlements";
+import { TenantEntitlementError, isTenantBillingError } from "../../../../lib/entitlements";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError, requestIdFrom } from "../../../../lib/log";
 import { and, eq } from "drizzle-orm";
@@ -136,7 +136,7 @@ export async function POST(req: Request) {
     }, { status: 201 });
   } catch (error) {
     if (error instanceof TenantEntitlementError) return NextResponse.json({ error: error.message, code: error.code }, { status: 429, headers: { "Retry-After": "60" } });
-    if (error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
+    if (isTenantBillingError(error)) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
     if (error instanceof AgentQueueFullError || error instanceof AgentQueuedJobsFullError) {
       return NextResponse.json({ error: error.code, code: error.code, retryable: true }, { status: 503 });
     }

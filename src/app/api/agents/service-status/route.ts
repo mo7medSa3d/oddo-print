@@ -24,16 +24,23 @@ export async function GET(req: Request) {
   return runWithCorrelation({ requestId, tenantId: claims.tenantId, agentId: agentId ?? undefined } as any, async () => {
     // In production Windows, this data comes from agent metadata (service state) and SCM query
     // For now, return structure with BLOCKED note for sandbox
+    // Service identity must match the actual registration in
+    // agent/cmd/agent/main.go (service.Config{Name: "YasserAgent"}) and the
+    // SERVICE_NAME constant in src-tauri/src/agent.rs. The recovery timings
+    // match configureServiceRecovery: three `restart/60000` actions + one-day
+    // reset counter. The status body is still BLOCKED in non-Windows runtime,
+    // but it must never state a different service name or recovery schedule
+    // than the one the installers actually apply.
     const mockStatus = {
       agentId: agentId ?? "unknown",
-      serviceName: "YasserPrintAgent",
-      displayName: "Yasser Print Agent",
+      serviceName: "YasserAgent",
+      displayName: "Yasser Agent",
       state: "UNKNOWN" as const,
       startType: "AUTOMATIC" as const,
       recovery: {
-        firstFailure: "restart/5000",
-        secondFailure: "restart/10000",
-        subsequentFailure: "restart/30000",
+        firstFailure: "restart/60000",
+        secondFailure: "restart/60000",
+        subsequentFailure: "restart/60000",
         resetPeriodSec: 86400,
         failureFlag: true,
       },
@@ -43,7 +50,7 @@ export async function GET(req: Request) {
       uptimeSeconds: null,
       blocked: true,
       blockedReason: "BLOCKED: Windows Service Control Manager query requires Windows host with sc.exe and service installed. In sandbox, code is hardened (system32_exe validation, run_bounded_command budget, background PID meta creation_time+image) but runtime not proven. See docs/WINDOWS_SERVICE_RECOVERY.md for kill→restart→reconnect test procedure.",
-      instructions: "On Windows: sc query YasserPrintAgent, sc qfailure YasserPrintAgent, taskkill /F /PID <pid>, wait 10s, sc query, verify Gateway /api/agents/health shows ONLINE again.",
+      instructions: "On Windows: sc query YasserAgent, sc qfailure YasserAgent, taskkill /F /PID <pid>, wait 60s, sc query, verify Gateway /api/agents/health shows ONLINE again.",
       correlation: { requestId, tenantId: claims.tenantId, agentId },
     };
 

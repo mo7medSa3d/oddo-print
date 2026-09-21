@@ -192,11 +192,11 @@ async function mockInvoke<T>(cmd: string, args: Record<string, unknown> = {}): P
     }
     case "get_runtime_paths":
       return {
-        manager_data: "C:\\ProgramData\\Odoo Print Manager",
-        settings: "C:\\ProgramData\\Odoo Print Manager\\settings.json",
-        agent_config: "C:\\ProgramData\\Odoo Print Agent\\config.yaml",
-        manager_log: "C:\\ProgramData\\Odoo Print Manager\\manager.log",
-        agent_data: "C:\\ProgramData\\Odoo Print Agent",
+        manager_data: "C:\\ProgramData\\YasserManager",
+        settings: "C:\\ProgramData\\YasserManager\\settings.json",
+        agent_config: "C:\\ProgramData\\YasserAgent\\config.yaml",
+        manager_log: "C:\\ProgramData\\YasserManager\\logs\\yasser-manager.log",
+        agent_data: "C:\\ProgramData\\YasserAgent",
       } as unknown as T;
     case "get_printers":
       return demoPrinters as unknown as T;

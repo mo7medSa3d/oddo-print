@@ -132,21 +132,36 @@ export default function ReleaseReadinessClient() {
   const [systemHealth, setSystemHealth] = useState<any>(null);
 
   useEffect(() => {
-    fetch("/api/system/health").then(r=>r.json()).then(setSystemHealth).catch(()=>{});
+    let cancelled = false;
+    fetch("/api/system/health", { credentials: "include", cache: "no-store" })
+      .then((r) => {
+        if (!r.ok) throw new Error(`Health check unavailable (HTTP ${r.status})`);
+        return r.json() as Promise<unknown>;
+      })
+      .then((data) => {
+        if (!cancelled) setSystemHealth(data);
+      })
+      .catch(() => {
+        // A failed health fetch (session expired, forbidden, gateway down)
+        // must not be rendered as health data. Leave the live section hidden.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const overall = rows.some(r=>r.status==="FAIL") ? "FAIL" : rows.some(r=>r.status==="BLOCKED") ? "BLOCKED (explicit)" : "PASS";
 
   return (
     <div className="space-y-6">
-      <div className={`rounded-xl border px-5 py-4 ${overall==="FAIL" ? "bg-bad-bg border-bad-edge text-bad" : overall.includes("BLOCKED") ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-ok-bg border-ok-edge text-ok"}`}>
+      <div className={`rounded-xl border px-5 py-4 ${overall==="FAIL" ? "bg-bad-bg border-bad-edge text-bad" : overall.includes("BLOCKED") ? "bg-warn-bg border-warn-edge text-warn" : "bg-ok-bg border-ok-edge text-ok"}`}>
         <div className="text-sm font-bold">Release Decision: {overall}</div>
         <div className="mt-1 text-xs">P0 implemented with truthful state-driven wizard, tenant-safe health, claim token redaction, evidence-based printer/agent health. BLOCKED items explicit, not hidden. No fake PASS.</div>
       </div>
 
       <div className="overflow-auto rounded-xl border border-edge">
         <table className="min-w-full text-[11px]">
-          <thead className="bg-zinc-50 text-[10px] uppercase text-zinc-500">
+          <thead className="bg-surface-2 text-[10px] uppercase text-ink-3">
             <tr>
               <th className="px-3 py-2 text-left">Area</th>
               <th className="px-3 py-2">Implemented</th>
@@ -159,9 +174,9 @@ export default function ReleaseReadinessClient() {
             {rows.map((r, i) => (
               <tr key={i} className="border-t border-edge align-top">
                 <td className="px-3 py-2 font-semibold">{r.area}</td>
-                <td className="px-3 py-2 text-center"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${r.implemented==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.implemented==="BLOCKED" ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.implemented}</span></td>
-                <td className="px-3 py-2 text-center"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${r.runtimeVerified==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.runtimeVerified==="BLOCKED" ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.runtimeVerified}</span></td>
-                <td className="px-3 py-2 text-center"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${r.status==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.status==="BLOCKED" ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.status}</span></td>
+                <td className="px-3 py-2 text-center"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${r.implemented==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.implemented==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.implemented}</span></td>
+                <td className="px-3 py-2 text-center"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${r.runtimeVerified==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.runtimeVerified==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.runtimeVerified}</span></td>
+                <td className="px-3 py-2 text-center"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${r.status==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.status==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.status}</span></td>
                 <td className="px-3 py-2 max-w-[400px]">
                   <div className="text-[11px] text-ink-2">{r.evidence}</div>
                   {r.rootCause && <div className="mt-1 text-[10px] text-bad">Root cause: {r.rootCause}</div>}
@@ -173,13 +188,13 @@ export default function ReleaseReadinessClient() {
       </div>
 
       {systemHealth && (
-        <div className="rounded-xl border border-edge bg-white p-4">
+        <div className="rounded-xl border border-edge bg-surface p-4">
           <h3 className="text-sm font-semibold">System Health (live) — policy: {systemHealth.policy}</h3>
-          <pre className="mt-2 max-h-64 overflow-auto rounded bg-zinc-50 p-3 text-[11px]">{JSON.stringify(systemHealth, null, 2)}</pre>
+          <pre className="mt-2 max-h-64 overflow-auto rounded bg-surface-2 p-3 text-[11px]">{JSON.stringify(systemHealth, null, 2)}</pre>
         </div>
       )}
 
-      <div className="rounded-xl border border-edge bg-white p-5">
+      <div className="rounded-xl border border-edge bg-surface p-5">
         <h3 className="text-sm font-semibold">Compliance Notes (honest)</h3>
         <ul className="mt-2 list-disc pl-5 text-[12px] text-ink-2 space-y-1">
           <li><strong>OTel-inspired distributed correlation</strong> (not full OpenTelemetry): custom fields request_id/job_id/tenant_id/agent_id/printer_id/attempt_id/claim_id/spooler_job_id in logs and headers, documented as application-specific, not official OTel semantic conventions.</li>

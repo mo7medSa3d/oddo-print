@@ -95,6 +95,12 @@ function PublicHome() {
                 Start trial <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
+                href="/login"
+                className="inline-flex h-11 items-center justify-center rounded-[10px] border border-edge bg-surface px-6 text-[14px] font-semibold text-ink hover:bg-surface-2 transition"
+              >
+                Sign in
+              </Link>
+              <Link
                 href="/pricing"
                 className="inline-flex h-11 items-center justify-center rounded-[10px] border border-edge bg-surface px-6 text-[14px] font-semibold text-ink hover:bg-surface-2 transition"
               >
@@ -112,7 +118,7 @@ function PublicHome() {
           <div className="mt-16 grid gap-4 sm:grid-cols-3 max-w-[960px]">
             <div className="rounded-[14px] border border-edge bg-surface p-5 shadow-card">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Live console</div>
-              <div className="mt-3 flex items-center gap-2 text-[13px] text-ink"><span className="h-2 w-2 rounded-full bg-slate-400" /> Edge agents</div>
+              <div className="mt-3 flex items-center gap-2 text-[13px] text-ink"><span className="h-2 w-2 rounded-full bg-ink-4" /> Edge agents</div>
               <div className="mt-2 text-[12px] text-ink-3">Heartbeat • Agent fleet</div>
             </div>
             <div className="rounded-[14px] border border-edge bg-surface p-5 shadow-card">

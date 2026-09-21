@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Users, Mail, Shield, Crown, UserMinus, ArrowRightLeft, Trash2, Clock, CheckCircle2, AlertCircle } from "lucide-react";
-import { Button, Input, Select, Card, CardHeader, StatusBadge } from "../../components/ui";
+import { Button, Input, Select, Card, CardHeader, StatusBadge, Modal } from "../../components/ui";
 
 type Member = { userId: string; email: string; role: string };
 type Invitation = { id: string; email: string; role: string; expiresAt: string };
@@ -28,10 +28,13 @@ export default function TeamPage() {
   const feedbackRef = useRef<HTMLParagraphElement>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("viewer");
   const [message, setMessage] = useState<{ text: string; type: "ok" | "err" } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [transferTarget, setTransferTarget] = useState<Member | null>(null);
 
   function showMessage(text: string, type: "ok" | "err" = "ok") {
     setMessage({ text, type });
@@ -39,12 +42,28 @@ export default function TeamPage() {
   }
 
   async function load() {
-    const [membersRes, invitationsRes] = await Promise.all([
-      fetch("/api/team/members", { credentials: "include", cache: "no-store" }),
-      fetch("/api/team/invitations", { credentials: "include", cache: "no-store" }),
-    ]);
-    if (membersRes.ok) setMembers((await membersRes.json()).members ?? []);
-    if (invitationsRes.ok) setInvitations((await invitationsRes.json()).invitations ?? []);
+    setLoadError(null);
+    try {
+      const [membersRes, invitationsRes] = await Promise.all([
+        fetch("/api/team/members", { credentials: "include", cache: "no-store" }),
+        fetch("/api/team/invitations", { credentials: "include", cache: "no-store" }),
+      ]);
+      if (!membersRes.ok || !invitationsRes.ok) {
+        setLoadError(
+          !membersRes.ok
+            ? "Could not load members. Please refresh to retry."
+            : "Could not load invitations. Please refresh to retry."
+        );
+        return;
+      }
+      setMembers((await membersRes.json()).members ?? []);
+      setInvitations((await invitationsRes.json()).invitations ?? []);
+      setLoadError(null);
+    } catch {
+      setLoadError("Could not load team data. Please refresh to retry.");
+    } finally {
+      setLoaded(true);
+    }
   }
 
   useEffect(() => {
@@ -55,10 +74,24 @@ export default function TeamPage() {
     ])
       .then(async ([membersRes, invitationsRes]) => {
         if (!active) return;
-        if (membersRes.ok) setMembers((await membersRes.json()).members ?? []);
-        if (invitationsRes.ok) setInvitations((await invitationsRes.json()).invitations ?? []);
+        if (!membersRes.ok || !invitationsRes.ok) {
+          setLoadError(
+            !membersRes.ok
+              ? "Could not load members. Please refresh to retry."
+              : "Could not load invitations. Please refresh to retry."
+          );
+          return;
+        }
+        setMembers((await membersRes.json()).members ?? []);
+        setInvitations((await invitationsRes.json()).invitations ?? []);
+        setLoadError(null);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setLoadError("Could not load team data. Please refresh to retry.");
+      })
+      .finally(() => {
+        if (active) setLoaded(true);
+      });
     return () => { active = false; };
   }, []);
 
@@ -139,7 +172,7 @@ export default function TeamPage() {
   }
 
   async function transfer(userId: string) {
-    if (!window.confirm("Transfer workspace ownership to this member? Your current session will be signed out.")) return;
+    setTransferTarget(null);
     setBusy(true);
     setMessage(null);
     try {
@@ -150,7 +183,10 @@ export default function TeamPage() {
         body: JSON.stringify({ userId }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "Ownership transfer failed");
+      if (!response.ok) {
+        setBusy(false);
+        throw new Error(typeof data.error === "string" ? data.error : "Ownership transfer failed");
+      }
       router.push("/login");
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "Ownership transfer failed", "err");
@@ -159,7 +195,7 @@ export default function TeamPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1040px] px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
       <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
@@ -221,7 +257,30 @@ export default function TeamPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-edge">
-                  {members.map((member) => (
+                  {!loaded ? (
+                    <tr>
+                      <td colSpan={3} className="px-5 py-12 text-center text-[13px] text-ink-3">
+                        <span className="skeleton inline-block h-4 w-40 align-middle" aria-hidden />
+                        <span className="sr-only">Loading members…</span>
+                      </td>
+                    </tr>
+                  ) : loadError ? (
+                    <tr>
+                      <td colSpan={3} className="px-5 py-12">
+                        <div className="flex flex-col items-center gap-3 text-center">
+                          <span role="alert" className="text-[13px] text-bad">{loadError}</span>
+                          <Button variant="secondary" size="sm" onClick={() => void load()}>
+                            Retry
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : members.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="px-5 py-12 text-center text-[13px] text-ink-3">No members yet.</td>
+                    </tr>
+                  ) : (
+                    members.map((member) => (
                     <tr key={member.userId} className="hover:bg-surface-2/60 transition-colors">
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-3">
@@ -236,7 +295,7 @@ export default function TeamPage() {
                       </td>
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-2">
-                          {member.role === "owner" && <Crown className="h-3.5 w-3.5 text-amber-500" />}
+                          {member.role === "owner" && <Crown className="h-3.5 w-3.5 text-warn-solid" />}
                           <StatusBadge tone={roleTone(member.role)} label={member.role.replace(/_/g, " ")} />
                         </div>
                       </td>
@@ -245,25 +304,18 @@ export default function TeamPage() {
                           {member.role !== "owner" && (
                             <>
                               <Select disabled={busy} value={member.role} onChange={(e) => void updateRole(member.userId, e.target.value)} className="w-[160px]">
-                                <option value="owner">owner</option>
-                                <option value="admin">admin</option>
-                                <option value="operator">operator</option>
-                                <option value="viewer">viewer</option>
-                                <option value="integration_admin">integration_admin</option>
-                                <option value="billing_admin">billing_admin</option>
+                                {ROLE_OPTIONS.map((r) => (
+                                  <option key={r.value} value={r.value}>{r.label}</option>
+                                ))}
                               </Select>
-                              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void transfer(member.userId)} icon={<ArrowRightLeft className="h-3.5 w-3.5" />} title="Transfer ownership">Transfer</Button>
+                              <Button variant="ghost" size="sm" disabled={busy} onClick={() => setTransferTarget(member)} icon={<ArrowRightLeft className="h-3.5 w-3.5" />} title="Transfer ownership">Transfer</Button>
                               <Button variant="ghost" size="sm" disabled={busy} onClick={() => void remove(member.userId)} icon={<UserMinus className="h-3.5 w-3.5" />} className="text-bad hover:bg-bad-bg hover:text-bad" title="Remove">Remove</Button>
                             </>
                           )}
                         </div>
                       </td>
                     </tr>
-                  ))}
-                  {members.length === 0 && (
-                    <tr>
-                      <td colSpan={3} className="px-5 py-12 text-center text-[13px] text-ink-3">No members yet.</td>
-                    </tr>
+                  ))
                   )}
                 </tbody>
               </table>
@@ -314,6 +366,34 @@ export default function TeamPage() {
           </Card>
         </div>
       </div>
+
+      <Modal
+        open={transferTarget !== null}
+        onClose={() => setTransferTarget(null)}
+        title="Transfer workspace ownership"
+        description="This action cannot be undone."
+        footer={
+          <>
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => setTransferTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={busy}
+              loading={busy}
+              onClick={transferTarget ? () => void transfer(transferTarget.userId) : undefined}
+            >
+              Transfer ownership
+            </Button>
+          </>
+        }
+      >
+        <p className="text-[13px] leading-relaxed text-ink-2">
+          You are about to make <span className="font-semibold text-ink">{transferTarget?.email}</span> the
+          workspace owner. You will be demoted to admin and signed out of this session.
+        </p>
+      </Modal>
     </div>
   );
 }

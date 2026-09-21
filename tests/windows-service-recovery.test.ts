@@ -2,18 +2,25 @@ import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 
 describe("windows-service-recovery", () => {
-  it("service recovery config matches Microsoft SCM spec (from docs)", () => {
+  it("service recovery config matches the real agent/toolchain registration", () => {
     const doc = fs.readFileSync("docs/WINDOWS_SERVICE_RECOVERY.md", "utf8");
-    expect(doc).toContain("YasserPrintAgent");
+    expect(doc).toContain("YasserAgent");
     expect(doc).toContain("86400");
-    expect(doc).toContain("restart/5000");
+    expect(doc).toContain("restart/60000");
     expect(doc).toContain("Spooler");
     expect(doc).toContain("Service Control Manager");
+    // The documented service identity must match the code that actually
+    // registers the service, or sc query/qfailure instructions fail on a
+    // real Windows host.
+    const mainGo = fs.readFileSync("agent/cmd/agent/main.go", "utf8");
+    expect(mainGo).toContain('Name:         "YasserAgent"');
+    expect(mainGo).toContain('"actions= restart/60000/restart/60000/restart/60000"');
   });
 
   it("service status API returns BLOCKED explicit with required fields", () => {
     const source = fs.readFileSync("src/app/api/agents/service-status/route.ts", "utf8");
     expect(source).toContain("serviceName");
+    expect(source).toContain('serviceName: "YasserAgent"');
     expect(source).toContain("state");
     expect(source).toContain("startType");
     expect(source).toContain("recovery");
@@ -22,6 +29,7 @@ describe("windows-service-recovery", () => {
     expect(source).toContain("exitCode");
     expect(source).toContain("BLOCKED");
     expect(source).toContain("Windows Service Control Manager");
+    expect(source).not.toContain("YasserPrintAgent");
   });
 
   it("kill→SCM restart→reconnect test procedure documented", () => {
