@@ -190,15 +190,16 @@ class PrintGatewayConfig(models.Model):
                 # timestamp, never to write_date: any unrelated write would
                 # otherwise postpone stale detection while the same revision
                 # stays unconfirmed.
+                # A fresh revision bump always stamps the start time, so a
+                # pending row without one predates the fence (legacy row or
+                # anomalous state) and is already past any staleness window:
+                # escalate instead of spinning.
                 started_at = record.pending_sync_started_at
-                if not started_at:
-                    # A fresh revision bump always stamps the start time, so a
-                    # pending row without one predates the fence (legacy row
-                    # or anomalous state). Escalate instead of spinning.
-                    record.gateway_sync_state = "attention"
-                    record.gateway_sync_message = self._pending_stale_message()
-                    continue
-                pending_seconds = (fields.Datetime.now() - started_at).total_seconds()
+                pending_seconds = (
+                    (fields.Datetime.now() - started_at).total_seconds()
+                    if started_at
+                    else float("inf")
+                )
                 if pending_seconds > self._SYNC_PENDING_STALE_AFTER_SECONDS:
                     record.gateway_sync_state = "attention"
                     record.gateway_sync_message = self._pending_stale_message()

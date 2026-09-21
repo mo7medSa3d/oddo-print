@@ -42,7 +42,8 @@ export async function POST(req: Request) {
 
   type CheckoutState =
     | { kind: "already_subscribed" }
-    | { kind: "existing"; url: string }
+    // An open, unexpired session for the SAME plan: replaying it and finding
+    // one mid-flight are the same outcome, so one kind carries both.
     | { kind: "in_progress"; url?: string }
     | { kind: "plan_conflict"; openPlanId: string }
     | { kind: "proceed"; intentId: string; idempotencyKey: string; customerId: string | null };
@@ -79,7 +80,7 @@ export async function POST(req: Request) {
         !checkoutIntentExpired(sub.checkoutSessionExpiresAt);
 
       if (sub && openUnexpired) {
-        return { kind: "existing" as const, url: sub.checkoutSessionUrl! };
+        return { kind: "in_progress" as const, url: sub.checkoutSessionUrl! };
       }
 
       if (
@@ -199,9 +200,6 @@ export async function POST(req: Request) {
       { error: "This workspace already has a Stripe subscription. Use the Customer Portal to change plans." },
       { status: 409 },
     );
-  }
-  if (state.kind === "existing") {
-    return NextResponse.json({ ok: true, url: state.url, existing: true });
   }
   if (state.kind === "in_progress") {
     if (state.url) {
