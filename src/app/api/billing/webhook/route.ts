@@ -31,18 +31,6 @@ function subscriptionIdForEvent(eventType: string, object: Record<string, unknow
   return undefined;
 }
 
-function timestampMillis(value: unknown): number | null {
-  if (value instanceof Date) return value.getTime();
-  if (typeof value === "string") {
-    const parsed = new Date(value);
-    return Number.isFinite(parsed.getTime()) ? parsed.getTime() : null;
-  }
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value > 1_000_000_000_000 ? value : value * 1000;
-  }
-  return null;
-}
-
 export async function POST(req: Request) {
   const raw = await req.text();
   const sig = req.headers.get("stripe-signature") ?? "";
@@ -103,11 +91,6 @@ export async function POST(req: Request) {
       }
     }
   }
-
-  const eventSubscriptionMetadataTenantId =
-    typeof ((checkoutSubscription?.metadata ?? obj.metadata) as Record<string, unknown> | undefined)?.tenant_id === "string"
-      ? String(((checkoutSubscription?.metadata ?? obj.metadata) as Record<string, unknown>).tenant_id)
-      : undefined;
 
   const customerId =
     typeof stateObj.customer === "string"
@@ -267,8 +250,8 @@ export async function POST(req: Request) {
           }).where(eq(tenantSubscriptions.tenantId, tenantId));
         }
       } else if (eventType.startsWith("customer.subscription.")) {
-        const subId = typeof obj.id === "string" ? obj.id : "";
-        const items = obj.items as { data?: Array<{ price?: { id?: string } }> } | undefined;
+        const subId = typeof stateObj.id === "string" ? stateObj.id : "";
+        const items = stateObj.items as { data?: Array<{ price?: { id?: string } }> } | undefined;
         const priceId = items?.data?.[0]?.price?.id;
         const tenantRowResult = tenantId ? await tx.execute(sql`
           SELECT tenant_id AS "tenantId",
