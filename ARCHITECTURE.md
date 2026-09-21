@@ -192,7 +192,7 @@ The system implements bounded at-least-once delivery with claim fencing:
 
 1. **Claim**: Gateway atomically claims a job with a unique `claim_token`; both `delivery_attempts < 5` and `retries < 5` must hold.
 2. **Deliver**: Job is pushed to the agent by WebSocket or returned by HTTP polling. A hand-off consumes one delivery attempt.
-3. **Evidence**: `delivered_at` is written only when the claim token matches; an agent acknowledgement records `acked_at`.
+3. **Evidence**: `delivered_at` records successful Gateway transport hand-off, while `acked_at` is recorded only after the Agent admits the job into its bounded local executor.
 4. **Print**: Agent executes physical print and reports terminal status with the active claim token.
 5. **Fence**: All status transitions are fenced by claim token — stale claims are rejected.
 6. **Safe return**: A proven pre-execution rejection refunds its delivery attempt and consumes retry budget; ambiguous delivery is never retried freely.
