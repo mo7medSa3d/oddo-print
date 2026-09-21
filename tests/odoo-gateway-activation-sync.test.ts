@@ -75,6 +75,8 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(model).toContain('json={"enabled": False, "revision": target_revision}');
     expect(model).toContain("record._disable_gateway_for_unlink(");
     expect(model).toContain("pending_disable_gateway_api_key");
+    expect(model).toContain("store=True");
+    expect(model).toContain("index=True");
   });
 });
 
