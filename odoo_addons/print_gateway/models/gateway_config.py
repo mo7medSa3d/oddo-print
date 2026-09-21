@@ -401,6 +401,78 @@ class PrintGatewayConfig(models.Model):
             self._complete_gateway_migration(revision)
         return synced
 
+    def _reconcile_remote_enabled_revision(
+        self,
+        *,
+        expected_revision,
+        remote_revision,
+        remote_enabled,
+        desired_enabled,
+    ):
+        """Reconcile an endpoint whose revision is ahead of Odoo's local fence.
+
+        Reconnecting an Odoo configuration to an existing Gateway can legitimately
+        encounter a Gateway revision greater than the local Odoo revision. When
+        the remote state already matches Odoo, adopt that revision. When it does
+        not, advance the local fence beyond the Gateway revision and let the
+        normal fenced PATCH apply the desired state. If another local write won
+        the race, abort so its newer post-commit sync remains authoritative.
+        """
+        self.ensure_one()
+        remote_revision = int(remote_revision)
+        desired_enabled = bool(desired_enabled)
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, api.SUPERUSER_ID, {})
+            config = env["print_gateway.gateway_config"].browse(self.id).exists()
+            if not config:
+                cr.rollback()
+                return {"kind": "stale_local"}
+            cr.execute(
+                "SELECT enabled, enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE" % self._table,
+                [self.id],
+            )
+            row = cr.fetchone()
+            if not row:
+                cr.rollback()
+                return {"kind": "stale_local"}
+            local_enabled = bool(row[0])
+            local_revision = int(row[1] or 0)
+            if local_revision != int(expected_revision) or local_enabled is not desired_enabled:
+                cr.rollback()
+                return {"kind": "stale_local"}
+
+            if remote_enabled is desired_enabled and remote_revision >= local_revision:
+                config.with_context(skip_enabled_sync=True).write({
+                    "enabled_sync_revision": remote_revision,
+                    "last_enabled_sync_revision": remote_revision,
+                    "last_enabled_sync_at": fields.Datetime.now(),
+                    "last_enabled_sync_error": False,
+                })
+                cr.commit()
+                return {"kind": "converged", "revision": remote_revision}
+
+            if remote_revision < local_revision:
+                cr.rollback()
+                return {"kind": "invalid"}
+
+            next_revision = remote_revision + 1
+            config.with_context(skip_enabled_sync=True).write({
+                "enabled_sync_revision": next_revision,
+                "last_enabled_sync_error": False,
+            })
+            cr.commit()
+            return {"kind": "retry", "revision": next_revision}
+        except Exception:
+            cr.rollback()
+            _logger.exception(
+                "Could not reconcile Gateway activation revision for config %s",
+                self.id,
+            )
+            return {"kind": "invalid"}
+        finally:
+            cr.close()
+
     def _sync_enabled_state_to_gateway(
         self,
         gateway_url,
@@ -413,52 +485,102 @@ class PrintGatewayConfig(models.Model):
         self.ensure_one()
         revision = int(expected_revision)
         enabled = bool(expected_enabled)
+        max_reconciliation_attempts = 3
         try:
-            response = requests.patch(
-                "%s/api/odoo/configuration" % gateway_url,
-                headers={
-                    "Authorization": "Bearer %s" % api_key,
-                    "Accept": "application/json",
-                    "Cache-Control": "no-store",
-                    "Content-Type": "application/json",
-                    "X-Odoo-Database": dbname,
-                },
-                json={"enabled": enabled, "revision": revision},
-                timeout=10,
-                allow_redirects=False,
-            )
-            # Do not parse an authentication-failure body: a revoked/deleted
-            # API key may return HTML or an empty response. The sync worker
-            # records the failure and the retry cron can converge after a new
-            # key is configured.
-            if response.status_code == 401:
-                raise ValidationError(_("Gateway activation synchronization was rejected because the API key is unauthorized."))
-            body = response.json() if response.content else {}
-            if response.status_code != 200 or not isinstance(body, dict) or body.get("ok") is not True:
-                message = body.get("error") if isinstance(body, dict) else False
-                raise ValidationError(
-                    message or _("Gateway activation synchronization failed (HTTP %s).") % response.status_code
+            for _attempt in range(max_reconciliation_attempts):
+                response = requests.patch(
+                    "%s/api/odoo/configuration" % gateway_url,
+                    headers={
+                        "Authorization": "Bearer %s" % api_key,
+                        "Accept": "application/json",
+                        "Cache-Control": "no-store",
+                        "Content-Type": "application/json",
+                        "X-Odoo-Database": dbname,
+                    },
+                    json={"enabled": enabled, "revision": revision},
+                    timeout=10,
+                    allow_redirects=False,
                 )
-            acknowledged_revision = body.get("revision")
-            acknowledged_enabled = body.get("enabled")
-            if not isinstance(acknowledged_revision, int) or acknowledged_revision < 0:
-                raise ValidationError(_("Gateway activation synchronization returned an invalid revision."))
-            # A 200 stale-revision response is informational, not convergence.
-            # Only an exact revision + state acknowledgement completes this
-            # synchronization phase. This is critical during URL migration:
-            # otherwise the new endpoint could be left disabled/stale while
-            # Odoo clears the migration fence.
-            if acknowledged_revision != revision or acknowledged_enabled is not enabled:
+                # Do not parse an authentication-failure body: a revoked/deleted
+                # API key may return HTML or an empty response. The sync worker
+                # records the failure and the retry cron can converge after a new
+                # key is configured.
+                if response.status_code == 401:
+                    raise ValidationError(_("Gateway activation synchronization was rejected because the API key is unauthorized."))
+                body = response.json() if response.content else {}
+                if not isinstance(body, dict):
+                    raise ValidationError(_("Gateway activation synchronization returned an invalid response."))
+                acknowledged_revision = body.get("revision")
+                acknowledged_enabled = body.get("enabled")
+
+                # A Gateway that already knows a newer revision is a normal
+                # reconnect case, not a permanent failure. If it already has the
+                # requested state, adopt its authoritative revision. Otherwise
+                # advance Odoo's local fence past that revision and retry.
+                reconciliation_reason = body.get("reason")
+                has_remote_revision = isinstance(acknowledged_revision, int) and acknowledged_revision >= 0
+                if response.status_code == 409:
+                    current = body.get("current") if isinstance(body.get("current"), dict) else {}
+                    acknowledged_revision = current.get("revision")
+                    acknowledged_enabled = current.get("enabled")
+                    has_remote_revision = isinstance(acknowledged_revision, int) and acknowledged_revision >= 0
+                    reconciliation_reason = "conflict"
+
+                if response.status_code != 200 and response.status_code != 409:
+                    message = body.get("error") if isinstance(body.get("error"), str) else False
+                    raise ValidationError(
+                        message or _("Gateway activation synchronization failed (HTTP %s).") % response.status_code
+                    )
+
+                if response.status_code == 200 and body.get("ok") is not True:
+                    raise ValidationError(
+                        body.get("error") if isinstance(body.get("error"), str) else _("Gateway activation synchronization failed.")
+                    )
+
+                if (
+                    response.status_code == 200
+                    and has_remote_revision
+                    and acknowledged_revision == revision
+                    and acknowledged_enabled is enabled
+                ):
+                    self._persist_enabled_sync_result(
+                        dbname,
+                        success=True,
+                        revision=acknowledged_revision,
+                        error=False,
+                    )
+                    return True
+
+                if (
+                    has_remote_revision
+                    and acknowledged_revision >= revision
+                    and reconciliation_reason in {"stale_revision", "already_current", "conflict"}
+                ):
+                    reconcile = self._reconcile_remote_enabled_revision(
+                        expected_revision=revision,
+                        remote_revision=acknowledged_revision,
+                        remote_enabled=acknowledged_enabled is True,
+                        desired_enabled=enabled,
+                    )
+                    if reconcile["kind"] == "converged":
+                        return True
+                    if reconcile["kind"] == "retry":
+                        revision = int(reconcile["revision"])
+                        continue
+                    if reconcile["kind"] == "stale_local":
+                        _logger.info(
+                            "Gateway activation sync superseded by a newer local revision for config %s",
+                            self.id,
+                        )
+                        return False
+
                 raise ValidationError(
                     _("Gateway activation synchronization did not acknowledge the requested revision/state.")
                 )
-            self._persist_enabled_sync_result(
-                dbname,
-                success=True,
-                revision=acknowledged_revision,
-                error=False,
+
+            raise ValidationError(
+                _("Gateway activation synchronization could not converge after several fenced retries.")
             )
-            return True
         except (ValidationError, requests.RequestException, ValueError) as exc:
             message = str(exc)[:4000]
             self._persist_enabled_sync_result(
@@ -1132,8 +1254,7 @@ class PrintGatewayConfig(models.Model):
         })
         return {
             "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {"title": _("API Key"), "message": _("The installation API key was removed. Printing is disabled until a new key is configured and tested."), "type": "warning", "sticky": False},
+            "tag": "reload",
         }
 
     def action_open_pairing_wizard(self):
