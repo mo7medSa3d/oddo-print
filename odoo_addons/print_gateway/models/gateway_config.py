@@ -1064,10 +1064,37 @@ class PrintGatewayConfig(models.Model):
             if response.status_code != 200 or not isinstance(body, dict) or body.get("ok") is not True:
                 raise ValidationError(_("Gateway connection test failed (HTTP %s).") % response.status_code)
             self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "success", "last_test_error": False})
+
+            # A connection test is an explicit operator action, so finish the
+            # activation reconciliation in this request instead of leaving the
+            # form displaying a stale "Syncing" state until the next manual
+            # refresh. The same fenced revision/idempotent Gateway endpoint is
+            # used by the normal post-commit sync path.
+            sync_succeeded = self._sync_enabled_state_to_gateway(
+                self._gateway_base(for_request=True),
+                self._gateway_api_key_plaintext(),
+                self.env.cr.dbname,
+                int(self.enabled_sync_revision or 0),
+                bool(self.enabled),
+            )
+            if not sync_succeeded:
+                self.invalidate_recordset([
+                    "gateway_sync_state",
+                    "gateway_sync_message",
+                    "last_enabled_sync_error",
+                    "last_enabled_sync_revision",
+                ])
+                return {
+                    "type": "ir.actions.client",
+                    "tag": "reload",
+                }
+
+            # _sync_enabled_state_to_gateway persists its result through a
+            # fresh cursor. Reload the form so the web client reads the
+            # authoritative post-sync state immediately.
             return {
                 "type": "ir.actions.client",
-                "tag": "display_notification",
-                "params": {"title": _("Gateway Connection"), "message": _("Gateway is reachable and the installation API key is valid."), "type": "success", "sticky": False},
+                "tag": "reload",
             }
         except ValidationError as exc:
             self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "failed", "last_test_error": str(exc)[:4000]})
