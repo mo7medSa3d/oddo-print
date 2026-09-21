@@ -328,7 +328,7 @@ suite("WS claim-before-delivery", () => {
     expect(messages.length).toBeGreaterThan(0);
   });
 
-  it("explicit printer pre-execution rejection is immediately requeued without burning retry budget", async () => {
+  it("explicit printer pre-execution rejection refunds delivery budget but increments retry budget", async () => {
     await insertQueuedJob(f, "job_printer_preexec_reject");
     const claim = await claimJobForDelivery("job_printer_preexec_reject", f.agentId);
     expect(claim).not.toBeNull();
@@ -341,7 +341,7 @@ suite("WS claim-before-delivery", () => {
     expect(res.status).toBe(200);
     const row = await jobRow("job_printer_preexec_reject");
     expect(row.status).toBe("queued");
-    expect(row.retries).toBe(0);
+    expect(row.retries).toBe(1);
     expect(row.delivery_attempts).toBe(0);
   });
 
