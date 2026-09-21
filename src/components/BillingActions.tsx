@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, Check, CreditCard, ExternalLink, Loader2, Sparkles } from "lucide-react";
+import { ArrowUpRight, Check, CreditCard, ExternalLink, Loader2 } from "lucide-react";
 import { Modal } from "./ui";
 
 type PlanOption = {
@@ -71,9 +71,7 @@ export function BillingActions({
     if (!hasSubscription) {
       void run(`checkout-${plan.id}`, async () => {
         const data = await post("/api/billing/checkout", { planId: plan.id });
-        if (typeof data.url !== "string" || !data.url) {
-          throw new Error("Stripe checkout URL was not returned");
-        }
+        if (typeof data.url !== "string" || !data.url) throw new Error("Stripe checkout URL was not returned");
         window.location.href = data.url;
       });
       return;
@@ -81,9 +79,7 @@ export function BillingActions({
 
     void run(`portal-${plan.id}`, async () => {
       const data = await post("/api/billing/portal");
-      if (typeof data.url !== "string" || !data.url) {
-        throw new Error("Billing portal URL was not returned");
-      }
+      if (typeof data.url !== "string" || !data.url) throw new Error("Billing portal URL was not returned");
       window.location.href = data.url;
     });
   };
@@ -92,98 +88,71 @@ export function BillingActions({
     <>
       <div className="space-y-5">
         {plans.length > 0 && (
-          <section className="rounded-[12px] border border-edge bg-surface-2 p-4">
-            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-end sm:justify-between">
+          <section className="overflow-hidden rounded-[12px] border border-edge bg-surface">
+            <div className="flex flex-col gap-2 border-b border-edge bg-surface-2/55 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
-                  <CreditCard className="h-3.5 w-3.5" /> Plans
+                <div className="flex items-center gap-2 text-[12px] font-semibold text-ink">
+                  <CreditCard className="h-4 w-4 text-brand" />
+                  Available plans
                 </div>
                 <p className="mt-1 text-[12px] text-ink-3">
                   {hasSubscription
-                    ? "Upgrades and plan changes are completed through Stripe's secure Customer Portal."
+                    ? "Choose a plan to open Stripe's Customer Portal for the change."
                     : currentPlanId
-                      ? "Keep your trial plan by subscribing, or choose a different one."
+                      ? "Choose the plan you want to continue with."
                       : "Choose a plan to start Stripe Checkout."}
                 </p>
               </div>
               {selectedPlan && selectedPlan.id !== currentPlanId && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand">
-                  <Sparkles className="h-3 w-3" /> Selected: {selectedPlan.name}
-                </span>
+                <span className="text-[11px] font-semibold text-brand">Selected: {selectedPlan.name}</span>
               )}
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="divide-y divide-edge">
               {plans.map((plan) => {
-                // Two distinct "current" meanings: a paid subscription marks
-                // the plan as managed by the portal; a trial marks the plan
-                // the workspace is already using and can convert by paying.
                 const isCurrentPaid = hasSubscription && currentPlanId === plan.id;
                 const isTrialPlan = !hasSubscription && currentPlanId === plan.id;
                 const isUpgrade = !!currentPlan && plan.displayOrder > currentPlan.displayOrder;
                 const isSelected = selectedPlanId === plan.id;
 
                 return (
-                  <div
-                    key={plan.id}
-                    className={`rounded-[12px] border bg-surface p-4 transition ${
-                      isSelected || isTrialPlan ? "border-brand ring-2 ring-brand/10" : "border-edge"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-[14px] font-bold text-ink">{plan.name}</div>
-                        <div className="mt-1 text-[11px] text-ink-3">
-                          {plan.currency?.toUpperCase() ?? "USD"} · {plan.interval ?? "month"}
-                        </div>
+                  <div key={plan.id} className={`flex flex-col gap-3 px-4 py-4 transition-colors sm:flex-row sm:items-center sm:justify-between ${isSelected ? "bg-brand-subtle/60" : "hover:bg-surface-2"}`}>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="text-[14px] font-semibold tracking-[-0.015em] text-ink">{plan.name}</div>
+                        {isCurrentPaid && <span className="rounded-full border border-ok-edge bg-ok-bg px-2 py-0.5 text-[10px] font-semibold text-ok">Current</span>}
+                        {isTrialPlan && <span className="rounded-full border border-edge-accent bg-brand-subtle px-2 py-0.5 text-[10px] font-semibold text-brand">Trial</span>}
                       </div>
-                      {isCurrentPaid ? (
-                        <span className="rounded-full border border-ok-edge bg-ok-bg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-ok">
-                          Current
-                        </span>
-                      ) : isTrialPlan ? (
-                        <span className="rounded-full border border-edge-accent bg-brand-subtle px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-brand">
-                          Trial plan
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <div className="mt-3 space-y-1.5">
-                      {Object.entries(plan.entitlements ?? {}).slice(0, 4).map(([key, value]) => (
-                        <div key={key} className="flex items-center justify-between gap-3 text-[11px]">
-                          <span className="flex items-center gap-1.5 capitalize text-ink-3">
-                            <Check className="h-3 w-3 text-ok" />
-                            {key.replace(/^max_/, "").replace(/_/g, " ")}
-                          </span>
-                          <span className="font-semibold tabular-nums text-ink">{String(value)}</span>
+                      <div className="mt-1 text-[11px] text-ink-3">
+                        {plan.currency?.toUpperCase() ?? "USD"} · {plan.interval ?? "month"}
+                      </div>
+                      {Object.keys(plan.entitlements ?? {}).length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-3">
+                          {Object.entries(plan.entitlements ?? {}).slice(0, 4).map(([key, value]) => (
+                            <span key={key} className="inline-flex items-center gap-1">
+                              <Check className="h-3 w-3 text-ok" />
+                              <span className="capitalize">{key.replace(/^max_/, "").replace(/_/g, " ")}</span>
+                              <strong className="font-semibold tabular-nums text-ink">{String(value)}</strong>
+                            </span>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
 
                     <button
                       type="button"
                       disabled={!!busy || isCurrentPaid}
                       onClick={() => choosePlan(plan)}
-                      className={`mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-[10px] px-3 text-[12px] font-semibold transition disabled:cursor-default disabled:opacity-60 ${
-                        isCurrentPaid
-                          ? "border border-edge bg-surface-2 text-ink-3"
-                          : hasSubscription
-                            ? "bg-brand text-white hover:bg-brand-hover"
-                            : "bg-brand text-white hover:bg-brand-hover"
-                      }`}
+                      className={`inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-[9px] px-3.5 text-[12px] font-semibold transition-all duration-150 disabled:cursor-default disabled:opacity-55 ${isCurrentPaid ? "border border-edge bg-surface-2 text-ink-3" : "bg-brand text-white shadow-sm hover:bg-brand-hover hover:shadow-md"}`}
                     >
                       {busy === `checkout-${plan.id}` || busy === `portal-${plan.id}` ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : isCurrentPaid ? (
                         "Current plan"
                       ) : isTrialPlan ? (
                         "Keep this plan"
                       ) : hasSubscription ? (
-                        isUpgrade ? (
-                          <>Upgrade <ArrowUpRight className="h-3.5 w-3.5" /></>
-                        ) : (
-                          <>Change plan <ExternalLink className="h-3.5 w-3.5" /></>
-                        )
+                        isUpgrade ? <>Upgrade <ArrowUpRight className="h-3.5 w-3.5" /></> : <>Change plan <ExternalLink className="h-3.5 w-3.5" /></>
                       ) : (
                         <>Subscribe <ArrowUpRight className="h-3.5 w-3.5" /></>
                       )}
@@ -195,20 +164,16 @@ export function BillingActions({
           </section>
         )}
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2.5">
           <button
             type="button"
             disabled={!hasSubscription || !!busy}
-            onClick={() =>
-              run("portal", async () => {
-                const data = await post("/api/billing/portal");
-                if (typeof data.url !== "string" || !data.url) {
-                  throw new Error("Billing portal URL was not returned");
-                }
-                window.location.href = data.url;
-              })
-            }
-            className="inline-flex items-center gap-2 rounded-lg border border-edge bg-surface px-4 py-2 text-sm font-semibold text-ink transition hover:bg-surface-2 disabled:opacity-50"
+            onClick={() => run("portal", async () => {
+              const data = await post("/api/billing/portal");
+              if (typeof data.url !== "string" || !data.url) throw new Error("Billing portal URL was not returned");
+              window.location.href = data.url;
+            })}
+            className="inline-flex h-9 items-center gap-2 rounded-[9px] border border-edge bg-surface px-3.5 text-[12.5px] font-semibold text-ink-2 shadow-xs transition hover:border-edge-strong hover:bg-surface-2 hover:text-ink disabled:opacity-50"
           >
             {busy === "portal" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
             {busy === "portal" ? "Opening…" : "Customer Portal"}
@@ -219,7 +184,7 @@ export function BillingActions({
               type="button"
               disabled={!!busy}
               onClick={() => setConfirmCancel(true)}
-              className="rounded-lg border border-bad-edge bg-bad-bg px-4 py-2 text-sm font-semibold text-bad transition hover:brightness-95 disabled:opacity-50"
+              className="inline-flex h-9 items-center rounded-[9px] border border-bad-edge bg-bad-bg px-3.5 text-[12.5px] font-semibold text-bad transition hover:brightness-95 disabled:opacity-50"
             >
               Cancel at period end
             </button>
@@ -229,13 +194,11 @@ export function BillingActions({
             <button
               type="button"
               disabled={!!busy}
-              onClick={() =>
-                run("resume", async () => {
-                  await post("/api/billing/resume");
-                  router.refresh();
-                })
-              }
-              className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-hover disabled:opacity-50"
+              onClick={() => run("resume", async () => {
+                await post("/api/billing/resume");
+                router.refresh();
+              })}
+              className="inline-flex h-9 items-center rounded-[9px] bg-brand px-3.5 text-[12.5px] font-semibold text-white transition hover:bg-brand-hover disabled:opacity-50"
             >
               {busy === "resume" ? "Updating…" : "Resume subscription"}
             </button>
@@ -243,53 +206,38 @@ export function BillingActions({
         </div>
 
         {error && (
-          <div role="alert" className="rounded-lg border border-bad-edge bg-bad-bg px-4 py-3 text-sm text-bad">
-            {error}
-          </div>
+          <div role="alert" className="rounded-[10px] border border-bad-edge bg-bad-bg px-4 py-3 text-[12.5px] text-bad">{error}</div>
         )}
       </div>
 
       <Modal
         open={confirmCancel}
-        onClose={() => {
-          if (!busy) setConfirmCancel(false);
-        }}
+        onClose={() => { if (!busy) setConfirmCancel(false); }}
         title="Cancel subscription?"
         description="Your subscription will remain active until the end of the current billing period."
         footer={
           <>
-            <button
-              type="button"
-              onClick={() => setConfirmCancel(false)}
-              disabled={!!busy}
-              className="rounded-lg border border-edge bg-surface px-4 py-2 text-sm font-semibold text-ink transition hover:bg-surface-2 disabled:opacity-50"
-            >
+            <button type="button" onClick={() => setConfirmCancel(false)} disabled={!!busy} className="rounded-[9px] border border-edge bg-surface px-4 py-2 text-[13px] font-semibold text-ink transition hover:bg-surface-2 disabled:opacity-50">
               Keep subscription
             </button>
             <button
               type="button"
-              onClick={() =>
-                run("cancel", async () => {
-                  await post("/api/billing/cancel");
-                  setConfirmCancel(false);
-                  router.refresh();
-                })
-              }
+              onClick={() => run("cancel", async () => {
+                await post("/api/billing/cancel");
+                setConfirmCancel(false);
+                router.refresh();
+              })}
               disabled={!!busy}
-              className="rounded-lg bg-bad-solid px-4 py-2 text-sm font-semibold text-white transition hover:brightness-95 disabled:opacity-50"
+              className="rounded-[9px] bg-bad-solid px-4 py-2 text-[13px] font-semibold text-white transition hover:brightness-95 disabled:opacity-50"
             >
               {busy === "cancel" ? "Cancelling…" : "Confirm cancellation"}
             </button>
           </>
         }
       >
-        <div className="space-y-3 text-sm text-ink-2">
-          <p>
-            This does not end service immediately. Stripe will keep the subscription active through the current period.
-          </p>
-          <p>
-            You can return here and choose <span className="font-semibold text-ink">Resume subscription</span> before the period ends.
-          </p>
+        <div className="space-y-3 text-[13px] leading-relaxed text-ink-2">
+          <p>This does not end service immediately. Stripe will keep the subscription active through the current period.</p>
+          <p>You can return here and choose <span className="font-semibold text-ink">Resume subscription</span> before the period ends.</p>
         </div>
       </Modal>
     </>
