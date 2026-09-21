@@ -145,6 +145,8 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         queue = source.index("self._queue_enabled_state_sync(pre_sync_credentials)", invalidate)
         self.assertLess(sudo_write, invalidate)
         self.assertLess(invalidate, queue)
+        modified = source.index('record.modified(["enabled_sync_revision", "last_enabled_sync_error"])', invalidate)
+        self.assertLess(modified, queue)
         for field in (
             '"enabled_sync_revision"',
             '"last_enabled_sync_revision"',
