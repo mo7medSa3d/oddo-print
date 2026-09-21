@@ -229,7 +229,7 @@ suite("billing webhook concurrency", () => {
     expect(subscription?.stripeLastEventCreatedAt?.getTime()).toBe(created * 1000);
   });
 
-  it("uses event ID as a deterministic tie-breaker for equal Stripe created timestamps", async () => {
+  it("uses the current Stripe subscription snapshot when events share a created timestamp", async () => {
     const seeded = await seed();
     const created = Math.floor(Date.now() / 1000);
     const lowerId = "evt_same_second_a";
