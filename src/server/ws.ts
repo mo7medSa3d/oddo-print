@@ -40,6 +40,7 @@ const MAX_WS_BUFFERED_BYTES = 1 * 1024 * 1024;
 const PG_NOTIFY_CHANNEL = "print_gateway_agent_jobs";
 const PG_SESSIONS_CHANNEL = "print_gateway_agent_sessions";
 const PG_DISCOVERY_CHANNEL = "print_gateway_discovery";
+let notificationListenerPid: number | null = null;
 const PG_NOTIFY_RECONNECT_MIN_MS = 1_000;
 const PG_NOTIFY_RECONNECT_MAX_MS = 30_000;
 const WS_MESSAGE_BUCKET_CAPACITY = 20;
@@ -120,6 +121,10 @@ export function __pruneIdleWsBucketsForTests(nowMs?: number): number {
 export function __clearWsBucketsForTests(): void {
   wsMessageBucketsByAgentId.clear();
   wsMessageInFlightByAgentId.clear();
+}
+
+export function __getNotificationListenerPidForTests(): number | null {
+  return notificationListenerPid;
 }
 
 export function shouldCloseAgentSocketForLifecycleRevision(
@@ -497,6 +502,7 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
   const disconnect = (client: PoolClient) => {
     if (activeClient !== client) return;
     activeClient = null;
+    notificationListenerPid = null;
     try { client.release(true); } catch {}
     if (!stopped) scheduleReconnect();
   };
@@ -558,6 +564,7 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
     }
     const client = activeClient;
     activeClient = null;
+    notificationListenerPid = null;
     if (!client) return;
     try { await client.query(`UNLISTEN ${PG_NOTIFY_CHANNEL}`); } catch {}
     try { await client.query(`UNLISTEN ${PG_SESSIONS_CHANNEL}`); } catch {}
