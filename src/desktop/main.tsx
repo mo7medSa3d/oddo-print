@@ -774,18 +774,16 @@ export default function App() {
       )}
 
       <div
-        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-200 ${
-          collapsed ? "lg:pl-[72px]" : "lg:pl-[280px]"
-        }`}
+        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-180 ${collapsed ? "lg:pl-[72px]" : "lg:pl-[276px]"}`}
       >
-        <header className="sticky top-0 z-20 border-b border-edge bg-surface/90 px-5 py-5 backdrop-blur-md lg:px-8">
+        <header className="sticky top-0 z-20 border-b border-edge/80 bg-surface/88 px-4 py-4 backdrop-blur-xl lg:px-7">
           <div className="flex items-center gap-4">
             <button
               onClick={() => {
                 setCollapsed(false);
                 setSidebarOpen(true);
               }}
-              className="rounded-lg p-2.5 text-ink-2 transition-colors hover:bg-surface-2 lg:hidden"
+              className="rounded-[10px] border border-edge bg-surface p-2.5 text-ink-2 shadow-xs transition hover:bg-surface-2 lg:hidden"
               aria-label="Open navigation"
             >
               <Menu className="h-5 w-5" />
