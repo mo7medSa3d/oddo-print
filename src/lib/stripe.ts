@@ -36,6 +36,37 @@ export async function stripeRequest(path:string, form:URLSearchParams, idempoten
     : `Stripe request failed (${res.status})`);
   return parseStripeResponse(path, data);
 }
+/**
+ * Fetch the current Stripe object outside the database transaction.
+ *
+ * Webhook snapshot events are immutable and Stripe does not guarantee event
+ * delivery order. For subscription state we therefore retrieve the current
+ * resource instead of trying to reconstruct chronology from event.created.
+ */
+export async function stripeRetrieve(path:string): Promise<Record<string, unknown>> {
+  const res = await fetch(`https://api.stripe.com/v1/${path}`, {
+    method: "GET",
+    headers: stripeHeaders(),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const error = (data as Record<string, unknown>)?.error;
+    const message =
+      typeof error === "object" &&
+      error !== null &&
+      typeof (error as Record<string, unknown>).message === "string"
+        ? String((error as Record<string, unknown>).message)
+        : `Stripe request failed (${res.status})`;
+    throw new Error(message);
+  }
+  const object = requireStripeObject(data);
+  if (typeof object.id !== "string" || object.id.length === 0) {
+    throw new Error(`Stripe response missing id for ${path}`);
+  }
+  return object;
+}
+
 export function verifyStripeSignature(payload:string, header:string, secret:string, toleranceSec=300): boolean {
   const parts=header.split(",").map(p=>p.split("=",2)); const ts=Number(parts.find(([k])=>k==="t")?.[1]); if(!Number.isFinite(ts)||Math.abs(Date.now()/1000-ts)>toleranceSec)return false;
   const provided=parts.filter(([k])=>k==="v1").map(([,v])=>v).filter(Boolean); if(provided.length===0)return false;
