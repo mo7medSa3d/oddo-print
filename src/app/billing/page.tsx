@@ -144,10 +144,10 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
       {checkoutState === "cancelled" && (
         <Notice tone="neutral" title="Checkout cancelled">Nothing was changed. Pick a plan whenever you are ready.</Notice>
       )}
-      {sub && sub.checkoutStatus === "creating" && checkoutState !== "success" && (
+      {sub && sub.checkoutStatus === "creating" && checkoutState !== "success" && checkoutState !== "cancelled" && (
         <Notice tone="info" title="Checkout is starting">We are preparing your checkout session. This page updates when it completes.</Notice>
       )}
-      {sub && sub.checkoutStatus === "open" && checkoutState !== "success" && (
+      {sub && sub.checkoutStatus === "open" && checkoutState !== "success" && checkoutState !== "cancelled" && (
         <Notice tone="info" title="Checkout is open">Complete the payment in the Stripe window, then you will return here.</Notice>
       )}
 
