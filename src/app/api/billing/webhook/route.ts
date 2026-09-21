@@ -4,7 +4,7 @@ import { db } from "../../../../db";
 import { billingEvents, plans, tenantSubscriptions } from "../../../../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { runtimeSecret } from "../../../../lib/runtime-secret";
-import { verifyStripeSignature } from "../../../../lib/stripe";
+import { stripeRetrieve, verifyStripeSignature } from "../../../../lib/stripe";
 import { writeAuditEvent } from "../../../../lib/audit";
 
 function statusOf(status: string): "trialing" | "active" | "past_due" | "paused" | "cancelled" {
@@ -55,16 +55,67 @@ export async function POST(req: Request) {
   const eventType = typeof event.type === "string" ? event.type : "";
   if (!eventId || !eventType) return NextResponse.json({ error: "Invalid event" }, { status: 400 });
 
+  // Keep the immutable event snapshot for audit/idempotency, but use a
+  // separately retrieved current Stripe resource when subscription state
+  // depends on it. Stripe explicitly does not guarantee webhook ordering and
+  // snapshot event timestamps are only second-resolution.
   const obj = event.data?.object ?? {};
   const eventCreatedAt = typeof event.created === "number" ? new Date(event.created * 1000) : new Date();
   const eventCreatedUnix = Math.floor(eventCreatedAt.getTime() / 1000);
-  const metadataTenantId = typeof (obj.metadata as Record<string, unknown> | undefined)?.tenant_id === "string"
+
+  let stateObj: Record<string, unknown> = obj;
+  if (eventType === "customer.subscription.created" || eventType === "customer.subscription.updated") {
+    const subscriptionId = typeof obj.id === "string" ? obj.id : "";
+    if (!subscriptionId) return NextResponse.json({ error: "Subscription event missing subscription id" }, { status: 400 });
+    try {
+      stateObj = await stripeRetrieve(`subscriptions/${encodeURIComponent(subscriptionId)}`);
+    } catch (error) {
+      logError("billing.webhook_latest_subscription_fetch_failed", {
+        eventId,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      // Do not mark the event processed when the current Stripe object could
+      // not be read. Stripe will retry, and the event remains recoverable.
+      return NextResponse.json({ error: "Unable to verify current Stripe subscription state" }, { status: 502 });
+    }
+  }
+
+  const snapshotMetadataTenantId = typeof (obj.metadata as Record<string, unknown> | undefined)?.tenant_id === "string"
     ? String((obj.metadata as Record<string, unknown>).tenant_id)
     : undefined;
+  const stateMetadataTenantId = typeof (stateObj.metadata as Record<string, unknown> | undefined)?.tenant_id === "string"
+    ? String((stateObj.metadata as Record<string, unknown>).tenant_id)
+    : undefined;
   const clientReferenceTenantId = typeof obj.client_reference_id === "string" ? obj.client_reference_id : undefined;
-  const candidateTenantId = metadataTenantId ?? clientReferenceTenantId;
-  const customerId = typeof obj.customer === "string" ? obj.customer : undefined;
-  const objectSubscriptionId = subscriptionIdForEvent(eventType, obj);
+  const candidateTenantId = stateMetadataTenantId ?? snapshotMetadataTenantId ?? clientReferenceTenantId;
+  let checkoutSubscription: Record<string, unknown> | null = null;
+  if (eventType === "checkout.session.completed") {
+    const checkoutSubscriptionId = typeof obj.subscription === "string" ? obj.subscription : "";
+    if (checkoutSubscriptionId) {
+      try {
+        checkoutSubscription = await stripeRetrieve(`subscriptions/${encodeURIComponent(checkoutSubscriptionId)}`);
+      } catch (error) {
+        logError("billing.webhook_checkout_subscription_fetch_failed", {
+          eventId,
+          error: error instanceof Error ? error.message : "unknown",
+        });
+        return NextResponse.json({ error: "Unable to verify checkout subscription state" }, { status: 502 });
+      }
+    }
+  }
+
+  const eventSubscriptionMetadataTenantId =
+    typeof ((checkoutSubscription?.metadata ?? obj.metadata) as Record<string, unknown> | undefined)?.tenant_id === "string"
+      ? String(((checkoutSubscription?.metadata ?? obj.metadata) as Record<string, unknown>).tenant_id)
+      : undefined;
+
+  const customerId =
+    typeof stateObj.customer === "string"
+      ? stateObj.customer
+      : typeof obj.customer === "string"
+        ? obj.customer
+        : undefined;
+  const objectSubscriptionId = subscriptionIdForEvent(eventType, stateObj);
 
   try {
     const result = await db.transaction(async (tx) => {
@@ -160,7 +211,25 @@ export async function POST(req: Request) {
             }, tx);
             return { kind: "ignored" as const };
           }
-          if (differentSubscription && current?.status === "cancelled" && current.stripeLastEventCreatedAt && eventCreatedAt.getTime() < (timestampMillis(current.stripeLastEventCreatedAt) ?? 0)) {
+          const currentStripeCheckoutCustomer =
+            typeof checkoutSubscription?.customer === "string" ? checkoutSubscription.customer : customerId;
+          const currentStripeCheckoutStatus =
+            typeof checkoutSubscription?.status === "string" ? checkoutSubscription.status : undefined;
+          if (currentStripeCheckoutCustomer && customerId && currentStripeCheckoutCustomer !== customerId) {
+            await tx.update(billingEvents)
+              .set({ tenantId, processedAt: new Date() })
+              .where(eq(billingEvents.eventId, eventId));
+            await writeAuditEvent({
+              tenantId,
+              actorType: "platform",
+              actorId: "stripe",
+              action: "billing.checkout_customer_conflict",
+              resourceType: "billing_event",
+              resourceId: eventId,
+            }, tx);
+            return { kind: "ignored" as const };
+          }
+          if (differentSubscription && current?.status === "cancelled" && currentStripeCheckoutStatus === "canceled") {
             await tx.update(billingEvents)
               .set({ tenantId, processedAt: new Date() })
               .where(eq(billingEvents.eventId, eventId));
@@ -232,29 +301,23 @@ export async function POST(req: Request) {
         } | undefined;
         const plan = priceId ? await tx.query.plans.findFirst({ where: eq(plans.stripePriceId, priceId), columns: { id: true } }) : undefined;
         if (tenantRow && tenantId) {
-          const storedTime = timestampMillis(tenantRow.stripeLastEventCreatedAt);
-          let newerThanStored = storedTime === null || eventCreatedAt.getTime() > storedTime;
-          if (storedTime !== null && eventCreatedAt.getTime() === storedTime) {
-            // Same-second tie: Stripe event IDs are not a reliable chronology key.
-            // Skip rather than let an ambiguous ordering overwrite a known state;
-            // a later event with a newer timestamp will reconcile the subscription.
-            newerThanStored = false;
-          }
-          const differentSubscription = Boolean(tenantRow.stripeSubscriptionId && tenantRow.stripeSubscriptionId !== subId);
-          if (differentSubscription && tenantRow.status !== "cancelled") {
-            newerThanStored = false;
-          }
-          if (differentSubscription && tenantRow.status === "cancelled" && !newerThanStored) {
-            newerThanStored = false;
-          }
-          if (newerThanStored) {
-            const nextStatus = typeof obj.status === "string" ? statusOf(obj.status) : tenantRow.status;
+          const differentSubscription = Boolean(
+            tenantRow.stripeSubscriptionId && tenantRow.stripeSubscriptionId !== subId
+          );
+          // A subscription event for a different Stripe subscription must never
+          // overwrite the tenant's currently bound identity. A new subscription
+          // can still be adopted during the initial bind or after a completed
+          // checkout has already cleared/changed the local identity.
+          const sameOrUnboundSubscription =
+            !tenantRow.stripeSubscriptionId || tenantRow.stripeSubscriptionId === subId;
+          if (sameOrUnboundSubscription) {
+            const nextStatus = typeof stateObj.status === "string" ? statusOf(stateObj.status) : tenantRow.status;
             await tx.update(tenantSubscriptions).set({
-              stripeCustomerId: typeof obj.customer === "string" ? obj.customer : tenantRow.stripeCustomerId,
+              stripeCustomerId: typeof stateObj.customer === "string" ? stateObj.customer : tenantRow.stripeCustomerId,
               stripeSubscriptionId: subId || tenantRow.stripeSubscriptionId,
               status: nextStatus,
-              currentPeriodEnd: typeof obj.current_period_end === "number" ? new Date(obj.current_period_end * 1000) : tenantRow.currentPeriodEnd,
-              cancelAtPeriodEnd: obj.cancel_at_period_end === true,
+              currentPeriodEnd: typeof stateObj.current_period_end === "number" ? new Date(stateObj.current_period_end * 1000) : tenantRow.currentPeriodEnd,
+              cancelAtPeriodEnd: stateObj.cancel_at_period_end === true,
               planId: plan?.id ?? tenantRow.planId,
               ...(nextStatus === "cancelled"
                 ? {
@@ -266,7 +329,7 @@ export async function POST(req: Request) {
                     checkoutSessionExpiresAt: null,
                   }
                 : {}),
-              stripeLastEventCreatedAt: eventCreatedAt,
+              stripeLastEventCreatedAt: sql`GREATEST(COALESCE(${tenantSubscriptions.stripeLastEventCreatedAt}, ${eventCreatedAt}), ${eventCreatedAt})`,
               updatedAt: new Date(),
             }).where(eq(tenantSubscriptions.tenantId, tenantId));
           }
