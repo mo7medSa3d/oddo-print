@@ -30,8 +30,10 @@ export interface ApiBodyGuardOptions {
  * ECONNRESET instead of the documented 4xx/503 status. Instead we drain the
  * abandoned request body up to a bounded budget (lingering close, the same
  * trade-off Go's net/http `maxPostHandlerReadBytes` and nginx's
- * `lingering_close` make), and tear the socket down on end, error, or timeout
- * so the response is always delivered first and no unbounded stream is read.
+ * `lingering_close` make). The socket is torn down only on bounded-drain
+ * overflow, request error, or timeout; destroying it on normal request `end`
+ * or `close` can race the rejection response and turn a documented 413/411/403
+ * into an ECONNRESET on Windows clients.
  */
 const REJECT_DRAIN_MAX_BYTES = 16 * 1024 * 1024;
 const REJECT_DRAIN_TIMEOUT_MS = 5_000;
@@ -50,14 +52,16 @@ function rejectRequest(req: IncomingMessage, res: ServerResponse, status: number
     req.destroy();
   };
   let drained = 0;
+  let timer: ReturnType<typeof setTimeout>;
   req.on("data", (chunk: Buffer) => {
     drained += chunk.length;
     if (drained > REJECT_DRAIN_MAX_BYTES) teardown();
   });
-  req.once("end", teardown);
+  req.once("end", () => {
+    clearTimeout(timer);
+  });
   req.once("error", teardown);
-  req.once("close", teardown);
-  const timer = setTimeout(teardown, REJECT_DRAIN_TIMEOUT_MS);
+  timer = setTimeout(teardown, REJECT_DRAIN_TIMEOUT_MS);
   if (typeof timer.unref === "function") timer.unref();
 }
 
