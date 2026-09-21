@@ -1,6 +1,4 @@
 import React from "react";
-import appIconRaw from "../../../src-tauri/icons/icon-source.svg";
-const appIcon = appIconRaw as unknown as string;
 import { LayoutDashboard, Printer, ClipboardList, Cpu, Settings, X, PanelLeftClose, PanelLeftOpen, ShieldCheck } from "lucide-react";
 import { StatusDot } from "../../components/ui";
 import type { Page } from "../types";
@@ -35,8 +33,8 @@ export function Sidebar({
   return (
     <aside className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-edge bg-surface shadow-sm transition-all duration-180 ease-out ${collapsed ? "w-[72px]" : "w-[276px]"} ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
       <div className={`flex h-[68px] shrink-0 items-center gap-3 border-b border-edge/80 ${collapsed ? "justify-center px-0" : "px-5"}`}>
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-[9px] bg-brand shadow-sm">
-          <img src={appIcon} alt="" className="h-6 w-6 object-contain" />
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] bg-brand text-white shadow-sm" aria-hidden="true">
+          <Printer className="h-5 w-5" />
         </span>
         {!collapsed && (
           <div className="min-w-0 flex-1">
