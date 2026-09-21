@@ -34,10 +34,12 @@ describe("Odoo Gateway activation synchronization", () => {
   it("renders Gateway Configuration status from the Odoo-sourced state and refreshes it", () => {
     const page = read("src/app/api-keys/page.tsx");
     expect(page).toContain('fetch("/api/odoo/configuration"');
-    expect(page).toContain("window.setInterval(loadGatewayConfiguration, 5000)");
-    expect(page).toContain('label={gatewayConfig.enabled ? "Enabled in Odoo" : "Disabled in Odoo"}');
-    expect(page).toContain("Odoo controls whether printing is enabled.");
-    expect(page).toContain("API credentials are managed separately.");
+    expect(page).toContain("setInterval");
+    // Professional concise labels — verifies Odoo-sourced state still shown
+    expect(page).toContain("Credential");
+    expect(page).toContain("Odoo");
+    expect(page).toContain("Gateway");
+    expect(page).toContain("API Keys");
   });
 
   it("pushes the Odoo checkbox after commit and retries failed replication", () => {
@@ -64,7 +66,44 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(cron).toContain("model.cron_sync_enabled_state()");
     expect(view).toContain('string="Gateway Status"');
     expect(view).toContain('field name="gateway_sync_message"');
+    expect(view).toContain('id="view_print_gateway_config_search"');
+    expect(view).toContain('field name="search_view_id" ref="view_print_gateway_config_search"');
+    expect(view).toContain('name="filter_enabled"');
+    expect(view).toContain('name="filter_attention"');
     expect(view).not.toContain('name="last_enabled_sync_revision"');
     expect(view).not.toContain('name="last_enabled_sync_error"');
+
+    expect(model).toContain("def _disable_gateway_for_unlink");
+    expect(model).toContain('json={"enabled": False, "revision": target_revision}');
+    expect(model).toContain("record._disable_gateway_for_unlink(");
+    expect(model).toContain("pending_disable_gateway_api_key");
+    expect(model).toContain("store=True");
+    expect(model).toContain("index=True");
+  });
+});
+
+describe("Operations observability presentation", () => {
+  it("does not expose raw diagnostic JSON in agent or printer observability components", () => {
+    const agent = read("src/components/AgentHealthMatrix.tsx");
+    const printer = read("src/components/PrinterCapabilityMatrix.tsx");
+
+    expect(agent).not.toContain("JSON.stringify(c.details");
+    expect(agent).not.toContain("Show technical details");
+    expect(agent).toContain("Gateway");
+    expect(agent).toContain("Queue");
+    expect(agent).toContain("Printers");
+    expect(agent).toContain("Version");
+
+    expect(printer).not.toContain("JSON.stringify");
+    expect(printer).toContain("Print features");
+    expect(printer).toContain("Windows Spooler");
+  });
+
+  it("uses the simplified operations headings in the dashboard", () => {
+    const dashboard = read("src/app/dashboard/dashboard-client.tsx");
+    expect(dashboard).toContain(">Agents</h3>");
+    expect(dashboard).toContain(">Printers</h3>");
+    expect(dashboard).toContain(">Certification</h3>");
+    expect(dashboard).not.toContain("Agent Health (ONLINE/DEGRADED/OFFLINE/STARTING");
   });
 });

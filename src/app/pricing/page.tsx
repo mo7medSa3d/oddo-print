@@ -89,6 +89,12 @@ export default async function Pricing() {
             <span key={f} className="rounded-full border border-edge bg-surface px-3 py-1 font-medium text-ink-2">{f}</span>
           ))}
         </div>
+        {!claims && (
+          <div className="mt-5 text-[13px] text-ink-3">
+            Already have an account?{" "}
+            <Link href="/login" className="font-semibold text-brand hover:underline">Sign in</Link>
+          </div>
+        )}
       </div>
     </div>
   );

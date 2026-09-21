@@ -108,7 +108,7 @@ export default async function DashboardPage() {
   const visibleAgents = allAgents.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" }));
 
   return (
-    <div className="mx-auto w-full max-w-[1440px] px-4 py-7 sm:px-6 lg:py-8">
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-7 sm:px-6 lg:py-8">
       <header className="mb-7 flex flex-col gap-4 border-b border-edge pb-6 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">

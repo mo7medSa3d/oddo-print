@@ -10,6 +10,8 @@ type ApiKey = {
   id: string;
   name: string;
   description: string | null;
+  scope?: string | null;
+  allowedDocumentTypes?: string[] | null;
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
@@ -24,6 +26,8 @@ type GatewayConfigurationState = {
 export default function ApiKeysPage() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [name, setName] = useState("Odoo Production");
+  const [scope, setScope] = useState<"standard" | "read_only">("standard");
+  const [typesInput, setTypesInput] = useState("");
   const [rawKey, setRawKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -90,7 +94,8 @@ export default function ApiKeysPage() {
     setRawKey(null);
     setCopied(false);
     try {
-      const response = await fetch("/api/odoo/keys", { method: "POST", headers: { "content-type": "application/json" }, credentials: "include", body: JSON.stringify({ name: name.trim() || "Odoo" }) });
+      const types = typesInput.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+      const response = await fetch("/api/odoo/keys", { method: "POST", headers: { "content-type": "application/json" }, credentials: "include", body: JSON.stringify({ name: name.trim() || "Odoo", scope, ...(types.length ? { allowedDocumentTypes: types } : {}) }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Unable to generate API key.");
       setRawKey(body.apiKey);
@@ -208,6 +213,17 @@ export default function ApiKeysPage() {
               <Field label="Key name" hint="Descriptive name for audit logs">
                 <Input id="key-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} placeholder="Odoo Production" />
               </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Scope" htmlFor="key-scope" hint="Read-only keys cannot create print jobs.">
+                  <select id="key-scope" value={scope} onChange={(event) => setScope(event.target.value as "standard" | "read_only")} disabled={busy} className="h-10 w-full rounded-[9px] border border-edge bg-surface px-3 text-[13px] text-ink outline-none">
+                    <option value="standard">Standard (read + print)</option>
+                    <option value="read_only">Read only</option>
+                  </select>
+                </Field>
+                <Field label="Document types (optional)" htmlFor="key-types" hint="Comma-separated; empty means all.">
+                  <Input id="key-types" value={typesInput} onChange={(event) => setTypesInput(event.target.value)} placeholder="receipt,kitchen" disabled={busy} autoComplete="off" />
+                </Field>
+              </div>
               <div className="flex justify-end">
                 <Button type="submit" variant="primary" loading={busy} disabled={busy} icon={<KeyRound className="h-4 w-4" />}>Generate API Key</Button>
               </div>
@@ -231,10 +247,12 @@ export default function ApiKeysPage() {
                     <div className="flex items-center gap-2.5">
                       <span className="truncate text-[14px] font-semibold text-ink">{item.name}</span>
                       <StatusBadge tone={item.revokedAt ? "bad" : "ok"} label={item.revokedAt ? "Revoked" : "Valid"} />
+                      {!item.revokedAt ? <StatusBadge tone={item.scope === "read_only" ? "warn" : "neutral"} label={item.scope === "read_only" ? "Read only" : "Standard"} /> : null}
                     </div>
-                    <div className="mt-1.5 flex items-center gap-3 text-[11px] text-ink-3">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px] text-ink-3">
                       <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> Created {new Date(item.createdAt).toLocaleDateString()}</span>
                       <span>Last used {item.lastUsedAt ? new Date(item.lastUsedAt).toLocaleDateString() : "Never"}</span>
+                      {!item.revokedAt && Array.isArray(item.allowedDocumentTypes) && item.allowedDocumentTypes.length > 0 ? <span>{item.allowedDocumentTypes.length} type{item.allowedDocumentTypes.length === 1 ? "" : "s"}</span> : null}
                     </div>
                   </div>
                   {!item.revokedAt ? (

@@ -6,7 +6,7 @@ static AGENT_DATA_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
 /// Root for writable Yasser Manager state.
 ///
-/// STRICTLY `%PROGRAMDATA%\OdooPrintManager` on Windows: the desktop app and
+/// STRICTLY `%PROGRAMDATA%\YasserManager` on Windows: the desktop app and
 /// the Windows Service (LocalSystem) must read and write the SAME location,
 /// so no per-user fallback exists by design. If this process cannot write
 /// there, every mutating operation fails closed with an Administrator

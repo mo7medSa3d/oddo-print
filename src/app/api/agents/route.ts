@@ -13,6 +13,8 @@ import { isAgentAvailableForJob } from "../../../lib/agent-availability";
 
 export const dynamic = "force-dynamic";
 const createAgentSchema = z.object({ name: z.string().trim().min(1).max(200) }).strict();
+const MAX_AGENTS_LIST = 1000;
+const MAX_AGENTS_OFFSET = 10_000;
 
 export async function GET(req: Request) {
   const auth = await validateConsoleAuth(req);
@@ -21,13 +23,22 @@ export async function GET(req: Request) {
   if (auth.kind === "manager") {
     try { requireManagerPermission(auth.claims, "agents.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   }
+  // Hard ceiling so cadence/abuse cannot force an unbounded scan. Entitlements
+  // cap the row count per tenant (max_agents), so a well-formed fleet never
+  // approaches this; 1000 is far above any valid plan and purely defensive.
+  const { searchParams } = new URL(req.url);
+  const limit = Math.min(parseInt(searchParams.get("limit") ?? "1000", 10) || 1000, 1000);
+  const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10) || 0, 0);
+  if (offset > MAX_AGENTS_OFFSET) {
+    return NextResponse.json({ error: `offset must be <= ${MAX_AGENTS_OFFSET}` }, { status: 400 });
+  }
   const where = auth.kind === "agent"
     ? and(eq(agents.tenantId, tenantId), eq(agents.id, auth.agent.id))
     : eq(agents.tenantId, tenantId);
   const rows = await db.select({
     id: agents.id, name: agents.name, status: agents.status, lifecycle: agents.lifecycle,
     metadata: agents.metadata, lastSeenAt: agents.lastSeenAt, createdAt: agents.createdAt,
-  }).from(agents).where(where).orderBy(desc(agents.createdAt));
+  }).from(agents).where(where).orderBy(desc(agents.createdAt)).limit(limit).offset(offset);
   const now = new Date();
   return NextResponse.json(rows.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" })));
 }

@@ -41,7 +41,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
   const entitlements = plan?.entitlements ? Object.entries(plan.entitlements).map(([k, v]) => ({ label: formatEntitlementKey(k), value: formatEntitlementValue(v) })) : [];
 
   return (
-    <div className="mx-auto max-w-[1120px] px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
       {/* Header */}
       <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
@@ -108,13 +108,13 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
             )}
 
             {isScheduledForCancellation && sub?.currentPeriodEnd && (
-              <div className="mt-6 flex items-start gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
+              <div className="mt-6 flex items-start gap-2.5 rounded-[10px] border border-warn-edge bg-warn-bg px-4 py-3 text-[13px] text-warn">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>Scheduled to cancel on <strong>{sub.currentPeriodEnd.toLocaleDateString()}</strong>. Resume before then to keep service.</span>
               </div>
             )}
             {sub?.status === "past_due" && (
-              <div className="mt-6 flex items-start gap-2.5 rounded-[10px] border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-800">
+              <div className="mt-6 flex items-start gap-2.5 rounded-[10px] border border-bad-edge bg-bad-bg px-4 py-3 text-[13px] text-bad">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>Payment past due — update payment method via Customer Portal.</span>
               </div>

@@ -57,6 +57,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         stats: {},
         startedAt: new Date(),
       });
+      // Push discovery instantly via Postgres NOTIFY -> WebSocket (10-50ms)
+      // instead of waiting for agent's 10s poll fallback. Matches job delivery path.
+      await tx.execute(sql`SELECT pg_notify('print_gateway_discovery', ${JSON.stringify({ agentId, discoveryId })}::text)`);
     });
   } catch (error) {
     if (error instanceof Error && error.message === "AGENT_NOT_FOUND") {

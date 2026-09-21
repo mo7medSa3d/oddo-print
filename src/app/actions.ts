@@ -22,7 +22,7 @@ import { transitionAgentLifecycle, LifecycleConflict } from "../lib/agent-lifecy
 import { ActionError } from "../lib/action-error";
 import { writeAuditEvent } from "../lib/audit";
 import { requireManagerPermission } from "../lib/authorization";
-import { enforceTenantResourceEntitlement, TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../lib/entitlements";
+import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../lib/entitlements";
 import { isAgentAvailableForJob } from "../lib/agent-availability";
 
 async function requireManager() {
@@ -73,7 +73,7 @@ export async function createAgent(name: string) {
     });
   } catch (error) {
     if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
-    if (error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError) throw new ActionError(error.message, 403);
+    if (isTenantBillingError(error)) throw new ActionError(error.message, 403);
     throw error;
   }
   void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.paired", resourceType: "agent", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
@@ -148,7 +148,7 @@ export async function createPrintJob(printerId: string, payload: unknown) {
     return { id: result.id };
   } catch (error) {
     if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
-    if (error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError) throw new ActionError(error.message, 403);
+    if (isTenantBillingError(error)) throw new ActionError(error.message, 403);
     throw error;
   }
 }
@@ -186,7 +186,7 @@ export async function reprintJob(jobId: string) {
     return { id: result.id, reused: result.isReused === true };
   } catch (error) {
     if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
-    if (error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError) throw new ActionError(error.message, 403);
+    if (isTenantBillingError(error)) throw new ActionError(error.message, 403);
     throw error;
   }
 }

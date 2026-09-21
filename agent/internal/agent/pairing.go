@@ -136,6 +136,6 @@ func Register(serverURL, pairingCode, configPath string) error {
 	}
 
 	fmt.Printf("Success! Agent registered as %s\n", data.AgentID)
-	fmt.Println("Restart the agent (or start it from Odoo Print Manager) to begin receiving jobs.")
+	fmt.Println("Restart the agent (or start it from Yasser Print Manager) to begin receiving jobs.")
 	return nil
 }

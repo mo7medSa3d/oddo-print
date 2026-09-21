@@ -79,10 +79,10 @@ var pollJobsByteLimit = maxPollJobsBytes()
 const shutdownGrace = 25 * time.Second
 
 // While the WebSocket is connected the poll loop still runs every
-// wsSafetyPollEvery ticks (10s tick => every 30s) so claimed-but-undelivered
+// wsSafetyPollEvery ticks (5s tick => every 30s) so claimed-but-undelivered
 // jobs are reclaimed after the gateway's 90s claim lease instead of being
 // stuck until the socket drops.
-const wsSafetyPollEvery = 3
+const wsSafetyPollEvery = 6
 
 // printDocumentTimeout bounds a single physical print as a function of the
 // payload size. Base 2m covers dial + spooler setup + a small receipt; each
@@ -616,8 +616,15 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.launchTracked(func() { a.runInitialAsyncDiscovery(ctx) })
 
 	heartbeatTicker := time.NewTicker(30 * time.Second)
-	pollTicker := time.NewTicker(10 * time.Second) // Fallback poll
-	discoveryTicker := time.NewTicker(30 * time.Second)
+	// Poll fallback: reduced from 10s to 5s per 2025 best practice.
+	// WebSocket is primary (10-50ms latency per docs), poll is safety net.
+	// Short polling latency = interval/2 avg, so 5s => 2.5s avg delay when WS down,
+	// vs 10s => 5s avg before. Halves perceived delay for job delivery fallback.
+	pollTicker := time.NewTicker(5 * time.Second)
+	// Discovery poll: reduced from 30s to 10s. Manager-triggered discovery
+	// sessions now start within 10s max instead of 30s, matching user expectation
+	// of <10s for discovery. Full scan itself is bounded 30s.
+	discoveryTicker := time.NewTicker(10 * time.Second)
 	cleanupTicker := time.NewTicker(24 * time.Hour)
 	defer heartbeatTicker.Stop()
 	defer pollTicker.Stop()
@@ -839,6 +846,27 @@ func (a *Agent) handleWSMessages(ctx context.Context) error {
 		var envelope map[string]interface{}
 		if err := json.Unmarshal(message, &envelope); err != nil {
 			log.Printf("Malformed WS message: %v", err)
+			continue
+		}
+
+		// Handle discovery trigger (instant push, 10-50ms) — manager started a discovery session
+		if typ, _ := envelope["type"].(string); typ == "discovery" {
+			discoveryID, _ := envelope["discoveryId"].(string)
+			if discoveryID == "" {
+				log.Printf("Ignoring discovery message without discoveryId")
+				continue
+			}
+			log.Printf("[discovery] received instant WS trigger for session %s", discoveryID)
+			// Trigger discovery immediately, don't wait for 10s poll
+			select {
+			case a.discoverySem <- struct{}{}:
+				go func(sessionID string) {
+					a.executeDiscoverySession(ctx, sessionID)
+				}(discoveryID)
+			default:
+				log.Printf("[discovery] session %s deferred: a discovery session is already running", discoveryID)
+				go a.reportDiscoveryResult(ctx, discoveryID, "cancelled", nil)
+			}
 			continue
 		}
 

@@ -64,7 +64,8 @@ describe("production fixes contracts (2026-09)", () => {
     expect(agent).toContain('a.rejectJob(ctx, jobID, jobClaimToken(job), "agent_shutting_down")');
     expect(agent).toMatch(/discoverySem:\s*make\(chan struct\{\}, 1\)/);
     const net = read("agent/internal/printer/network.go");
-    expect(net).toMatch(/dialTimeout\s*=\s*10\s*\*\s*time\.Second/);
+    // 2025-09-21: reduced from 10s to 5s for faster offline feedback (POS best practice)
+    expect(net).toMatch(/dialTimeout\s*=\s*5\s*\*\s*time\.Second/);
     expect(net).toMatch(/writeStallTimeout\s*=\s*60\s*\*\s*time\.Second/);
     expect(net).toContain("_ = conn.SetWriteDeadline(time.Now().Add(writeStallTimeout))");
   });

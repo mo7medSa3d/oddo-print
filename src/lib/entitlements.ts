@@ -49,6 +49,16 @@ export class TenantEntitlementConfigError extends Error {
 
 export type EntitlementTx = { execute: (query: SQL) => Promise<{ rows: Record<string, unknown>[] }> };
 
+/**
+ * Canonical classification for entitlement failures that belong to the
+ * billing/forbidden class (HTTP 403) rather than the rate/exceeded class
+ * (HTTP 429). Distinct from TenantEntitlementError, which is a momentary
+ * limit trip carrying a Retry-After.
+ */
+export function isTenantBillingError(error: unknown): error is TenantSubscriptionRequiredError | TenantEntitlementConfigError {
+  return error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError;
+}
+
 export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: string, key: string): Promise<number | null> {
   const result = await tx.execute(sql`
     SELECT p.entitlements

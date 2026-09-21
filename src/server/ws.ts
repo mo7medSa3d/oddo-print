@@ -39,6 +39,8 @@ const MAX_WS_INFLIGHT_MESSAGES_PER_AGENT = 16;
 const MAX_WS_BUFFERED_BYTES = 1 * 1024 * 1024;
 const PG_NOTIFY_CHANNEL = "print_gateway_agent_jobs";
 const PG_SESSIONS_CHANNEL = "print_gateway_agent_sessions";
+const PG_DISCOVERY_CHANNEL = "print_gateway_discovery";
+let notificationListenerPid: number | null = null;
 const PG_NOTIFY_RECONNECT_MIN_MS = 1_000;
 const PG_NOTIFY_RECONNECT_MAX_MS = 30_000;
 const WS_MESSAGE_BUCKET_CAPACITY = 20;
@@ -119,6 +121,10 @@ export function __pruneIdleWsBucketsForTests(nowMs?: number): number {
 export function __clearWsBucketsForTests(): void {
   wsMessageBucketsByAgentId.clear();
   wsMessageInFlightByAgentId.clear();
+}
+
+export function __getNotificationListenerPidForTests(): number | null {
+  return notificationListenerPid;
 }
 
 export function shouldCloseAgentSocketForLifecycleRevision(
@@ -438,6 +444,20 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
       }
       return;
     }
+    if (notification.channel === PG_DISCOVERY_CHANNEL) {
+      try {
+        const message = JSON.parse(notification.payload) as { agentId?: unknown; discoveryId?: unknown };
+        if (typeof message.agentId !== "string" || typeof message.discoveryId !== "string") return;
+        if (!hasOpenAgentSocket(message.agentId)) return;
+        // Push discovery trigger instantly via WebSocket (10-50ms latency per 2025 docs)
+        // instead of waiting for agent's 10s discovery poll.
+        const delivered = sendToAgent(message.agentId, { type: "discovery", discoveryId: message.discoveryId });
+        logInfo("print.discovery.ws_push", { agentId: message.agentId, discoveryId: message.discoveryId, delivered });
+      } catch {
+        logWarn("[ws] ignored malformed discovery notification");
+      }
+      return;
+    }
     if (notification.channel !== PG_NOTIFY_CHANNEL) return;
     try {
       const message = JSON.parse(notification.payload) as { jobId?: unknown; agentId?: unknown; requestId?: unknown };
@@ -482,6 +502,7 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
   const disconnect = (client: PoolClient) => {
     if (activeClient !== client) return;
     activeClient = null;
+    notificationListenerPid = null;
     try { client.release(true); } catch {}
     if (!stopped) scheduleReconnect();
   };
@@ -504,6 +525,7 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
       try {
         await client.query(`LISTEN ${PG_NOTIFY_CHANNEL}`);
         await client.query(`LISTEN ${PG_SESSIONS_CHANNEL}`);
+        await client.query(`LISTEN ${PG_DISCOVERY_CHANNEL}`);
       } catch (listenError) {
         // Setup failed BEFORE adoption: the client must be released here
         // (disconnect() deliberately only touches the adopted client, and
@@ -518,10 +540,19 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
         // cleanly instead of leaking a live listener nobody owns.
         try { await client.query(`UNLISTEN ${PG_NOTIFY_CHANNEL}`); } catch {}
         try { await client.query(`UNLISTEN ${PG_SESSIONS_CHANNEL}`); } catch {}
+        try { await client.query(`UNLISTEN ${PG_DISCOVERY_CHANNEL}`); } catch {}
         client.release();
         return;
       }
       activeClient = client;
+      // Publish the live LISTEN backend PID. This is the observable the CI
+      // failure-injection gate and the setup-race test poll to prove the
+      // listener actually reconnected (as opposed to having silently wedged).
+      // node-postgres populates Client.processID from BackendKeyData during
+      // connection startup; @types/pg does not declare it, so read it through
+      // a local typed lens. When unknown, the gate keeps waiting (fail-closed)
+      // rather than accepting a false-positive PID.
+      notificationListenerPid = (client as PoolClient & { readonly processID?: number | null }).processID ?? null;
       reconnectAttempt = 0;
     } catch (error) {
       void incrementMetric("postgres_notification_failures_total");
@@ -541,9 +572,11 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
     }
     const client = activeClient;
     activeClient = null;
+    notificationListenerPid = null;
     if (!client) return;
     try { await client.query(`UNLISTEN ${PG_NOTIFY_CHANNEL}`); } catch {}
     try { await client.query(`UNLISTEN ${PG_SESSIONS_CHANNEL}`); } catch {}
+    try { await client.query(`UNLISTEN ${PG_DISCOVERY_CHANNEL}`); } catch {}
     try { client.release(); } catch {}
   };
 }

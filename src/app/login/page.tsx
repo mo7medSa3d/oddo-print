@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ShieldCheck, Lock } from "lucide-react";
@@ -16,14 +16,24 @@ export default function LoginPage() {
   const [checkingSession, setCheckingSession] = useState(true);
   const router = useRouter();
 
+  // The AppShell redirects unauthenticated console visits to
+  // /login?next=<path>. Honor that destination only when it is a safe
+  // in-app absolute path (starts with a single "/"), never a protocol-relative
+  // or external URL — otherwise fall back to the dashboard.
+  const postAuthDestination = useCallback((): string => {
+    const next = new URLSearchParams(window.location.search).get("next");
+    if (next && next.startsWith("/") && !next.startsWith("//")) return next;
+    return "/dashboard";
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     fetch("/api/auth/me", { credentials: "include", cache: "no-store" })
-      .then((res) => { if (!cancelled && res.ok) router.replace("/dashboard"); })
+      .then((res) => { if (!cancelled && res.ok) router.replace(postAuthDestination()); })
       .catch(() => undefined)
       .finally(() => { if (!cancelled) setCheckingSession(false); });
     return () => { cancelled = true; };
-  }, [router]);
+  }, [router, postAuthDestination]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,7 +53,7 @@ export default function LoginPage() {
         return;
       }
       if (!res.ok) throw new Error(data.error ?? "Unable to sign in");
-      router.replace("/dashboard");
+      router.replace(postAuthDestination());
       router.refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Unable to sign in");
@@ -63,7 +73,7 @@ export default function LoginPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Workspace selection failed");
-      router.replace("/dashboard"); router.refresh();
+      router.replace(postAuthDestination()); router.refresh();
     } catch (e) { setErr(e instanceof Error ? e.message : "Workspace selection failed"); } finally { setLoading(false); }
   }
 
