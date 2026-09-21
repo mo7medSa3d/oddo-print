@@ -22,12 +22,43 @@ export interface ApiBodyGuardOptions {
   maxBytes?: number;
 }
 
-function rejectRequest(res: ServerResponse, status: number, code: string): void {
+/**
+ * Rejected requests are answered with JSON and then released without feeding
+ * the abandoned body to Next. Destroying the request socket synchronously
+ * right after `res.end()` resets the TCP connection while the rejection
+ * response may still be in flight, so well-behaved keep-alive clients observe
+ * ECONNRESET instead of the documented 4xx/503 status. Instead we drain the
+ * abandoned request body up to a bounded budget (lingering close, the same
+ * trade-off Go's net/http `maxPostHandlerReadBytes` and nginx's
+ * `lingering_close` make), and tear the socket down on end, error, or timeout
+ * so the response is always delivered first and no unbounded stream is read.
+ */
+const REJECT_DRAIN_MAX_BYTES = 16 * 1024 * 1024;
+const REJECT_DRAIN_TIMEOUT_MS = 5_000;
+
+function rejectRequest(req: IncomingMessage, res: ServerResponse, status: number, code: string): void {
   if (res.headersSent || res.writableEnded) return;
   res.statusCode = status;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader("connection", "close");
   res.end(JSON.stringify({ success: false, error: code }));
+
+  let tornDown = false;
+  const teardown = () => {
+    if (tornDown) return;
+    tornDown = true;
+    req.destroy();
+  };
+  let drained = 0;
+  req.on("data", (chunk: Buffer) => {
+    drained += chunk.length;
+    if (drained > REJECT_DRAIN_MAX_BYTES) teardown();
+  });
+  req.once("end", teardown);
+  req.once("error", teardown);
+  req.once("close", teardown);
+  const timer = setTimeout(teardown, REJECT_DRAIN_TIMEOUT_MS);
+  if (typeof timer.unref === "function") timer.unref();
 }
 
 function verifyJwtQuick(token: string): boolean {
@@ -216,8 +247,7 @@ export async function guardApiRequest(
   const authenticated = isLikelyAuthenticated(req);
 
   if (!isCookieMutationSameOrigin(req)) {
-    rejectRequest(res, 403, "CSRF_VALIDATION_FAILED");
-    req.destroy();
+    rejectRequest(req, res, 403, "CSRF_VALIDATION_FAILED");
     return null;
   }
 
@@ -236,15 +266,13 @@ export async function guardApiRequest(
     // safe contract is therefore: every mutating API request carrying a
     // transfer-encoded body must declare Content-Length. Bodyless mutating
     // requests with neither header remain valid.
-    rejectRequest(res, 411, "CONTENT_LENGTH_REQUIRED");
-    req.destroy();
+    rejectRequest(req, res, 411, "CONTENT_LENGTH_REQUIRED");
     return null;
   }
 
   const length = parseStrictContentLength(rawLength);
   if (length === null || length > maxBytes) {
-    rejectRequest(res, 413, "REQUEST_BODY_TOO_LARGE");
-    req.destroy();
+    rejectRequest(req, res, 413, "REQUEST_BODY_TOO_LARGE");
     return null;
   }
 
@@ -253,8 +281,7 @@ export async function guardApiRequest(
   if (!payloadBearing) return req;
 
   if (!reserve(length, authenticated)) {
-    rejectRequest(res, 503, "REQUEST_BODY_CAPACITY_EXCEEDED");
-    req.destroy();
+    rejectRequest(req, res, 503, "REQUEST_BODY_CAPACITY_EXCEEDED");
     return null;
   }
 
