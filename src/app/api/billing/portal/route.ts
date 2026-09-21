@@ -51,7 +51,14 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, url: portal.url });
   } catch (error) {
-    console.error("billing portal failed", error instanceof Error ? error.message : "unknown");
+    const message = error instanceof Error ? error.message : "unknown";
+    console.error("billing portal failed", message);
+    if (message === "Stripe is not configured") {
+      return NextResponse.json(
+        { error: "Stripe billing is not configured on this Gateway yet.", code: "STRIPE_NOT_CONFIGURED" },
+        { status: 503 },
+      );
+    }
     return NextResponse.json(
       { error: "Billing portal could not be opened right now. Please retry." },
       { status: 502 },
