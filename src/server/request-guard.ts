@@ -74,8 +74,8 @@ function rejectRequest(req: IncomingMessage, res: ServerResponse, status: number
   req.on("data", (chunk: Buffer) => {
     drained += chunk.length;
     if (drained >= REJECT_DRAIN_MAX_BYTES) {
-      finishResponse();
       res.once("finish", teardownAfterResponse);
+      finishResponse();
     }
   });
   req.once("end", finishResponse);
@@ -84,8 +84,8 @@ function rejectRequest(req: IncomingMessage, res: ServerResponse, status: number
   });
 
   timer = setTimeout(() => {
-    finishResponse();
     res.once("finish", teardownAfterResponse);
+    finishResponse();
   }, REJECT_DRAIN_TIMEOUT_MS);
   if (typeof timer.unref === "function") timer.unref();
 }
