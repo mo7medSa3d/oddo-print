@@ -1,15 +1,8 @@
 @import "tailwindcss";
 
-/* ============================================================
-   YASSER — Premium SaaS Design System 2026
-   Enterprise print operations — calm, precise, trustworthy.
-   One product family: Gateway + Platform Admin + Desktop + Odoo
-   ============================================================ */
-
 :root {
   color-scheme: light;
 
-  /* Brand — Signal Blue, unchanged identity but refined */
   --brand-50: #eff6ff;
   --brand-100: #dbeafe;
   --brand-200: #bfdbfe;
@@ -30,42 +23,37 @@
   --brand-subtle-hover: #dbeafe;
   --brand-subtle-border: #bfdbfe;
   --brand-subtle-text: #1d4ed8;
-  --brand-ring: rgba(37, 99, 235, 0.22);
+  --brand-ring: rgba(37, 99, 235, 0.18);
 
-  /* App canvas — very light cool gray, not pure white */
-  --bg: #f8fafc;
-  --bg-subtle: #f1f5f9;
+  --bg: #f6f8fb;
+  --bg-subtle: #eef2f7;
   --surface: #ffffff;
   --surface-2: #f8fafc;
   --surface-3: #f1f5f9;
-  --surface-hover: #f8fafc;
-  --surface-accent: #f0f7ff;
-  --surface-accent-2: #e0efff;
+  --surface-hover: #f5f8fc;
+  --surface-accent: #f1f7ff;
+  --surface-accent-2: #e6f0ff;
   --surface-elevated: #ffffff;
-  --surface-overlay: #ffffff;
+  --surface-overlay: rgba(255,255,255,0.96);
 
-  /* Borders — softer, more refined */
-  --border: #cbd5e1;
-  --border-strong: #cbd5e1;
-  --border-accent: #bfdbfe;
-  --border-subtle: #e2e8f0;
-  --divider: #e2e8f0;
+  --border: #d8e0ea;
+  --border-strong: #c8d2df;
+  --border-accent: #b8d1f8;
+  --border-subtle: #e6ebf2;
+  --divider: #e4e9ef;
 
-  /* Text — high contrast for data, muted for secondary */
   --text: #0f172a;
-  --text-2: #475569;
+  --text-2: #334155;
   --text-3: #64748b;
   --text-4: #94a3b8;
   --text-on-brand: #ffffff;
   --text-on-solid: #ffffff;
-  --text-display: #020617;
+  --text-display: #0b1220;
 
-  /* Semantic */
   --success: #047857;
   --success-solid: #10b981;
   --success-bg: #ecfdf5;
   --success-border: #a7f3d0;
-  --success-subtle: #d1fae5;
 
   --warning: #b45309;
   --warning-solid: #f59e0b;
@@ -87,12 +75,10 @@
   --notice-text: #9a3412;
   --notice-icon: #ea580c;
 
-  /* Focus */
-  --focus-ring: var(--brand);
-  --focus-ring-shadow: 0 0 0 4px var(--brand-ring);
-  --overlay: rgba(15, 23, 42, 0.48);
+  --focus-ring: #2563eb;
+  --focus-ring-shadow: 0 0 0 4px rgba(37, 99, 235, 0.14);
+  --overlay: rgba(15, 23, 42, 0.46);
 
-  /* Radii — consistent, not overly round */
   --r-xs: 4px;
   --r-sm: 6px;
   --r-md: 8px;
@@ -102,69 +88,39 @@
   --r-3xl: 16px;
   --r-pill: 9999px;
 
-  /* Shadows — layered, soft, no harsh drop */
-  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
-  --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.07), 0 4px 6px -4px rgba(15, 23, 42, 0.05);
-  --shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
-  --shadow-2xl: 0 25px 50px -12px rgba(15, 23, 42, 0.14);
-  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.03);
-  --shadow-card-hover: 0 4px 12px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
-  --shadow-brand: 0 1px 2px rgba(37, 99, 235, 0.15);
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.035);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03);
+  --shadow-md: 0 6px 14px rgba(15, 23, 42, 0.06), 0 2px 5px rgba(15, 23, 42, 0.035);
+  --shadow-lg: 0 14px 28px rgba(15, 23, 42, 0.08), 0 4px 10px rgba(15, 23, 42, 0.035);
+  --shadow-xl: 0 24px 50px rgba(15, 23, 42, 0.12), 0 8px 18px rgba(15, 23, 42, 0.045);
+  --shadow-2xl: 0 30px 70px rgba(15, 23, 42, 0.18);
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.025), 0 4px 14px rgba(15, 23, 42, 0.04);
+  --shadow-card-hover: 0 10px 24px rgba(15, 23, 42, 0.075), 0 3px 8px rgba(15, 23, 42, 0.035);
 
-  /* Spacing scale */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-  --space-10: 40px;
-  --space-12: 48px;
-
-  /* Typography — premium SaaS hierarchy */
-  --fs-caption: 11px;
-  --fs-micro: 11px;
   --fs-small: 12px;
   --fs-body: 14px;
   --fs-body-lg: 15px;
-  --fs-title: 16px;
   --fs-subtitle: 18px;
   --fs-heading: 20px;
   --fs-heading-lg: 24px;
   --fs-display: 30px;
-  --fs-display-lg: 36px;
+  --fs-display-lg: 38px;
 
-  --lh-tight: 1.15;
+  --lh-tight: 1.12;
   --lh-snug: 1.25;
   --lh-normal: 1.5;
-  --lh-relaxed: 1.625;
-  --lh-loose: 1.75;
+  --lh-relaxed: 1.65;
 
-  --tracking-tighter: -0.025em;
   --tracking-tight: -0.015em;
-  --tracking-normal: 0;
-  --tracking-wide: 0.025em;
-  --tracking-label: 0.06em;
-  --tracking-widest: 0.1em;
-
-  --font-weight-normal: 400;
-  --font-weight-medium: 500;
-  --font-weight-semibold: 600;
-  --font-weight-bold: 700;
-
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --tracking-tighter: -0.028em;
+  --tracking-label: 0.045em;
 
   --dur-fast: 120ms;
   --dur-normal: 180ms;
   --dur-slow: 240ms;
-  --dur-slower: 360ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* Layout */
   --sidebar-width: 272px;
   --sidebar-collapsed: 72px;
   --header-height: 64px;
@@ -188,7 +144,6 @@
   --color-ink-4: var(--text-4);
   --color-ink-display: var(--text-display);
   --color-on-solid: var(--text-on-solid);
-
   --color-brand: var(--brand);
   --color-brand-hover: var(--brand-hover);
   --color-brand-active: var(--brand-active);
@@ -207,7 +162,6 @@
   --color-brand-800: var(--brand-800);
   --color-brand-900: var(--brand-900);
   --color-brand-950: var(--brand-950);
-
   --color-ok: var(--success);
   --color-ok-solid: var(--success-solid);
   --color-ok-bg: var(--success-bg);
@@ -224,14 +178,8 @@
   --color-info-solid: var(--info-solid);
   --color-info-bg: var(--info-bg);
   --color-info-edge: var(--info-border);
-  --color-notice-bg: var(--notice-bg);
-  --color-notice-border: var(--notice-border);
-  --color-notice-text: var(--notice-text);
-  --color-notice-icon: var(--notice-icon);
-
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "SF Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
-
+  --font-sans: "Avenir Next", "Segoe UI", "Helvetica Neue", ui-sans-serif, sans-serif;
+  --font-mono: "SFMono-Regular", "Cascadia Mono", "Cascadia Code", "Segoe UI Mono", monospace;
   --radius-xs: var(--r-xs);
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
@@ -241,7 +189,6 @@
   --radius-3xl: var(--r-3xl);
   --radius-card: var(--r-2xl);
   --radius-panel: var(--r-3xl);
-
   --shadow-xs: var(--shadow-xs);
   --shadow-sm: var(--shadow-sm);
   --shadow-md: var(--shadow-md);
@@ -254,8 +201,14 @@
 @layer base {
   *, *::before, *::after { border-color: var(--border); }
 
-  html, body {
-    background-color: var(--bg);
+  html {
+    background: var(--bg);
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-height: 100vh;
+    background: var(--bg);
     color: var(--text);
     font-family: var(--font-sans);
     font-size: var(--fs-body);
@@ -263,47 +216,73 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    font-feature-settings: "cv02", "cv03", "cv04", "ss01", "tnum" 0;
-    letter-spacing: var(--tracking-normal);
+    font-feature-settings: "cv02", "cv03", "cv04", "tnum" 0;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    letter-spacing: var(--tracking-tight);
     color: var(--text);
     font-weight: 650;
+    letter-spacing: var(--tracking-tight);
+    text-wrap: pretty;
   }
 
-  h1 { font-size: var(--fs-display); line-height: var(--lh-tight); letter-spacing: var(--tracking-tighter); font-weight: 700; }
+  h1 { font-size: var(--fs-display); line-height: var(--lh-tight); font-weight: 700; letter-spacing: var(--tracking-tighter); }
   h2 { font-size: var(--fs-heading-lg); line-height: var(--lh-snug); }
   h3 { font-size: var(--fs-heading); line-height: var(--lh-snug); }
   h4 { font-size: var(--fs-subtitle); line-height: var(--lh-snug); }
 
   button, input, select, textarea { font: inherit; }
-  :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-xs); }
-  ::selection { background: var(--brand-100); color: var(--brand-900); }
 
-  * { scrollbar-color: var(--border-strong) transparent; scrollbar-width: thin; }
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: var(--r-xs);
+  }
+
+  ::selection {
+    background: var(--brand-100);
+    color: var(--brand-900);
+  }
+
+  * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-thumb { background: var(--border-strong); border: 3px solid transparent; background-clip: content-box; border-radius: var(--r-pill); }
-  ::-webkit-scrollbar-thumb:hover { background: var(--text-4); background-clip: content-box; }
   ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: var(--r-pill);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-4);
+    background-clip: content-box;
+  }
 
-  /* Premium animations — subtle, purposeful */
-  @keyframes pg-fade-in { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes pg-rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-  @keyframes pg-slide-in-right { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
-  @keyframes pg-slide-in-left { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
-  @keyframes pg-scale-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
-  @keyframes pg-toast-in { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-  @keyframes pg-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-  @keyframes pg-pulse-subtle { 0%, 100% { opacity: 1; } 50% { opacity: 0.8; } }
+  @keyframes pg-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes pg-rise-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pg-scale-in {
+    from { opacity: 0; transform: scale(0.985); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes pg-slide-in-right {
+    from { opacity: 0; transform: translateX(14px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
 
-  .pg-fade-in { animation: pg-fade-in var(--dur-fast) ease-out both; }
+  .pg-fade-in { animation: pg-fade-in var(--dur-fast) var(--ease-out) both; }
   .pg-rise-in { animation: pg-rise-in var(--dur-normal) var(--ease-out) both; }
-  .pg-slide-in-right { animation: pg-slide-in-right var(--dur-slow) var(--ease-out) both; }
-  .pg-slide-in-left { animation: pg-slide-in-left var(--dur-slow) var(--ease-out) both; }
   .pg-scale-in { animation: pg-scale-in var(--dur-normal) var(--ease-out) both; }
-  .pg-toast-in { animation: pg-toast-in var(--dur-normal) var(--ease-out) both; }
+  .pg-slide-in-right { animation: pg-slide-in-right var(--dur-slow) var(--ease-out) both; }
+
+  .page-transition {
+    animation: pg-rise-in 180ms var(--ease-out) both;
+  }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -316,78 +295,74 @@
 }
 
 @layer components {
-  /* Cards — refined elevation, not heavy */
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-card);
+    border-radius: var(--r-2xl);
     box-shadow: var(--shadow-card);
   }
 
-  /* Surfaces are intentionally white; the border must remain visible against
-     both the app canvas and nested white panels. */
+  .card-elevated {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--r-2xl);
+    box-shadow: var(--shadow-sm);
+  }
+
   .card,
   .card-elevated,
   .billing-premium,
-  .balance-card {
-    border-color: var(--border-strong);
-  }
-
+  .balance-card,
   .inset-panel {
     border-color: var(--border-strong);
   }
 
-  .table-head {
-    border-bottom: 1px solid var(--border-strong);
+  .card-interactive {
+    transition: transform var(--dur-normal) var(--ease-out), box-shadow var(--dur-normal) var(--ease-out), border-color var(--dur-normal) var(--ease-out);
   }
 
-  .page-header {
-    border-bottom-color: var(--border-strong);
-  }
-  .card-elevated {
-    background: var(--surface-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-    box-shadow: var(--shadow-sm);
-  }
-  .card-interactive {
-    transition: box-shadow var(--dur-normal) var(--ease-out), border-color var(--dur-normal) var(--ease-out), transform var(--dur-normal) var(--ease-out);
-  }
   .card-interactive:hover {
+    transform: translateY(-1px);
     border-color: var(--border-accent);
     box-shadow: var(--shadow-card-hover);
-    transform: translateY(-1px);
   }
 
-  /* Premium billing card surface */
   .billing-premium {
-    background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
-    border: 1px solid var(--border-accent);
-    border-radius: 16px;
-    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(37, 99, 235, 0.06);
     position: relative;
     overflow: hidden;
+    background: linear-gradient(145deg, #ffffff 0%, #f9fbff 100%);
+    border: 1px solid var(--border-accent);
+    border-radius: var(--r-2xl);
+    box-shadow: 0 4px 18px rgba(37, 99, 235, 0.055);
   }
+
   .billing-premium::before {
     content: "";
     position: absolute;
-    top: 0; left: 0; right: 0;
+    inset: 0 0 auto 0;
     height: 1px;
-    background: linear-gradient(90deg, var(--brand) 0%, #60a5fa 50%, transparent 100%);
-    opacity: 0.6;
+    background: linear-gradient(90deg, var(--brand) 0%, rgba(96,165,250,0.55) 45%, transparent 100%);
   }
 
-  /* Balance card — financial trust */
   .balance-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 16px;
+    border-radius: var(--r-2xl);
     box-shadow: var(--shadow-card);
   }
 
-  .section-rule { border-top: 1px solid var(--border); }
-  .inset-panel { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-xl); }
-  .surface-accent { background: var(--surface-accent); border: 1px solid var(--border-accent); border-radius: var(--r-xl); }
+  .section-rule { border-top: 1px solid var(--divider); }
+  .inset-panel {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-xl);
+  }
+
+  .surface-accent {
+    background: var(--surface-accent);
+    border: 1px solid var(--border-accent);
+    border-radius: var(--r-xl);
+  }
 
   .brand-hairline { position: relative; }
   .brand-hairline::before {
@@ -395,15 +370,19 @@
     position: absolute;
     inset: 0 0 auto 0;
     height: 2px;
-    border-radius: var(--r-xl) var(--r-xl) 0 0;
-    background: linear-gradient(90deg, var(--brand) 0%, var(--brand-400) 55%, transparent 100%);
-    opacity: 0.85;
+    background: linear-gradient(90deg, var(--brand) 0%, var(--brand-400) 48%, transparent 100%);
+    opacity: 0.72;
     pointer-events: none;
   }
 
   .canvas-wash { background: var(--bg); }
 
-  /* Table system — professional, dense but calm */
+  .page-header {
+    border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,0.84);
+    backdrop-filter: blur(12px);
+  }
+
   .table-head {
     background: var(--surface-2);
     color: var(--text-3);
@@ -412,33 +391,43 @@
     letter-spacing: var(--tracking-label);
     text-transform: uppercase;
   }
-  .table-row { transition: background-color var(--dur-fast) ease-out; }
-  .table-row + .table-row { border-top: 1px solid var(--border-subtle); }
-  .table-row:hover { background: var(--surface-hover); }
 
-  .row-hover { transition: background-color var(--dur-fast) ease-out; }
-  .row-hover:hover { background: var(--surface-accent); }
+  .table-row {
+    transition: background-color var(--dur-fast) var(--ease-in-out);
+  }
 
-  /* Typography utilities */
+  .table-row + .table-row {
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .table-row:hover {
+    background: var(--surface-hover);
+  }
+
+  .row-hover { transition: background-color var(--dur-fast) var(--ease-in-out); }
+  .row-hover:hover { background: var(--surface-hover); }
+
   .label-caps {
+    color: var(--text-3);
     font-size: var(--fs-small);
     font-weight: 600;
     letter-spacing: var(--tracking-label);
     text-transform: uppercase;
-    color: var(--text-3);
   }
+
   .text-display {
+    color: var(--text-display);
     font-size: var(--fs-display);
     font-weight: 700;
     letter-spacing: var(--tracking-tighter);
     line-height: var(--lh-tight);
-    color: var(--text-display);
   }
+
   .text-financial {
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum";
-    letter-spacing: -0.01em;
   }
+
   .text-financial-lg {
     font-variant-numeric: tabular-nums;
     font-size: 32px;
@@ -447,52 +436,98 @@
     line-height: 1.1;
   }
 
-  .focusable { @apply outline-none; }
+  .focusable { outline: none; }
   .focusable:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-  .ring-focus:focus-visible { outline: none; box-shadow: var(--focus-ring-shadow); border-color: var(--brand); }
+  .ring-focus:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring-shadow);
+    border-color: var(--brand);
+  }
 
-  /* Skeletons — stable, layout-preserving */
   .skeleton {
     background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%);
     background-size: 200% 100%;
     animation: pg-shimmer 1.6s linear infinite;
     border-radius: var(--r-md);
   }
+
+  @keyframes pg-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
   .skeleton-card { height: 120px; border-radius: var(--r-2xl); }
   .skeleton-line { height: 14px; border-radius: var(--r-sm); }
   .skeleton-line-sm { height: 10px; border-radius: var(--r-xs); }
 
-  /* Premium sidebar */
   .sidebar {
-    background: #ffffff;
+    background: var(--surface);
     border-right: 1px solid var(--border);
   }
-  .sidebar-item {
-    transition: all var(--dur-fast) ease-out;
-  }
+
+  .sidebar-item { transition: background-color var(--dur-fast) var(--ease-in-out), color var(--dur-fast) var(--ease-in-out); }
+
   .sidebar-item-active {
+    position: relative;
     background: var(--brand-subtle);
     color: var(--brand-subtle-text);
     font-weight: 600;
   }
+
   .sidebar-item-active::before {
     content: "";
     position: absolute;
     left: 0;
     top: 50%;
-    transform: translateY(-50%);
     width: 3px;
-    height: 20px;
+    height: 18px;
     background: var(--brand);
+    transform: translateY(-50%);
     border-radius: 0 var(--r-xs) var(--r-xs) 0;
   }
 
-  /* Page header system */
-  .page-header {
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
+  .status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
   }
 
-  /* Status indicators — not color-only */
-  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .data-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .data-table thead {
+    background: var(--surface-2);
+  }
+
+  .data-table th {
+    color: var(--text-3);
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: var(--tracking-label);
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  .data-table td,
+  .data-table th {
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 13px 16px;
+  }
+
+  .data-table tbody tr {
+    transition: background-color var(--dur-fast) var(--ease-in-out);
+  }
+
+  .data-table tbody tr:hover { background: var(--surface-hover); }
+
+  @media (max-width: 720px) {
+    .data-table td,
+    .data-table th {
+      padding: 11px 12px;
+    }
+  }
 }
