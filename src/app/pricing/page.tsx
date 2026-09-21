@@ -50,39 +50,39 @@ export default async function Pricing() {
             const isPopular = idx === 1;
             const isFeatured = idx === 2;
             return (
-              <article key={plan.id} className={`relative flex min-h-[430px] flex-col rounded-[20px] border p-7 shadow-card transition-all duration-200 hover:-translate-y-1 hover:shadow-xl ${isFeatured ? "border-slate-950 bg-slate-950 text-white shadow-[0_18px_55px_rgba(15,23,42,0.28)] md:-mt-5 md:mb-5" : isPopular ? "border-brand bg-gradient-to-br from-white to-brand-50/50 shadow-[0_8px_32px_rgba(37,99,235,0.12)]" : "border-edge bg-surface"}`}>
+              <article key={plan.id} className={`relative flex min-h-[430px] flex-col rounded-[20px] border p-7 shadow-card transition-all duration-200 hover:-translate-y-1 hover:shadow-xl ${isFeatured ? "border-2 border-brand bg-gradient-to-br from-white to-brand-50/50 text-ink shadow-[0_10px_36px_rgba(37,99,235,0.16)]" : isPopular ? "border-brand bg-gradient-to-br from-white to-brand-50/50 shadow-[0_8px_32px_rgba(37,99,235,0.12)]" : "border-edge bg-surface"}`}>
                 {isFeatured && <div className="absolute -top-3 left-7 inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-300 to-yellow-400 px-3 py-1 text-[11px] font-bold text-slate-950 shadow-lg"><Zap className="h-3 w-3" /> Best for scale</div>}
                 {isPopular && !isFeatured && <div className="absolute -top-3 left-6 inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-[11px] font-semibold text-white shadow-sm"><Zap className="h-3 w-3" /> Most popular</div>}
                 <div>
                   <div className="flex items-start justify-between gap-3">
-                    <h2 className={`text-[20px] font-bold tracking-tight ${isFeatured ? "text-white" : "text-ink"}`}>{plan.name}</h2>
-                    {isFeatured && <span className="rounded-full border border-white/20 bg-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200">Scale tier</span>}
+                    <h2 className="text-[20px] font-bold tracking-tight text-ink">{plan.name}</h2>
+                    {isFeatured && <span className="rounded-full border border-brand/20 bg-brand-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-brand">Scale tier</span>}
                   </div>
-                  {plan.description && <p className={`mt-2 text-[13px] leading-relaxed ${isFeatured ? "text-slate-300" : "text-ink-3"}`}>{plan.description}</p>}
-                  <div className={`mt-3 inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-medium ${isFeatured ? "border-white/15 bg-white/10 text-slate-300" : "border-edge bg-surface-2 text-ink-3"}`}>
+                  {plan.description && <p className={`mt-2 text-[13px] leading-relaxed ${isFeatured ? "text-brand" : "text-ink-3"}`}>{plan.description}</p>}
+                  <div className={`mt-3 inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-medium border-edge bg-surface-2 text-ink-3`}>
                     {plan.currency ? plan.currency.toUpperCase() : "USD"} {plan.interval ? `• ${plan.interval}` : ""}
                   </div>
                 </div>
 
-                <div className={`mt-6 flex-1 rounded-[14px] border p-4 ${isFeatured ? "border-white/15 bg-white/[0.07]" : "border-edge bg-surface-2"}`}>
-                  <div className={`text-[11px] font-semibold uppercase tracking-wide ${isFeatured ? "text-slate-400" : "text-ink-3"}`}>Included</div>
+                <div className={`mt-6 flex-1 rounded-[14px] border p-4 ${isFeatured ? "border-brand/20 bg-surface-2" : "border-edge bg-surface-2"}`}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Included</div>
                   <dl className="mt-3 space-y-2.5">
                     {Object.entries(plan.entitlements ?? {}).slice(0, 6).map(([key, value]) => (
                       <div key={key} className="flex items-center justify-between gap-3 text-[13px]">
                         <dt className={`flex items-center gap-2 capitalize ${isFeatured ? "text-slate-300" : "text-ink-3"}`}>
-                          <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${isFeatured ? "border-emerald-300/30 bg-emerald-400/15 text-emerald-300" : "border-ok-edge bg-ok-bg text-ok"}`}><Check className="h-3 w-3" /></span>
+                          <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${isFeatured ? "border-brand/20 bg-brand-50 text-brand" : "border-ok-edge bg-ok-bg text-ok"}`}><Check className="h-3 w-3" /></span>
                           {key.replace(/^max_/, "").replace(/_/g, " ")}
                         </dt>
-                        <dd className={`font-semibold tabular-nums ${isFeatured ? "text-white" : "text-ink"}`}>{String(value)}</dd>
+                        <dd className="font-semibold tabular-nums text-ink">{String(value)}</dd>
                       </div>
                     ))}
                   </dl>
                 </div>
 
-                <Link href={destination} className={`mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-[11px] text-[14px] font-semibold transition ${isFeatured ? "bg-white text-slate-950 shadow-lg hover:bg-slate-100" : isPopular ? "bg-brand text-white shadow-sm hover:bg-brand-hover" : "border border-edge bg-surface text-ink hover:bg-surface-2"}`}>
+                <Link href={destination} className={`mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-[11px] text-[14px] font-semibold transition ${isFeatured ? "bg-brand text-white shadow-sm hover:bg-brand-hover" : isPopular ? "bg-brand text-white shadow-sm hover:bg-brand-hover" : "border border-edge bg-surface text-ink hover:bg-surface-2"}`}>
                   {claims ? "Open billing" : "Get started"} <ArrowRight className="h-4 w-4" />
                 </Link>
-                <div className={`mt-3 text-center text-[11px] ${isFeatured ? "text-slate-400" : "text-ink-3"}`}>Stripe checkout • No fake values</div>
+                <div className="mt-3 text-center text-[11px] text-ink-3">Stripe checkout • No fake values</div>
               </article>
             );
           })}
