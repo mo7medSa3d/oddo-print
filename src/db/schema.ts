@@ -13,7 +13,6 @@ export const tenants = pgTable("tenants", {
 }, (table) => ({
   lifecycleIdx: index("tenants_lifecycle_idx").on(table.lifecycle),
   lifecycleCheck: check("tenants_lifecycle_check", sql`${table.lifecycle} in ('active','suspended','deleted')`),
-  odooEnabledRevisionCheck: check("tenants_odoo_enabled_revision_check", sql`${table.odooEnabledRevision} >= -1`),
 }));
 
 export const tenantDomains = pgTable("tenant_domains", {
