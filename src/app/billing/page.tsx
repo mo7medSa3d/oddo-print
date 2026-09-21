@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { db } from "../../db";
 import { plans, tenantSubscriptions } from "../../db/schema";
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { getManagerCookieName, validateManagerClaims, verifyManagerToken } from "../../lib/manager-auth";
 import { hasManagerPermission } from "../../lib/authorization";
 import { BillingActions } from "../../components/BillingActions";
@@ -21,6 +21,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
 
   const params = await searchParams;
   const checkoutState = typeof params.checkout === "string" ? params.checkout : undefined;
+  const selectedPlanId = typeof params.plan === "string" ? params.plan : undefined;
 
   const sub = await db.query.tenantSubscriptions.findFirst({
     where: eq(tenantSubscriptions.tenantId, claims.tenantId),
@@ -31,6 +32,19 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
         columns: { name: true, currency: true, interval: true, entitlements: true },
       })
     : null;
+
+  const availablePlans = await db
+    .select({
+      id: plans.id,
+      name: plans.name,
+      entitlements: plans.entitlements,
+      currency: plans.currency,
+      interval: plans.interval,
+      displayOrder: plans.displayOrder,
+    })
+    .from(plans)
+    .where(and(eq(plans.isActive, true), eq(plans.isPublic, true)))
+    .orderBy(asc(plans.displayOrder), asc(plans.name));
 
   const activeStatuses = new Set(["trialing", "active", "past_due", "paused"]);
   const hasActivePlan = !!sub && activeStatuses.has(sub.status);
@@ -123,7 +137,13 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
             <div className="mt-8 border-t border-edge pt-6">
               {hasActivePlan ? (
                 hasStripeSubscription ? (
-                  <BillingActions hasSubscription={true} cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd} />
+                  <BillingActions
+                      hasSubscription={true}
+                      cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd}
+                      currentPlanId={sub?.planId ?? null}
+                      plans={availablePlans}
+                      selectedPlanId={selectedPlanId}
+                    />
                 ) : (
                   <div className="rounded-[10px] border border-edge bg-surface-2 px-4 py-3 text-[13px] text-ink-2">Active plan without Stripe link. Billing management will appear when paid subscription connects.</div>
                 )
