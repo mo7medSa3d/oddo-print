@@ -46,8 +46,6 @@ export default function ApiKeysPage() {
       .then(r => r.json()).then(d => setKeys(d)).catch(e => setError(String(e))).finally(() => setLoading(false));
   }, []);
 
-=======
->>>>>>> theirs
   async function generate() {
     setBusy(true); setError(null); setRawKey(null);
     try {
