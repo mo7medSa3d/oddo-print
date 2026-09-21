@@ -85,12 +85,14 @@ func NewSpooler(spoolerName, displayName string) *SpoolerPrinter {
 
 // preflightTimeout bounds the readiness probe. Win32 OpenPrinterW/GetPrinterW
 // expose NO timeout of their own and block indefinitely against a wedged
-// spooler RPC, so the caller must bound them. 10s is generous: a healthy
-// local spooler answers in single-digit milliseconds; anything slower is
-// already an unresponsive control plane. A timeout here is provably
-// pre-dispatch (status queries can never spool a document), so it stays a
-// plain typed failure, never an unknown outcome.
-const preflightTimeout = 10 * time.Second
+// spooler RPC, so the caller must bound them. 5s is generous: a healthy
+// local spooler answers in single-digit milliseconds (per Microsoft docs);
+// anything slower is already an unresponsive control plane. Reduced from 10s
+// to 5s to halve user-perceived delay on test-print and job dispatch when
+// spooler is wedged. A timeout here is provably pre-dispatch (status queries
+// can never spool a document), so it stays a plain typed failure, never an
+// unknown outcome.
+const preflightTimeout = 5 * time.Second
 
 // boundedPreflight runs one readiness check with single-flight semantics
 // for this printer: if a previous check is still stuck inside Win32, fail
