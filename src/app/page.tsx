@@ -12,7 +12,6 @@ import {
   ChevronRight,
   CircleCheck,
   CreditCard,
-  FileText,
   KeyRound,
   Layers3,
   LockKeyhole,
@@ -310,7 +309,28 @@ function PublicHeader() {
             Pricing
           </Link>
         </nav>
-        <div className="ml-auto flex items-center gap-2.5">
+
+        <details className="relative ml-auto md:hidden">
+          <summary className="flex h-10 list-none cursor-pointer items-center justify-center rounded-[9px] border border-edge bg-surface px-3 text-[12px] font-semibold text-ink-2 [&::-webkit-details-marker]:hidden">
+            Menu
+          </summary>
+          <div className="absolute right-0 top-12 z-50 w-56 rounded-[14px] border border-edge-strong bg-surface p-2 shadow-xl">
+            <div className="space-y-1">
+              <Anchor href="#product">Product</Anchor>
+              <Anchor href="#how-it-works">How it works</Anchor>
+              <Anchor href="#reliability">Reliability</Anchor>
+              <Anchor href="#security">Security</Anchor>
+              <Link href="/pricing" className="flex h-10 items-center rounded-[9px] px-3 text-[12.5px] font-medium text-ink-2 transition hover:bg-surface-2 hover:text-ink">
+                Pricing
+              </Link>
+              <Link href="/login" className="flex h-10 items-center rounded-[9px] px-3 text-[12.5px] font-semibold text-ink-2 transition hover:bg-surface-2 hover:text-ink sm:hidden">
+                Sign in
+              </Link>
+            </div>
+          </div>
+        </details>
+
+        <div className="ml-auto hidden items-center gap-2.5 md:flex">
           <Link href="/login" className="hidden h-10 items-center rounded-[9px] px-3.5 text-[12.5px] font-semibold text-ink-2 transition hover:bg-surface-2 hover:text-ink sm:inline-flex">
             Sign in
           </Link>
