@@ -703,6 +703,22 @@ class PrintGatewayConfig(models.Model):
                                 "The previous Gateway API key was already revoked, so Odoo could not confirm the remote Gateway was disabled. Add a new key and test the connection to finish synchronization."
                             )
                     record.sudo().write(technical_values)
+                    # The technical revision was written through a separate sudoed
+                    # recordset/environment. The original recordset can still hold
+                    # the pre-write value in Odoo's ORM cache; reading it immediately
+                    # would queue the post-commit sync with a stale revision.
+                    # Invalidate only the fields changed by that sudo write so the
+                    # queue reads the durable revision/state that was just persisted.
+                    record.invalidate_recordset([
+                        "enabled_sync_revision",
+                        "last_enabled_sync_revision",
+                        "last_enabled_sync_error",
+                        "pending_disable_gateway_url",
+                        "pending_disable_gateway_api_key",
+                        "pending_disable_revision",
+                        "gateway_sync_state",
+                        "gateway_sync_message",
+                    ])
                 elif "gateway_api_key" in vals:
                     record.sudo().write({
                         "last_enabled_sync_error": False,
