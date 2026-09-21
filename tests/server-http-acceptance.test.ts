@@ -31,7 +31,9 @@ suite("production server HTTP acceptance (real Next.js + guard)", () => {
     const handle = app.getRequestHandler();
     await app.prepare();
 
+    const { applyApiCacheControlDefault } = await import("../src/server/api-defaults");
     server = createServer((req, res) => {
+      applyApiCacheControlDefault(req, res);
       guardApiRequest(req, res)
         .then((guarded) => {
           if (!guarded) return;
@@ -107,6 +109,33 @@ suite("production server HTTP acceptance (real Next.js + guard)", () => {
       expect(resText.includes("Internal Server Error")).toBe(false);
       expect(statusCode).toBeGreaterThanOrEqual(400);
       expect(statusCode).toBeLessThan(500);
+    });
+  });
+
+  describe("response policy defaults", () => {
+    it("stamps Cache-Control: no-store on dynamic API responses that set no policy of their own", async () => {
+      // lib/cache.ts contract: only routes with an explicit policy opt out of
+      // no-store. Next.js does not set Cache-Control on dynamic handlers, so
+      // the server boundary must supply it.
+      for (const path of ["/api/live", "/api/health", "/api/agents"]) {
+        const res = await fetch(`http://127.0.0.1:${PORT}${path}`);
+        expect(res.headers.get("cache-control")).toBe("no-store");
+      }
+    });
+  });
+
+  // /api/billing/plans is the one intentionally public-cacheable route
+  // (PUBLIC_VARY_CACHE_CONTROL); the boundary default must not clobber it.
+  // This assertion requires a migrated database. The CI unit-test stage has
+  // DATABASE_URL configured for shared application code, but migrations run
+  // later in the workflow, so DATABASE_URL alone is not a valid readiness
+  // signal.
+  const plansOverride = describe.skipIf(process.env.RUN_DB_BACKED_ACCEPTANCE !== "1");
+  plansOverride("response policy defaults (database-backed)", () => {
+    it("lets routes override the default with their own cache policy", async () => {
+      const res = await fetch(`http://127.0.0.1:${PORT}/api/billing/plans`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("public, max-age=30, stale-while-revalidate=300, s-maxage=30");
     });
   });
 

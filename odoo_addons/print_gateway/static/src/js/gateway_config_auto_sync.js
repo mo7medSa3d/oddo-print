@@ -26,9 +26,21 @@ patch(FormController.prototype, {
         if (!keyChanged && !activationChanged) {
             return;
         }
-        // Without a stored credential there is nothing to synchronize against;
-        // the status row already reports "Setup required" in that case.
-        if (!record.id || !record.data.gateway_api_key) {
+        // The hook argument's ``id`` is a client-side datapoint identifier
+        // ("datapoint_N", web/static/src/model/relational_model/datapoint.js:
+        // `this.id = getId("datapoint")`), never the database id. Sending it
+        // to the server or handing it to model.load() rejects with
+        // "Invalid ids list: datapoint_N", crashes the web client, and leaves
+        // the form stuck on the pre-sync "Syncing" snapshot. The persisted
+        // database id is exposed as resId — the same accessor FormController
+        // itself reads inside onRecordSaved. Record._save() commits the
+        // creation's resId into the config before this hook runs, so resId is
+        // valid for newly created configurations too.
+        const resId = record.resId;
+        // Without a persisted record there is nothing to synchronize against;
+        // without a stored credential the status row already reports
+        // "Setup required" in that case.
+        if (!resId || !this.model.root.data.gateway_api_key) {
             return;
         }
         // A key change re-validates the credential (401 becomes an explicit
@@ -40,7 +52,7 @@ patch(FormController.prototype, {
             const action = await this.orm.call(
                 "print_gateway.gateway_config",
                 method,
-                [[record.id]],
+                [[resId]],
             );
 
             if (action?.tag === "display_notification") {
@@ -50,7 +62,7 @@ patch(FormController.prototype, {
             // The RPC above persists the authoritative sync revision/result
             // through a fresh cursor. Always reload the saved record so the
             // form cannot remain stuck on the pre-sync "Syncing" snapshot.
-            await this.model.load({ resId: record.id });
+            await this.model.load({ resId });
         }
     },
 });

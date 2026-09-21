@@ -174,11 +174,40 @@ def test_gateway_config_auto_syncs_after_api_key_save():
     assert "gateway_config_auto_sync.js" in manifest
     assert 'this.model.root.resModel !== "print_gateway.gateway_config"' in source
     assert 'hasOwnProperty.call(changes, "gateway_api_key")' in source
-    assert 'record.data.gateway_api_key' in source
+    assert 'this.model.root.data.gateway_api_key' in source
     assert 'this.orm.call(' in source
     assert '"print_gateway.gateway_config"' in source
     assert '"action_test_connection"' in source
-    assert 'await this.model.load({ resId: record.id });' in source
+    assert 'await this.model.load({ resId });' in source
+
+
+def test_gateway_config_auto_sync_uses_persisted_res_id_never_datapoint_id():
+    """Regression: 'Invalid ids list: datapoint_27' crashed the config form.
+
+    In Odoo 19 every DataPoint's ``.id`` is a client-side identifier
+    (``getId("datapoint")`` in web/static/src/model/relational_model/
+    datapoint.js), never the database id. Record._save() commits the real
+    resId into the config before the onRecordSaved hook runs, so the hook
+    must address the record through ``this.model.root.resId`` — the same
+    accessor the stock FormController uses in onRecordSaved. The hook used
+    to send ``record.id`` ("datapoint_N") to action_test_connection /
+    action_retry_enabled_sync (server-side browse failure: the sync never
+    ran and the banner stayed "Syncing") and to ``model.load({resId: ...})``
+    (client crash "Invalid ids list: datapoint_N" — uncaught promise error
+    on the form).
+    """
+    source = (ADDON / "static" / "src" / "js" / "gateway_config_auto_sync.js").read_text(encoding="utf-8")
+    # The persisted database id accessor, exactly as the stock web client
+    # reads it inside onRecordSaved.
+    assert "const resId = record.resId;" in source
+    # The RPC and the reload address the persisted record, never the
+    # client-side datapoint id.
+    assert "[[resId]]," in source
+    assert "record.id" not in source
+    # A falsy resId (record not persisted) must bail out before any RPC.
+    guard_index = source.index("if (!resId || !this.model.root.data.gateway_api_key)")
+    assert guard_index < source.index('"action_test_connection"')
+    assert guard_index < source.index('"action_retry_enabled_sync"')
 
 
 def test_gateway_config_auto_syncs_activation_toggle_without_manual_refresh():
@@ -194,8 +223,8 @@ def test_gateway_config_auto_syncs_activation_toggle_without_manual_refresh():
     assert 'hasOwnProperty.call(changes, "enabled")' in source
     assert '"action_retry_enabled_sync"' in source
     # The credential guard keeps the toggle from firing without a stored key.
-    assert source.index('record.data.gateway_api_key') < source.index('"action_retry_enabled_sync"')
+    assert source.index('this.model.root.data.gateway_api_key') < source.index('"action_retry_enabled_sync"')
     # Exactly one reload path: every trigger converges through the same
     # finally block reading the authoritative persisted state.
-    assert source.count('await this.model.load({ resId: record.id });') == 1
+    assert source.count('await this.model.load({ resId });') == 1
 

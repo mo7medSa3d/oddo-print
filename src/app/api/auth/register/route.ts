@@ -1,3 +1,4 @@
+import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { users } from "../../../../db/schema";
@@ -50,8 +51,13 @@ export async function POST(req: Request) {
       html: `<p>Verify your Yasser account.</p><p><a href="${url}">Verify email</a></p><p>This link expires in 30 minutes.</p>`,
       text: `Verify your Yasser account: ${url}\nThis link expires in 30 minutes.`,
     });
-  } catch {
-    
+  } catch (error) {
+    // Registration is committed and the generic 202 response is required
+    // (email outages must not fail signup or leak account state), but the
+    // failure must not be invisible: the verification token exists while the
+    // mailbox never receives the link. Log it so operators can act; the
+    // user-facing recovery path is /api/auth/resend-verification.
+    logError("auth.register.verification_email_failed", { error: error instanceof Error ? error.message : String(error) });
   }
   // Registration success must not clear the authentication limiter; otherwise
   // an attacker could recycle the limiter with disposable account creations.

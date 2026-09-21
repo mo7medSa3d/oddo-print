@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ShieldAlert, Lock, Loader2 } from "lucide-react";
+import { Lock, Loader2, ShieldCheck } from "lucide-react";
+import { BrandMark } from "../../../components/brand";
 
 export default function PlatformLoginPage() {
   const router = useRouter();
@@ -22,22 +23,11 @@ export default function PlatformLoginPage() {
       .finally(() => {
         if (!cancelled) setCheckingSession(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [router]);
 
-  if (checkingSession) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 text-slate-100">
-        <Loader2 className="h-5 w-5 animate-spin text-indigo-400" />
-        <span className="mt-3 text-sm text-slate-400">Checking session…</span>
-      </div>
-    );
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
     setError(null);
     setLoading(true);
 
@@ -47,12 +37,8 @@ export default function PlatformLoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Authentication failed");
-      }
-
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Authentication failed");
       router.push("/platform/dashboard");
       router.refresh();
     } catch (err: unknown) {
@@ -62,84 +48,86 @@ export default function PlatformLoginPage() {
     }
   }
 
+  if (checkingSession) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[var(--platform-bg)] text-[var(--platform-muted)]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-5 w-5 animate-spin text-brand-400" />
+          <span className="text-[12px]">Checking session…</span>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <div className="flex min-h-screen flex-col bg-slate-950 text-slate-100">
-      <main className="flex flex-1 items-center justify-center p-4">
-        <div className="w-full max-w-md space-y-6">
-          <div className="space-y-2 text-center">
-            <div className="mb-2 inline-flex h-12 w-12 items-center justify-center rounded-xl border border-indigo-400/20 bg-indigo-500/10 text-indigo-300">
-              <ShieldAlert className="h-6 w-6" />
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">Platform Control Plane</h1>
-            <p className="text-sm text-slate-400">Global administration and security sign in</p>
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[var(--platform-bg)] px-4 py-10 text-slate-100">
+      <div className="pointer-events-none absolute inset-0" aria-hidden>
+        <div className="absolute left-1/2 top-[-260px] h-[420px] w-[680px] -translate-x-1/2 rounded-full bg-brand-500/10 blur-3xl" />
+      </div>
+
+      <div className="relative z-10 w-full max-w-[430px]">
+        <div className="mb-7 flex justify-center">
+          <BrandMark size="lg" title="Yasser" subtitle="Platform Control Plane" variant="inverted" />
+        </div>
+
+        <section className="overflow-hidden rounded-[16px] border border-[var(--platform-border)] bg-[var(--platform-surface)] shadow-2xl">
+          <div className="border-b border-[var(--platform-border)] px-6 py-6 sm:px-7">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Restricted administration</div>
+            <h1 className="mt-2 text-[28px] font-bold tracking-[-0.035em] text-white">Platform sign in</h1>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-slate-400">Control tenants, plans, subscriptions and platform audit data.</p>
           </div>
 
-          <form
-            onSubmit={handleSubmit}
-            className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl shadow-black/20"
-          >
+          <form onSubmit={handleSubmit} className="space-y-5 p-6 sm:p-7">
             {error && (
-              <div className="rounded-lg border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-300">
+              <div role="alert" className="rounded-[11px] border border-rose-400/20 bg-rose-500/10 px-3.5 py-3 text-[12.5px] text-rose-200">
                 {error}
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Platform Owner Email
-              </label>
+            <label className="block">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">Platform owner email</span>
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="admin@platform.local"
-                className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:border-indigo-400/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                className="mt-2 h-10 w-full rounded-[9px] border border-[var(--platform-border)] bg-[var(--platform-bg)] px-3.5 text-[13px] text-white placeholder:text-slate-600 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20"
               />
-            </div>
+            </label>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">Password</label>
+            <label className="block">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">Password</span>
               <input
                 type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••••••"
-                className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:border-indigo-400/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                placeholder="Enter password"
+                className="mt-2 h-10 w-full rounded-[9px] border border-[var(--platform-border)] bg-[var(--platform-bg)] px-3.5 text-[13px] text-white placeholder:text-slate-600 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20"
               />
-            </div>
+            </label>
 
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-950/40 transition hover:bg-indigo-500 disabled:opacity-50"
+              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-brand px-4 text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md disabled:cursor-default disabled:opacity-50"
             >
-              {loading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Authenticating...
-                </>
-              ) : (
-                <>
-                  <Lock className="h-4 w-4" />
-                  Sign In to Platform
-                </>
-              )}
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+              {loading ? "Authenticating…" : "Sign in to platform"}
             </button>
+
+            <div className="flex items-start gap-2.5 rounded-[11px] border border-[var(--platform-border)] bg-[var(--platform-bg)] px-3.5 py-3">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand-400" />
+              <p className="text-[11px] leading-relaxed text-slate-400">
+                This portal is restricted to authorized Platform Owners. Platform routes enforce the session independently.
+              </p>
+            </div>
           </form>
+        </section>
 
-          <p className="text-center text-xs text-slate-500">
-            This portal is restricted to authorized Platform Owners only.
-          </p>
-        </div>
-      </main>
-
-      <footer className="border-t border-slate-800 bg-slate-950">
-        <div className="mx-auto flex min-h-14 max-w-7xl items-center justify-center px-4 py-4 text-xs text-slate-600">
-          © 2026 Yasser · Platform Control Plane
-        </div>
-      </footer>
-    </div>
+        <p className="mt-5 text-center text-[11px] text-slate-600">Yasser · Platform Control Plane</p>
+      </div>
+    </main>
   );
 }

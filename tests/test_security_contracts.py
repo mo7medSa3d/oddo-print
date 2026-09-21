@@ -54,6 +54,22 @@ def test_registration_flow_does_not_clear_auth_rate_limit():
     assert "disposable account creations" in source
 
 
+def test_registration_email_failure_is_observable_not_swallowed():
+    """Regression: the verification-email send used to end in a bare ``catch {}``.
+
+    A delivery outage silently produced accounts whose verification link never
+    arrives (user stuck pre-verification, no operator trace). Registration
+    must still answer the generic 202 (no enumeration, no signup failure on
+    email outage), but the failure has to be logged for operators; the
+    user-facing recovery path is /api/auth/resend-verification.
+    """
+    source = read("src/app/api/auth/register/route.ts")
+    assert 'logError("auth.register.verification_email_failed"' in source
+    # The response contract is unchanged: generic body, 202, and the limiter
+    # note must survive (no recordAuthSuccess on the registration path).
+    assert source.index('logError("auth.register.verification_email_failed"') < source.rindex("GENERIC, { status: 202 })")
+
+
 def test_agent_pairing_success_does_not_clear_rate_limit():
     source = read("src/app/api/agent/register/route.ts")
     assert "recordPairingSuccess" not in source

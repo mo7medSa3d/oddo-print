@@ -13,11 +13,11 @@ import {
 import { TopNavbar, type TopNavItem } from "./TopNavbar";
 
 const NAV_ITEMS: TopNavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/api-keys", label: "API Keys", icon: KeyRound },
-  { href: "/team", label: "Team", icon: Users },
-  { href: "/billing", label: "Billing", icon: CreditCard },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/dashboard", label: "Console", icon: LayoutDashboard, section: "Workspace" },
+  { href: "/api-keys", label: "API Keys", icon: KeyRound, section: "Integration" },
+  { href: "/team", label: "Team", icon: Users, section: "Administration" },
+  { href: "/billing", label: "Billing", icon: CreditCard, section: "Administration" },
+  { href: "/settings", label: "Settings", icon: Settings, section: "Administration" },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -98,7 +98,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           loggingOut={loggingOut}
           variant="console"
         />
-        <main className="min-h-screen">{children}</main>
+        <main className="min-h-screen page-transition">{children}</main>
       </div>
     );
   }

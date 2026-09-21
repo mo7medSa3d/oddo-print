@@ -174,7 +174,25 @@ export async function POST(req: Request) {
             return { kind: "ignored" as const };
           }
           if (current?.stripeCustomerId && customerId && current.stripeCustomerId !== customerId) {
-            throw new Error("Checkout customer identity conflict");
+            // Permanent identity mismatch: the checkout session names a
+            // different Stripe customer than the one already bound to this
+            // subscription row. Retrying the same event can never succeed,
+            // so record it as processed and audit it instead of throwing
+            // into a 500-retry loop — a poison event must not risk Stripe
+            // auto-disabling the endpoint for every tenant. This mirrors the
+            // generic billingIdentityConflict handling above.
+            await tx.update(billingEvents)
+              .set({ tenantId, processedAt: new Date() })
+              .where(eq(billingEvents.eventId, eventId));
+            await writeAuditEvent({
+              tenantId,
+              actorType: "platform",
+              actorId: "stripe",
+              action: "billing.checkout_customer_conflict",
+              resourceType: "billing_event",
+              resourceId: eventId,
+            }, tx);
+            return { kind: "ignored" as const };
           }
           const checkoutSessionId = typeof obj.id === "string" ? obj.id : undefined;
           await tx.update(tenantSubscriptions).set({

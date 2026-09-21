@@ -3,7 +3,9 @@
 import { Suspense, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { BrandMark, Button, Field, Input, ErrorState } from "../../components/ui";
+import { ArrowRight } from "lucide-react";
+import { AuthShell } from "../../components/AuthShell";
+import { Button, Field, Input, ErrorState } from "../../components/ui";
 
 function ResetPasswordContent() {
   const token = useSearchParams().get("token") ?? "";
@@ -13,19 +15,19 @@ function ResetPasswordContent() {
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
     setErr("");
     setLoading(true);
     try {
-      const r = await fetch("/api/auth/reset-password", {
+      const response = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, password: pw }),
       });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        setErr(typeof d.error === "string" ? d.error : "Reset failed");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setErr(typeof data.error === "string" ? data.error : "Reset failed");
         return;
       }
       setDone(true);
@@ -38,56 +40,42 @@ function ResetPasswordContent() {
   }
 
   return (
-    <div className="w-full max-w-md card p-7">
-      <BrandMark size="lg" title="Yasser" subtitle="Account recovery" />
-      <h1 className="mt-6 text-2xl font-bold text-ink">Reset password</h1>
-      {done ? (
-        <p className="mt-3 text-sm text-ink-2">
-          Password changed.{" "}
-          <Link href="/login" className="font-semibold text-brand">
-            Sign in
-          </Link>
-          .
-        </p>
-      ) : (
-        <form className="mt-6 space-y-5" onSubmit={submit}>
-          <Field label="New password" htmlFor="password">
-            <Input
-              id="password"
-              type="password"
-              value={pw}
-              onChange={(e) => setPw(e.target.value)}
-              minLength={12}
-              autoComplete="new-password"
-              required
-            />
-          </Field>
-          {err && <ErrorState title="Could not reset password" message={err} />}
-          <Button type="submit" variant="primary" className="w-full" loading={loading}>
-            {loading ? "Changing…" : "Change password"}
-          </Button>
-        </form>
-      )}
-    </div>
+    <AuthShell subtitle="Account recovery">
+      <section className="overflow-hidden rounded-[16px] border border-edge-strong bg-surface shadow-lg">
+        <div className="border-b border-edge bg-surface-2/55 px-6 py-6">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Account recovery</div>
+          <h1 className="mt-2 text-[28px] font-bold tracking-[-0.035em] text-ink">Reset password</h1>
+        </div>
+        <div className="p-6 sm:p-7">
+          {done ? (
+            <div className="rounded-[11px] border border-ok-edge bg-ok-bg p-4 text-[13px] leading-relaxed text-ok">
+              Password changed. <Link href="/login" className="font-semibold underline">Sign in</Link>.
+            </div>
+          ) : (
+            <form className="space-y-5" onSubmit={submit}>
+              <Field label="New password" htmlFor="password" hint="Use at least 12 characters.">
+                <Input id="password" type="password" value={pw} onChange={(e) => setPw(e.target.value)} minLength={12} autoComplete="new-password" required />
+              </Field>
+              {err && <ErrorState title="Could not reset password" message={err} />}
+              <Button type="submit" variant="primary" className="w-full" loading={loading} icon={<ArrowRight className="h-4 w-4" />}>
+                {loading ? "Changing…" : "Change password"}
+              </Button>
+            </form>
+          )}
+        </div>
+      </section>
+    </AuthShell>
   );
 }
 
 export default function ResetPassword() {
-  // useSearchParams is request-time data; statically prerendered routes must
-  // isolate it behind a Suspense boundary (the repo's verify-email page holds
-  // the same pattern) so the page keeps a static shell instead of CSR-bailing
-  // out and rendering blank until client JavaScript loads.
   return (
-    <main className="canvas-wash min-h-screen flex items-center justify-center px-4">
-      <Suspense
-        fallback={
-          <div className="w-full max-w-md card p-7 text-center text-sm text-ink-3">
-            Loading…
-          </div>
-        }
-      >
-        <ResetPasswordContent />
-      </Suspense>
-    </main>
+    <Suspense fallback={
+      <AuthShell subtitle="Account recovery">
+        <div className="rounded-[14px] border border-edge bg-surface p-8 text-center text-[13px] text-ink-3 shadow-card">Loading…</div>
+      </AuthShell>
+    }>
+      <ResetPasswordContent />
+    </Suspense>
   );
 }

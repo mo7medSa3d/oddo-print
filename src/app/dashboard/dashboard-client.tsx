@@ -561,17 +561,17 @@ export default function DashboardClient({
   };
 
   return (
-    <div className="mx-auto max-w-[1800px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8 space-y-6">
-      <header className="flex items-center justify-between">
+    <div className="mx-auto w-full max-w-[1800px] space-y-6 px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
+      <header className="flex flex-col gap-3 border-b border-edge/80 pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-[22px] font-bold tracking-tight text-ink">Console</h1>
-          <span className={`inline-flex h-5 items-center rounded-full border px-2.5 text-[10px] font-bold uppercase tracking-widest ${databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-ink bg-ink text-white"}`}>{databaseError ? "Down" : "Live"}</span>
+          <div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Workspace</div><h1 className="mt-1.5 text-[30px] font-bold tracking-[-0.035em] text-ink">Print console</h1><p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-ink-3">A live operational view of agents, printers and the print queue.</p></div>
+          <span className={`inline-flex h-6 items-center rounded-full border px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-ink bg-ink text-white"}`}>{databaseError ? "Down" : "Live"}</span>
         </div>
         <Button variant="ghost" size="sm" onClick={() => void refreshData()} icon={<RefreshCw className="h-4 w-4" />}>Refresh</Button>
       </header>
 
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <div className="rounded-xl border border-edge bg-surface px-4 py-3.5">
+        <div className="rounded-[13px] border border-edge bg-surface px-4 py-4 shadow-card transition-all duration-150 hover:-translate-y-px hover:border-edge-accent hover:shadow-md">
           <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Agents</div>
           <div className="mt-1 text-[20px] font-bold tracking-tight text-ink">{kpis.onlineAgents}<span className="text-ink-4">/{kpis.totalAgents}</span></div>
         </div>
