@@ -268,7 +268,7 @@ export default function ApiKeysPage() {
                 <div className="rounded-[8px] border border-edge bg-surface-2 px-3 py-2 text-[11px]"><span className="font-semibold text-ink">ENABLED IN ODOO</span><span className="text-ink-2"> — Odoo flag allows printing</span></div>
                 <div className="rounded-[8px] border border-warn-edge bg-warn-bg px-3 py-2 text-[11px]"><span className="font-semibold text-warn">SYNC PENDING</span><span className="text-ink-2"> — Odoo has not pushed latest config</span></div>
                 <div className="rounded-[8px] border border-bad-edge bg-bad-bg px-3 py-2 text-[11px]"><span className="font-semibold text-bad">INVALID CREDENTIAL</span><span className="text-ink-2"> — Key revoked or missing</span></div>
-                 <div className="rounded-[8px] border border-bad-edge bg-bad-bg px-3 py-2 text-[11px]"><span className="font-semibold text-bad">REVOKED CREDENTIAL</span><span className="text-ink-2"> — Credential was explicitly revoked and cannot be used.</span></div>
+                 <div className="rounded-[8px] border border-bad-edge bg-bad-bg px-3 py-2 text-[11px]"><span className="font-semibold text-bad">Revoked credential</span><span className="text-ink-2"> — Credential was explicitly revoked and cannot be used.</span></div>
               </div>
             </div>
           </Card>
