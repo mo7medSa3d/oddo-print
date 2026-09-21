@@ -6,7 +6,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { getManagerCookieName, validateManagerClaims, verifyManagerToken } from "../../lib/manager-auth";
 import { hasManagerPermission } from "../../lib/authorization";
 import { BillingActions } from "../../components/BillingActions";
-import { ArrowRight, AlertTriangle, Calendar, CheckCircle2, CreditCard } from "lucide-react";
+import { ArrowRight, AlertTriangle, CalendarDays, Check, CheckCircle2, CreditCard, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { StatusBadge } from "../../components/ui";
 
@@ -38,11 +38,11 @@ function planStatus(sub: SubscriptionRow) {
   const end = sub.currentPeriodEnd ? formatDate(sub.currentPeriodEnd) : null;
   if (sub.status === "trialing") {
     return {
-      tone: "ok" as const,
+      tone: "brand" as const,
       label: "Trial",
       message: end
         ? sub.stripeSubscriptionId
-          ? `Your trial ends ${end}. Use the Customer Portal to add a payment method and keep this plan.`
+          ? `Your trial ends ${end}. Add a payment method in Stripe to keep this plan.`
           : `Your trial ends ${end}. Subscribe below to keep this plan.`
         : "Your trial is active. Subscribe below to keep this plan.",
     };
@@ -73,16 +73,22 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
   const checkoutState = typeof params.checkout === "string" ? params.checkout : undefined;
   const selectedPlanId = typeof params.plan === "string" ? params.plan : undefined;
 
-  const sub = await db.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, claims.tenantId) });
-  const plan = sub ? await db.query.plans.findFirst({
-    where: eq(plans.id, sub.planId),
-    columns: { name: true, currency: true, interval: true, entitlements: true },
-  }) : null;
+  const sub = await db.query.tenantSubscriptions.findFirst({
+    where: eq(tenantSubscriptions.tenantId, claims.tenantId),
+  });
+
+  const currentPlan = sub
+    ? await db.query.plans.findFirst({
+        where: eq(plans.id, sub.planId),
+        columns: { id: true, name: true, description: true, currency: true, interval: true, entitlements: true },
+      })
+    : null;
 
   const availablePlans = await db
     .select({
       id: plans.id,
       name: plans.name,
+      description: plans.description,
       entitlements: plans.entitlements,
       currency: plans.currency,
       interval: plans.interval,
@@ -92,26 +98,42 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
     .where(and(eq(plans.isActive, true), eq(plans.isPublic, true)))
     .orderBy(asc(plans.displayOrder), asc(plans.name));
 
+  const selectedPlan = selectedPlanId ? availablePlans.find((item) => item.id === selectedPlanId) ?? null : null;
   const activeStatuses = new Set(["trialing", "active", "past_due", "paused"]);
   const hasActivePlan = !!sub && activeStatuses.has(sub.status);
   const hasStripeSubscription = !!sub?.stripeCustomerId && !!sub?.stripeSubscriptionId;
   const status = sub && hasActivePlan ? planStatus(sub) : null;
-  const entitlements = plan?.entitlements
-    ? Object.entries(plan.entitlements).map(([key, value]) => ({ label: entitlementLabel(key), value: entitlementValue(value) }))
+  const entitlements = currentPlan?.entitlements
+    ? Object.entries(currentPlan.entitlements)
+        .filter(([, value]) => value !== false)
+        .slice(0, 8)
+        .map(([key, value]) => ({ label: entitlementLabel(key), value: entitlementValue(value) }))
     : [];
 
+  const renewalLabel = sub?.currentPeriodEnd
+    ? sub.cancelAtPeriodEnd
+      ? `Ends ${formatDate(sub.currentPeriodEnd)}`
+      : `Renews ${formatDate(sub.currentPeriodEnd)}`
+    : "No renewal date";
+
   return (
-    <div className="mx-auto w-full max-w-[1380px] px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
-      <header className="flex flex-col gap-5 border-b border-edge/80 pb-6 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mx-auto w-full max-w-[1320px] px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
+      <header className="flex flex-col gap-5 border-b border-edge/80 pb-7 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
             <CreditCard className="h-3.5 w-3.5 text-brand" /> Workspace billing
           </div>
-          <h1 className="mt-2.5 text-[30px] font-bold leading-tight tracking-[-0.035em] text-ink">Billing & subscription</h1>
-          <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">One place to understand the current plan, its limits, and what happens next.</p>
+          <h1 className="mt-2.5 text-[32px] font-bold leading-tight tracking-[-0.04em] text-ink">Billing</h1>
+          <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">
+            Your subscription, entitlements, and billing controls in one place.
+          </p>
         </div>
-        <Link href="/pricing" className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[10px] border border-edge bg-surface px-4 text-[13px] font-semibold text-ink-2 shadow-xs transition hover:border-edge-strong hover:bg-surface-2 hover:text-ink">
-          View plans <ArrowRight className="h-4 w-4" />
+        <Link
+          href="/pricing"
+          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[10px] bg-brand px-4 text-[13px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md"
+        >
+          {hasActivePlan ? "Upgrade plan" : "View plans"}
+          <ArrowRight className="h-4 w-4" />
         </Link>
       </header>
 
@@ -123,69 +145,124 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
         )}
       </div>
 
-      <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,.6fr)]">
-        <section className="overflow-hidden rounded-[16px] border border-edge-strong bg-surface shadow-card">
-          <div className="border-b border-edge bg-surface-2/55 px-6 py-5">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Current subscription</div>
+      {selectedPlan && selectedPlan.id !== currentPlan?.id && (
+        <div className="mt-6">
+          <BillingActions
+            hasSubscription={hasActivePlan && hasStripeSubscription}
+            cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd}
+            selectedPlan={selectedPlan}
+          />
+        </div>
+      )}
+
+      <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
+        <section className="billing-premium overflow-hidden">
+          <div className="border-b border-edge/80 bg-surface-accent/55 px-6 py-6 sm:px-7 sm:py-7">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
+                <Sparkles className="h-3.5 w-3.5 text-brand" /> Current plan
+              </div>
               {status && <StatusBadge tone={status.tone} label={status.label} />}
             </div>
-            <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <h2 className="text-[26px] font-semibold tracking-[-0.03em] text-ink">{plan?.name ?? "No plan"}</h2>
-                <p className="mt-1 text-[13px] text-ink-3">{status?.message ?? "Choose a plan to start printing."}</p>
+
+            <div className="mt-5 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <h2 className="text-[34px] font-bold tracking-[-0.045em] text-ink sm:text-[40px]">
+                  {currentPlan?.name ?? "No plan selected"}
+                </h2>
+                <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">
+                  {currentPlan?.description || status?.message || "Choose a plan to activate printing for this workspace."}
+                </p>
               </div>
-              <div className="flex items-center gap-2 text-[12px] text-ink-3">
-                <Calendar className="h-4 w-4" />
-                {sub?.currentPeriodEnd ? (sub.cancelAtPeriodEnd ? `Ends ${formatDate(sub.currentPeriodEnd)}` : `Next period ${formatDate(sub.currentPeriodEnd)}`) : "No renewal date"}
+
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                <Link
+                  href="/pricing"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-[10px] bg-brand px-5 text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md"
+                >
+                  {hasActivePlan ? "Upgrade plan" : "Choose a plan"}
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+                {hasStripeSubscription && (
+                  <a
+                    href="#billing-actions"
+                    className="inline-flex h-11 items-center justify-center rounded-[10px] border border-edge bg-surface px-5 text-[13.5px] font-semibold text-ink-2 transition hover:border-edge-strong hover:bg-surface-2 hover:text-ink"
+                  >
+                    Manage billing
+                  </a>
+                )}
               </div>
             </div>
           </div>
 
-          {entitlements.length > 0 && (
-            <div className="px-6 py-6">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Plan entitlements</div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                {entitlements.slice(0, 8).map((e) => (
-                  <div key={e.label} className="rounded-[10px] border border-edge bg-surface-2 px-3.5 py-3">
-                    <div className="text-[11px] capitalize text-ink-3">{e.label}</div>
-                    <div className="mt-1 text-[14px] font-semibold tabular-nums text-ink">{e.value}</div>
+          <div className="grid divide-y divide-edge border-b border-edge sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <InfoCell label="Status" value={status?.label ?? "Not configured"} />
+            <InfoCell label="Billing cycle" value={currentPlan?.interval ?? "—"} />
+            <InfoCell label="Renewal" value={renewalLabel} />
+          </div>
+
+          <div className="px-6 py-6 sm:px-7 sm:py-7">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Included capacity</div>
+                <h3 className="mt-1.5 text-[18px] font-semibold tracking-[-0.02em] text-ink">What your plan includes</h3>
+              </div>
+              <Link href="/pricing" className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-brand hover:text-brand-hover">
+                Compare plans <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+
+            {entitlements.length > 0 ? (
+              <div className="mt-5 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+                {entitlements.map((entry) => (
+                  <div key={entry.label} className="rounded-[12px] border border-edge bg-surface-2 px-4 py-3.5">
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ok-bg text-ok">
+                        <Check className="h-3 w-3" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-[11px] capitalize text-ink-3">{entry.label}</div>
+                        <div className="mt-1 text-[14px] font-semibold tabular-nums text-ink">{entry.value}</div>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-
-          {(sub?.status === "past_due" || (sub?.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd)) && (
-            <div className="border-t border-edge px-6 py-5">
-              {sub?.status === "past_due" && <WarnLine text="Printing is blocked until the failed payment is resolved. The Customer Portal can update your payment method." />}
-              {sub?.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd && <WarnLine text={`Cancellation is scheduled for ${formatDate(sub.currentPeriodEnd)}. Resume below to keep the plan.`} />}
-            </div>
-          )}
-
-          <div className="border-t border-edge bg-surface-2/35 px-6 py-5">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Subscription actions</div>
-            <div className="mt-3">
-              <BillingActions
-                hasSubscription={hasActivePlan && hasStripeSubscription}
-                cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd}
-                currentPlanId={hasActivePlan ? (sub?.planId ?? null) : null}
-                plans={availablePlans}
-                selectedPlanId={selectedPlanId}
-              />
-            </div>
+            ) : (
+              <div className="mt-5 rounded-[12px] border border-dashed border-edge-strong bg-surface-2 px-4 py-6 text-[13px] text-ink-3">
+                Plan capacity is managed by Platform Admin.
+              </div>
+            )}
           </div>
+
+          {sub && (sub.status === "past_due" || (sub.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd)) && (
+            <div className="border-t border-edge px-6 py-5 sm:px-7">
+              {sub.status === "past_due" && <WarnLine text="Printing is blocked until the failed payment is resolved. Use the Customer Portal to update the payment method." />}
+              {sub.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd && <WarnLine text={`Cancellation is scheduled for ${formatDate(sub.currentPeriodEnd)}. Resume below to keep the plan.`} />}
+            </div>
+          )}
         </section>
 
         <aside className="space-y-4">
           <section className="rounded-[14px] border border-edge bg-surface p-5 shadow-card">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Billing state</div>
-            <div className="mt-4 space-y-3">
-              <Row label="Subscription" value={sub ? formatStatus(sub.status) : "Not configured"} />
-              <Row label="Stripe" value={hasStripeSubscription ? "Connected" : sub?.stripeCustomerId ? "Customer linked" : "Not linked"} />
-              {plan?.interval && <Row label="Interval" value={plan.interval} />}
+            <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Subscription details</div>
+            <div className="mt-4 space-y-0">
+              <DetailRow label="Plan" value={currentPlan?.name ?? "Not configured"} />
+              <DetailRow label="Status" value={sub ? formatStatus(sub.status) : "Not configured"} />
+              <DetailRow label="Currency" value={currentPlan?.currency?.toUpperCase() ?? "—"} />
+              <DetailRow label="Interval" value={currentPlan?.interval ?? "—"} />
+              <DetailRow label="Renewal" value={renewalLabel} />
             </div>
-            {sub?.stripeCustomerId && <p className="mt-4 break-all border-t border-edge pt-4 font-mono text-[10.5px] text-ink-4">Customer {sub.stripeCustomerId}</p>}
+          </section>
+
+          <section className="rounded-[14px] border border-edge bg-surface px-5 py-5 shadow-card" id="billing-actions">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Billing controls</div>
+            <div className="mt-3">
+              <BillingActions
+                hasSubscription={hasActivePlan && hasStripeSubscription}
+                cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd}
+              />
+            </div>
           </section>
 
           <section className="rounded-[14px] border border-edge bg-surface-2 p-5">
@@ -203,8 +280,22 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
-  return <div className="flex items-center justify-between gap-4"><span className="text-[12px] text-ink-3">{label}</span><span className="text-right text-[12.5px] font-semibold text-ink">{value}</span></div>;
+function InfoCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="px-6 py-4 sm:px-7">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">{label}</div>
+      <div className="mt-1.5 text-[13.5px] font-semibold text-ink">{value}</div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-edge-subtle py-3 last:border-b-0">
+      <span className="text-[12px] text-ink-3">{label}</span>
+      <span className="text-right text-[12.5px] font-semibold text-ink">{value}</span>
+    </div>
+  );
 }
 
 function WarnLine({ text }: { text: string }) {
