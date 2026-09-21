@@ -8,6 +8,7 @@ import {
   LATE_SUCCESS_MAX_AGE_MS,
   PHYSICAL_OUTCOME_UNKNOWN_MARKERS,
   derivePhysicalOutcome,
+  AGENT_REQUEUE_REASONS,
   type JobStatus,
 } from "../src/lib/job-status";
 
@@ -57,6 +58,16 @@ describe("job-status", () => {
     // The route gates this on an explicit fenced reason (AGENT_REQUEUE_REASONS).
     expect(canTransition("claimed", "queued")).toBe(true);
   });
+  it("agent rejection reasons cover every pre-execution runtime hand-back", () => {
+    expect(AGENT_REQUEUE_REASONS).toEqual([
+      "pending_full",
+      "printer_pending_full",
+      "printer_not_at_desired_state",
+      "agent_shutting_down",
+      "ledger_unavailable",
+    ]);
+  });
+
   it("expired jobs may be finalized by an agent after local TTL observation", () => {
     // Expiration is isolated to the dedicated atomic route branch
     // (expires_at <= NOW() + fencedJobWrite). It is intentionally absent
