@@ -36,7 +36,7 @@ patch(FormController.prototype, {
         // itself reads inside onRecordSaved. Record._save() commits the
         // creation's resId into the config before this hook runs, so resId is
         // valid for newly created configurations too.
-        const resId = this.model.root.resId;
+        const resId = record.resId;
         // Without a persisted record there is nothing to synchronize against;
         // without a stored credential the status row already reports
         // "Setup required" in that case.
