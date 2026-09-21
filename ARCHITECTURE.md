@@ -65,7 +65,7 @@ The Gateway is a Next.js 16.3.4 application with a **custom HTTP server** (`serv
 
 A Go service designed for Windows deployment that:
 - Connects to the Gateway via WebSocket with automatic reconnection (jittered exponential backoff)
-- Falls back to HTTP polling when WebSocket is down (10s interval, safety poll every 30s when WS up)
+- Falls back to HTTP polling when WebSocket is down (5s interval, safety poll every 30s when WS up)
 - Sends heartbeats every 30s with full printer inventory and status
 - Discovers printers via Windows Spooler API, network scanning, IPP discovery, and USB enumeration
 - Executes print jobs with bounded concurrency (8 concurrent, 64 pending)
@@ -174,7 +174,7 @@ claimed → queued (fenced rejection / lease timeout)
 ### PostgreSQL + Drizzle ORM
 
 **Schema**: 24 tables defined in `src/db/schema.ts`
-**Migrations**: 58 migrations (0000–0057) in `drizzle/`
+**Migrations**: 59 migrations (0000–0058) in `drizzle/`
 **Driver**: `pg` 8.23.0 with connection pool
 
 ### Key Design Patterns
@@ -205,9 +205,10 @@ The WebSocket server (`src/server/ws.ts`) implements:
 
 - **Per-agent socket management**: Up to 8 concurrent sockets per agent (rolling reconnect)
 - **PostgreSQL LISTEN/NOTIFY**: Real-time job dispatch across gateway instances
-- **Automatic reconnection**: Jittered exponential backoff (1s–30s)
+- **Automatic reconnection**: Jittered exponential backoff (5s–60s)
 - **Ping/pong keep-alive**: 30s server ping interval, 90s idle timeout
 - **Back-pressure**: 1MB buffered-amount check before sending
+- **Agent capacity fence**: Gateway claims at most 64 live claimed/printing jobs per Agent, matching the Agent local pending ceiling
 - **Rate limiting**: Per-agent token bucket (prevents WebSocket abuse)
 
 ## 9. Deployment Architecture
