@@ -7,29 +7,17 @@ ALTER TABLE "api_keys"
   ADD COLUMN IF NOT EXISTS "odoo_enabled_revision" integer NOT NULL DEFAULT -1,
   ADD COLUMN IF NOT EXISTS "odoo_enabled_updated_at" timestamp;
 
--- Preserve the old tenant-wide state without enabling every historical/rotated key.
--- Only the most recently used active Odoo key per tenant inherits the state;
--- all other keys start disabled and must be explicitly synchronized by Odoo.
-WITH ranked AS (
-  SELECT
-    k.id,
-    t.odoo_enabled,
-    t.odoo_enabled_revision,
-    t.odoo_enabled_updated_at,
-    ROW_NUMBER() OVER (
-      PARTITION BY k.tenant_id
-      ORDER BY (k.revoked_at IS NULL) DESC, k.last_used_at DESC NULLS LAST, k.created_at DESC, k.id DESC
-    ) AS rn
-  FROM api_keys k
-  JOIN tenants t ON t.id = k.tenant_id
-)
-UPDATE api_keys AS k
+-- Preserve the pre-migration runtime behavior for existing integrations.
+-- Every existing key in a tenant inherits the former tenant-wide activation
+-- state. From this migration onward each key is fenced independently, so a
+-- future Odoo company toggle cannot affect another key in the same tenant.
+UPDATE "api_keys" AS k
 SET
-  "odoo_enabled" = CASE WHEN ranked.rn = 1 THEN COALESCE(ranked.odoo_enabled, false) ELSE false END,
-  "odoo_enabled_revision" = CASE WHEN ranked.rn = 1 THEN COALESCE(ranked.odoo_enabled_revision, -1) ELSE -1 END,
-  "odoo_enabled_updated_at" = CASE WHEN ranked.rn = 1 THEN ranked.odoo_enabled_updated_at ELSE NULL END
-FROM ranked
-WHERE ranked.id = k.id;
+  "odoo_enabled" = COALESCE(t."odoo_enabled", false),
+  "odoo_enabled_revision" = COALESCE(t."odoo_enabled_revision", -1),
+  "odoo_enabled_updated_at" = t."odoo_enabled_updated_at"
+FROM "tenants" AS t
+WHERE t."id" = k."tenant_id";
 
 DO $$
 BEGIN
