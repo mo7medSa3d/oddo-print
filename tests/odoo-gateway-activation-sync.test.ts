@@ -88,9 +88,11 @@ describe("Operations observability presentation", () => {
     const printer = read("src/components/PrinterCapabilityMatrix.tsx");
 
     expect(agent).not.toContain("JSON.stringify(c.details");
-    expect(agent).toContain("Show technical details");
-    expect(agent).toContain("Last seen");
-    expect(agent).toContain("Needs attention");
+    expect(agent).not.toContain("Show technical details");
+    expect(agent).toContain("Gateway");
+    expect(agent).toContain("Queue");
+    expect(agent).toContain("Printers");
+    expect(agent).toContain("Version");
 
     expect(printer).not.toContain("JSON.stringify");
     expect(printer).toContain("Print features");
@@ -99,9 +101,9 @@ describe("Operations observability presentation", () => {
 
   it("uses the simplified operations headings in the dashboard", () => {
     const dashboard = read("src/app/dashboard/dashboard-client.tsx");
-    expect(dashboard).toContain(">Agent Status</h3>");
-    expect(dashboard).toContain(">Printer Fleet</h3>");
-    expect(dashboard).toContain(">Print Certification</h3>");
+    expect(dashboard).toContain(">Agents</h3>");
+    expect(dashboard).toContain(">Printers</h3>");
+    expect(dashboard).toContain(">Certification</h3>");
     expect(dashboard).not.toContain("Agent Health (ONLINE/DEGRADED/OFFLINE/STARTING");
   });
 });
