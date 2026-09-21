@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 /**
  * Gateway-side read for operators.
  * The activation state shown here is a replicated Odoo business setting,
- * not the tenant lifecycle and not the API-key credential lifecycle.
+ * scoped independently to each Odoo integration API key; it is not tenant lifecycle.
  */
 export async function GET(req: Request) {
   const manager = await validateManager(req);
