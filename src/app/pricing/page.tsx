@@ -58,7 +58,7 @@ export default async function Pricing() {
                     <h2 className="text-[20px] font-bold tracking-tight text-ink">{plan.name}</h2>
                     {isFeatured && <span className="rounded-full border border-brand/20 bg-brand-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-brand">Scale tier</span>}
                   </div>
-                  {plan.description && <p className={`mt-2 text-[13px] leading-relaxed ${isFeatured ? "text-brand" : "text-ink-3"}`}>{plan.description}</p>}
+                  {plan.description && <p className="mt-2 text-[13px] leading-relaxed text-ink-3">{plan.description}</p>}
                   <div className={`mt-3 inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-medium border-edge bg-surface-2 text-ink-3`}>
                     {plan.currency ? plan.currency.toUpperCase() : "USD"} {plan.interval ? `• ${plan.interval}` : ""}
                   </div>
@@ -69,7 +69,7 @@ export default async function Pricing() {
                   <dl className="mt-3 space-y-2.5">
                     {Object.entries(plan.entitlements ?? {}).slice(0, 6).map(([key, value]) => (
                       <div key={key} className="flex items-center justify-between gap-3 text-[13px]">
-                        <dt className={`flex items-center gap-2 capitalize ${isFeatured ? "text-slate-300" : "text-ink-3"}`}>
+                        <dt className="flex items-center gap-2 capitalize text-ink-3">
                           <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${isFeatured ? "border-brand/20 bg-brand-50 text-brand" : "border-ok-edge bg-ok-bg text-ok"}`}><Check className="h-3 w-3" /></span>
                           {key.replace(/^max_/, "").replace(/_/g, " ")}
                         </dt>
