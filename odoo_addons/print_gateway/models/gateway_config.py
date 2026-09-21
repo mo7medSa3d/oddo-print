@@ -1430,6 +1430,20 @@ class PrintGatewayConfig(models.Model):
             if response.status_code != 200 or not isinstance(body, dict) or body.get("ok") is not True:
                 raise ValidationError(_("Gateway connection test failed (HTTP %s).") % response.status_code)
 
+            # Re-read the persisted identity and revision after the network
+            # health check. A newer key/activation save may have committed while
+            # the request was in flight; the older test must not send its stale
+            # credential or desired state to the Gateway.
+            self.invalidate_recordset([
+                "gateway_url",
+                "gateway_api_key",
+                "enabled",
+                "enabled_sync_revision",
+            ])
+            current_revision = int(self.enabled_sync_revision or 0)
+            if current_revision != expected_revision:
+                return {"type": "ir.actions.client", "tag": "reload"}
+
             # A connection test is an explicit operator action, so finish the
             # activation reconciliation in this request instead of leaving the
             # form displaying a stale "Syncing" state until the next manual
@@ -1439,7 +1453,7 @@ class PrintGatewayConfig(models.Model):
                 self._gateway_base(for_request=True),
                 self._gateway_api_key_plaintext(),
                 self.env.cr.dbname,
-                expected_revision,
+                current_revision,
                 bool(self.enabled),
             )
             if not sync_succeeded:
