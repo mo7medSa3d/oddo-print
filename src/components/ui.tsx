@@ -58,9 +58,9 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "succ
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary:
-    "bg-brand text-white border border-transparent shadow-[0_1px_2px_rgba(37,99,235,0.18)] hover:bg-brand-hover hover:shadow-[0_2px_6px_rgba(37,99,235,0.22)] active:bg-brand-active active:shadow-none",
+    "bg-brand text-white border border-transparent shadow-sm hover:bg-brand-hover hover:shadow-md active:bg-brand-active active:shadow-none",
   secondary:
-    "bg-surface text-ink border border-edge shadow-xs hover:bg-surface-2 hover:border-edge-strong hover:shadow-sm active:bg-surface-3",
+    "bg-surface text-ink border border-edge shadow-xs hover:bg-surface-2 hover:border-edge-strong active:bg-surface-3",
   ghost:
     "bg-transparent text-ink-2 border border-transparent hover:bg-surface-2 hover:text-ink active:bg-surface-3",
   danger:
@@ -152,7 +152,7 @@ export function IconButton({
     <button
       aria-label={label}
       title={label}
-      className={`inline-flex items-center justify-center h-9 w-9 rounded-[9px] text-ink-3 transition-all duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 disabled:opacity-50 ${className}`}
+      className={`inline-flex items-center justify-center h-9 w-9 rounded-[10px] text-ink-3 transition-all duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 disabled:opacity-50 ${className}`}
       {...props}
     >
       {children}
@@ -187,7 +187,7 @@ export function StatusBadge({
   const shouldPulse = pulse ?? (tone === "info");
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-semibold tracking-wide whitespace-nowrap ${toneBg[tone]} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-[0.01em] whitespace-nowrap ${toneBg[tone]} ${className}`}
     >
       {icon ?? <StatusDot tone={tone} pulse={shouldPulse} />}
       {label}
@@ -226,7 +226,7 @@ export function StatCard({
 }) {
   return (
     <div
-      className={`group relative overflow-hidden rounded-[14px] border border-edge bg-surface p-5 shadow-card transition-all duration-200 hover:shadow-card-hover hover:border-edge-strong hover:-translate-y-[1px] ${className}`}
+      className={`group relative overflow-hidden rounded-[14px] border border-edge bg-surface p-5 shadow-card transition-all duration-180 hover:shadow-card-hover hover:border-edge-strong hover:-translate-y-px ${className}`}
     >
       <div className="flex items-start justify-between gap-3">
         <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-ink-3">{title}</span>
@@ -843,7 +843,7 @@ export function Tabs<T extends string>({
       role="tablist"
       aria-label="Filter options"
       onKeyDown={onListKeyDown}
-      className={`flex items-center gap-0.5 overflow-x-auto border-b border-edge ${className}`}
+      className={`flex items-center gap-1 overflow-x-auto border-b border-edge ${className}`}
     >
       {tabs.map((t) => {
         const selected = t === active;
@@ -856,7 +856,7 @@ export function Tabs<T extends string>({
             tabIndex={selected ? 0 : -1}
             data-tab={t}
             onClick={() => onChange(t)}
-            className={`relative flex items-center gap-2 whitespace-nowrap px-3.5 py-2.5 text-[13px] font-[600] tracking-[-0.01em] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 rounded-[8px] ${
+            className={`relative flex items-center gap-2 whitespace-nowrap px-3.5 py-2.5 text-[13px] font-[600] tracking-[-0.01em] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 rounded-[8px] ${
               selected ? "text-ink bg-surface-2" : "text-ink-3 hover:text-ink hover:bg-surface-2"
             }`}
           >
@@ -1004,7 +1004,7 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <div className={`border-b border-edge bg-surface ${className}`}>
+    <div className={`border-b border-edge/80 bg-surface/92 backdrop-blur-xl ${className}`}>
       <div className="mx-auto max-w-[1440px] px-6 py-6 sm:px-8">
         {breadcrumbs && <div className="mb-3 text-[12px] text-ink-3">{breadcrumbs}</div>}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
