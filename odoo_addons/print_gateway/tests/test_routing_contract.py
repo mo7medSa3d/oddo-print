@@ -344,6 +344,61 @@ class TestPrintGatewayRoutingContract(TransactionCase):
             self.assertEqual(action["type"], "ir.actions.client")
             self.assertEqual(action["tag"], "reload")
 
+    def test_gateway_reconnect_adopts_remote_revision_without_stuck_action_needed(self):
+        """A reconnected Odoo config must recover when Gateway already has a
+        newer activation revision from the previous credential/configuration."""
+        from unittest.mock import MagicMock
+
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, self.env.uid, dict(self.env.context))
+            company = env["res.company"].browse(self.durable_company_id).exists()
+            config = env["print_gateway.gateway_config"].browse(self.durable_config_id).exists()
+            self.assertTrue(company)
+            self.assertTrue(config)
+
+            stale = MagicMock()
+            stale.status_code = 200
+            stale.content = b'{"ok": true, "applied": false, "reason": "stale_revision", "enabled": false, "revision": 7}'
+            stale.json.return_value = {
+                "ok": True,
+                "applied": False,
+                "reason": "stale_revision",
+                "enabled": False,
+                "revision": 7,
+            }
+
+            applied = MagicMock()
+            applied.status_code = 200
+            applied.content = b'{"ok": true, "applied": true, "enabled": true, "revision": 8}'
+            applied.json.return_value = {
+                "ok": True,
+                "applied": True,
+                "enabled": True,
+                "revision": 8,
+            }
+
+            with patch(
+                "odoo.addons.print_gateway.models.gateway_config.requests.patch",
+                side_effect=[stale, applied],
+            ) as mocked_patch:
+                self.assertTrue(
+                    config._sync_enabled_state_to_gateway(
+                        "https://gateway.example.com",
+                        "odoo_test_key",
+                        env.cr.dbname,
+                        0,
+                        True,
+                    )
+                )
+                self.assertEqual(
+                    [call.kwargs["json"]["revision"] for call in mocked_patch.call_args_list],
+                    [0, 8],
+                )
+        finally:
+            cr.rollback()
+            cr.close()
+
     def test_gateway_timeout_persists_unknown_outcome(self):
         job_id = self._job("timeout-contract-key")
         cr = self.env.registry.cursor()
