@@ -45,10 +45,10 @@
   --surface-overlay: #ffffff;
 
   /* Borders — softer, more refined */
-  --border: #e2e8f0;
+  --border: #cbd5e1;
   --border-strong: #cbd5e1;
   --border-accent: #bfdbfe;
-  --border-subtle: #f1f5f9;
+  --border-subtle: #e2e8f0;
   --divider: #e2e8f0;
 
   /* Text — high contrast for data, muted for secondary */
@@ -323,6 +323,27 @@
     border-radius: var(--radius-card);
     box-shadow: var(--shadow-card);
   }
+
+  /* Surfaces are intentionally white; the border must remain visible against
+     both the app canvas and nested white panels. */
+  .card,
+  .card-elevated,
+  .billing-premium,
+  .balance-card {
+    border-color: var(--border-strong);
+  }
+
+  .inset-panel {
+    border-color: var(--border-strong);
+  }
+
+  .table-head {
+    border-bottom: 1px solid var(--border-strong);
+  }
+
+  .page-header {
+    border-bottom-color: var(--border-strong);
+  }
   .card-elevated {
     background: var(--surface-elevated);
     border: 1px solid var(--border);
@@ -392,6 +413,7 @@
     text-transform: uppercase;
   }
   .table-row { transition: background-color var(--dur-fast) ease-out; }
+  .table-row + .table-row { border-top: 1px solid var(--border-subtle); }
   .table-row:hover { background: var(--surface-hover); }
 
   .row-hover { transition: background-color var(--dur-fast) ease-out; }
