@@ -3,7 +3,8 @@
 import type { ComponentType, ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { useState } from "react";
+import { LogOut, Menu, X } from "lucide-react";
 import { BrandMark } from "./brand";
 import { isNavItemActive } from "../lib/nav";
 
@@ -11,6 +12,7 @@ export type TopNavItem = {
   href: string;
   label: string;
   icon?: ComponentType<{ className?: string }>;
+  section?: string;
 };
 
 type TopNavbarProps = {
@@ -24,14 +26,6 @@ type TopNavbarProps = {
   brandIcon?: ReactNode;
 };
 
-/**
- * Shared compact horizontal top navigation.
- *
- * Replaces the previous left sidebar: global navigation stays available on
- * every authenticated page, while page content reclaims the full width.
- * Active-state detection is computed from `usePathname()` — nothing is
- * hardcoded, and nested routes highlight their parent section.
- */
 export function TopNavbar({
   items,
   brandHref,
@@ -44,20 +38,20 @@ export function TopNavbar({
 }: TopNavbarProps) {
   const pathname = usePathname();
   const isPlatform = variant === "platform";
+  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <header
-      className={`sticky top-0 z-40 border-b ${
-        isPlatform
-          ? "border-white/[0.06] bg-[#0c0e1a]/90 text-slate-100"
-          : "border-edge bg-surface/90 text-ink backdrop-blur-md"
-      }`}
+      className={isPlatform
+        ? "sticky top-0 z-40 border-b border-white/[0.06] bg-[#0c0e1a]/90 text-slate-100 backdrop-blur-xl"
+        : "sticky top-0 z-40 border-b border-edge/80 bg-surface/88 text-ink backdrop-blur-xl"}
     >
-      <div className="flex h-14 w-full items-center gap-3 px-3 sm:px-5">
+      <div className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-3 sm:px-6">
         <Link
           href={brandHref}
-          className="flex shrink-0 items-center gap-2.5 rounded-[9px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25"
+          className="shrink-0 rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25"
           aria-label={brandTitle}
+          onClick={() => setMenuOpen(false)}
         >
           {brandIcon ?? (
             <BrandMark
@@ -70,64 +64,98 @@ export function TopNavbar({
           )}
         </Link>
 
+        <button
+          type="button"
+          aria-label={menuOpen ? "Close navigation" : "Open navigation"}
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((value) => !value)}
+          className={isPlatform
+            ? "ml-auto inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-white/[0.08] text-slate-300 transition hover:bg-white/[0.06] sm:hidden"
+            : "ml-auto inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-transparent text-ink-2 transition hover:bg-surface-2 hover:text-ink sm:hidden"}
+        >
+          {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+        </button>
+
         <nav
           aria-label="Main"
-          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className={[
+            menuOpen ? "flex" : "hidden",
+            "absolute left-3 right-3 top-[68px] z-50 flex-col gap-1 rounded-[14px] border p-2 shadow-xl",
+            "sm:static sm:flex sm:min-w-0 sm:flex-1 sm:flex-row sm:items-center sm:gap-1 sm:overflow-x-auto sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none",
+            isPlatform ? "border-white/10 bg-[#10131d]" : "border-edge bg-surface",
+          ].join(" ")}
         >
-          <div className="flex items-center gap-1 whitespace-nowrap">
-            {items.map((item) => {
-              const active = isNavItemActive(pathname, item.href);
-              const Icon = item.icon;
-              return (
+          {items.map((item, index) => {
+            const active = isNavItemActive(pathname, item.href);
+            const Icon = item.icon;
+            const showSection = item.section && item.section !== items[index - 1]?.section;
+            return (
+              <div key={item.href} className="flex items-center gap-1">
+                {showSection && (
+                  <span
+                    className={isPlatform
+                      ? "hidden px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600 xl:inline"
+                      : "hidden px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-4 xl:inline"}
+                  >
+                    {item.section}
+                  </span>
+                )}
                 <Link
-                  key={item.href}
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  className={`inline-flex h-9 items-center gap-2 rounded-[9px] px-3 text-[13px] font-medium transition-colors ${
+                  onClick={() => setMenuOpen(false)}
+                  className={[
+                    "inline-flex h-10 shrink-0 items-center gap-2 rounded-[10px] px-3 text-[13px] font-medium transition-all duration-150",
                     isPlatform
                       ? active
-                        ? "bg-white/[0.10] text-white"
-                        : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"
+                        ? "bg-white/[0.10] text-white shadow-sm"
+                        : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-100"
                       : active
-                        ? "bg-brand-subtle text-brand-subtle-text font-semibold"
-                        : "text-ink-2 hover:bg-surface-2 hover:text-ink"
-                  }`}
+                        ? "bg-brand-subtle text-brand-subtle-text font-semibold shadow-[inset_0_0_0_1px_var(--brand-subtle-border)]"
+                        : "text-ink-2 hover:bg-surface-2 hover:text-ink",
+                  ].join(" ")}
                 >
                   {Icon && (
                     <Icon
-                      className={`h-4 w-4 shrink-0 ${
-                        isPlatform
-                          ? active
-                            ? "text-white"
-                            : "text-slate-500"
-                          : active
-                            ? "text-brand"
-                            : "text-ink-3"
-                      }`}
+                      className={isPlatform
+                        ? active
+                          ? "h-4 w-4 shrink-0 text-white"
+                          : "h-4 w-4 shrink-0 text-slate-500"
+                        : active
+                          ? "h-4 w-4 shrink-0 text-brand"
+                          : "h-4 w-4 shrink-0 text-ink-3"}
                     />
                   )}
-                  {item.label}
+                  <span>{item.label}</span>
+                  {active && (
+                    <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-current opacity-60 sm:hidden" aria-hidden />
+                  )}
                 </Link>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })}
         </nav>
 
         <button
           onClick={onLogout}
           disabled={loggingOut}
-          className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-[9px] px-3 text-[13px] font-medium transition-colors disabled:opacity-50 ${
-            isPlatform
-              ? "border border-white/[0.08] text-slate-400 hover:bg-white/[0.06] hover:text-slate-200"
-              : "border border-edge text-ink-3 hover:bg-surface-2 hover:text-ink"
-          }`}
+          className={isPlatform
+            ? "inline-flex h-10 shrink-0 items-center gap-2 rounded-[10px] border border-white/[0.08] px-3 text-[13px] font-medium text-slate-300 transition-all duration-150 hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
+            : "inline-flex h-10 shrink-0 items-center gap-2 rounded-[10px] border border-edge bg-surface px-3 text-[13px] font-medium text-ink-2 shadow-xs transition-all duration-150 hover:border-edge-strong hover:bg-surface-2 hover:text-ink disabled:opacity-50"}
         >
           <LogOut className="h-4 w-4" />
-          <span className="hidden md:inline">
-            {loggingOut ? "Signing out…" : "Sign out"}
-          </span>
+          <span className="hidden md:inline">{loggingOut ? "Signing out…" : "Sign out"}</span>
         </button>
       </div>
+
+      {menuOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation menu"
+          className="fixed inset-0 z-40 bg-black/5 sm:hidden"
+          onClick={() => setMenuOpen(false)}
+        />
+      )}
     </header>
   );
 }
