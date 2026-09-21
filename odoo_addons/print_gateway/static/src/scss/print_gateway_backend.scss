@@ -3,6 +3,8 @@
    Distinct states: credential, activation, connection. */
 
 .o_pg_view {
+    min-height: calc(100vh - 48px);
+    background: var(--pg-bg);
     color: var(--pg-text-2);
 
     /* Odoo's native backend has many white surfaces. Give the Gateway module
@@ -21,6 +23,37 @@
     .o_notebook,
     .o_form_sheet_bg {
         border-color: var(--pg-border);
+    }
+
+    .o_form_renderer,
+    .o_list_renderer,
+    .o_kanban_renderer,
+    .o_view_controller {
+        background-color: var(--pg-bg);
+        color: var(--pg-text);
+    }
+
+    .o_list_table,
+    .o_kanban_view {
+        color: var(--pg-text);
+    }
+
+    .o_control_panel,
+    .o_cp_searchview,
+    .o_searchview {
+        background-color: var(--pg-surface) !important;
+        border-color: var(--pg-border) !important;
+        color: var(--pg-text);
+    }
+
+    .o_control_panel .breadcrumb,
+    .o_control_panel .breadcrumb-item,
+    .o_control_panel .o_breadcrumb {
+        color: var(--pg-text-2);
+    }
+
+    .o_control_panel .breadcrumb-item.active {
+        color: var(--pg-text);
     }
     font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", ui-sans-serif, sans-serif;
 
