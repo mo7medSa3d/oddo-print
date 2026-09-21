@@ -11,6 +11,7 @@ import { incrementMetric } from "../lib/metrics";
 import {
   claimJobForDelivery,
   markJobDelivered,
+  markJobDeliveryUnknown,
   recordJobAck,
   releaseUndeliveredClaim,
   type ClaimedJobRow,
