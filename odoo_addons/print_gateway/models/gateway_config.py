@@ -719,6 +719,16 @@ class PrintGatewayConfig(models.Model):
                         "gateway_sync_state",
                         "gateway_sync_message",
                     ])
+                    # The technical write happens through a separate sudoed
+                    # environment. In Odoo 19, invalidating the cache alone is
+                    # not enough when stored computed fields depend on values
+                    # changed outside the original recordset: notify the ORM
+                    # that the dependencies changed so gateway_sync_state and
+                    # gateway_sync_message are recomputed in this transaction.
+                    record.modified([
+                        "enabled_sync_revision",
+                        "last_enabled_sync_error",
+                    ])
                 elif "gateway_api_key" in vals:
                     record.sudo().write({
                         "last_enabled_sync_error": False,
