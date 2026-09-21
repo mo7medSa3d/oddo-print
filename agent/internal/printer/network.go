@@ -13,7 +13,11 @@ import (
 const maxPrintBytes = 5 * 1024 * 1024
 
 const (
-	dialTimeout           = 10 * time.Second
+	// dialTimeout: TCP connect for actual print jobs. Reduced from 10s to 5s
+	// per 2024-2025 best practice: POS printers should respond in <1s on LAN,
+	// 5s is generous and halves user-perceived delay when printer offline.
+	// Test pages use 3s (testPrintDialTimeout) for even faster feedback.
+	dialTimeout           = 5 * time.Second
 	testPrintDialTimeout  = 3 * time.Second
 	writeStallTimeout     = 60 * time.Second
 	networkWriteChunkSize = 16 * 1024

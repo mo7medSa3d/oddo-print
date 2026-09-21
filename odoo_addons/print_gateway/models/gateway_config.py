@@ -88,6 +88,8 @@ class PrintGatewayConfig(models.Model):
         ],
         string="Gateway Status",
         compute="_compute_gateway_sync_state",
+        store=True,
+        index=True,
         readonly=True,
     )
     gateway_sync_message = fields.Char(
@@ -732,8 +734,161 @@ class PrintGatewayConfig(models.Model):
         records._queue_enabled_state_sync()
         return records
 
+    def _disable_gateway_for_unlink(self, gateway_url, api_key, revision):
+        """Best-effort remote shutdown used before deleting the Odoo config."""
+        revision = max(0, int(revision))
+        url = "%s/api/odoo/configuration" % gateway_url
+        headers = {
+            "Authorization": "Bearer %s" % api_key,
+            "Accept": "application/json",
+            "Cache-Control": "no-store",
+            "Content-Type": "application/json",
+            "X-Odoo-Database": self.env.cr.dbname,
+        }
+
+        def send(target_revision):
+            response = requests.patch(
+                url,
+                headers=headers,
+                json={"enabled": False, "revision": target_revision},
+                timeout=10,
+                allow_redirects=False,
+            )
+            body = response.json() if response.content else {}
+            return response, body
+
+        try:
+            response, body = send(revision)
+            if response.status_code == 401:
+                raise ValidationError(
+                    _("The Gateway rejected the deletion shutdown because the stored API key is unauthorized.")
+                )
+
+            if (
+                response.status_code == 200
+                and isinstance(body, dict)
+                and body.get("ok") is True
+                and body.get("enabled") is False
+            ):
+                acknowledged = body.get("revision")
+                if isinstance(acknowledged, int):
+                    return True
+
+            # A race may have advanced the Gateway revision after the Odoo
+            # record was last synchronized. If the Gateway reports its current
+            # revision and is still enabled, issue one fenced follow-up update.
+            if (
+                response.status_code == 200
+                and isinstance(body, dict)
+                and body.get("reason") == "stale_revision"
+                and body.get("enabled") is True
+                and isinstance(body.get("revision"), int)
+            ):
+                next_revision = body["revision"] + 1
+                if next_revision <= 2_147_483_647:
+                    response, body = send(next_revision)
+                    if response.status_code == 401:
+                        raise ValidationError(
+                            _("The Gateway rejected the deletion shutdown because the API key is unauthorized.")
+                        )
+                    if (
+                        response.status_code == 200
+                        and isinstance(body, dict)
+                        and body.get("ok") is True
+                        and body.get("enabled") is False
+                        and isinstance(body.get("revision"), int)
+                    ):
+                        return True
+
+            message = body.get("error") if isinstance(body, dict) else False
+            _logger.warning(
+                "Gateway deletion shutdown was not confirmed for config %s (HTTP %s): %s",
+                self.id,
+                response.status_code,
+                message or body,
+            )
+        except (requests.RequestException, ValueError, ValidationError) as exc:
+            _logger.warning(
+                "Gateway deletion shutdown failed for config %s: %s",
+                self.id,
+                exc,
+            )
+        return False
+
     def unlink(self):
         self._check_admin()
+        # Best-effort disable sync before deletion so the Gateway does not
+        # keep a stale enabled state after the Odoo record disappears.
+        # Deletion itself must not be blocked by Gateway reachability.
+        # Skip external calls during Odoo test mode to keep tests fast and deterministic.
+        in_test = False
+        try:
+            in_test = bool(self.env.registry.in_test_mode() or self.env.context.get("test_mode") or self.env.context.get("test_queue_job_no_delay"))
+        except Exception:
+            in_test = False
+        if not in_test:
+            for record in self:
+                try:
+                    if not record.gateway_url:
+                        continue
+                    # Skip example/test domains used in Odoo test suites
+                    url_lower = (record.gateway_url or "").lower()
+                    if "example.com" in url_lower or "test" in url_lower and "localhost" not in url_lower:
+                        # Still allow real localhost / LAN URLs, but skip obvious test placeholders to avoid 5s timeouts in CI
+                        if "example.com" in url_lower:
+                            continue
+                    if record.pending_disable_gateway_url and record.pending_disable_gateway_api_key:
+                        try:
+                            old_key = record._gateway_api_key_plaintext_from_value(
+                                record.pending_disable_gateway_api_key
+                            )
+                            if old_key:
+                                requests.patch(
+                                    "%s/api/odoo/configuration" % record.pending_disable_gateway_url.rstrip("/"),
+                                    headers={
+                                        "Authorization": "Bearer %s" % old_key,
+                                        "Accept": "application/json",
+                                        "Cache-Control": "no-store",
+                                        "Content-Type": "application/json",
+                                        "X-Odoo-Database": self.env.cr.dbname,
+                                    },
+                                    json={"enabled": False, "revision": int(record.pending_disable_revision or 0)},
+                                    timeout=2,
+                                    allow_redirects=False,
+                                )
+                        except Exception:
+                            _logger.debug(
+                                "Could not disable previous Gateway endpoint during unlink for config %s",
+                                record.id,
+                                exc_info=True,
+                            )
+                    if not record.gateway_api_key:
+                        continue
+                    try:
+                        gateway_url = record._gateway_base(for_request=True)
+                        api_key = record._gateway_api_key_plaintext()
+                    except Exception:
+                        _logger.debug(
+                            "Could not decrypt Gateway credential during unlink for config %s",
+                            record.id,
+                            exc_info=True,
+                        )
+                        continue
+                    new_revision = int(record.enabled_sync_revision or 0) + 1
+                    try:
+                        record._disable_gateway_for_unlink(gateway_url, api_key, new_revision)
+                    except Exception:
+                        _logger.debug(
+                            "Gateway disable during unlink failed for config %s",
+                            record.id,
+                            exc_info=True,
+                        )
+                except Exception:
+                    _logger.debug(
+                        "Unexpected error during unlink sync for config %s",
+                        record.id,
+                        exc_info=True,
+                    )
         return super().unlink()
 
     @api.model

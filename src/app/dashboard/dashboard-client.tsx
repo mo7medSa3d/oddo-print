@@ -265,7 +265,7 @@ export default function DashboardClient({
       cancelled = true;
       setSelectedJobPayload(undefined);
     };
-  }, [selectedJob?.id]);
+  }, [selectedJob]);
 
   const filterRef = React.useRef({ status: "all", search: "" });
   useEffect(() => {
@@ -562,78 +562,38 @@ export default function DashboardClient({
 
   return (
     <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8 space-y-6">
-      {/* Header — operational context */}
-      <header className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex items-center gap-3">
-            <h1 className="text-[24px] font-bold tracking-[-0.02em] leading-tight text-ink">Operations</h1>
-            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-edge bg-surface text-ink-2"}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${databaseError ? "bg-bad-solid" : "bg-ok-solid animate-pulse"}`} />
-              {databaseError ? "Database unavailable" : "Live"}
-            </span>
-          </div>
-          <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">
-            Runtime agents, printer fleet, and job execution — business context stays in Odoo.
-          </p>
+      <header className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h1 className="text-[22px] font-bold tracking-tight text-zinc-900">Console</h1>
+          <span className={`inline-flex h-5 items-center rounded-full border px-2.5 text-[10px] font-bold uppercase tracking-widest ${databaseError ? "border-red-200 bg-red-50 text-red-600" : "border-zinc-900 bg-zinc-900 text-white"}`}>{databaseError ? "Down" : "Live"}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={() => void refreshData()} icon={<RefreshCw className="h-4 w-4" />}>
-            Refresh
-          </Button>
-          <div className="hidden h-6 w-px bg-edge sm:block" />
-          <div className="hidden items-center gap-2 text-[12px] text-ink-3 sm:flex">
-            <Clock className="h-3.5 w-3.5" />
-            <span>Auto-refresh every 6s</span>
-          </div>
-        </div>
+        <Button variant="ghost" size="sm" onClick={() => void refreshData()} icon={<RefreshCw className="h-4 w-4" />}>Refresh</Button>
       </header>
 
-      {/* KPI Layer — financial clarity + operational */}
-      <section aria-label="Metrics" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          title="Agents"
-          value={`${kpis.onlineAgents} / ${kpis.totalAgents}`}
-          subtitle={`${kpis.onlineAgents} online • ${kpis.totalAgents - kpis.onlineAgents} offline`}
-          icon={<Cpu className="h-5 w-5 text-brand" />}
-          tone={kpis.onlineAgents > 0 ? "ok" : "warn"}
-        />
-        <StatCard
-          title="Printers"
-          value={`${kpis.onlinePrinters} / ${kpis.totalPrinters}`}
-          subtitle={kpis.onlinePrinters === kpis.totalPrinters ? "All ready" : `${kpis.totalPrinters - kpis.onlinePrinters} need attention`}
-          icon={<PrinterIcon className="h-5 w-5 text-brand" />}
-          tone={kpis.onlinePrinters > 0 ? (kpis.onlinePrinters === kpis.totalPrinters ? "ok" : "warn") : "neutral"}
-        />
-        <StatCard
-          title="In Flight"
-          value={kpis.inFlightJobs}
-          subtitle="Queued, claimed, printing"
-          icon={<Zap className="h-5 w-5 text-info" />}
-          tone="info"
-        />
-        <StatCard
-          title="Success Rate"
-          value={kpis.successRate === null ? "—" : `${kpis.successRate}%`}
-          subtitle={
-            kpiJobs.length === 0
-              ? "No jobs yet"
-              : kpis.attentionJobs > 0
-                ? `${kpis.attentionJobs} unknown — verify printer`
-                : kpis.failedJobs > 0
-                  ? `${kpis.failedJobs} failed pre-dispatch`
-                  : "All accounted for"
-          }
-          icon={<ShieldCheck className="h-5 w-5 text-ok" />}
-          tone={kpis.successRate === null || kpis.attentionJobs > 0 ? (kpis.successRate === null ? "neutral" : "warn") : kpis.successRate >= 90 ? "ok" : "warn"}
-        />
+      <section className="grid grid-cols-4 gap-3">
+        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3.5">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Agents</div>
+          <div className="mt-1 text-[20px] font-bold tracking-tight text-zinc-900">{kpis.onlineAgents}<span className="text-zinc-300">/{kpis.totalAgents}</span></div>
+        </div>
+        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3.5">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Printers</div>
+          <div className="mt-1 text-[20px] font-bold tracking-tight text-zinc-900">{kpis.onlinePrinters}<span className="text-zinc-300">/{kpis.totalPrinters}</span></div>
+        </div>
+        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3.5">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Queue</div>
+          <div className="mt-1 text-[20px] font-bold tracking-tight text-zinc-900">{kpis.inFlightJobs}</div>
+        </div>
+        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3.5">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Success</div>
+          <div className="mt-1 text-[20px] font-bold tracking-tight text-zinc-900">{kpis.successRate === null ? "—" : `${kpis.successRate}%`}</div>
+        </div>
       </section>
 
       {message && (
         <div
           role={message.type === "ok" ? "status" : "alert"}
-          className={`flex items-start justify-between gap-3 rounded-[12px] border px-4 py-3 text-[13px] shadow-card ${
-            message.type === "ok" ? "border-ok-edge bg-ok-bg text-ok" : "border-bad-edge bg-bad-bg text-bad"
-          }`}
+          className={`flex items-start justify-between gap-3 rounded-[12px] border px-4 py-3 text-[13px] shadow-card ${message.type === "ok" ? "border-ok-edge bg-ok-bg text-ok" : "border-bad-edge bg-bad-bg text-bad"
+            }`}
         >
           <div className="flex items-start gap-2.5">
             {message.type === "ok" ? <Check className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
@@ -646,36 +606,13 @@ export default function DashboardClient({
       )}
 
       {activePairing && (
-        <div className="relative overflow-hidden rounded-[16px] border border-edge-accent bg-gradient-to-br from-white to-[#f8fbff] p-6 shadow-[0_4px_24px_rgba(37,99,235,0.08)]">
-          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-brand via-brand-400 to-transparent opacity-80" />
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0">
-              <div className="inline-flex items-center gap-2 rounded-full bg-brand-subtle border border-edge-accent px-2.5 py-1 text-[11px] font-semibold tracking-wide text-brand">
-                <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulse" />
-                PAIRING ACTIVE
-              </div>
-              <h3 className="mt-3 text-[18px] font-bold tracking-tight text-ink">Ready to pair edge agent</h3>
-              <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-ink-3">
-                Enter this code in the Windows Agent or Odoo pairing wizard. It expires automatically — the agent must connect before timeout.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2.5 lg:items-end">
-              <div className="flex items-center gap-3">
-                <div className="rounded-[12px] border border-edge bg-surface px-5 py-3 shadow-inner">
-                  <span className="font-mono text-[28px] font-bold tracking-[0.32em] text-brand leading-none">
-                    {activePairing.code}
-                  </span>
-                </div>
-                <Button variant="primary" onClick={() => copyPairingCode(activePairing.code)} icon={copiedCode ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}>
-                  {copiedCode ? "Copied" : "Copy"}
-                </Button>
-              </div>
-              <div className="flex items-center gap-1.5 text-[12px] text-ink-3">
-                <Clock className="h-3.5 w-3.5 text-warn" />
-                Expires in <span className="font-semibold text-ink tabular-nums">{countdownText}</span>
-              </div>
-            </div>
+        <div className="flex items-center justify-between rounded-xl border border-zinc-900 bg-zinc-900 px-6 py-4 text-white">
+          <div className="flex items-center gap-5">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Pairing</div>
+            <div className="font-mono text-[24px] font-bold tracking-[0.3em]">{activePairing.code}</div>
+            <div className="text-[12px] tabular-nums text-zinc-400">{countdownText}</div>
           </div>
+          <Button variant="secondary" size="sm" onClick={() => copyPairingCode(activePairing.code)} icon={<Copy className="h-4 w-4" />}>{copiedCode ? "Copied" : "Copy"}</Button>
         </div>
       )}
 
@@ -985,7 +922,7 @@ export default function DashboardClient({
                           <div className="font-medium text-ink text-[13px]">{job.destination || "Direct"}</div>
                           <div className="text-[11px] text-ink-3">{job.documentType || "—"}</div>
                         </td>
-                        <td className="px-4 py-3"><StatusBadge label={jobLabel(job.status, outcome)} tone={sharedJobTone(job.status, outcome)} pulse={["printing","claimed"].includes(job.status.toLowerCase())} /></td>
+                        <td className="px-4 py-3"><StatusBadge label={jobLabel(job.status, outcome)} tone={sharedJobTone(job.status, outcome)} pulse={["printing", "claimed"].includes(job.status.toLowerCase())} /></td>
                         <td className="px-4 py-3 text-[12px] text-ink-3">{formatRelativeTime(job.createdAt)}</td>
                         <td className="px-4 py-3 text-right">
                           <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelectedJob(job); }} icon={<Eye className="h-3.5 w-3.5" />}>Inspect</Button>
@@ -1005,67 +942,67 @@ export default function DashboardClient({
           const outcome = deriveOutcome(selectedJob.status, selectedJob.error);
           const isTerminal = ["success", "failed", "expired"].includes(selectedJob.status.toLowerCase());
           return (
-          <div className="space-y-5">
-            <div className="flex items-center justify-between rounded-[12px] border border-edge bg-surface-2 p-4">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Current State</div>
-                <div className="mt-1 text-[16px] font-bold text-ink">{jobLabel(selectedJob.status, outcome)}</div>
-                {jobGuidance(selectedJob.status, outcome) && <p className="mt-1 max-w-md text-[12px] text-ink-3">{jobGuidance(selectedJob.status, outcome)}</p>}
-              </div>
-              <StatusBadge label={jobLabel(selectedJob.status, outcome)} tone={sharedJobTone(selectedJob.status, outcome)} pulse={["printing","claimed"].includes(selectedJob.status.toLowerCase())} />
-            </div>
-
-            {outcome === "unknown" && isTerminal && (
-              <div className="rounded-[12px] border border-warn-edge bg-warn-bg p-4 space-y-3">
-                <div className="flex items-start gap-2.5 text-warn">
-                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                  <div>
-                    <h4 className="text-[13px] font-bold">Outcome unknown — verify printer</h4>
-                    <p className="mt-1 text-[12px] leading-relaxed text-ink-2">Paper may have printed. Automatic retry paused to avoid duplicates. Check tray before reprinting.</p>
-                  </div>
+            <div className="space-y-5">
+              <div className="flex items-center justify-between rounded-[12px] border border-edge bg-surface-2 p-4">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Current State</div>
+                  <div className="mt-1 text-[16px] font-bold text-ink">{jobLabel(selectedJob.status, outcome)}</div>
+                  {jobGuidance(selectedJob.status, outcome) && <p className="mt-1 max-w-md text-[12px] text-ink-3">{jobGuidance(selectedJob.status, outcome)}</p>}
                 </div>
-                <Button size="sm" variant="primary" onClick={() => setReprintCandidate(selectedJob)} disabled={busy} icon={<RotateCcw className="h-3.5 w-3.5" />}>Reprint…</Button>
+                <StatusBadge label={jobLabel(selectedJob.status, outcome)} tone={sharedJobTone(selectedJob.status, outcome)} pulse={["printing", "claimed"].includes(selectedJob.status.toLowerCase())} />
               </div>
-            )}
 
-            {selectedJob.status.toLowerCase() === "failed" && outcome === "not_printed" && (
-              <div className="rounded-[12px] border border-edge bg-surface-2 p-4 space-y-3">
-                <p className="text-[12px] leading-relaxed text-ink-2">Failed before dispatch — safe to retry. Queues original document anew.</p>
-                <Button size="sm" variant="secondary" onClick={() => setReprintCandidate(selectedJob)} disabled={busy} icon={<RotateCcw className="h-3.5 w-3.5" />}>Retry print…</Button>
+              {outcome === "unknown" && isTerminal && (
+                <div className="rounded-[12px] border border-warn-edge bg-warn-bg p-4 space-y-3">
+                  <div className="flex items-start gap-2.5 text-warn">
+                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                    <div>
+                      <h4 className="text-[13px] font-bold">Outcome unknown — verify printer</h4>
+                      <p className="mt-1 text-[12px] leading-relaxed text-ink-2">Paper may have printed. Automatic retry paused to avoid duplicates. Check tray before reprinting.</p>
+                    </div>
+                  </div>
+                  <Button size="sm" variant="primary" onClick={() => setReprintCandidate(selectedJob)} disabled={busy} icon={<RotateCcw className="h-3.5 w-3.5" />}>Reprint…</Button>
+                </div>
+              )}
+
+              {selectedJob.status.toLowerCase() === "failed" && outcome === "not_printed" && (
+                <div className="rounded-[12px] border border-edge bg-surface-2 p-4 space-y-3">
+                  <p className="text-[12px] leading-relaxed text-ink-2">Failed before dispatch — safe to retry. Queues original document anew.</p>
+                  <Button size="sm" variant="secondary" onClick={() => setReprintCandidate(selectedJob)} disabled={busy} icon={<RotateCcw className="h-3.5 w-3.5" />}>Retry print…</Button>
+                </div>
+              )}
+
+              {selectedJob.error && (
+                <div className="rounded-[12px] border border-bad-edge bg-bad-bg p-4 space-y-1">
+                  <div className="flex items-center gap-2 text-[13px] font-semibold text-bad"><AlertTriangle className="h-4 w-4" />Execution Error</div>
+                  <p className="text-[11px] leading-relaxed font-mono break-all text-ink-2">{selectedJob.error}</p>
+                </div>
+              )}
+
+              <div className="rounded-[12px] border border-edge bg-surface divide-y divide-edge text-[12px]">
+                <div className="flex justify-between p-3"><span className="text-ink-3">Printer</span><Mono>{selectedJob.printerId}</Mono></div>
+                <div className="flex justify-between p-3"><span className="text-ink-3">Agent</span><Mono>{selectedJob.agentId}</Mono></div>
+                <div className="flex justify-between p-3"><span className="text-ink-3">Document</span><span className="font-semibold text-ink">{selectedJob.destination || "Direct"} · {selectedJob.documentType || "Standard"}</span></div>
+                <div className="flex justify-between p-3"><span className="text-ink-3">Retries</span><span className="font-semibold">{selectedJob.retries ?? 0}</span></div>
+                <div className="flex justify-between p-3"><span className="text-ink-3">Created</span><span>{new Date(selectedJob.createdAt).toLocaleString()}</span></div>
+                {selectedJob.deliveredAt && <div className="flex justify-between p-3"><span className="text-ink-3">Delivered</span><span>{new Date(selectedJob.deliveredAt).toLocaleString()}</span></div>}
               </div>
-            )}
 
-            {selectedJob.error && (
-              <div className="rounded-[12px] border border-bad-edge bg-bad-bg p-4 space-y-1">
-                <div className="flex items-center gap-2 text-[13px] font-semibold text-bad"><AlertTriangle className="h-4 w-4" />Execution Error</div>
-                <p className="text-[11px] leading-relaxed font-mono break-all text-ink-2">{selectedJob.error}</p>
+              <div className="space-y-2">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Job Timeline (Gateway→Spooler→Physical, claim redacted)</div>
+                {selectedJob && <JobTimeline jobId={selectedJob.id} />}
               </div>
-            )}
 
-            <div className="rounded-[12px] border border-edge bg-surface divide-y divide-edge text-[12px]">
-              <div className="flex justify-between p-3"><span className="text-ink-3">Printer</span><Mono>{selectedJob.printerId}</Mono></div>
-              <div className="flex justify-between p-3"><span className="text-ink-3">Agent</span><Mono>{selectedJob.agentId}</Mono></div>
-              <div className="flex justify-between p-3"><span className="text-ink-3">Document</span><span className="font-semibold text-ink">{selectedJob.destination || "Direct"} · {selectedJob.documentType || "Standard"}</span></div>
-              <div className="flex justify-between p-3"><span className="text-ink-3">Retries</span><span className="font-semibold">{selectedJob.retries ?? 0}</span></div>
-              <div className="flex justify-between p-3"><span className="text-ink-3">Created</span><span>{new Date(selectedJob.createdAt).toLocaleString()}</span></div>
-              {selectedJob.deliveredAt && <div className="flex justify-between p-3"><span className="text-ink-3">Delivered</span><span>{new Date(selectedJob.deliveredAt).toLocaleString()}</span></div>}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Diagnostic Payload</span>
+                  <CopyButton value={(() => { const p = selectedJob.payload ?? selectedJobPayload; return p === undefined ? "" : stringifyDiagnosticPayload(p); })()} label="Copy" />
+                </div>
+                <div className="max-h-72 overflow-auto rounded-[12px] border border-edge bg-surface-2 p-3 font-mono text-[11px] leading-relaxed text-ink-2" aria-live="polite">
+                  {selectedJobPayloadLoading ? <span>Loading payload…</span> : <pre>{diagnosticPayloadPreview(stringifyDiagnosticPayload(selectedJob.payload ?? selectedJobPayload))}</pre>}
+                </div>
+              </div>
             </div>
-
-            <div className="space-y-2">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Job Timeline (Gateway→Spooler→Physical, claim redacted)</div>
-              {selectedJob && <JobTimeline jobId={selectedJob.id} />}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Diagnostic Payload</span>
-                <CopyButton value={(() => { const p = selectedJob.payload ?? selectedJobPayload; return p === undefined ? "" : stringifyDiagnosticPayload(p); })()} label="Copy" />
-              </div>
-              <div className="max-h-72 overflow-auto rounded-[12px] border border-edge bg-surface-2 p-3 font-mono text-[11px] leading-relaxed text-ink-2" aria-live="polite">
-                {selectedJobPayloadLoading ? <span>Loading payload…</span> : <pre>{diagnosticPayloadPreview(stringifyDiagnosticPayload(selectedJob.payload ?? selectedJobPayload))}</pre>}
-              </div>
-            </div>
-          </div>
           );
         })()}
       </Drawer>
@@ -1101,26 +1038,25 @@ export default function DashboardClient({
         </div>
       </Modal>
 
-      {/* Enterprise Observability — P0 */}
+      {/* System Health — professional, concise */}
       <Card className="overflow-hidden">
-        <CardHeader title="Enterprise Observability" subtitle="Agent health, capability matrix, certification, timeline, spooler linking" icon={<Server className="h-4 w-4 text-brand" />} />
-        <div className="space-y-6 px-5 pb-5">
+        <CardHeader title="Infrastructure" icon={<Server className="h-4 w-4 text-zinc-900" />} />
+        <div className="space-y-10 px-5 pb-6">
           <div>
-            <h3 className="mb-2 text-sm font-semibold">Agent Health (ONLINE/DEGRADED/OFFLINE/STARTING — observed vs inferred)</h3>
+            <h3 className="mb-4 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Agents</h3>
             <AgentHealthMatrix />
           </div>
           <div>
-            <h3 className="mb-2 text-sm font-semibold">Printer Capability Matrix (Transport/Protocol/Document/Duplex/Color/Status + Driver/Spooler)</h3>
+            <h3 className="mb-4 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Printers</h3>
             <PrinterCapabilityMatrix />
           </div>
           <div>
-            <h3 className="mb-2 text-sm font-semibold">Real Print Certification</h3>
-            <p className="mb-2 text-[12px] text-ink-3">Select a printer from fleet to run certification wizard (Gateway→Auth→Queue→Claim→Agent→Transport→Physical→Ack→Final).</p>
+            <h3 className="mb-4 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Certification</h3>
             <div className="grid gap-3 md:grid-cols-2">
-              {printers.slice(0,4).map(p=>(
+              {printers.slice(0, 4).map(p => (
                 <PrintCertificationWizard key={p.id} printerId={p.id} />
               ))}
-              {printers.length===0 && <div className="text-xs text-ink-3">No printers to certify. Register an agent and printer first.</div>}
+              {printers.length === 0 && <div className="rounded-xl border border-dashed border-zinc-200 bg-white p-8 text-center text-[13px] font-medium text-zinc-500">No printers.</div>}
             </div>
           </div>
         </div>
