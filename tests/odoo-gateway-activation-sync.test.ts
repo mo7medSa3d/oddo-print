@@ -6,11 +6,10 @@ import { createHash } from "node:crypto";
 import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, closePool, pool, type Fixture } from "./helpers/pg";
 import { PATCH as configurationPATCH } from "../src/app/api/odoo/configuration/route";
 import { GET as healthGET } from "../src/app/api/odoo/health/route";
+import { POST as printJobsPOST } from "../src/app/api/print/jobs/route";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file: string) => readFileSync(path.join(ROOT, file), "utf8");
-
-const suite = describe.skipIf(!hasTestDatabase);
 
 describe("Odoo Gateway activation synchronization", () => {
   it("keeps Odoo activation separate from tenant lifecycle and fences updates by revision", () => {
@@ -41,6 +40,59 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(migration).toContain('UPDATE "api_keys" AS k');
     expect(migration).toContain('Every existing key in a tenant inherits the former tenant-wide activation');
     expect(migration).toContain('DROP COLUMN IF EXISTS "odoo_enabled"');
+  });
+
+  describe.skipIf(!hasTestDatabase)("runtime isolation", () => {
+    let f: Fixture;
+    const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
+
+    beforeAll(async () => { await applyMigrations(); });
+    beforeEach(async () => { await truncateAll(); f = await seedFixture(); });
+    afterAll(async () => { await closePool(); });
+
+    it("changes one integration without changing another integration in the same tenant", async () => {
+      const keyB = "odoo_company_b_activation";
+      await pool().query(
+        `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key, odoo_enabled, odoo_enabled_revision)
+         VALUES ($1, $2, 'standard', 'Company B', $3, true, 0)`,
+        ["key_company_b", f.tenantId, sha256(keyB)],
+      );
+
+      const disableA = await configurationPATCH(new Request("http://gateway.test/api/odoo/configuration", {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
+        body: JSON.stringify({ enabled: false, revision: 1 }),
+      }));
+      expect(disableA.status).toBe(200);
+
+      const healthA = await healthGET(new Request("http://gateway.test/api/odoo/health", {
+        headers: { Authorization: `Bearer ${f.odooKey}` },
+      }));
+      const healthB = await healthGET(new Request("http://gateway.test/api/odoo/health", {
+        headers: { Authorization: `Bearer ${keyB}` },
+      }));
+      expect((await healthA.json()).enabled).toBe(false);
+      expect((await healthB.json()).enabled).toBe(true);
+
+      const printBody = {
+        printerId: f.printerId,
+        documentType: "receipt",
+        destination: "POS",
+        payload: { type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=" },
+      };
+      const printA = await printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
+        body: JSON.stringify({ ...printBody, idempotencyKey: "company-a-disabled" }),
+      }));
+      const printB = await printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${keyB}`, "content-type": "application/json" },
+        body: JSON.stringify({ ...printBody, idempotencyKey: "company-b-still-enabled" }),
+      }));
+      expect(printA.status).toBe(401);
+      expect(printB.status).toBe(201);
+    });
   });
 
   it("renders Gateway Configuration status from the Odoo-sourced state and refreshes it", () => {
