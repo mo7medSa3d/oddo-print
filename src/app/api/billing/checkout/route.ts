@@ -338,7 +338,14 @@ export async function POST(req: Request) {
     // Stripe accepted the request but the response/DB finalization was lost,
     // the next retry safely replays the same external operation rather than
     // minting a second Checkout Session.
-    console.error("billing checkout failed", error instanceof Error ? error.message : "unknown");
+    const message = error instanceof Error ? error.message : "unknown";
+    console.error("billing checkout failed", message);
+    if (message === "Stripe is not configured") {
+      return NextResponse.json(
+        { error: "Stripe billing is not configured on this Gateway yet.", code: "STRIPE_NOT_CONFIGURED" },
+        { status: 503 },
+      );
+    }
     return NextResponse.json({ error: "Checkout could not be created right now. Please retry." }, { status: 502 });
   }
 }
