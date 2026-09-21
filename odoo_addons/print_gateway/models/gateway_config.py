@@ -725,10 +725,7 @@ class PrintGatewayConfig(models.Model):
                     # changed outside the original recordset: notify the ORM
                     # that the dependencies changed so gateway_sync_state and
                     # gateway_sync_message are recomputed in this transaction.
-                    record.modified([
-                        "enabled_sync_revision",
-                        "last_enabled_sync_error",
-                    ])
+                    record.modified(["enabled_sync_revision", "last_enabled_sync_error"])
                 elif "gateway_api_key" in vals:
                     # Rotating or restoring a credential must start a fresh
                     # fenced reconciliation. Reusing the previous activation
@@ -1197,39 +1194,3 @@ class PrintGatewayPairAgentWizard(models.TransientModel):
             # Company-level assignment is represented with branch_id=False.
             if self.branch_id:
                 if self.branch_id.parent_id != config.company_id:
-                    raise ValidationError(
-                        _("The selected Target Branch must belong directly to the configured Odoo Company.")
-                    )
-                target_branch = self.branch_id
-            else:
-                target_branch = False
-            assignment_model = self.env["print_gateway.runtime_agent_assignment"]
-            existing = assignment_model.search([
-                ("company_id", "=", config.company_id.id),
-                ("branch_id", "=", target_branch.id if target_branch else False),
-                ("runtime_agent_id", "=", resolved_agent_id),
-            ], limit=1)
-            if not existing:
-                assignment_model.create({
-                    "company_id": config.company_id.id,
-                    "branch_id": target_branch.id if target_branch else False,
-                    "runtime_agent_id": resolved_agent_id,
-                    "enabled": True,
-                })
-            target_scope = target_branch.display_name if target_branch else config.company_id.display_name
-            return {
-                "type": "ir.actions.client",
-                "tag": "display_notification",
-                "params": {
-                    "title": _("Agent Assigned Successfully"),
-                    "message": _("Agent %s assigned to %s.") % (resolved_agent_id, target_scope),
-                    "type": "success",
-                    "sticky": False,
-                },
-            }
-        except ValidationError:
-            raise
-        except requests.RequestException as exc:
-            raise ValidationError(_("Gateway connection timed out while querying registered agents.")) from exc
-
-
