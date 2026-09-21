@@ -518,12 +518,20 @@ class PrintGatewayConfig(models.Model):
                 # requested state, adopt its authoritative revision. Otherwise
                 # advance Odoo's local fence past that revision and retry.
                 reconciliation_reason = body.get("reason")
-                has_remote_revision = isinstance(acknowledged_revision, int) and acknowledged_revision >= 0
+                has_remote_revision = (
+                    isinstance(acknowledged_revision, int)
+                    and acknowledged_revision >= 0
+                    and isinstance(acknowledged_enabled, bool)
+                )
                 if response.status_code == 409:
                     current = body.get("current") if isinstance(body.get("current"), dict) else {}
                     acknowledged_revision = current.get("revision")
                     acknowledged_enabled = current.get("enabled")
-                    has_remote_revision = isinstance(acknowledged_revision, int) and acknowledged_revision >= 0
+                    has_remote_revision = (
+                        isinstance(acknowledged_revision, int)
+                        and acknowledged_revision >= 0
+                        and isinstance(acknowledged_enabled, bool)
+                    )
                     reconciliation_reason = "conflict"
 
                 if response.status_code != 200 and response.status_code != 409:
