@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Field, Input, ErrorState } from "../../components/ui";
@@ -12,6 +13,7 @@ export default function Signup() {
   const [err, setErr] = useState("");
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -26,7 +28,7 @@ export default function Signup() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Registration failed");
       setDone(true);
-      window.location.assign(`/verify-email?email=${encodeURIComponent(email)}`);
+      router.push(`/verify-email?email=${encodeURIComponent(email)}`);
     } catch (error) {
       setErr(error instanceof Error ? error.message : "Registration failed");
     } finally {
