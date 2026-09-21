@@ -189,7 +189,7 @@
                         <field name="config_id" invisible="1"/>
                         <field name="company_id" invisible="1"/>
                         <field name="branch_id" string="Target Branch" options="{'no_create': True, 'no_open': True}"/>
-                        <field name="agent_id" string="Runtime Agent" widget="gateway_runtime_agent" placeholder="Select an active Gateway agent" class="o_pg_pairing_code_input" required="1" help="Select an active agent registered with the Central Gateway."/>
+                        <field name="agent_id" string="Runtime Agent" widget="gateway_runtime_agent_picker" placeholder="Select an active Gateway agent" class="o_pg_pairing_code_input" required="1" help="Select an active agent registered with the Central Gateway."/>
                     </group>
                 </sheet>
                 <footer>
