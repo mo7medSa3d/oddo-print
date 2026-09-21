@@ -118,6 +118,9 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(model).toContain('"pending_sync_revision": next_revision');
     expect(model).toContain('"pending_sync_started_at": fields.Datetime.now()');
     expect(model).toContain('expected_revision=revision');
+    expect(model).toContain('def _write_test_result_if_current');
+    expect(model).toContain('int(row[0] or 0) != int(expected_revision)');
+    expect(model).toContain('expected_revision = int(self.enabled_sync_revision or 0)');
 
     // The save hook must not hand a server "reload" action back to the global
     // action manager: doing so can race the record-level refresh. It must reload
