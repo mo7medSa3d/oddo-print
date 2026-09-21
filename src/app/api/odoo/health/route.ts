@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
 import { TenantDeletedError, TenantSuspendedError, requireActiveTenant } from "../../../../lib/tenant-guard";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
 
