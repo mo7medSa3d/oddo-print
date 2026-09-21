@@ -11,7 +11,7 @@ function statusOf(status: string): "trialing" | "active" | "past_due" | "paused"
   if (status === "trialing") return "trialing";
   if (status === "active") return "active";
   if (status === "past_due") return "past_due";
-  if (status === "unpaid") return "cancelled";
+  if (status === "unpaid") return "paused";
   if (status === "paused" || status === "incomplete") return "paused";
   return "cancelled";
 }
