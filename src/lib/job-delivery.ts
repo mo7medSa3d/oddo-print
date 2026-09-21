@@ -188,6 +188,37 @@ export async function markJobDelivered(jobId: string, tenantId: string, agentId:
   return res.length > 0;
 }
 
+/**
+ * The WebSocket send path has crossed the Gateway -> Agent boundary when the
+ * socket accepted the frame, but delivery evidence may still fail to persist.
+ * That condition is physically ambiguous: never requeue the job merely because
+ * the evidence write failed, or the same job could be delivered a second time
+ * while the first Agent attempt is already printing.
+ *
+ * The update is fenced to the exact claim token and only the pre-execution
+ * 'claimed' state. If the Agent already moved the job to 'printing' (or a
+ * concurrent actor made it terminal), this helper deliberately does nothing;
+ * the existing state is already the authoritative outcome path.
+ */
+export async function markJobDeliveryUnknown(
+  jobId: string,
+  tenantId: string,
+  agentId: string,
+  claimToken: string | null,
+): Promise<boolean> {
+  const res = await db.update(printJobs)
+    .set({
+      status: "failed",
+      error: "UNKNOWN_PARTIAL_DELIVERY: WebSocket frame was accepted but delivery evidence could not be persisted; physical output is unknown (manual reconciliation required)",
+      deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
+      claimToken: sql`NULL`,
+      updatedAt: sql`now()`,
+    })
+    .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed"]))
+    .returning({ id: printJobs.id });
+  return res.length > 0;
+}
+
 export async function recordJobAck(jobId: string, tenantId: string, agentId: string, claimToken?: string | null): Promise<boolean> {
   const res = await db.update(printJobs)
     // ACK means the Agent admitted the job into its bounded local executor.
