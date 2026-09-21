@@ -135,7 +135,7 @@ export default function ApiKeysPage() {
             <KeyRound className="h-3.5 w-3.5" /> Odoo Gateway
           </div>
           <h1 className="mt-4 text-[26px] font-bold tracking-[-0.02em] text-ink">API Keys & Integration</h1>
-          <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">Create, rotate, and revoke credentials for Odoo. Odoo controls whether printing is enabled. API credentials are managed separately.</p>
+          <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">Manage Odoo credentials and see the Gateway activation state. Odoo controls whether printing is active; credentials are separate.</p>
         </div>
         <Link href="/dashboard" className="inline-flex items-center gap-1.5 rounded-[9px] border border-edge bg-surface px-3.5 py-2 text-[13px] font-semibold text-ink-2 hover:bg-surface-2">
           Back to Console
@@ -153,7 +153,7 @@ export default function ApiKeysPage() {
         <div className="lg:col-span-2 space-y-6">
           {/* Integration status — distinct states */}
           <Card>
-            <CardHeader title="Odoo Integration Health" subtitle="Activation state synchronized from Odoo — distinct from credential state" icon={<Network className="h-4 w-4 text-brand" />} />
+            <CardHeader title="Odoo Integration" subtitle="Activation is synchronized from Odoo; credential status is tracked separately." icon={<Network className="h-4 w-4 text-brand" />} />
             <div className="px-6 pb-6 space-y-4">
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-[10px] border border-edge bg-surface-2 p-4">
@@ -166,9 +166,9 @@ export default function ApiKeysPage() {
                 <div className="rounded-[10px] border border-edge bg-surface-2 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Odoo Activation</div>
                   <div className="mt-2">
-                    {gatewayConfigError ? <StatusBadge tone="warn" label="Status unavailable" /> : gatewayConfig ? <StatusBadge tone={gatewayConfig.enabled ? "ok" : "neutral"} label={gatewayConfig.enabled ? "Enabled in Odoo" : "Disabled in Odoo"} /> : <StatusBadge tone="neutral" label="Checking…" />}
+                    {gatewayConfigError ? <StatusBadge tone="warn" label="Status unavailable" /> : gatewayConfig ? <StatusBadge tone={gatewayConfig.enabled ? "ok" : "neutral"} label={gatewayConfig.enabled ? "Enabled in Odoo" : "No active Odoo configuration"} /> : <StatusBadge tone="neutral" label="Checking…" />}
                   </div>
-                  <div className="mt-2 text-[11px] text-ink-3">Revision {gatewayConfig?.revision ?? "—"} • Controlled by Odoo</div>
+                  <div className="mt-2 text-[11px] text-ink-3">{gatewayConfig?.enabled ? `Revision ${gatewayConfig.revision} • Controlled by Odoo` : "Gateway-side Odoo printing is inactive."}</div>
                 </div>
                 <div className="rounded-[10px] border border-edge bg-surface-2 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Connection</div>
@@ -179,8 +179,8 @@ export default function ApiKeysPage() {
                 </div>
               </div>
               <div className="rounded-[10px] bg-surface-2 border border-edge p-4 text-[12px] leading-relaxed text-ink-3">
-                <div className="font-semibold text-ink flex items-center gap-2"><Shield className="h-4 w-4 text-brand" /> Security boundary</div>
-                <p className="mt-1">Credential validity, Odoo activation, and connection health are never merged into one badge. Each reflects backend truth independently.</p>
+                <div className="font-semibold text-ink flex items-center gap-2"><Shield className="h-4 w-4 text-brand" /> Integration state</div>
+                <p className="mt-1">Removing Gateway Configuration in Odoo disables Odoo printing here. The Gateway keeps the tenant activation state for auditability; API keys remain separate until revoked.</p>
               </div>
             </div>
           </Card>
@@ -265,7 +265,7 @@ export default function ApiKeysPage() {
               <div className="text-[13px] font-semibold text-ink">State separation</div>
               <div className="mt-3 space-y-2">
                 <div className="rounded-[8px] border border-ok-edge bg-ok-bg px-3 py-2 text-[11px]"><span className="font-semibold text-ok">VALID CREDENTIAL</span><span className="text-ink-2"> — API key is active and usable</span></div>
-                <div className="rounded-[8px] border border-edge bg-surface-2 px-3 py-2 text-[11px]"><span className="font-semibold text-ink">ENABLED IN ODOO</span><span className="text-ink-2"> — Odoo flag allows printing</span></div>
+                <div className="rounded-[8px] border border-edge bg-surface-2 px-3 py-2 text-[11px]"><span className="font-semibold text-ink">ODOO ACTIVE</span><span className="text-ink-2"> — Odoo flag allows printing</span></div>
                 <div className="rounded-[8px] border border-warn-edge bg-warn-bg px-3 py-2 text-[11px]"><span className="font-semibold text-warn">SYNC PENDING</span><span className="text-ink-2"> — Odoo has not pushed latest config</span></div>
                 <div className="rounded-[8px] border border-bad-edge bg-bad-bg px-3 py-2 text-[11px]"><span className="font-semibold text-bad">INVALID CREDENTIAL</span><span className="text-ink-2"> — Key revoked or missing</span></div>
               </div>
