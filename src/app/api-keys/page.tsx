@@ -131,13 +131,18 @@ export default function ApiKeysPage() {
             <div className={`h-2 w-2 rounded-full ${gw?.enabled ? "bg-ok-solid" : "bg-ink-4"}`} />
             <span className="text-[13px] font-semibold text-ink">{gw ? (gw.enabled ? "Enabled" : "Disabled") : "—"}</span>
           </div>
+          <div className="mt-1 text-[11px] text-ink-3">
+            {gw?.updatedAt
+              ? `Last activation change from Odoo: ${new Date(gw.updatedAt).toLocaleString()}`
+              : "No activation sync received from Odoo yet"}
+          </div>
         </div>
         <div className="rounded-xl border border-edge bg-surface px-4 py-4">
           <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Gateway</div>
           <div className="mt-2 flex items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${gw?.enabled ? "bg-ok-solid" : "bg-ink-4"}`} />
+            <div className={`h-2 w-2 rounded-full ${gw?.enabled ? (active > 0 ? "bg-ok-solid" : "bg-warn-solid") : "bg-ink-4"}`} />
             <span className="text-[13px] font-semibold text-ink">
-              {gw ? (gw.enabled ? "Ready to print" : "Connected · printing off") : "Not connected"}
+              {gw ? (gw.enabled ? (active > 0 ? "Ready to print" : "No credential") : "Printing off") : "Not connected"}
             </span>
           </div>
         </div>

@@ -26,6 +26,7 @@
             <form string="Gateway Configuration" create="1" class="o_pg_view o_pg_form">
                 <header>
                     <button name="action_test_connection" type="object" string="Test Connection" class="oe_highlight"/>
+                    <button name="action_retry_enabled_sync" type="object" string="Retry Sync" icon="fa-refresh" invisible="gateway_sync_state not in ('syncing', 'attention')"/>
                     <button name="action_open_pairing_wizard" type="object" string="Pair New Agent" class="btn-primary" icon="fa-link"/>
                     <button name="action_open_runtime_assignments" type="object" string="Branch Assignments" icon="fa-sitemap"/>
                 </header>

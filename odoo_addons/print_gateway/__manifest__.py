@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Yasser Print Gateway',
-    'version': '19.0.2.5.0',
+    'version': '19.0.2.6.0',
     'summary': 'Silent enterprise printing for Odoo ERP through Yasser Gateway',
     'description': """
 Yasser Print Gateway — Integration Only

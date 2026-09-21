@@ -102,8 +102,20 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
               </div>
               <div className="hidden sm:block text-right">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Status</div>
-                <div className="mt-2 text-[14px] font-semibold text-ink">{hasActivePlan ? "Active workspace" : "No active subscription"}</div>
-                <div className="mt-1 text-[12px] text-ink-3">{hasStripeSubscription ? "Stripe linked" : "Trial or unlinked"}</div>
+                <div className="mt-2 text-[14px] font-semibold text-ink">
+                  {sub?.status === "paused"
+                    ? "Service paused"
+                    : hasActivePlan
+                      ? "Active workspace"
+                      : "No active subscription"}
+                </div>
+                <div className="mt-1 text-[12px] text-ink-3">
+                  {sub?.status === "paused"
+                    ? "Resume via Customer Portal"
+                    : hasStripeSubscription
+                      ? "Stripe linked"
+                      : "Trial or unlinked"}
+                </div>
               </div>
             </div>
 

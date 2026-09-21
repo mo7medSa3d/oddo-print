@@ -180,3 +180,22 @@ def test_gateway_config_auto_syncs_after_api_key_save():
     assert '"action_test_connection"' in source
     assert 'await this.model.load({ resId: record.id });' in source
 
+
+def test_gateway_config_auto_syncs_activation_toggle_without_manual_refresh():
+    """Replacing a key or toggling activation must converge on screen by itself.
+
+    Contract: the form-controller hook also fires for the "enabled" toggle,
+    pushes the fenced revision through action_retry_enabled_sync, and reloads
+    the record from persisted state in every path, so the operator never has
+    to refresh manually and the "Syncing" banner cannot be the last thing
+    shown after a successful save.
+    """
+    source = (ADDON / "static" / "src" / "js" / "gateway_config_auto_sync.js").read_text(encoding="utf-8")
+    assert 'hasOwnProperty.call(changes, "enabled")' in source
+    assert '"action_retry_enabled_sync"' in source
+    # The credential guard keeps the toggle from firing without a stored key.
+    assert source.index('record.data.gateway_api_key') < source.index('"action_retry_enabled_sync"')
+    # Exactly one reload path: every trigger converges through the same
+    # finally block reading the authoritative persisted state.
+    assert source.count('await this.model.load({ resId: record.id });') == 1
+
