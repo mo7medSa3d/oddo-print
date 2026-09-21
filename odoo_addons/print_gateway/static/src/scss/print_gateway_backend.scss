@@ -4,6 +4,24 @@
 
 .o_pg_view {
     color: var(--pg-text-2);
+
+    /* Odoo's native backend has many white surfaces. Give the Gateway module
+       a consistent structural edge so cards, fields, lists, and sections do
+       not visually merge together. */
+    .o_form_sheet,
+    .o_pg_cred_card,
+    .o_pg_connection_banner,
+    .o_pg_step_card,
+    .o_pg_partial_alert,
+    .o_kanban_record {
+        border-color: var(--pg-border-strong);
+    }
+
+    .o_group,
+    .o_notebook,
+    .o_form_sheet_bg {
+        border-color: var(--pg-border);
+    }
     font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
 
     .o_field_widget input:not([type="checkbox"]):not([type="radio"]):not(.form-check-input),
@@ -82,6 +100,16 @@
         background-color: var(--pg-bad-bg) !important; border: 1px solid var(--pg-bad-border); color: var(--pg-bad) !important;
     }
     .o_field_badge > span { background-color: var(--pg-info-bg); border: 1px solid var(--pg-info-border); color: var(--pg-info); }
+
+    .o_field_widget.o_field_many2one,
+    .o_field_widget.o_field_char,
+    .o_field_widget.o_field_text,
+    .o_field_widget.o_field_integer,
+    .o_field_widget.o_field_selection {
+        .o_input {
+            border-color: var(--pg-border-strong) !important;
+        }
+    }
 
     /* Distinct state pills for gateway_sync_state */
     .o_field_badge {
@@ -183,7 +211,7 @@
        form-sheet constraint. This page contains connection controls and
        status panels that need room to breathe on desktop. */
     .o_form_sheet_bg { background-color: var(--pg-bg); padding-left: 24px; padding-right: 24px; }
-    .o_form_sheet { width: 100%; max-width: none; box-sizing: border-box; background-color: var(--pg-surface); border: 1px solid var(--pg-border); border-radius: var(--pg-r-xl); box-shadow: var(--pg-shadow-card); }
+    .o_form_sheet { width: 100%; max-width: none; box-sizing: border-box; background-color: var(--pg-surface); border: 1px solid var(--pg-border-strong); border-radius: var(--pg-r-xl); box-shadow: var(--pg-shadow-card); }
     .o_group { margin-bottom: 10px; }
     .o_notebook .nav-tabs {
         border-bottom-color: var(--pg-border);
@@ -197,9 +225,10 @@
     thead th {
         background-color: var(--pg-surface-2) !important; color: var(--pg-text-3) !important;
         font-size: var(--pg-fs-caption); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
-        border-bottom: 1px solid var(--pg-border) !important; padding: 10px 12px !important;
+        border-bottom: 1px solid var(--pg-border-strong) !important; padding: 10px 12px !important;
     }
     tbody tr.o_data_row { &:hover { background-color: var(--pg-surface-accent) !important; } td { border-bottom: 1px solid var(--pg-border); padding: 10px 12px; } }
+    tbody tr.o_data_row + tr.o_data_row { border-top: 1px solid var(--pg-border-subtle); }
     .form-switch .form-check-input, .o_boolean_toggle .form-check-input {
         width: 2.25rem !important; height: 1.25rem !important; min-width: 2.25rem !important; border-radius: var(--pg-r-pill) !important;
         border: 1.5px solid var(--pg-border-strong) !important; background-color: var(--pg-surface-3) !important;
@@ -214,7 +243,7 @@
 }
 
 .o_pg_kanban {
-    .o_kanban_record { background-color: var(--pg-surface); border: 1px solid var(--pg-border); border-radius: var(--pg-r-lg); box-shadow: var(--pg-shadow-xs); transition: all 0.15s ease; &:hover, &:focus { border-color: var(--pg-border-accent); box-shadow: var(--pg-shadow-md); transform: translateY(-1px); } }
+    .o_kanban_record { background-color: var(--pg-surface); border: 1px solid var(--pg-border-strong); border-radius: var(--pg-r-lg); box-shadow: var(--pg-shadow-xs); transition: all 0.15s ease; &:hover, &:focus { border-color: var(--pg-border-accent); box-shadow: var(--pg-shadow-md); transform: translateY(-1px); } }
     .o_pg_card_title { color: var(--pg-text); font-weight: 600; font-size: 13px; }
     .o_pg_card_meta { color: var(--pg-text-3); font-size: var(--pg-fs-small); }
     .o_pg_pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: var(--pg-r-pill); border: 1px solid var(--pg-border); background: var(--pg-surface-2); color: var(--pg-text-2); font-size: var(--pg-fs-caption); font-weight: 600; &::before { content: ""; width: 6px; height: 6px; border-radius: var(--pg-r-pill); background: var(--pg-text-4); } }
@@ -226,7 +255,7 @@
 
 .o_pg_step_container { display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px; }
 .o_pg_step_card {
-    background: var(--pg-surface); border: 1px solid var(--pg-border); border-radius: var(--pg-r-lg); padding: 16px 20px; box-shadow: var(--pg-shadow-xs);
+    background: var(--pg-surface); border: 1px solid var(--pg-border-strong); border-radius: var(--pg-r-lg); padding: 16px 20px; box-shadow: var(--pg-shadow-xs);
     transition: border-color var(--pg-dur) var(--pg-ease), box-shadow var(--pg-dur) var(--pg-ease);
     &:hover { border-color: var(--pg-border-strong); box-shadow: var(--pg-shadow-sm); }
     .o_pg_step_header {
