@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { Pool } from "pg";
-import { attachAgentWSS } from "../src/server/ws";
+import { attachAgentWSS, __getNotificationListenerPidForTests } from "../src/server/ws";
 
 const CHANNEL_PREFIX = "print_gateway_agent_";
 const WAIT_MS = 500;
@@ -10,20 +10,11 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForListener(pool: Pool, previousPid?: number): Promise<number> {
+async function waitForListener(previousPid?: number): Promise<number> {
   const started = Date.now();
   while (Date.now() - started < MAX_WAIT_MS) {
-    const result = await pool.query<{ pid: number; query: string }>(
-      `SELECT pid, query
-         FROM pg_stat_activity
-        WHERE query ILIKE 'LISTEN ${CHANNEL_PREFIX}%'
-          AND pid <> pg_backend_pid()
-        ORDER BY backend_start DESC`,
-    );
-    const pid = result.rows
-      .map((row) => Number(row.pid))
-      .find((candidate) => candidate !== previousPid);
-    if (pid) return pid;
+    const pid = __getNotificationListenerPidForTests();
+    if (typeof pid === "number" && pid > 0 && pid !== previousPid) return pid;
     await sleep(WAIT_MS);
   }
   throw new Error("Timed out waiting for PostgreSQL notification listener connection");
@@ -39,14 +30,14 @@ async function main() {
 
   try {
     await admin.query("SELECT 1");
-    const firstPid = await waitForListener(admin);
+    const firstPid = await waitForListener();
     console.log(`Initial LISTEN backend: ${firstPid}`);
 
     const terminated = await admin.query("SELECT pg_terminate_backend($1::int) AS terminated", [firstPid]);
     if (!terminated.rows[0]?.terminated) throw new Error(`pg_terminate_backend(${firstPid}) did not terminate the listener`);
     console.log(`Forced disconnect of LISTEN backend ${firstPid}`);
 
-    const replacementPid = await waitForListener(admin, firstPid);
+    const replacementPid = await waitForListener(firstPid);
     console.log(`Reconnected LISTEN backend: ${replacementPid}`);
     if (replacementPid === firstPid) throw new Error("LISTEN backend PID did not change after forced disconnect");
 
