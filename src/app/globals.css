@@ -1,83 +1,83 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 
-  --brand-50: #eff6ff;
-  --brand-100: #dbeafe;
-  --brand-200: #bfdbfe;
-  --brand-300: #93c5fd;
-  --brand-400: #60a5fa;
+  --brand-50: #0f1f35;
+  --brand-100: #142a46;
+  --brand-200: #1b3b62;
+  --brand-300: #2f6aa5;
+  --brand-400: #4f8fe8;
   --brand-500: #3b82f6;
-  --brand-600: #2563eb;
-  --brand-700: #1d4ed8;
-  --brand-800: #1e40af;
-  --brand-900: #1e3a8a;
-  --brand-950: #172554;
+  --brand-600: #3b82f6;
+  --brand-700: #2563eb;
+  --brand-800: #1f55a8;
+  --brand-900: #163466;
+  --brand-950: #0c1d35;
 
-  --brand: #2563eb;
-  --brand-hover: #1d4ed8;
-  --brand-active: #1e40af;
+  --brand: #3b82f6;
+  --brand-hover: #4c8dff;
+  --brand-active: #2f73da;
   --brand-contrast: #ffffff;
-  --brand-subtle: #eff6ff;
-  --brand-subtle-hover: #dbeafe;
-  --brand-subtle-border: #bfdbfe;
-  --brand-subtle-text: #1d4ed8;
-  --brand-ring: rgba(37, 99, 235, 0.18);
+  --brand-subtle: #102343;
+  --brand-subtle-hover: #173055;
+  --brand-subtle-border: #28538f;
+  --brand-subtle-text: #8bb9ff;
+  --brand-ring: rgba(59, 130, 246, 0.24);
 
-  --bg: #f6f8fb;
-  --bg-subtle: #eef2f7;
-  --surface: #ffffff;
-  --surface-2: #f8fafc;
-  --surface-3: #f1f5f9;
-  --surface-hover: #f5f8fc;
-  --surface-accent: #f1f7ff;
-  --surface-accent-2: #e6f0ff;
-  --surface-elevated: #ffffff;
-  --surface-overlay: rgba(255,255,255,0.96);
+  --bg: #080b11;
+  --bg-subtle: #0c1118;
+  --surface: #0f141c;
+  --surface-2: #141b25;
+  --surface-3: #192230;
+  --surface-hover: #171f2b;
+  --surface-accent: #111f34;
+  --surface-accent-2: #172b49;
+  --surface-elevated: #121923;
+  --surface-overlay: rgba(15,20,28,0.96);
 
-  --border: #d8e0ea;
-  --border-strong: #c8d2df;
-  --border-accent: #b8d1f8;
-  --border-subtle: #e6ebf2;
-  --divider: #e4e9ef;
+  --border: #273244;
+  --border-strong: #354258;
+  --border-accent: #2d6cdf;
+  --border-subtle: #202a38;
+  --divider: #202a38;
 
-  --text: #0f172a;
-  --text-2: #334155;
-  --text-3: #64748b;
-  --text-4: #94a3b8;
+  --text: #f4f7fb;
+  --text-2: #c4cedb;
+  --text-3: #8d9aab;
+  --text-4: #637287;
   --text-on-brand: #ffffff;
   --text-on-solid: #ffffff;
-  --text-display: #0b1220;
+  --text-display: #ffffff;
 
-  --success: #047857;
-  --success-solid: #10b981;
-  --success-bg: #ecfdf5;
-  --success-border: #a7f3d0;
+  --success: #4fd197;
+  --success-solid: #22c994;
+  --success-bg: #0d241b;
+  --success-border: #1e6148;
 
-  --warning: #b45309;
-  --warning-solid: #f59e0b;
-  --warning-bg: #fffbeb;
-  --warning-border: #fde68a;
+  --warning: #e6b65a;
+  --warning-solid: #f2b84a;
+  --warning-bg: #261e0e;
+  --warning-border: #725321;
 
-  --danger: #be123c;
-  --danger-solid: #e11d48;
-  --danger-bg: #fff1f2;
-  --danger-border: #fecdd3;
+  --danger: #ee7f9a;
+  --danger-solid: #ef5677;
+  --danger-bg: #28131a;
+  --danger-border: #753044;
 
-  --info: #1d4ed8;
-  --info-solid: #3b82f6;
-  --info-bg: #eff6ff;
-  --info-border: #bfdbfe;
+  --info: #7eb4ff;
+  --info-solid: #5a9eff;
+  --info-bg: #101f34;
+  --info-border: #28538f;
 
-  --notice-bg: #fff7ed;
-  --notice-border: #fed7aa;
-  --notice-text: #9a3412;
-  --notice-icon: #ea580c;
+  --notice-bg: #24180e;
+  --notice-border: #75431d;
+  --notice-text: #edb27a;
+  --notice-icon: #f08d46;
 
-  --focus-ring: #2563eb;
-  --focus-ring-shadow: 0 0 0 4px rgba(37, 99, 235, 0.14);
-  --overlay: rgba(15, 23, 42, 0.46);
+  --focus-ring: #4f91ff;
+  --focus-ring-shadow: 0 0 0 4px rgba(59, 130, 246, 0.24);
+  --overlay: rgba(0, 0, 0, 0.64);
 
   --r-xs: 4px;
   --r-sm: 6px;
@@ -88,14 +88,14 @@
   --r-3xl: 16px;
   --r-pill: 9999px;
 
-  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.035);
-  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03);
-  --shadow-md: 0 6px 14px rgba(15, 23, 42, 0.06), 0 2px 5px rgba(15, 23, 42, 0.035);
-  --shadow-lg: 0 14px 28px rgba(15, 23, 42, 0.08), 0 4px 10px rgba(15, 23, 42, 0.035);
-  --shadow-xl: 0 24px 50px rgba(15, 23, 42, 0.12), 0 8px 18px rgba(15, 23, 42, 0.045);
-  --shadow-2xl: 0 30px 70px rgba(15, 23, 42, 0.18);
-  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.025), 0 4px 14px rgba(15, 23, 42, 0.04);
-  --shadow-card-hover: 0 10px 24px rgba(15, 23, 42, 0.075), 0 3px 8px rgba(15, 23, 42, 0.035);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 8px 20px rgba(0, 0, 0, 0.30);
+  --shadow-lg: 0 16px 34px rgba(0, 0, 0, 0.34);
+  --shadow-xl: 0 26px 56px rgba(0, 0, 0, 0.42);
+  --shadow-2xl: 0 34px 80px rgba(0, 0, 0, 0.50);
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.24), 0 6px 18px rgba(0,0,0,0.18);
+  --shadow-card-hover: 0 12px 28px rgba(0,0,0,0.30), 0 4px 10px rgba(0,0,0,0.18);
 
   --fs-small: 12px;
   --fs-body: 14px;
@@ -336,18 +336,18 @@
   .billing-premium {
     position: relative;
     overflow: hidden;
-    background: linear-gradient(145deg, #ffffff 0%, #f9fbff 100%);
+    background: var(--surface);
     border: 1px solid var(--border-accent);
     border-radius: var(--r-2xl);
-    box-shadow: 0 4px 18px rgba(37, 99, 235, 0.055);
+    box-shadow: var(--shadow-card);
   }
 
   .billing-premium::before {
     content: "";
     position: absolute;
     inset: 0 0 auto 0;
-    height: 1px;
-    background: linear-gradient(90deg, var(--brand) 0%, rgba(96,165,250,0.55) 45%, transparent 100%);
+    height: 2px;
+    background: var(--brand);
   }
 
   .balance-card {
@@ -385,7 +385,7 @@
 
   .page-header {
     border-bottom: 1px solid var(--border);
-    background: rgba(255,255,255,0.84);
+    background: rgba(8,11,17,0.86);
     backdrop-filter: blur(12px);
   }
 
