@@ -154,7 +154,7 @@ def test_gateway_url_change_durably_disables_previous_endpoint_before_new_sync()
     assert "invalidate_recordset" in source
     assert "def _complete_gateway_migration" in source
     assert "if synced and pending_disable" in source
-    assert "acknowledged_enabled is not enabled" in source
+    assert "acknowledged_enabled is enabled" in source
     assert "acknowledged_revision != revision" in source
     assert "config._complete_gateway_migration(revision)" in source
 
