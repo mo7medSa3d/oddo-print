@@ -305,25 +305,44 @@ class TestPrintGatewayRoutingContract(TransactionCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["status"], "unknown")
 
-    def test_gateway_connection_test_is_authenticated(self):
-        class Response:
+    def test_gateway_connection_test_is_authenticated_and_reconciles_status(self):
+        class HealthResponse:
             status_code = 200
             content = b'{"ok": true}'
 
             def json(self):
                 return {"ok": True}
 
+        class SyncResponse:
+            status_code = 200
+            content = b'{"ok": true, "enabled": true, "revision": 0}'
+
+            def json(self):
+                return {"ok": True, "enabled": True, "revision": 0}
+
         with patch.object(PrintGatewayConfig, "_validate_gateway_host"), patch(
             "odoo.addons.print_gateway.models.gateway_config.requests.get",
-            return_value=Response(),
-        ) as mocked:
-            self.config.action_test_connection()
+            return_value=HealthResponse(),
+        ) as mocked_get, patch(
+            "odoo.addons.print_gateway.models.gateway_config.requests.patch",
+            return_value=SyncResponse(),
+        ) as mocked_patch:
+            action = self.config.action_test_connection()
             self.assertEqual(
-                mocked.call_args.args[0],
+                mocked_get.call_args.args[0],
                 "https://gateway.example.com/api/odoo/health",
             )
-            self.assertIn("Authorization", mocked.call_args.kwargs["headers"])
-            self.assertEqual(mocked.call_args.kwargs["allow_redirects"], False)
+            self.assertIn("Authorization", mocked_get.call_args.kwargs["headers"])
+            self.assertEqual(mocked_get.call_args.kwargs["allow_redirects"], False)
+            self.assertEqual(
+                mocked_patch.call_args.args[0],
+                "https://gateway.example.com/api/odoo/configuration",
+            )
+            self.assertEqual(mocked_patch.call_args.kwargs["json"]["enabled"], True)
+            self.assertEqual(mocked_patch.call_args.kwargs["json"]["revision"], 0)
+            self.assertIn("Authorization", mocked_patch.call_args.kwargs["headers"])
+            self.assertEqual(action["type"], "ir.actions.client")
+            self.assertEqual(action["tag"], "reload")
 
     def test_gateway_timeout_persists_unknown_outcome(self):
         job_id = self._job("timeout-contract-key")

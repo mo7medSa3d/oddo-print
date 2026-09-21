@@ -179,8 +179,11 @@
 }
 
 .o_pg_form {
-    .o_form_sheet_bg { background-color: var(--pg-bg); }
-    .o_form_sheet { background-color: var(--pg-surface); border: 1px solid var(--pg-border); border-radius: var(--pg-r-xl); box-shadow: var(--pg-shadow-card); }
+    /* Use the available backend width instead of Odoo's narrow default
+       form-sheet constraint. This page contains connection controls and
+       status panels that need room to breathe on desktop. */
+    .o_form_sheet_bg { background-color: var(--pg-bg); padding-left: 24px; padding-right: 24px; }
+    .o_form_sheet { width: 100%; max-width: none; box-sizing: border-box; background-color: var(--pg-surface); border: 1px solid var(--pg-border); border-radius: var(--pg-r-xl); box-shadow: var(--pg-shadow-card); }
     .o_group { margin-bottom: 10px; }
     .o_notebook .nav-tabs {
         border-bottom-color: var(--pg-border);
@@ -242,9 +245,26 @@
 
 .o_pg_pairing_wizard {
     padding: 10px 4px;
+    /* The agent field is a real select rendered by the runtime-agent widget.
+       Keep its border aligned with the field width; do not style the widget
+       wrapper as if it were the input itself. */
     .o_pg_pairing_code_input {
-        font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace; font-size: 24px !important; font-weight: 700; letter-spacing: 0.3em; text-align: center; text-transform: uppercase;
-        height: 56px !important; background: var(--pg-surface-2) !important; border: 2px dashed var(--pg-brand) !important; border-radius: var(--pg-r-lg) !important; color: var(--pg-text) !important;
+        width: 100%; box-sizing: border-box;
+    }
+    .o_pg_pairing_code_input select,
+    .o_pg_pairing_code_input .o_input {
+        width: 100%; box-sizing: border-box; min-height: 44px !important;
+        background: var(--pg-surface) !important;
+        border: 1px solid var(--pg-brand-300) !important;
+        border-radius: var(--pg-r-lg) !important;
+        color: var(--pg-text) !important;
+    }
+    .o_pg_pairing_code_input select {
+        font-size: 14px !important; font-weight: 600; letter-spacing: normal; text-align: left;
+        padding: 10px 12px !important; cursor: pointer;
+    }
+    .o_pg_pairing_code_input select:focus {
+        border-color: var(--pg-brand) !important; box-shadow: 0 0 0 3px var(--pg-brand-ring) !important; outline: none;
     }
     .o_pg_pairing_timer { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 11px; color: var(--pg-text-3); font-weight: 500; &.expiring { color: var(--pg-bad); font-weight: 600; } }
 }

@@ -725,17 +725,30 @@ class PrintGatewayConfig(models.Model):
                     # changed outside the original recordset: notify the ORM
                     # that the dependencies changed so gateway_sync_state and
                     # gateway_sync_message are recomputed in this transaction.
-                    record.modified([
-                        "enabled_sync_revision",
-                        "last_enabled_sync_error",
-                    ])
+                    record.modified(["enabled_sync_revision", "last_enabled_sync_error"])
                 elif "gateway_api_key" in vals:
+                    # Rotating or restoring a credential must start a fresh
+                    # fenced reconciliation. Reusing the previous activation
+                    # revision can leave the UI stuck on Action needed when
+                    # the Gateway never observed the key transition.
                     record.sudo().write({
+                        "enabled_sync_revision": before_revision[record.id] + 1,
                         "last_enabled_sync_error": False,
                         "last_test_status": "draft",
                         "last_test_at": False,
                         "last_test_error": False,
                     })
+                    record.invalidate_recordset([
+                        "enabled_sync_revision",
+                        "last_enabled_sync_revision",
+                        "last_enabled_sync_error",
+                        "gateway_sync_state",
+                        "gateway_sync_message",
+                    ])
+                    record.modified([
+                        "enabled_sync_revision",
+                        "last_enabled_sync_error",
+                    ])
             self._queue_enabled_state_sync(pre_sync_credentials)
 
         return result
@@ -1051,10 +1064,37 @@ class PrintGatewayConfig(models.Model):
             if response.status_code != 200 or not isinstance(body, dict) or body.get("ok") is not True:
                 raise ValidationError(_("Gateway connection test failed (HTTP %s).") % response.status_code)
             self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "success", "last_test_error": False})
+
+            # A connection test is an explicit operator action, so finish the
+            # activation reconciliation in this request instead of leaving the
+            # form displaying a stale "Syncing" state until the next manual
+            # refresh. The same fenced revision/idempotent Gateway endpoint is
+            # used by the normal post-commit sync path.
+            sync_succeeded = self._sync_enabled_state_to_gateway(
+                self._gateway_base(for_request=True),
+                self._gateway_api_key_plaintext(),
+                self.env.cr.dbname,
+                int(self.enabled_sync_revision or 0),
+                bool(self.enabled),
+            )
+            if not sync_succeeded:
+                self.invalidate_recordset([
+                    "gateway_sync_state",
+                    "gateway_sync_message",
+                    "last_enabled_sync_error",
+                    "last_enabled_sync_revision",
+                ])
+                return {
+                    "type": "ir.actions.client",
+                    "tag": "reload",
+                }
+
+            # _sync_enabled_state_to_gateway persists its result through a
+            # fresh cursor. Reload the form so the web client reads the
+            # authoritative post-sync state immediately.
             return {
                 "type": "ir.actions.client",
-                "tag": "display_notification",
-                "params": {"title": _("Gateway Connection"), "message": _("Gateway is reachable and the installation API key is valid."), "type": "success", "sticky": False},
+                "tag": "reload",
             }
         except ValidationError as exc:
             self.write({"last_test_at": fields.Datetime.now(), "last_test_status": "failed", "last_test_error": str(exc)[:4000]})
@@ -1215,5 +1255,4 @@ class PrintGatewayPairAgentWizard(models.TransientModel):
             raise
         except requests.RequestException as exc:
             raise ValidationError(_("Gateway connection timed out while querying registered agents.")) from exc
-
 
