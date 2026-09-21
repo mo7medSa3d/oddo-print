@@ -39,7 +39,7 @@ export type BillingOperation = {
   logLabel: string;
 };
 
-type OperationState =
+type BillingOperationState =
   | { kind: "proceed"; operationId: string; idempotencyKey: string; subscriptionId: string }
   | { kind: "in_progress" }
   | { kind: "missing" };
@@ -48,99 +48,96 @@ export async function runBillingOperation(
   tenantId: string,
   operation: BillingOperation,
 ): Promise<NextResponse> {
-  let state: OperationState;
-  try {
-    state = await db.transaction(async (tx) => {
-      await tx.execute(sql`
-        SELECT id
-        FROM tenants
-        WHERE id = ${tenantId}
-        FOR UPDATE
-      `);
-      const result = await tx.execute(sql`
-        SELECT stripe_subscription_id AS "stripeSubscriptionId",
-               billing_operation_id AS "billingOperationId",
-               billing_operation_type AS "billingOperationType",
-               billing_operation_idempotency_key AS "billingOperationIdempotencyKey",
-               billing_operation_subscription_id AS "billingOperationSubscriptionId"
-        FROM tenant_subscriptions
-        WHERE tenant_id = ${tenantId}
-        FOR UPDATE
-      `);
-      const row = result.rows[0] as {
-        stripeSubscriptionId?: string | null;
-        billingOperationId?: string | null;
-        billingOperationType?: string | null;
-        billingOperationIdempotencyKey?: string | null;
-        billingOperationSubscriptionId?: string | null;
-      } | undefined;
+  // Claim (transaction). An absent tenant simply yields no subscription row
+  // and surfaces as the shared "missing" outcome below; nothing in this
+  // transaction raises TENANT_NOT_FOUND (the earlier 404 mapping here was
+  // dead code — that error name is only produced by checkout/onboarding/team
+  // routes, which have their own handlers).
+  const state: BillingOperationState = await db.transaction(async (tx) => {
+    await tx.execute(sql`
+      SELECT id
+      FROM tenants
+      WHERE id = ${tenantId}
+      FOR UPDATE
+    `);
+    const result = await tx.execute(sql`
+      SELECT stripe_subscription_id AS "stripeSubscriptionId",
+             billing_operation_id AS "billingOperationId",
+             billing_operation_type AS "billingOperationType",
+             billing_operation_idempotency_key AS "billingOperationIdempotencyKey",
+             billing_operation_subscription_id AS "billingOperationSubscriptionId"
+      FROM tenant_subscriptions
+      WHERE tenant_id = ${tenantId}
+      FOR UPDATE
+    `);
+    const row = result.rows[0] as {
+      stripeSubscriptionId?: string | null;
+      billingOperationId?: string | null;
+      billingOperationType?: string | null;
+      billingOperationIdempotencyKey?: string | null;
+      billingOperationSubscriptionId?: string | null;
+    } | undefined;
 
-      if (!row?.stripeSubscriptionId) return { kind: "missing" as const };
+    if (!row?.stripeSubscriptionId) return { kind: "missing" as const };
 
-      // A completed webhook can replace the subscription identity while an
-      // older process is still finalizing. A pending operation targeting a
-      // different Stripe subscription is stale and may safely be discarded.
-      if (
-        row.billingOperationId &&
-        row.billingOperationSubscriptionId &&
-        row.billingOperationSubscriptionId !== row.stripeSubscriptionId
-      ) {
-        await tx.update(tenantSubscriptions)
-          .set({
-            billingOperationId: null,
-            billingOperationType: null,
-            billingOperationIdempotencyKey: null,
-            billingOperationSubscriptionId: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(tenantSubscriptions.tenantId, tenantId));
-        row.billingOperationId = null;
-        row.billingOperationType = null;
-        row.billingOperationIdempotencyKey = null;
-        row.billingOperationSubscriptionId = null;
-      }
-
-      if (row.billingOperationId) {
-        if (
-          row.billingOperationType !== operation.type ||
-          !row.billingOperationIdempotencyKey ||
-          !row.billingOperationSubscriptionId
-        ) {
-          return { kind: "in_progress" as const };
-        }
-        return {
-          kind: "proceed" as const,
-          operationId: row.billingOperationId,
-          idempotencyKey: row.billingOperationIdempotencyKey,
-          subscriptionId: row.billingOperationSubscriptionId,
-        };
-      }
-
-      const operationId = `billop_${randomUUID()}`;
-      const idempotencyKey = `billing-${operation.type}-${operationId}`;
+    // A completed webhook can replace the subscription identity while an
+    // older process is still finalizing. A pending operation targeting a
+    // different Stripe subscription is stale and may safely be discarded.
+    if (
+      row.billingOperationId &&
+      row.billingOperationSubscriptionId &&
+      row.billingOperationSubscriptionId !== row.stripeSubscriptionId
+    ) {
       await tx.update(tenantSubscriptions)
         .set({
-          billingOperationId: operationId,
-          billingOperationType: operation.type,
-          billingOperationIdempotencyKey: idempotencyKey,
-          billingOperationSubscriptionId: row.stripeSubscriptionId,
+          billingOperationId: null,
+          billingOperationType: null,
+          billingOperationIdempotencyKey: null,
+          billingOperationSubscriptionId: null,
           updatedAt: new Date(),
         })
         .where(eq(tenantSubscriptions.tenantId, tenantId));
+      row.billingOperationId = null;
+      row.billingOperationType = null;
+      row.billingOperationIdempotencyKey = null;
+      row.billingOperationSubscriptionId = null;
+    }
 
+    if (row.billingOperationId) {
+      if (
+        row.billingOperationType !== operation.type ||
+        !row.billingOperationIdempotencyKey ||
+        !row.billingOperationSubscriptionId
+      ) {
+        return { kind: "in_progress" as const };
+      }
       return {
         kind: "proceed" as const,
-        operationId,
-        idempotencyKey,
-        subscriptionId: row.stripeSubscriptionId,
+        operationId: row.billingOperationId,
+        idempotencyKey: row.billingOperationIdempotencyKey,
+        subscriptionId: row.billingOperationSubscriptionId,
       };
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message === "TENANT_NOT_FOUND") {
-      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
-    throw error;
-  }
+
+    const operationId = `billop_${randomUUID()}`;
+    const idempotencyKey = `billing-${operation.type}-${operationId}`;
+    await tx.update(tenantSubscriptions)
+      .set({
+        billingOperationId: operationId,
+        billingOperationType: operation.type,
+        billingOperationIdempotencyKey: idempotencyKey,
+        billingOperationSubscriptionId: row.stripeSubscriptionId,
+        updatedAt: new Date(),
+      })
+      .where(eq(tenantSubscriptions.tenantId, tenantId));
+
+    return {
+      kind: "proceed" as const,
+      operationId,
+      idempotencyKey,
+      subscriptionId: row.stripeSubscriptionId,
+    };
+  });
 
   if (state.kind === "missing") {
     return NextResponse.json({ error: operation.missingSubscriptionError }, { status: 409 });

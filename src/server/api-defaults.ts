@@ -30,14 +30,18 @@ export function applyApiCacheControlDefault(req: IncomingMessage, res: ServerRes
     if (res.getHeader("cache-control") !== undefined) return;
     res.setHeader("Cache-Control", "no-store");
   };
+  // Wrap write-head/end so the default is stamped at the latest possible
+  // moment that is still before the response head is serialized. The casts
+  // preserve Node's overloaded signatures (spread parameters only capture
+  // the last overload).
   const originalWriteHead = res.writeHead.bind(res);
   const originalEnd = res.end.bind(res);
-  res.writeHead = (...args: Parameters<ServerResponse["writeHead"]>) => {
+  res.writeHead = ((...args: Parameters<typeof originalWriteHead>) => {
     stampDefault();
     return originalWriteHead(...args);
-  };
-  res.end = (...args: Parameters<ServerResponse["end"]>) => {
+  }) as typeof res.writeHead;
+  res.end = ((...args: Parameters<typeof originalEnd>) => {
     stampDefault();
     return originalEnd(...args);
-  };
+  }) as typeof res.end;
 }
