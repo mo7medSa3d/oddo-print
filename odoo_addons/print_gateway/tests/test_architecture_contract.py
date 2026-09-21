@@ -138,6 +138,23 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn('UNIQUE(company_id, branch_id, runtime_agent_id)', source)
         self.assertNotIn('UNIQUE(company_id, branch_id)', source.replace('UNIQUE(company_id, branch_id, runtime_agent_id)', ''))
 
+    def test_activation_sync_invalidates_orm_cache_after_technical_revision_write(self):
+        source = (MODELS / "gateway_config.py").read_text(encoding="utf-8")
+        sudo_write = source.index("record.sudo().write(technical_values)")
+        invalidate = source.index("record.invalidate_recordset([", sudo_write)
+        queue = source.index("self._queue_enabled_state_sync(pre_sync_credentials)", invalidate)
+        self.assertLess(sudo_write, invalidate)
+        self.assertLess(invalidate, queue)
+        for field in (
+            '"enabled_sync_revision"',
+            '"last_enabled_sync_revision"',
+            '"last_enabled_sync_error"',
+            '"pending_disable_gateway_url"',
+            '"pending_disable_gateway_api_key"',
+            '"pending_disable_revision"',
+        ):
+            self.assertIn(field, source[invalidate:queue])
+
     def test_pairing_wizard_does_not_default_root_company_as_branch(self):
         source = (MODELS / "gateway_config.py").read_text(encoding="utf-8")
         self.assertIn('string="Target Branch"', source)
