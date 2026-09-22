@@ -182,7 +182,7 @@ export default function ApiKeysPage() {
       </Card>
 
       <div className="mt-6 overflow-hidden rounded-[14px] border border-edge bg-surface">
-        <div className="border-b border-edge-subtle bg-surface-2 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink-3">Credentials • {keys.length}</div>
+        <div className="border-b border-edge-subtle bg-surface-2 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink-3">API keys • {keys.length}</div>
         {loading ? <div className="p-10 text-center text-[13px] text-ink-3">Loading…</div> : keys.length === 0 ? <div className="p-12 text-center text-[13px] font-medium text-ink-3">No keys.</div> : (
           <div className="divide-y divide-edge-subtle">
             {keys.map(k => (
@@ -216,7 +216,7 @@ export default function ApiKeysPage() {
             <div className="space-y-4 px-5 pb-5 text-[13px] text-ink-2">
               {[
                 ["01", "Odoo connects", "Odoo uses this credential to reach the Gateway."],
-                ["02", "Gateway checks access", "The credential is checked against workspace and key permissions."],
+                ["02", "Gateway checks access", "The credential is checked against the workspace and active integration."],
                 ["03", "Agent prints locally", "The job is queued, routed, and executed by the right Windows Agent."],
                 ["04", "Rotate safely", "Create a replacement credential before revoking the old one."],
               ].map(([step, title, body]) => <div key={step} className="flex gap-3"><span className="font-mono text-[11px] font-bold text-brand">{step}</span><div><div className="font-semibold text-ink">{title}</div><p className="mt-1 text-[12px] leading-relaxed text-ink-3">{body}</p></div></div>)}
