@@ -845,7 +845,7 @@ class PrintGatewayConfig(models.Model):
                 )
                 if guard_revision is not None:
                     cr.execute(
-                        "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE NOWAIT" % self._table,
+                        "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE" % self._table,
                         [self.id],
                     )
                     row = cr.fetchone()
@@ -1528,7 +1528,7 @@ class PrintGatewayConfig(models.Model):
                 return False
 
             cr.execute(
-                "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE" % self._table,
+                "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE NOWAIT" % self._table,
                 [self.id],
             )
             row = cr.fetchone()
