@@ -115,7 +115,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
   const activeStatuses = new Set(["trialing", "active", "past_due"]);
   const hasActivePlan = !!sub && activeStatuses.has(sub.status);
   const hasStripeSubscription = !!sub?.stripeCustomerId && !!sub?.stripeSubscriptionId;
-  const status = sub && hasActivePlan ? planStatus(sub) : null;
+  const status = sub ? planStatus(sub) : null;
   const entitlements = currentPlan?.entitlements
     ? Object.entries(currentPlan.entitlements)
         .filter(([, value]) => value !== false)
