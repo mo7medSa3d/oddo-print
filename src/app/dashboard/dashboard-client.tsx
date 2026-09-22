@@ -392,6 +392,7 @@ export default function DashboardClient({
           return currentPairing;
         });
       }
+      void refreshBillingUsage();
     } catch (error) {
       if (error instanceof Error && error.message.includes("session has expired")) {
         router.push("/login");
