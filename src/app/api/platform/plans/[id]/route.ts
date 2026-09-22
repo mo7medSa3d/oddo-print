@@ -4,7 +4,7 @@ import { plans } from "../../../../../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { requirePlatformOwner } from "../../../../../lib/platform-auth";
 import { normalizePlanEntitlements } from "../../../../../lib/entitlements";
-import { validateStripePriceBinding } from "../../../../../lib/stripe";
+import { validateStripePriceBinding, StripePriceBindingError } from "../../../../../lib/stripe";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
 import { writeAuditEvent } from "../../../../../lib/audit";
 
@@ -142,10 +142,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     if (error instanceof Error && error.message === "PLAN_NOT_FOUND") {
       return NextResponse.json({ error: "Plan not found.", code: "PLAN_NOT_FOUND" }, { status: 404 });
     }
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Stripe Price could not be verified.", code: "STRIPE_PRICE_INVALID" },
-      { status: 400 },
-    );
+    if (error instanceof StripePriceBindingError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
+    return NextResponse.json({ error: "Stripe Price could not be verified.", code: "STRIPE_PRICE_INVALID" }, { status: 400 });
   }
 
   try {
