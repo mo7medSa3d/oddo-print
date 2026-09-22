@@ -178,17 +178,27 @@ function parseEntitlementDate(value: Date | string | null): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string): Promise<{ limit: number | "unlimited"; periodStart: Date; periodEnd: Date | null }> {
-  const result = await tx.execute(sql`
-    SELECT p.entitlements, ts.current_period_start AS "periodStart", ts.current_period_end AS "periodEnd"
-    FROM tenant_subscriptions ts
-    JOIN plans p ON p.id = ts.plan_id
-    WHERE ts.tenant_id = ${tenantId}
-      AND ts.status IN ('trialing','active','past_due')
-      AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
-    LIMIT 1
-    FOR UPDATE OF ts, p
-  `);
+async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string, lockRows = false): Promise<{ limit: number | "unlimited"; periodStart: Date; periodEnd: Date | null }> {
+  const result = lockRows
+    ? await tx.execute(sql`
+        SELECT p.entitlements, ts.current_period_start AS "periodStart", ts.current_period_end AS "periodEnd"
+        FROM tenant_subscriptions ts
+        JOIN plans p ON p.id = ts.plan_id
+        WHERE ts.tenant_id = ${tenantId}
+          AND ts.status IN ('trialing','active','past_due')
+          AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+        LIMIT 1
+        FOR UPDATE OF ts, p
+      `)
+    : await tx.execute(sql`
+        SELECT p.entitlements, ts.current_period_start AS "periodStart", ts.current_period_end AS "periodEnd"
+        FROM tenant_subscriptions ts
+        JOIN plans p ON p.id = ts.plan_id
+        WHERE ts.tenant_id = ${tenantId}
+          AND ts.status IN ('trialing','active','past_due')
+          AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+        LIMIT 1
+      `);
   const row = result.rows[0] as TenantPrintQuotaRow | undefined;
   if (!row) throw new TenantSubscriptionRequiredError();
   let entitlements: TenantEntitlements;
@@ -207,7 +217,7 @@ async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string): 
 
 /** Atomically consumes one print credit for one newly-created logical print job. */
 export async function reserveTenantPrintCredit(tx: EntitlementTx, tenantId: string): Promise<TenantPrintUsage> {
-  const context = await getTenantPrintQuotaContext(tx, tenantId);
+  const context = await getTenantPrintQuotaContext(tx, tenantId, true);
   const limit = context.limit;
   const predicate = limit === "unlimited"
     ? sql`TRUE`
