@@ -73,7 +73,7 @@ export default function UpgradeLimitDialog({
 
         <p className="text-[12px] leading-relaxed text-ink-3">
           {resource === "prints"
-            ? `Metering unit: 1 admitted Gateway job = 1 ${copy.unit.slice(0, -1) === "print job" ? "print credit" : "print credit"}.`
+            ? "Metering unit: 1 admitted Gateway print job = 1 print credit."
             : `Current capacity: ${limitText} ${copy.unit}.`}
           {periodText ? ` The current billing period ends ${periodText}.` : ""}
         </p>
