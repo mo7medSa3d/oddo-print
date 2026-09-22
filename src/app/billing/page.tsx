@@ -6,7 +6,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { getManagerCookieName, validateManagerClaims, verifyManagerToken } from "../../lib/manager-auth";
 import { hasManagerPermission } from "../../lib/authorization";
 import { BillingActions } from "../../components/BillingActions";
-import { ArrowRight, AlertTriangle, CalendarDays, Check, CheckCircle2, CreditCard, Sparkles } from "lucide-react";
+import { ArrowRight, AlertTriangle, CalendarDays, Check, CheckCircle2, CreditCard } from "lucide-react";
 import Link from "next/link";
 import { StatusBadge } from "../../components/ui";
 
@@ -160,7 +160,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
           <div className="border-b border-dashed border-edge-subtle bg-surface px-6 py-6 sm:px-7 sm:py-7">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
-                <Sparkles className="h-3.5 w-3.5 text-brand" /> Current plan
+                Current plan
               </div>
               {status && <StatusBadge tone={status.tone} label={status.label} />}
             </div>
