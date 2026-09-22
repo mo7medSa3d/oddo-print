@@ -92,7 +92,7 @@ export async function POST(req: Request) {
   }
   const url = `${appBaseUrl(req)}/invite?token=${encodeURIComponent(raw)}`;
   try {
-    await sendTransactionalEmail({ to: email, subject: "You are invited to Print Gateway", html: `<p>You have been invited to a Print Gateway workspace.</p><p><a href="${url}">Accept invitation</a></p>`, text: `Accept invitation: ${url}` });
+    await sendTransactionalEmail({ to: email, subject: "You are invited to Yasser Print Manager", html: `<p>You have been invited to a Yasser Print Manager workspace.</p><p><a href="${url}">Accept invitation</a></p>`, text: `Accept invitation: ${url}` });
   } catch {
     const revoked = await db.transaction(async (tx) => {
       const result = await tx.update(tenantInvitations)

@@ -1,10 +1,10 @@
-# Odoo Print Gateway — Architecture
+# Yasser Cloud Printing Platform — Architecture
 
 > **Version**: 19.0.2.4.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
 
 ## 1. System Overview
 
-The Odoo Print Gateway is a multi-tenant SaaS platform that enables silent, hardware-level printing from Odoo ERP to physical printers through a three-tier distributed architecture.
+Yasser Cloud Printing Platform is a multi-tenant SaaS platform that enables silent, hardware-level printing from Odoo ERP to physical printers through a three-tier distributed architecture.
 
 ```
 ┌──────────────────┐     ┌────────────────────┐     ┌──────────────────┐

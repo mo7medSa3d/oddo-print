@@ -172,12 +172,12 @@ jobs:
         run: |
           $msiDir = "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi"
           $nsisDir = "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis"
-          $msi = @(Get-ChildItem (Join-Path $msiDir "Yasser Manager_*.msi") -File -ErrorAction SilentlyContinue)
-          $exe = @(Get-ChildItem (Join-Path $nsisDir "Yasser Manager_*-setup.exe") -File -ErrorAction SilentlyContinue)
+          $msi = @(Get-ChildItem (Join-Path $msiDir "Yasser Print Manager_*.msi") -File -ErrorAction SilentlyContinue)
+          $exe = @(Get-ChildItem (Join-Path $nsisDir "Yasser Print Manager_*-setup.exe") -File -ErrorAction SilentlyContinue)
           $legacyMsi = @(Get-ChildItem (Join-Path $msiDir "*Odoo Print Manager*.msi") -File -ErrorAction SilentlyContinue)
           $legacyExe = @(Get-ChildItem (Join-Path $nsisDir "*Odoo Print Manager*.exe") -File -ErrorAction SilentlyContinue)
-          if ($msi.Count -ne 1) { throw "Expected exactly one Yasser Manager MSI, found $($msi.Count)" }
-          if ($exe.Count -ne 1) { throw "Expected exactly one Yasser Manager NSIS installer, found $($exe.Count)" }
+          if ($msi.Count -ne 1) { throw "Expected exactly one Yasser Print Manager MSI, found $($msi.Count)" }
+          if ($exe.Count -ne 1) { throw "Expected exactly one Yasser Print Manager NSIS installer, found $($exe.Count)" }
           if ($legacyMsi.Count -ne 0 -or $legacyExe.Count -ne 0) {
             throw "Legacy Odoo Print Manager installer output detected; refusing to package it."
           }
@@ -188,8 +188,8 @@ jobs:
       - name: Install MSI and smoke-test installed app
         shell: pwsh
         run: |
-          $msi = Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\Yasser Manager_*.msi" | Select-Object -First 1
-          if (-not $msi) { throw "Yasser Manager MSI bundle missing" }
+          $msi = Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\Yasser Print Manager_*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "Yasser Print Manager MSI bundle missing" }
           $msiLog = Join-Path $env:RUNNER_TEMP "yasser-msi-install.log"
           $proc = Start-Process msiexec -ArgumentList @(
             "/i", "`"$($msi.FullName)`"", "/qn", "/norestart", "/l*v", "`"$msiLog`""
@@ -199,13 +199,13 @@ jobs:
             throw "MSI install failed with code $($proc.ExitCode)"
           }
           $candidateDirs = @(
-            (Join-Path $env:ProgramFiles "Yasser\Yasser Manager"),
-            (Join-Path $env:ProgramFiles "Yasser Manager"),
+            (Join-Path $env:ProgramFiles "Yasser\Yasser Print Manager"),
+            (Join-Path $env:ProgramFiles "Yasser Print Manager"),
             (Join-Path $env:ProgramFiles "yasser-manager"),
-            (Join-Path ${env:ProgramFiles(x86)} "Yasser\Yasser Manager"),
-            (Join-Path ${env:ProgramFiles(x86)} "Yasser Manager"),
-            (Join-Path $env:LOCALAPPDATA "Programs\Yasser Manager"),
-            (Join-Path $env:LOCALAPPDATA "Programs\Yasser Manager")
+            (Join-Path ${env:ProgramFiles(x86)} "Yasser\Yasser Print Manager"),
+            (Join-Path ${env:ProgramFiles(x86)} "Yasser Print Manager"),
+            (Join-Path $env:LOCALAPPDATA "Programs\Yasser Print Manager"),
+            (Join-Path $env:LOCALAPPDATA "Programs\Yasser Print Manager")
           )
           $installDir = $candidateDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $installDir) {
@@ -235,10 +235,10 @@ jobs:
       - name: Install NSIS and smoke-test installed app
         shell: pwsh
         run: |
-          $nsis = Get-ChildItem "src-tauri\\target\\x86_64-pc-windows-msvc\\release\\bundle\\nsis\\Yasser Manager_*-setup.exe" | Select-Object -First 1
-          if (-not $nsis) { throw "Yasser Manager NSIS installer missing" }
+          $nsis = Get-ChildItem "src-tauri\\target\\x86_64-pc-windows-msvc\\release\\bundle\\nsis\\Yasser Print Manager_*-setup.exe" | Select-Object -First 1
+          if (-not $nsis) { throw "Yasser Print Manager NSIS installer missing" }
 
-          $installDir = Join-Path $env:RUNNER_TEMP "Yasser Manager NSIS"
+          $installDir = Join-Path $env:RUNNER_TEMP "Yasser Print Manager NSIS"
           if (Test-Path $installDir) {
             Remove-Item -Recurse -Force $installDir
           }
@@ -281,7 +281,7 @@ jobs:
         with:
           name: Yasser-Manager-Windows
           path: |
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/Yasser Manager_*.msi
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/Yasser Manager_*-setup.exe
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/Yasser Print Manager_*.msi
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/Yasser Print Manager_*-setup.exe
           if-no-files-found: error
           compression-level: 9

@@ -395,7 +395,7 @@ https://gw.example.com/dashboard
 
 Create an Agent from the dashboard. The Gateway generates a one-time pairing code.
 
-On the Windows machine, install the Yasser Manager / Yasser Agent bundle.
+On the Windows machine, install the Yasser Print Manager / Yasser Agent bundle.
 
 Run the bundled CLI from an elevated Administrator terminal:
 
@@ -499,7 +499,7 @@ After Gateway + Agent + Printer are healthy:
 8. Verify the job reaches the intended Agent and Printer.
 9. Verify Gateway-disabled mode still follows native Odoo printing.
 
-The Odoo addon remains the Odoo integration layer; product branding is Yasser Manager / Yasser Agent.
+The Odoo addon remains the Odoo integration layer; product branding is Yasser Print Manager / Yasser Agent.
 
 ## 20. Platform Control Plane (optional, operator-only)
 

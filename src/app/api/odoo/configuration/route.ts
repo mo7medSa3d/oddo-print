@@ -50,21 +50,6 @@ export async function PATCH(req: Request) {
   const apiKey = await validateOdooKey(req, { requireIntegrationEnabled: false });
   if (!apiKey) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // Odoo activation sync requires an active plan subscription. Without it
-  // the workspace cannot pair agents or execute jobs, so report the billing
-  // state explicitly instead of silently accepting a state that can never run.
-  const sub = await db.query.tenantSubscriptions.findFirst({
-    where: eq(tenantSubscriptions.tenantId, apiKey.tenantId),
-    columns: { status: true, currentPeriodEnd: true },
-  });
-  const periodLive = !sub?.currentPeriodEnd || new Date(sub.currentPeriodEnd) > new Date();
-  if (!sub || !["trialing", "active", "past_due"].includes(sub.status) || !periodLive) {
-    return NextResponse.json(
-      { error: "An active subscription is required for Gateway printing. Choose a plan in Billing first.", code: "SUBSCRIPTION_REQUIRED" },
-      { status: 403 },
-    );
-  }
-
   let body: unknown;
   try {
     body = await req.json();
@@ -81,6 +66,24 @@ export async function PATCH(req: Request) {
   }
   if (!Number.isInteger(revision) || Number(revision) < 0) {
     return NextResponse.json({ error: "revision must be a non-negative integer" }, { status: 400 });
+  }
+
+  // Enabling Gateway printing creates a billable/executable runtime state and
+  // therefore requires a live subscription. Disabling must remain possible
+  // even after expiry/cancellation so Odoo can converge the replicated state
+  // to a safe OFF value.
+  if (enabled) {
+    const sub = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, apiKey.tenantId),
+      columns: { status: true, currentPeriodEnd: true },
+    });
+    const periodLive = !sub?.currentPeriodEnd || new Date(sub.currentPeriodEnd) > new Date();
+    if (!sub || !["trialing", "active", "past_due"].includes(sub.status) || !periodLive) {
+      return NextResponse.json(
+        { error: "An active subscription is required to enable Gateway printing. Choose a plan in Billing first.", code: "SUBSCRIPTION_REQUIRED" },
+        { status: 403 },
+      );
+    }
   }
 
   const now = new Date();

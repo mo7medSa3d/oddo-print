@@ -38,7 +38,7 @@ export function Sidebar({
         </span>
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[14px] font-semibold tracking-[-0.02em] text-ink">Yasser Manager</div>
+            <div className="truncate text-[14px] font-semibold tracking-[-0.02em] text-ink">Yasser Print Manager</div>
             <div className="mt-0.5 truncate text-[10.5px] font-medium text-ink-3">Local print operations · v{version || "—"}</div>
           </div>
         )}

@@ -1,6 +1,6 @@
 # Printing Architecture & Physical Execution Model
 
-> **System Context**: Odoo Print Gateway Distributed Printing Subsystem  
+> **System Context**: Yasser Cloud Printing Platform — Distributed Printing Subsystem  
 > **Target Environment**: Windows Service Agent, Edge POS/Label/Receipt/Office Printers, Next.js Control Plane  
 > **Related Documents**: [ARCHITECTURE.md](./ARCHITECTURE.md), [PRINTERS.md](./PRINTERS.md), [AGENT_ARCHITECTURE.md](./AGENT_ARCHITECTURE.md)
 

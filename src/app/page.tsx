@@ -288,7 +288,7 @@ function PublicHeader() {
     <header className="sticky top-0 z-40 border-b border-edge/80 bg-app/75 backdrop-blur-xl backdrop-saturate-180">
       <div className="mx-auto flex h-[68px] w-full max-w-[1320px] items-center gap-5 px-6 sm:px-8 lg:px-10">
         <Link href="/" className="shrink-0 rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25">
-          <BrandMark title="Yasser" subtitle="Print Gateway" size="sm" showWordmark />
+          <BrandMark title="Yasser" subtitle="Print Manager" size="sm" showWordmark />
         </Link>
         <nav className="hidden min-w-0 flex-1 items-center gap-1 md:flex" aria-label="Landing page">
           <Anchor href="#product">Product</Anchor>
@@ -341,7 +341,7 @@ function PublicFooter() {
     <footer className="border-t border-edge bg-surface-2">
       <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-6 px-6 py-10 sm:px-8 lg:flex-row lg:items-end lg:justify-between lg:px-10">
         <div>
-          <BrandMark title="Yasser" subtitle="Print Gateway" size="sm" showWordmark />
+          <BrandMark title="Yasser" subtitle="Print Manager" size="sm" showWordmark />
           <p className="mt-3 max-w-[420px] text-[12px] leading-relaxed text-ink-4">
             Silent Odoo printing through a central Gateway, durable runtime delivery, and Windows edge execution.
           </p>

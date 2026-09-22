@@ -431,7 +431,23 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
             }
         }
     }
-    Ok(GatewayResponse { status, body })
+    let safe_body = if path == "/api/auth/manager/login" && (200..300).contains(&status) {
+        // The manager access token is a Rust-only credential in the packaged
+        // desktop app. Store it above, then strip it from the renderer-visible
+        // response so JavaScript cannot read or persist the bearer token.
+        match serde_json::from_str::<serde_json::Value>(&body) {
+            Ok(mut value) => {
+                if let Some(object) = value.as_object_mut() {
+                    object.remove("accessToken");
+                }
+                serde_json::to_string(&value).unwrap_or_else(|_| body.clone())
+            }
+            Err(_) => body.clone(),
+        }
+    } else {
+        body
+    };
+    Ok(GatewayResponse { status, body: safe_body })
 }
 
 #[derive(Deserialize)]

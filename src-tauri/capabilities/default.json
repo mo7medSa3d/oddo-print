@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the Yasser Manager main window. Only the explicitly required application commands are exposed to the local desktop UI.",
+  "description": "Capabilities for the Yasser Print Manager main window. Only the explicitly required application commands are exposed to the local desktop UI.",
   "windows": [
     "main"
   ],
