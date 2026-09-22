@@ -5,53 +5,66 @@ import { describe, expect, it } from "vitest";
 const read = (file: string) => readFileSync(resolve(process.cwd(), file), "utf8");
 
 describe("Odoo 19 view architecture contract — gateway_config_views.xml", () => {
-  it("uses invisible (Python expression) for conditional rendering, not QWeb t-if/t-att in form view", () => {
+  it("keeps the setup form native to Odoo 19 and free of legacy conditional markup", () => {
     const xml = read("odoo_addons/print_gateway/views/gateway_config_views.xml");
-    // Extract form view section
     const formStart = xml.indexOf('id="view_print_gateway_config_form"');
-    const formSection = xml.slice(formStart, formStart + 8000);
+    const listStart = xml.indexOf('id="view_print_gateway_config_list"');
+    const formEnd = xml.indexOf('<record id="view_print_gateway_config_search"', formStart);
+    const formSection = xml.slice(formStart, formEnd);
+    const listSection = xml.slice(listStart, formStart);
 
-    // Must NOT use QWeb directives t-if, t-att-class, t-attf-class inside form view
-    // per Odoo 19 official docs: form views use invisible attribute, not QWeb
-    // https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_architectures.html
+    // Odoo 19 form views use regular view attributes; this module does not
+    // inject QWeb conditionals into the configuration form.
     expect(formSection).not.toContain("t-if=");
     expect(formSection).not.toContain("t-att-class");
     expect(formSection).not.toContain("t-attf-class");
 
-    // Must use invisible with Python expressions for state row
-    expect(formSection).toContain('invisible="not gateway_api_key"');
-    expect(formSection).toContain('invisible="gateway_api_key"');
-    expect(formSection).toContain('invisible="not enabled"');
-    expect(formSection).toContain('invisible="enabled"');
-    expect(formSection).toContain('invisible="gateway_sync_state != \'active\'"');
-    expect(formSection).toContain('invisible="gateway_sync_state != \'syncing\'"');
-    expect(formSection).toContain('invisible="gateway_sync_state != \'attention\'"');
-    expect(formSection).toContain("invisible=\"gateway_sync_state not in ('disabled','not_configured')\"");
+    // The setup form exposes only persisted operator-facing configuration.
+    expect(formSection).toContain('field name="company_id" string="Odoo Company"');
+    expect(formSection).toContain('field name="enabled" widget="boolean_toggle" string="Enable Gateway Printing"');
+    expect(formSection).toContain('field name="gateway_url"');
+    expect(formSection).toContain('field name="gateway_api_key" password="True"');
+    expect(formSection).toContain('field name="last_test_status"');
+    expect(formSection).not.toContain('field name="gateway_sync_state"');
+    expect(formSection).not.toContain('field name="gateway_sync_message"');
+    expect(formSection).toContain("<header/>");
 
-    // Must preserve distinct state row with credential/activation/connection
-    expect(formSection).toContain("o_pg_cred_card");
-    expect(formSection).toContain("o_pg_connection_banner");
-    expect(formSection).toContain("is-active");
-    expect(formSection).toContain("is-syncing");
-    expect(formSection).toContain("is-attention");
-    expect(formSection).toContain("is-disabled");
+    // The list shows the same operator-level connection state and does not
+    // expose the internal reconciliation state machine.
+    expect(listSection).toContain('string="Connection"');
+    expect(listSection).toContain('name="last_test_status"');
+    expect(listSection).not.toContain('name="gateway_sync_state"');
   });
 
-  it("preserves Gateway Status string in list view for contract", () => {
+  it("keeps internal recovery controls out of the customer-facing setup form", () => {
+    const xml = read("odoo_addons/print_gateway/views/gateway_config_views.xml");
+    const formStart = xml.indexOf('id="view_print_gateway_config_form"');
+    const formEnd = xml.indexOf('<record id="view_print_gateway_config_search"', formStart);
+    const formSection = xml.slice(formStart, formEnd);
+
+    // Recovery/reconciliation actions remain backend implementation details;
+    // the setup form is deliberately limited to connection configuration.
+    for (const action of [
+      'name="action_retry_enabled_sync"',
+      'name="action_reset_stale_sync_state"',
+      'name="action_open_pairing_wizard"',
+      'name="action_open_runtime_assignments"',
+      'name="action_clear_api_key"',
+    ]) {
+      expect(formSection).not.toContain(action);
+    }
+  });
+
+  it("keeps the Odoo 19 configuration state readable through connection status", () => {
     const xml = read("odoo_addons/print_gateway/views/gateway_config_views.xml");
     const listStart = xml.indexOf('id="view_print_gateway_config_list"');
-    const listSection = xml.slice(listStart, listStart + 2000);
-    expect(listSection).toContain('string="Gateway Status"');
-    expect(listSection).toContain('name="gateway_sync_state"');
-  });
+    const formStart = xml.indexOf('id="view_print_gateway_config_form"');
+    const listSection = xml.slice(listStart, formStart);
 
-  it("documents Odoo 19 official source for view architecture", () => {
-    // This test ensures the fix is documented with official reference
-    // https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_architectures.html
-    // Form views are composed of regular HTML with semantic components, invisible attribute uses Python expression
-    const xml = read("odoo_addons/print_gateway/views/gateway_config_views.xml");
-    expect(xml).toContain("Distinct State Row");
-    expect(xml).toContain("Odoo 19 form view uses invisible");
+    expect(listSection).toContain('widget="badge"');
+    expect(listSection).toContain('decoration-success="last_test_status == \'success\'"');
+    expect(listSection).toContain('decoration-danger="last_test_status in (\'failed\', \'revoked\')"');
+    expect(listSection).toContain('decoration-muted="last_test_status == \'draft\'"');
   });
 });
 
