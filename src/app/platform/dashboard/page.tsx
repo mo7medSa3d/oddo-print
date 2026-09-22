@@ -220,9 +220,6 @@ export default function PlatformDashboardPage() {
               Control plane
             </span>
           </div>
-          <p className="mt-2 max-w-2xl text-[13px] text-ink-3">
-            Current tenant, billing, fleet, and printing health from the platform control plane.
-          </p>
         </div>
 
         <div className="flex items-center gap-2.5">
@@ -301,7 +298,6 @@ export default function PlatformDashboardPage() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-[17px] font-semibold text-ink">System health</h2>
-              <p className="mt-1 text-[12px] text-ink-3">Availability ratios derived from the current platform totals.</p>
             </div>
             <CheckCircle2 className="mt-0.5 h-5 w-5 text-ok" aria-hidden />
           </div>
@@ -337,7 +333,6 @@ export default function PlatformDashboardPage() {
         <div className="card p-6">
           <div>
             <h2 className="text-[17px] font-semibold text-ink">Print activity · last 24 hours</h2>
-            <p className="mt-1 text-[12px] text-ink-3">Only outcomes actually recorded by the Gateway are shown.</p>
           </div>
 
           <div className="mt-6 grid grid-cols-3 gap-3">
@@ -387,7 +382,6 @@ export default function PlatformDashboardPage() {
           <div className="flex items-center justify-between border-b border-edge px-6 py-5">
             <div>
               <h2 className="text-[16px] font-semibold text-ink">Latest tenants</h2>
-              <p className="mt-0.5 text-[12px] text-ink-3">Most recent tenant records returned by the control plane.</p>
             </div>
             <Link href="/platform/tenants" className="text-[12px] font-semibold text-brand hover:text-brand-hover">
               View all
@@ -445,7 +439,6 @@ export default function PlatformDashboardPage() {
           <div className="flex items-center justify-between border-b border-edge px-6 py-5">
             <div>
               <h2 className="text-[16px] font-semibold text-ink">Latest subscriptions</h2>
-              <p className="mt-0.5 text-[12px] text-ink-3">Most recent subscription records returned by the control plane.</p>
             </div>
             <Link href="/platform/subscriptions" className="text-[12px] font-semibold text-brand hover:text-brand-hover">
               View all
