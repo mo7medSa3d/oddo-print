@@ -40,7 +40,7 @@ export type BillingOperation = {
 };
 
 type BillingOperationState =
-  | { kind: "proceed"; operationId: string; idempotencyKey: string; subscriptionId: string }
+  | { kind: "proceed"; operationId: string; idempotencyKey: string; subscriptionId: string; subscriptionStatus: string }
   | { kind: "in_progress" }
   | { kind: "missing" };
 
@@ -65,7 +65,8 @@ export async function runBillingOperation(
              billing_operation_id AS "billingOperationId",
              billing_operation_type AS "billingOperationType",
              billing_operation_idempotency_key AS "billingOperationIdempotencyKey",
-             billing_operation_subscription_id AS "billingOperationSubscriptionId"
+             billing_operation_subscription_id AS "billingOperationSubscriptionId",
+             status
       FROM tenant_subscriptions
       WHERE tenant_id = ${tenantId}
       FOR UPDATE
@@ -76,6 +77,7 @@ export async function runBillingOperation(
       billingOperationType?: string | null;
       billingOperationIdempotencyKey?: string | null;
       billingOperationSubscriptionId?: string | null;
+      status?: string | null;
     } | undefined;
 
     if (!row?.stripeSubscriptionId) return { kind: "missing" as const };
@@ -116,6 +118,7 @@ export async function runBillingOperation(
         operationId: row.billingOperationId,
         idempotencyKey: row.billingOperationIdempotencyKey,
         subscriptionId: row.billingOperationSubscriptionId,
+        subscriptionStatus: row.status ?? "unknown",
       };
     }
 
@@ -147,11 +150,15 @@ export async function runBillingOperation(
   }
 
   try {
-    await stripeRequest(
-      `subscriptions/${state.subscriptionId}`,
-      operation.stripeParams,
-      state.idempotencyKey,
-    );
+    const stripePath =
+      operation.type === "resume" && state.subscriptionStatus === "paused"
+        ? `subscriptions/${state.subscriptionId}/resume`
+        : `subscriptions/${state.subscriptionId}`;
+    const stripeParams =
+      operation.type === "resume" && state.subscriptionStatus === "paused"
+        ? new URLSearchParams()
+        : operation.stripeParams;
+    await stripeRequest(stripePath, stripeParams, state.idempotencyKey);
   } catch (error) {
     // Keep the persistent operation claim and its idempotency key. A retry
     // can safely replay the same Stripe request after a lost/ambiguous
@@ -170,7 +177,8 @@ export async function runBillingOperation(
       `);
       const result = await tx.execute(sql`
         SELECT stripe_subscription_id AS "stripeSubscriptionId",
-               billing_operation_id AS "billingOperationId"
+               billing_operation_id AS "billingOperationId",
+               status
         FROM tenant_subscriptions
         WHERE tenant_id = ${tenantId}
         FOR UPDATE
