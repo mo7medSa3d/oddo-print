@@ -894,7 +894,7 @@ export default function DashboardClient({
                 { id: "all", label: "All" },
                 { id: "active", label: "In Flight" },
                 { id: "queued", label: "Queued" },
-                { id: "success", label: "Printed" },
+                { id: "success", label: "Delivered" },
                 { id: "failed", label: "Failed" },
                 { id: "unknown", label: "Unknown" },
                 { id: "expired", label: "Expired" },
