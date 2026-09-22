@@ -46,7 +46,7 @@ function VerifyEmailContent() {
       setState("error");
       setMsg(error instanceof Error ? error.message : "Verification failed");
     });
-  }, [token, router]);
+  }, [token, planId, router]);
 
   async function handleResend(event: React.FormEvent) {
     event.preventDefault();
