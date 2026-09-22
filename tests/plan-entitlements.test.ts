@@ -8,11 +8,13 @@ describe("plan entitlements", () => {
       max_printers: 20,
       max_jobs_per_minute: 300,
       max_concurrent_jobs: 32,
+      max_prints_per_period: 20,
     })).toEqual({
       max_agents: 3,
       max_printers: 20,
       max_jobs_per_minute: 300,
       max_concurrent_jobs: 32,
+      max_prints_per_period: 20,
     });
   });
 
@@ -22,9 +24,11 @@ describe("plan entitlements", () => {
       max_printers: 50,
       max_jobs_per_minute: 1000,
       max_concurrent_jobs: "unlimited",
+      max_prints_per_period: "unlimited",
     });
     expect(result.max_agents).toBe("unlimited");
     expect(result.max_concurrent_jobs).toBe("unlimited");
+    expect(result.max_prints_per_period).toBe("unlimited");
   });
 
   it("rejects missing canonical limits", () => {
@@ -32,6 +36,7 @@ describe("plan entitlements", () => {
       max_agents: 1,
       max_printers: 1,
       max_jobs_per_minute: 60,
+      max_concurrent_jobs: 8,
     })).toThrow();
   });
 
