@@ -12,31 +12,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file: string) => readFileSync(path.join(ROOT, file), "utf8");
 
 describe("Odoo Gateway activation synchronization", () => {
-  it("blocks read-only Odoo keys from changing Gateway activation", async () => {
-    if (!hasTestDatabase) return;
-    const readOnlyKey = "odoo_readonly_activation";
-    await pool().query(
-      `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key, odoo_enabled, odoo_enabled_revision)
-       VALUES ($1, $2, 'read_only', 'Read only activation', $3, false, 0)`,
-      ["key_readonly_activation", f.tenantId, sha256(readOnlyKey)],
-    );
-
-    const response = await configurationPATCH(new Request("http://gateway.test/api/odoo/configuration", {
-      method: "PATCH",
-      headers: { Authorization: `Bearer ${readOnlyKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ enabled: true, revision: 1 }),
-    }));
-
-    expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ code: "ODOO_KEY_READ_ONLY" });
-
-    const row = await pool().query(
-      `SELECT odoo_enabled, odoo_enabled_revision FROM api_keys WHERE id = $1`,
-      ["key_readonly_activation"],
-    );
-    expect(row.rows[0]).toEqual({ odoo_enabled: false, odoo_enabled_revision: 0 });
-  });
-
   it("keeps Odoo activation separate from tenant lifecycle and fences updates by revision", () => {
     const route = read("src/app/api/odoo/configuration/route.ts");
     const schema = read("src/db/schema.ts");
@@ -76,6 +51,30 @@ describe("Odoo Gateway activation synchronization", () => {
     beforeAll(async () => { await applyMigrations(); });
     beforeEach(async () => { await truncateAll(); f = await seedFixture(); });
     afterAll(async () => { await closePool(); });
+
+    it("blocks read-only Odoo keys from changing Gateway activation", async () => {
+      const readOnlyKey = "odoo_readonly_activation";
+      await pool().query(
+        `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key, odoo_enabled, odoo_enabled_revision)
+         VALUES ($1, $2, 'read_only', 'Read only activation', $3, false, 0)`,
+        ["key_readonly_activation", f.tenantId, sha256(readOnlyKey)],
+      );
+
+      const response = await configurationPATCH(new Request("http://gateway.test/api/odoo/configuration", {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${readOnlyKey}`, "content-type": "application/json" },
+        body: JSON.stringify({ enabled: true, revision: 1 }),
+      }));
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ code: "ODOO_KEY_READ_ONLY" });
+
+      const row = await pool().query(
+        `SELECT odoo_enabled, odoo_enabled_revision FROM api_keys WHERE id = $1`,
+        ["key_readonly_activation"],
+      );
+      expect(row.rows[0]).toEqual({ odoo_enabled: false, odoo_enabled_revision: 0 });
+    });
 
     it("changes one integration without changing another integration in the same tenant", async () => {
       const keyB = "odoo_company_b_activation";
