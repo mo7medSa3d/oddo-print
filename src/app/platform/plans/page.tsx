@@ -102,7 +102,6 @@ export default function PlatformPlansPage() {
             <ShieldAlert className="h-3.5 w-3.5" /> Commercial Catalog
           </div>
           <h1 className="mt-4 text-[26px] font-bold tracking-[-0.02em] text-ink leading-tight">Plans</h1>
-          <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-ink-3">Manage what customers buy and runtime limits enforced by Gateway. Stripe is billing source of truth.</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => refresh()} disabled={loading} className="inline-flex items-center gap-2 rounded-full border border-edge-strong bg-surface-2 px-4 py-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink disabled:opacity-50">
@@ -123,7 +122,7 @@ export default function PlatformPlansPage() {
       </div>
 
       <div className="overflow-hidden rounded-[14px] border border-edge bg-surface">
-        <div className="border-b border-edge px-5 py-4"><h2 className="text-[13px] font-semibold text-ink">Plan catalog • {filtered.length}</h2><p className="mt-0.5 text-[11px] text-ink-4">Entitlements enforced server-side • Stripe Price ID required</p></div>
+        <div className="border-b border-edge px-5 py-4"><h2 className="text-[13px] font-semibold text-ink">Plan catalog • {filtered.length}</h2></div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1100px] text-left text-[13px]">
             <thead className="border-b border-edge bg-surface-2 text-[11px] font-semibold uppercase tracking-wide text-ink-4">
@@ -176,7 +175,7 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-[2px]">
       <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[16px] border border-edge-strong bg-surface shadow-2xl">
         <div className="flex items-start justify-between border-b border-edge px-6 py-5">
-          <div><p className="text-[11px] font-semibold uppercase tracking-wide text-brand-subtle-text">Plan catalog</p><h2 className="mt-1 text-[16px] font-semibold text-ink">{isNew ? "Create plan" : "Edit plan"}</h2><p className="mt-1 text-[12px] text-ink-3">Stripe Price ID points to price customers are charged through.</p></div>
+          <div><p className="text-[11px] font-semibold uppercase tracking-wide text-brand-subtle-text">Plan catalog</p><h2 className="mt-1 text-[16px] font-semibold text-ink">{isNew ? "Create plan" : "Edit plan"}</h2></div>
           <button onClick={onClose} disabled={saving} className="rounded-full p-1.5 text-ink-4 hover:bg-surface-3 hover:text-ink"><X className="h-5 w-5" /></button>
         </div>
         <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
@@ -189,7 +188,7 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
           <Field label="Display order"><input type="number" min={0} value={form.displayOrder} onChange={(e) => setForm({ ...form, displayOrder: Number(e.target.value) })} className={INPUT} /></Field>
           <Field label="Description" full><textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} placeholder="Short description shown in public catalog." className={`${INPUT} resize-none`} /></Field>
           <div className="sm:col-span-2 rounded-[12px] border border-edge bg-surface-2 p-4">
-            <div className="mb-3"><div className="text-[13px] font-semibold text-ink">Runtime entitlements</div><p className="mt-1 text-[11px] text-ink-4">Enforced server-side for tenant using this plan.</p></div>
+            <div className="mb-3"><div className="text-[13px] font-semibold text-ink">Runtime entitlements</div></div>
             <div className="grid gap-4 sm:grid-cols-2">{(Object.keys(ENTITLEMENT_LABELS) as EntitlementKey[]).map((key) => (<Field key={key} label={ENTITLEMENT_LABELS[key]}><input value={String(form.entitlements[key])} onChange={(e) => updateEntitlement(key, e.target.value)} placeholder="Unlimited or number" className={INPUT} /></Field>))}</div>
           </div>
           <label className="flex items-center justify-between gap-4 rounded-[12px] border border-edge bg-surface-2 px-4 py-3"><span><span className="block text-[13px] font-medium text-ink">Active for new sales</span><span className="mt-0.5 block text-[11px] text-ink-4">Archived stays valid for existing subscribers.</span></span><input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="h-4 w-4 accent-brand" /></label>

@@ -202,7 +202,7 @@ export default function TeamPage() {
             <Users className="h-3.5 w-3.5" /> Team & access
           </div>
           <h1 className="mt-4 text-[28px] font-bold tracking-[-0.04em] text-ink">Team</h1>
-          <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-3">Invite staff, assign roles, and control workspace access. RBAC enforced server-side.</p>
+          <p className="mt-2 text-[14px] leading-relaxed text-ink-3">Manage members and roles.</p>
         </div>
         <div className="flex items-center gap-2 text-[12px] text-ink-3">
           <Shield className="h-4 w-4" />
@@ -213,7 +213,7 @@ export default function TeamPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
           <Card>
-            <CardHeader title="Invite member" subtitle="Email invitation with role assignment" icon={<Mail className="h-4 w-4 text-brand" />} />
+            <CardHeader title="Invite member" icon={<Mail className="h-4 w-4 text-brand" />} />
             <form onSubmit={invite} className="px-6 pb-6 space-y-4">
               <div className="grid gap-4 sm:grid-cols-[1fr_200px]">
                 <div>
@@ -330,7 +330,6 @@ export default function TeamPage() {
               {invitations.length === 0 ? (
                 <div className="rounded-[10px] border border-dashed border-edge p-6 text-center">
                   <div className="text-[13px] font-medium text-ink">No pending invites</div>
-                  <div className="mt-1 text-[12px] text-ink-3">Invited members appear here until they accept.</div>
                 </div>
               ) : (
                 <div className="space-y-2.5">

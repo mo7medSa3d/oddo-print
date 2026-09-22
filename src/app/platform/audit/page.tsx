@@ -51,7 +51,6 @@ export default function PlatformAuditPage() {
             <ShieldAlert className="h-3.5 w-3.5" /> Compliance • Immutable
           </div>
           <h1 className="mt-4 text-[26px] font-bold tracking-[-0.02em] text-ink leading-tight flex items-center gap-2.5"><Shield className="h-6 w-6 text-ok" /> System Audit Stream</h1>
-          <p className="mt-2 text-[13px] text-ink-3">Platform-wide audit events across tenants and actors. Last 150 events.</p>
         </div>
         <button onClick={handleRefresh} disabled={loading} className="inline-flex items-center gap-2 rounded-full border border-edge-strong bg-surface-2 px-4 py-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink transition self-start sm:self-auto">
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh stream

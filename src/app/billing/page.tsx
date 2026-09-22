@@ -244,17 +244,6 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
         </section>
 
         <aside className="space-y-4">
-          <section className="rounded-[14px] border border-edge bg-surface p-5 shadow-card">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Subscription details</div>
-            <div className="mt-4 space-y-0">
-              <DetailRow label="Plan" value={currentPlan?.name ?? "Not configured"} />
-              <DetailRow label="Status" value={sub ? formatStatus(sub.status) : "Not configured"} />
-              <DetailRow label="Currency" value={currentPlan?.currency?.toUpperCase() ?? "—"} />
-              <DetailRow label="Interval" value={currentPlan?.interval ?? "—"} />
-              <DetailRow label="Renewal" value={renewalLabel} />
-            </div>
-          </section>
-
           <section className="rounded-[14px] border border-edge bg-surface px-5 py-5 shadow-card" id="billing-actions">
             <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Billing controls</div>
             <div className="mt-3">
@@ -265,15 +254,6 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
             </div>
           </section>
 
-          <section className="rounded-[14px] border border-edge bg-surface-2 p-5">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-ok" />
-              <div>
-                <div className="text-[13px] font-semibold text-ink">Stripe is the billing source of truth</div>
-                <p className="mt-1.5 text-[12px] leading-relaxed text-ink-3">Checkout, subscription status, and payment-method changes are confirmed through Stripe events.</p>
-              </div>
-            </div>
-          </section>
         </aside>
       </div>
     </div>
@@ -285,15 +265,6 @@ function InfoCell({ label, value }: { label: string; value: string }) {
     <div className="px-6 py-4 sm:px-7">
       <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">{label}</div>
       <div className="mt-1.5 text-[13.5px] font-semibold text-ink">{value}</div>
-    </div>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4 border-b border-dashed border-edge-subtle py-3 last:border-b-0">
-      <span className="text-[12px] text-ink-3">{label}</span>
-      <span className="text-right text-[12.5px] font-semibold text-ink">{value}</span>
     </div>
   );
 }

@@ -61,7 +61,6 @@ export default function PlatformSubscriptionsPage() {
           <h1 className="mt-4 flex items-center gap-2.5 text-[26px] font-bold tracking-[-0.02em] text-ink leading-tight">
             <CreditCard className="h-6 w-6 text-info" /> Subscriptions
           </h1>
-          <p className="mt-2 text-[13px] leading-relaxed text-ink-3">Global SaaS plans, Stripe customer mapping, and billing states — Stripe source of truth.</p>
         </div>
         <button onClick={handleRefresh} disabled={loading} className="inline-flex items-center gap-2 rounded-full border border-edge-strong bg-surface-2 px-4 py-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink transition disabled:opacity-50">
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
@@ -78,7 +77,6 @@ export default function PlatformSubscriptionsPage() {
       <div className="overflow-hidden rounded-[14px] border border-edge bg-surface">
         <div className="border-b border-edge px-5 py-4">
           <h2 className="text-[13px] font-semibold text-ink">Subscriptions • {filtered.length}</h2>
-          <p className="mt-0.5 text-[11px] text-ink-4">Stripe billing states • cancel_at_period_end honored • no fake values</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left text-[13px] text-ink-2">

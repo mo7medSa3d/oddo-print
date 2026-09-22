@@ -117,7 +117,7 @@ export default function ApiKeysPage() {
         <div>
           <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4"><KeyRound className="h-3.5 w-3.5" /> Odoo Gateway</div>
           <h1 className="text-[28px] font-bold tracking-[-0.04em] text-ink">API Keys &amp; Integration</h1>
-          <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">Create, rotate, and revoke credentials for Odoo. Credential security, Odoo activation, and Gateway connectivity are tracked independently.</p>
+          <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-3">Create and manage Odoo credentials.</p>
         </div>
         {active > 0 ? (
           <span className="text-[12px] font-semibold text-ink-3">{active} active</span>
@@ -129,11 +129,11 @@ export default function ApiKeysPage() {
       {hasSubscription === false && (
         <div className="mb-6 flex flex-col gap-3 rounded-xl border border-warn-edge bg-warn-bg px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-[13px] font-medium text-warn">
-            No active subscription on this workspace — pairing agents and configuring a Gateway are paused until you choose a plan.
+            Choose a plan to enable Gateway setup.
           </p>
           <Link
             href="/billing"
-            className="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-brand px-4 text-[12.5px] font-semibold text-white transition hover:bg-brand-hover"
+            className="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-brand px-4 text-[12.5px] font-semibold text-brand-contrast transition hover:bg-brand-hover"
           >
             Choose a plan
           </Link>

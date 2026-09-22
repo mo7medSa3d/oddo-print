@@ -106,7 +106,6 @@ export default function PlatformTenantsPage() {
           <h1 className="mt-4 flex items-center gap-2.5 text-[26px] font-bold tracking-[-0.02em] text-ink leading-tight">
             <Building2 className="h-6 w-6 text-brand" /> Tenants
           </h1>
-          <p className="mt-2 text-[13px] leading-relaxed text-ink-3">Workspace directory, lifecycle control, and fleet overview — suspension reason required, audit preserved.</p>
         </div>
         <button onClick={handleRefresh} disabled={loading} className="inline-flex items-center gap-2 rounded-full border border-edge-strong bg-surface-2 px-4 py-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink transition disabled:opacity-50">
           <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} /> Refresh
