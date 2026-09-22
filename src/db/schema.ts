@@ -142,11 +142,9 @@ export const printers = pgTable("printers", {
 export const apiKeys = pgTable("api_keys", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id).notNull(),
-  scope: text("scope").notNull().default("standard"),
   name: text("name").notNull(),
   description: text("description"),
   hashedKey: text("hashed_key").notNull().unique(),
-  allowedDocumentTypes: jsonb("allowed_document_types").$type<string[]>(),
   // Odoo activation is an integration-credential state, not a tenant-wide switch.
   odooEnabled: boolean("odoo_enabled").notNull().default(false),
   odooEnabledRevision: integer("odoo_enabled_revision").notNull().default(-1),
