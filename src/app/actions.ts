@@ -77,6 +77,7 @@ export async function createAgent(name: string) {
       throw new ActionError(error.message, 429, code, {
         entitlement: error.entitlement,
         limit: error.limit,
+        used: error.used,
         upgradeRequired: error.entitlement === "max_agents",
       });
     }
