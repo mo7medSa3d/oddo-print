@@ -1277,9 +1277,6 @@ func (a *Agent) enqueueReject(ctx context.Context, jobID, token, reason string) 
 	if jobID == "" {
 		return false
 	}
-	if live := a.currentClaimToken(jobID); live != "" {
-		token = live
-	}
 	key := rejectKey(jobID, token, reason)
 
 	a.rejectMu.Lock()
@@ -1878,7 +1875,13 @@ func (a *Agent) sendHeartbeat() {
 }
 
 func (a *Agent) sendHeartbeatContext(parent context.Context) {
+	if parent.Err() != nil {
+		return
+	}
 	a.reloadRegistryPrinters()
+	if parent.Err() != nil {
+		return
+	}
 	reqURL := fmt.Sprintf("%s/api/agent/heartbeat", a.cfg.Server.URL)
 	payload := map[string]interface{}{
 		"status":                 "online",
@@ -1910,6 +1913,9 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 		log.Printf("Heartbeat rejected (%d): %s", resp.StatusCode, string(body))
 		return
 	}
+	if parent.Err() != nil {
+		return
+	}
 
 	var hbResp struct {
 		Success         bool                  `json:"success"`
@@ -1920,6 +1926,9 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 		} `json:"skippedPrinters"`
 	}
 	if err := json.Unmarshal(body, &hbResp); err == nil {
+		if parent.Err() != nil {
+			return
+		}
 		if hbResp.DesiredState != nil {
 			a.reconcileGatewayDesiredState(*hbResp.DesiredState)
 			a.desiredStateMu.Lock()
