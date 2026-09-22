@@ -924,7 +924,7 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 			default:
 				log.Printf("[discovery] session %s deferred: a discovery session is already running", discoveryID)
 				a.launchTracked(func() {
-					_ = a.reportDiscoveryResult(ctx, discoveryID, "cancelled", nil)
+					a.reportDiscoveryResult(ctx, discoveryID, "cancelled", nil)
 				})
 			}
 			continue
@@ -1383,7 +1383,6 @@ func (a *Agent) runRejectWorker(ctx context.Context) {
 	}
 }
 
-}
 
 // waitForJobs blocks until in-flight job handlers finish (bounded by
 // shutdownGrace), so the SQLite queue is never closed mid-write on service
