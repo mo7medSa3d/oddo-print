@@ -151,7 +151,7 @@ button, input, select, textarea { font: inherit; }
   position: absolute;
   inset: 0 0 auto 0;
   height: 2px;
-  background: linear-gradient(90deg, var(--brand) 0%, var(--brand-400) 72%, transparent 100%);
+  background: var(--brand);
 }
 
 :focus-visible {
