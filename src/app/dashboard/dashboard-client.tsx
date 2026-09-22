@@ -6,7 +6,6 @@ import {
   deleteAgent,
   getDashboardJobs,
   getDashboardState,
-  reprintJob,
   setAgentLifecycle,
   setPrinterLifecycle,
 } from "../actions";
@@ -181,6 +180,21 @@ function formatCountdown(expiresAt: Date | string | null | undefined): { text: s
     text: `${min}:${sec.toString().padStart(2, "0")}`,
     expired: false,
   };
+}
+
+async function sendGatewayReprint(jobId: string): Promise<{ jobId?: string }> {
+  const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/reprint`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+  });
+  const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+  if (!response.ok) {
+    const code = typeof body?.code === "string" ? body.code : "HTTP_ERROR";
+    const message = typeof body?.error === "string" ? body.error : `Reprint request failed (HTTP ${response.status}).`;
+    throw new DashboardApiError(message, code, body ?? {});
+  }
+  return { jobId: typeof body?.jobId === "string" ? body.jobId : undefined };
 }
 
 async function sendGatewayTestPage(printerId: string): Promise<{ jobId?: string; status?: string }> {
@@ -1166,7 +1180,22 @@ export default function DashboardClient({
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setReprintCandidate(null)} disabled={busy}>Cancel</Button>
-          <Button variant="danger" disabled={busy} loading={busy} onClick={async () => { const job = reprintCandidate; setReprintCandidate(null); if (!job) return; await runAction(() => reprintJob(job.id), `Reprint queued for ${job.printerId}`); }} icon={<RotateCcw className="h-4 w-4" />}>Reprint</Button>
+          <Button variant="danger" disabled={busy} loading={busy} onClick={async () => { const job = reprintCandidate; setReprintCandidate(null); if (!job) return; try {
+          await sendGatewayReprint(job.id);
+          setMessage({ text: `Reprint queued for ${job.printerId}`, type: "ok" });
+          void refreshData();
+        } catch (error) {
+          if (error instanceof DashboardApiError && error.code === "PRINT_QUOTA_EXCEEDED") {
+            setUpgradeLimit({
+              resource: "prints",
+              used: typeof error.details.used === "number" ? error.details.used : null,
+              limit: typeof error.details.limit === "number" || error.details.limit === "unlimited" ? error.details.limit : null,
+              periodEnd: typeof error.details.periodEnd === "string" ? error.details.periodEnd : null,
+            });
+          } else {
+            setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
+          }
+        } }} icon={<RotateCcw className="h-4 w-4" />}>Reprint</Button>
         </div>
       </Modal>
 
