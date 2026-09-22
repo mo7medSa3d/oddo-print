@@ -4,7 +4,7 @@ import { printJobs } from "../../../../db/schema";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
 import { validatePrintJobPayload, type PrintJobPayload } from "../../../../lib/payload";
 import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError, PrintJobCapabilityError, PrintJobInputError, idempotencyFingerprint } from "../../../../lib/print-job-service";
-import { TenantEntitlementError, isTenantBillingError } from "../../../../lib/entitlements";
+import { TenantEntitlementError, TenantPrintQuotaExceededError, isTenantBillingError } from "../../../../lib/entitlements";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError, requestIdFrom } from "../../../../lib/log";
 import { and, eq } from "drizzle-orm";
@@ -127,6 +127,25 @@ export async function POST(req: Request) {
       documentType: parsed.data.documentType,
     }, { status: 201 });
   } catch (error) {
+    if (error instanceof TenantPrintQuotaExceededError) {
+      const response: Record<string, unknown> = {
+        error: error.message,
+        code: error.code,
+        entitlement: error.entitlement,
+        limit: error.limit,
+        used: error.used,
+        remaining: 0,
+        periodStart: error.periodStart.toISOString(),
+        periodEnd: error.periodEnd?.toISOString() ?? null,
+        upgradeRequired: true,
+        retryable: false,
+      };
+      const headers = new Headers({ "Cache-Control": "no-store" });
+      if (error.periodEnd) {
+        headers.set("Retry-After", String(Math.max(1, Math.ceil((error.periodEnd.getTime() - Date.now()) / 1000))));
+      }
+      return NextResponse.json(response, { status: 429, headers });
+    }
     if (error instanceof TenantEntitlementError) return NextResponse.json({ error: error.message, code: error.code }, { status: 429, headers: { "Retry-After": "60" } });
     if (isTenantBillingError(error)) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
     if (error instanceof AgentQueueFullError || error instanceof AgentQueuedJobsFullError) {
