@@ -10,6 +10,17 @@ import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBilli
 
 export const dynamic = "force-dynamic";
 
+type ProvisionResult =
+  | { kind: "agent_not_found" }
+  | { kind: "agent_not_active" }
+  | { kind: "not_found" }
+  | { kind: "not_approved" }
+  | { kind: "unsupported_transport"; protocol: string }
+  | { kind: "missing_endpoint" }
+  | { kind: "invalid_endpoint"; error: string }
+  | { kind: "already"; printerId: string }
+  | { kind: "created"; printerId: string };
+
 export async function POST(req: Request, { params }: { params: Promise<{ id: string; deviceId: string }> }) {
   const claims = await validateManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -20,9 +31,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!agent) return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   if (agent.lifecycle !== "active") return NextResponse.json({ error: `Agent is ${agent.lifecycle}` }, { status: 409 });
 
-  let result: Awaited<ReturnType<typeof db.transaction>>;
+  let result: ProvisionResult;
   try {
-    result = await db.transaction(async (tx) => {
+    result = await db.transaction(async (tx): Promise<ProvisionResult> => {
     // Tenant resource admission must serialize with direct printer creation;
     // otherwise two different Agents could both observe capacity and insert
     // simultaneously past max_printers.
