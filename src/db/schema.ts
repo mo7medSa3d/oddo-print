@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, integer, bigint, boolean, index, uniqueIndex, check, foreignKey, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, bigint, boolean, index, uniqueIndex, check, foreignKey, unique, primaryKey } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const tenants = pgTable("tenants", {
@@ -443,6 +443,7 @@ export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   stripeCustomerId: text("stripe_customer_id").unique(),
   stripeSubscriptionId: text("stripe_subscription_id").unique(),
   status: text("status").notNull().default("active"),
+  currentPeriodStart: timestamp("current_period_start").notNull().defaultNow(),
   currentPeriodEnd: timestamp("current_period_end"),
   trialStartedAt: timestamp("trial_started_at"),
   stripeLastEventCreatedAt: timestamp("stripe_last_event_created_at"),
@@ -469,6 +470,20 @@ export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   billingOperationKeyUnique: uniqueIndex("tenant_subscriptions_billing_operation_key_unique").on(table.billingOperationIdempotencyKey).where(sql`${table.billingOperationIdempotencyKey} IS NOT NULL`),
 }));
 
+
+export const printUsagePeriods = pgTable("print_usage_periods", {
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end"),
+  usedPrints: integer("used_prints").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.tenantId, table.periodStart], name: "print_usage_periods_pk" }),
+  tenantPeriodEndIdx: index("print_usage_periods_tenant_period_end_idx").on(table.tenantId, table.periodEnd),
+  usedCheck: check("print_usage_periods_used_check", sql`${table.usedPrints} >= 0`),
+  periodCheck: check("print_usage_periods_period_check", sql`${table.periodEnd} IS NULL OR ${table.periodEnd} > ${table.periodStart}`),
+}));
 
 export const printJobRateLimits = pgTable("print_job_rate_limits", {
   apiKeyId: text("api_key_id").references(() => apiKeys.id).primaryKey(),
