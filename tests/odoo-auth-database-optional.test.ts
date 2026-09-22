@@ -2,14 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 
 const apiKeyFindFirst = vi.fn();
-const tenantFindFirst = vi.fn();
 const apiKeyUpdate = vi.fn();
 
 vi.mock("../src/db", () => ({
   db: {
     query: {
       apiKeys: { findFirst: (...args: unknown[]) => apiKeyFindFirst(...args) },
-      tenants: { findFirst: (...args: unknown[]) => tenantFindFirst(...args) },
     },
     update: () => ({ set: () => ({ where: (...args: unknown[]) => apiKeyUpdate(...args) }) }),
   },
@@ -40,7 +38,6 @@ describe("Odoo API-key authentication ignores the database name", () => {
     vi.unstubAllEnvs();
     apiKeyFindFirst.mockReset();
     apiKeyUpdate.mockReset().mockResolvedValue(undefined);
-    tenantFindFirst.mockReset().mockResolvedValue({ odooEnabled: true });
     apiKeyFindFirst.mockResolvedValue(liveRow);
   });
 
