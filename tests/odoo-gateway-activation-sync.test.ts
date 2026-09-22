@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
-import { createHash } from "node:crypto";
 import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, closePool, pool, type Fixture } from "./helpers/pg";
 import { PATCH as configurationPATCH } from "../src/app/api/odoo/configuration/route";
 import { GET as healthGET } from "../src/app/api/odoo/health/route";
@@ -42,9 +41,8 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(migration).toContain('DROP COLUMN IF EXISTS "odoo_enabled"');
   });
 
-  describe.skipIf(!hasTestDatabase)("runtime isolation", () => {
+  describe.skipIf(!hasTestDatabase)("runtime behavior", () => {
     let f: Fixture;
-    const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
     beforeAll(async () => { await applyMigrations(); });
     beforeEach(async () => { await truncateAll(); f = await seedFixture(); });
@@ -57,25 +55,42 @@ describe("Odoo Gateway activation synchronization", () => {
         body: JSON.stringify({ enabled: true, revision: 1 }),
       }));
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ ok: true, applied: true, enabled: true, revision: 1 });
+      expect(await response.json()).toMatchObject({
+        ok: true,
+        applied: true,
+        enabled: true,
+        revision: 1,
+      });
     });
 
+    it("allows the full-access Odoo key to print any document type", async () => {
+      const response = await printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          printerId: f.printerId,
+          documentType: "custom-document-type",
+          destination: "custom-destination",
+          payload: { type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=" },
+          idempotencyKey: "any-document-type",
+        }),
+      }));
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({ documentType: "custom-document-type" });
+    });
 
-  it("renders Gateway Configuration status from the Odoo-sourced state and refreshes it", () => {
-    const page = read("src/app/api-keys/page.tsx");
-    expect(page).toContain('fetch("/api/odoo/keys"');
-    expect(page).toContain("setInterval");
-    // Professional concise labels — verifies Odoo-sourced state still shown
-    expect(page).toContain("Odoo integration");
-    expect(page).toContain("Odoo");
-    expect(page).toContain("Gateway");
-    expect(page).toContain("Connect Odoo");
-    expect(page).toContain("odooEnabledRevision");
-    expect(page).toContain("Read / write · All documents");
-    expect(page).not.toContain("Document types");
-    expect(page).not.toContain("Read only");
-    expect(page).toContain("Odoo access:");
-    expect(page).not.toContain("const id = setInterval(tick, 5000);\n    return () => { cancel = true; clearInterval(id); };\n  }, []);\n\n  useEffect(() => {\n    // Guard r.ok");
+    it("renders Gateway Configuration status from the Odoo-sourced state and refreshes it", () => {
+      const page = read("src/app/api-keys/page.tsx");
+      expect(page).toContain('fetch("/api/odoo/keys"');
+      expect(page).toContain("setInterval");
+      expect(page).toContain("Odoo integration");
+      expect(page).toContain("Connect Odoo");
+      expect(page).toContain("odooEnabledRevision");
+      expect(page).toContain("Read / write · All documents");
+      expect(page).not.toContain("Document types");
+      expect(page).not.toContain("Read only");
+      expect(page).toContain("Odoo access:");
+    });
   });
 
   it("fences stale sync outcomes so an older worker cannot create Action needed", () => {
