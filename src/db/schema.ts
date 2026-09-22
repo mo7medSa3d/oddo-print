@@ -460,7 +460,7 @@ export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
-  statusCheck: check("tenant_subscriptions_status_check", sql`${table.status} in ('trialing','active','past_due','paused','cancelled')`),
+  statusCheck: check("tenant_subscriptions_status_check", sql`${table.status} in ('trialing','active','past_due','incomplete','incomplete_expired','unpaid','paused','cancelled')`),
   checkoutStatusCheck: check("tenant_subscriptions_checkout_status_check", sql`${table.checkoutStatus} in ('none','creating','open','completed')`),
   billingOperationTypeCheck: check("tenant_subscriptions_billing_operation_type_check", sql`${table.billingOperationType} IS NULL OR ${table.billingOperationType} in ('cancel','resume')`),
   checkoutIdempotencyUnique: uniqueIndex("tenant_subscriptions_checkout_idempotency_unique").on(table.checkoutIdempotencyKey).where(sql`${table.checkoutIdempotencyKey} IS NOT NULL`),
