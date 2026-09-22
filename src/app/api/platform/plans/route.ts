@@ -70,7 +70,7 @@ export async function GET(req: Request) {
         createdAt: plans.createdAt,
         updatedAt: plans.updatedAt,
         subscriberCount: sql<number>`(SELECT count(*)::int FROM ${tenantSubscriptions} WHERE ${tenantSubscriptions.planId} = ${plans.id})`,
-        activeSubscriberCount: sql<number>`(SELECT count(*)::int FROM ${tenantSubscriptions} WHERE ${tenantSubscriptions.planId} = ${plans.id} AND ${tenantSubscriptions.status} IN ('trialing','active','past_due','paused'))`,
+        activeSubscriberCount: sql<number>`(SELECT count(*)::int FROM ${tenantSubscriptions} WHERE ${tenantSubscriptions.planId} = ${plans.id} AND ${tenantSubscriptions.status} IN ('trialing','active','past_due'))`,
       })
       .from(plans)
       .orderBy(asc(plans.displayOrder), asc(plans.name))
