@@ -24,7 +24,7 @@ type Plan = {
   activeSubscriberCount: number;
 };
 
-const EMPTY_ENTITLEMENTS: Entitlements = { max_agents: 1, max_printers: 1, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: 20 };
+const EMPTY_ENTITLEMENTS: Entitlements = { max_agents: 1, max_printers: 1, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: "unlimited" };
 const ENTITLEMENT_LABELS: Record<EntitlementKey, string> = { max_agents: "Agents", max_printers: "Printers", max_jobs_per_minute: "Jobs / min", max_concurrent_jobs: "Concurrent", max_prints_per_period: "Print jobs / period" };
 
 function emptyForm() {
