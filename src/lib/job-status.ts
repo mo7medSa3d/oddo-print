@@ -126,7 +126,7 @@ export interface TransitionOptions {
 export function canTransition(from: JobStatus, to: JobStatus, options: TransitionOptions = {}): boolean {
   if (isTerminal(from)) {
     if (options.allowLateSuccess === true && to === "success") {
-      return from === "failed" || from === "expired";
+      return from === "failed";
     }
     return false;
   }
@@ -197,4 +197,10 @@ export function isExpiredLateSuccessAllowed(
  * job printed). Adding a reason requires an agent-side call site that can
  * only fire before any byte reaches hardware.
  */
-export const AGENT_REQUEUE_REASONS = ["pending_full", "agent_shutting_down", "ledger_unavailable"] as const;
+export const AGENT_REQUEUE_REASONS = [
+  "pending_full",
+  "printer_pending_full",
+  "printer_not_at_desired_state",
+  "agent_shutting_down",
+  "ledger_unavailable",
+] as const;

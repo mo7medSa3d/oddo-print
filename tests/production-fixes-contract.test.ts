@@ -47,7 +47,10 @@ describe("production fixes contracts (2026-09)", () => {
     // The claim token gate makes the rejection unforgeable by a superseded attempt.
     expect(jobs).toContain("STALE_CLAIM");
     const status = read("src/lib/job-status.ts");
-    expect(status).toContain('AGENT_REQUEUE_REASONS = ["pending_full", "agent_shutting_down", "ledger_unavailable"]');
+    expect(status).toMatch(/AGENT_REQUEUE_REASONS\s*=\s*\[\s*"pending_full",\s*"printer_pending_full",\s*"printer_not_at_desired_state",\s*"agent_shutting_down",\s*"ledger_unavailable",\s*\]\s*as const/);
+    const normalizedJobs = jobs.replace(/\s+/g, " ");
+    expect(normalizedJobs).toContain("COALESCE(p.error, '') <> ${DELIVERY_EVIDENCE_PENDING}");
+    expect(normalizedJobs).toContain("error = ${DELIVERY_EVIDENCE_PENDING}");
   });
 
   it("Go agent: size-aware print budget with fenced pre-execution rejection", () => {

@@ -15,10 +15,17 @@ vi.mock("../src/lib/authorization", () => ({
   requireManagerPermission: vi.fn(),
   hasManagerPermission: vi.fn(() => true),
 }));
-vi.mock("../src/lib/stripe", () => ({
-  stripeRequest: vi.fn(),
-  verifyStripeSignature: vi.fn(() => true),
-}));
+const { stripeRetrieveMock } = vi.hoisted(() => ({ stripeRetrieveMock: vi.fn() }));
+
+vi.mock("../src/lib/stripe", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/stripe")>();
+  return {
+    ...actual,
+    stripeRequest: vi.fn(),
+    stripeRetrieve: stripeRetrieveMock,
+    verifyStripeSignature: vi.fn(() => true),
+  };
+});
 
 const suite = describe.skipIf(!hasTestDatabase);
 
@@ -73,6 +80,15 @@ suite("platform-trial to paid conversion invariants", () => {
     });
     const { stripeRequest } = await import("../src/lib/stripe");
     vi.mocked(stripeRequest).mockReset();
+    stripeRetrieveMock.mockReset();
+    stripeRetrieveMock.mockImplementation(async (path: string) => ({
+      id: decodeURIComponent(path.split("/").pop() ?? ""),
+      object: "subscription",
+      customer: "cus_trial_convert",
+      status: "active",
+      items: { data: [] },
+      metadata: { tenant_id: TENANT },
+    }));
     vi.mocked(stripeRequest).mockImplementation(async (path: string, _form: URLSearchParams, idempotencyKey?: string) => {
       if (path === "customers") return { id: "cus_trial_convert" };
       if (path === "checkout/sessions") {
@@ -122,6 +138,16 @@ suite("platform-trial to paid conversion invariants", () => {
     expect(mid?.checkoutStatus).toBe("open");
     expect(mid?.checkoutPlanId).toBe(trialPlan);
 
+    // Webhook handling reads the current Stripe subscription snapshot.
+    // Keep the integration deterministic and aligned with the selected trial plan.
+    stripeRetrieveMock.mockResolvedValueOnce({
+      id: "sub_trial_convert",
+      object: "subscription",
+      customer: "cus_trial_convert",
+      status: "trialing",
+      metadata: { tenant_id: TENANT },
+      items: { data: [{ price: { id: priceId } }] },
+    });
     // Stripe: checkout completed.
     const completed = await webhook(webhookRequest(
       `evt_${nanoid(10)}`,
@@ -151,6 +177,16 @@ suite("platform-trial to paid conversion invariants", () => {
 
     // Stripe: the subscription object arrives (active, same price/plan).
     const periodEndSeconds = Math.floor(Date.now() / 1000) + 30 * 24 * 3600;
+    stripeRetrieveMock.mockResolvedValueOnce({
+      id: "sub_trial_convert",
+      object: "subscription",
+      customer: "cus_trial_convert",
+      status: "active",
+      current_period_end: periodEndSeconds,
+      cancel_at_period_end: false,
+      metadata: { tenant_id: TENANT, plan_id: trialPlan },
+      items: { data: [{ price: { id: priceId } }] },
+    });
     const created = await webhook(webhookRequest(
       `evt_${nanoid(10)}`,
       "customer.subscription.created",
