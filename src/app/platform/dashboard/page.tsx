@@ -284,7 +284,7 @@ export default function PlatformDashboardPage() {
           detail={`${formatNumber(stats?.printers.online ?? 0)} online · ${formatNumber(stats?.printers.offline ?? 0)} offline`}
         />
         <MetricCard
-          label="Print deliveries · 24h"
+          label="Print jobs · 24h"
           value={stats?.jobs24h.total ?? 0}
           icon={Activity}
           detail={`${formatNumber(stats?.jobs24h.success ?? 0)} delivered · ${formatNumber(stats?.jobs24h.failed ?? 0)} failed · ${formatNumber((stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0))} open`}
@@ -335,7 +335,7 @@ export default function PlatformDashboardPage() {
 
           <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="inset-panel p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Delivered</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Success state</div>
               <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.jobs24h.success ?? 0)}</div>
               <div className="mt-1 text-[11px] text-ok">
                 {derived.jobSuccessRate === null ? "No terminal jobs" : `${derived.jobSuccessRate}% of terminal jobs`}
