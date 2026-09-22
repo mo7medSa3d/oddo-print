@@ -126,7 +126,7 @@ export interface TransitionOptions {
 export function canTransition(from: JobStatus, to: JobStatus, options: TransitionOptions = {}): boolean {
   if (isTerminal(from)) {
     if (options.allowLateSuccess === true && to === "success") {
-      return from === "failed" || from === "expired";
+      return from === "failed";
     }
     return false;
   }
@@ -153,6 +153,23 @@ export const LATE_SUCCESS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const EXPIRED_LATE_SUCCESS_GRACE_MS = 5 * 60 * 1000;
 export const PRINTED_POST_EXPIRATION_MARKER = "PRINTED_POST_EXPIRATION";
 
+/**
+ * Raw `db.execute()` rows surface naive UTC timestamp strings while typed
+ * drizzle rows surface Date; normalize either to epoch ms without host-TZ skew.
+ */
+function parseDbTimeMs(value: Date | string | null | undefined): number | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value.getTime();
+  const text = value.trim();
+  if (!text) return null;
+  let iso = text.replace(" ", "T");
+  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
+    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
+  }
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 export interface LateSuccessCandidate {
   status: JobStatus;
   error: string | null;
@@ -163,7 +180,9 @@ export function isLateSuccessAllowed(job: LateSuccessCandidate, nowMs: number): 
   if (job.status !== "failed") return false;
   const error = job.error ?? "";
   if (!LATE_SUCCESS_ERROR_MARKERS.some((marker) => error.startsWith(marker))) return false;
-  const age = nowMs - new Date(job.updatedAt).getTime();
+  const updatedAtMs = parseDbTimeMs(job.updatedAt);
+  if (updatedAtMs === null) return false;
+  const age = nowMs - updatedAtMs;
   return age >= 0 && age <= LATE_SUCCESS_MAX_AGE_MS;
 }
 
@@ -184,8 +203,8 @@ export function isExpiredLateSuccessAllowed(
   nowMs: number,
 ): boolean {
   if (job.status !== "expired") return false;
-  const expiresMs = new Date(job.expiresAt).getTime();
-  if (!Number.isFinite(expiresMs)) return false;
+  const expiresMs = parseDbTimeMs(job.expiresAt);
+  if (expiresMs === null) return false;
   const age = nowMs - expiresMs;
   return age >= 0 && age <= EXPIRED_LATE_SUCCESS_GRACE_MS;
 }
@@ -197,4 +216,10 @@ export function isExpiredLateSuccessAllowed(
  * job printed). Adding a reason requires an agent-side call site that can
  * only fire before any byte reaches hardware.
  */
-export const AGENT_REQUEUE_REASONS = ["pending_full", "agent_shutting_down", "ledger_unavailable"] as const;
+export const AGENT_REQUEUE_REASONS = [
+  "pending_full",
+  "printer_pending_full",
+  "printer_not_at_desired_state",
+  "agent_shutting_down",
+  "ledger_unavailable",
+] as const;

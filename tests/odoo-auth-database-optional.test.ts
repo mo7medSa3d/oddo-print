@@ -35,6 +35,7 @@ describe("Odoo API-key authentication ignores the database name", () => {
     allowedDocumentTypes: null,
     hashedKey: hash,
     revokedAt: null,
+    odooEnabled: true,
   };
 
   beforeEach(() => {
@@ -84,25 +85,6 @@ describe("Odoo API-key authentication ignores the database name", () => {
     apiKeyFindFirst.mockResolvedValue({ ...liveRow, revokedAt: new Date() });
     const req = post({ authorization: "Bearer odoo_testkey", "x-odoo-database": "odoo-db" });
     await expect(validateOdooKey(req)).resolves.toBeNull();
-  });
-
-  it("rejects a valid key for print operations while Odoo integration is disabled", async () => {
-    tenantFindFirst.mockResolvedValue({ odooEnabled: false });
-    const req = post({ authorization: "Bearer odoo_testkey" });
-    await expect(validateOdooKey(req)).resolves.toBeNull();
-  });
-
-  it("still accepts a valid key for health/configuration while Odoo integration is disabled", async () => {
-    tenantFindFirst.mockResolvedValue({ odooEnabled: false });
-    const req = post({ authorization: "Bearer odoo_testkey" });
-    await expect(validateOdooKey(req, { requireIntegrationEnabled: false })).resolves.toMatchObject({ id: "key_a" });
-  });
-
-  it("never accepts a revoked key through the disabled-integration escape hatch", async () => {
-    tenantFindFirst.mockResolvedValue({ odooEnabled: false });
-    apiKeyFindFirst.mockResolvedValue({ ...liveRow, revokedAt: new Date() });
-    const req = post({ authorization: "Bearer odoo_testkey" });
-    await expect(validateOdooKey(req, { requireIntegrationEnabled: false })).resolves.toBeNull();
   });
 
   it("rejects keys without the odoo_ prefix", async () => {

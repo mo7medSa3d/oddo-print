@@ -48,6 +48,9 @@ export async function GET(req: Request) {
       createdAt: apiKeys.createdAt,
       lastUsedAt: apiKeys.lastUsedAt,
       revokedAt: apiKeys.revokedAt,
+      odooEnabled: apiKeys.odooEnabled,
+      odooEnabledRevision: apiKeys.odooEnabledRevision,
+      odooEnabledUpdatedAt: apiKeys.odooEnabledUpdatedAt,
     })
     .from(apiKeys)
     .where(eq(apiKeys.tenantId, manager.tenantId))
@@ -134,7 +137,7 @@ export async function DELETE(req: Request) {
 
   const revoked = await db.transaction(async (tx) => {
     const result = await tx.update(apiKeys)
-      .set({ revokedAt: new Date() })
+      .set({ revokedAt: new Date(), odooEnabled: false })
       .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId)))
       .returning({ id: apiKeys.id, revokedAt: apiKeys.revokedAt });
     if (!result.length) return null;

@@ -52,7 +52,7 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-[1120px] px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
         <div className="space-y-4">
           <div className="skeleton h-8 w-48" />
           <div className="skeleton h-4 w-80" />
@@ -66,13 +66,13 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1120px] px-4 py-8 sm:px-6 lg:px-8">
-      <header className="mb-8">
-        <div className="inline-flex items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
+    <div className="mx-auto max-w-[1200px] px-5 py-8 sm:px-7 lg:px-8">
+      <header className="mb-7 border-b border-edge/80 pb-6">
+        <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
           <SettingsIcon className="h-3.5 w-3.5" /> Workspace control center
         </div>
-        <h1 className="mt-4 text-[26px] font-bold tracking-[-0.02em] text-ink">Settings</h1>
-        <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-3">Manage identity, team, billing, and integrations — grouped by concern, not dumped in one form.</p>
+        <h1 className="mt-2.5 text-[28px] font-bold tracking-[-0.04em] text-ink">Settings</h1>
+        <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">Manage identity, team, billing, and integrations — grouped by concern, not dumped in one form.</p>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[240px_1fr]">

@@ -893,15 +893,16 @@ func (a *Agent) handleWSMessages(ctx context.Context) error {
 			continue
 		}
 
-		// Acknowledge receipt immediately — before any printing. The ack means
-		// "this agent has the job", never "the job printed"; the gateway only
-		// records delivery from it. Duplicates are acked too (see dispatchJob),
-		// so the gateway can distinguish a lost delivery from a duplicate one.
-		if err := a.sendJobAck(jobID, jobClaimToken(job)); err != nil {
-			log.Printf("Job %s: failed to send job_ack: %v", jobID, err)
+		// ACK is an admission acknowledgement, not a transport receipt. The
+		// Agent sends it only after dispatchJob successfully reserves a local
+		// executor slot. Rejected/saturated/duplicate deliveries are not ACKed;
+		// this prevents the Gateway from mistaking a pre-execution rejection for
+		// a locally accepted job.
+		if a.dispatchJob(ctx, job) {
+			if err := a.sendJobAck(jobID, jobClaimToken(job)); err != nil {
+				log.Printf("Job %s: failed to send job_ack after local admission: %v", jobID, err)
+			}
 		}
-
-		a.dispatchJob(ctx, job)
 	}
 }
 
@@ -971,11 +972,11 @@ func (a *Agent) sendJobAck(jobID, claimToken string) error {
 //
 // It never blocks the caller (WS read loop / poll loop) for more than
 // bookkeeping, so WebSocket ping/pong handling is never starved.
-func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
+func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) bool {
 	jobID, _ := job["id"].(string)
 	if jobID == "" {
 		log.Printf("Received malformed job (missing id); ignoring")
-		return
+		return false
 	}
 
 	// The shutdown check, dedupe insert, and WaitGroup Add must be atomic with
@@ -995,7 +996,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 		// the safe backstop: it only re-queues claims that never showed
 		// delivery evidence.
 		a.rejectJob(ctx, jobID, jobClaimToken(job), "agent_shutting_down")
-		return
+		return false
 	default:
 	}
 	if _, dup := a.inFlight[jobID]; dup {
@@ -1008,7 +1009,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 		a.inFlightMu.Unlock()
 		a.shutdownGate.RUnlock()
 		log.Printf("Job %s is already in flight; duplicate delivery ignored without changing the active claim token.", jobID)
-		return
+		return false
 	}
 	pendingPrinter := ""
 	if rawPrinter, ok := job["printerId"].(string); ok {
@@ -1019,7 +1020,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 		a.shutdownGate.RUnlock()
 		log.Printf("Job %s dropped: printer %s has reached the per-printer pending ceiling (%d); handing it back to the gateway queue.", jobID, pendingPrinter, maxPendingJobsPerPrinter)
 		a.rejectJob(ctx, jobID, jobClaimToken(job), "printer_pending_full")
-		return
+		return false
 	}
 	a.inFlight[jobID] = struct{}{}
 	if a.inFlightTokens == nil {
@@ -1055,7 +1056,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 		// failure (see the reject gate in src/app/api/agent/jobs).
 		// Best-effort: the lease reclaim is the backstop if this PATCH fails.
 		a.rejectJob(ctx, jobID, jobClaimToken(job), "pending_full")
-		return
+		return false
 	}
 
 	go func() {
@@ -1073,6 +1074,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) {
 
 		a.processJob(ctx, job)
 	}()
+	return true
 }
 
 // staleClaimSafetyWindow mirrors the gateway's STALE_CLAIM_SECONDS

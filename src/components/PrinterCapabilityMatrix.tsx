@@ -45,7 +45,7 @@ function statusTone(s: string) {
   if (s === "ONLINE" || s === "IDLE") return "bg-ok-solid";
   if (s === "PRINTING") return "bg-info-solid";
   if (s === "OFFLINE") return "bg-ink-4";
-  return "bg-warn-bg0";
+  return "bg-warn-solid";
 }
 
 function featureChips(documentTypes: string[] | undefined, duplex: boolean | null | undefined, color: boolean | null | undefined) {

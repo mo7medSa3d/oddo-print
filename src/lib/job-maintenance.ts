@@ -80,6 +80,8 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
     )
     UPDATE print_jobs SET status='failed',
       error='UNKNOWN_PARTIAL_DELIVERY: claim lease expired after delivery without an execution report (physical output is unknown; manual reconciliation required)',
+      claim_token=NULL,
+      claimed_at=NULL,
       updated_at=now()
     FROM candidates
     WHERE print_jobs.id = candidates.id

@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, closePool, pool, type Fixture } from "./helpers/pg";
+import { PATCH as configurationPATCH } from "../src/app/api/odoo/configuration/route";
+import { GET as healthGET } from "../src/app/api/odoo/health/route";
+import { POST as printJobsPOST } from "../src/app/api/print/jobs/route";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file: string) => readFileSync(path.join(ROOT, file), "utf8");
@@ -10,11 +15,11 @@ describe("Odoo Gateway activation synchronization", () => {
   it("keeps Odoo activation separate from tenant lifecycle and fences updates by revision", () => {
     const route = read("src/app/api/odoo/configuration/route.ts");
     const schema = read("src/db/schema.ts");
-    const migration = read("drizzle/0054_odoo_gateway_activation_state.sql");
+    const migration = read("drizzle/0058_scope_odoo_activation_to_api_key.sql");
 
     expect(route).toContain("validateOdooKey");
     expect(route).toContain("odooEnabledRevision");
-    expect(route).toContain("lt(tenants.odooEnabledRevision");
+    expect(route).toContain("lt(apiKeys.odooEnabledRevision");
     expect(route).toContain("stale_revision");
     expect(route).toContain("Conflicting Odoo gateway activation update");
     expect(route).not.toContain("tenants.lifecycle");
@@ -26,20 +31,102 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(schema).toContain('odooEnabled: boolean("odoo_enabled")');
     expect(schema).toContain('odooEnabledRevision: integer("odoo_enabled_revision")');
     expect(schema).toContain('odooEnabledUpdatedAt: timestamp("odoo_enabled_updated_at")');
+    expect(schema).toContain("apiKeys");
+    expect(schema).toContain("api_keys_odoo_enabled_revision_check");
+    expect(route).not.toContain("tenants.odooEnabled");
+    expect(auth).not.toContain("tenants.odooEnabled");
 
-    expect(migration).toContain('ADD COLUMN IF NOT EXISTS "odoo_enabled"');
-    expect(migration).toContain('ADD COLUMN IF NOT EXISTS "odoo_enabled_revision"');
+    expect(migration).toContain('ALTER TABLE "api_keys"');
+    expect(migration).toContain('UPDATE "api_keys" AS k');
+    expect(migration).toContain('Every existing key in a tenant inherits the former tenant-wide activation');
+    expect(migration).toContain('DROP COLUMN IF EXISTS "odoo_enabled"');
+  });
+
+  describe.skipIf(!hasTestDatabase)("runtime isolation", () => {
+    let f: Fixture;
+    const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
+
+    beforeAll(async () => { await applyMigrations(); });
+    beforeEach(async () => { await truncateAll(); f = await seedFixture(); });
+    afterAll(async () => { await closePool(); });
+
+    it("changes one integration without changing another integration in the same tenant", async () => {
+      const keyB = "odoo_company_b_activation";
+      await pool().query(
+        `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key, odoo_enabled, odoo_enabled_revision)
+         VALUES ($1, $2, 'standard', 'Company B', $3, true, 0)`,
+        ["key_company_b", f.tenantId, sha256(keyB)],
+      );
+
+      const disableA = await configurationPATCH(new Request("http://gateway.test/api/odoo/configuration", {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
+        body: JSON.stringify({ enabled: false, revision: 1 }),
+      }));
+      expect(disableA.status).toBe(200);
+
+      const healthA = await healthGET(new Request("http://gateway.test/api/odoo/health", {
+        headers: { Authorization: `Bearer ${f.odooKey}` },
+      }));
+      const healthB = await healthGET(new Request("http://gateway.test/api/odoo/health", {
+        headers: { Authorization: `Bearer ${keyB}` },
+      }));
+      expect((await healthA.json()).enabled).toBe(false);
+      expect((await healthB.json()).enabled).toBe(true);
+
+      const printBody = {
+        printerId: f.printerId,
+        documentType: "receipt",
+        destination: "POS",
+        payload: { type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=" },
+      };
+      const printA = await printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
+        body: JSON.stringify({ ...printBody, idempotencyKey: "company-a-disabled" }),
+      }));
+      const printB = await printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${keyB}`, "content-type": "application/json" },
+        body: JSON.stringify({ ...printBody, idempotencyKey: "company-b-still-enabled" }),
+      }));
+      expect(printA.status).toBe(401);
+      expect(printB.status).toBe(201);
+    });
   });
 
   it("renders Gateway Configuration status from the Odoo-sourced state and refreshes it", () => {
     const page = read("src/app/api-keys/page.tsx");
-    expect(page).toContain('fetch("/api/odoo/configuration"');
+    expect(page).toContain('fetch("/api/odoo/keys"');
     expect(page).toContain("setInterval");
     // Professional concise labels — verifies Odoo-sourced state still shown
     expect(page).toContain("Credential");
     expect(page).toContain("Odoo");
     expect(page).toContain("Gateway");
     expect(page).toContain("API Keys");
+    expect(page).toContain("odooEnabledRevision");
+    expect(page).toContain("Activation is tracked independently for each Odoo API key.");
+  });
+
+  it("fences stale sync outcomes so an older worker cannot create Action needed", () => {
+    const model = read("odoo_addons/print_gateway/models/gateway_config.py");
+    const client = read("odoo_addons/print_gateway/static/src/js/gateway_config_auto_sync.js");
+
+    expect(model).toContain("expected_revision=None");
+    expect(model).toContain("SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE");
+    expect(model).toContain("int(row[0] or 0) != guard_revision");
+    expect(model).toContain('"pending_sync_revision": next_revision');
+    expect(model).toContain('"pending_sync_started_at": fields.Datetime.now()');
+    expect(model).toContain('expected_revision=revision');
+    expect(model).toContain('def _write_test_result_if_current');
+    expect(model).toContain('int(row[0] or 0) != int(expected_revision)');
+    expect(model).toContain('expected_revision = int(self.enabled_sync_revision or 0)');
+
+    // The save hook must not hand a server "reload" action back to the global
+    // action manager: doing so can race the record-level refresh. It must reload
+    // the persisted record locally after synchronization completes.
+    expect(client).toContain('if (action?.tag === "display_notification")');
+    expect(client).toContain("await this.model.load({ resId });");
   });
 
   it("pushes the Odoo checkbox after commit and retries failed replication", () => {
@@ -79,6 +166,18 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(model).toContain("pending_disable_gateway_api_key");
     expect(model).toContain("store=True");
     expect(model).toContain("index=True");
+  });
+});
+
+describe("Odoo Gateway auto-sync client record identity", () => {
+  it("uses the persisted resId and never the OWL datapoint id for post-save RPC/load", () => {
+    const source = read("odoo_addons/print_gateway/static/src/js/gateway_config_auto_sync.js");
+    expect(source).toContain("const resId = record.resId;");
+    expect(source).toContain("[[resId]]");
+    expect(source).toContain("method,");
+    expect(source).toContain("await this.model.load({ resId });");
+    expect(source).not.toContain("record.id");
+    expect(source).not.toContain("[[record.id]]");
   });
 });
 

@@ -54,6 +54,22 @@ def test_registration_flow_does_not_clear_auth_rate_limit():
     assert "disposable account creations" in source
 
 
+def test_registration_email_failure_is_observable_not_swallowed():
+    """Regression: the verification-email send used to end in a bare ``catch {}``.
+
+    A delivery outage silently produced accounts whose verification link never
+    arrives (user stuck pre-verification, no operator trace). Registration
+    must still answer the generic 202 (no enumeration, no signup failure on
+    email outage), but the failure has to be logged for operators; the
+    user-facing recovery path is /api/auth/resend-verification.
+    """
+    source = read("src/app/api/auth/register/route.ts")
+    assert 'logError("auth.register.verification_email_failed"' in source
+    # The response contract is unchanged: generic body, 202, and the limiter
+    # note must survive (no recordAuthSuccess on the registration path).
+    assert source.index('logError("auth.register.verification_email_failed"') < source.rindex("GENERIC, { status: 202 })")
+
+
 def test_agent_pairing_success_does_not_clear_rate_limit():
     source = read("src/app/api/agent/register/route.ts")
     assert "recordPairingSuccess" not in source
@@ -61,11 +77,20 @@ def test_agent_pairing_success_does_not_clear_rate_limit():
     assert "reset the brute-force budget" in source
 
 
-def test_tauri_gateway_http_is_explicitly_test_branch_only():
+def test_tauri_gateway_http_transport_contract_matches_branch_mode():
     source = read("src-tauri/src/commands.rs")
-    assert 'This isolated test branch intentionally accepts remote HTTP' in source
-    assert 'if scheme == "http"' in source
-    assert 'return Ok(parsed.as_str().trim_end_matches(\'/\').to_string());' in source
+    test_branch_mode = "This isolated test branch intentionally accepts remote HTTP" in source
+
+    if test_branch_mode:
+        assert 'let remote_http = scheme == "http";' in source
+        assert 'if remote_http {' in source
+        assert "gateway URL cannot include embedded credentials" in source
+        assert "gateway URL cannot include query strings or fragments" in source
+    else:
+        assert 'if scheme == "http" {' in source
+        assert 'let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");' in source
+        assert 'if !local {' in source
+        assert "Gateway URL must use HTTPS for remote Gateways" in source
 
 
 def test_billing_webhook_binds_identity_before_metadata_tenant_mutation():

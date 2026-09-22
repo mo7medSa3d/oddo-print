@@ -25,6 +25,7 @@ import {
   StatusDot,
   Toast as ToastView,
 } from "../components/ui";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { PageHeader } from "./ui";
 import { JobTimeline } from "./components/JobTimeline";
 import { Sidebar, type NavItem } from "./components/Sidebar";
@@ -91,7 +92,7 @@ import type {
   ToastMessage,
 } from "./types";
 import "../app/globals.css";
-/* The Desktop Manager is always light — see the file for why. */
+/* Desktop Manager uses the shared light/dark theme tokens. */
 import "./theme-light.css";
 
 const PAGES: Page[] = ["dashboard", "printers", "jobs", "agents", "settings"];
@@ -774,18 +775,16 @@ export default function App() {
       )}
 
       <div
-        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-200 ${
-          collapsed ? "lg:pl-[72px]" : "lg:pl-[280px]"
-        }`}
+        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-180 ${collapsed ? "lg:pl-[72px]" : "lg:pl-[276px]"}`}
       >
-        <header className="sticky top-0 z-20 border-b border-edge bg-surface/90 px-5 py-5 backdrop-blur-md lg:px-8">
+        <header className="sticky top-0 z-20 border-b border-edge/80 bg-surface/88 px-4 py-4 backdrop-blur-xl lg:px-7">
           <div className="flex items-center gap-4">
             <button
               onClick={() => {
                 setCollapsed(false);
                 setSidebarOpen(true);
               }}
-              className="rounded-lg p-2.5 text-ink-2 transition-colors hover:bg-surface-2 lg:hidden"
+              className="rounded-[10px] border border-edge bg-surface p-2.5 text-ink-2 shadow-xs transition hover:bg-surface-2 lg:hidden"
               aria-label="Open navigation"
             >
               <Menu className="h-5 w-5" />
@@ -812,6 +811,7 @@ export default function App() {
                     >
                       <span className="hidden sm:inline">Refresh</span>
                     </Button>
+                      <ThemeToggle />
                   </>
                 }
               />

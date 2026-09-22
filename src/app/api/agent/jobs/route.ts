@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 import { isJobStatus, canTransition, isTerminal, isLateSuccessAllowed, isExpiredLateSuccessAllowed, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, PRINTED_POST_EXPIRATION_MARKER, type JobStatus } from "../../../../lib/job-status";
 import { logInfo, logWarn, requestIdFrom } from "../../../../lib/log";
 import { incrementMetric } from "../../../../lib/metrics";
-import { STALE_CLAIM_SECONDS, MAX_RETRIES } from "../../../../lib/job-maintenance";
+import { STALE_CLAIM_SECONDS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "../../../../lib/job-maintenance";
 import { CLAIM_RETURNING, MAX_DELIVERY_ATTEMPTS, MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../lib/job-delivery";
 import { fencedJobWrite } from "../../../../lib/job-fencing";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
@@ -17,6 +17,23 @@ import { getCorrelationContext, generateAttemptId } from "../../../../server/cor
 export const dynamic = "force-dynamic";
 const MAX_CLAIM_BATCH = 20;
 const MAX_ERROR_LENGTH = 2000;
+
+/**
+ * CLAIM_RETURNING rows come back from raw execute() as naive UTC timestamp
+ * strings (node-postgres identity parsers). Emit RFC3339/ISO-8601 with a
+ * trailing Z so the Go agent's time.Parse(time.RFC3339) succeeds and the
+ * agent-side expiry gate stays enabled on the poll path.
+ */
+function toWireIso(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value !== "string" || !value) return value;
+  let iso = value.replace(" ", "T");
+  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
+    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
+  }
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? value : new Date(ms).toISOString();
+}
 
 /**
  * Poll claim. Two candidate classes, both fenced by the delivery boundary
@@ -78,6 +95,7 @@ export async function GET(req: Request) {
           AND p.status = 'claimed'
           AND p.delivered_at IS NULL
           AND p.acked_at IS NULL
+          AND COALESCE(p.error, '') <> ${DELIVERY_EVIDENCE_PENDING}
           AND p.updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS})
           AND p.retries < ${MAX_RETRIES}
           AND p.delivery_attempts < ${MAX_DELIVERY_ATTEMPTS}
@@ -146,6 +164,8 @@ export async function GET(req: Request) {
         updated_at = now(),
         claim_token = gen_random_uuid()::text,
         acked_at = NULL,
+        delivered_at = NULL,
+        error = ${DELIVERY_EVIDENCE_PENDING},
         delivery_attempts = print_jobs.delivery_attempts + 1,
         retries = CASE WHEN print_jobs.status = 'claimed'
                        THEN print_jobs.retries + 1
@@ -165,6 +185,8 @@ export async function GET(req: Request) {
 
   return NextResponse.json((rows as Array<Record<string, unknown>>).map((row) => ({
     ...row,
+    expiresAt: toWireIso(row.expiresAt),
+    createdAt: toWireIso(row.createdAt),
     physicalOutcome: derivePhysicalOutcome(String(row.status ?? ""), typeof row.error === "string" ? row.error : null),
   })));
 }
@@ -279,6 +301,10 @@ export async function PATCH(req: Request) {
         claimedAt: null,
         error: `Agent returned job before execution (${reason})`,
         updatedAt: sql`now()`,
+        // This is a provably pre-execution hand-back: no printer bytes were
+        // sent. Refund the delivery attempt so the physical-delivery budget
+        // reflects only real hand-offs, while still incrementing retries to
+        // bound repeated admission/requeue loops.
         deliveryAttempts: sql`GREATEST(${printJobs.deliveryAttempts} - 1, 0)`,
         retries: sql`${printJobs.retries} + 1`,
       })

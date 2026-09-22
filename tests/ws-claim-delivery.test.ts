@@ -36,6 +36,9 @@ function agentRequest(f: Fixture, method: "GET" | "PATCH", body?: unknown) {
 }
 
 suite("WS claim-before-delivery", () => {
+  it("keeps the Gateway claim ceiling aligned with Agent local capacity", () => {
+    expect(MAX_AGENT_IN_FLIGHT_JOBS).toBe(64);
+  });
   let server: Server; let port: number; let f: Fixture; const sockets: WebSocket[] = [];
   beforeAll(async () => {
     await applyMigrations();
@@ -136,7 +139,7 @@ suite("WS claim-before-delivery", () => {
     expect(row.delivered_at).not.toBeNull();
   });
 
-  it("job_ack records receipt without changing print status", async () => {
+  it("job_ack records local admission without inventing transport evidence", async () => {
     const ws = await connectAgent();
     await insertQueuedJob(f, "job_ack");
     const delivered = new Promise<{ claimToken?: string }>((resolve) => ws.once("message", (d) => resolve(JSON.parse(String(d)).job ?? {})));
@@ -146,9 +149,12 @@ suite("WS claim-before-delivery", () => {
     // tokenized live claim.
     expect(await recordJobAck("job_ack", f.tenantId, f.agentId)).toBe(false);
     expect((await jobRow("job_ack")).acked_at).toBeNull();
+    expect((await jobRow("job_ack")).delivered_at).not.toBeNull();
     ws.send(JSON.stringify({ type: "job_ack", jobId: "job_ack", claimToken: envelope.claimToken }));
     await expect.poll(async () => (await jobRow("job_ack")).acked_at !== null, { timeout: 5000 }).toBe(true);
-    expect((await jobRow("job_ack")).status).toBe("claimed");
+    const afterAck = await jobRow("job_ack");
+    expect(afterAck.status).toBe("claimed");
+    expect(afterAck.delivered_at).not.toBeNull();
   });
 
   it("a forged ack cannot stamp delivery evidence onto a live claim", async () => {
@@ -230,38 +236,40 @@ suite("WS claim-before-delivery", () => {
     expect(row.error).toContain("delivery attempts");
   });
 
-  it("lost poll response recovers safely with no false delivery evidence", async () => {
-    // Failure injection: the poll claim commits, but the HTTP response
-    // never reaches the agent (connection dies mid-response). claimed !=
-    // delivered, so the sweep must REQUEUE (safe: provably no execution
-    // report exists) rather than fail the job as unknown - and a later
-    // poll must reclaim it under a fresh token with still no delivered_at.
+  it("lost poll response is treated as an ambiguous delivery and never auto-requeued", async () => {
+    // The Gateway cannot distinguish a response that never reached the Agent
+    // from one that reached it but was lost before an execution report.
+    // Poll claims therefore carry the same durable evidence-pending marker as
+    // the WebSocket path; the sweeper must fail closed with UNKNOWN outcome.
     await insertQueuedJob(f, "job_lost_poll");
     const first = await (await agentJobsGET(agentRequest(f, "GET"))).json();
     const lost = first.find((r: any) => r.id === "job_lost_poll");
     expect(lost).toBeDefined();
     expect(lost.status).toBe("claimed");
+    expect(lost.error).toBe("DELIVERY_EVIDENCE_PENDING");
+    // While the claim is still active, physical outcome remains derived from the
+    // logical status. The pending marker itself is the durable delivery fence;
+    // the sweeper changes the terminal row to UNKNOWN when the claim expires.
     expect(typeof lost.claimToken).toBe("string");
-    // ... the response is lost here: the agent never sees it ...
-    let row = await jobRow("job_lost_poll");
-    expect(row.delivered_at).toBeNull();
-    expect(row.acked_at).toBeNull();
+
+    const rowBefore = await jobRow("job_lost_poll");
+    expect(rowBefore.delivered_at).toBeNull();
+    expect(rowBefore.acked_at).toBeNull();
+    expect(rowBefore.error).toBe("DELIVERY_EVIDENCE_PENDING");
+
     await pool().query(`UPDATE print_jobs SET claimed_at = now() - interval '200 seconds', updated_at = now() - interval '200 seconds' WHERE id = 'job_lost_poll'`);
     const swept = await sweepPrintJobs({ agentId: f.agentId });
-    expect(swept.requeuedClaims).toBeGreaterThanOrEqual(1);
-    expect(swept.silentDeliveries).toBe(0);
-    row = await jobRow("job_lost_poll");
-    expect(row.status).toBe("queued");
-    expect(row.delivered_at).toBeNull();
-    expect((row.error as string | null) ?? "").not.toMatch(/UNKNOWN_PARTIAL_DELIVERY/);
-    const second = await (await agentJobsGET(agentRequest(f, "GET"))).json();
-    const reclaimed = second.find((r: any) => r.id === "job_lost_poll");
-    expect(reclaimed).toBeDefined();
-    expect(typeof reclaimed.claimToken).toBe("string");
-    expect(reclaimed.claimToken).not.toBe(lost.claimToken);
-    expect((await jobRow("job_lost_poll")).delivered_at).toBeNull();
-  });
+    expect(swept.requeuedClaims).toBe(0);
+    expect(swept.silentDeliveries).toBeGreaterThanOrEqual(1);
 
+    const row = await jobRow("job_lost_poll");
+    expect(row.status).toBe("failed");
+    expect(row.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY/);
+    expect(row.claim_token).toBeNull();
+
+    const second = await (await agentJobsGET(agentRequest(f, "GET"))).json();
+    expect(second.find((r: any) => r.id === "job_lost_poll")).toBeUndefined();
+  });
   it("pre-execution rejection clears all attempt delivery evidence", async () => {
     // A WS-delivered claim returned via pending_full must come back with
     // NO surviving attempt evidence (token, delivered_at, acked_at,
@@ -299,26 +307,44 @@ suite("WS claim-before-delivery", () => {
     expect((await jobRow("job_t3d")).retries).toBe(1);
   });
 
-  it("socket success without persisted evidence is NOT a delivery", async () => {
+  it("socket success without persisted evidence becomes an explicit unknown outcome, never a requeue", async () => {
     // The socket write succeeds, but the delivered_at evidence write for
-    // the same claim token fails (row expired/terminal mid-send). The
-    // gateway must NOT report "delivered" on the socket alone: it falls
-    // back to the fenced release path instead of stranding a phantom
-    // delivery that the agent actually holds.
+    // the same claim token fails. The Agent may already have admitted or
+    // printed the job, so the Gateway must not put the same job back in
+    // queued state where it could be physically duplicated.
     const ws = await connectAgent();
     const messages: unknown[] = [];
     ws.on("message", (data) => messages.push(JSON.parse(String(data))));
     await insertQueuedJob(f, "job_phantom");
     (globalThis as unknown as { __markEvidenceImpl?: MarkFn }).__markEvidenceImpl = async () => false;
     try {
-      expect(await claimAndPushJobToAgent({ id: "job_phantom", agentId: f.agentId })).toBe("requeued");
+      expect(await claimAndPushJobToAgent({ id: "job_phantom", agentId: f.agentId })).toBe("delivery_unknown");
     } finally {
       delete (globalThis as unknown as { __markEvidenceImpl?: MarkFn }).__markEvidenceImpl;
     }
     const row = await jobRow("job_phantom");
-    expect(row.status).toBe("queued");
-    expect(row.delivered_at).toBeNull();
+    expect(row.status).toBe("failed");
+    expect(row.delivered_at).not.toBeNull();
     expect(row.claim_token).toBeNull();
+    expect(row.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY:/);
+    expect(messages.length).toBeGreaterThan(0);
+  });
+
+  it("explicit printer pre-execution rejection refunds delivery budget but increments retry budget", async () => {
+    await insertQueuedJob(f, "job_printer_preexec_reject");
+    const claim = await claimJobForDelivery("job_printer_preexec_reject", f.agentId);
+    expect(claim).not.toBeNull();
+    const res = await agentJobsPATCH(agentRequest(f, "PATCH", {
+      jobId: "job_printer_preexec_reject",
+      status: "queued",
+      reason: "printer_pending_full",
+      claimToken: claim!.claimToken,
+    }));
+    expect(res.status).toBe(200);
+    const row = await jobRow("job_printer_preexec_reject");
+    expect(row.status).toBe("queued");
+    expect(row.retries).toBe(1);
+    expect(row.delivery_attempts).toBe(0);
   });
 
   it("socket delivery evidence exception never causes an automatic requeue", async () => {
@@ -471,6 +497,36 @@ suite("WS claim-before-delivery", () => {
     const ids = [...r1.map((r: any) => r.id), ...r2.map((r: any) => r.id)];
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.length).toBe(10);
+  });
+
+  it("concurrent polls honor the agent in-flight ceiling", async () => {
+    // The poll path uses the same per-agent advisory lock as the WebSocket
+    // delivery path. With exactly one slot left, two simultaneous polls must
+    // serialize so only one can claim the next job.
+    await pool().query(
+      `INSERT INTO print_jobs (id, tenant_id, destination, document_type, agent_id, printer_id, status, payload, expires_at)
+       SELECT 'poll_cap_fill_' || g, $1, $2, 'receipt', $3, $4, 'claimed',
+              '{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb,
+              now() + interval '1 hour'
+       FROM generate_series(1, $5) g`,
+      [f.tenantId, f.destination, f.agentId, f.printerId, MAX_AGENT_IN_FLIGHT_JOBS - 1],
+    );
+    await insertQueuedJob(f, "poll_cap_race");
+
+    const [r1, r2] = await Promise.all([
+      agentJobsGET(agentRequest(f, "GET")).then((r) => r.json()),
+      agentJobsGET(agentRequest(f, "GET")).then((r) => r.json()),
+    ]);
+
+    const claimedIds = [
+      ...r1.map((r: any) => r.id),
+      ...r2.map((r: any) => r.id),
+    ].filter((id) => id === "poll_cap_race");
+    expect(claimedIds).toHaveLength(1);
+    const row = await jobRow("poll_cap_race");
+    expect(row.status).toBe("claimed");
+    expect(row.error).toBe("DELIVERY_EVIDENCE_PENDING");
+    expect(Number(row.delivery_attempts)).toBe(1);
   });
 
   it("terminal job is never claimed again", async () => {

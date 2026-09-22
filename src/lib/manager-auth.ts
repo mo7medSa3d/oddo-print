@@ -125,7 +125,7 @@ function normalizeHost(host: string | null): string | null {
 }
 
 /** Resolve the manager tenant from the trusted request host. A static env mapping is only a bootstrap fallback. */
-export async function resolveManagerTenantId(req: Request, username?: string): Promise<string | null> {
+export async function resolveManagerTenantId(req: Request): Promise<string | null> {
   const host = normalizeHost(req.headers.get("host"));
   if (host) {
     const domain = await db.query.tenantDomains.findFirst({
@@ -141,34 +141,10 @@ export async function resolveManagerTenantId(req: Request, username?: string): P
     if (tenant) return tenant.id;
   }
 
-  // The IP-only HTTP test deployment has no verified tenant domain. Its
-  // manager login is deliberately scoped to an explicitly enabled test mode
-  // and resolves the tenant from the named user's existing membership.
-  if (process.env.YASSER_HTTP_TEST_MODE === "1" && username) {
-    const normalized = normalizeEmail(username);
-    if (normalized) {
-      const user = await db.query.users.findFirst({
-        where: eq(users.email, normalized),
-        columns: { id: true },
-      });
-      if (user) {
-        const membership = await db.query.tenantUsers.findFirst({
-          where: eq(tenantUsers.userId, user.id),
-          columns: { tenantId: true },
-        });
-        if (membership) {
-          const tenant = await db.query.tenants.findFirst({
-            where: eq(tenants.id, membership.tenantId),
-            columns: { id: true },
-          });
-          if (tenant) return tenant.id;
-        }
-      }
-    }
-  }
-
-  // Never infer the login tenant in production from row counts or arbitrary
-  // Host input; a global bootstrap credential must be explicitly pinned.
+  // Never infer the login tenant from the number of rows in the database.
+  // A global bootstrap credential must be explicitly pinned to one tenant;
+  // otherwise an attacker who controls Host could turn the legacy credential
+  // into a cross-tenant owner login.
   return null;
 }
 

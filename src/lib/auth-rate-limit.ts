@@ -24,6 +24,23 @@ export const AUTH_RATE_WINDOW_MS = 15 * 60 * 1000;
 export const PAIRING_RATE_WINDOW_MS = 15 * 60 * 1000;
 export const AUTH_RATE_RETENTION_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Raw `db.execute()` rows surface naive UTC timestamp strings while typed
+ * drizzle rows surface Date; normalize either to epoch ms without host-TZ skew.
+ */
+function parseDbTimeMs(value: Date | string | null | undefined): number | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value.getTime();
+  const text = value.trim();
+  if (!text) return null;
+  let iso = text.replace(" ", "T");
+  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
+    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
+  }
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 let warnedUntrustedProxy = false;
 
 function trustProxyEnabled(): boolean {
@@ -116,15 +133,15 @@ async function reserveBucketAttempt(
       locked_until?: Date | string | null;
     } | undefined) ?? { failures: 0, window_started_at: now, locked_until: null };
 
-    const existingLock = row.locked_until ? new Date(row.locked_until) : null;
-    if (existingLock && existingLock.getTime() > now.getTime()) {
-      return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((existingLock.getTime() - now.getTime()) / 1000)) };
+    const existingLockMs = parseDbTimeMs(row.locked_until);
+    if (existingLockMs !== null && existingLockMs > now.getTime()) {
+      return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((existingLockMs - now.getTime()) / 1000)) };
     }
 
-    const oldWindow = new Date(row.window_started_at ?? now);
-    const windowExpired = oldWindow.getTime() < windowStartCutoff.getTime();
+    const oldWindowMs = parseDbTimeMs(row.window_started_at ?? now) ?? now.getTime();
+    const windowExpired = oldWindowMs < windowStartCutoff.getTime();
     const attempts = windowExpired ? 1 : Number(row.failures ?? 0) + 1;
-    const newWindowStart = windowExpired ? now : oldWindow;
+    const newWindowStart = windowExpired ? now : new Date(oldWindowMs);
     const lockMs = lockFn(attempts);
     const lockedUntil = lockMs > 0 ? new Date(now.getTime() + lockMs) : null;
 
@@ -172,18 +189,18 @@ export async function reserveAuthAttempt(ip: string, username: string): Promise<
     `);
 
     for (const raw of rows.rows as Array<{ failures?: number | string; window_started_at?: Date | string; locked_until?: Date | string | null }>) {
-      const lockedUntil = raw.locked_until ? new Date(raw.locked_until) : null;
-      if (lockedUntil && lockedUntil.getTime() > now.getTime()) {
-        return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((lockedUntil.getTime() - now.getTime()) / 1000)) };
+      const lockedUntilMs = parseDbTimeMs(raw.locked_until);
+      if (lockedUntilMs !== null && lockedUntilMs > now.getTime()) {
+        return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((lockedUntilMs - now.getTime()) / 1000)) };
       }
     }
 
     const exhaustedLocks: number[] = [];
     for (const raw of rows.rows as Array<{ key: string; failures?: number | string; window_started_at?: Date | string }>) {
-      const oldWindow = new Date(raw.window_started_at ?? now);
-      const windowExpired = oldWindow.getTime() < windowStartCutoff.getTime();
+      const oldWindowMs = parseDbTimeMs(raw.window_started_at ?? now) ?? now.getTime();
+      const windowExpired = oldWindowMs < windowStartCutoff.getTime();
       const attempts = windowExpired ? 1 : Number(raw.failures ?? 0) + 1;
-      const newWindowStart = windowExpired ? now : oldWindow;
+      const newWindowStart = windowExpired ? now : new Date(oldWindowMs);
       const lockMs = lockDurationMs(attempts);
       const lockedUntil = lockMs > 0 ? new Date(now.getTime() + lockMs) : null;
       if (lockedUntil) exhaustedLocks.push(lockedUntil.getTime());

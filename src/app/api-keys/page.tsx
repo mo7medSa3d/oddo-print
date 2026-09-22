@@ -13,8 +13,10 @@ type ApiKey = {
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
+  odooEnabled: boolean;
+  odooEnabledRevision: number;
+  odooEnabledUpdatedAt: string | null;
 };
-type Gw = { enabled: boolean; revision: number; updatedAt: string | null };
 
 export default function ApiKeysPage() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
@@ -26,7 +28,6 @@ export default function ApiKeysPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [gw, setGw] = useState<Gw | null>(null);
   const [pending, setPending] = useState<{ kind: "revoke" | "remove"; id: string; name: string } | null>(null);
 
   async function loadKeys() {
@@ -39,13 +40,10 @@ export default function ApiKeysPage() {
     let cancel = false;
     const tick = async () => {
       try {
-        const r = await fetch("/api/odoo/configuration", { cache: "no-store", credentials: "include" });
-        if (!r.ok) return;
-        const d = (await r.json()) as Gw;
-        if (!cancel && typeof d.enabled === "boolean") setGw(d);
+        const d = await loadKeys();
+        if (!cancel) setKeys(d);
       } catch { }
     };
-    tick();
     const id = setInterval(tick, 5000);
     return () => { cancel = true; clearInterval(id); };
   }, []);
@@ -101,13 +99,15 @@ export default function ApiKeysPage() {
   }
 
   const active = keys.filter(k => !k.revokedAt).length;
+  const enabled = keys.filter(k => !k.revokedAt && k.odooEnabled).length;
+  const disabled = Math.max(0, active - enabled);
 
   return (
-    <div className="mx-auto w-full max-w-[1520px] px-5 py-8 sm:px-8 lg:px-12 lg:py-10">
-      <header className="mb-8 flex flex-col gap-4 border-b border-edge pb-7 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mx-auto w-full max-w-[1440px] px-5 py-8 sm:px-7 lg:px-8 lg:py-10">
+      <header className="mb-7 flex flex-col gap-4 border-b border-edge/80 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3"><KeyRound className="h-3.5 w-3.5" /> Odoo Gateway</div>
-          <h1 className="text-[26px] font-bold tracking-[-0.02em] text-ink">API Keys &amp; Integration</h1>
+          <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4"><KeyRound className="h-3.5 w-3.5" /> Odoo Gateway</div>
+          <h1 className="text-[28px] font-bold tracking-[-0.04em] text-ink">API Keys &amp; Integration</h1>
           <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">Create, rotate, and revoke credentials for Odoo. Credential security, Odoo activation, and Gateway connectivity are tracked independently.</p>
         </div>
         {active > 0 ? (
@@ -118,31 +118,27 @@ export default function ApiKeysPage() {
       {error && <div className="mb-6 rounded-xl border border-bad-edge bg-bad-bg px-4 py-3 text-[13px] font-medium text-bad">{error}</div>}
 
       <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-edge bg-surface px-4 py-4">
+        <div className="rounded-[14px] border border-edge bg-surface px-5 py-4 shadow-card">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Credential</div>
           <div className="mt-2 flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${active ? "bg-ok-solid" : "bg-ink-4"}`} />
             <span className="text-[13px] font-semibold text-ink">{active ? `${active} Active` : "None"}</span>
           </div>
         </div>
-        <div className="rounded-xl border border-edge bg-surface px-4 py-4">
+        <div className="rounded-[14px] border border-edge bg-surface px-5 py-4 shadow-card">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Odoo</div>
           <div className="mt-2 flex items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${gw?.enabled ? "bg-ok-solid" : "bg-ink-4"}`} />
-            <span className="text-[13px] font-semibold text-ink">{gw ? (gw.enabled ? "Enabled" : "Disabled") : "—"}</span>
+            <div className={`h-2 w-2 rounded-full ${enabled > 0 ? "bg-ok-solid" : "bg-ink-4"}`} />
+            <span className="text-[13px] font-semibold text-ink">{active ? `${enabled} Enabled · ${disabled} Disabled` : "No active integrations"}</span>
           </div>
-          <div className="mt-1 text-[11px] text-ink-3">
-            {gw?.updatedAt
-              ? `Last activation change from Odoo: ${new Date(gw.updatedAt).toLocaleString()}`
-              : "No activation sync received from Odoo yet"}
-          </div>
+          <div className="mt-1 text-[11px] text-ink-3">Activation is tracked independently for each Odoo API key.</div>
         </div>
-        <div className="rounded-xl border border-edge bg-surface px-4 py-4">
+        <div className="rounded-[14px] border border-edge bg-surface px-5 py-4 shadow-card">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Gateway</div>
           <div className="mt-2 flex items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${gw?.enabled ? (active > 0 ? "bg-ok-solid" : "bg-warn-solid") : "bg-ink-4"}`} />
+            <div className={`h-2 w-2 rounded-full ${enabled > 0 ? "bg-ok-solid" : "bg-ink-4"}`} />
             <span className="text-[13px] font-semibold text-ink">
-              {gw ? (gw.enabled ? (active > 0 ? "Ready to print" : "No credential") : "Printing off") : "Not connected"}
+              {active === 0 ? "No credential" : enabled === active ? "Ready to print" : "Some integrations off"}
             </span>
           </div>
         </div>
@@ -183,7 +179,7 @@ export default function ApiKeysPage() {
         </form>
       </Card>
 
-      <div className="mt-6 overflow-hidden rounded-xl border border-edge bg-surface">
+      <div className="mt-6 overflow-hidden rounded-[14px] border border-edge bg-surface">
         <div className="border-b border-edge-subtle bg-surface-2 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink-3">Keys • {keys.length}</div>
         {loading ? <div className="p-10 text-center text-[13px] text-ink-3">Loading…</div> : keys.length === 0 ? <div className="p-12 text-center text-[13px] font-medium text-ink-3">No keys.</div> : (
           <div className="divide-y divide-edge-subtle">
@@ -201,6 +197,12 @@ export default function ApiKeysPage() {
                   </div>
                   <div className="mt-1 text-[11px] text-ink-3">
                     {new Date(k.createdAt).toLocaleDateString()} • Last used {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : "Never"}
+                    {!k.revokedAt ? (
+                      <div className="mt-2 text-[11px] font-semibold text-ink-3">
+                        Odoo printing: {k.odooEnabled ? "Enabled" : "Disabled"} · Revision {k.odooEnabledRevision}
+                        {k.odooEnabledUpdatedAt ? ` · Synced ${new Date(k.odooEnabledUpdatedAt).toLocaleString()}` : ""}
+                      </div>
+                    ) : null}
                     {!k.revokedAt && Array.isArray(k.allowedDocumentTypes) && k.allowedDocumentTypes.length > 0 ? (
                       <span title={`Allowed document types: ${k.allowedDocumentTypes.join(", ")}`}> • {k.allowedDocumentTypes.length} type{k.allowedDocumentTypes.length === 1 ? "" : "s"}</span>
                     ) : null}

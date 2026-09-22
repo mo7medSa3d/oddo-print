@@ -11,6 +11,7 @@ import { incrementMetric } from "../lib/metrics";
 import {
   claimJobForDelivery,
   markJobDelivered,
+  markJobDeliveryUnknown,
   recordJobAck,
   releaseUndeliveredClaim,
   type ClaimedJobRow,
@@ -324,7 +325,20 @@ export type JobDeliveryEnvelope = {
 };
 
 export function buildJobEnvelope(job: ClaimedJobRow): JobDeliveryEnvelope {
-  const expiresAt = job.expiresAt instanceof Date ? job.expiresAt.toISOString() : new Date(job.expiresAt).toISOString();
+  // CLAIM_RETURNING rows carry naive UTC timestamp strings; parse with an
+  // explicit UTC guard so the agent receives a true RFC3339 instant even when
+  // the gateway host TZ is not UTC.
+  let expiresAtDate: Date;
+  if (job.expiresAt instanceof Date) {
+    expiresAtDate = job.expiresAt;
+  } else {
+    let iso = String(job.expiresAt).replace(" ", "T");
+    if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
+      iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
+    }
+    expiresAtDate = new Date(iso);
+  }
+  const expiresAt = expiresAtDate.toISOString();
   return {
     type: "print_job",
     job: {
@@ -347,7 +361,7 @@ export function buildJobEnvelope(job: ClaimedJobRow): JobDeliveryEnvelope {
   };
 }
 
-export type PushOutcome = "delivered" | "no_socket" | "not_claimable" | "requeued" | "failed";
+export type PushOutcome = "delivered" | "no_socket" | "not_claimable" | "requeued" | "failed" | "delivery_unknown";
 
 export async function claimAndPushJobToAgent(job: { id: string; agentId: string }): Promise<PushOutcome> {
   const startedAt = Date.now();
@@ -376,13 +390,28 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
   const evidenced = await markJobDelivered(job.id, claimed.tenantId, job.agentId, claimed.claimToken);
   const evidenceLatencyMs = Date.now() - evidenceStartedAt;
   if (!evidenced) {
-    const outcome = await releaseUndeliveredClaim(job.id, claimed.tenantId, job.agentId, claimed.claimToken, "websocket delivery evidence did not persist; job requeued for redelivery");
-    // "noop" here means the row left the claimable states entirely between
-    // claim and evidence (expired/terminal/cascade-deleted): there is
-    // nothing left to deliver or requeue.
-    logWarn("print.trace.gateway_delivery", { jobId: job.id, agentId: job.agentId, claimLatencyMs, sendLatencyMs, evidenceLatencyMs, totalLatencyMs: Date.now() - startedAt, outcome: outcome === "failed" ? "failed" : outcome === "noop" ? "not_claimable" : "requeued" });
-    if (outcome === "noop") return "not_claimable";
-    return outcome === "failed" ? "failed" : "requeued";
+    // The socket accepted the frame, so a failed evidence write is ambiguous:
+    // the Agent may already have admitted/printed the job. NEVER release this
+    // claim back to 'queued' here — doing so can produce a duplicate physical
+    // print. Record an explicit unknown physical outcome when the row is still
+    // fenced in 'claimed'; if a concurrent actor already advanced it, leave
+    // that authoritative state untouched.
+    const markedUnknown = await markJobDeliveryUnknown(
+      job.id,
+      claimed.tenantId,
+      job.agentId,
+      claimed.claimToken,
+    );
+    logWarn("print.trace.gateway_delivery", {
+      jobId: job.id,
+      agentId: job.agentId,
+      claimLatencyMs,
+      sendLatencyMs,
+      evidenceLatencyMs,
+      totalLatencyMs: Date.now() - startedAt,
+      outcome: markedUnknown ? "delivery_unknown" : "not_claimable",
+    });
+    return markedUnknown ? "delivery_unknown" : "not_claimable";
   }
   logInfo("print.trace.gateway_delivery", { jobId: job.id, agentId: job.agentId, printerId: claimed.printerId, requestId: claimed.requestId, claimLatencyMs, sendLatencyMs, evidenceLatencyMs, totalLatencyMs: Date.now() - startedAt, outcome: "delivered" });
   return "delivered";

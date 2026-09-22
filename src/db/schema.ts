@@ -8,17 +8,11 @@ export const tenants = pgTable("tenants", {
   suspendedAt: timestamp("suspended_at"),
   deletedAt: timestamp("deleted_at"),
   lifecycleReason: text("lifecycle_reason"),
-  // Replicated from Odoo Gateway Configuration; this is deliberately separate
-  // from tenant lifecycle so Odoo can be disabled and later re-enabled.
-  odooEnabled: boolean("odoo_enabled").notNull().default(false),
-  odooEnabledRevision: integer("odoo_enabled_revision").notNull().default(-1),
-  odooEnabledUpdatedAt: timestamp("odoo_enabled_updated_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   lifecycleIdx: index("tenants_lifecycle_idx").on(table.lifecycle),
   lifecycleCheck: check("tenants_lifecycle_check", sql`${table.lifecycle} in ('active','suspended','deleted')`),
-  odooEnabledRevisionCheck: check("tenants_odoo_enabled_revision_check", sql`${table.odooEnabledRevision} >= -1`),
 }));
 
 export const tenantDomains = pgTable("tenant_domains", {
@@ -153,11 +147,16 @@ export const apiKeys = pgTable("api_keys", {
   description: text("description"),
   hashedKey: text("hashed_key").notNull().unique(),
   allowedDocumentTypes: jsonb("allowed_document_types").$type<string[]>(),
+  // Odoo activation is an integration-credential state, not a tenant-wide switch.
+  odooEnabled: boolean("odoo_enabled").notNull().default(false),
+  odooEnabledRevision: integer("odoo_enabled_revision").notNull().default(-1),
+  odooEnabledUpdatedAt: timestamp("odoo_enabled_updated_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastUsedAt: timestamp("last_used_at"),
   revokedAt: timestamp("revoked_at"),
 }, (table) => ({
   tenantIdUnique: unique("api_keys_tenant_id_unique").on(table.tenantId, table.id),
+  odooEnabledRevisionCheck: check("api_keys_odoo_enabled_revision_check", sql`${table.odooEnabledRevision} >= -1`),
 }));
 
 export const managerSessions = pgTable("manager_sessions", {

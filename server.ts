@@ -6,6 +6,7 @@ import { parse } from "url";
 import next from "next";
 import { attachAgentWSS } from "./src/server/ws";
 import { guardApiRequest } from "./src/server/request-guard";
+import { applyApiCacheControlDefault } from "./src/server/api-defaults";
 import { sweepPrintJobs } from "./src/lib/job-maintenance";
 import { cleanupAuthRateLimits } from "./src/lib/auth-rate-limit";
 import { cleanupExpiredManagerSessions } from "./src/lib/manager-auth";
@@ -46,18 +47,8 @@ if (process.env.NODE_ENV === "production" && process.env.ALLOW_PLAINTEXT_MANAGER
   throw new Error("Refusing production startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1; configure MANAGER_PASSWORD_HASH instead.");
 }
 
-const httpTestMode = process.env.YASSER_HTTP_TEST_MODE === "1";
-
-if (
-  process.env.NODE_ENV === "production" &&
-  !httpTestMode &&
-  (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")
-) {
+if (process.env.NODE_ENV === "production" && (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")) {
   throw new Error("Refusing production startup with COOKIE_SECURE disabled; manager/customer session cookies must be Secure in production.");
-}
-
-if (process.env.NODE_ENV === "production" && httpTestMode && (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")) {
-  console.warn("[security] YASSER_HTTP_TEST_MODE=1: COOKIE_SECURE is intentionally disabled for the isolated HTTP test deployment.");
 }
 
 if (process.env.NODE_ENV === "production") {
@@ -114,6 +105,7 @@ const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {
+    applyApiCacheControlDefault(req, res);
     if (trustProxyEnabled() && req.url !== "/api/health" && req.url !== "/api/live") {
       const headers = new Headers();
       for (const [key, value] of Object.entries(req.headers)) {

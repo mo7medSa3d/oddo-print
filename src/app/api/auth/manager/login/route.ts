@@ -50,7 +50,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });
   }
 
-  const tenantId = await resolveManagerTenantId(req, process.env.YASSER_HTTP_TEST_MODE === "1" ? username : undefined);
+  const tenantId = await resolveManagerTenantId(req);
   if (!tenantId) {
     return NextResponse.json({ error: "Manager tenant is not configured for this hostname" }, { status: 503 });
   }

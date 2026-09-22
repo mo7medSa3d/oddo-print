@@ -3,14 +3,18 @@
   <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
-    <!-- The Desktop Manager is a light-surface product on every Windows theme. -->
-    <meta name="color-scheme" content="light"/>
+    <!-- Desktop Manager follows the same light-first + explicit dark theme behavior as Gateway. -->
+    <meta name="color-scheme" content="light dark"/>
     <!-- Brand primary — keeps the OS/WebView chrome on-brand -->
     <meta name="theme-color" content="#2563EB"/>
     <title>Yasser Manager</title>
+    <script>
+      (function(){try{var t=localStorage.getItem("theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.setAttribute("data-theme",t);}catch(e){document.documentElement.setAttribute("data-theme","light");}})();
+    </script>
     <style>
-      /* Paint the light canvas before the bundle loads (no dark flash). */
-      html, body { margin: 0; background-color: #f8fafc; color: #0f172a; }
+      /* Paint the selected theme before the bundle loads (no theme flash). */
+      html, body { margin: 0; background-color: #fbfbfd; color: #1d1d1f; }
+      html[data-theme="dark"], html[data-theme="dark"] body { background-color: #000000; color: #f5f5f7; }
     </style>
   </head>
   <body><div id="root"></div><script type="module" src="./main.tsx"></script></body>

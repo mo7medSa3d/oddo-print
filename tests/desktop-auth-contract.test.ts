@@ -21,21 +21,28 @@ describe("desktop manager authentication contract", () => {
     expect(source).not.toContain('credentials: "include"');
   });
 
-  it("allows the isolated HTTP test branch to use a remote IP over HTTP", () => {
+  it("enforces the branch-specific Gateway transport contract", () => {
     const commands = read("src-tauri/src/commands.rs");
-    expect(commands).toContain('if scheme == "http"');
-    expect(commands).toContain("This isolated test branch intentionally accepts remote HTTP");
-    expect(commands).toContain('cmd.env("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1")');
-    expect(commands).not.toContain("Gateway URL must use HTTPS for remote Gateways");
+    const testBranch = commands.includes("This isolated test branch intentionally accepts remote HTTP");
+    if (testBranch) {
+      expect(commands).toContain('let remote_http = scheme == "http";');
+      expect(commands).toContain("This isolated test branch intentionally accepts remote HTTP");
+      expect(commands).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
+      expect(commands).toContain("gateway URL cannot include embedded credentials");
+    } else {
+      expect(commands).toContain('if scheme == "http"');
+      expect(commands).toContain('let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");');
+      expect(commands).toContain("Gateway URL must use HTTPS for remote Gateways");
+    }
   });
 
-  it("uses the paired Agent identity for packaged-console jobs instead of requiring Manager login", () => {
+  it("routes manager-owned printer mutations through the Manager transport", () => {
     const source = read("src/desktop/lib/ipc.ts");
-    expect(source).toContain('invoke<string>("gateway_agent_request"');
-    expect(source).toContain("/api/jobs?");
-    expect(source).toContain("const endpoint = `/api/jobs?\${params.toString()}`;");
-    expect(source).toContain('gatewayConsoleRequest(base, endpoint, "GET", headers)');
-    expect(source).not.toContain('gatewayRequest(base, "/api/jobs"');
+    const updateFn = source.match(/export async function updateGatewayPrinter[\s\S]*?(?=\nexport interface DiscoverResult)/)?.[0] ?? "";
+    expect(updateFn).toContain('await gatewayRequest(');
+    expect(updateFn).not.toContain('await gatewayConsoleRequest(');
+    expect(source).toContain('"/api/printers/" + encodeURIComponent(printerId)');
+    expect(source).toContain('"PATCH"');
   });
 
   it("gateway CORS is explicit and never wildcarded", () => {

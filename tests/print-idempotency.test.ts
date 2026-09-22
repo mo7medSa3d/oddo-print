@@ -176,7 +176,7 @@ suite("print idempotency (Odoo → Gateway)", () => {
   it("preserves idempotency and job lookup across Odoo API-key rotation", async () => {
     const otherKey = "odoo_rotated_installation";
     await pool().query(
-      `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key) VALUES ($1, $2, 'standard', 'rotated installation', $3)`,
+      `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key, odoo_enabled) VALUES ($1, $2, 'standard', 'rotated installation', $3, true)`,
       ["key_rotated_installation", f.tenantId, sha256(otherKey)],
     );
 
@@ -193,8 +193,7 @@ suite("print idempotency (Odoo → Gateway)", () => {
     const foreignRead = await printJobsGET(new Request(`http://gateway.test/api/print/jobs?id=${created.jobId}`, {
       headers: { Authorization: `Bearer ${otherKey}` },
     }));
-    expect(foreignRead.status).toBe(200);
-    expect((await foreignRead.json()).jobId).toBe(created.jobId);
+    expect(foreignRead.status).toBe(404);
   });
 
   it("converges concurrent operator reprints on one active reprint", async () => {

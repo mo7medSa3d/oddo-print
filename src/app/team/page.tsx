@@ -195,13 +195,13 @@ export default function TeamPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 lg:px-8">
-      <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mx-auto max-w-[1280px] px-5 py-8 sm:px-7 lg:px-8 lg:py-10">
+      <header className="mb-7 flex flex-col gap-4 border-b border-edge/80 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
+          <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
             <Users className="h-3.5 w-3.5" /> Team & access
           </div>
-          <h1 className="mt-4 text-[26px] font-bold tracking-[-0.02em] text-ink">Team</h1>
+          <h1 className="mt-4 text-[28px] font-bold tracking-[-0.04em] text-ink">Team</h1>
           <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-3">Invite staff, assign roles, and control workspace access. RBAC enforced server-side.</p>
         </div>
         <div className="flex items-center gap-2 text-[12px] text-ink-3">

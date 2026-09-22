@@ -5,6 +5,23 @@ const WINDOW_MS = 60_000;
 const MAX_FAILURES = 20;
 const LOCK_MS = 60_000;
 
+/**
+ * Raw `db.execute()` rows surface naive UTC timestamp strings while typed
+ * drizzle rows surface Date; normalize either to epoch ms without host-TZ skew.
+ */
+function parseDbTimeMs(value: Date | string | null | undefined): number | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value.getTime();
+  const text = value.trim();
+  if (!text) return null;
+  let iso = text.replace(" ", "T");
+  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
+    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
+  }
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 const localLockedUntil = new Map<string, number>();
 
 export function isWsUpgradeLocallyLocked(key: string, now = Date.now()): boolean {
@@ -44,15 +61,16 @@ export async function reserveWsUpgradeAttempt(key: string): Promise<{ allowed: t
     } | undefined;
     if (!row) return { allowed: true } as const;
 
-    const existingLock = row.locked_until ? new Date(row.locked_until).getTime() : 0;
+    const existingLock = parseDbTimeMs(row.locked_until) ?? 0;
     if (existingLock > now.getTime()) {
       localLockedUntil.set(key, existingLock);
       return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((existingLock - now.getTime()) / 1000)) } as const;
     }
 
-    const windowExpired = new Date(row.window_started_at ?? now).getTime() < cutoff.getTime();
+    const windowStartMs = parseDbTimeMs(row.window_started_at ?? now) ?? now.getTime();
+    const windowExpired = windowStartMs < cutoff.getTime();
     const failures = windowExpired ? 1 : Number(row.failures ?? 0) + 1;
-    const windowStart = windowExpired ? now : new Date(row.window_started_at ?? now);
+    const windowStart = windowExpired ? now : new Date(windowStartMs);
     const lockedUntil = failures >= MAX_FAILURES ? new Date(now.getTime() + LOCK_MS) : null;
 
     await tx.execute(sql`

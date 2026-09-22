@@ -211,11 +211,11 @@ describe("production hardening contracts", () => {
     const printRoute = read("src/app/api/print/jobs/route.ts");
     expect(printRoute).not.toContain("eq(printJobs.apiKeyId, odoo.id), eq(printJobs.idempotencyKey");
     expect(printRoute).toContain("eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.idempotencyKey");
-    expect(printRoute).not.toContain("eq(printJobs.id, id), eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.apiKeyId, odoo.id)");
+    expect(printRoute).toContain("eq(printJobs.id, id), eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.apiKeyId, odoo.id)");
 
     const batchStatus = read("src/app/api/print/jobs/batch-status/route.ts");
     expect(batchStatus).toContain("eq(printJobs.tenantId, odoo.tenantId)");
-    expect(batchStatus).not.toContain("eq(printJobs.apiKeyId, odoo.id)");
+    expect(batchStatus).toContain("eq(printJobs.apiKeyId, odoo.id)");
 
     const auth = read("src/lib/manager-auth.ts");
     expect(auth).toContain("passwordHash: true");

@@ -4,18 +4,42 @@ import { db } from "../../../../db";
 import { billingEvents, plans, tenantSubscriptions } from "../../../../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { runtimeSecret } from "../../../../lib/runtime-secret";
-import { verifyStripeSignature } from "../../../../lib/stripe";
+import { stripeRetrieve, verifyStripeSignature } from "../../../../lib/stripe";
 import { writeAuditEvent } from "../../../../lib/audit";
 
 function statusOf(status: string): "trialing" | "active" | "past_due" | "paused" | "cancelled" {
   if (status === "trialing") return "trialing";
   if (status === "active") return "active";
-  if (status === "past_due" || status === "unpaid") return "past_due";
+  if (status === "past_due") return "past_due";
+  if (status === "unpaid") return "paused";
   if (status === "paused" || status === "incomplete") return "paused";
   return "cancelled";
 }
 
 const INTERNAL_EVENT_KEY = "__yasser";
+
+/**
+ * Raw `db.execute()` rows surface naive UTC timestamp strings (node-postgres
+ * identity parsers for timestamp OIDs) while typed drizzle rows surface Date.
+ * Normalize either form to epoch milliseconds without host-TZ dependence.
+ */
+function parseDbTimeMs(value: Date | string | null | undefined): number | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value.getTime();
+  const text = value.trim();
+  if (!text) return null;
+  let iso = text.replace(" ", "T");
+  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
+    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
+  }
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+function parseDbTime(value: Date | string | null | undefined): Date | null {
+  const ms = parseDbTimeMs(value);
+  return ms === null ? null : new Date(ms);
+}
 
 type StripeEvent = {
   id?: unknown;
@@ -30,18 +54,6 @@ function subscriptionIdForEvent(eventType: string, object: Record<string, unknow
   return undefined;
 }
 
-function timestampMillis(value: unknown): number | null {
-  if (value instanceof Date) return value.getTime();
-  if (typeof value === "string") {
-    const parsed = new Date(value);
-    return Number.isFinite(parsed.getTime()) ? parsed.getTime() : null;
-  }
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value > 1_000_000_000_000 ? value : value * 1000;
-  }
-  return null;
-}
-
 export async function POST(req: Request) {
   const raw = await req.text();
   const sig = req.headers.get("stripe-signature") ?? "";
@@ -54,16 +66,74 @@ export async function POST(req: Request) {
   const eventType = typeof event.type === "string" ? event.type : "";
   if (!eventId || !eventType) return NextResponse.json({ error: "Invalid event" }, { status: 400 });
 
+  // Duplicate deliveries are normal. Once an event is durably processed,
+  // acknowledge it without depending on Stripe API availability. The
+  // transaction-level idempotency check below remains the race-safe fence
+  // for concurrent in-flight duplicates.
+  const priorEvent = await db.query.billingEvents.findFirst({
+    where: eq(billingEvents.eventId, eventId),
+    columns: { processedAt: true },
+  });
+  if (priorEvent?.processedAt) {
+    return NextResponse.json({ received: true, idempotent: true });
+  }
+
+  // Keep the immutable event snapshot for audit/idempotency, but use a
+  // separately retrieved current Stripe resource when subscription state
+  // depends on it. Stripe explicitly does not guarantee webhook ordering and
+  // snapshot event timestamps are only second-resolution.
   const obj = event.data?.object ?? {};
   const eventCreatedAt = typeof event.created === "number" ? new Date(event.created * 1000) : new Date();
   const eventCreatedUnix = Math.floor(eventCreatedAt.getTime() / 1000);
-  const metadataTenantId = typeof (obj.metadata as Record<string, unknown> | undefined)?.tenant_id === "string"
+
+  let stateObj: Record<string, unknown> = obj;
+  if (eventType === "customer.subscription.created" || eventType === "customer.subscription.updated") {
+    const subscriptionId = typeof obj.id === "string" ? obj.id : "";
+    if (!subscriptionId) return NextResponse.json({ error: "Subscription event missing subscription id" }, { status: 400 });
+    try {
+      stateObj = await stripeRetrieve(`subscriptions/${encodeURIComponent(subscriptionId)}`);
+    } catch (error) {
+      logError("billing.webhook_latest_subscription_fetch_failed", {
+        eventId,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      // Do not mark the event processed when the current Stripe object could
+      // not be read. Stripe will retry, and the event remains recoverable.
+      return NextResponse.json({ error: "Unable to verify current Stripe subscription state" }, { status: 502 });
+    }
+  }
+
+  const snapshotMetadataTenantId = typeof (obj.metadata as Record<string, unknown> | undefined)?.tenant_id === "string"
     ? String((obj.metadata as Record<string, unknown>).tenant_id)
     : undefined;
+  const stateMetadataTenantId = typeof (stateObj.metadata as Record<string, unknown> | undefined)?.tenant_id === "string"
+    ? String((stateObj.metadata as Record<string, unknown>).tenant_id)
+    : undefined;
   const clientReferenceTenantId = typeof obj.client_reference_id === "string" ? obj.client_reference_id : undefined;
-  const candidateTenantId = metadataTenantId ?? clientReferenceTenantId;
-  const customerId = typeof obj.customer === "string" ? obj.customer : undefined;
-  const objectSubscriptionId = subscriptionIdForEvent(eventType, obj);
+  const candidateTenantId = stateMetadataTenantId ?? snapshotMetadataTenantId ?? clientReferenceTenantId;
+  let checkoutSubscription: Record<string, unknown> | null = null;
+  if (eventType === "checkout.session.completed") {
+    const checkoutSubscriptionId = typeof obj.subscription === "string" ? obj.subscription : "";
+    if (checkoutSubscriptionId) {
+      try {
+        checkoutSubscription = await stripeRetrieve(`subscriptions/${encodeURIComponent(checkoutSubscriptionId)}`);
+      } catch (error) {
+        logError("billing.webhook_checkout_subscription_fetch_failed", {
+          eventId,
+          error: error instanceof Error ? error.message : "unknown",
+        });
+        return NextResponse.json({ error: "Unable to verify checkout subscription state" }, { status: 502 });
+      }
+    }
+  }
+
+  const customerId =
+    typeof stateObj.customer === "string"
+      ? stateObj.customer
+      : typeof obj.customer === "string"
+        ? obj.customer
+        : undefined;
+  const objectSubscriptionId = subscriptionIdForEvent(eventType, stateObj);
 
   try {
     const result = await db.transaction(async (tx) => {
@@ -142,7 +212,7 @@ export async function POST(req: Request) {
             stripeSubscriptionId?: string | null;
             stripeCustomerId?: string | null;
             status?: "trialing" | "active" | "past_due" | "paused" | "cancelled";
-            stripeLastEventCreatedAt?: Date | null;
+            stripeLastEventCreatedAt?: Date | string | null;
           } | undefined;
           const differentSubscription = Boolean(current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId);
           if (differentSubscription && current?.status !== "cancelled") {
@@ -159,7 +229,25 @@ export async function POST(req: Request) {
             }, tx);
             return { kind: "ignored" as const };
           }
-          if (differentSubscription && current?.status === "cancelled" && current.stripeLastEventCreatedAt && eventCreatedAt.getTime() < (timestampMillis(current.stripeLastEventCreatedAt) ?? 0)) {
+          const currentStripeCheckoutCustomer =
+            typeof checkoutSubscription?.customer === "string" ? checkoutSubscription.customer : customerId;
+          const currentStripeCheckoutStatus =
+            typeof checkoutSubscription?.status === "string" ? checkoutSubscription.status : undefined;
+          if (currentStripeCheckoutCustomer && customerId && currentStripeCheckoutCustomer !== customerId) {
+            await tx.update(billingEvents)
+              .set({ tenantId, processedAt: new Date() })
+              .where(eq(billingEvents.eventId, eventId));
+            await writeAuditEvent({
+              tenantId,
+              actorType: "platform",
+              actorId: "stripe",
+              action: "billing.checkout_customer_conflict",
+              resourceType: "billing_event",
+              resourceId: eventId,
+            }, tx);
+            return { kind: "ignored" as const };
+          }
+          if (differentSubscription && current?.status === "cancelled" && currentStripeCheckoutStatus === "canceled") {
             await tx.update(billingEvents)
               .set({ tenantId, processedAt: new Date() })
               .where(eq(billingEvents.eventId, eventId));
@@ -174,7 +262,18 @@ export async function POST(req: Request) {
             return { kind: "ignored" as const };
           }
           if (current?.stripeCustomerId && customerId && current.stripeCustomerId !== customerId) {
-            throw new Error("Checkout customer identity conflict");
+            await tx.update(billingEvents)
+              .set({ tenantId, processedAt: new Date() })
+              .where(eq(billingEvents.eventId, eventId));
+            await writeAuditEvent({
+              tenantId,
+              actorType: "platform",
+              actorId: "stripe",
+              action: "billing.checkout_customer_conflict",
+              resourceType: "billing_event",
+              resourceId: eventId,
+            }, tx);
+            return { kind: "ignored" as const };
           }
           const checkoutSessionId = typeof obj.id === "string" ? obj.id : undefined;
           await tx.update(tenantSubscriptions).set({
@@ -186,8 +285,8 @@ export async function POST(req: Request) {
           }).where(eq(tenantSubscriptions.tenantId, tenantId));
         }
       } else if (eventType.startsWith("customer.subscription.")) {
-        const subId = typeof obj.id === "string" ? obj.id : "";
-        const items = obj.items as { data?: Array<{ price?: { id?: string } }> } | undefined;
+        const subId = typeof stateObj.id === "string" ? stateObj.id : "";
+        const items = stateObj.items as { data?: Array<{ price?: { id?: string } }> } | undefined;
         const priceId = items?.data?.[0]?.price?.id;
         const tenantRowResult = tenantId ? await tx.execute(sql`
           SELECT tenant_id AS "tenantId",
@@ -213,47 +312,39 @@ export async function POST(req: Request) {
           checkoutStatus?: "none" | "creating" | "open" | "completed";
           checkoutPlanId?: string | null;
           checkoutIdempotencyKey?: string | null;
-          currentPeriodEnd?: Date | null;
+          currentPeriodEnd?: Date | string | null;
           cancelAtPeriodEnd?: boolean;
           planId?: string;
-          stripeLastEventCreatedAt?: Date | null;
+          stripeLastEventCreatedAt?: Date | string | null;
         } | undefined;
         const plan = priceId ? await tx.query.plans.findFirst({ where: eq(plans.stripePriceId, priceId), columns: { id: true } }) : undefined;
         if (tenantRow && tenantId) {
-          const storedTime = timestampMillis(tenantRow.stripeLastEventCreatedAt);
-          let newerThanStored = storedTime === null || eventCreatedAt.getTime() > storedTime;
-          if (storedTime !== null && eventCreatedAt.getTime() === storedTime) {
-            // Same-second tie: Stripe event IDs (evt_1XYZ...) are NOT
-            // chronologically sortable by lexicographic order. A newer event can
-            // have a lexicographically smaller ID, so `eventId > latest.eventId`
-            // does NOT reliably identify the later event. The safe behavior on a
-            // same-second tie is to skip (not overwrite): the already-processed
-            // event holds state, and the next event (with a different timestamp)
-            // will apply the correct update. This is idempotency-safe because the
-            // event is still recorded in billing_events with processed_at set.
-            newerThanStored = false;
-          }
-          const differentSubscription = Boolean(tenantRow.stripeSubscriptionId && tenantRow.stripeSubscriptionId !== subId);
-          if (differentSubscription && tenantRow.status !== "cancelled" ) {
-            // The tenant is bound to a different live subscription. A
-            // delayed event from an old/new unrelated subscription must not
-            // silently steal billing identity.
-            newerThanStored = false;
-          }
-          if (differentSubscription && tenantRow.status === "cancelled" && !newerThanStored) {
-            // A cancelled tenant may legitimately start a new subscription,
-            // but only an event newer than the cancellation state may replace
-            // the previous subscription identity.
-            newerThanStored = false;
-          }
-          if (newerThanStored) {
-            const nextStatus = typeof obj.status === "string" ? statusOf(obj.status) : tenantRow.status;
+          const differentSubscription = Boolean(
+            tenantRow.stripeSubscriptionId && tenantRow.stripeSubscriptionId !== subId
+          );
+          // A subscription event for a different Stripe subscription must never
+          // overwrite the tenant's currently bound identity. A replacement is
+          // adopted only when the current local state is cancelled and the
+          // incoming Stripe event is strictly newer than the stored lifecycle
+          // timestamp; equal-second ties remain intentionally ambiguous.
+          const sameOrUnboundSubscription =
+            !tenantRow.stripeSubscriptionId || tenantRow.stripeSubscriptionId === subId;
+          // stripeLastEventCreatedAt comes from raw execute(): naive UTC string,
+          // not Date. Normalize via parseDbTimeMs so the newer-event gate works.
+          const storedStripeEventCreatedAtMs = parseDbTimeMs(tenantRow.stripeLastEventCreatedAt);
+          const newerReplacementSubscription =
+            differentSubscription &&
+            tenantRow.status === "cancelled" &&
+            storedStripeEventCreatedAtMs !== null &&
+            eventCreatedAt.getTime() > storedStripeEventCreatedAtMs;
+          if (sameOrUnboundSubscription || newerReplacementSubscription) {
+            const nextStatus = typeof stateObj.status === "string" ? statusOf(stateObj.status) : tenantRow.status;
             await tx.update(tenantSubscriptions).set({
-              stripeCustomerId: typeof obj.customer === "string" ? obj.customer : tenantRow.stripeCustomerId,
+              stripeCustomerId: typeof stateObj.customer === "string" ? stateObj.customer : tenantRow.stripeCustomerId,
               stripeSubscriptionId: subId || tenantRow.stripeSubscriptionId,
               status: nextStatus,
-              currentPeriodEnd: typeof obj.current_period_end === "number" ? new Date(obj.current_period_end * 1000) : tenantRow.currentPeriodEnd,
-              cancelAtPeriodEnd: obj.cancel_at_period_end === true,
+              currentPeriodEnd: typeof stateObj.current_period_end === "number" ? new Date(stateObj.current_period_end * 1000) : parseDbTime(tenantRow.currentPeriodEnd),
+              cancelAtPeriodEnd: stateObj.cancel_at_period_end === true,
               planId: plan?.id ?? tenantRow.planId,
               ...(nextStatus === "cancelled"
                 ? {
@@ -265,45 +356,18 @@ export async function POST(req: Request) {
                     checkoutSessionExpiresAt: null,
                   }
                 : {}),
-              stripeLastEventCreatedAt: eventCreatedAt,
+              stripeLastEventCreatedAt: sql`GREATEST(COALESCE(${tenantSubscriptions.stripeLastEventCreatedAt}, ${eventCreatedAt}), ${eventCreatedAt})`,
               updatedAt: new Date(),
             }).where(eq(tenantSubscriptions.tenantId, tenantId));
           }
         }
       } else if (eventType === "invoice.paid" || eventType === "invoice.payment_failed") {
-        const subId = typeof obj.subscription === "string" ? obj.subscription : undefined;
-        if (subId) {
-          const rowResult = await tx.execute(sql`
-            SELECT tenant_id AS "tenantId"
-            FROM tenant_subscriptions
-            WHERE stripe_subscription_id = ${subId}
-            FOR UPDATE
-          `);
-          const row = rowResult.rows[0] as { tenantId?: string } | undefined;
-          if (row?.tenantId) {
-            tenantId = row.tenantId;
-            const currentResult = await tx.execute(sql`
-              SELECT stripe_last_event_created_at AS "stripeLastEventCreatedAt"
-              FROM tenant_subscriptions
-              WHERE tenant_id = ${row.tenantId}
-              FOR UPDATE
-            `);
-            const current = currentResult.rows[0] as { stripeLastEventCreatedAt?: Date | null } | undefined;
-            const storedTime = timestampMillis(current?.stripeLastEventCreatedAt);
-            let newerThanStored = storedTime === null || eventCreatedAt.getTime() > storedTime;
-            if (storedTime !== null && eventCreatedAt.getTime() === storedTime) {
-              // Same-second tie: conservative skip — see customer.subscription.* branch comment.
-              newerThanStored = false;
-            }
-            if (newerThanStored) {
-              await tx.update(tenantSubscriptions).set({
-                status: eventType === "invoice.paid" ? "active" : "past_due",
-                stripeLastEventCreatedAt: eventCreatedAt,
-                updatedAt: new Date(),
-              }).where(eq(tenantSubscriptions.tenantId, row.tenantId));
-            }
-          }
-        }
+        // Invoice events are payment facts, not authoritative subscription lifecycle
+        // snapshots. Stripe's subscription lifecycle events own access state; in
+        // particular, invoice.paid must not reactivate a subscription that Stripe
+        // currently reports as canceled/unpaid, and invoice.payment_failed must not
+        // manufacture a past_due state when the subscription object is still active,
+        // incomplete, or otherwise in a different lifecycle state.
       }
 
       await tx.update(billingEvents)
