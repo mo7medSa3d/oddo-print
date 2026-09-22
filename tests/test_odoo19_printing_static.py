@@ -168,6 +168,39 @@ def test_gateway_queue_admission_allows_active_agent_when_heartbeat_is_stale():
     assert 'owner.agent_status !== "online"' not in service
     assert "owner.agent_last_seen_at" not in service
 
+def test_gateway_config_form_is_setup_only_without_internal_recovery_buttons():
+    source = read("views/gateway_config_views.xml")
+    form_start = source.index('id="view_print_gateway_config_form"')
+    form_end = source.index('<record id="view_print_gateway_config_search"', form_start)
+    form = source[form_start:form_end]
+    assert '<header/>' in form
+    for action in (
+        'name="action_retry_enabled_sync"',
+        'name="action_reset_stale_sync_state"',
+        'name="action_open_pairing_wizard"',
+        'name="action_open_runtime_assignments"',
+        'name="action_clear_api_key"',
+    ):
+        assert action not in form
+    assert 'field name="gateway_url"' in form
+    assert 'field name="gateway_api_key"' in form
+    assert 'field name="enabled" widget="boolean_toggle"' in form
+    assert 'field name="gateway_sync_state"' in form
+    assert 'field name="gateway_sync_message"' in form
+    assert "Odoo owns business context and print intent." not in form
+
+
+def test_gateway_sync_state_does_not_report_active_after_health_failure():
+    source = read("models/gateway_config.py")
+    compute_idx = source.index("def _compute_gateway_sync_state")
+    compute_end = source.index("@api.constrains", compute_idx)
+    compute = source[compute_idx:compute_end]
+    failed_idx = compute.index('if record.last_test_status == "failed":')
+    active_idx = compute.index('if record.enabled:', failed_idx)
+    assert 'record.gateway_sync_state = "attention"' in compute[failed_idx:active_idx]
+    assert 'record.gateway_sync_state = "active"' in compute[active_idx:]
+
+
 def test_gateway_config_auto_syncs_after_api_key_save():
     source = (ADDON / "static" / "src" / "js" / "gateway_config_auto_sync.js").read_text(encoding="utf-8")
     manifest = (ADDON / "__manifest__.py").read_text(encoding="utf-8")
