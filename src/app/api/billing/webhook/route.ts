@@ -330,7 +330,7 @@ export async function POST(req: Request) {
                     checkoutSessionExpiresAt: null,
                   }
                 : {}),
-              stripeLastEventCreatedAt: eventCreatedAt,
+              stripeLastEventCreatedAt: sql`GREATEST(COALESCE(${tenantSubscriptions.stripeLastEventCreatedAt}, ${eventCreatedAt}), ${eventCreatedAt})`,
               updatedAt: new Date(),
             }).where(eq(tenantSubscriptions.tenantId, tenantId));
           }
