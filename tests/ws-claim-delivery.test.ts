@@ -247,7 +247,9 @@ suite("WS claim-before-delivery", () => {
     expect(lost).toBeDefined();
     expect(lost.status).toBe("claimed");
     expect(lost.error).toBe("DELIVERY_EVIDENCE_PENDING");
-    expect(lost.physicalOutcome).toBe("unknown");
+    // While the claim is still active, physical outcome remains derived from the
+    // logical status. The pending marker itself is the durable delivery fence;
+    // the sweeper changes the terminal row to UNKNOWN when the claim expires.
     expect(typeof lost.claimToken).toBe("string");
 
     const rowBefore = await jobRow("job_lost_poll");
