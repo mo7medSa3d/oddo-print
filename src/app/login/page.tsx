@@ -88,7 +88,7 @@ export default function LoginPage() {
 
   if (checkingSession) {
     return (
-      <AuthShell subtitle="Customer portal">
+      <AuthShell subtitle="Yasser Print Gateway">
         <div className="rounded-[14px] border border-edge bg-surface p-8 text-center shadow-card">
           <div className="flex justify-center">
             <BrandMark size="sm" showWordmark={false} />
@@ -151,14 +151,14 @@ export default function LoginPage() {
           <div className="flex items-start gap-2.5 rounded-[11px] border border-edge bg-surface-2 px-3.5 py-3">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand" aria-hidden />
             <p className="text-[11.5px] leading-relaxed text-ink-3">
-              Sessions use an HttpOnly cookie and are enforced server-side. Email verification is required before customer login.
+              Your session is protected server-side. Email verification is required before sign-in.
             </p>
           </div>
         </form>
       </section>
 
       <p className="mt-5 text-center text-[12.5px] text-ink-3">
-        New customer? <Link href="/signup" className="font-semibold text-brand hover:underline">Create an account</Link>
+        Need an account? <Link href="/signup" className="font-semibold text-brand hover:underline">Create one</Link>
       </p>
     </AuthShell>
   );
