@@ -199,7 +199,7 @@ def test_gateway_connection_status_uses_simple_operator_labels():
     source = read("models/gateway_config.py")
     field_idx = source.index("last_test_status = fields.Selection(")
     field = source[field_idx:source.index("gateway_sync_state = fields.Selection(", field_idx)]
-    assert '( "success", "Connected")' in field.replace("("success", "Connected")", '( "success", "Connected")')
+    assert '("success", "Connected")' in field
     assert '("failed", "Not connected")' in field
     assert '("revoked", "API key revoked")' in field
     assert '("draft", "Not configured")' in field
