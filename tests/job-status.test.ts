@@ -46,6 +46,7 @@ describe("job-status", () => {
     expect(canTransition("failed", "failed")).toBe(false);
     expect(canTransition("failed", "success")).toBe(false);
     expect(canTransition("failed", "success", { allowLateSuccess: true })).toBe(true);
+    expect(canTransition("expired", "success", { allowLateSuccess: true })).toBe(false);
     expect(canTransition("failed", "printing", { allowLateSuccess: true })).toBe(false);
     expect(canTransition("success", "success", { allowLateSuccess: true })).toBe(false);
   });
