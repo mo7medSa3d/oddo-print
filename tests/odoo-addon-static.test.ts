@@ -46,6 +46,16 @@ describe("Odoo addon static contracts", () => {
     expect(jobs).toContain("def action_sync_status");
   });
 
+  it("does not equate Gateway transport success with physical print proof", () => {
+    const jobs = read("models/print_job.py");
+    const views = read("views/print_job_views.xml");
+    expect(jobs).toContain('job.physical_outcome = "unknown"');
+    expect(jobs).toContain('("printed", "Physically verified printed")');
+    expect(jobs).toContain('reprint_candidates = self.filtered(lambda row: row.status in ("partial", "unknown"))');
+    expect(views).toContain('invisible="status not in (\'partial\', \'unknown\')"');
+    expect(views).toContain("The physical outcome is ambiguous.");
+  });
+
   it("keeps bindings Odoo-native and resolves runtime printers without Gateway business ownership", () => {
     const binding = read("models/binding.py");
     expect(binding).toContain("destination_pos_config_id");
