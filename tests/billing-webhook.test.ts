@@ -119,6 +119,7 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
           id: subscriptionId,
           customer: customerId,
           status: "active",
+          current_period_start: eventCreatedTs - 30 * 86400,
           current_period_end: eventCreatedTs + 30 * 86400,
           cancel_at_period_end: false,
           items: { data: [{ price: { id: stripePriceId } }] },
@@ -150,7 +151,7 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     expect(storedSub).toBeDefined();
     expect(storedSub?.status).toBe("active");
     expect(storedSub?.stripeLastEventCreatedAt?.getTime()).toBe(eventCreatedTs * 1000);
-    expect(storedSub?.currentPeriodStart).toBeNull();
+    expect(storedSub?.currentPeriodStart?.getTime()).toBe((eventCreatedTs - 30 * 86400) * 1000);
     expect(storedSub?.currentPeriodEnd?.getTime()).toBe((eventCreatedTs + 30 * 86400) * 1000);
 
     // Assert audit event recorded
