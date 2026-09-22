@@ -9,6 +9,7 @@ import { BillingActions } from "../../components/BillingActions";
 import { ArrowRight, AlertTriangle, CalendarDays, Check, CheckCircle2, CreditCard } from "lucide-react";
 import Link from "next/link";
 import { StatusBadge } from "../../components/ui";
+import { getTenantPrintUsage } from "../../lib/entitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +96,10 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
         where: eq(plans.id, sub.planId),
         columns: { id: true, name: true, description: true, currency: true, interval: true, entitlements: true },
       })
+    : null;
+
+  const printUsage = sub
+    ? await getTenantPrintUsage(db, claims.tenantId).catch(() => null)
     : null;
 
   const availablePlans = await db
@@ -256,6 +261,38 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
               </div>
             )}
           </div>
+
+          {printUsage && (
+            <div className="mt-6 rounded-[12px] border border-edge bg-surface-2 p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Print usage</div>
+                  <h3 className="mt-1.5 text-[18px] font-semibold tracking-[-0.02em] text-ink">
+                    {printUsage.limit === "unlimited"
+                      ? `${printUsage.used.toLocaleString()} print jobs this period`
+                      : `${printUsage.used.toLocaleString()} of ${printUsage.limit.toLocaleString()} print jobs used`}
+                  </h3>
+                  <p className="mt-1 text-[12px] text-ink-3">
+                    1 admitted Gateway job = 1 print credit.
+                    {printUsage.periodEnd ? ` Current period ends ${formatDate(printUsage.periodEnd)}.` : ""}
+                  </p>
+                </div>
+                {printUsage.limit !== "unlimited" && (
+                  <div className="w-full sm:w-[240px]">
+                    <div className="h-2 overflow-hidden rounded-full bg-surface-3">
+                      <div
+                        className={`h-full rounded-full ${printUsage.remaining === 0 ? "bg-bad-solid" : "bg-brand"}`}
+                        style={{ width: `${Math.min(100, Math.max(0, (printUsage.used / Math.max(1, printUsage.limit)) * 100))}%` }}
+                      />
+                    </div>
+                    <div className="mt-1.5 text-right text-[11px] font-medium tabular-nums text-ink-3">
+                      {printUsage.remaining === 0 ? "Limit reached" : `${printUsage.remaining.toLocaleString()} remaining`}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {sub && (["unpaid", "paused", "incomplete"].includes(sub.status) || sub.status === "past_due" || (sub.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd)) && (
             <div className="border-t border-dashed border-edge-subtle px-6 py-5 sm:px-7">
