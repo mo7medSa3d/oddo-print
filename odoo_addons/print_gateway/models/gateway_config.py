@@ -183,7 +183,8 @@ class PrintGatewayConfig(models.Model):
 
     def _pending_stale_message(self):
         return _(
-            "Sync did not receive confirmation within %d minutes. Retry Sync or verify Gateway connectivity (URL host and port)."
+            "Gateway synchronization has not completed within %d minutes. "
+            "The next automatic check will retry it."
         ) % (self._SYNC_PENDING_STALE_AFTER_SECONDS // 60)
 
     _company_unique = models.Constraint(
@@ -221,6 +222,7 @@ class PrintGatewayConfig(models.Model):
         "enabled",
         "gateway_api_key",
         "last_test_status",
+        "last_test_error",
         "last_enabled_sync_error",
         "enabled_sync_revision",
         "last_enabled_sync_revision",
