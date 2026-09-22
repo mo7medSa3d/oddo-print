@@ -32,8 +32,8 @@ export async function GET(req: Request) {
         cancelAtPeriodEnd: tenantSubscriptions.cancelAtPeriodEnd,
         createdAt: tenants.createdAt,
       })
-      .from(tenants)
-      .leftJoin(tenantSubscriptions, eq(tenantSubscriptions.tenantId, tenants.id))
+      .from(tenantSubscriptions)
+      .innerJoin(tenants, eq(tenantSubscriptions.tenantId, tenants.id))
       .leftJoin(plans, eq(plans.id, tenantSubscriptions.planId))
       .orderBy(desc(tenants.createdAt))
       .limit(limit),
