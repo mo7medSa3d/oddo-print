@@ -20,9 +20,9 @@ describe("Odoo Gateway activation synchronization", () => {
 
     expect(route).toContain("validateOdooKey");
     expect(keyRoute).toContain("generateOdooApiKey");
-    expect(keyRoute).not.toMatch(/(?:["']scope["']|\bscope\s*:)\s*:/);
-    expect(keyRoute).not.toMatch(/(?:["']allowedDocumentTypes["']|\ballowedDocumentTypes\s*:)\s*:/);
-    expect(keyRoute).not.toMatch(/(?:["']allowed_document_types["']|\ballowed_document_types\s*:)\s*:/);
+    expect(keyRoute).not.toMatch(/(?:["\']scope["\']\s*:|\bscope\s*:)/);
+    expect(keyRoute).not.toMatch(/(?:["\']allowedDocumentTypes["\']\s*:|\ballowedDocumentTypes\s*:)/);
+    expect(keyRoute).not.toMatch(/(?:["\']allowed_document_types["\']\s*:|\ballowed_document_types\s*:)/);
     expect(rotateRoute).not.toMatch(/(?:["']scope["']|\bscope\s*:)\s*:/);
     expect(rotateRoute).not.toMatch(/(?:["']allowedDocumentTypes["']|\ballowedDocumentTypes\s*:)\s*:/);
     expect(rotateRoute).not.toMatch(/(?:["']allowed_document_types["']|\ballowed_document_types\s*:)\s*:/);
