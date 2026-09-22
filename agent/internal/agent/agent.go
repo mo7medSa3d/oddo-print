@@ -1959,6 +1959,12 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 	if ids := a.inFlightJobIDs(64); len(ids) > 0 {
 		payload["keepAliveJobIds"] = ids
 	}
+	// printerStatusPayload may spend bounded time probing local devices. Do
+	// not open a new gateway request once the owning Agent lifecycle has
+	// already been canceled.
+	if parent.Err() != nil {
+		return
+	}
 	heartbeatCtx, cancel := context.WithTimeout(parent, 15*time.Second)
 	defer cancel()
 	resp, err := a.doAuthorizedRequest(heartbeatCtx, "POST", reqURL, payload)
