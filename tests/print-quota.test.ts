@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { db } from "../src/db";
 import { createPrintJobForPrinter } from "../src/lib/print-job-service";
 import { TenantPrintQuotaExceededError, getTenantPrintUsage } from "../src/lib/entitlements";
 import { applyMigrations, closePool, hasTestDatabase, pool, seedFixture, truncateAll } from "./helpers/pg";
@@ -36,7 +37,7 @@ suite("tenant print quota", () => {
       idempotencyKey: "quota-21", expiresAt: new Date(Date.now() + 60_000),
     })).rejects.toBeInstanceOf(TenantPrintQuotaExceededError);
 
-    const usage = await getTenantPrintUsage({ execute: (query) => pool().query(query) as never }, f.tenantId);
+    const usage = await getTenantPrintUsage(db, f.tenantId);
     expect(usage.limit).toBe(20);
     expect(usage.used).toBe(20);
     expect(usage.remaining).toBe(0);
