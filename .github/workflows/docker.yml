@@ -23,6 +23,7 @@ env:
   ODOO_DATABASE_NAME: app_db
   GATEWAY_DOMAIN: print.example.com
   APP_BASE_URL: https://print.example.com
+  PLATFORM_TENANT_ID: ci-platform-tenant
 
 jobs:
   docker-build-runtime:
