@@ -29,6 +29,12 @@ describe("job-status", () => {
     expect(derivePhysicalOutcome("failed", "UNKNOWN_SUBMISSION_OUTCOME: x")).toBe("unknown");
     expect(derivePhysicalOutcome("failed", "CONNECTION_ERROR: x")).toBe("not_printed");
   });
+  it("does not expose a physical-print marker for post-expiry execution success", () => {
+    const source = readFileSync("src/lib/job-status.ts", "utf8");
+    expect(source).toContain('LATE_SUCCESS_POST_EXPIRATION_MARKER');
+    expect(source).not.toContain('PRINTED_POST_EXPIRATION');
+  });
+
   it("terminal states block further transitions", () => {
     expect(isTerminal("success")).toBe(true);
     expect(isTerminal("failed")).toBe(true);
