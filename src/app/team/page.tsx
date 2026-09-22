@@ -199,10 +199,10 @@ export default function TeamPage() {
       <header className="mb-7 flex flex-col gap-4 border-b border-edge/80 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
-            <Users className="h-3.5 w-3.5" /> Team & access
+            <Users className="h-3.5 w-3.5" /> Team
           </div>
           <h1 className="mt-4 text-[28px] font-bold tracking-[-0.04em] text-ink">Team</h1>
-          <p className="mt-2 text-[14px] leading-relaxed text-ink-3">Manage members and roles.</p>
+          <p className="mt-2 text-[14px] leading-relaxed text-ink-3">Invite teammates and manage workspace access.</p>
         </div>
         <div className="flex items-center gap-2 text-[12px] text-ink-3">
           <Shield className="h-4 w-4" />
