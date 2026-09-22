@@ -100,12 +100,12 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(page).toContain('fetch("/api/odoo/keys"');
     expect(page).toContain("setInterval");
     // Professional concise labels — verifies Odoo-sourced state still shown
-    expect(page).toContain("Credential");
+    expect(page).toContain("Odoo integration");
     expect(page).toContain("Odoo");
     expect(page).toContain("Gateway");
-    expect(page).toContain("API Keys");
+    expect(page).toContain("Connect Odoo");
     expect(page).toContain("odooEnabledRevision");
-    expect(page).toContain("Activation is tracked independently for each Odoo API key.");
+    expect(page).toContain("Odoo access:");
   });
 
   it("fences stale sync outcomes so an older worker cannot create Action needed", () => {
@@ -151,12 +151,12 @@ describe("Odoo Gateway activation synchronization", () => {
 
     expect(cron).toContain('id="cron_sync_gateway_enabled_state"');
     expect(cron).toContain("model.cron_sync_enabled_state()");
-    expect(view).toContain('string="Gateway Status"');
-    expect(view).toContain('field name="gateway_sync_message"');
+    expect(view).toContain('string="Connection"');
+    expect(view).toContain('field name="last_test_status"');
     expect(view).toContain('id="view_print_gateway_config_search"');
     expect(view).toContain('field name="search_view_id" ref="view_print_gateway_config_search"');
     expect(view).toContain('name="filter_enabled"');
-    expect(view).toContain('name="filter_attention"');
+    expect(view).not.toContain('name="filter_attention"');
     expect(view).not.toContain('name="last_enabled_sync_revision"');
     expect(view).not.toContain('name="last_enabled_sync_error"');
 
