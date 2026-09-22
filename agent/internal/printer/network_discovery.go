@@ -265,15 +265,13 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 		}
 		close(jobs)
 
-		go func() {
-			tcpWg.Wait()
-			close(openHosts)
-		}()
-
-		go func() {
-			snmpWg.Wait()
-			close(results)
-		}()
+		// Channel ownership is kept in the caller: wait for every TCP worker,
+		// then close openHosts so SNMP workers can finish, then close results.
+		// No detached channel-closer goroutines are needed.
+		tcpWg.Wait()
+		close(openHosts)
+		snmpWg.Wait()
+		close(results)
 
 		for di := range results {
 			tcpDevices = append(tcpDevices, di)
