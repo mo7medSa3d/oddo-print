@@ -20,8 +20,8 @@ describe("Odoo 19 view architecture contract — gateway_config_views.xml", () =
     expect(formSection).not.toContain("t-attf-class");
 
     // The setup form exposes only persisted operator-facing configuration.
-    expect(formSection).toContain('field name="company_id" string="Odoo Company"');
-    expect(formSection).toContain('field name="enabled" widget="boolean_toggle" string="Enable Gateway Printing"');
+    expect(formSection).toContain('field name="company_id" string="Company"');
+    expect(formSection).toContain('field name="enabled" widget="boolean_toggle" string="Enable Printing Service"');
     expect(formSection).toContain('field name="gateway_url"');
     expect(formSection).toContain('field name="gateway_api_key" password="True"');
     expect(formSection).toContain('field name="last_test_status"');
