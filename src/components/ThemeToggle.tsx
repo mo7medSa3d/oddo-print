@@ -14,7 +14,17 @@ function emitThemeChange() {
 function subscribe(onStoreChange: () => void) {
   window.addEventListener(THEME_EVENT, onStoreChange);
   window.addEventListener("storage", onStoreChange);
-  // Follow the OS until the user makes an explicit choice.
+
+  // Follow the OS until the user makes an explicit choice. Some test DOMs
+  // (including jsdom) do not implement matchMedia, so theme syncing must
+  // degrade to the explicit DOM/localStorage state without throwing.
+  if (typeof window.matchMedia !== "function") {
+    return () => {
+      window.removeEventListener(THEME_EVENT, onStoreChange);
+      window.removeEventListener("storage", onStoreChange);
+    };
+  }
+
   const mq = window.matchMedia("(prefers-color-scheme: dark)");
   const onSchemeChange = () => {
     if (localStorage.getItem("theme")) return;
