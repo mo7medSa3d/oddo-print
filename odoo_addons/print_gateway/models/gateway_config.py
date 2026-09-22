@@ -157,9 +157,9 @@ class PrintGatewayConfig(models.Model):
     last_test_error = fields.Text(readonly=True)
     gateway_sync_state = fields.Selection(
         [
-            ("active", "Enabled"),
+            ("active", "Connected"),
             ("disabled", "Disabled"),
-            ("syncing", "Syncing"),
+            ("syncing", "Checking"),
             ("attention", "Action needed"),
             ("not_configured", "Setup required"),
         ],
