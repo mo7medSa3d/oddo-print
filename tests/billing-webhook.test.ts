@@ -128,8 +128,7 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     });
 
     const sig = signPayload(payload);
-    const req = createWebhookRequest(payload, sig);
-    const res = await POST(req);
+    const res = await postWebhook(payload, sig);
 
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -301,8 +300,7 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     const sig = signPayload(payload);
 
     // 1st delivery
-    const req1 = createWebhookRequest(payload, sig);
-    const res1 = await POST(req1);
+    const res1 = await postWebhook(payload, sig);
     expect(res1.status).toBe(200);
     expect(await res1.json()).toEqual({ received: true });
 
@@ -355,8 +353,17 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     });
 
     const sig = signPayload(payload);
-    const req = createWebhookRequest(payload, sig);
-    const res = await POST(req);
+    stripeRetrieveMock.mockResolvedValueOnce({
+      id: subscriptionId,
+      object: "subscription",
+      customer: customerId,
+      status: "active",
+      items: { data: [{ price: { id: stripePriceId } }] },
+      metadata: { tenant_id: tenantId },
+      current_period_end: Math.floor(Date.now() / 1000) + 3600,
+      cancel_at_period_end: false,
+    });
+    const res = await POST(createWebhookRequest(payload, sig));
 
     expect(res.status).toBe(200);
 
