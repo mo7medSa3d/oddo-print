@@ -123,11 +123,17 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
         .map(([key, value]) => ({ label: entitlementLabel(key), value: entitlementValue(value) }))
     : [];
 
-  const renewalLabel = sub?.currentPeriodEnd
-    ? sub.cancelAtPeriodEnd
-      ? `Ends ${formatDate(sub.currentPeriodEnd)}`
-      : `Renews ${formatDate(sub.currentPeriodEnd)}`
-    : "No renewal date";
+  const renewalLabel = !sub
+    ? "No renewal date"
+    : sub.status === "cancelled"
+      ? sub.currentPeriodEnd
+        ? `Ended ${formatDate(sub.currentPeriodEnd)}`
+        : "Ended"
+      : sub.cancelAtPeriodEnd && sub.currentPeriodEnd
+        ? `Ends ${formatDate(sub.currentPeriodEnd)}`
+        : sub.currentPeriodEnd
+          ? `Renews ${formatDate(sub.currentPeriodEnd)}`
+          : "No renewal date";
 
   return (
     <div className="mx-auto w-full max-w-[1280px] px-5 py-8 sm:px-7 lg:px-8 lg:py-10">
