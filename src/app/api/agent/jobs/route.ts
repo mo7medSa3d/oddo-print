@@ -3,7 +3,7 @@ import { printJobs } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
 import { and, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { isJobStatus, canTransition, isTerminal, isLateSuccessAllowed, isExpiredLateSuccessAllowed, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, PRINTED_POST_EXPIRATION_MARKER, type JobStatus } from "../../../../lib/job-status";
+import { isJobStatus, canTransition, isTerminal, isLateSuccessAllowed, isExpiredLateSuccessAllowed, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, LATE_SUCCESS_POST_EXPIRATION_MARKER, type JobStatus } from "../../../../lib/job-status";
 import { logInfo, logWarn, requestIdFrom } from "../../../../lib/log";
 import { incrementMetric } from "../../../../lib/metrics";
 import { STALE_CLAIM_SECONDS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "../../../../lib/job-maintenance";
@@ -345,7 +345,7 @@ export async function PATCH(req: Request) {
     if (!isExpiredLateSuccessAllowed({ status: currentStatus, expiresAt: job.expiresAt, updatedAt: job.updatedAt }, Date.now())) {
       return NextResponse.json({ error: "Invalid status transition: expired -> success (outside physical grace window)", status: currentStatus }, { status: 409 });
     }
-    const postExpiryError = `${PRINTED_POST_EXPIRATION_MARKER}: physical print completed after TTL expiry${errorMessage ? ` (${errorMessage})` : ""}`.slice(0, MAX_ERROR_LENGTH);
+    const postExpiryError = `${PRINTED_POST_EXPIRATION_MARKER}: print execution completed after TTL expiry${errorMessage ? ` (${errorMessage})` : ""}`.slice(0, MAX_ERROR_LENGTH);
     const postExpired = await db.update(printJobs)
       .set({
         status: "success",
