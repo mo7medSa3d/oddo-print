@@ -7,8 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   Activity,
   Building2,
-  CheckCircle2,
-  CreditCard,
+    CreditCard,
   Printer,
   RefreshCw,
   ShieldCheck,
@@ -286,7 +285,7 @@ export default function PlatformDashboardPage() {
           detail={`${formatNumber(stats?.printers.online ?? 0)} online · ${formatNumber(stats?.printers.offline ?? 0)} offline`}
         />
         <MetricCard
-          label="Print jobs · 24h"
+          label="Print deliveries · 24h"
           value={stats?.jobs24h.total ?? 0}
           icon={Activity}
           detail={`${formatNumber(stats?.jobs24h.success ?? 0)} success · ${formatNumber(stats?.jobs24h.failed ?? 0)} failed · ${formatNumber(stats?.jobs24h.queued ?? 0)} queued`}
@@ -297,9 +296,9 @@ export default function PlatformDashboardPage() {
         <div className="card p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-[17px] font-semibold text-ink">System health</h2>
+              <h2 className="text-[17px] font-semibold text-ink">Operational coverage</h2>
             </div>
-            <CheckCircle2 className="mt-0.5 h-5 w-5 text-ok" aria-hidden />
+            <Activity className="mt-0.5 h-5 w-5 text-brand" aria-hidden />
           </div>
 
           <div className="mt-6 grid gap-5 sm:grid-cols-2">
@@ -337,10 +336,10 @@ export default function PlatformDashboardPage() {
 
           <div className="mt-6 grid grid-cols-3 gap-3">
             <div className="inset-panel p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Success</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Delivered</div>
               <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.jobs24h.success ?? 0)}</div>
               <div className="mt-1 text-[11px] text-ok">
-                {derived.jobSuccessRate === null ? "No resolved jobs" : `${derived.jobSuccessRate}% of resolved`}
+                {derived.jobSuccessRate === null ? "No resolved deliveries" : `${derived.jobSuccessRate}% of resolved`}
               </div>
             </div>
             <div className="inset-panel p-4">
@@ -357,7 +356,7 @@ export default function PlatformDashboardPage() {
 
           <div className="mt-5 space-y-2">
             {[
-              ["Successful", stats?.jobs24h.success ?? 0, "bg-ok-solid"],
+              ["Delivered", stats?.jobs24h.success ?? 0, "bg-ok-solid"],
               ["Failed", stats?.jobs24h.failed ?? 0, "bg-bad-solid"],
               ["Queued", stats?.jobs24h.queued ?? 0, "bg-warn-solid"],
             ].map(([label, value, barClass]) => {
