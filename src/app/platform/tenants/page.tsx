@@ -103,8 +103,8 @@ export default function PlatformTenantsPage() {
           <div className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
             <ShieldAlert className="h-3.5 w-3.5" /> Control Plane • Tenants
           </div>
-          <h1 className="mt-4 flex items-center gap-2.5 text-[28px] font-bold tracking-[-0.04em] text-white leading-tight">
-            <Building2 className="h-6 w-6 text-brand-400" /> Tenants
+          <h1 className="mt-4 flex items-center gap-2.5 text-[26px] font-bold tracking-[-0.02em] text-white leading-tight">
+            <Building2 className="h-6 w-6 text-indigo-400" /> Tenants
           </h1>
           <p className="mt-2 text-[13px] leading-relaxed text-slate-400">Workspace directory, lifecycle control, and fleet overview — suspension reason required, audit preserved.</p>
         </div>
@@ -123,16 +123,16 @@ export default function PlatformTenantsPage() {
 
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by tenant name or ID…" aria-label="Search tenants" className="w-full rounded-[12px] border border-white/[0.08] bg-[#12151b] py-2.5 pl-10 pr-4 text-[13px] text-slate-100 placeholder-slate-500 outline-none focus:border-brand-500/30 focus:ring-2 focus:ring-brand-500/15" />
+        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by tenant name or ID…" aria-label="Search tenants" className="w-full rounded-[12px] border border-white/[0.08] bg-[#12141f] py-2.5 pl-10 pr-4 text-[13px] text-slate-100 placeholder-slate-500 outline-none focus:border-indigo-500/30 focus:ring-2 focus:ring-indigo-500/15" />
       </div>
 
-      <div className="overflow-hidden rounded-[16px] border border-white/[0.08] bg-[#12151b]">
+      <div className="overflow-hidden rounded-[14px] border border-white/[0.06] bg-[#12141f]">
         <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
           <div><h2 className="text-[13px] font-semibold text-white">Workspace directory</h2><p className="mt-0.5 text-[11px] text-slate-500">{filtered.length} {filtered.length === 1 ? "tenant" : "tenants"} • {tenants.filter(t => t.lifecycle === "active").length} active • {tenants.filter(t => t.lifecycle === "suspended").length} suspended</p></div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[960px] text-left text-[13px] text-slate-300">
-            <thead className="border-b border-white/[0.06] bg-[#0b0e13] text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <thead className="border-b border-white/[0.06] bg-[#0c0e1a] text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               <tr><th className="px-5 py-3">Tenant</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Plan</th><th className="px-5 py-3">Members</th><th className="px-5 py-3">Fleet</th><th className="px-5 py-3">Created</th><th className="px-5 py-3 text-right">Action</th></tr>
             </thead>
             <tbody className="divide-y divide-white/[0.04]">
@@ -160,18 +160,18 @@ export default function PlatformTenantsPage() {
 
       {selectedTenant && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-[2px]" onMouseDown={(e) => { if (e.target === e.currentTarget) closeDialog(); }}>
-          <div role="dialog" aria-modal="true" className="w-full max-w-[480px] overflow-hidden rounded-[16px] border border-white/[0.10] bg-[#12151b] shadow-2xl">
+          <div role="dialog" aria-modal="true" className="w-full max-w-[480px] overflow-hidden rounded-[16px] border border-white/[0.10] bg-[#12141f] shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-white/[0.06] px-6 py-5">
               <div className="flex gap-3"><div className={dialogMode === "suspend" ? "flex h-10 w-10 items-center justify-center rounded-[10px] bg-amber-500/10 border border-amber-500/20 text-amber-300" : "flex h-10 w-10 items-center justify-center rounded-[10px] bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"}>{dialogMode === "suspend" ? <AlertOctagon className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}</div><div><h2 className="text-[15px] font-semibold text-white">{dialogMode === "suspend" ? "Suspend tenant" : "Reactivate tenant"}</h2><p className="mt-1 text-[12px] text-slate-400">{dialogMode === "suspend" ? "Pause workspace until reactivated." : "Restore workspace to active."}</p></div></div>
               <button onClick={closeDialog} disabled={actionLoading} className="rounded-lg p-1.5 text-slate-500 hover:bg-white/[0.06] hover:text-slate-200"><X className="h-5 w-5" /></button>
             </div>
             <div className="space-y-4 px-6 py-5">
-              <div className="rounded-[10px] border border-white/[0.06] bg-[#0b0e13] px-4 py-3"><div className="text-[13px] font-semibold text-white">{selectedTenant.name}</div><div className="mt-1 font-mono text-[11px] text-slate-500">{selectedTenant.id}</div></div>
-              {dialogMode === "suspend" && <><div className="rounded-[10px] border border-amber-500/15 bg-amber-500/[0.06] px-4 py-3 text-[12px] leading-relaxed text-amber-200/80">Members lose sessions, agents stop syncing, new print ops blocked until reactivation.</div><div className="space-y-2"><div className="flex justify-between"><label htmlFor="suspension-reason" className="text-[13px] font-medium text-slate-200">Reason</label><span className="text-[11px] text-slate-500">{suspendReason.length}/500</span></div><textarea id="suspension-reason" value={suspendReason} onChange={(e) => setSuspendReason(e.target.value.slice(0, 500))} placeholder="e.g. Billing overdue, security review…" rows={4} autoFocus disabled={actionLoading} className="w-full resize-none rounded-[10px] border border-white/[0.08] bg-[#0b0e13] px-3.5 py-3 text-[13px] text-slate-100 placeholder-slate-600 outline-none focus:border-amber-500/30 focus:ring-2 focus:ring-amber-500/10 disabled:opacity-60" /></div></>}
+              <div className="rounded-[10px] border border-white/[0.06] bg-[#0c0e1a] px-4 py-3"><div className="text-[13px] font-semibold text-white">{selectedTenant.name}</div><div className="mt-1 font-mono text-[11px] text-slate-500">{selectedTenant.id}</div></div>
+              {dialogMode === "suspend" && <><div className="rounded-[10px] border border-amber-500/15 bg-amber-500/[0.06] px-4 py-3 text-[12px] leading-relaxed text-amber-200/80">Members lose sessions, agents stop syncing, new print ops blocked until reactivation.</div><div className="space-y-2"><div className="flex justify-between"><label htmlFor="suspension-reason" className="text-[13px] font-medium text-slate-200">Reason</label><span className="text-[11px] text-slate-500">{suspendReason.length}/500</span></div><textarea id="suspension-reason" value={suspendReason} onChange={(e) => setSuspendReason(e.target.value.slice(0, 500))} placeholder="e.g. Billing overdue, security review…" rows={4} autoFocus disabled={actionLoading} className="w-full resize-none rounded-[10px] border border-white/[0.08] bg-[#0c0e1a] px-3.5 py-3 text-[13px] text-slate-100 placeholder-slate-600 outline-none focus:border-amber-500/30 focus:ring-2 focus:ring-amber-500/10 disabled:opacity-60" /></div></>}
               {dialogMode === "reactivate" && <div className="rounded-[10px] border border-emerald-500/15 bg-emerald-500/[0.06] px-4 py-3 text-[12px] leading-relaxed text-emerald-200/80">Active sessions and print operations can resume after this action.</div>}
               {actionError && <div role="alert" className="flex items-start gap-2.5 rounded-[10px] border border-red-500/20 bg-red-500/10 px-4 py-3 text-[12px] text-red-300"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><span>{actionError}</span></div>}
             </div>
-            <div className="flex justify-end gap-2 border-t border-white/[0.06] bg-[#0b0e13]/50 px-6 py-4">
+            <div className="flex justify-end gap-2 border-t border-white/[0.06] bg-[#0c0e1a]/50 px-6 py-4">
               <button onClick={closeDialog} disabled={actionLoading} className="rounded-[10px] border border-white/[0.08] bg-white/[0.04] px-4 py-2.5 text-[13px] font-medium text-slate-300 hover:bg-white/[0.06] hover:text-white disabled:opacity-50">Cancel</button>
               <button onClick={() => void handleLifecycleAction()} disabled={actionLoading || (dialogMode === "suspend" && !suspendReason.trim())} className={`inline-flex items-center gap-2 rounded-[10px] px-4 py-2.5 text-[13px] font-semibold text-white transition disabled:opacity-50 ${dialogMode === "suspend" ? "bg-amber-600 hover:bg-amber-500" : "bg-emerald-600 hover:bg-emerald-500"}`}>{actionLoading ? <><Loader2 className="h-4 w-4 animate-spin" />{dialogMode === "suspend" ? "Suspending…" : "Reactivating…"}</> : dialogMode === "suspend" ? <><AlertOctagon className="h-4 w-4" /> Suspend tenant</> : <><CheckCircle2 className="h-4 w-4" /> Reactivate tenant</>}</button>
             </div>
