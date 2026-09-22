@@ -12,11 +12,20 @@ const read = (file: string) => readFileSync(path.join(ROOT, file), "utf8");
 describe("Odoo Gateway activation synchronization", () => {
   it("keeps Odoo activation separate from tenant lifecycle and fences updates by revision", () => {
     const route = read("src/app/api/odoo/configuration/route.ts");
+    const keyRoute = read("src/app/api/odoo/keys/route.ts");
+    const rotateRoute = read("src/app/api/odoo/keys/[id]/rotate/route.ts");
     const schema = read("src/db/schema.ts");
     const migration = read("drizzle/0058_scope_odoo_activation_to_api_key.sql");
     const cleanupMigration = read("drizzle/0059_remove_api_key_restrictions.sql");
 
     expect(route).toContain("validateOdooKey");
+    expect(keyRoute).toContain("generateOdooApiKey");
+    expect(keyRoute).not.toContain("scope");
+    expect(keyRoute).not.toContain("allowedDocumentTypes");
+    expect(keyRoute).not.toContain("allowed_document_types");
+    expect(rotateRoute).not.toContain("scope");
+    expect(rotateRoute).not.toContain("allowedDocumentTypes");
+    expect(rotateRoute).not.toContain("allowed_document_types");
     expect(route).toContain("odooEnabledRevision");
     expect(route).toContain("lt(apiKeys.odooEnabledRevision");
     expect(route).toContain("stale_revision");
