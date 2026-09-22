@@ -45,9 +45,9 @@ func (a *Agent) pollDiscovery(ctx context.Context) {
 		// up on the next 30s poll tick — no goroutine pile-up.
 		select {
 		case a.discoverySem <- struct{}{}:
-			go func(sessionID string) {
-				a.executeDiscoverySession(ctx, sessionID)
-			}(id)
+			a.launchTracked(func() {
+				a.executeDiscoverySession(ctx, id)
+			})
 		default:
 			// A skipped session must not linger as "running" on the
 			// gateway until its 60s expiry: report it cancelled now so
@@ -55,7 +55,9 @@ func (a *Agent) pollDiscovery(ctx context.Context) {
 			// gateway accepts "cancelled" as a terminal session status
 			// and the next 30s poll tick picks up fresh work.
 			log.Printf("[discovery] session %s deferred: a discovery session is already running", id)
-			go a.reportDiscoveryResult(ctx, id, "cancelled", nil)
+			a.launchTracked(func() {
+				a.reportDiscoveryResult(ctx, id, "cancelled", nil)
+			})
 		}
 	}
 }
@@ -106,10 +108,10 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string)
 		// synchronous and does not accept Go context cancellation. At most one
 		// such blocked scan can exist, so cancellation cannot create an
 		// unbounded goroutine/worker leak.
-		go func() {
+		a.launchTracked(func() {
 			<-finishedCh
 			<-a.discoverySem
-		}()
+		})
 		return
 	}
 
