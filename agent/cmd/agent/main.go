@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/kardianos/service"
@@ -26,14 +25,14 @@ type program struct {
 	agent      *agent.Agent
 	ctx        context.Context
 	cancel     context.CancelFunc
-	wg         sync.WaitGroup // tracks the agent run goroutine for graceful stop
+	runDone    chan struct{} // closed exactly once when the Start-owned runtime exits
 }
 
 func (p *program) Start(s service.Service) error {
 	p.ctx, p.cancel = context.WithCancel(context.Background())
-	p.wg.Add(1)
+	p.runDone = make(chan struct{})
 	go func() {
-		defer p.wg.Done()
+		defer close(p.runDone)
 
 		if err := config.Ensure(p.configPath); err != nil {
 			log.Printf("Failed to prepare canonical config path %s: %v — waiting for resolution...", p.configPath, err)
@@ -114,15 +113,15 @@ func (p *program) Stop(s service.Service) error {
 	if p.cancel != nil {
 		p.cancel()
 	}
-	// SCM control handling is time-bounded. Keep SQLite open until Run() has
-	// returned; otherwise a late worker can touch a closed WAL-backed database.
-	stopDone := make(chan struct{})
-	go func() {
-		p.wg.Wait()
-		close(stopDone)
-	}()
+	// SCM control handling is time-bounded. Keep SQLite open until Run()
+	// has returned; otherwise a late worker can touch a closed WAL-backed
+	// database. runDone is closed by the Start-owned goroutine itself, so Stop
+	// needs no additional waiter goroutine that could outlive the 27s boundary.
+	if p.runDone == nil {
+		return nil
+	}
 	select {
-	case <-stopDone:
+	case <-p.runDone:
 		if p.agent != nil {
 			if err := p.agent.Close(); err != nil {
 				return fmt.Errorf("close local queue: %w", err)
