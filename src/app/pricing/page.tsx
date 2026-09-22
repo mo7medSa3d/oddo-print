@@ -4,7 +4,7 @@ import { db } from "../../db";
 import { plans, tenantSubscriptions } from "../../db/schema";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { getManagerCookieName, validateManagerClaims, verifyManagerToken } from "../../lib/manager-auth";
-import { ArrowRight, Check, CreditCard, Sparkles } from "lucide-react";
+import { ArrowRight, Check, CreditCard } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +85,7 @@ export default async function Pricing() {
                       label: "Popular",
                       badgeClass:
                         "rounded-full border border-brand-subtle-border bg-brand-subtle text-brand-subtle-text",
-                      icon: "sparkles" as const,
+                      icon: "none" as const,
                     }
                   : rows.length >= 3 && index === 2
                     ? {
@@ -134,9 +134,7 @@ export default async function Pricing() {
                     <span
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${spotlight.badgeClass}`}
                     >
-                      {spotlight.icon === "sparkles" ? (
-                        <Sparkles className="h-3 w-3 text-brand" aria-hidden />
-                      ) : spotlight.icon === "dot" ? (
+                      {spotlight.icon === "dot" ? (
                         <span className="h-1.5 w-1.5 rounded-full bg-info-solid" aria-hidden />
                       ) : null}
                       {spotlight.label}
