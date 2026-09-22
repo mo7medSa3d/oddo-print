@@ -11,6 +11,7 @@ function VerifyEmailContent() {
   const params = useSearchParams();
   const token = params.get("token");
   const initialEmail = params.get("email") ?? "";
+  const planId = params.get("plan") ?? "";
   const router = useRouter();
   const [state, setState] = useState<"loading" | "ok" | "error" | "pending">(
     token ? "loading" : initialEmail ? "pending" : "error",
@@ -37,7 +38,10 @@ function VerifyEmailContent() {
       if (!response.ok) throw new Error(data.error ?? "Verification failed");
       setState("ok");
       setMsg("Email verified. Redirecting to workspace setup…");
-      setTimeout(() => router.replace("/onboarding"), 500);
+      setTimeout(() => {
+        const next = planId ? `/onboarding?plan=${encodeURIComponent(planId)}` : "/onboarding";
+        router.replace(next);
+      }, 500);
     }).catch((error) => {
       setState("error");
       setMsg(error instanceof Error ? error.message : "Verification failed");
@@ -53,7 +57,7 @@ function VerifyEmailContent() {
       const response = await fetch("/api/auth/resend-verification", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: resendEmail }),
+        body: JSON.stringify({ email: resendEmail, planId }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Failed to resend verification email");
