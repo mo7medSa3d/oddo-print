@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Copy, KeyRound, Shield } from "lucide-react";
 import Link from "next/link";
-import { Button, Card, CardHeader, Input, Field, Modal, Select, StatusBadge } from "../../components/ui";
+import { Button, Card, CardHeader, Input, Field, Modal, Select } from "../../components/ui";
 import { copyTextToClipboard } from "../../lib/clipboard";
 
 type ApiKey = {
