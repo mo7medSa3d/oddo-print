@@ -57,7 +57,7 @@ suite("billing webhook concurrency", () => {
     const customerId = `cus_${nanoid(8)}`;
     const subscriptionId = `sub_${nanoid(8)}`;
     await db.insert(tenants).values({ id: tenantId, name: "Billing Concurrency Test" });
-    await db.insert(plans).values({ id: planId, name: `Plan ${nanoid(6)}`, stripePriceId: priceId, currency: "usd", interval: "month", entitlements: { max_printers: 5 } });
+    await db.insert(plans).values({ id: planId, name: `Plan ${nanoid(6)}`, stripePriceId: priceId, currency: "usd", interval: "month", entitlements: { max_agents: 5, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: 100 } });
     await db.insert(tenantSubscriptions).values({ tenantId, planId, stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId, status: "trialing" });
     return { tenantId, customerId, subscriptionId, priceId };
   }

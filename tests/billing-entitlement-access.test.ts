@@ -19,7 +19,7 @@ suite("billing entitlement access policy", () => {
     await db.insert(plans).values({
       id: planId,
       name: "Past Due Plan",
-      entitlements: { max_agents: 2, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8 },
+      entitlements: { max_agents: 2, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: 20 },
       stripePriceId: `price_${nanoid(8)}`,
       currency: "usd",
       interval: "month",
@@ -41,7 +41,7 @@ suite("billing entitlement access policy", () => {
     await db.insert(plans).values({
       id: planId,
       name: "Unpaid Plan",
-      entitlements: { max_agents: 2, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8 },
+      entitlements: { max_agents: 2, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: 20 },
       stripePriceId: `price_${nanoid(8)}`,
       currency: "usd",
       interval: "month",
@@ -64,7 +64,7 @@ suite("billing entitlement access policy", () => {
     await db.insert(plans).values({
       id: planId,
       name: "Paused Plan",
-      entitlements: { max_agents: 2, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8 },
+      entitlements: { max_agents: 2, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: 20 },
       stripePriceId: `price_${nanoid(8)}`,
       currency: "usd",
       interval: "month",

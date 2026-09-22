@@ -105,7 +105,7 @@ suite("platform-trial to paid conversion invariants", () => {
     const priceId = `price_trial_${nanoid(6)}`;
     await db.insert(plans).values({
       id: trialPlan, name: "HTTP Test", stripePriceId: priceId,
-      entitlements: { max_printers: 5, max_jobs_per_day: 10 }, currency: "usd", interval: "month",
+      entitlements: { max_agents: 2, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: 100 }, currency: "usd", interval: "month",
     });
     await db.insert(tenantSubscriptions).values({
       tenantId: TENANT,
@@ -220,8 +220,8 @@ suite("platform-trial to paid conversion invariants", () => {
     const trialPlan = `plan_trial_${nanoid(6)}`;
     const otherPlan = `plan_other_${nanoid(6)}`;
     await db.insert(plans).values([
-      { id: trialPlan, name: "HTTP Test", stripePriceId: `price_t_${nanoid(6)}`, entitlements: { max_printers: 5 }, currency: "usd", interval: "month" },
-      { id: otherPlan, name: "Pro", stripePriceId: `price_o_${nanoid(6)}`, entitlements: { max_printers: 25 }, currency: "usd", interval: "month" },
+      { id: trialPlan, name: "HTTP Test", stripePriceId: `price_t_${nanoid(6)}`, entitlements: { max_agents: 2, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: 100 }, currency: "usd", interval: "month" },
+      { id: otherPlan, name: "Pro", stripePriceId: `price_o_${nanoid(6)}`, entitlements: { max_agents: 10, max_printers: 25, max_jobs_per_minute: 300, max_concurrent_jobs: 16, max_prints_per_period: 1000 }, currency: "usd", interval: "month" },
     ]);
     const trialPeriodEnd = new Date(Date.now() + 27 * 24 * 3600 * 1000);
     await db.insert(tenantSubscriptions).values({
