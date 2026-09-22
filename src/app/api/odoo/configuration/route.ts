@@ -49,6 +49,15 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   const apiKey = await validateOdooKey(req, { requireIntegrationEnabled: false });
   if (!apiKey) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Integration activation is a write/control-plane operation. A read-only
+  // installation key may inspect Gateway state, but it must never be able to
+  // enable or disable the Odoo integration.
+  if (String(apiKey.scope ?? "standard").trim().toLowerCase() === "read_only") {
+    return NextResponse.json(
+      { error: "API key is read only and cannot change Odoo Gateway activation.", code: "ODOO_KEY_READ_ONLY" },
+      { status: 403 },
+    );
+  }
 
   let body: unknown;
   try {
