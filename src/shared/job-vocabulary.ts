@@ -21,7 +21,9 @@ export type PhysicalOutcome = "printed" | "not_printed" | "unknown" | "unproven"
 
 /** Client-side mirror of derivePhysicalOutcome. */
 export function deriveOutcome(status: string, error?: string | null): PhysicalOutcome {
-  if (status === "success") return "printed";
+  // Successful transport/execution is not proof of physical paper output.
+  // Keep the physical result unverified until a real hardware proof exists.
+  if (status === "success") return "unknown";
   const msg = error ?? "";
   if (UNKNOWN_OUTCOME_MARKERS.some((marker) => msg.startsWith(marker))) return "unknown";
   if (status === "claimed" || status === "printing") return "unproven";
@@ -29,9 +31,10 @@ export function deriveOutcome(status: string, error?: string | null): PhysicalOu
 }
 
 export function jobTone(status: string, outcome?: PhysicalOutcome): Tone {
-  // An ambiguous physical outcome is never red: unknown means "may have
-  // printed", which must read as attention (amber), not failure.
-  if (outcome === "unknown") return "warn";
+  // A terminal transport success is healthy even when its physical outcome
+  // is unverified. Only genuinely ambiguous failure/expiry states need the
+  // attention tone.
+  if (status.toLowerCase() !== "success" && outcome === "unknown") return "warn";
   switch (status.toLowerCase()) {
     case "success":
       return "ok";
@@ -61,7 +64,7 @@ export function jobLabel(status: string, outcome?: PhysicalOutcome): string {
     case "printing":
       return "Printing";
     case "success":
-      return "Printed";
+      return "Delivered to printer";
     case "failed":
       if (outcome === "unknown") return "Unknown outcome";
       return "Failed (not printed)";
@@ -75,7 +78,7 @@ export function jobLabel(status: string, outcome?: PhysicalOutcome): string {
 
 /** One-sentence operator guidance for the current job state. */
 export function jobGuidance(status: string, outcome: PhysicalOutcome): string {
-  if (status === "success") return "The agent confirmed the payload was fully transmitted to the printer.";
+  if (status === "success") return "The agent confirmed the payload was fully transmitted to the printer. Physical paper output is not independently verified.";
   if (outcome === "unknown") {
     return "Print status is unknown. The printer may have received part or all of the job. Automatic retry is paused to prevent duplicate printing. Verify the printer before reprinting.";
   }
