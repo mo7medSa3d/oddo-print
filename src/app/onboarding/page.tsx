@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, CreditCard, Sparkles } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button, Card, EmptyState, ErrorState, Field, Input } from "../../components/ui";
 
 type Plan = {
@@ -22,6 +22,8 @@ export default function Onboarding() {
   const [plansLoading, setPlansLoading] = useState(true);
   const [plansError, setPlansError] = useState("");
   const router = useRouter();
+  const params = useSearchParams();
+  const requestedPlanId = params.get("plan") ?? "";
 
   const fetchPlans = useCallback(async (): Promise<Plan[]> => {
     const response = await fetch("/api/billing/plans", {
@@ -41,7 +43,11 @@ export default function Onboarding() {
     try {
       const nextPlans = await fetchPlans();
       setPlans(nextPlans);
-      setPlanId((current) => current && nextPlans.some((plan) => plan.id === current) ? current : nextPlans[0]?.id ?? "");
+      setPlanId((current) => {
+        if (current && nextPlans.some((plan) => plan.id === current)) return current;
+        if (requestedPlanId && nextPlans.some((plan) => plan.id === requestedPlanId)) return requestedPlanId;
+        return nextPlans[0]?.id ?? "";
+      });
     } catch (error) {
       setPlans([]);
       setPlanId("");
@@ -57,7 +63,11 @@ export default function Onboarding() {
       .then((nextPlans) => {
         if (cancelled) return;
         setPlans(nextPlans);
-        setPlanId((current) => current && nextPlans.some((plan) => plan.id === current) ? current : nextPlans[0]?.id ?? "");
+        setPlanId((current) => {
+          if (current && nextPlans.some((plan) => plan.id === current)) return current;
+          if (requestedPlanId && nextPlans.some((plan) => plan.id === requestedPlanId)) return requestedPlanId;
+          return nextPlans[0]?.id ?? "";
+        });
       })
       .catch((error) => {
         if (cancelled) return;
