@@ -2181,6 +2181,11 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	lock.Lock()
 	defer lock.Unlock()
 
+	if ctx.Err() != nil {
+		a.queue.AbortPrint(jobID, "dispatch_refused: agent context cancelled while waiting for printer execution; zero bytes transmitted")
+		return
+	}
+
 	if !a.isPrinterExecutionAllowed(printerID) {
 		a.queue.AbortPrint(jobID, "printer_not_at_desired_state")
 		a.rejectJob(ctx, jobID, jobClaimToken(job), "printer_not_at_desired_state")
@@ -2234,6 +2239,10 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 
 	if a.queue.IsProcessed(jobID) {
 		log.Printf("Job %s was already processed while waiting for printer %s. Skipping duplicate print.", jobID, printerID)
+		return
+	}
+	if ctx.Err() != nil {
+		a.queue.AbortPrint(jobID, "dispatch_refused: agent context cancelled before physical print; zero bytes transmitted")
 		return
 	}
 	// Kind-aware dispatch: PDF goes through the PDF pipeline (validated,
