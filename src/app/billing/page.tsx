@@ -257,9 +257,12 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
             )}
           </div>
 
-          {sub && (sub.status === "past_due" || (sub.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd)) && (
+          {sub && (["unpaid", "paused", "incomplete"].includes(sub.status) || sub.status === "past_due" || (sub.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd)) && (
             <div className="border-t border-dashed border-edge-subtle px-6 py-5 sm:px-7">
               {sub.status === "past_due" && <WarnLine text="The latest payment is past due. Printing remains active during Stripe recovery, but service can be interrupted if the subscription becomes unpaid or canceled. Update the payment method in the Customer Portal." />}
+              {sub.status === "unpaid" && <WarnLine text="Stripe has marked the subscription unpaid. Printing is paused until the outstanding payment is resolved in the Customer Portal." />}
+              {sub.status === "paused" && <WarnLine text="Stripe has paused the subscription. Add a valid payment method, then resume the subscription." />}
+              {sub.status === "incomplete" && <WarnLine text="The initial subscription payment is incomplete. Continue the existing Checkout session or resolve the payment action before printing can start." />}
               {sub.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd && <WarnLine text={`Cancellation is scheduled for ${formatDate(sub.currentPeriodEnd)}. Resume below to keep the plan.`} />}
             </div>
           )}
