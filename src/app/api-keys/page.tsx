@@ -40,28 +40,28 @@ export default function ApiKeysPage() {
 
   useEffect(() => {
     let cancel = false;
-    const tick = async () => {
+
+    const tick = async (reportError: boolean) => {
       try {
         const d = await loadKeys();
         if (!cancel) setKeys(d);
-      } catch { }
+      } catch (e) {
+        if (!cancel && reportError) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      } finally {
+        if (!cancel && reportError) setLoading(false);
+      }
     };
-    const id = setInterval(tick, 5000);
+
+    // One immediate load followed by lightweight refreshes. Keeping both paths
+    // behind the same loader avoids duplicate /api/odoo/keys calls on mount.
+    void tick(true);
+    const id = setInterval(() => void tick(false), 5000);
     return () => { cancel = true; clearInterval(id); };
   }, []);
 
   useEffect(() => {
-    // Guard r.ok before parsing: on an expired/revoked session the route
-    // returns 401 with an error body (not an array), and setting that into
-    // `keys` crashes `keys.filter(...)` during render.
-    fetch("/api/odoo/keys", { cache: "no-store", credentials: "include" })
-      .then(async (r) => {
-        if (!r.ok) throw new Error("Failed to load API keys");
-        return (await r.json()) as ApiKey[];
-      })
-      .then((d) => setKeys(d))
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
     fetch("/api/billing/status", { cache: "no-store", credentials: "include" })
       .then(async (r) => {
         if (!r.ok) return;
