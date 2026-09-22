@@ -6,6 +6,7 @@ import { eq, sql } from "drizzle-orm";
 import { runtimeSecret } from "../../../../lib/runtime-secret";
 import { stripeRetrieve, verifyStripeSignature } from "../../../../lib/stripe";
 import { writeAuditEvent } from "../../../../lib/audit";
+import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
 function statusOf(status: string): "trialing" | "active" | "past_due" | "paused" | "cancelled" {
   if (status === "trialing") return "trialing";
@@ -55,6 +56,9 @@ function subscriptionIdForEvent(eventType: string, object: Record<string, unknow
 }
 
 export async function POST(req: Request) {
+  if (hasBodyOverLimit(req, 2 * 1024 * 1024)) {
+    return NextResponse.json({ error: "Webhook payload too large" }, { status: 413 });
+  }
   const raw = await req.text();
   const sig = req.headers.get("stripe-signature") ?? "";
   const secret = runtimeSecret("STRIPE_WEBHOOK_SECRET");
