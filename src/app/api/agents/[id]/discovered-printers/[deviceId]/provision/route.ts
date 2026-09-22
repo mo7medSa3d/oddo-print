@@ -6,6 +6,7 @@ import { requireManagerPermission } from "../../../../../../../lib/authorization
 import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "../../../../../../../lib/nanoid";
 import { validateConnectionConfig } from "../../../../../../../lib/printer-model";
+import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../../../../../lib/entitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!agent) return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   if (agent.lifecycle !== "active") return NextResponse.json({ error: `Agent is ${agent.lifecycle}` }, { status: 409 });
 
-  const result = await db.transaction(async (tx) => {
+  let result: Awaited<ReturnType<typeof db.transaction>>;
+  try {
+    result = await db.transaction(async (tx) => {
     // Lifecycle changes serialize on the same Agent row. Lock it before
     // reading the discovery candidate so an Agent cannot be retired/disabled
     // between the outer pre-check and printer creation.
@@ -76,6 +79,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return { kind: "missing_endpoint" as const };
     }
 
+    await enforceTenantResourceEntitlement(
+      tx,
+      claims.tenantId,
+      "max_printers",
+      sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId} AND lifecycle <> 'retired'`,
+    );
+
     if (device.ipAddress && device.port) {
       const all = await tx.query.printers.findMany({ where: and(eq(printers.agentId, agentId), eq(printers.tenantId, claims.tenantId)) });
       for (const p of all) {
@@ -124,7 +134,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .where(and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.tenantId, claims.tenantId), eq(discoveredDevices.candidateStatus, "verified")));
 
     return { kind: "created" as const, printerId };
-  });
+    });
+  } catch (error) {
+    if (error instanceof TenantEntitlementError) {
+      const headers = new Headers({ "Retry-After": "60", "Cache-Control": "no-store" });
+      return NextResponse.json({
+        error: `Tenant entitlement ${error.entitlement} exceeded (limit ${error.limit})`,
+        code: "MAX_PRINTERS_EXCEEDED",
+        entitlement: error.entitlement,
+        limit: error.limit,
+        upgradeRequired: true,
+      }, { status: 429, headers });
+    }
+    if (isTenantBillingError(error)) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
+    }
+    throw error;
+  }
 
   if (result.kind === "agent_not_found") return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   if (result.kind === "agent_not_active") return NextResponse.json({ error: "Agent is no longer active" }, { status: 409 });
