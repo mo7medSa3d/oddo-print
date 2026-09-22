@@ -374,3 +374,152 @@ func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
 		t.Fatalf("expected unrelated printer to execute exactly once, got %d", got)
 	}
 }
+
+
+func TestDispatchSaturationDoesNotBlockOnRejectNetworkCall(t *testing.T) {
+	var mu sync.Mutex
+	rejectCalls := 0
+	rejectStarted := make(chan struct{})
+	releaseReject := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agent/jobs" || r.Method != http.MethodPatch {
+			http.NotFound(w, r)
+			return
+		}
+		mu.Lock()
+		rejectCalls++
+		count := rejectCalls
+		mu.Unlock()
+		if count == 1 {
+			close(rejectStarted)
+		}
+		<-releaseReject
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_test"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = server.URL
+	ag, err := New(cfg, filepath.Join(t.TempDir(), "config.yaml"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer ag.Close()
+
+	// Saturate the local admission queue without starting physical work. This
+	// drives the exact dispatch path that historically performed a blocking
+	// HTTP PATCH from the WS reader.
+	for i := 0; i < maxPendingJobs; i++ {
+		ag.pendingSlots <- struct{}{}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ag.launchTracked(func() { ag.runRejectWorker(ctx) })
+
+	job := dispatchTestJob("job_reject_backpressure", "p1")
+	job["claimToken"] = "claim-reject-1"
+
+	start := time.Now()
+	if ag.dispatchJob(ctx, job) {
+		t.Fatal("saturated admission must reject the job locally")
+	}
+	if elapsed := time.Since(start); elapsed > 250*time.Millisecond {
+		t.Fatalf("dispatchJob blocked on rejection network I/O for %v", elapsed)
+	}
+
+	select {
+	case <-rejectStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("bounded rejection worker never started the PATCH")
+	}
+
+	// A duplicate WS/poll delivery with the SAME claim must not enqueue a
+	// second concurrent rejection while the first PATCH is still blocked.
+	ag.dispatchJob(ctx, job)
+	time.Sleep(100 * time.Millisecond)
+	mu.Lock()
+	count := rejectCalls
+	mu.Unlock()
+	if count != 1 {
+		t.Fatalf("expected one in-flight rejection PATCH for the same claim, got %d", count)
+	}
+
+	close(releaseReject)
+	cancel()
+	ag.runtimeWG.Wait()
+}
+
+func TestQueuedRejectionIsCancelledWithItsSession(t *testing.T) {
+	var mu sync.Mutex
+	rejectCalls := 0
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agent/jobs" || r.Method != http.MethodPatch {
+			http.NotFound(w, r)
+			return
+		}
+		mu.Lock()
+		rejectCalls++
+		count := rejectCalls
+		mu.Unlock()
+		if count == 1 {
+			close(firstStarted)
+			<-releaseFirst
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_test"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = server.URL
+	ag, err := New(cfg, filepath.Join(t.TempDir(), "config.yaml"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer ag.Close()
+
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	ag.launchTracked(func() { ag.runRejectWorker(workerCtx) })
+
+	firstCtx := context.Background()
+	secondCtx, secondCancel := context.WithCancel(context.Background())
+	defer secondCancel()
+
+	if !ag.enqueueReject(firstCtx, "job_reject_first", "claim-A", "pending_full") {
+		t.Fatal("first rejection should be queued")
+	}
+	select {
+	case <-firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first rejection did not reach the gateway")
+	}
+	if !ag.enqueueReject(secondCtx, "job_reject_second", "claim-B", "pending_full") {
+		t.Fatal("second rejection should be queued behind the first")
+	}
+
+	// Closing the WS session cancels its queued rejection before the worker can
+	// issue a stale mutation after reconnect.
+	secondCancel()
+	close(releaseFirst)
+	time.Sleep(150 * time.Millisecond)
+
+	mu.Lock()
+	count := rejectCalls
+	mu.Unlock()
+	if count != 1 {
+		t.Fatalf("cancelled queued session work must not issue a second PATCH, got %d calls", count)
+	}
+
+	workerCancel()
+	ag.runtimeWG.Wait()
+}
