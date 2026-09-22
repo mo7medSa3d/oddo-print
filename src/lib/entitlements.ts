@@ -15,6 +15,13 @@ export class TenantSubscriptionRequiredError extends Error {
   }
 }
 
+/**
+ * Stripe subscription states that keep the Yasser runtime provisioned.
+ * past_due remains usable while Stripe performs recovery/retry; access is
+ * revoked for unpaid/canceled/paused states by the entitlement query.
+ */
+export const BILLING_ACCESS_STATUSES = ["trialing", "active", "past_due"] as const;
+
 export const PLAN_ENTITLEMENT_KEYS = [
   "max_agents",
   "max_printers",
