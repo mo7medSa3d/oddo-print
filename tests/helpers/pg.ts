@@ -123,10 +123,10 @@ export async function seedFixture(opts?: { printerCapabilities?: unknown }): Pro
       // not entitlement rejection (dedicated entitlement tests cover 403/429).
       await client.query(
         `INSERT INTO plans (id, name, entitlements) VALUES ($1, $2, $3::jsonb) ON CONFLICT (id) DO NOTHING`,
-        [`plan_${suffix}`, `Plan ${suffix}`, JSON.stringify({ max_agents: "unlimited", max_printers: "unlimited", max_jobs_per_minute: "unlimited", max_concurrent_jobs: "unlimited" })],
+        [`plan_${suffix}`, `Plan ${suffix}`, JSON.stringify({ max_agents: "unlimited", max_printers: "unlimited", max_jobs_per_minute: "unlimited", max_concurrent_jobs: "unlimited", max_prints_per_period: "unlimited" })],
       );
       await client.query(
-        `INSERT INTO tenant_subscriptions (tenant_id, plan_id, status, current_period_end) VALUES ($1, $2, 'active', NULL) ON CONFLICT (tenant_id) DO UPDATE SET plan_id = EXCLUDED.plan_id, status = 'active', current_period_end = NULL`,
+        `INSERT INTO tenant_subscriptions (tenant_id, plan_id, status, current_period_start, current_period_end) VALUES ($1, $2, 'active', now() - interval '1 minute', NULL) ON CONFLICT (tenant_id) DO UPDATE SET plan_id = EXCLUDED.plan_id, status = 'active', current_period_start = EXCLUDED.current_period_start, current_period_end = NULL`,
         [tenantId, `plan_${suffix}`],
       );
       await client.query(`INSERT INTO agents (id, tenant_id, name, secret, status, lifecycle, last_seen_at) VALUES ($1, $2, $3, $4, 'online', 'active', now())`, [agentId, tenantId, `Agent ${suffix}`, sha256(agentSecret)]);
