@@ -11,9 +11,6 @@ import { writeAuditEvent } from "../../../../lib/audit";
 const keyInputSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   description: z.string().trim().max(500).optional(),
-  scope: z.enum(["standard", "read_only"]).default("standard"),
-  // Empty/omitted list = all document types (installation-scoped key).
-  allowedDocumentTypes: z.array(z.string().trim().min(1).max(120)).max(64).optional(),
 }).strict();
 
 export const dynamic = "force-dynamic";
@@ -43,8 +40,6 @@ export async function GET(req: Request) {
       id: apiKeys.id,
       name: apiKeys.name,
       description: apiKeys.description,
-      scope: apiKeys.scope,
-      allowedDocumentTypes: apiKeys.allowedDocumentTypes,
       createdAt: apiKeys.createdAt,
       lastUsedAt: apiKeys.lastUsedAt,
       revokedAt: apiKeys.revokedAt,
@@ -95,8 +90,6 @@ export async function POST(req: Request) {
       name,
       description,
       hashedKey: hashed,
-      scope: parsed.data.scope,
-      allowedDocumentTypes: parsed.data.allowedDocumentTypes?.length ? parsed.data.allowedDocumentTypes : null,
       tenantId: manager.tenantId,
     });
     await writeAuditEvent({
@@ -106,15 +99,13 @@ export async function POST(req: Request) {
       action: "api_key.created",
       resourceType: "api_key",
       resourceId: id,
-      metadata: { scope: parsed.data.scope },
+      metadata: {},
     }, tx);
   });
   return NextResponse.json({
     id,
     name,
     description,
-    scope: parsed.data.scope,
-    allowedDocumentTypes: parsed.data.allowedDocumentTypes ?? null,
     apiKey: raw,
     note: "Copy this key now. The raw key will never be shown again.",
   }, { status: 201, headers: { "Cache-Control": "no-store" } });
