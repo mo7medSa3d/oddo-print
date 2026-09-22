@@ -113,7 +113,7 @@ export async function POST(req: Request) {
     if (error instanceof StripePriceBindingError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     }
-    return NextResponse.json({ error: "Stripe Price could not be be verified.", code: "STRIPE_PRICE_INVALID" }, { status: 400 });
+    return NextResponse.json({ error: "Stripe Price could not be verified.", code: "STRIPE_PRICE_INVALID" }, { status: 400 });
   }
 
   try {
