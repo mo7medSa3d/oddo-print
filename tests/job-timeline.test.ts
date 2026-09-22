@@ -27,6 +27,8 @@ describe("job-timeline", () => {
     expect(stages).toContain("queued");
     expect(stages).toContain("claimed");
     expect(stages).toContain("success");
+    const successStage = timeline.find(t => t.stage === "success");
+    expect(successStage?.message).toContain("physical paper output is not independently verified");
   });
 
   it("includes spoolerJobId linking in timeline when present", () => {
