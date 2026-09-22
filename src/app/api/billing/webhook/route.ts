@@ -353,11 +353,15 @@ export async function POST(req: Request) {
             eventCreatedAt.getTime() > storedStripeEventCreatedAtMs;
           if (sameOrUnboundSubscription || newerReplacementSubscription) {
             const nextStatus = typeof stateObj.status === "string" ? statusOf(stateObj.status) : tenantRow.status;
+            const currentPeriodStart = typeof stateObj.current_period_start === "number"
+              ? new Date(stateObj.current_period_start * 1000)
+              : parseDbTime(tenantRow.currentPeriodStart);
+            if (!currentPeriodStart) throw new Error("subscription current_period_start is missing or invalid");
             await tx.update(tenantSubscriptions).set({
               stripeCustomerId: typeof stateObj.customer === "string" ? stateObj.customer : tenantRow.stripeCustomerId,
               stripeSubscriptionId: subId || tenantRow.stripeSubscriptionId,
               status: nextStatus,
-              currentPeriodStart: typeof stateObj.current_period_start === "number" ? new Date(stateObj.current_period_start * 1000) : parseDbTime(tenantRow.currentPeriodStart),
+              currentPeriodStart,
               currentPeriodEnd: typeof stateObj.current_period_end === "number" ? new Date(stateObj.current_period_end * 1000) : parseDbTime(tenantRow.currentPeriodEnd),
               cancelAtPeriodEnd: stateObj.cancel_at_period_end === true,
               planId: plan?.id ?? tenantRow.planId,
