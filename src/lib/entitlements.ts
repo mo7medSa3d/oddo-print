@@ -73,7 +73,11 @@ export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: str
     JOIN plans p ON p.id = ts.plan_id
     WHERE ts.tenant_id = ${tenantId}
       AND ts.status IN ('trialing','active','past_due')
-      AND (ts.current_period_end IS NULL OR ts.current_period_end > now())
+      AND (
+        ts.status = 'past_due'
+        OR ts.current_period_end IS NULL
+        OR ts.current_period_end > now()
+      )
     LIMIT 1
   `);
   if (!result.rows[0]) throw new TenantSubscriptionRequiredError();
