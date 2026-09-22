@@ -200,7 +200,6 @@ export default function ApiKeysPage() {
                         {k.odooEnabledUpdatedAt ? ` · Synced ${new Date(k.odooEnabledUpdatedAt).toLocaleString()}` : ""}
                       </div>
                     ) : null}
-null}
                   </div>
                 </div>
                 {!k.revokedAt ? <Button variant="ghost" size="sm" onClick={() => setPending({ kind: "revoke", id: k.id, name: k.name })} disabled={busy}>Revoke</Button> : <Button variant="ghost" size="sm" className="text-ink-4" onClick={() => setPending({ kind: "remove", id: k.id, name: k.name })} disabled={busy}>Remove</Button>}
