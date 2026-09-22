@@ -619,6 +619,7 @@ export default function DashboardClient({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Agents */}
         <Card className="lg:col-span-4 flex flex-col overflow-hidden">
+          <h3 className="sr-only">Agents</h3>
           <CardHeader
             title="Runtime Agents"
             subtitle={`${kpis.onlineAgents} online of ${kpis.totalAgents}`}
@@ -720,6 +721,7 @@ export default function DashboardClient({
 
         {/* Printers */}
         <Card className="lg:col-span-8 flex flex-col overflow-hidden">
+          <h3 className="sr-only">Printers</h3>
           <CardHeader
             title="Runtime Printers"
             subtitle={`${kpis.onlinePrinters} online • ${filteredPrinters.length} shown`}
@@ -1022,6 +1024,7 @@ export default function DashboardClient({
         title={certifyPrinter ? `Certify ${certifyPrinter.name}` : "Printer Certification"}
         description="Real print certification with evidence steps"
       >
+        <h3 className="sr-only">Certification</h3>
         {certifyPrinter && (
           <PrintCertificationWizard key={certifyPrinter.id} printerId={certifyPrinter.id} />
         )}
