@@ -236,38 +236,38 @@ suite("WS claim-before-delivery", () => {
     expect(row.error).toContain("delivery attempts");
   });
 
-  it("lost poll response recovers safely with no false delivery evidence", async () => {
-    // Failure injection: the poll claim commits, but the HTTP response
-    // never reaches the agent (connection dies mid-response). claimed !=
-    // delivered, so the sweep must REQUEUE (safe: provably no execution
-    // report exists) rather than fail the job as unknown - and a later
-    // poll must reclaim it under a fresh token with still no delivered_at.
+  it("lost poll response is treated as an ambiguous delivery and never auto-requeued", async () => {
+    // The Gateway cannot distinguish a response that never reached the Agent
+    // from one that reached it but was lost before an execution report.
+    // Poll claims therefore carry the same durable evidence-pending marker as
+    // the WebSocket path; the sweeper must fail closed with UNKNOWN outcome.
     await insertQueuedJob(f, "job_lost_poll");
     const first = await (await agentJobsGET(agentRequest(f, "GET"))).json();
     const lost = first.find((r: any) => r.id === "job_lost_poll");
     expect(lost).toBeDefined();
     expect(lost.status).toBe("claimed");
+    expect(lost.error).toBe("DELIVERY_EVIDENCE_PENDING");
+    expect(lost.physicalOutcome).toBe("unknown");
     expect(typeof lost.claimToken).toBe("string");
-    // ... the response is lost here: the agent never sees it ...
-    let row = await jobRow("job_lost_poll");
-    expect(row.delivered_at).toBeNull();
-    expect(row.acked_at).toBeNull();
+
+    const rowBefore = await jobRow("job_lost_poll");
+    expect(rowBefore.delivered_at).toBeNull();
+    expect(rowBefore.acked_at).toBeNull();
+    expect(rowBefore.error).toBe("DELIVERY_EVIDENCE_PENDING");
+
     await pool().query(`UPDATE print_jobs SET claimed_at = now() - interval '200 seconds', updated_at = now() - interval '200 seconds' WHERE id = 'job_lost_poll'`);
     const swept = await sweepPrintJobs({ agentId: f.agentId });
-    expect(swept.requeuedClaims).toBeGreaterThanOrEqual(1);
-    expect(swept.silentDeliveries).toBe(0);
-    row = await jobRow("job_lost_poll");
-    expect(row.status).toBe("queued");
-    expect(row.delivered_at).toBeNull();
-    expect((row.error as string | null) ?? "").not.toMatch(/UNKNOWN_PARTIAL_DELIVERY/);
-    const second = await (await agentJobsGET(agentRequest(f, "GET"))).json();
-    const reclaimed = second.find((r: any) => r.id === "job_lost_poll");
-    expect(reclaimed).toBeDefined();
-    expect(typeof reclaimed.claimToken).toBe("string");
-    expect(reclaimed.claimToken).not.toBe(lost.claimToken);
-    expect((await jobRow("job_lost_poll")).delivered_at).toBeNull();
-  });
+    expect(swept.requeuedClaims).toBe(0);
+    expect(swept.silentDeliveries).toBeGreaterThanOrEqual(1);
 
+    const row = await jobRow("job_lost_poll");
+    expect(row.status).toBe("failed");
+    expect(row.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY/);
+    expect(row.claim_token).toBeNull();
+
+    const second = await (await agentJobsGET(agentRequest(f, "GET"))).json();
+    expect(second.find((r: any) => r.id === "job_lost_poll")).toBeUndefined();
+  });
   it("pre-execution rejection clears all attempt delivery evidence", async () => {
     // A WS-delivered claim returned via pending_full must come back with
     // NO surviving attempt evidence (token, delivered_at, acked_at,
