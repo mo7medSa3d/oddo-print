@@ -18,6 +18,29 @@ function statusOf(status: string): "trialing" | "active" | "past_due" | "paused"
 
 const INTERNAL_EVENT_KEY = "__yasser";
 
+/**
+ * Raw `db.execute()` rows surface naive UTC timestamp strings (node-postgres
+ * identity parsers for timestamp OIDs) while typed drizzle rows surface Date.
+ * Normalize either form to epoch milliseconds without host-TZ dependence.
+ */
+function parseDbTimeMs(value: Date | string | null | undefined): number | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value.getTime();
+  const text = value.trim();
+  if (!text) return null;
+  let iso = text.replace(" ", "T");
+  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
+    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
+  }
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+function parseDbTime(value: Date | string | null | undefined): Date | null {
+  const ms = parseDbTimeMs(value);
+  return ms === null ? null : new Date(ms);
+}
+
 type StripeEvent = {
   id?: unknown;
   type?: unknown;
@@ -189,7 +212,7 @@ export async function POST(req: Request) {
             stripeSubscriptionId?: string | null;
             stripeCustomerId?: string | null;
             status?: "trialing" | "active" | "past_due" | "paused" | "cancelled";
-            stripeLastEventCreatedAt?: Date | null;
+            stripeLastEventCreatedAt?: Date | string | null;
           } | undefined;
           const differentSubscription = Boolean(current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId);
           if (differentSubscription && current?.status !== "cancelled") {
@@ -289,10 +312,10 @@ export async function POST(req: Request) {
           checkoutStatus?: "none" | "creating" | "open" | "completed";
           checkoutPlanId?: string | null;
           checkoutIdempotencyKey?: string | null;
-          currentPeriodEnd?: Date | null;
+          currentPeriodEnd?: Date | string | null;
           cancelAtPeriodEnd?: boolean;
           planId?: string;
-          stripeLastEventCreatedAt?: Date | null;
+          stripeLastEventCreatedAt?: Date | string | null;
         } | undefined;
         const plan = priceId ? await tx.query.plans.findFirst({ where: eq(plans.stripePriceId, priceId), columns: { id: true } }) : undefined;
         if (tenantRow && tenantId) {
@@ -306,19 +329,21 @@ export async function POST(req: Request) {
           // timestamp; equal-second ties remain intentionally ambiguous.
           const sameOrUnboundSubscription =
             !tenantRow.stripeSubscriptionId || tenantRow.stripeSubscriptionId === subId;
-          const storedStripeEventCreatedAt = tenantRow.stripeLastEventCreatedAt;
+          // stripeLastEventCreatedAt comes from raw execute(): naive UTC string,
+          // not Date. Normalize via parseDbTimeMs so the newer-event gate works.
+          const storedStripeEventCreatedAtMs = parseDbTimeMs(tenantRow.stripeLastEventCreatedAt);
           const newerReplacementSubscription =
             differentSubscription &&
             tenantRow.status === "cancelled" &&
-            storedStripeEventCreatedAt instanceof Date &&
-            eventCreatedAt.getTime() > storedStripeEventCreatedAt.getTime();
+            storedStripeEventCreatedAtMs !== null &&
+            eventCreatedAt.getTime() > storedStripeEventCreatedAtMs;
           if (sameOrUnboundSubscription || newerReplacementSubscription) {
             const nextStatus = typeof stateObj.status === "string" ? statusOf(stateObj.status) : tenantRow.status;
             await tx.update(tenantSubscriptions).set({
               stripeCustomerId: typeof stateObj.customer === "string" ? stateObj.customer : tenantRow.stripeCustomerId,
               stripeSubscriptionId: subId || tenantRow.stripeSubscriptionId,
               status: nextStatus,
-              currentPeriodEnd: typeof stateObj.current_period_end === "number" ? new Date(stateObj.current_period_end * 1000) : tenantRow.currentPeriodEnd,
+              currentPeriodEnd: typeof stateObj.current_period_end === "number" ? new Date(stateObj.current_period_end * 1000) : parseDbTime(tenantRow.currentPeriodEnd),
               cancelAtPeriodEnd: stateObj.cancel_at_period_end === true,
               planId: plan?.id ?? tenantRow.planId,
               ...(nextStatus === "cancelled"

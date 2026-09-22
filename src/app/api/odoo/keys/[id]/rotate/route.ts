@@ -36,7 +36,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         description: string | null;
         scope: string;
         allowed_document_types: string[] | null;
-        revoked_at: Date | null;
+        revoked_at: Date | string | null;
       } | undefined;
       if (!old) return { kind: "not_found" as const };
       if (old.revoked_at) return { kind: "revoked" as const };

@@ -8,6 +8,23 @@ import { nanoid } from "../../../../lib/nanoid";
 import { issueCustomerSession, customerSessionCookie } from "../../../../lib/customer-auth";
 import { writeAuditEvent } from "../../../../lib/audit";
 
+/**
+ * Raw `db.execute()` rows surface naive UTC timestamp strings while typed
+ * drizzle rows surface Date; normalize either to a Date without host-TZ skew.
+ */
+function parseDbTime(value: Date | string | null | undefined): Date | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value;
+  const text = value.trim();
+  if (!text) return null;
+  let iso = text.replace(" ", "T");
+  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
+    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
+  }
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? null : new Date(ms);
+}
+
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 16 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   let body: { token?: unknown }; try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -31,7 +48,7 @@ export async function POST(req: Request) {
         WHERE id = ${user.id}
         FOR UPDATE
       `);
-      const currentUser = lockedUser.rows[0] as { id?: string; email?: string; emailVerifiedAt?: Date | null } | undefined;
+      const currentUser = lockedUser.rows[0] as { id?: string; email?: string; emailVerifiedAt?: Date | string | null } | undefined;
       if (!currentUser?.id || !currentUser.email) throw new Error("USER_NOT_FOUND");
 
       const consumed = await tx.update(emailVerificationTokens)
@@ -41,7 +58,7 @@ export async function POST(req: Request) {
       if (consumed.length !== 1) throw new Error("Verification token already consumed");
 
       await tx.update(users)
-        .set({ emailVerifiedAt: currentUser.emailVerifiedAt ?? now, updatedAt: now })
+        .set({ emailVerifiedAt: parseDbTime(currentUser.emailVerifiedAt) ?? now, updatedAt: now })
         .where(eq(users.id, currentUser.id));
 
       const existing = await tx.select({ tenantId: tenantUsers.tenantId, role: tenantUsers.role })

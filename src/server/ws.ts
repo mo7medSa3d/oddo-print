@@ -325,7 +325,20 @@ export type JobDeliveryEnvelope = {
 };
 
 export function buildJobEnvelope(job: ClaimedJobRow): JobDeliveryEnvelope {
-  const expiresAt = job.expiresAt instanceof Date ? job.expiresAt.toISOString() : new Date(job.expiresAt).toISOString();
+  // CLAIM_RETURNING rows carry naive UTC timestamp strings; parse with an
+  // explicit UTC guard so the agent receives a true RFC3339 instant even when
+  // the gateway host TZ is not UTC.
+  let expiresAtDate: Date;
+  if (job.expiresAt instanceof Date) {
+    expiresAtDate = job.expiresAt;
+  } else {
+    let iso = String(job.expiresAt).replace(" ", "T");
+    if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
+      iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
+    }
+    expiresAtDate = new Date(iso);
+  }
+  const expiresAt = expiresAtDate.toISOString();
   return {
     type: "print_job",
     job: {

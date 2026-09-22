@@ -13,7 +13,13 @@ const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due", 
 
 function checkoutIntentExpired(expiresAt: Date | string | null | undefined): boolean {
   if (!expiresAt) return false;
-  const value = expiresAt instanceof Date ? expiresAt.getTime() : new Date(expiresAt).getTime();
+  if (expiresAt instanceof Date) return expiresAt.getTime() <= Date.now();
+  // Raw-string fallback: naive PG timestamps parse as UTC, not host-local.
+  let iso = expiresAt.replace(" ", "T");
+  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
+    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
+  }
+  const value = Date.parse(iso);
   return Number.isFinite(value) && value <= Date.now();
 }
 
