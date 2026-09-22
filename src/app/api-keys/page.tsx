@@ -3,14 +3,12 @@
 import { useEffect, useState } from "react";
 import { Copy, KeyRound, Shield } from "lucide-react";
 import Link from "next/link";
-import { Button, Card, CardHeader, Input, Field, Modal, Select } from "../../components/ui";
+import { Button, Card, CardHeader, Input, Modal } from "../../components/ui";
 import { copyTextToClipboard } from "../../lib/clipboard";
 
 type ApiKey = {
   id: string;
   name: string;
-  scope?: string | null;
-  allowedDocumentTypes?: string[] | null;
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
@@ -22,8 +20,6 @@ type ApiKey = {
 export default function ApiKeysPage() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [name, setName] = useState("Odoo Production");
-  const [scope, setScope] = useState<"standard" | "read_only">("standard");
-  const [typesInput, setTypesInput] = useState("");
   const [rawKey, setRawKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -74,19 +70,12 @@ export default function ApiKeysPage() {
   async function generate() {
     setBusy(true); setError(null); setRawKey(null);
     try {
-      // allowedDocumentTypes is only meaningful with the key's scope: a
-      // read_only key can list/read its scoped types, a standard key writes.
-      // Send the list only when it is populated (schema treats empty/omitted
-      // as "all document types").
-      const types = typesInput.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
       const r = await fetch("/api/odoo/keys", {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
           name: name.trim() || "Odoo",
-          scope,
-          ...(types.length ? { allowedDocumentTypes: types } : {}),
         }),
       });
       const b = await r.json();
@@ -157,11 +146,11 @@ export default function ApiKeysPage() {
           
         </div>
         <div className="rounded-[14px] border border-edge bg-surface px-5 py-4 shadow-card">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Print access</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">API access</div>
           <div className="mt-2 flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${enabled > 0 ? "bg-ok-solid" : "bg-ink-4"}`} />
             <span className="text-[13px] font-semibold text-ink">
-              {active === 0 ? "Not connected" : enabled === active ? "Ready to print" : "Partially enabled"}
+              {active === 0 ? "Not connected" : enabled === active ? "Read / write · All documents" : "Odoo integration disabled"}
             </span>
           </div>
         </div>
@@ -188,17 +177,7 @@ export default function ApiKeysPage() {
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="Odoo Production" className="h-9 flex-1" aria-label="Key name" />
             <Button type="submit" variant="primary" loading={busy} disabled={busy || hasSubscription === false} size="sm" title={hasSubscription === false ? "Choose a plan first" : undefined}>Generate</Button>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Scope" htmlFor="key-scope" hint="Choose whether this credential can only read status or can also create print jobs.">
-              <Select id="key-scope" value={scope} onChange={(e) => setScope(e.target.value as "standard" | "read_only")} disabled={busy}>
-                <option value="standard">Standard (read + print)</option>
-                <option value="read_only">Read only</option>
-              </Select>
-            </Field>
-            <Field label="Document types (optional)" htmlFor="key-types" hint="Comma-separated, e.g. receipt,kitchen. Leave empty to allow all document types.">
-              <Input id="key-types" value={typesInput} onChange={(e) => setTypesInput(e.target.value)} placeholder="receipt,kitchen" disabled={busy} autoComplete="off" />
-            </Field>
-          </div>
+          <p className="text-[12px] text-ink-3">This API key has read/write access to the Odoo integration and all supported document payloads.</p>
         </form>
       </Card>
 
@@ -212,11 +191,6 @@ export default function ApiKeysPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[13px] font-semibold text-ink">{k.name}</span>
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${k.revokedAt ? "border border-edge bg-surface-3 text-ink-3" : "border border-ok-edge bg-ok-bg text-ok"}`}>{k.revokedAt ? "Revoked" : "Active"}</span>
-                    {!k.revokedAt ? (
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${k.scope === "read_only" ? "bg-bad-bg text-bad" : "bg-surface-3 text-ink-3"}`} title={k.scope === "read_only" ? "This key cannot create print jobs" : "This key can read and print"}>
-                        {k.scope === "read_only" ? "Read only" : "Standard"}
-                      </span>
-                    ) : null}
                   </div>
                   <div className="mt-1 text-[11px] text-ink-3">
                     {new Date(k.createdAt).toLocaleDateString()} • Last used {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : "Never"}
@@ -226,9 +200,7 @@ export default function ApiKeysPage() {
                         {k.odooEnabledUpdatedAt ? ` · Synced ${new Date(k.odooEnabledUpdatedAt).toLocaleString()}` : ""}
                       </div>
                     ) : null}
-                    {!k.revokedAt && Array.isArray(k.allowedDocumentTypes) && k.allowedDocumentTypes.length > 0 ? (
-                      <span title={`Allowed document types: ${k.allowedDocumentTypes.join(", ")}`}> • {k.allowedDocumentTypes.length} type{k.allowedDocumentTypes.length === 1 ? "" : "s"}</span>
-                    ) : null}
+null}
                   </div>
                 </div>
                 {!k.revokedAt ? <Button variant="ghost" size="sm" onClick={() => setPending({ kind: "revoke", id: k.id, name: k.name })} disabled={busy}>Revoke</Button> : <Button variant="ghost" size="sm" className="text-ink-4" onClick={() => setPending({ kind: "remove", id: k.id, name: k.name })} disabled={busy}>Remove</Button>}
