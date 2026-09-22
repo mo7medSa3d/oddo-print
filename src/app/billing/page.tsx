@@ -118,7 +118,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
 
   return (
     <div className="mx-auto w-full max-w-[1280px] px-5 py-8 sm:px-7 lg:px-8 lg:py-10">
-      <header className="flex flex-col gap-5 border-b border-edge/80 pb-7 sm:flex-row sm:items-end sm:justify-between">
+      <header className="flex flex-col gap-5 border-b border-dashed border-edge-subtle pb-7 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
             <CreditCard className="h-3.5 w-3.5 text-brand" /> Workspace billing
@@ -157,7 +157,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
         <section className="billing-premium overflow-hidden">
-          <div className="border-b border-edge/80 bg-surface px-6 py-6 sm:px-7 sm:py-7">
+          <div className="border-b border-dashed border-edge-subtle bg-surface px-6 py-6 sm:px-7 sm:py-7">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
                 <Sparkles className="h-3.5 w-3.5 text-brand" /> Current plan
@@ -195,7 +195,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
             </div>
           </div>
 
-          <div className="grid divide-y divide-edge border-b border-edge sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <div className="grid divide-y divide-edge-subtle border-b border-dashed border-edge-subtle sm:grid-cols-3 sm:divide-x sm:divide-dashed sm:divide-y-0">
             <InfoCell label="Status" value={status?.label ?? "Not configured"} />
             <InfoCell label="Billing cycle" value={currentPlan?.interval ?? "—"} />
             <InfoCell label="Renewal" value={renewalLabel} />
@@ -236,7 +236,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
           </div>
 
           {sub && (sub.status === "past_due" || (sub.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd)) && (
-            <div className="border-t border-edge px-6 py-5 sm:px-7">
+            <div className="border-t border-dashed border-edge-subtle px-6 py-5 sm:px-7">
               {sub.status === "past_due" && <WarnLine text="Printing is blocked until the failed payment is resolved. Use the Customer Portal to update the payment method." />}
               {sub.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd && <WarnLine text={`Cancellation is scheduled for ${formatDate(sub.currentPeriodEnd)}. Resume below to keep the plan.`} />}
             </div>
@@ -291,7 +291,7 @@ function InfoCell({ label, value }: { label: string; value: string }) {
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-edge-subtle py-3 last:border-b-0">
+    <div className="flex items-center justify-between gap-4 border-b border-dashed border-edge-subtle py-3 last:border-b-0">
       <span className="text-[12px] text-ink-3">{label}</span>
       <span className="text-right text-[12.5px] font-semibold text-ink">{value}</span>
     </div>
