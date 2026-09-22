@@ -1,111 +1,13 @@
-/* Desktop Manager shares the Gateway theme tokens from src/app/globals.css.
-   Theme selection is controlled by <html data-theme="light|dark"> and ThemeToggle. */
+/* Desktop Manager uses the exact shared Gateway tokens from src/app/globals.css.
+   Do not duplicate palette values here: globals.css is the single theme source.
+   This file keeps only Desktop-specific compatibility helpers. */
+
 :root {
   color-scheme: light;
 }
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
-
-  --brand-50: #0a1626;
-  --brand-100: #0d1f38;
-  --brand-200: #0f2a4d;
-  --brand-300: #164a80;
-  --brand-400: #1e63ad;
-  --brand-500: #0a84ff;
-  --brand-600: #0a84ff;
-  --brand-700: #0066db;
-  --brand-800: #0052b0;
-  --brand-900: #003f87;
-  --brand-950: #002b5e;
-  --brand: #0a84ff;
-  --brand-hover: #3395ff;
-  --brand-active: #0a72d6;
-  --brand-contrast: #ffffff;
-  --brand-subtle: #10273f;
-  --brand-subtle-hover: #153252;
-  --brand-subtle-border: #1f4f85;
-  --brand-subtle-text: #7ab8ff;
-  --brand-ring: rgba(10, 132, 255, 0.32);
-
-  --bg: #000000;
-  --bg-subtle: #0a0a0b;
-  --surface: #161617;
-  --surface-2: #1f1f21;
-  --surface-3: #2c2c2e;
-  --surface-hover: #232325;
-  --surface-accent: #0d1c30;
-  --surface-accent-2: #122844;
-  --surface-elevated: #1c1c1e;
-  --surface-overlay: rgba(22, 22, 23, 0.92);
-
-  --border: #2c2c2e;
-  --border-strong: #3a3a3c;
-  --border-accent: #1f4f85;
-  --border-subtle: #232325;
-  --divider: #2c2c2e;
-
-  --text: #f5f5f7;
-  --text-2: #d2d2d7;
-  --text-3: #a1a1a6;
-  --text-4: #86868b;
-  --text-on-brand: #ffffff;
-  --text-on-solid: #ffffff;
-  --text-display: #f5f5f7;
-
-  --success: #63e297;
-  --success-solid: #30d158;
-  --success-bg: #0d2818;
-  --success-border: #26633e;
-  --warning: #f5c542;
-  --warning-solid: #ff9f0a;
-  --warning-bg: #2c2109;
-  --warning-border: #7a5d22;
-  --danger: #ff7b73;
-  --danger-solid: #ff453a;
-  --danger-bg: #2e1215;
-  --danger-border: #7a2e33;
-  --info: #64b5ff;
-  --info-solid: #0a84ff;
-  --info-bg: #0c1c30;
-  --info-border: #24548c;
-
-  --notice-bg: #2c2109;
-  --notice-border: #7a5d22;
-  --notice-text: #f5c542;
-  --notice-icon: #ff9f0a;
-
-  --focus-ring: #0a84ff;
-  --focus-ring-shadow: 0 0 0 4px rgba(10, 132, 255, 0.32);
-  --overlay: rgba(0, 0, 0, 0.62);
-  --glow: rgba(10, 132, 255, 0.2);
-
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.4), 0 10px 24px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 4px 10px rgba(0, 0, 0, 0.45), 0 18px 40px rgba(0, 0, 0, 0.4);
-  --shadow-xl: 0 6px 14px rgba(0, 0, 0, 0.5), 0 26px 60px rgba(0, 0, 0, 0.45);
-  --shadow-2xl: 0 8px 18px rgba(0, 0, 0, 0.5), 0 34px 80px rgba(0, 0, 0, 0.5);
-  --shadow-brand: 0 1px 3px rgba(10, 132, 255, 0.22);
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.28);
-  --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.4), 0 12px 28px rgba(0, 0, 0, 0.38);
-
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 12px;
-  --r-xl: 14px;
-  --r-2xl: 18px;
-  --r-3xl: 24px;
-  --r-pill: 9999px;
-
-  --platform-bg: #000000;
-  --platform-surface: #161617;
-  --platform-border: #2c2c2e;
-  --platform-text: #f5f5f7;
-  --platform-muted: #a1a1a6;
-}
-
-html, body {
+html,
+body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
@@ -113,7 +15,12 @@ html, body {
   text-rendering: optimizeLegibility;
 }
 
-button, input, select, textarea { font: inherit; }
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
 
 .card {
   background: var(--surface);
@@ -134,9 +41,17 @@ button, input, select, textarea { font: inherit; }
   border-radius: var(--r-xl);
 }
 
-.table-head { background: var(--surface-2); }
-.row-hover:hover { background: var(--surface-hover, #232325); }
-.section-rule { border-top: 1px solid var(--border); }
+.table-head {
+  background: var(--surface-2);
+}
+
+.row-hover:hover {
+  background: var(--surface-hover);
+}
+
+.section-rule {
+  border-top: 1px solid var(--border);
+}
 
 .billing-premium {
   position: relative;
@@ -160,7 +75,9 @@ button, input, select, textarea { font: inherit; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
