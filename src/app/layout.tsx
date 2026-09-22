@@ -4,8 +4,8 @@ import { AppShell } from "../components/AppShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Yasser — Cloud Print Operations",
-  description: "Yasser connects Odoo 19 to physical printers through a durable queue, Windows Agent, and production print operations.",
+  title: "Yasser — Odoo Print Gateway",
+  description: "Automated Odoo printing for receipts, invoices, labels, and reports across branches, stores, and warehouses.",
 };
 
 // Pre-paint theme resolution: stored choice wins, otherwise follow the OS.
