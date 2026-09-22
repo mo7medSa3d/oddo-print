@@ -404,8 +404,9 @@ export default function DashboardClient({
     ).length;
     const failedJobs = kpiJobs.filter((j) => j.status.toLowerCase() === "failed" && deriveOutcome(j.status, j.error) === "not_printed").length;
     const expiredJobs = kpiJobs.filter((j) => j.status.toLowerCase() === "expired").length;
+    const resolvedJobs = completedJobs + failedJobs + attentionJobs + expiredJobs;
     const successRate =
-      kpiJobs.length > 0 ? Math.round((completedJobs / kpiJobs.length) * 100) : null;
+      resolvedJobs > 0 ? Math.round((completedJobs / resolvedJobs) * 100) : null;
 
     return {
       totalAgents,
@@ -593,7 +594,7 @@ export default function DashboardClient({
           <div className="mt-1 text-[20px] font-bold tracking-tight text-ink">{kpis.inFlightJobs}</div>
         </div>
         <div className="rounded-xl border border-edge bg-surface px-4 py-3.5">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Success</div>
+          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Delivered</div>
           <div className="mt-1 text-[20px] font-bold tracking-tight text-ink">{kpis.successRate === null ? "—" : `${kpis.successRate}%`}</div>
         </div>
       </section>
