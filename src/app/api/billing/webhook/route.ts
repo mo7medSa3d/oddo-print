@@ -43,6 +43,18 @@ export async function POST(req: Request) {
   const eventType = typeof event.type === "string" ? event.type : "";
   if (!eventId || !eventType) return NextResponse.json({ error: "Invalid event" }, { status: 400 });
 
+  // Duplicate deliveries are normal. Once an event is durably processed,
+  // acknowledge it without depending on Stripe API availability. The
+  // transaction-level idempotency check below remains the race-safe fence
+  // for concurrent in-flight duplicates.
+  const priorEvent = await db.query.billingEvents.findFirst({
+    where: eq(billingEvents.eventId, eventId),
+    columns: { processedAt: true },
+  });
+  if (priorEvent?.processedAt) {
+    return NextResponse.json({ received: true, idempotent: true });
+  }
+
   // Keep the immutable event snapshot for audit/idempotency, but use a
   // separately retrieved current Stripe resource when subscription state
   // depends on it. Stripe explicitly does not guarantee webhook ordering and
