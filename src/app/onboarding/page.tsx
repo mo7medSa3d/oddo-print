@@ -124,9 +124,7 @@ export default function Onboarding() {
             Workspace setup
           </div>
           <h1 className="mt-4 text-[34px] font-bold tracking-[-0.04em] text-ink sm:text-[42px]">Set up your print workspace</h1>
-          <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-ink-3 sm:text-base">
-            Name the workspace and choose the operating plan that fits the number of agents, printers, and jobs you expect to run.
-          </p>
+          <p className="mx-auto mt-2 text-sm leading-6 text-ink-3 sm:text-base">Name your workspace and choose a plan.</p>
         </div>
 
         <Card className="mt-8 p-6 sm:p-8">
@@ -149,7 +147,6 @@ export default function Onboarding() {
               <div className="flex items-end justify-between gap-4">
                 <div>
                   <label className="text-sm font-semibold text-ink">Choose a plan</label>
-                  <p className="mt-1 text-xs text-ink-3">You can review or change billing after setup.</p>
                 </div>
                 {plans.length > 0 && <span className="text-xs font-medium text-ink-3">{plans.length} available</span>}
               </div>
@@ -218,7 +215,6 @@ export default function Onboarding() {
               <Button variant="secondary" disabled={!canContinue || loading} onClick={() => void submit(false)} className="sm:flex-1">Continue to checkout</Button>
             </div>
 
-            <p className="text-center text-xs leading-relaxed text-ink-3">Gateway limits are enforced server-side. Your selected plan does not change the security model of the print path.</p>
           </div>
         </Card>
       </div>
