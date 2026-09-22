@@ -34,10 +34,12 @@ async function post(path: string, body?: Record<string, unknown>) {
 export function BillingActions({
   hasSubscription,
   cancelAtPeriodEnd,
+  subscriptionStatus,
   selectedPlan,
 }: {
   hasSubscription: boolean;
   cancelAtPeriodEnd: boolean;
+  subscriptionStatus?: string | null;
   selectedPlan?: PlanOption | null;
 }) {
   const router = useRouter();
@@ -119,7 +121,7 @@ export function BillingActions({
             {hasSubscription && <ExternalLink className="h-3 w-3 text-ink-4" />}
           </button>
 
-          {hasSubscription && !cancelAtPeriodEnd && (
+          {hasSubscription && subscriptionStatus !== "paused" && !cancelAtPeriodEnd && (
             <button
               type="button"
               disabled={!!busy}
