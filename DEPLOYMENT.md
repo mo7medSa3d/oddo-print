@@ -47,7 +47,7 @@ These variables are forwarded by `docker-compose.yml` as empty strings when unse
 
 | Variable | Description |
 |----------|-------------|
-| `PLATFORM_TENANT_ID` | Tenant ID for platform admin operations |
+| `PLATFORM_TENANT_ID` | Tenant ID for the protected platform workspace; **required in production** so platform lifecycle protection cannot fail open |
 | `STALE_AGENT_THRESHOLD_SECONDS` | Agent heartbeat staleness (default: 90) |
 
 ## Deployment Steps
@@ -109,6 +109,7 @@ The `docker-compose.yml` includes Gateway, PostgreSQL, and Caddy services. Compo
 - [ ] Caddy/proxy terminates TLS with a valid certificate
 - [ ] Stripe webhook secret is configured for billing
 - [ ] `NODE_ENV=production` is set
+- [ ] `PLATFORM_TENANT_ID` is set to the immutable platform workspace ID
 
 ## Graceful Shutdown
 
