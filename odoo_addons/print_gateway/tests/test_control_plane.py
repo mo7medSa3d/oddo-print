@@ -1088,7 +1088,7 @@ class TestControlPlane(TransactionCase):
             job_pdf_active._submission_body()
 
     def test_20_gateway_late_success_reconciles_unknown_failure(self):
-        """A Gateway-authorized late physical success must converge Odoo too."""
+        """A Gateway-authorized late execution completion must converge Odoo too."""
         job = self.env["print_gateway.print_job"].create({
             "company_id": self.company.id,
             "gateway_config_id": self.gateway_config.id,
@@ -1118,7 +1118,7 @@ class TestControlPlane(TransactionCase):
             "error": "LATE_SUCCESS: agent completed after Gateway timeout",
         })
         self.assertEqual(job.status, "success")
-        self.assertEqual(job.physical_outcome, "printed")
+        self.assertEqual(job.physical_outcome, "unknown")
         self.assertIn("LATE_SUCCESS:", job.last_error or "")
 
     def test_20b_gateway_late_success_is_not_a_general_failed_to_success_write(self):
@@ -1174,7 +1174,7 @@ class TestControlPlane(TransactionCase):
              patch("requests.post", return_value=mock_resp):
             job.action_submit()
             self.assertEqual(job.status, "success")
-            self.assertEqual(job.physical_outcome, "printed")
+            self.assertEqual(job.physical_outcome, "unknown")
             self.assertEqual(job.gateway_job_id, "gw_replayed_123")
 
 
