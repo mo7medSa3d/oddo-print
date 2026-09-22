@@ -148,12 +148,12 @@ export const LATE_SUCCESS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Physical grace window for prints that completed right at the TTL
- * boundary. An agent reporting success on a recently expired job (expiry
- * within this window) is recorded as success with physical outcome
- * PRINTED_POST_EXPIRATION instead of a blind 409 Conflict.
+ * boundary. An agent reporting successful execution on a recently expired
+ * job (expiry within this window) is recorded as success with physical output
+ * still unverified instead of a blind 409 Conflict.
  */
 export const EXPIRED_LATE_SUCCESS_GRACE_MS = 5 * 60 * 1000;
-export const PRINTED_POST_EXPIRATION_MARKER = "PRINTED_POST_EXPIRATION";
+export const LATE_SUCCESS_POST_EXPIRATION_MARKER = "LATE_SUCCESS_POST_EXPIRATION";
 
 /**
  * Raw `db.execute()` rows surface naive UTC timestamp strings while typed
