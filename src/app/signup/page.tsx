@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Field, Input, ErrorState } from "../../components/ui";
@@ -14,8 +14,6 @@ export default function Signup() {
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const params = useSearchParams();
-  const planId = params.get("plan") ?? "";
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -25,12 +23,19 @@ export default function Signup() {
       const response = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, planId }),
+        body: JSON.stringify({
+          email,
+          password,
+          planId: new URLSearchParams(window.location.search).get("plan") ?? "",
+        }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Registration failed");
       setDone(true);
-      router.push(`/verify-email?email=${encodeURIComponent(email)}`);
+      const planId = new URLSearchParams(window.location.search).get("plan") ?? "";
+      const next = new URLSearchParams({ email });
+      if (planId) next.set("plan", planId);
+      router.push(`/verify-email?${next.toString()}`);
     } catch (error) {
       setErr(error instanceof Error ? error.message : "Registration failed");
     } finally {
