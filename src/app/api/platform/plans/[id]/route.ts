@@ -205,6 +205,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     if (error instanceof Error && error.message === "PLAN_NOT_FOUND") {
       return NextResponse.json({ error: "Plan not found.", code: "PLAN_NOT_FOUND" }, { status: 404 });
     }
+    if (error instanceof Error && error.message === "PLAN_CHANGED_RETRY") {
+      return NextResponse.json({ error: "The plan billing configuration changed while you were editing it. Reload and retry.", code: "PLAN_CHANGED_RETRY" }, { status: 409 });
+    }
     if (error instanceof Error && /duplicate|unique/i.test(error.message)) {
       return NextResponse.json({ error: "A plan with this name or Stripe identifier already exists.", code: "PLAN_CONFLICT" }, { status: 409 });
     }
