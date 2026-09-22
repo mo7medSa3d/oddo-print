@@ -202,7 +202,7 @@ def test_gateway_connection_status_uses_simple_operator_labels():
     assert '( "success", "Connected")' in field.replace("("success", "Connected")", '( "success", "Connected")')
     assert '("failed", "Not connected")' in field
     assert '("revoked", "API key revoked")' in field
-    assert '("draft", "Not checked")' in field
+    assert '("draft", "Not configured")' in field
 
 
 def test_gateway_sync_state_does_not_report_active_after_health_failure():
