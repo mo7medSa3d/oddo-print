@@ -1571,16 +1571,16 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 
 	statuses := make([]string, len(ids))
 	// Probe results flow back through a channel and are applied ONLY by this
-	// goroutine; the probe goroutines never write `statuses` or `lastStatus`
-	// concurrently (that was a data race - the 2s batch timeout could expire
-	// while orphaned probes were still assigning their results).
+	// goroutine. Probes themselves are bounded by each printer backend's
+	// Status() contract, so the batch warning is a latency signal rather than
+	// permission to orphan probe goroutines past the heartbeat lifecycle.
 	type probeResult struct {
 		idx    int
 		status string
 	}
 	results := make(chan probeResult, len(ids))
 	probed := make(map[int]bool, len(ids))
-	var probeWg sync.WaitGroup
+	pendingProbes := 0
 	for i, id := range ids {
 		state := a.getProbeState(id)
 		if !state.running.CompareAndSwap(false, true) {
@@ -1592,9 +1592,8 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 			continue
 		}
 
-		probeWg.Add(1)
+		pendingProbes++
 		go func(i int, pid string, p printer.Printer, st *printerProbeState) {
-			defer probeWg.Done()
 			defer func() {
 				st.running.Store(false)
 				a.deleteProbeState(pid)
@@ -1614,24 +1613,22 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 		}(i, id, printerByID[id], state)
 	}
 
-	probeDone := make(chan struct{})
-	go func() {
-		probeWg.Wait()
-		close(probeDone)
-	}()
-
-	deadline := time.After(2 * time.Second)
-collect:
-	for {
+	// Keep the 2s signal for operator latency, but ALWAYS join every spawned
+	// probe before returning. A printer backend has its own bounded Status()
+	// call; letting this function return while probes still mutate runtime
+	// state would create an unowned goroutine after heartbeat/shutdown.
+	warningTimer := time.NewTimer(2 * time.Second)
+	defer warningTimer.Stop()
+	var warningC <-chan time.Time = warningTimer.C
+	for pendingProbes > 0 {
 		select {
 		case res := <-results:
 			statuses[res.idx] = res.status
 			probed[res.idx] = true
-		case <-probeDone:
-			break collect
-		case <-deadline:
-			log.Printf("WARNING: Printer status probe batch timed out after 2s; proceeding with available statuses")
-			break collect
+			pendingProbes--
+		case <-warningC:
+			log.Printf("WARNING: Printer status probe batch exceeded 2s; waiting for bounded probes to finish before returning")
+			warningC = nil
 		}
 	}
 	for i, id := range ids {
