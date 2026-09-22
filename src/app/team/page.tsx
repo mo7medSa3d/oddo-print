@@ -350,19 +350,6 @@ export default function TeamPage() {
             </div>
           </Card>
 
-          <Card>
-            <div className="p-5">
-              <div className="flex items-center gap-2 text-[13px] font-semibold text-ink"><Shield className="h-4 w-4 text-brand" /> Role guide</div>
-              <div className="mt-3 space-y-2.5">
-                {ROLE_OPTIONS.map((r) => (
-                  <div key={r.value} className="flex gap-3 rounded-[8px] bg-surface-2 border border-edge px-3 py-2.5">
-                    <div className="text-[12px] font-semibold text-ink min-w-[110px]">{r.label}</div>
-                    <div className="text-[11px] text-ink-3 leading-snug">{r.desc}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </Card>
         </div>
       </div>
 
