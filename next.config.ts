@@ -24,6 +24,14 @@ const nextConfig: NextConfig = {
     }
     return [{ source: "/(.*)", headers }];
   },
+  async redirects() {
+    return [
+      // The control-plane entry point has no page of its own; land visitors
+      // on the platform sign-in, which forwards authenticated sessions to
+      // the dashboard after it resolves the platform session.
+      { source: "/platform", destination: "/platform/login", permanent: false },
+    ];
+  },
 };
 
 export default nextConfig;

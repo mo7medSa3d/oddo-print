@@ -57,7 +57,7 @@ export async function POST(req: Request) {
         WHERE id = ${user.id}
         FOR UPDATE
       `);
-      const lockedRow = locked.rows[0] as { id?: string; emailVerifiedAt?: Date | null } | undefined;
+      const lockedRow = locked.rows[0] as { id?: string; emailVerifiedAt?: Date | string | null } | undefined;
       if (!lockedRow?.id || lockedRow.emailVerifiedAt) return false;
 
       await tx

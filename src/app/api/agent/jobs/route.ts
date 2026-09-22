@@ -19,6 +19,23 @@ const MAX_CLAIM_BATCH = 20;
 const MAX_ERROR_LENGTH = 2000;
 
 /**
+ * CLAIM_RETURNING rows come back from raw execute() as naive UTC timestamp
+ * strings (node-postgres identity parsers). Emit RFC3339/ISO-8601 with a
+ * trailing Z so the Go agent's time.Parse(time.RFC3339) succeeds and the
+ * agent-side expiry gate stays enabled on the poll path.
+ */
+function toWireIso(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value !== "string" || !value) return value;
+  let iso = value.replace(" ", "T");
+  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
+    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
+  }
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? value : new Date(ms).toISOString();
+}
+
+/**
  * Poll claim. Two candidate classes, both fenced by the delivery boundary
  * and BOTH attempt budgets (delivery_attempts < MAX_DELIVERY_ATTEMPTS and
  * retries < MAX_RETRIES) — a reclaim that increments delivery_attempts must
@@ -168,6 +185,8 @@ export async function GET(req: Request) {
 
   return NextResponse.json((rows as Array<Record<string, unknown>>).map((row) => ({
     ...row,
+    expiresAt: toWireIso(row.expiresAt),
+    createdAt: toWireIso(row.createdAt),
     physicalOutcome: derivePhysicalOutcome(String(row.status ?? ""), typeof row.error === "string" ? row.error : null),
   })));
 }

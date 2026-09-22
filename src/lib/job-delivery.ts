@@ -56,12 +56,12 @@ export type ClaimedJobRow = {
   documentType: string | null;
   status: string;
   payload: unknown;
-  expiresAt: Date;
+  expiresAt: Date | string;
   retries: number;
   deliveryAttempts: number;
   claimToken: string | null;
   error?: string | null;
-  createdAt: Date;
+  createdAt: Date | string;
   requestId: string | null;
 };
 
