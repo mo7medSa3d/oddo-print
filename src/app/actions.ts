@@ -22,7 +22,7 @@ import { transitionAgentLifecycle, LifecycleConflict } from "../lib/agent-lifecy
 import { ActionError } from "../lib/action-error";
 import { writeAuditEvent } from "../lib/audit";
 import { requireManagerPermission } from "../lib/authorization";
-import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../lib/entitlements";
+import { enforceTenantResourceEntitlement, TenantEntitlementError, TenantPrintQuotaExceededError, isTenantBillingError } from "../lib/entitlements";
 import { isAgentAvailableForJob } from "../lib/agent-availability";
 
 async function requireManager() {
