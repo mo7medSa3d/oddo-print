@@ -131,10 +131,10 @@ export default function Onboarding() {
         <div className="mx-auto max-w-2xl text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-edge-accent bg-brand-subtle px-3 py-1.5 text-xs font-semibold text-brand-subtle-text">
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
-            Workspace setup
+            Get started
           </div>
-          <h1 className="mt-4 text-[34px] font-bold tracking-[-0.04em] text-ink sm:text-[42px]">Set up your print workspace</h1>
-          <p className="mx-auto mt-2 text-sm leading-6 text-ink-3 sm:text-base">Name your workspace and choose a plan.</p>
+          <h1 className="mt-4 text-[34px] font-bold tracking-[-0.04em] text-ink sm:text-[42px]">Set up your workspace</h1>
+          <p className="mx-auto mt-2 text-sm leading-6 text-ink-3 sm:text-base">Create your workspace and choose a plan.</p>
         </div>
 
         <Card className="mt-8 p-6 sm:p-8">
