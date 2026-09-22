@@ -239,7 +239,14 @@ class PrintGatewayConfig(models.Model):
             if record.last_test_status == "revoked":
                 record.gateway_sync_state = "attention"
                 record.gateway_sync_message = _(
-                    "The Gateway API key is no longer valid. Replace the key, then test the connection."
+                    "The Gateway API key was revoked or deleted. Replace the API key and save."
+                )
+                continue
+            if record.last_test_status == "failed":
+                record.gateway_sync_state = "attention"
+                record.gateway_sync_message = (
+                    record.last_test_error
+                    or _("The Gateway could not be reached. Check the Gateway URL and network connection.")
                 )
                 continue
             if record.last_enabled_sync_error:
@@ -257,7 +264,7 @@ class PrintGatewayConfig(models.Model):
                 record.gateway_sync_state = "attention"
                 record.gateway_sync_message = _(
                     "The previous Gateway endpoint (%(url)s) could not be disabled: %(error)s "
-                    "Fix the previous endpoint or use Reset Stale Sync, then Retry Sync."
+                    "Fix the previous endpoint or replace the Gateway key, then save again."
                 ) % {
                     "url": record.pending_disable_gateway_url,
                     "error": (record.last_gateway_migration_sync_error or "")[:500],
@@ -370,6 +377,79 @@ class PrintGatewayConfig(models.Model):
             "Cache-Control": "no-store",
             "X-Odoo-Database": self.env.cr.dbname,
         }
+
+    def _probe_gateway_connection(self):
+        """Check the current Gateway credential and persist its health state."""
+        self.ensure_one()
+        self.invalidate_recordset(["gateway_url", "gateway_api_key", "enabled_sync_revision"])
+        expected_revision = int(self.enabled_sync_revision or 0)
+        try:
+            gateway_url = self._gateway_base(for_request=True)
+            api_key = self._gateway_api_key_plaintext()
+            response = requests.get(
+                "%s/api/odoo/health" % gateway_url,
+                headers={
+                    "Authorization": "Bearer %s" % api_key,
+                    "Accept": "application/json",
+                    "Cache-Control": "no-store",
+                    "X-Odoo-Database": self.env.cr.dbname,
+                },
+                timeout=10,
+                allow_redirects=False,
+            )
+            redirect_message = _gateway_redirect_message(response, gateway_url)
+            if redirect_message:
+                self._write_test_result_if_current(expected_revision, {
+                    "last_test_at": fields.Datetime.now(),
+                    "last_test_status": "failed",
+                    "last_test_error": redirect_message,
+                })
+                return False
+            if response.status_code == 401:
+                self._write_test_result_if_current(expected_revision, {
+                    "last_test_at": fields.Datetime.now(),
+                    "last_test_status": "revoked",
+                    "last_test_error": _("The Gateway API key was revoked or deleted. Replace the API key and save."),
+                    "enabled": False,
+                })
+                return False
+            if response.status_code == 403:
+                body = response.json() if response.content else {}
+                message = body.get("error") if isinstance(body, dict) and body.get("error") else _("The Gateway workspace is not available for printing.")
+                self._write_test_result_if_current(expected_revision, {
+                    "last_test_at": fields.Datetime.now(),
+                    "last_test_status": "failed",
+                    "last_test_error": message,
+                })
+                return False
+            body = response.json() if response.content else {}
+            if response.status_code != 200 or not isinstance(body, dict) or body.get("ok") is not True:
+                message = body.get("error") if isinstance(body, dict) and isinstance(body.get("error"), str) else _("Gateway health check failed (HTTP %s).") % response.status_code
+                self._write_test_result_if_current(expected_revision, {
+                    "last_test_at": fields.Datetime.now(),
+                    "last_test_status": "failed",
+                    "last_test_error": message,
+                })
+                return False
+            return self._write_test_result_if_current(expected_revision, {
+                "last_test_at": fields.Datetime.now(),
+                "last_test_status": "success",
+                "last_test_error": False,
+            })
+        except requests.RequestException as exc:
+            self._write_test_result_if_current(expected_revision, {
+                "last_test_at": fields.Datetime.now(),
+                "last_test_status": "failed",
+                "last_test_error": _friendly_gateway_request_error(exc, self.gateway_url)[:4000],
+            })
+            return False
+        except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError) as exc:
+            self._write_test_result_if_current(expected_revision, {
+                "last_test_at": fields.Datetime.now(),
+                "last_test_status": "failed",
+                "last_test_error": str(exc)[:4000],
+            })
+            return False
 
     def _persist_gateway_migration_result(self, *, success, error):
         """Persist old-endpoint migration bookkeeping with an independent cursor."""
