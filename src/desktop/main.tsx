@@ -597,7 +597,7 @@ export default function App() {
           const pid = jobPrinterId(j);
           return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
         }
-        if (jobTab === "printed") return st === "success";
+        if (jobTab === "delivered") return st === "success";
         if (jobTab === "unknown") return outcome === "unknown";
         if (jobTab === "failed") return st === "failed" && outcome === "not_printed";
         if (jobTab === "expired") return st === "expired" && outcome !== "unknown";
@@ -626,7 +626,7 @@ export default function App() {
         const pid = jobPrinterId(j);
         return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
       }).length,
-      printed: jobs.filter((j) => jobStatus(j) === "success").length,
+      delivered: jobs.filter((j) => jobStatus(j) === "success").length,
       unknown: jobs.filter((j) => deriveOutcome(jobStatus(j), String(j.error ?? "")) === "unknown").length,
       failed: failedJobs,
       expired: jobs.filter((j) => jobStatus(j) === "expired" && deriveOutcome("expired", String(j.error ?? "")) !== "unknown").length,
@@ -663,7 +663,7 @@ export default function App() {
     },
     jobs: {
       title: "Print Jobs",
-      subtitle: "Operational queue — queued, printing, printed, failed, unknown outcome and expired.",
+      subtitle: "Operational queue — queued, printing, delivered, failed, unknown outcome and expired.",
     },
     agents: { title: "Agents", subtitle: "This PC's print agent and the gateway fleet." },
     settings: {
@@ -991,7 +991,7 @@ export default function App() {
             </div>
             <p className="text-[13px] leading-relaxed text-ink-3">
               This sends a test page through the Gateway queue and exercises the managed delivery path
-              (queued, claimed by this agent, then printed).
+              (queued, claimed by this agent, then delivered to the printer transport).
             </p>
           </div>
         )}
