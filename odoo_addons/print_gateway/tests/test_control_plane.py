@@ -833,7 +833,7 @@ class TestControlPlane(TransactionCase):
             res = router.route_test_page(raw_binding)
             job = self.env["print_gateway.print_job"].browse(res["job_id"])
             self.assertEqual(job.protocol, "raw")
-            self.assertIn("Protocol: RAW", job.raw_payload)
+            self.assertIn("PRINTER TEST", job.raw_payload)
             self.assertNotIn("\x1b@", job.raw_payload)
 
     def test_13_action_rearm_intent(self):

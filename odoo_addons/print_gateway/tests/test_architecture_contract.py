@@ -91,9 +91,9 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         source = (VIEWS / "binding_views.xml").read_text(encoding="utf-8")
         for label in (
             'string="Company"', 'string="Branch"',
-            'string="Runtime Agent"', 'string="Runtime Printer"',
-            'string="Context"', 'string="Destination"', 'string="Hardware"',
-            'string="Advanced Routing"', 'string="Hardware Options"',
+            'string="Print Agent"', 'string="Printer"',
+            'string="Scope"', 'string="Document &amp; Destination"', 'string="Printer Setup"',
+            'string="Advanced"', 'string="Printer Options"',
         ):
             self.assertIn(label, source)
         self.assertIn('widget="gateway_runtime_agent"', source)
