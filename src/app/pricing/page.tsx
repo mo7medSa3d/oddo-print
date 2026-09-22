@@ -48,7 +48,7 @@ export default async function Pricing() {
     }
   }
 
-  const destination = (planId: string) => claims ? `/billing?plan=${encodeURIComponent(planId)}` : "/signup";
+  const destination = (planId: string) => claims ? `/billing?plan=${encodeURIComponent(planId)}` : `/signup?plan=${encodeURIComponent(planId)}`;
 
   return (
     <div className="mx-auto w-full max-w-[1440px] px-5 py-8 sm:px-7 lg:px-8 lg:py-12">
