@@ -204,7 +204,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
           <div className="px-6 py-6 sm:px-7 sm:py-7">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">What's included</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Plan details</div>
                 <h3 className="mt-1.5 text-[18px] font-semibold tracking-[-0.02em] text-ink">What’s included</h3>
               </div>
               <Link href="/pricing" className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-brand hover:text-brand-hover">
