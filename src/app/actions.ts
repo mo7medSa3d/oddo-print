@@ -155,6 +155,16 @@ export async function createPrintJob(printerId: string, payload: unknown) {
     revalidatePath("/dashboard");
     return { id: result.id };
   } catch (error) {
+    if (error instanceof TenantPrintQuotaExceededError) throw new ActionError(error.message, 429, error.code, {
+      entitlement: error.entitlement,
+      limit: error.limit,
+      used: error.used,
+      remaining: 0,
+      periodStart: error.periodStart.toISOString(),
+      periodEnd: error.periodEnd?.toISOString() ?? null,
+      upgradeRequired: true,
+      retryable: false,
+    });
     if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
     if (isTenantBillingError(error)) throw new ActionError(error.message, 403);
     throw error;
@@ -193,6 +203,16 @@ export async function reprintJob(jobId: string) {
     revalidatePath("/dashboard");
     return { id: result.id, reused: result.isReused === true };
   } catch (error) {
+    if (error instanceof TenantPrintQuotaExceededError) throw new ActionError(error.message, 429, error.code, {
+      entitlement: error.entitlement,
+      limit: error.limit,
+      used: error.used,
+      remaining: 0,
+      periodStart: error.periodStart.toISOString(),
+      periodEnd: error.periodEnd?.toISOString() ?? null,
+      upgradeRequired: true,
+      retryable: false,
+    });
     if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
     if (isTenantBillingError(error)) throw new ActionError(error.message, 403);
     throw error;
