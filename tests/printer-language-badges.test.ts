@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { getPrinterLanguageBadges } from "../src/lib/printer-capability";
+import { getPrinterLanguageBadges, getSupportedDocumentTypes } from "../src/lib/printer-capability";
 import ApiKeysPage from "../src/app/api-keys/page";
 
 /**
@@ -150,5 +150,18 @@ describe("ApiKeysPage API-key authoring", () => {
     expect(host!.textContent ?? "").toContain("Read / write · All documents");
     expect(host!.textContent ?? "").not.toContain("Read only");
     expect(host!.textContent ?? "").not.toContain("Document types");
+  });
+});
+
+
+describe("getSupportedDocumentTypes", () => {
+  it("matches the real routing contract for document transports and byte protocols", () => {
+    expect(getSupportedDocumentTypes("ipp", "ipp")).toEqual(["pdf"]);
+    expect(getSupportedDocumentTypes("ipps", "ipps")).toEqual(["pdf"]);
+    expect(getSupportedDocumentTypes("spooler", "spooler")).toEqual(["pdf", "image", "raw", "escpos"]);
+    expect(getSupportedDocumentTypes("raw", "network")).toEqual(["raw"]);
+    expect(getSupportedDocumentTypes("zpl", "network")).toEqual(["zpl", "raw"]);
+    expect(getSupportedDocumentTypes("tspl", "network")).toEqual(["tspl", "raw"]);
+    expect(getSupportedDocumentTypes("unknown", "network")).toEqual([]);
   });
 });
