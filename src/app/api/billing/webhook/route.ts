@@ -287,6 +287,12 @@ export async function POST(req: Request) {
             stripeCustomerId: current?.stripeCustomerId ?? (customerId ?? null),
             checkoutStatus: "completed",
             checkoutSessionId: checkoutSessionId ?? null,
+            currentPeriodStart: typeof checkoutSubscription?.current_period_start === "number"
+              ? new Date(checkoutSubscription.current_period_start * 1000)
+              : undefined,
+            currentPeriodEnd: typeof checkoutSubscription?.current_period_end === "number"
+              ? new Date(checkoutSubscription.current_period_end * 1000)
+              : undefined,
             updatedAt: new Date(),
           }).where(eq(tenantSubscriptions.tenantId, tenantId));
         }
@@ -302,6 +308,7 @@ export async function POST(req: Request) {
                  checkout_status AS "checkoutStatus",
                  checkout_plan_id AS "checkoutPlanId",
                  checkout_idempotency_key AS "checkoutIdempotencyKey",
+                 current_period_start AS "currentPeriodStart",
                  current_period_end AS "currentPeriodEnd",
                  cancel_at_period_end AS "cancelAtPeriodEnd",
                  plan_id AS "planId",
@@ -318,6 +325,7 @@ export async function POST(req: Request) {
           checkoutStatus?: "none" | "creating" | "open" | "completed";
           checkoutPlanId?: string | null;
           checkoutIdempotencyKey?: string | null;
+          currentPeriodStart?: Date | string | null;
           currentPeriodEnd?: Date | string | null;
           cancelAtPeriodEnd?: boolean;
           planId?: string;
@@ -349,6 +357,7 @@ export async function POST(req: Request) {
               stripeCustomerId: typeof stateObj.customer === "string" ? stateObj.customer : tenantRow.stripeCustomerId,
               stripeSubscriptionId: subId || tenantRow.stripeSubscriptionId,
               status: nextStatus,
+              currentPeriodStart: typeof stateObj.current_period_start === "number" ? new Date(stateObj.current_period_start * 1000) : parseDbTime(tenantRow.currentPeriodStart),
               currentPeriodEnd: typeof stateObj.current_period_end === "number" ? new Date(stateObj.current_period_end * 1000) : parseDbTime(tenantRow.currentPeriodEnd),
               cancelAtPeriodEnd: stateObj.cancel_at_period_end === true,
               planId: plan?.id ?? tenantRow.planId,
