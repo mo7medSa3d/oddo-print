@@ -150,9 +150,15 @@ class PrintGatewayConfig(models.Model):
     )
     last_test_at = fields.Datetime(readonly=True)
     last_test_status = fields.Selection(
-        [("draft", "Untested"), ("success", "Success"), ("failed", "Failed"),
-         ("revoked", "Revoked / Deleted on Gateway")],
-        readonly=True, default="draft",
+        [
+            ("draft", "Not checked"),
+            ("success", "Connected"),
+            ("failed", "Not connected"),
+            ("revoked", "API key revoked"),
+        ],
+        string="Connection",
+        readonly=True,
+        default="draft",
     )
     last_test_error = fields.Text(readonly=True)
     gateway_sync_state = fields.Selection(
