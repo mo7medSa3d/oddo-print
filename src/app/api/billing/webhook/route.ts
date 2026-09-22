@@ -314,7 +314,7 @@ export async function POST(req: Request) {
           tenantId?: string;
           stripeSubscriptionId?: string | null;
           stripeCustomerId?: string | null;
-          status?: "trialing" | "active" | "past_due" | "paused" | "cancelled";
+          status?: "trialing" | "active" | "past_due" | "incomplete" | "incomplete_expired" | "unpaid" | "paused" | "cancelled";
           checkoutStatus?: "none" | "creating" | "open" | "completed";
           checkoutPlanId?: string | null;
           checkoutIdempotencyKey?: string | null;
