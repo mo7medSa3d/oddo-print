@@ -2,7 +2,7 @@
 
 > **System Context**: Yasser Cloud Printing Platform  
 > **Applicable Standards**: AWS SaaS Tenant Isolation, PostgreSQL Composite Foreign Keys, Zero-Trust Application Boundaries  
-> **Related Documents**: [ARCHITECTURE.md](./ARCHITECTURE.md), [MULTI_TENANCY.md](./MULTI_TENANCY.md), [SECURITY.md](./SECURITY.md)
+> **Related Documents**: [ARCHITECTURE.md](./ARCHITECTURE.md), [SECURITY.md](./SECURITY.md)
 
 ---
 

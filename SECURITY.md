@@ -1,6 +1,6 @@
 # Security Architecture
 
-> See also: [SECURITY_MODEL.md](./SECURITY_MODEL.md), [ARCHITECTURE.md](./ARCHITECTURE.md) § 5
+> See also: [ARCHITECTURE.md](./ARCHITECTURE.md) § 5
 
 ## Authentication
 
@@ -73,3 +73,24 @@ The `audit_events` table records:
 - Pairing codes are single-use with expiry
 - Agent secrets are hashed at creation, raw value shown once
 - Environment secrets validated on startup (reject placeholders)
+
+
+## Pairing and Job Delivery
+
+Agent pairing codes are short-lived, hashed, and single-use. Successful pairing mints the long-lived Agent credential; the pairing value is not the Agent identity.
+
+Gateway print delivery retains claim-token fencing, stale-claim recovery, and PostgreSQL `SKIP LOCKED` coordination. Jobs with uncertain physical outcomes remain unknown until a later reconciliation establishes the result; they are not blindly retried.
+
+## Odoo Gateway Credential Protection
+
+The Odoo-to-Gateway installation credential is stored as authenticated ciphertext using AES-256-GCM. The encryption root is deployment-managed and must not be stored in PostgreSQL, source control, the addon, or the same backup set as the database.
+
+Configure the deployment-managed credential key versions before installing or upgrading the addon:
+
+- `ODOO_PRINT_GATEWAY_CREDENTIAL_ACTIVE_VERSION`
+- `ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64` (base64-encoded 32-byte key)
+- Additional versions follow the same naming pattern.
+
+Generate key material outside the repository and inject it through the deployment secret store. Never place actual key material in committed `.env` files, documentation, database backups, or logs.
+
+Missing or invalid key material must fail closed during credential migration or use; there is no plaintext fallback. Credential rotation is performed by provisioning the new key version, switching the active version, completing re-encryption, and only then retiring the old version.
