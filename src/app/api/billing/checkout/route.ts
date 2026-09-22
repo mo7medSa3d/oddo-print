@@ -9,7 +9,8 @@ import { runtimeSecret } from "../../../../lib/runtime-secret";
 import { stripeRequest } from "../../../../lib/stripe";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
-const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due", "paused"]);
+const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due"]);
+const CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES = new Set(["paused", "unpaid", "incomplete"]);
 
 function checkoutIntentExpired(expiresAt: Date | string | null | undefined): boolean {
   if (!expiresAt) return false;
@@ -48,6 +49,7 @@ export async function POST(req: Request) {
 
   type CheckoutState =
     | { kind: "already_subscribed" }
+    | { kind: "subscription_needs_attention"; status: string }
     // An open, unexpired session for the SAME plan: replaying it and finding
     // one mid-flight are the same outcome, so one kind carries both.
     | { kind: "in_progress"; url?: string }
@@ -138,6 +140,13 @@ export async function POST(req: Request) {
         };
       }
 
+      // Never create a second subscription while Stripe already owns an
+      // unresolved non-terminal subscription. Incomplete, unpaid, and paused
+      // states must be recovered through the existing Stripe subscription.
+      if (sub?.stripeSubscriptionId && CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES.has(sub.status)) {
+        return { kind: "subscription_needs_attention" as const, status: sub.status };
+      }
+
       const intentId = `chk_${randomUUID()}`;
       const idempotencyKey = `checkout-intent-${intentId}`;
 
@@ -204,6 +213,18 @@ export async function POST(req: Request) {
   if (state.kind === "already_subscribed") {
     return NextResponse.json(
       { error: "This workspace already has a Stripe subscription. Use the Customer Portal to change plans." },
+      { status: 409 },
+    );
+  }
+  if (state.kind === "subscription_needs_attention") {
+    const message =
+      state.status === "paused"
+        ? "The Stripe subscription is paused. Add a payment method and resume the existing subscription before choosing a different plan."
+        : state.status === "unpaid"
+          ? "The Stripe subscription is unpaid. Resolve the outstanding payment in the Customer Portal before starting another subscription."
+          : "The Stripe subscription is still incomplete. Complete the existing checkout or resolve the payment state before starting another subscription.";
+    return NextResponse.json(
+      { error: message, code: "SUBSCRIPTION_NEEDS_ATTENTION", status: state.status },
       { status: 409 },
     );
   }
