@@ -43,9 +43,8 @@ export function TopNavbar({
 
   return (
     <header
-      className={isPlatform
-        ? "sticky top-0 z-40 border-b border-[var(--platform-border)] bg-[var(--platform-bg)] text-[var(--platform-text)]"
-        : "sticky top-0 z-40 border-b border-edge/80 bg-surface/72 text-ink backdrop-blur-xl backdrop-saturate-180"}
+      data-platform-navbar={isPlatform ? "true" : undefined}
+      className="sticky top-0 z-40 border-b border-edge/80 bg-surface/95 text-ink shadow-[0_1px_0_rgba(15,23,42,0.03)] backdrop-blur-xl backdrop-saturate-150 dark:shadow-[0_1px_0_rgba(255,255,255,0.04)]"
     >
       <div className="mx-auto flex h-14 w-full max-w-[1440px] items-center gap-3 px-4 sm:px-7 lg:px-8">
         <Link
@@ -60,7 +59,7 @@ export function TopNavbar({
               title={brandTitle}
               subtitle={brandSubtitle}
               showWordmark
-              variant={isPlatform ? "inverted" : "default"}
+              variant="default"
             />
           )}
         </Link>
@@ -70,9 +69,7 @@ export function TopNavbar({
           aria-label={menuOpen ? "Close navigation" : "Open navigation"}
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((value) => !value)}
-          className={isPlatform
-            ? "ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--platform-border)] text-[var(--platform-muted)] transition hover:bg-white/10 hover:text-[var(--platform-text)] sm:hidden"
-            : "ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-transparent text-ink-2 transition hover:bg-surface-2 hover:text-ink sm:hidden"}
+          className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-edge bg-surface text-ink-2 transition hover:bg-surface-2 hover:text-ink sm:hidden"
         >
           {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
         </button>
@@ -81,57 +78,45 @@ export function TopNavbar({
           aria-label="Main"
           className={[
             menuOpen ? "flex" : "hidden",
-            "absolute left-3 right-3 top-[68px] z-50 flex-col gap-1 rounded-[14px] border p-2 shadow-xl",
+            "absolute left-3 right-3 top-[68px] z-50 flex-col gap-1 rounded-[14px] border border-edge bg-surface p-2 shadow-xl",
             "sm:static sm:flex sm:min-w-0 sm:flex-1 sm:flex-row sm:items-center sm:gap-1 sm:overflow-x-auto sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none",
-            isPlatform ? "border-[var(--platform-border)] bg-[var(--platform-surface)]" : "border-edge bg-surface",
           ].join(" ")}
         >
           {items.map((item, index) => {
             const active = isNavItemActive(pathname, item.href);
             const Icon = item.icon;
             const showSection = item.section && item.section !== items[index - 1]?.section;
+
             return (
               <div key={item.href} className="flex items-center gap-1">
                 {showSection && (
-                  <span
-                    className={
-                      "hidden px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-4 xl:inline"
-                    }
-                  >
+                  <span className="hidden px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-4 xl:inline">
                     {item.section}
                   </span>
                 )}
+
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   onClick={() => setMenuOpen(false)}
                   className={[
                     "inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-3.5 text-[13px] font-medium transition-all duration-200",
-                    isPlatform
-                      ? active
-                        ? "bg-white/12 text-white font-semibold shadow-[inset_0_0_0_1px_rgba(255,255,255,0.16)]"
-                        : "text-[var(--platform-muted)] hover:bg-white/8 hover:text-white"
-                      : active
-                        ? "bg-brand-subtle text-brand-subtle-text font-semibold shadow-[inset_0_0_0_1px_var(--brand-subtle-border)]"
-                        : "text-ink-2 hover:bg-surface-2 hover:text-ink",
+                    active
+                      ? "bg-brand-subtle text-brand-subtle-text font-semibold shadow-[inset_0_0_0_1px_var(--brand-subtle-border)]"
+                      : "text-ink-2 hover:bg-surface-2 hover:text-ink",
                   ].join(" ")}
                 >
                   {Icon && (
                     <Icon
-                      className={
-                        active
-                          ? isPlatform
-                            ? "h-4 w-4 shrink-0 text-white"
-                            : "h-4 w-4 shrink-0 text-brand"
-                          : isPlatform
-                            ? "h-4 w-4 shrink-0 text-[var(--platform-muted)]"
-                            : "h-4 w-4 shrink-0 text-ink-3"
-                      }
+                      className={active ? "h-4 w-4 shrink-0 text-brand" : "h-4 w-4 shrink-0 text-ink-3"}
                     />
                   )}
                   <span>{item.label}</span>
                   {active && (
-                    <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-current opacity-60 sm:hidden" aria-hidden />
+                    <span
+                      className="ml-0.5 h-1.5 w-1.5 rounded-full bg-current opacity-60 sm:hidden"
+                      aria-hidden
+                    />
                   )}
                 </Link>
               </div>
@@ -144,11 +129,7 @@ export function TopNavbar({
         <button
           onClick={onLogout}
           disabled={loggingOut}
-          className={
-            isPlatform
-              ? "inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-white/15 bg-white/8 px-3.5 text-[13px] font-medium text-[var(--platform-text)] shadow-xs transition-all duration-200 hover:border-white/25 hover:bg-white/12 hover:text-white disabled:opacity-50"
-              : "inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-edge bg-surface px-3.5 text-[13px] font-medium text-ink-2 shadow-xs transition-all duration-200 hover:border-edge-strong hover:bg-surface-2 hover:text-ink disabled:opacity-50"
-          }
+          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-edge bg-surface px-3.5 text-[13px] font-medium text-ink-2 shadow-xs transition-all duration-200 hover:border-edge-strong hover:bg-surface-2 hover:text-ink disabled:opacity-50"
         >
           <LogOut className="h-4 w-4" />
           <span className="hidden md:inline">{loggingOut ? "Signing out…" : "Sign out"}</span>
