@@ -118,9 +118,7 @@ export default async function DashboardPage() {
               {databaseError ? "Database unavailable" : "Live console"}
             </span>
           </div>
-          <p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-ink-3">
-            Runtime agents, printers, and queue state. Business branches, destinations, and document ownership remain in Odoo.
-          </p>
+          <p className="mt-1.5 text-[14px] leading-relaxed text-ink-3">Agents, printers, and queue.</p>
         </div>
         {!databaseError ? <JobCleanupButton /> : null}
       </header>
@@ -128,7 +126,7 @@ export default async function DashboardPage() {
       {databaseError ? (
         <div role="alert" className="rounded-xl border border-bad-edge bg-bad-bg px-5 py-6 text-sm text-bad shadow-xs">
           <h2 className="font-semibold">Database unavailable</h2>
-          <p className="mt-1 text-ink-2">PostgreSQL could not be reached. The console is not displaying an empty healthy state.</p>
+          <p className="mt-1 text-ink-2">PostgreSQL is unreachable.</p>
         </div>
       ) : (
         <DashboardClient initialAgents={visibleAgents} initialPrinters={allPrinters} initialJobs={allJobs} databaseError={null} />
