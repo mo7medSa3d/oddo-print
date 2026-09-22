@@ -2,7 +2,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "../src/db";
 import { plans, tenantSubscriptions, tenants } from "../src/db/schema";
 import { TenantSubscriptionRequiredError, getTenantEntitlementLimit } from "../src/lib/entitlements";
-import { eq } from "drizzle-orm";
 import { applyMigrations, closePool, hasTestDatabase, truncateAll } from "./helpers/pg";
 import { nanoid } from "../src/lib/nanoid";
 
