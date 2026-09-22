@@ -213,7 +213,7 @@ export default function TeamPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
           <Card>
-            <CardHeader title="Invite member" subtitle="Email invitation with role assignment" icon={<Mail className="h-4 w-4 text-brand" />} />
+            <CardHeader title="Invite member" icon={<Mail className="h-4 w-4 text-brand" />} />
             <form onSubmit={invite} className="px-6 pb-6 space-y-4">
               <div className="grid gap-4 sm:grid-cols-[1fr_200px]">
                 <div>
