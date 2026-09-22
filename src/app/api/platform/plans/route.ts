@@ -5,7 +5,7 @@ import { plans, tenantSubscriptions } from "../../../../db/schema";
 import { asc, eq, sql } from "drizzle-orm";
 import { requirePlatformOwner } from "../../../../lib/platform-auth";
 import { normalizePlanEntitlements } from "../../../../lib/entitlements";
-import { validateStripePriceBinding } from "../../../../lib/stripe";
+import { validateStripePriceBinding, StripePriceBindingError } from "../../../../lib/stripe";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { writeAuditEvent } from "../../../../lib/audit";
 
@@ -110,10 +110,10 @@ export async function POST(req: Request) {
     // the optional catalog field synchronized without accepting mismatches.
     if (!parsed.stripeProductId && stripePrice.productId) parsed.stripeProductId = stripePrice.productId;
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Stripe Price could not be verified.", code: "STRIPE_PRICE_INVALID" },
-      { status: 400 },
-    );
+    if (error instanceof StripePriceBindingError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
+    return NextResponse.json({ error: "Stripe Price could not be be verified.", code: "STRIPE_PRICE_INVALID" }, { status: 400 });
   }
 
   try {
