@@ -76,6 +76,16 @@ describe("production fixes contracts (2026-09)", () => {
     expect(net).toContain("_ = conn.SetWriteDeadline(time.Now().Add(writeStallTimeout))");
   });
 
+  it("print quota applies at logical job admission and does not make Agent discovery the enforcement point", () => {
+    const service = read("src/lib/print-job-service.ts");
+    const agentJobs = read("src/app/api/agent/jobs/route.ts");
+    expect(service.indexOf("reserveTenantPrintCredit(tx, tenantId)")).toBeGreaterThan(service.indexOf("if (effectiveIdempotencyKey)"));
+    expect(service.indexOf("await tx.insert(printJobs).values")).toBeGreaterThan(service.indexOf("reserveTenantPrintCredit(tx, tenantId)"));
+    expect(agentJobs).not.toContain("max_prints_per_period");
+    expect(agentJobs).toContain("MAX_AGENT_IN_FLIGHT_JOBS");
+    expect(agentJobs).toContain("MAX_AGENT_QUEUED_JOBS");
+  });
+
   it("quota UX remains machine-readable and upgradeable across dashboard surfaces", () => {
     const dialog = read("src/components/UpgradeLimitDialog.tsx");
     const dashboard = read("src/app/dashboard/dashboard-client.tsx");
