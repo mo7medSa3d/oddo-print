@@ -25,7 +25,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     const rotated = await db.transaction(async (tx) => {
       const locked = await tx.execute(sql`
-        SELECT id, name, description, scope, allowed_document_types, revoked_at
+        SELECT id, name, description, revoked_at
         FROM api_keys
         WHERE id = ${id} AND tenant_id = ${manager.tenantId}
         FOR UPDATE
@@ -34,8 +34,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         id: string;
         name: string;
         description: string | null;
-        scope: string;
-        allowed_document_types: string[] | null;
         revoked_at: Date | string | null;
       } | undefined;
       if (!old) return { kind: "not_found" as const };
@@ -45,11 +43,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       await tx.insert(apiKeys).values({
         id: newId,
         tenantId: manager.tenantId,
-        scope: old.scope,
         name: old.name,
         description: old.description,
         hashedKey: hashed,
-        allowedDocumentTypes: old.allowed_document_types,
       });
       await tx.update(apiKeys)
         .set({ revokedAt: new Date() })
@@ -61,9 +57,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         action: "api_key.rotated",
         resourceType: "api_key",
         resourceId: newId,
-        metadata: { replacedKeyId: old.id, scope: old.scope },
+        metadata: { replacedKeyId: old.id },
       }, tx);
-      return { kind: "rotated" as const, oldId: old.id, newId, raw, name: old.name, scope: old.scope, allowedDocumentTypes: old.allowed_document_types };
+      return { kind: "rotated" as const, oldId: old.id, newId, raw, name: old.name };
     });
 
     if (rotated.kind === "not_found") return NextResponse.json({ error: "API key not found" }, { status: 404 });
@@ -73,8 +69,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       id: rotated.newId,
       replacedKeyId: rotated.oldId,
       name: rotated.name,
-      scope: rotated.scope,
-      allowedDocumentTypes: rotated.allowedDocumentTypes,
       apiKey: rotated.raw,
       note: "Update the Odoo installation with this new key now. The previous key has been revoked and the raw key will never be shown again.",
     }, { status: 201, headers: { "Cache-Control": "no-store" } });
