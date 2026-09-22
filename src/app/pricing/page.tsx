@@ -72,9 +72,6 @@ export default async function Pricing() {
           {rows.map((plan, index) => {
             const isCurrent = plan.id === currentPlanId;
             const entries = Object.entries(plan.entitlements ?? {}).filter(([, value]) => value !== false).slice(0, 6);
-            // Modern plan spotlight: the middle tier is the compatibility
-            // pick, the top tier is the scale pick. Works for 2- and 3-plan
-            // catalogs without hardcoding plan names.
             const spotlight =
               rows.length >= 3 && index === 0
                 ? {
