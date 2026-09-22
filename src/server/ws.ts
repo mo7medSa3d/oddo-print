@@ -646,6 +646,19 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
     });
   }
 
+  // The WebSocket server is attached to the HTTP server but is not owned by
+  // server.close(). Explicitly tear it down with the HTTP lifecycle so tests
+  // and graceful application shutdown cannot leave the PostgreSQL listener,
+  // reconnect timers, or heartbeat interval alive after the server closes.
+  server.once("close", () => {
+    stopped = true;
+    for (const ws of wss.clients) {
+      try { ws.terminate(); } catch {}
+    }
+    try { wss.close(); } catch {}
+    void stopNotificationListener?.();
+  });
+
   server.on("upgrade", async (req: IncomingMessage, socket, head) => {
     try {
       const url = req.url ?? "";
