@@ -139,6 +139,7 @@ export async function runBillingOperation(
       operationId,
       idempotencyKey,
       subscriptionId: row.stripeSubscriptionId,
+      subscriptionStatus: row.status ?? "unknown",
     };
   });
 
@@ -177,8 +178,7 @@ export async function runBillingOperation(
       `);
       const result = await tx.execute(sql`
         SELECT stripe_subscription_id AS "stripeSubscriptionId",
-               billing_operation_id AS "billingOperationId",
-               status
+               billing_operation_id AS "billingOperationId"
         FROM tenant_subscriptions
         WHERE tenant_id = ${tenantId}
         FOR UPDATE
