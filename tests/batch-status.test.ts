@@ -33,7 +33,7 @@ suite("POST /api/print/jobs/batch-status", () => {
     const keyId = await keyIdFor(f.odooKey);
     const rotatedKey = "odoo_rotated_batch";
     await pool().query(
-      `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key, odoo_enabled) VALUES ($1, $2, 'standard', 'rotated', $3, true)`,
+      `INSERT INTO api_keys (id, tenant_id, name, hashed_key, odoo_enabled) VALUES ($1, $2, 'rotated', $3, true)`,
       ["key_rotated_batch", f.tenantId, sha256(rotatedKey)],
     );
     await insertJob("batch_owned_1", keyId);
