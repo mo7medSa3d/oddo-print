@@ -137,7 +137,7 @@ export async function GET(req: Request) {
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
           AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC
-        LIMIT ${MAX_CLAIM_BATCH}
+        LIMIT ${queuedLimit}
         FOR UPDATE OF p, a, pr, t SKIP LOCKED
       )
       UPDATE print_jobs
