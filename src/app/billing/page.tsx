@@ -125,7 +125,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
           </div>
           <h1 className="mt-2.5 text-[28px] font-bold leading-tight tracking-[-0.04em] text-ink">Billing</h1>
           <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">
-            Your subscription, entitlements, and billing controls in one place.
+            Manage your plan, billing cycle, and included capacity.
           </p>
         </div>
         <Link
@@ -204,8 +204,8 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
           <div className="px-6 py-6 sm:px-7 sm:py-7">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Included capacity</div>
-                <h3 className="mt-1.5 text-[18px] font-semibold tracking-[-0.02em] text-ink">What your plan includes</h3>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">What's included</div>
+                <h3 className="mt-1.5 text-[18px] font-semibold tracking-[-0.02em] text-ink">What’s included</h3>
               </div>
               <Link href="/pricing" className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-brand hover:text-brand-hover">
                 Compare plans <ArrowRight className="h-3.5 w-3.5" />
