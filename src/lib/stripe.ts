@@ -76,6 +76,16 @@ export type StripePriceBinding = {
   productId: string | null;
 };
 
+export class StripePriceBindingError extends Error {
+  constructor(
+    message: string,
+    public readonly code: "STRIPE_PRICE_INVALID" | "STRIPE_NOT_CONFIGURED" | "STRIPE_UNAVAILABLE",
+    public readonly status: 400 | 502 | 503,
+  ) {
+    super(message);
+  }
+}
+
 export async function validateStripePriceBinding(input: {
   priceId: string;
   currency: string;
@@ -83,7 +93,15 @@ export async function validateStripePriceBinding(input: {
   productId?: string | null;
   requireActive?: boolean;
 }): Promise<StripePriceBinding> {
-  const price = await stripeRetrieve(`prices/${encodeURIComponent(input.priceId)}`);
+  let price: Record<string, unknown>;
+  try {
+    price = await stripeRetrieve(`prices/${encodeURIComponent(input.priceId)}`);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Stripe is not configured") {
+      throw new StripePriceBindingError("Stripe billing is not configured on this Gateway.", "STRIPE_NOT_CONFIGURED", 503);
+    }
+    throw new StripePriceBindingError("Stripe Price could not be verified right now.", "STRIPE_UNAVAILABLE", 502);
+  }
   const recurring =
     price.recurring && typeof price.recurring === "object" && !Array.isArray(price.recurring)
       ? price.recurring as Record<string, unknown>
@@ -98,12 +116,12 @@ export async function validateStripePriceBinding(input: {
     productId,
   };
 
-  if (binding.id !== input.priceId) throw new Error("Stripe Price ID did not match the requested price");
-  if (binding.type !== "recurring") throw new Error("Stripe Price must be a recurring subscription price");
-  if (input.requireActive !== false && !binding.active) throw new Error("Stripe Price is inactive");
-  if (binding.currency !== input.currency.toLowerCase()) throw new Error("Plan currency does not match the Stripe Price");
-  if (binding.interval !== input.interval) throw new Error("Plan billing interval does not match the Stripe Price");
-  if (input.productId && binding.productId !== input.productId) throw new Error("Stripe Product ID does not match the Stripe Price");
+  if (binding.id !== input.priceId) throw new StripePriceBindingError("Stripe Price ID did not match the requested price.", "STRIPE_PRICE_INVALID", 400);
+  if (binding.type !== "recurring") throw new StripePriceBindingError("Stripe Price must be a recurring subscription price.", "STRIPE_PRICE_INVALID", 400);
+  if (input.requireActive !== false && !binding.active) throw new StripePriceBindingError("Stripe Price is inactive.", "STRIPE_PRICE_INVALID", 400);
+  if (binding.currency !== input.currency.toLowerCase()) throw new StripePriceBindingError("Plan currency does not match the Stripe Price.", "STRIPE_PRICE_INVALID", 400);
+  if (binding.interval !== input.interval) throw new StripePriceBindingError("Plan billing interval does not match the Stripe Price.", "STRIPE_PRICE_INVALID", 400);
+  if (input.productId && binding.productId !== input.productId) throw new StripePriceBindingError("Stripe Product ID does not match the Stripe Price.", "STRIPE_PRICE_INVALID", 400);
 
   return binding;
 }
