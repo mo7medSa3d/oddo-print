@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, CreditCard, Sparkles } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Button, Card, EmptyState, ErrorState, Field, Input } from "../../components/ui";
 
 type Plan = {
@@ -22,8 +22,6 @@ export default function Onboarding() {
   const [plansLoading, setPlansLoading] = useState(true);
   const [plansError, setPlansError] = useState("");
   const router = useRouter();
-  const params = useSearchParams();
-  const requestedPlanId = params.get("plan") ?? "";
 
   const fetchPlans = useCallback(async (): Promise<Plan[]> => {
     const response = await fetch("/api/billing/plans", {
@@ -42,6 +40,7 @@ export default function Onboarding() {
     setPlansError("");
     try {
       const nextPlans = await fetchPlans();
+      const requestedPlanId = new URLSearchParams(window.location.search).get("plan") ?? "";
       setPlans(nextPlans);
       setPlanId((current) => {
         if (current && nextPlans.some((plan) => plan.id === current)) return current;
@@ -59,6 +58,7 @@ export default function Onboarding() {
 
   useEffect(() => {
     let cancelled = false;
+    const requestedPlanId = new URLSearchParams(window.location.search).get("plan") ?? "";
     void fetchPlans()
       .then((nextPlans) => {
         if (cancelled) return;
