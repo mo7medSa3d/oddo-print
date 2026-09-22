@@ -74,9 +74,7 @@ export default function SettingsPage() {
           <SettingsIcon className="h-3.5 w-3.5" /> Workspace control center
         </div>
         <h1 className="mt-2.5 text-[28px] font-bold tracking-[-0.04em] text-ink">Settings</h1>
-        <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">
-          Manage workspace identity and session security. Team, billing, and integrations have dedicated operational pages.
-        </p>
+        <p className="mt-2 text-[14px] leading-relaxed text-ink-3">Workspace identity and security.</p>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
@@ -132,7 +130,6 @@ export default function SettingsPage() {
                         <Shield className="h-3.5 w-3.5" /> Account
                       </div>
                       <div className="mt-2 truncate text-[14px] font-semibold text-ink">{email || "—"}</div>
-                      <div className="mt-1 text-[11px] text-ink-3">Email verification status enforced server-side.</div>
                     </div>
                   </div>
 
@@ -156,7 +153,7 @@ export default function SettingsPage() {
                 <div className="px-6 pb-6">
                   <div className="rounded-[10px] border border-bad-edge bg-bad-bg/40 p-4 text-[13px] text-ink-2">
                     <div className="font-semibold text-bad">Workspace deletion is controlled by Platform Admin.</div>
-                    <p className="mt-1 text-[12px] leading-relaxed">Contact support or Platform Admin to suspend or delete this workspace. This prevents accidental data loss.</p>
+                    <p className="mt-1 text-[12px] leading-relaxed">Contact Platform Admin to delete the workspace.</p>
                   </div>
                 </div>
               </Card>
@@ -169,11 +166,9 @@ export default function SettingsPage() {
               <div className="space-y-4 px-6 pb-6">
                 <div className="rounded-[10px] border border-edge bg-surface-2 p-4 text-[13px]">
                   <div className="font-medium text-ink">Session persistence</div>
-                  <p className="mt-1 text-[12px] text-ink-3">Manager cookies are httpOnly, secure, same-site. Bearer handling never moves to presentation logic.</p>
                 </div>
                 <div className="rounded-[10px] border border-edge bg-surface-2 p-4 text-[13px]">
                   <div className="font-medium text-ink">Transport</div>
-                  <p className="mt-1 text-[12px] text-ink-3">Production HTTPS restrictions preserved. No wildcard CORS or weakened checks introduced by UI.</p>
                 </div>
               </div>
             </Card>
