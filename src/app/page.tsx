@@ -94,7 +94,7 @@ function PublicHome() {
 
               <h1 className="mt-7 max-w-[680px] text-[45px] font-bold tracking-[-0.045em] leading-[0.98] text-ink sm:text-[58px] lg:text-[68px]">
                 Print from Odoo without the browser.
-                <span className="block text-gradient-brand">Every document. The right printer.</span>
+                <span className="block text-brand">Every document. The right printer.</span>
               </h1>
 
               <p className="mt-6 max-w-[590px] text-[17px] leading-[1.72] text-ink-2 sm:text-[18px]">
@@ -375,10 +375,7 @@ function TrustItem({ icon, text }: { icon: ReactNode; text: string }) {
 function GatewayHeroVisual() {
   return (
     <div className="relative">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -inset-8 rounded-[36px] bg-[radial-gradient(52%_58%_at_68%_18%,var(--brand-ring)_0%,transparent_62%),radial-gradient(42%_46%_at_18%_82%,var(--brand-subtle)_0%,transparent_65%)] opacity-70 blur-2xl"
-      />
+
       <div className="absolute -inset-5 rounded-[30px] border border-brand/10" aria-hidden />
       <div className="relative overflow-hidden rounded-[22px] border border-edge-strong bg-surface shadow-2xl">
         <div className="flex items-center justify-between border-b border-edge bg-surface-2/70 px-4 py-3.5 sm:px-5">
@@ -618,7 +615,7 @@ function AuthenticatedHome({
 
       <section className="mt-6 grid gap-4 md:grid-cols-3">
         <QuickLink href="/dashboard" icon={<Server className="h-5 w-5" />} title="Console" text="Manage agents, printers, jobs — operational dashboard." badge={`${hasPlan ? planName : "Setup needed"}`} />
-        <QuickLink href="/api-keys" icon={<KeyRound className="h-5 w-5" />} title="API Keys" text="Odoo credentials, activation state, connection health — separated." badge="Integration" />
+        <QuickLink href="/api-keys" icon={<KeyRound className="h-5 w-5" />} title="Odoo integration" text="Odoo credentials, activation state, connection health — separated." badge="Integration" />
         {canTeam ? <QuickLink href="/team" icon={<Users className="h-5 w-5" />} title="Team" text="Members, roles, ownership transfer — RBAC enforced." badge="Admin" /> : <QuickLink href="/settings" icon={<Settings className="h-5 w-5" />} title="Settings" text="Workspace identity and control center." badge="General" />}
       </section>
 
