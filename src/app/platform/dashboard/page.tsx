@@ -16,7 +16,7 @@ type Stats = {
 
 function KpiCard({ label, value, sub, icon, accent }: { label: string; value: number; sub: React.ReactNode; icon: React.ReactNode; accent: string }) {
   return (
-    <div className="group relative overflow-hidden rounded-[14px] border border-white/[0.06] bg-[#12141f] p-5 transition-all hover:border-white/[0.10] hover:bg-[#151725]">
+    <div className="group relative overflow-hidden rounded-[14px] border border-white/[0.06] bg-[#12151b] p-5 transition-all hover:border-white/[0.10] hover:bg-[#151725]">
       <div className={`absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r ${accent} opacity-60`} />
       <div className="flex items-center justify-between">
         <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{label}</span>
@@ -84,13 +84,13 @@ export default function PlatformDashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-7 rounded-[14px] border border-white/[0.06] bg-[#12141f] p-6">
+        <div className="lg:col-span-7 rounded-[14px] border border-white/[0.06] bg-[#12151b] p-6">
           <div className="flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-[14px] font-semibold text-white"><Cpu className="h-4 w-4 text-indigo-400" /> Fleet health</h2>
             <span className="text-[11px] text-slate-500">Last 24h queue depth</span>
           </div>
           <div className="mt-6 grid grid-cols-2 gap-4">
-            <div className="rounded-[12px] border border-white/[0.06] bg-[#0c0e1a] p-4">
+            <div className="rounded-[12px] border border-white/[0.06] bg-[#0b0e13] p-4">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Agents</span>
                 <span className="flex h-6 w-6 items-center justify-center rounded-[7px] bg-white/[0.04] text-slate-400"><Cpu className="h-3.5 w-3.5" /></span>
@@ -101,7 +101,7 @@ export default function PlatformDashboardPage() {
               </div>
               <div className="mt-2 flex justify-between text-[11px]"><span className="text-emerald-400">{stats?.agents.online ?? 0} online</span><span className="text-slate-500">{stats?.agents.offline ?? 0} offline</span></div>
             </div>
-            <div className="rounded-[12px] border border-white/[0.06] bg-[#0c0e1a] p-4">
+            <div className="rounded-[12px] border border-white/[0.06] bg-[#0b0e13] p-4">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Printers</span>
                 <span className="flex h-6 w-6 items-center justify-center rounded-[7px] bg-white/[0.04] text-slate-400"><Printer className="h-3.5 w-3.5" /></span>
@@ -110,7 +110,7 @@ export default function PlatformDashboardPage() {
               <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
                 <div className="h-full rounded-full bg-indigo-400" style={{ width: `${stats?.printers.total ? Math.round(((stats.printers.online ?? 0) / stats.printers.total) * 100) : 0}%` }} />
               </div>
-              <div className="mt-2 flex justify-between text-[11px]"><span className="text-indigo-300">{stats?.printers.online ?? 0} online</span><span className="text-slate-500">{stats?.printers.offline ?? 0} offline</span></div>
+              <div className="mt-2 flex justify-between text-[11px]"><span className="text-sky-300">{stats?.printers.online ?? 0} online</span><span className="text-slate-500">{stats?.printers.offline ?? 0} offline</span></div>
             </div>
           </div>
           <div className="mt-6 grid grid-cols-3 gap-3 border-t border-white/[0.06] pt-5">
@@ -121,7 +121,7 @@ export default function PlatformDashboardPage() {
         </div>
 
         <div className="lg:col-span-5 space-y-4">
-          <div className="rounded-[14px] border border-white/[0.06] bg-[#12141f] p-6">
+          <div className="rounded-[14px] border border-white/[0.06] bg-[#12151b] p-6">
             <h2 className="flex items-center gap-2 text-[14px] font-semibold text-white"><AlertTriangle className="h-4 w-4 text-amber-400" /> Risk & alerts</h2>
             <div className="mt-5 space-y-3">
               {(stats?.tenants.suspended ?? 0) > 0 ? (
@@ -138,7 +138,7 @@ export default function PlatformDashboardPage() {
                   <Link href="/platform/subscriptions" className="font-semibold underline hover:text-red-200">View</Link>
                 </div>
               )}
-              <div className="rounded-[10px] border border-white/[0.06] bg-[#0c0e1a] p-4">
+              <div className="rounded-[10px] border border-white/[0.06] bg-[#0b0e13] p-4">
                 <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500"><TrendingUp className="h-3.5 w-3.5" /> Operational notes</div>
                 <ul className="mt-3 space-y-1.5 text-[11px] leading-relaxed text-slate-400">
                   <li>• Entitlements enforced server-side, not UI-only</li>
@@ -150,13 +150,13 @@ export default function PlatformDashboardPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-3">
-            <Link href="/platform/tenants" className="group flex items-center justify-between rounded-[12px] border border-white/[0.06] bg-[#12141f] p-4 transition hover:border-white/[0.10] hover:bg-[#151725]">
-              <div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-indigo-500/10 border border-indigo-500/20 text-indigo-300"><Building2 className="h-4 w-4" /></span><div><div className="text-[13px] font-semibold text-white group-hover:text-indigo-300">Tenants</div><div className="text-[11px] text-slate-500">Lifecycle & suspension</div></div></div><ArrowRight className="h-4 w-4 text-slate-600 group-hover:text-white transition" />
+            <Link href="/platform/tenants" className="group flex items-center justify-between rounded-[12px] border border-white/[0.06] bg-[#12151b] p-4 transition hover:border-white/[0.10] hover:bg-[#151725]">
+              <div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-white/[0.05] border border-white/[0.10] text-sky-300"><Building2 className="h-4 w-4" /></span><div><div className="text-[13px] font-semibold text-white group-hover:text-sky-300">Tenants</div><div className="text-[11px] text-slate-500">Lifecycle & suspension</div></div></div><ArrowRight className="h-4 w-4 text-slate-600 group-hover:text-white transition" />
             </Link>
-            <Link href="/platform/subscriptions" className="group flex items-center justify-between rounded-[12px] border border-white/[0.06] bg-[#12141f] p-4 transition hover:border-white/[0.10] hover:bg-[#151725]">
+            <Link href="/platform/subscriptions" className="group flex items-center justify-between rounded-[12px] border border-white/[0.06] bg-[#12151b] p-4 transition hover:border-white/[0.10] hover:bg-[#151725]">
               <div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-blue-500/10 border border-blue-500/20 text-blue-300"><CreditCard className="h-4 w-4" /></span><div><div className="text-[13px] font-semibold text-white group-hover:text-blue-300">Subscriptions</div><div className="text-[11px] text-slate-500">Stripe & billing states</div></div></div><ArrowRight className="h-4 w-4 text-slate-600 group-hover:text-white transition" />
             </Link>
-            <Link href="/platform/audit" className="group flex items-center justify-between rounded-[12px] border border-white/[0.06] bg-[#12141f] p-4 transition hover:border-white/[0.10] hover:bg-[#151725]">
+            <Link href="/platform/audit" className="group flex items-center justify-between rounded-[12px] border border-white/[0.06] bg-[#12151b] p-4 transition hover:border-white/[0.10] hover:bg-[#151725]">
               <div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"><Layers className="h-4 w-4" /></span><div><div className="text-[13px] font-semibold text-white group-hover:text-emerald-300">Audit feed</div><div className="text-[11px] text-slate-500">Platform events stream</div></div></div><ArrowRight className="h-4 w-4 text-slate-600 group-hover:text-white transition" />
             </Link>
           </div>
