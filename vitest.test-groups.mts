@@ -25,6 +25,7 @@ export const integrationVitestTestFiles = [
   "tests/heartbeat-enabled.test.ts",
   "tests/job-maintenance.test.ts",
   "tests/job-status-postgres-concurrency.test.ts",
+  "tests/print-quota.test.ts",
   "tests/legacy-print-authorization.test.ts",
   "tests/lifecycle-delivery.test.ts",
   "tests/manager-auth.test.ts",
