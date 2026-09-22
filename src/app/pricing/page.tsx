@@ -54,12 +54,12 @@ export default async function Pricing() {
   const destination = (planId: string) => claims ? `/billing?plan=${encodeURIComponent(planId)}` : "/signup";
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
+    <div className="mx-auto w-full max-w-[1440px] px-5 py-8 sm:px-7 lg:px-8 lg:py-12">
       <header className="mx-auto max-w-3xl text-center">
         <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
           <CreditCard className="h-3.5 w-3.5 text-brand" /> Plans & capacity
         </div>
-        <h1 className="mt-4 text-[38px] font-bold leading-[1.08] tracking-[-0.045em] text-ink sm:text-[50px]">
+        <h1 className="mt-4 text-[36px] font-bold leading-[1.06] tracking-[-0.045em] text-ink sm:text-[48px]">
           Choose the capacity your workspace needs
         </h1>
         <p className="mx-auto mt-4 max-w-2xl text-[15px] leading-7 text-ink-3">
@@ -68,7 +68,7 @@ export default async function Pricing() {
       </header>
 
       {currentPlanId && (
-        <div className="mx-auto mt-7 flex max-w-[1280px] items-center justify-between gap-4 rounded-[12px] border border-brand-subtle-border bg-brand-subtle px-4 py-3.5">
+        <div className="mx-auto mt-7 flex max-w-[1200px] items-center justify-between gap-4 rounded-[14px] border border-brand-subtle-border bg-brand-subtle px-4 py-3.5">
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-surface-2 text-brand shadow-xs">
               <ShieldCheck className="h-4 w-4" />
@@ -90,21 +90,21 @@ export default async function Pricing() {
           <p className="mt-2 text-[13px] leading-relaxed text-ink-3">A Platform Admin needs to publish a plan before it can be selected.</p>
         </div>
       ) : (
-        <div className="mx-auto mt-8 grid max-w-[1280px] gap-4 lg:grid-cols-3">
+        <div className="mx-auto mt-8 grid max-w-[1200px] gap-5 lg:grid-cols-3">
           {rows.map((plan) => {
             const isCurrent = plan.id === currentPlanId;
-            const entries = Object.entries(plan.entitlements ?? {}).filter(([, value]) => value !== false).slice(0, 8);
+            const entries = Object.entries(plan.entitlements ?? {}).filter(([, value]) => value !== false).slice(0, 6);
 
             return (
               <article
                 key={plan.id}
-                className={`group relative flex min-h-[540px] flex-col overflow-hidden rounded-[16px] border bg-surface shadow-card transition-all duration-180 hover:-translate-y-px hover:shadow-lg ${
+                className={`group relative flex min-h-[500px] flex-col overflow-hidden rounded-[18px] border bg-surface shadow-card transition-all duration-180 hover:-translate-y-px hover:shadow-md ${
                   isCurrent ? "border-brand ring-1 ring-brand/10" : "border-edge hover:border-edge-accent"
                 }`}
               >
                 {isCurrent && <div className="h-1 bg-brand" aria-hidden="true" />}
 
-                <div className="border-b border-edge bg-surface-2/55 px-6 py-6">
+                <div className="border-b border-edge bg-surface px-6 py-7">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
@@ -131,7 +131,7 @@ export default async function Pricing() {
                   </div>
                 </div>
 
-                <div className="flex-1 px-6 py-6">
+                <div className="flex-1 px-6 py-7">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Included capacity</div>
                   <dl className="mt-3 divide-y divide-edge">
                     {entries.length > 0 ? entries.map(([key, value]) => (
@@ -150,7 +150,7 @@ export default async function Pricing() {
                   </dl>
                 </div>
 
-                <div className="border-t border-edge px-6 py-5">
+                <div className="border-t border-edge px-6 py-4.5">
                   {isCurrent ? (
                     <div className="flex h-11 w-full items-center justify-center rounded-[10px] border border-edge bg-surface-2 text-[13px] font-semibold text-ink-2">
                       Your current plan
@@ -174,7 +174,7 @@ export default async function Pricing() {
         </div>
       )}
 
-      <div className="mx-auto mt-10 flex max-w-[1280px] flex-col gap-3 rounded-[14px] border border-edge bg-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mx-auto mt-9 flex max-w-[1200px] flex-col gap-3 rounded-[14px] border border-edge bg-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="text-[13px] font-semibold text-ink">Need to manage the subscription you already have?</div>
           <p className="mt-0.5 text-[12px] text-ink-3">Billing shows your current plan, renewal state, entitlements, and account controls.</p>

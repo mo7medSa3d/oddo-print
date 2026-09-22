@@ -117,13 +117,13 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
     : "No renewal date";
 
   return (
-    <div className="mx-auto w-full max-w-[1320px] px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
+    <div className="mx-auto w-full max-w-[1280px] px-5 py-8 sm:px-7 lg:px-8 lg:py-10">
       <header className="flex flex-col gap-5 border-b border-edge/80 pb-7 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
             <CreditCard className="h-3.5 w-3.5 text-brand" /> Workspace billing
           </div>
-          <h1 className="mt-2.5 text-[32px] font-bold leading-tight tracking-[-0.04em] text-ink">Billing</h1>
+          <h1 className="mt-2.5 text-[28px] font-bold leading-tight tracking-[-0.04em] text-ink">Billing</h1>
           <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">
             Your subscription, entitlements, and billing controls in one place.
           </p>
@@ -157,7 +157,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
         <section className="billing-premium overflow-hidden">
-          <div className="border-b border-edge/80 bg-surface-accent/55 px-6 py-6 sm:px-7 sm:py-7">
+          <div className="border-b border-edge/80 bg-surface px-6 py-6 sm:px-7 sm:py-7">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
                 <Sparkles className="h-3.5 w-3.5 text-brand" /> Current plan
@@ -167,7 +167,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
 
             <div className="mt-5 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div className="min-w-0">
-                <h2 className="text-[34px] font-bold tracking-[-0.045em] text-ink sm:text-[40px]">
+                <h2 className="text-[32px] font-bold tracking-[-0.045em] text-ink sm:text-[38px]">
                   {currentPlan?.name ?? "No plan selected"}
                 </h2>
                 <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">

@@ -81,7 +81,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         variant="platform"
       />
       <main className="min-h-screen bg-app">
-        <div className="mx-auto w-full max-w-[1600px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9">{children}</div>
+        <div className="mx-auto w-full max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9">{children}</div>
       </main>
     </div>
   );

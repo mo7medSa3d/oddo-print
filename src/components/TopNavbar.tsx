@@ -47,7 +47,7 @@ export function TopNavbar({
         ? "sticky top-0 z-40 border-b border-edge bg-surface/72 text-ink backdrop-blur-xl backdrop-saturate-180"
         : "sticky top-0 z-40 border-b border-edge/80 bg-surface/72 text-ink backdrop-blur-xl backdrop-saturate-180"}
     >
-      <div className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-3 sm:px-6">
+      <div className="mx-auto flex h-14 w-full max-w-[1440px] items-center gap-3 px-4 sm:px-7 lg:px-8">
         <Link
           href={brandHref}
           className="shrink-0 rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25"
