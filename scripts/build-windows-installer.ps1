@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  One-shot production build of the Yasser Manager Windows installer.
+  One-shot production build of the Yasser Print Manager Windows installer.
 
 .DESCRIPTION
   Orchestrates the full pipeline on a Windows build host:
@@ -14,8 +14,8 @@
     6. cargo tauri build           (embeds frontend + agent exes -> NSIS/MSI)
 
   Outputs (default target x86_64-pc-windows-msvc):
-    src-tauri\target\<target>\release\bundle\nsis\Yasser Manager_<ver>_x64-setup.exe
-    src-tauri\target\<target>\release\bundle\msi\Yasser Manager_<ver>_x64_en-US.msi
+    src-tauri\target\<target>\release\bundle\nsis\Yasser Print Manager_<ver>_x64-setup.exe
+    src-tauri\target\<target>\release\bundle\msi\Yasser Print Manager_<ver>_x64_en-US.msi
 
   The bundle is fully standalone: customers need no Node.js, Go, Rust or
   Python. WebView2 is fetched at install time via the bootstrapper (see
@@ -147,15 +147,15 @@ try {
 Write-Step "Verifying installer artifacts"
 $artifacts = @()
 if ($Bundles -match "nsis") {
-  $nsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\Yasser Manager_*-setup.exe") -File -ErrorAction SilentlyContinue)
-  if ($nsis.Count -ne 1) { throw "Expected exactly one Yasser Manager NSIS installer under $bundleDir\nsis; found $($nsis.Count)" }
+  $nsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\Yasser Print Manager_*-setup.exe") -File -ErrorAction SilentlyContinue)
+  if ($nsis.Count -ne 1) { throw "Expected exactly one Yasser Print Manager NSIS installer under $bundleDir\nsis; found $($nsis.Count)" }
   $unexpectedNsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\*.exe") -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $nsis[0].Name })
   if ($unexpectedNsis.Count -ne 0) { throw "Unexpected extra NSIS executable(s) detected: $($unexpectedNsis.Name -join ', ')" }
   $artifacts += $nsis
 }
 if ($Bundles -match "msi") {
-  $msi = @(Get-ChildItem (Join-Path $bundleDir "msi\Yasser Manager_*.msi") -File -ErrorAction SilentlyContinue)
-  if ($msi.Count -ne 1) { throw "Expected exactly one Yasser Manager MSI under $bundleDir\msi; found $($msi.Count)" }
+  $msi = @(Get-ChildItem (Join-Path $bundleDir "msi\Yasser Print Manager_*.msi") -File -ErrorAction SilentlyContinue)
+  if ($msi.Count -ne 1) { throw "Expected exactly one Yasser Print Manager MSI under $bundleDir\msi; found $($msi.Count)" }
   $unexpectedMsi = @(Get-ChildItem (Join-Path $bundleDir "msi\*.msi") -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $msi[0].Name })
   if ($unexpectedMsi.Count -ne 0) { throw "Unexpected extra MSI package(s) detected: $($unexpectedMsi.Name -join ', ')" }
   $artifacts += $msi

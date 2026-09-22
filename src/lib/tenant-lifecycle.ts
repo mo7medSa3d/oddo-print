@@ -68,7 +68,7 @@ export async function transitionTenantLifecycle(
     if (!tenant?.id) {
       throw new TenantLifecycleError("Tenant not found", "TENANT_NOT_FOUND", 404);
     }
-    const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID");
+    const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID")?.trim();
     if (platformTenantId && tenant.id === platformTenantId) {
       throw new TenantLifecycleError(
         "The platform tenant is protected from lifecycle suspension or deletion.",

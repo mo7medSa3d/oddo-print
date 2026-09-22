@@ -14,7 +14,7 @@ const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024; // 5 MiB
 const MAX_ROTATED_FILES: u32 = 3;
 
 /// Initialize the production file logger. Logs are written to a writable
-/// ProgramData directory, never to `C:\Program Files\Yasser Manager`.
+/// ProgramData directory, never to `C:\Program Files\Yasser Print Manager`.
 /// Returns the log path on success.
 pub fn init() -> Option<PathBuf> {
     let root = paths::ensure_manager_data_root().ok()?;

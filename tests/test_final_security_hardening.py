@@ -7,6 +7,10 @@ ROOT = Path(__file__).resolve().parents[1]
 ADDON = ROOT / "odoo_addons" / "print_gateway"
 
 
+def read(rel: str) -> str:
+    return (ROOT / rel).read_text(encoding="utf-8")
+
+
 def load_crypto():
     import importlib.util
 
@@ -157,3 +161,36 @@ def test_deployment_document_matches_declared_toolchain_contract():
     assert "`GATEWAY_JWT_SECRET`" in deployment
     assert "`APP_BASE_URL`" in deployment
     assert "`SESSION_SECRET`" not in deployment
+
+def test_job_timeline_is_manager_scoped_not_agent_console_scoped():
+    route = read("src/app/api/jobs/[id]/timeline/route.ts")
+    assert 'import { validateManager } from "../../../../../lib/manager-auth";' in route
+    assert "validateConsoleAuth" not in route
+    assert "const tenantId = auth.tenantId;" in route
+
+
+def test_tauri_manager_login_token_stays_inside_rust():
+    rust = read("src-tauri/src/commands.rs")
+    ipc = read("src/desktop/lib/ipc.ts")
+    assert 'object.remove("accessToken")' in rust
+    assert 'path == "/api/auth/manager/login"' in rust
+    assert "(!isTauri && !data.accessToken)" in ipc
+
+
+def test_odoo_activation_can_always_disable_but_enable_is_subscription_gated():
+    route = read("src/app/api/odoo/configuration/route.ts")
+    assert "if (enabled) {" in route
+    assert "An active subscription is required to enable Gateway printing" in route
+    gate = route[route.index("if (enabled) {"):route.index("const now = new Date();")]
+    assert "if (enabled)" in gate
+    assert "enabled" in gate
+
+
+def test_settings_does_not_duplicate_first_class_operational_pages():
+    page = read("src/app/settings/page.tsx")
+    assert 'id: "members"' not in page
+    assert 'id: "billing"' not in page
+    assert 'id: "integrations"' not in page
+    assert 'href="/team"' not in page
+    assert 'href="/billing"' not in page
+    assert 'href="/api-keys"' not in page

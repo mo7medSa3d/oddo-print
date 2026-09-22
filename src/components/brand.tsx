@@ -43,7 +43,7 @@ export function BrandMark({
             {title}
           </span>
           {subtitle && variant !== "compact" && (
-            <span className={`block truncate text-[10.5px] font-medium tracking-[-0.01em] ${variant === "inverted" ? "text-ink-3" : "text-ink-3"}`}>
+            <span className={`block truncate text-[10.5px] font-medium tracking-[-0.01em] ${variant === "inverted" ? "text-white/70" : "text-ink-3"}`}>
               {subtitle}
             </span>
           )}

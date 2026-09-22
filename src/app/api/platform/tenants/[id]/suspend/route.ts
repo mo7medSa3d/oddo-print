@@ -16,11 +16,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!id || typeof id !== "string") {
     return NextResponse.json({ error: "Tenant ID is required" }, { status: 400 });
   }
-  const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID")?.trim();
-  if (!platformTenantId) {
-    return NextResponse.json({ error: "PLATFORM_TENANT_ID is not configured; platform tenant lifecycle is fail-closed.", code: "PLATFORM_TENANT_ID_REQUIRED" }, { status: 503 });
-  }
-  if (id === platformTenantId) {
+  // PLATFORM_TENANT_ID guards the platform tenant itself. When it is not
+  // configured we fail open for ordinary tenants (matching
+  // transitionTenantLifecycle) so operators are not blocked by a 503, while
+  // still refusing to guess which tenant is the platform one.
+  const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID")?.trim() ?? "";
+  if (platformTenantId && id === platformTenantId) {
     return NextResponse.json({ error: "The platform tenant cannot be suspended.", code: "PLATFORM_TENANT_PROTECTED" }, { status: 409 });
   }
 

@@ -191,7 +191,7 @@ export async function loginManager(
     accessToken?: string;
     error?: string;
   };
-  if (status < 200 || status >= 300 || !data.ok || !data.accessToken) {
+  if (status < 200 || status >= 300 || !data.ok || (!isTauri && !data.accessToken)) {
     const err: Error & { status?: number } = new Error(data.error || `Manager login failed (${status})`);
     err.status = status;
     throw err;

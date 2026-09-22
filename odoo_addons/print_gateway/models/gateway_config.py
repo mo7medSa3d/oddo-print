@@ -23,6 +23,68 @@ from odoo.exceptions import AccessError, ValidationError
 _logger = logging.getLogger(__name__)
 
 
+def _friendly_gateway_request_error(exc, gateway_url):
+    """Turn a raw requests failure into an operator-actionable message.
+
+    Transport failures name the URL and hint at host/port instead of dumping
+    pool internals, so a wrong Gateway origin is diagnosable from the Odoo
+    form instead of surfacing as a generic sync stall.
+    """
+    url = gateway_url or _("the configured Gateway URL")
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return _(
+            "Could not reach the Gateway at %(url)s. Verify the URL host and port "
+            "match the Gateway deployment (scheme, host and explicit port, without an API path) "
+            "and that the Gateway is running."
+        ) % {"url": url}
+    if isinstance(exc, requests.exceptions.Timeout):
+        return _(
+            "The Gateway at %(url)s did not respond within 10 seconds. Verify the host/port "
+            "and the network path between Odoo and the Gateway."
+        ) % {"url": url}
+    return _(
+        "Gateway request to %(url)s failed: %(error)s"
+    ) % {"url": url, "error": str(exc)[:1500]}
+
+
+def _same_gateway_endpoint(url_a, url_b):
+    """Compare two Gateway origins, tolerating case/trailing-slash noise."""
+    def _canon(value):
+        if not value or not isinstance(value, str):
+            return ""
+        try:
+            return PrintGatewayConfig._validate_gateway_url(value)
+        except Exception:
+            return value.strip().lower().rstrip("/")
+    left, right = _canon(url_a), _canon(url_b)
+    return bool(left) and left == right
+
+
+def _gateway_redirect_message(response, gateway_url):
+    """Build an actionable message when the Gateway answers with a redirect.
+
+    Sync calls use allow_redirects=False so credentials are never forwarded
+    implicitly; a 3xx therefore means the configured origin is wrong (e.g. an
+    HTTP URL behind an HTTPS-enforcing proxy) and must be fixed at the source.
+    Returns the message, or None when the response is not a redirect.
+    """
+    if response is None or getattr(response, "status_code", None) not in (301, 302, 303, 307, 308):
+        return None
+    location = ""
+    try:
+        location = (response.headers.get("Location") if response.headers else "") or ""
+    except Exception:
+        location = ""
+    return _(
+        "The Gateway at %(url)s answered with a redirect (HTTP %(code)s%(location)s). "
+        "Configure the final Gateway origin directly (usually the HTTPS URL) instead of an address that redirects."
+    ) % {
+        "url": gateway_url or _("the configured Gateway URL"),
+        "code": response.status_code,
+        "location": (_(" to %s") % location) if location else "",
+    }
+
+
 class PrintGatewayConfig(models.Model):
     _name = "print_gateway.gateway_config"
     _description = "Print Gateway Configuration"
@@ -121,7 +183,7 @@ class PrintGatewayConfig(models.Model):
 
     def _pending_stale_message(self):
         return _(
-            "Sync did not receive confirmation within %d minutes. Retry Sync or verify Gateway connectivity."
+            "Sync did not receive confirmation within %d minutes. Retry Sync or verify Gateway connectivity (URL host and port)."
         ) % (self._SYNC_PENDING_STALE_AFTER_SECONDS // 60)
 
     _company_unique = models.Constraint(
@@ -146,13 +208,13 @@ class PrintGatewayConfig(models.Model):
         parsed = urlparse(raw)
         scheme = parsed.scheme.lower()
         if scheme not in ("http", "https") or not parsed.hostname:
-            raise ValidationError(_("Gateway URL must use HTTP or HTTPS and include a host."))
+            raise ValidationError(_("Gateway URL must use HTTP or HTTPS and include a host, e.g. https://print.example.com or http://192.0.2.10:3000."))
         if scheme == "http" and os.environ.get("ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP") != "1":
             raise ValidationError(_("Gateway URL must use HTTPS. Plain HTTP is allowed only for explicitly opted-in isolated development."))
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValidationError(_("Gateway URL must not contain credentials, query parameters, or fragments."))
         if parsed.path not in ("", "/"):
-            raise ValidationError(_("Gateway URL must be the Gateway origin, without an API path."))
+            raise ValidationError(_("Gateway URL must be the Gateway origin, without an API path (include the port when the Gateway does not listen on 80/443)."))
         return raw.rstrip("/")
 
     @api.depends(
@@ -163,6 +225,8 @@ class PrintGatewayConfig(models.Model):
         "enabled_sync_revision",
         "last_enabled_sync_revision",
         "pending_sync_started_at",
+        "pending_disable_gateway_url",
+        "last_gateway_migration_sync_error",
     )
     def _compute_gateway_sync_state(self):
         for record in self:
@@ -183,6 +247,21 @@ class PrintGatewayConfig(models.Model):
                 record.gateway_sync_message = _(
                     "Odoo is set to %s, but the Gateway has not confirmed that state yet."
                 ) % (_("enabled") if record.enabled else _("disabled"))
+                continue
+            if record.pending_disable_gateway_url and record.last_gateway_migration_sync_error:
+                # The old-endpoint shutdown fence is blocking the current
+                # revision: every retry dies on the previous endpoint, so the
+                # new endpoint is never attempted. Previously this error was
+                # only visible in logs/columns while the form showed a generic
+                # stale message. Surface the real cause with its recovery path.
+                record.gateway_sync_state = "attention"
+                record.gateway_sync_message = _(
+                    "The previous Gateway endpoint (%(url)s) could not be disabled: %(error)s "
+                    "Fix the previous endpoint or use Reset Stale Sync, then Retry Sync."
+                ) % {
+                    "url": record.pending_disable_gateway_url,
+                    "error": (record.last_gateway_migration_sync_error or "")[:500],
+                }
                 continue
             if int(record.last_enabled_sync_revision or -1) != int(record.enabled_sync_revision or 0):
                 # The Gateway has not confirmed the current revision yet. The
@@ -360,6 +439,9 @@ class PrintGatewayConfig(models.Model):
                 timeout=10,
                 allow_redirects=False,
             )
+            redirect_message = _gateway_redirect_message(response, gateway_url)
+            if redirect_message:
+                raise ValidationError(redirect_message)
             if response.status_code == 401:
                 raise ValidationError(
                     _("The previous Gateway rejected shutdown synchronization because its stored API key is unauthorized.")
@@ -387,7 +469,16 @@ class PrintGatewayConfig(models.Model):
                 acknowledged_revision,
             )
             return True
-        except (ValidationError, requests.RequestException, ValueError) as exc:
+        except requests.RequestException as exc:
+            message = str(_friendly_gateway_request_error(exc, gateway_url))[:4000]
+            self._persist_gateway_migration_result(success=False, error=message)
+            _logger.warning(
+                "Gateway URL migration could not disable previous endpoint for config %s: %s",
+                self.id,
+                exc,
+            )
+            return False
+        except (ValidationError, ValueError) as exc:
             message = str(exc)[:4000]
             self._persist_gateway_migration_result(success=False, error=message)
             _logger.warning(
@@ -438,35 +529,46 @@ class PrintGatewayConfig(models.Model):
         cannot remain stuck on "Syncing" without a visible trail.
         """
         try:
+            skipped_same_endpoint_revision = None
             if pending_disable:
                 old_url, old_api_key, old_revision = pending_disable
-                # When the pending shutdown is for the SAME endpoint as the
-                # current configuration, a newly supplied credential can recover
-                # a previous key-removal that was interrupted by key revocation.
-                # URL migrations must still use the credential belonging to the
-                # previous endpoint.
-                shutdown_api_key = old_api_key
-                if self.gateway_api_key and old_url == gateway_url:
-                    shutdown_api_key = api_key
-                if not self._sync_pending_gateway_disable(
-                    gateway_url=old_url,
-                    api_key=shutdown_api_key,
-                    revision=old_revision,
-                ):
-                    return
-                if not self.gateway_api_key:
-                    # A removed key cannot be used for a second no-op PATCH, but
-                    # the successful shutdown already proves the requested
-                    # disabled state for this revision.
-                    self._persist_enabled_sync_result(
-                        dbname,
-                        success=True,
+                if self.gateway_api_key and _same_gateway_endpoint(old_url, gateway_url):
+                    # Same-endpoint fence (key removed, then a new key added
+                    # before the old shutdown completed): the fenced PATCH
+                    # below is authoritative for this endpoint, so a separate
+                    # disable round-trip is redundant. Skipping it lets a dead
+                    # round-trip converge instead of blocking sync forever.
+                    # The fence is cleared only after the new state confirms.
+                    skipped_same_endpoint_revision = old_revision
+                    pending_disable = None
+                else:
+                    # When the pending shutdown is for the SAME endpoint as the
+                    # current configuration, a newly supplied credential can recover
+                    # a previous key-removal that was interrupted by key revocation.
+                    # URL migrations must still use the credential belonging to the
+                    # previous endpoint.
+                    shutdown_api_key = old_api_key
+                    if self.gateway_api_key and old_url == gateway_url:
+                        shutdown_api_key = api_key
+                    if not self._sync_pending_gateway_disable(
+                        gateway_url=old_url,
+                        api_key=shutdown_api_key,
                         revision=old_revision,
-                        error=False,
-                        expected_revision=old_revision,
-                    )
-                    self._complete_gateway_migration(old_revision)
-                    return True
+                    ):
+                        return
+                    if not self.gateway_api_key:
+                        # A removed key cannot be used for a second no-op PATCH, but
+                        # the successful shutdown already proves the requested
+                        # disabled state for this revision.
+                        self._persist_enabled_sync_result(
+                            dbname,
+                            success=True,
+                            revision=old_revision,
+                            error=False,
+                            expected_revision=old_revision,
+                        )
+                        self._complete_gateway_migration(old_revision)
+                        return True
             synced = self._sync_enabled_state_to_gateway(
                 gateway_url,
                 api_key,
@@ -476,6 +578,8 @@ class PrintGatewayConfig(models.Model):
             )
             if synced and pending_disable:
                 self._complete_gateway_migration(revision)
+            if synced and skipped_same_endpoint_revision is not None:
+                self._complete_gateway_migration(skipped_same_endpoint_revision)
             return synced
         except Exception:  # noqa: BLE001 - a post-commit crash must surface as "attention", never as a silent hang
             _logger.exception(
@@ -603,6 +707,9 @@ class PrintGatewayConfig(models.Model):
                 # API key may return HTML or an empty response. The sync worker
                 # records the failure and the retry cron can converge after a new
                 # key is configured.
+                redirect_message = _gateway_redirect_message(response, gateway_url)
+                if redirect_message:
+                    raise ValidationError(redirect_message)
                 if response.status_code == 401:
                     raise ValidationError(_("Gateway activation synchronization was rejected because the API key is unauthorized."))
                 body = response.json() if response.content else {}
@@ -688,7 +795,18 @@ class PrintGatewayConfig(models.Model):
             raise ValidationError(
                 _("Gateway activation synchronization could not converge after several fenced retries.")
             )
-        except (ValidationError, requests.RequestException, ValueError) as exc:
+        except requests.RequestException as exc:
+            message = str(_friendly_gateway_request_error(exc, gateway_url))[:4000]
+            self._persist_enabled_sync_result(
+                dbname,
+                success=False,
+                revision=None,
+                error=message,
+                expected_revision=revision,
+            )
+            _logger.warning("Gateway activation synchronization failed for config %s: %s", self.id, exc)
+            return False
+        except (ValidationError, ValueError) as exc:
             message = str(exc)[:4000]
             self._persist_enabled_sync_result(
                 dbname,
@@ -768,13 +886,29 @@ class PrintGatewayConfig(models.Model):
             else:
                 if not record.gateway_api_key:
                     continue
-                gateway_url = record._gateway_base(for_request=True)
-                api_key = record._gateway_api_key_plaintext()
+                # Never let a malformed URL/credential crash the write RPC.
+                # Persist it as a visible sync error so the form shows
+                # "Action needed" instead of an Oops RPC_ERROR dialog.
+                try:
+                    gateway_url = record._gateway_base(for_request=True)
+                    api_key = record._gateway_api_key_plaintext()
+                except (ValidationError, ValueError) as exc:
+                    record._persist_enabled_sync_result(
+                        self.env.cr.dbname,
+                        success=False,
+                        revision=None,
+                        error=str(exc)[:4000],
+                        expected_revision=int(record.enabled_sync_revision or 0),
+                    )
+                    continue
             record_id = record.id
             dbname = self.env.cr.dbname
             revision = int(record.enabled_sync_revision or 0)
             enabled = bool(record.enabled)
-            pending_disable = record._pending_disable_credentials()
+            try:
+                pending_disable = record._pending_disable_credentials()
+            except (ValidationError, ValueError):
+                pending_disable = None
             self.env.cr.postcommit.add(
                 lambda record_id=record_id, gateway_url=gateway_url, api_key=api_key,
                        dbname=dbname, revision=revision, enabled=enabled,
@@ -1057,6 +1191,14 @@ class PrintGatewayConfig(models.Model):
 
         try:
             response, body = send(revision)
+            redirect_message = _gateway_redirect_message(response, gateway_url)
+            if redirect_message:
+                _logger.warning(
+                    "Gateway deletion shutdown redirected for config %s: %s",
+                    self.id,
+                    redirect_message,
+                )
+                return False
             if response.status_code == 401:
                 raise ValidationError(
                     _("The Gateway rejected the deletion shutdown because the stored API key is unauthorized.")
@@ -1129,12 +1271,14 @@ class PrintGatewayConfig(models.Model):
                 try:
                     if not record.gateway_url:
                         continue
-                    # Skip example/test domains used in Odoo test suites
+                    # Skip example/test domains used in Odoo test suites.
+                    # Still allow real localhost / LAN URLs, but skip obvious
+                    # test placeholders to avoid 5s timeouts in CI.
                     url_lower = (record.gateway_url or "").lower()
-                    if "example.com" in url_lower or "test" in url_lower and "localhost" not in url_lower:
-                        # Still allow real localhost / LAN URLs, but skip obvious test placeholders to avoid 5s timeouts in CI
-                        if "example.com" in url_lower:
-                            continue
+                    if "example.com" in url_lower:
+                        continue
+                    if "test" in url_lower and "localhost" not in url_lower and "127.0.0.1" not in url_lower:
+                        continue
                     if record.pending_disable_gateway_url and record.pending_disable_gateway_api_key:
                         try:
                             old_key = record._gateway_api_key_plaintext_from_value(
@@ -1202,6 +1346,7 @@ class PrintGatewayConfig(models.Model):
             ("pending_disable_gateway_url", "!=", False),
         ])
         for config in configs:
+            skipped_same_endpoint_revision = None
             if (
                 config.pending_disable_gateway_url
                 and config.pending_disable_gateway_api_key
@@ -1212,21 +1357,30 @@ class PrintGatewayConfig(models.Model):
                     if not pending_disable:
                         continue
                     old_url, old_api_key, old_revision = pending_disable
-                    shutdown_api_key = old_api_key
-                    if (
-                        config.gateway_api_key
-                        and old_url == config.gateway_url
-                    ):
-                        shutdown_api_key = config._gateway_api_key_plaintext()
-                    if not config._sync_pending_gateway_disable(
-                        gateway_url=old_url,
-                        api_key=shutdown_api_key,
-                        revision=old_revision,
-                    ):
-                        continue
-                    if not config.gateway_api_key:
-                        config._complete_gateway_migration(old_revision)
-                        continue
+                    if config.gateway_api_key and _same_gateway_endpoint(old_url, config.gateway_url):
+                        # Same-endpoint fence: the authoritative fenced PATCH
+                        # in the activation block below supersedes the
+                        # redundant disable round-trip — skip the shutdown and
+                        # let the current state converge (fence clears after
+                        # the new endpoint confirms, see below).
+                        skipped_same_endpoint_revision = old_revision
+                        pass
+                    else:
+                        shutdown_api_key = old_api_key
+                        if (
+                            config.gateway_api_key
+                            and old_url == config.gateway_url
+                        ):
+                            shutdown_api_key = config._gateway_api_key_plaintext()
+                        if not config._sync_pending_gateway_disable(
+                            gateway_url=old_url,
+                            api_key=shutdown_api_key,
+                            revision=old_revision,
+                        ):
+                            continue
+                        if not config.gateway_api_key:
+                            config._complete_gateway_migration(old_revision)
+                            continue
                 except (ValidationError, requests.RequestException, ValueError) as exc:
                     config._persist_gateway_migration_result(success=False, error=str(exc))
                     _logger.warning(
@@ -1263,8 +1417,11 @@ class PrintGatewayConfig(models.Model):
                         self.env.cr.dbname,
                         revision,
                         bool(config.enabled),
-                    ) and config.pending_disable_gateway_url:
-                        config._complete_gateway_migration(revision)
+                    ):
+                        if config.pending_disable_gateway_url:
+                            config._complete_gateway_migration(revision)
+                        if skipped_same_endpoint_revision is not None:
+                            config._complete_gateway_migration(skipped_same_endpoint_revision)
                 except (ValidationError, requests.RequestException, ValueError) as exc:
                     message = str(exc)[:4000]
                     config._persist_enabled_sync_result(
@@ -1391,6 +1548,19 @@ class PrintGatewayConfig(models.Model):
             # depend on the Gateway returning a JSON body. Check 401 before
             # parsing the response so malformed/error HTML cannot erase the
             # explicit revoked state.
+            redirect_message = _gateway_redirect_message(response, self.gateway_url)
+            if redirect_message:
+                if not self._write_test_result_if_current(expected_revision, {
+                    "last_test_at": fields.Datetime.now(),
+                    "last_test_status": "failed",
+                    "last_test_error": redirect_message,
+                }):
+                    return {"type": "ir.actions.client", "tag": "reload"}
+                return {
+                    "type": "ir.actions.client",
+                    "tag": "display_notification",
+                    "params": {"title": _("Gateway Connection"), "message": redirect_message, "type": "warning", "sticky": True},
+                }
             if response.status_code == 401:
                 message = _("The Gateway rejected the API key. Replace the key and test the connection again.")
                 if not self._write_test_result_if_current(expected_revision, {
@@ -1505,7 +1675,11 @@ class PrintGatewayConfig(models.Model):
                 "params": {"title": _("Gateway Connection"), "message": str(exc), "type": "danger", "sticky": True},
             }
         except requests.RequestException as exc:
-            msg = _("Gateway is unavailable or the connection timed out.")
+            try:
+                failed_url = self._gateway_base(for_request=False)
+            except ValidationError:
+                failed_url = self.gateway_url
+            msg = _friendly_gateway_request_error(exc, failed_url)
             if not self._write_test_result_if_current(expected_revision, {
                 "last_test_at": fields.Datetime.now(),
                 "last_test_status": "failed",
@@ -1531,6 +1705,35 @@ class PrintGatewayConfig(models.Model):
                 "params": {"title": _("Gateway Connection"), "message": msg, "type": "danger", "sticky": True},
             }
 
+
+    def action_reset_stale_sync_state(self):
+        """Recover from a removed/reconfigured Gateway without an RPC error.
+
+        Clears a stuck old-endpoint shutdown fence and unconfirmed revision so
+        a fresh Gateway URL + API key can synchronize from revision 0. Only
+        allowed when the operator explicitly requests recovery; never called
+        automatically.
+        """
+        self.ensure_one()
+        self._check_admin()
+        self.sudo().with_context(skip_enabled_sync=True).write({
+            "pending_disable_gateway_url": False,
+            "pending_disable_gateway_api_key": False,
+            "pending_disable_revision": -1,
+            "last_gateway_migration_sync_error": False,
+            "last_enabled_sync_error": False,
+            "pending_sync_revision": int(self.enabled_sync_revision or 0),
+            "pending_sync_started_at": fields.Datetime.now(),
+        })
+        self.invalidate_recordset([
+            "gateway_sync_state",
+            "gateway_sync_message",
+            "last_enabled_sync_error",
+            "pending_disable_gateway_url",
+            "pending_disable_gateway_api_key",
+            "pending_disable_revision",
+        ])
+        return {"type": "ir.actions.client", "tag": "reload"}
 
     def action_clear_api_key(self):
         """Remove the stored installation API key and reset test state."""
@@ -1607,7 +1810,10 @@ class PrintGatewayPairAgentWizard(models.TransientModel):
                 allow_redirects=False,
             )
             if response.status_code in (401, 403):
-                raise ValidationError(_("Gateway authentication failed. Please check your Gateway API key."))
+                raise ValidationError(_("Gateway authentication failed (HTTP %s). Check the Gateway API key and that the workspace has an active subscription.") % response.status_code)
+            redirect_message = _gateway_redirect_message(response, config.gateway_url)
+            if redirect_message:
+                raise ValidationError(redirect_message)
             if response.status_code != 200:
                 raise ValidationError(_("Gateway agent discovery failed (HTTP %s).") % response.status_code)
             body = response.json() if response.content else {}
@@ -1665,5 +1871,5 @@ class PrintGatewayPairAgentWizard(models.TransientModel):
         except ValidationError:
             raise
         except requests.RequestException as exc:
-            raise ValidationError(_("Gateway connection timed out while querying registered agents.")) from exc
+            raise ValidationError(str(_friendly_gateway_request_error(exc, config.gateway_url))) from exc
 

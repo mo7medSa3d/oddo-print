@@ -192,7 +192,7 @@ describe("desktop manager", () => {
 
     await waitUntil(() => text().includes("HP LaserJet Pro M404"));
 
-    expect(text()).toContain("Yasser Manager");
+    expect(text()).toContain("Yasser Print Manager");
     for (const label of ["Overview", "Printers", "Print Jobs", "Agents", "Settings"]) {
       expect(text()).toContain(label);
     }

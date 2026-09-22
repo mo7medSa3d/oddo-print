@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-  Deterministic Windows smoke test for the installed Yasser Manager.
+  Deterministic Windows smoke test for the installed Yasser Print Manager.
 
 .DESCRIPTION
   Verifies that the installed desktop app and bundled agent/CLI binaries exist,
@@ -14,7 +14,7 @@
 
 .EXAMPLE
   ./scripts/smoke-test-windows.ps1
-  ./scripts/smoke-test-windows.ps1 -InstallDir "$env:ProgramFiles\Yasser Manager"
+  ./scripts/smoke-test-windows.ps1 -InstallDir "$env:ProgramFiles\Yasser Print Manager"
 #>
 param(
   [string]$InstallDir = "",
@@ -26,14 +26,14 @@ $ErrorActionPreference = "Stop"
 
 if (-not $InstallDir) {
   $candidateDirs = @(
-    (Join-Path $env:ProgramFiles "Yasser\Yasser Manager"),
-    (Join-Path $env:ProgramFiles "Yasser Manager"),
+    (Join-Path $env:ProgramFiles "Yasser\Yasser Print Manager"),
+    (Join-Path $env:ProgramFiles "Yasser Print Manager"),
     (Join-Path $env:ProgramFiles "yasser-manager"),
-    (Join-Path ${env:ProgramFiles(x86)} "Yasser\Yasser Manager"),
-    (Join-Path ${env:ProgramFiles(x86)} "Yasser Manager"),
+    (Join-Path ${env:ProgramFiles(x86)} "Yasser\Yasser Print Manager"),
+    (Join-Path ${env:ProgramFiles(x86)} "Yasser Print Manager"),
     (Join-Path ${env:ProgramFiles(x86)} "yasser-manager"),
-    (Join-Path $env:LOCALAPPDATA "Programs\Yasser Manager"),
-    (Join-Path $env:LOCALAPPDATA "Yasser Manager")
+    (Join-Path $env:LOCALAPPDATA "Programs\Yasser Print Manager"),
+    (Join-Path $env:LOCALAPPDATA "Yasser Print Manager")
   )
   $InstallDir = $candidateDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
   if (-not $InstallDir) {
@@ -52,7 +52,7 @@ if (-not $InstallDir) {
     }
   }
   if (-not $InstallDir) {
-    $InstallDir = Join-Path $env:ProgramFiles "Yasser Manager"
+    $InstallDir = Join-Path $env:ProgramFiles "Yasser Print Manager"
   }
 }
 
@@ -83,18 +83,18 @@ function Assert-NotExited {
 
 $ErrorActionPreference = "Continue"
 
-Write-Host "== Yasser Manager Windows smoke test =="
+Write-Host "== Yasser Print Manager Windows smoke test =="
 Write-Host "Install dir: $InstallDir"
 Write-Host "Agent data dir: $agentDataDir"
 
 # 1. Installed / bundled files -------------------------------------------------
 $candidateAppExes = @(
   (Join-Path $InstallDir "yasser-manager.exe"),
-  (Join-Path $InstallDir "Yasser Manager.exe")
+  (Join-Path $InstallDir "Yasser Print Manager.exe")
 )
 $appExe = $candidateAppExes | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $appExe) {
-  $appExe = Get-ChildItem -Path $InstallDir -Filter "Yasser Manager*.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+  $appExe = Get-ChildItem -Path $InstallDir -Filter "Yasser Print Manager*.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
 }
 if (-not $appExe) {
   $appExe = Join-Path $InstallDir "yasser-manager.exe"
@@ -135,7 +135,7 @@ Get-Process -Name "YasserAgent" -ErrorAction SilentlyContinue | Stop-Process -Fo
 $desktop = $null
 try {
   $desktop = Start-Process -FilePath $appExe -PassThru
-  Assert-NotExited $desktop "Yasser Manager desktop process"
+  Assert-NotExited $desktop "Yasser Print Manager desktop process"
 } finally {
   if ($desktop -and -not $desktop.HasExited) {
     Stop-Process -Id $desktop.Id -Force -ErrorAction SilentlyContinue

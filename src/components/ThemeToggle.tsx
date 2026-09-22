@@ -27,15 +27,33 @@ function subscribe(onStoreChange: () => void) {
 
   const mq = window.matchMedia("(prefers-color-scheme: dark)");
   const onSchemeChange = () => {
-    if (localStorage.getItem("theme")) return;
+    try {
+      if (localStorage.getItem("theme")) return;
+    } catch {
+      return;
+    }
     document.documentElement.dataset.theme = mq.matches ? "dark" : "light";
+    syncColorScheme();
     emitThemeChange();
   };
-  mq.addEventListener("change", onSchemeChange);
+  // Older Windows WebView2 builds expose addListener/removeListener only.
+  const mqLegacy = mq as MediaQueryList & {
+    addListener?: (fn: () => void) => void;
+    removeListener?: (fn: () => void) => void;
+  };
+  if (typeof mq.addEventListener === "function") {
+    mq.addEventListener("change", onSchemeChange);
+  } else if (typeof mqLegacy.addListener === "function") {
+    mqLegacy.addListener(onSchemeChange);
+  }
   return () => {
     window.removeEventListener(THEME_EVENT, onStoreChange);
     window.removeEventListener("storage", onStoreChange);
-    mq.removeEventListener("change", onSchemeChange);
+    if (typeof mq.removeEventListener === "function") {
+      mq.removeEventListener("change", onSchemeChange);
+    } else if (typeof mqLegacy.removeListener === "function") {
+      mqLegacy.removeListener(onSchemeChange);
+    }
   };
 }
 
@@ -45,6 +63,11 @@ function getSnapshot(): Theme {
 
 function getServerSnapshot(): Theme {
   return "light";
+}
+
+function syncColorScheme() {
+  const dark = document.documentElement.dataset.theme === "dark";
+  document.documentElement.style.colorScheme = dark ? "dark" : "light";
 }
 
 /**
@@ -59,6 +82,7 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
   function toggle() {
     const next: Theme = theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = next;
+    syncColorScheme();
     try {
       localStorage.setItem("theme", next);
     } catch {

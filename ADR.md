@@ -1,7 +1,7 @@
 # Architecture Decision Records (ADR)
 
 > **Document Status**: Approved  
-> **Repository**: Odoo Print Gateway SaaS (`mo7medSa3d/oddo-print`)  
+> **Repository**: Yasser Cloud Printing Platform (`mo7medSa3d/oddo-print`)  
 > **Last Updated**: 2026-09-15
 
 ---

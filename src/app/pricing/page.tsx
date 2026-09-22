@@ -4,7 +4,7 @@ import { db } from "../../db";
 import { plans, tenantSubscriptions } from "../../db/schema";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { getManagerCookieName, validateManagerClaims, verifyManagerToken } from "../../lib/manager-auth";
-import { ArrowRight, Check, CreditCard, ShieldCheck } from "lucide-react";
+import { ArrowRight, Check, CreditCard, ShieldCheck, Sparkles } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -91,18 +91,46 @@ export default async function Pricing() {
         </div>
       ) : (
         <div className="mx-auto mt-8 grid max-w-[1200px] gap-5 lg:grid-cols-3">
-          {rows.map((plan) => {
+          {rows.map((plan, index) => {
             const isCurrent = plan.id === currentPlanId;
             const entries = Object.entries(plan.entitlements ?? {}).filter(([, value]) => value !== false).slice(0, 6);
+            // Modern plan spotlight: the middle tier is the compatibility
+            // pick, the top tier is the scale pick. Works for 2- and 3-plan
+            // catalogs without hardcoding plan names.
+            const spotlight: { label: string; hint: string } | null =
+              rows.length >= 3 && index === 1
+                ? { label: "Most Compatible", hint: "Fits most branches and teams" }
+                : rows.length >= 3 && index === 2
+                  ? { label: "Best for Scale", hint: "Multi-branch and high volume" }
+                  : rows.length === 2 && index === 1
+                    ? { label: "Most Compatible", hint: "Fits most branches and teams" }
+                    : null;
+            const highlighted = !!spotlight && !isCurrent;
 
             return (
               <article
                 key={plan.id}
                 className={`group relative flex min-h-[500px] flex-col overflow-hidden rounded-[18px] border bg-surface shadow-card transition-all duration-180 hover:-translate-y-px hover:shadow-md ${
-                  isCurrent ? "border-brand ring-1 ring-brand/10" : "border-edge hover:border-edge-accent"
+                  isCurrent
+                    ? "border-brand ring-1 ring-brand/10"
+                    : highlighted
+                      ? "border-brand-subtle-border ring-1 ring-brand/15 lg:-translate-y-1 lg:shadow-lg"
+                      : "border-edge hover:border-edge-accent"
                 }`}
               >
                 {isCurrent && <div className="h-1 bg-brand" aria-hidden="true" />}
+                {highlighted && (
+                  <div className="h-1 bg-gradient-to-r from-brand via-brand-400 to-brand" aria-hidden="true" />
+                )}
+                {spotlight && !isCurrent && (
+                  <div className="flex items-center justify-center gap-2 border-b border-brand-subtle-border bg-brand-subtle px-4 py-2">
+                    <Sparkles className="h-3.5 w-3.5 text-brand" aria-hidden />
+                    <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-brand-subtle-text">
+                      {spotlight.label}
+                    </span>
+                    <span className="hidden text-[11px] text-brand-subtle-text/80 sm:inline">· {spotlight.hint}</span>
+                  </div>
+                )}
 
                 <div className="border-b border-edge bg-surface px-6 py-7">
                   <div className="flex items-start justify-between gap-4">

@@ -1,12 +1,12 @@
 # Yasser — Cloud Printing Platform
 
-Silent Odoo enterprise printing through Yasser Gateway, Yasser Agent, and Yasser Manager.
+Silent Odoo enterprise printing through Yasser Gateway, Yasser Agent, and Yasser Print Manager.
 
 ```text
 Odoo ERP
   -> Yasser Gateway (HTTPS / WSS)
   -> Central Print Router
-  -> Yasser Agent / Yasser Manager
+  -> Yasser Agent / Yasser Print Manager
   -> Physical Hardware Printers
 ```
 

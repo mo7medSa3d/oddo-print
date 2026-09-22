@@ -8,7 +8,7 @@ import (
 /* ============================================================
    Printer classification — physical vs virtual vs redirected
    ------------------------------------------------------------
-   The Odoo Print Gateway must only ever route production work to
+   The Yasser Gateway must only ever route production work to
    REAL printing hardware. Windows, however, installs a software
    print queue for a great many things that never touch paper:
 

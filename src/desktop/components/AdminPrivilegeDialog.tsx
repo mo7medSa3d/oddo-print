@@ -78,7 +78,7 @@ export function AdminPrivilegeDialog({
           <div className="font-medium text-ink mb-1.5">How to relaunch as Administrator:</div>
           <ol className="list-decimal pl-5 space-y-1">
             <li>Close this application window.</li>
-            <li>Right-click the <strong>Yasser Manager</strong> application shortcut or executable.</li>
+            <li>Right-click the <strong>Yasser Print Manager</strong> application shortcut or executable.</li>
             <li>Select <strong>Run as administrator</strong> from the Windows context menu.</li>
           </ol>
         </div>

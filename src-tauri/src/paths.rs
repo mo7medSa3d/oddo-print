@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 static MANAGER_DATA_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static AGENT_DATA_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
-/// Root for writable Yasser Manager state.
+/// Root for writable Yasser Print Manager state.
 ///
 /// STRICTLY `%PROGRAMDATA%\YasserManager` on Windows: the desktop app and
 /// the Windows Service (LocalSystem) must read and write the SAME location,
