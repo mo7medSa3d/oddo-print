@@ -155,6 +155,7 @@ export async function POST(req: Request) {
           tenantId: claims.tenantId,
           planId: plan.id,
           status: "cancelled",
+          currentPeriodStart: new Date(),
           checkoutStatus: "creating",
           checkoutPlanId: plan.id,
           checkoutIdempotencyKey: idempotencyKey,
