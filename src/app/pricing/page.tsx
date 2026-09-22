@@ -54,12 +54,12 @@ export default async function Pricing() {
     <div className="mx-auto w-full max-w-[1440px] px-5 py-8 sm:px-7 lg:px-8 lg:py-12">
       <header className="mx-auto max-w-3xl text-center">
         <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
-          <CreditCard className="h-3.5 w-3.5 text-brand" /> Plans & capacity
+          <CreditCard className="h-3.5 w-3.5 text-brand" /> Plans
         </div>
         <h1 className="mt-4 text-[36px] font-bold leading-[1.06] tracking-[-0.045em] text-ink sm:text-[48px]">
-          Choose the capacity your workspace needs
+          Choose the plan that fits your operation
         </h1>
-        <p className="mx-auto mt-4 max-w-xl text-[14px] leading-6 text-ink-3">Compare plans and choose the right capacity.</p>
+        <p className="mx-auto mt-4 max-w-xl text-[14px] leading-6 text-ink-3">Compare plans by branches, printers, and print capacity.</p>
       </header>
 
       {rows.length === 0 ? (
@@ -172,7 +172,7 @@ export default async function Pricing() {
                 </div>
 
                 <div className="flex-1 px-6 py-7">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Included capacity</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Included</div>
                   <dl className="mt-3">
                     {entries.length > 0 ? entries.map(([key, value]) => (
                       <div key={key} className="flex items-center justify-between gap-4 border-t border-dashed border-edge-subtle py-3 first:border-t-0">
@@ -205,7 +205,7 @@ export default async function Pricing() {
                     </Link>
                   )}
                   <p className="mt-2.5 text-center text-[11px] text-ink-4">
-                    {isCurrent ? "No change is required." : claims ? "Continue through secure billing." : "Checkout opens securely through Stripe."}
+                    {isCurrent ? "No change is required." : claims ? "Continue through secure billing." : "Checkout is handled securely through Stripe."}
                   </p>
                 </div>
               </article>
