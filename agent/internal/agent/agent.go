@@ -41,10 +41,10 @@ const (
 	maxConcurrentJobs        = 8
 	maxPendingJobs           = 64
 	maxPendingJobsPerPrinter = 8
-	// WebSocket/read-loop rejection work is bounded and single-flight. The
-	// gateway's claim lease remains the final recovery mechanism if this
-	// queue is full or the session is cancelled.
+	// WebSocket/read-loop side work is bounded. The gateway's claim lease
+	// remains the final recovery mechanism if these best-effort queues fill.
 	maxRejectQueue = 32
+	maxWSAckQueue  = 64
 )
 
 // Gateway response bounds. Every control-plane response read is capped so a
@@ -112,6 +112,13 @@ type rejectWork struct {
 	claimToken string
 	reason     string
 	key        string
+}
+
+type wsAckWork struct {
+	ctx     context.Context
+	conn    *websocket.Conn
+	payload []byte
+	jobID   string
 }
 
 type Agent struct {
@@ -393,7 +400,7 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 		inFlightReceived: make(map[string]time.Time),
 		shutdownCh:       make(chan struct{}),
 		discoverySem:     make(chan struct{}, 1),
-		rejectQueue:      make(chan rejectWork, maxRejectQueue),
+			rejectQueue:      make(chan rejectWork, maxRejectQueue),
 		rejectPending:    make(map[string]struct{}),
 		desiredStates:    make(map[string]desiredPrinterRecord),
 		gatewayOwned:     make(map[string]struct{}),
@@ -826,7 +833,25 @@ func (a *Agent) connectWebSocket(ctx context.Context) {
 			log.Println("WebSocket connected.")
 
 			sessionCtx, sessionCancel := context.WithCancel(ctx)
-			err = a.handleWSMessages(sessionCtx)
+			sessionDone := make(chan struct{})
+			sessionAckQueue := make(chan wsAckWork, maxWSAckQueue)
+
+			// Context cancellation must actively wake ReadMessage. This watcher
+			// is tracked by runtimeWG and is session-scoped, so it cannot leave
+			// an orphaned reader behind during shutdown or test-controlled close.
+			a.launchTracked(func() {
+				select {
+				case <-sessionCtx.Done():
+					_ = c.Close()
+				case <-sessionDone:
+				}
+			})
+			a.launchTracked(func() {
+				a.runWSAckWorker(sessionCtx, sessionAckQueue)
+			})
+
+			err = a.handleWSMessages(sessionCtx, sessionAckQueue)
+			close(sessionDone)
 			sessionCancel()
 			a.setWSConn(nil)
 			_ = c.Close()
@@ -848,7 +873,7 @@ const wsIdleTimeout = 90 * time.Second
 // base64 payload of up to ~5 MiB. Anything larger is hostile or corrupt.
 const maxWSFrameBytes = 8 << 20
 
-func (a *Agent) handleWSMessages(ctx context.Context) error {
+func (a *Agent) handleWSMessages(ctx context.Context, ackQueue chan<- wsAckWork) error {
 	conn := a.getWSConn()
 	if conn == nil {
 		return fmt.Errorf("connection closed")
@@ -934,8 +959,8 @@ func (a *Agent) handleWSMessages(ctx context.Context) error {
 		// this prevents the Gateway from mistaking a pre-execution rejection for
 		// a locally accepted job.
 		if a.dispatchJob(ctx, job) {
-			if err := a.sendJobAck(jobID, jobClaimToken(job)); err != nil {
-				log.Printf("Job %s: failed to send job_ack after local admission: %v", jobID, err)
+			if err := a.enqueueJobAck(ctx, ackQueue, jobID, jobClaimToken(job)); err != nil {
+				log.Printf("Job %s: failed to queue job_ack after local admission: %v", jobID, err)
 			}
 		}
 	}
@@ -971,10 +996,15 @@ func extractJobFromWSMessage(msg map[string]interface{}) (map[string]interface{}
 	}
 }
 
-// sendJobAck writes {"type":"job_ack","jobId":"...","claimToken":"..."} back
-// to the gateway. The claim token attributes the ack to THIS delivery attempt
-// so the gateway's fenced predicates can reject a superseded frame.
-func (a *Agent) sendJobAck(jobID, claimToken string) error {
+// enqueueJobAck serializes ACK writes away from the WebSocket reader.
+// The queue is bounded: once full, the Agent deliberately drops the
+// best-effort ACK and relies on the fenced "printing" status report / poll
+// fallback for delivery evidence. ACK order remains FIFO within a connection
+// because runWSAckWorker is the sole data writer for that session.
+func (a *Agent) enqueueJobAck(ctx context.Context, queue chan<- wsAckWork, jobID, claimToken string) error {
+	if queue == nil {
+		return fmt.Errorf("websocket ACK queue is unavailable")
+	}
 	conn := a.getWSConn()
 	if conn == nil {
 		return fmt.Errorf("no websocket connection")
@@ -987,12 +1017,37 @@ func (a *Agent) sendJobAck(jobID, claimToken string) error {
 	if err != nil {
 		return err
 	}
-	a.wsWriteMu.Lock()
-	defer a.wsWriteMu.Unlock()
-	if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		return err
+	work := wsAckWork{ctx: ctx, conn: conn, payload: payload, jobID: jobID}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case queue <- work:
+		return nil
+	default:
+		return fmt.Errorf("websocket ACK queue full (%d)", maxWSAckQueue)
 	}
-	return conn.WriteMessage(websocket.TextMessage, payload)
+}
+
+func (a *Agent) runWSAckWorker(ctx context.Context, queue <-chan wsAckWork) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case work := <-queue:
+			if work.ctx.Err() != nil {
+				continue
+			}
+			a.wsWriteMu.Lock()
+			if work.ctx.Err() == nil && work.conn == a.getWSConn() && work.conn != nil {
+				if err := work.conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+					log.Printf("Job %s: failed to set ACK write deadline: %v", work.jobID, err)
+				} else if err := work.conn.WriteMessage(websocket.TextMessage, work.payload); err != nil {
+					log.Printf("Job %s: failed to write job_ack: %v", work.jobID, err)
+				}
+			}
+			a.wsWriteMu.Unlock()
+		}
+	}
 }
 
 // dispatchJob schedules exactly one job for execution under three safety
