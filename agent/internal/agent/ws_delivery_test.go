@@ -36,6 +36,11 @@ type recordingGateway struct {
 	// exact fence rejection a real gateway emits for a superseded claim.
 	// Tests the agent-side hard stop: zero bytes may follow such a response.
 	rejectPrinting bool
+	// blockQueuedReject makes the first pre-execution hand-back PATCH wait
+	// until releaseQueuedReject. This is used to prove the WS reader can
+	// continue consuming frames while rejection I/O is slow.
+	blockQueuedReject chan struct{}
+	queuedRejectStarted chan struct{}
 	server         *httptest.Server
 	sendCh         chan interface{}
 }
@@ -82,7 +87,18 @@ func newRecordingGateway(t *testing.T) *recordingGateway {
 			g.mu.Lock()
 			g.updates = append(g.updates, body)
 			reject := g.rejectPrinting && body.Status == "printing"
+			blockQueued := g.blockQueuedReject != nil && body.Status == "queued"
+			if blockQueued && g.queuedRejectStarted != nil && len(g.updates) >= 1 {
+				select {
+				case <-g.queuedRejectStarted:
+				default:
+					close(g.queuedRejectStarted)
+				}
+			}
 			g.mu.Unlock()
+			if blockQueued {
+				<-g.blockQueuedReject
+			}
 			if reject {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusConflict)
@@ -242,6 +258,54 @@ func TestDuplicateWSDeliveryPrintsOnceAndAcksAcceptedDeliveries(t *testing.T) {
 	if successes < 2 {
 		t.Fatalf("terminal result must be re-reported on duplicate delivery, got %d success updates", successes)
 	}
+}
+
+func TestWSReaderRemainsResponsiveWhileRejectionHTTPIsBlocked(t *testing.T) {
+	gw := newRecordingGateway(t)
+	gw.blockQueuedReject = make(chan struct{})
+	gw.queuedRejectStarted = make(chan struct{})
+	p := &fakePrinter{}
+	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Keep both deliveries above the local admission ceiling. The WS reader
+	// should enqueue their fenced hand-backs and immediately return to
+	// ReadMessage; the first HTTP PATCH is intentionally blocked.
+	for i := 0; i < maxPendingJobs; i++ {
+		ag.pendingSlots <- struct{}{}
+	}
+	defer func() {
+		for i := 0; i < maxPendingJobs; i++ {
+			<-ag.pendingSlots
+		}
+	}()
+
+	ag.launchTracked(func() { ag.runRejectWorker(ctx) })
+	go ag.connectWebSocket(ctx)
+	waitFor(t, 5*time.Second, func() bool { return ag.getWSConn() != nil })
+
+	gw.sendCh <- claimedEnvelope("job_ws_reject_block_1", "p1")
+	gw.sendCh <- claimedEnvelope("job_ws_reject_block_2", "p1")
+
+	select {
+	case <-gw.queuedRejectStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first rejection PATCH never started")
+	}
+
+	waitFor(t, 2*time.Second, func() bool {
+		ag.rejectMu.Lock()
+		defer ag.rejectMu.Unlock()
+		return len(ag.rejectPending) == 2
+	})
+
+	// With the old synchronous design the reader would still be blocked in
+	// rejectJob for the first PATCH, so the second frame could not have been
+	// consumed. Seeing both keys queued proves the reader stayed responsive.
+	close(gw.blockQueuedReject)
+	cancel()
+	ag.runtimeWG.Wait()
 }
 
 func TestWSDeliveryDoesNotAckWhenLocalExecutorIsFull(t *testing.T) {
