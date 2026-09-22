@@ -1510,23 +1510,55 @@ class PrintGatewayConfig(models.Model):
         return {"type": "ir.actions.client", "tag": "reload"}
 
     def _write_test_result_if_current(self, expected_revision, values):
-        """Persist a connection-test result only if no newer sync revision won."""
+        """Persist a connection-test result on an independent cursor.
+
+        Test Connection can overlap a concurrent configuration save or another
+        test. Keep the RPC transaction out of this write path so a PostgreSQL
+        serialization conflict cannot abort the whole Odoo request and surface
+        as RPC_ERROR. The same revision fence still decides whether the result
+        is authoritative.
+        """
         self.ensure_one()
-        self.env.cr.execute(
-            "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE" % self._table,
-            [self.id],
-        )
-        row = self.env.cr.fetchone()
-        if not row or int(row[0] or 0) != int(expected_revision):
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, api.SUPERUSER_ID, {})
+            config = env["print_gateway.gateway_config"].browse(self.id).exists()
+            if not config:
+                cr.rollback()
+                return False
+
+            cr.execute(
+                "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE" % self._table,
+                [self.id],
+            )
+            row = cr.fetchone()
+            if not row or int(row[0] or 0) != int(expected_revision):
+                cr.rollback()
+                return False
+
+            config.with_context(skip_enabled_sync=True).write(values)
+            cr.commit()
+            self.invalidate_recordset([
+                "enabled",
+                "enabled_sync_revision",
+                "last_enabled_sync_revision",
+                "last_enabled_sync_error",
+                "last_test_at",
+                "last_test_status",
+                "last_test_error",
+            ])
+            return True
+        except Exception:
+            cr.rollback()
+            _logger.warning(
+                "Could not persist Gateway connection-test result for config %s; "
+                "the result may have been superseded by a concurrent update",
+                self.id,
+                exc_info=True,
+            )
             return False
-        self.invalidate_recordset([
-            "enabled",
-            "enabled_sync_revision",
-            "last_enabled_sync_revision",
-            "last_enabled_sync_error",
-        ])
-        self.write(values)
-        return True
+        finally:
+            cr.close()
 
     def action_test_connection(self):
         self.ensure_one()
