@@ -63,8 +63,11 @@ describe("production fixes contracts (2026-09)", () => {
     expect(doc).toContain("if _, hasDeadline := parent.Deadline(); hasDeadline {");
     // executor saturation / shutdown reject the job FENCED with the claim
     // token instead of silently dropping delivered work.
-    expect(agent).toContain('a.rejectJob(ctx, jobID, jobClaimToken(job), "pending_full")');
-    expect(agent).toContain('a.rejectJob(ctx, jobID, jobClaimToken(job), "agent_shutting_down")');
+    expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "pending_full")');
+    expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "agent_shutting_down")');
+    expect(agent).toContain("func (a *Agent) runRejectWorker(ctx context.Context)");
+    expect(agent).toContain("const maxRejectQueue = 32");
+    expect(agent).toContain("func (a *Agent) rejectJobExact(ctx context.Context, jobID, token, reason string) error");
     expect(agent).toMatch(/discoverySem:\s*make\(chan struct\{\}, 1\)/);
     const net = read("agent/internal/printer/network.go");
     // 2025-09-21: reduced from 10s to 5s for faster offline feedback (POS best practice)
