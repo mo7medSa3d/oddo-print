@@ -52,13 +52,13 @@ export default function PlatformSubscriptionsPage() {
   );
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
             <ShieldAlert className="h-3.5 w-3.5" /> Control Plane • Billing
           </div>
-          <h1 className="mt-4 flex items-center gap-2.5 text-[26px] font-bold tracking-[-0.02em] text-white leading-tight">
+          <h1 className="mt-4 flex items-center gap-2.5 text-[28px] font-bold tracking-[-0.04em] text-white leading-tight">
             <CreditCard className="h-6 w-6 text-blue-400" /> Subscriptions
           </h1>
           <p className="mt-2 text-[13px] leading-relaxed text-slate-400">Global SaaS plans, Stripe customer mapping, and billing states — Stripe source of truth.</p>
@@ -72,17 +72,17 @@ export default function PlatformSubscriptionsPage() {
 
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by tenant name, ID, or Stripe customer ID…" className="w-full rounded-[12px] border border-white/[0.08] bg-[#12141f] py-2.5 pl-10 pr-4 text-[13px] text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500/30 focus:ring-2 focus:ring-blue-500/15" />
+        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by tenant name, ID, or Stripe customer ID…" className="w-full rounded-[12px] border border-white/[0.08] bg-[#12151b] py-2.5 pl-10 pr-4 text-[13px] text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500/30 focus:ring-2 focus:ring-blue-500/15" />
       </div>
 
-      <div className="overflow-hidden rounded-[14px] border border-white/[0.06] bg-[#12141f]">
+      <div className="overflow-hidden rounded-[14px] border border-white/[0.06] bg-[#12151b]">
         <div className="border-b border-white/[0.06] px-5 py-4">
           <h2 className="text-[13px] font-semibold text-white">Subscriptions • {filtered.length}</h2>
           <p className="mt-0.5 text-[11px] text-slate-500">Stripe billing states • cancel_at_period_end honored • no fake values</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left text-[13px] text-slate-300">
-            <thead className="border-b border-white/[0.06] bg-[#0c0e1a] text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <thead className="border-b border-white/[0.06] bg-[#0b0e13] text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               <tr><th className="px-5 py-3">Tenant</th><th className="px-5 py-3">Plan</th><th className="px-5 py-3">Billing Status</th><th className="px-5 py-3">Stripe Customer</th><th className="px-5 py-3">Period End</th><th className="px-5 py-3">Created</th></tr>
             </thead>
             <tbody className="divide-y divide-white/[0.04]">
