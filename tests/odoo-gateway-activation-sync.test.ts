@@ -4,7 +4,6 @@ import path from "node:path";
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
 import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, closePool, pool, type Fixture } from "./helpers/pg";
 import { PATCH as configurationPATCH } from "../src/app/api/odoo/configuration/route";
-import { GET as healthGET } from "../src/app/api/odoo/health/route";
 import { POST as printJobsPOST } from "../src/app/api/print/jobs/route";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -15,6 +14,7 @@ describe("Odoo Gateway activation synchronization", () => {
     const route = read("src/app/api/odoo/configuration/route.ts");
     const schema = read("src/db/schema.ts");
     const migration = read("drizzle/0058_scope_odoo_activation_to_api_key.sql");
+    const cleanupMigration = read("drizzle/0059_remove_api_key_restrictions.sql");
 
     expect(route).toContain("validateOdooKey");
     expect(route).toContain("odooEnabledRevision");
@@ -34,11 +34,15 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(schema).toContain("api_keys_odoo_enabled_revision_check");
     expect(route).not.toContain("tenants.odooEnabled");
     expect(auth).not.toContain("tenants.odooEnabled");
+    expect(schema).not.toContain('scope: text("scope")');
+    expect(schema).not.toContain('allowed_document_types');
 
     expect(migration).toContain('ALTER TABLE "api_keys"');
     expect(migration).toContain('UPDATE "api_keys" AS k');
     expect(migration).toContain('Every existing key in a tenant inherits the former tenant-wide activation');
     expect(migration).toContain('DROP COLUMN IF EXISTS "odoo_enabled"');
+    expect(cleanupMigration).toContain('DROP COLUMN IF EXISTS "scope"');
+    expect(cleanupMigration).toContain('DROP COLUMN IF EXISTS "allowed_document_types"');
   });
 
   describe.skipIf(!hasTestDatabase)("runtime behavior", () => {
