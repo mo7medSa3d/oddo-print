@@ -89,6 +89,8 @@ export async function GET(req: Request) {
         success: sql<number>`count(*) filter (where ${printJobs.status} = 'success')::int`,
         failed: sql<number>`count(*) filter (where ${printJobs.status} = 'failed')::int`,
         queued: sql<number>`count(*) filter (where ${printJobs.status} = 'queued')::int`,
+        inFlight: sql<number>`count(*) filter (where ${printJobs.status} in ('claimed','printing'))::int`,
+        expired: sql<number>`count(*) filter (where ${printJobs.status} = 'expired')::int`,
       }).from(printJobs).where(gte(printJobs.createdAt, new Date(Date.now() - 24 * 60 * 60 * 1000))),
     ]),
     8_000,
@@ -101,6 +103,6 @@ export async function GET(req: Request) {
     users: userStats[0] ?? { total: 0, verified: 0 },
     agents: agentStats[0] ?? { total: 0, online: 0, offline: 0 },
     printers: printerStats[0] ?? { total: 0, online: 0, offline: 0 },
-    jobs24h: jobStats24h[0] ?? { total: 0, success: 0, failed: 0, queued: 0 },
+    jobs24h: jobStats24h[0] ?? { total: 0, success: 0, failed: 0, queued: 0, inFlight: 0, expired: 0 },
   });
 }
