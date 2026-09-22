@@ -57,13 +57,13 @@ suite("atomic Agent job status transitions", () => {
     await insertQueuedJob(f, "job_late_plain");
     await pool().query(`UPDATE print_jobs SET status='failed', error='CONNECTION_ERROR: refused', updated_at=now() WHERE id='job_late_plain'`);
     expect((await patch("job_late_plain", "success")).status).toBe(409);
-    // 2. A gateway-timeout failure WITHIN 24h may be overridden by the true
-    // physical outcome the agent reports.
+    // 2. A gateway-timeout failure WITHIN 24h may be reconciled when the agent
+    // reports execution completion. Current transports still cannot prove paper output.
     await insertQueuedJob(f, "job_late_ok");
     await pool().query(`UPDATE print_jobs SET status='failed', error='AGENT_EXECUTION_TIMEOUT: agent execution lease expired (physical output is unknown; manual reconciliation required)', updated_at=now() WHERE id='job_late_ok'`);
     const ok = await patch("job_late_ok", "success");
     expect(ok.status).toBe(200);
-    expect(((await ok.json()) as { physicalOutcome?: string }).physicalOutcome).toBe("printed");
+    expect(((await ok.json()) as { physicalOutcome?: string }).physicalOutcome).toBe("unknown");
     // 3. The same marker past the 24h TTL is no longer overridable.
     await insertQueuedJob(f, "job_late_stale");
     await pool().query(`UPDATE print_jobs SET status='failed', error='AGENT_RESTART_DURING_PRINT: crashed', updated_at=now() - interval '25 hours' WHERE id='job_late_stale'`);
@@ -79,7 +79,7 @@ suite("atomic Agent job status transitions", () => {
     expect((await jobRow("job_late_attempt")).status).toBe("failed");
     const lateOwn = await patch("job_late_attempt", "success", "tok-attempt-a");
     expect(lateOwn.status).toBe(200);
-    expect(((await lateOwn.json()) as { physicalOutcome?: string }).physicalOutcome).toBe("printed");
+    expect(((await lateOwn.json()) as { physicalOutcome?: string }).physicalOutcome).toBe("unknown");
   });
 
 });
