@@ -28,7 +28,6 @@ import {
   Wifi,
   Usb,
   Layers,
-  Clock,
   AlertTriangle,
   RotateCcw,
   Eye,
