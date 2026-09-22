@@ -187,6 +187,7 @@ async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string): 
       AND ts.status IN ('trialing','active','past_due')
       AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
     LIMIT 1
+    FOR UPDATE OF ts, p
   `);
   const row = result.rows[0] as TenantPrintQuotaRow | undefined;
   if (!row) throw new TenantSubscriptionRequiredError();
