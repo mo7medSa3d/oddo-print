@@ -66,6 +66,18 @@ suite("real PostgreSQL runtime architecture gate", () => {
     expect(job.rows[0]).toMatchObject({ id:'job_pg',agent_id:'agt_pg',printer_id:'prn_pg',destination:'POS' });
   });
 
+  it("preserves Stripe subscription lifecycle states", async () => {
+    const result = await pool().query(`
+      SELECT pg_get_constraintdef(oid) AS definition
+      FROM pg_constraint
+      WHERE conname = 'tenant_subscriptions_status_check'
+    `);
+    expect(result.rows).toHaveLength(1);
+    const definition = String(result.rows[0].definition);
+    for (const state of ["trialing", "active", "past_due", "incomplete", "incomplete_expired", "unpaid", "paused", "cancelled"]) {
+      expect(definition).toContain(state);
+    }
+  });
   it("enforces tenant-scoped idempotency keys", async () => {
     await pool().query(`INSERT INTO tenants (id, name) VALUES ('tenant_arch', 'Arch Test Tenant') ON CONFLICT (id) DO NOTHING`);
     await pool().query(`INSERT INTO agents (id,tenant_id,name,lifecycle,status) VALUES ('agt_unique','tenant_arch','Agent','active','online')`);
