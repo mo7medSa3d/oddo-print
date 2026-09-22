@@ -142,6 +142,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     if (error instanceof Error && error.message === "PLAN_NOT_FOUND") {
       return NextResponse.json({ error: "Plan not found.", code: "PLAN_NOT_FOUND" }, { status: 404 });
     }
+    if (error instanceof Error && error.message === "PLAN_CHANGED_RETRY") {
+      return NextResponse.json({ error: "The plan billing configuration changed while you were editing it. Reload and retry.", code: "PLAN_CHANGED_RETRY" }, { status: 409 });
+    }
     if (error instanceof StripePriceBindingError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     }
@@ -160,6 +163,21 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       `);
       const current = currentRows.rows[0] as Record<string, unknown> | undefined;
       if (!current) throw new Error("PLAN_NOT_FOUND");
+
+      const touchesStripeBinding =
+        patch.stripePriceId !== undefined ||
+        patch.stripeProductId !== undefined ||
+        patch.currency !== undefined ||
+        patch.interval !== undefined ||
+        patch.isActive !== undefined;
+      if (touchesStripeBinding && currentForValidation) {
+        const guardedFields = ["stripePriceId", "stripeProductId", "currency", "interval", "isActive"];
+        for (const field of guardedFields) {
+          if (String(current[field] ?? null) !== String(currentForValidation[field] ?? null)) {
+            throw new Error("PLAN_CHANGED_RETRY");
+          }
+        }
+      }
 
       // Existing subscriptions remain attached to this plan. Changing the
       // current Stripe price only changes the price used by future checkout.
