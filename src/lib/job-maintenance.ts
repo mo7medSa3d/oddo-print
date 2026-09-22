@@ -82,7 +82,6 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       error='UNKNOWN_PARTIAL_DELIVERY: claim lease expired after delivery without an execution report (physical output is unknown; manual reconciliation required)',
       claim_token=NULL,
       claimed_at=NULL,
-      delivered_at=COALESCE(delivered_at, now()),
       updated_at=now()
     FROM candidates
     WHERE print_jobs.id = candidates.id
