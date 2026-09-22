@@ -62,7 +62,7 @@ export default function PlatformAuditPage() {
 
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by action (e.g. tenant.suspended, agent.paired), tenant, or actor ID…" className="w-full rounded-[12px] border border-white/[0.08] bg-[#12151b] pl-10 pr-4 py-2.5 text-[13px] text-slate-100 placeholder-slate-500 outline-none focus:border-indigo-500/30 focus:ring-2 focus:ring-indigo-500/15" />
+        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by action (e.g. tenant.suspended, agent.paired), tenant, or actor ID…" className="w-full rounded-[12px] border border-white/[0.08] bg-[#12151b] pl-10 pr-4 py-2.5 text-[13px] text-slate-100 placeholder-slate-500 outline-none focus:border-brand-500/30 focus:ring-2 focus:ring-brand-500/15" />
       </div>
 
       <div className="overflow-hidden rounded-[14px] border border-white/[0.06] bg-[#12151b]">
