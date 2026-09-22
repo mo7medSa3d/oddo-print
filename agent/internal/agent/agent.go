@@ -41,6 +41,10 @@ const (
 	maxConcurrentJobs        = 8
 	maxPendingJobs           = 64
 	maxPendingJobsPerPrinter = 8
+	// WebSocket/read-loop rejection work is bounded and single-flight. The
+	// gateway's claim lease remains the final recovery mechanism if this
+	// queue is full or the session is cancelled.
+	maxRejectQueue = 32
 )
 
 // Gateway response bounds. Every control-plane response read is capped so a
@@ -101,6 +105,14 @@ func printDocumentTimeout(payloadBytes int) time.Duration {
 }
 
 const printerLockShards = 128
+
+type rejectWork struct {
+	ctx        context.Context
+	jobID      string
+	claimToken string
+	reason     string
+	key        string
+}
 
 type Agent struct {
 	cfg          *config.Config
@@ -164,6 +176,14 @@ type Agent struct {
 	shutdownGate sync.RWMutex
 	// runtimeWG tracks background goroutines owned by Run until shutdown drains them.
 	runtimeWG sync.WaitGroup
+
+	// rejectQueue is the bounded hand-back path used by the WS reader when
+	// local admission is saturated. The reader never performs the HTTP PATCH
+	// itself. Each work item carries the connection/session context so a closed
+	// WebSocket cancels stale rejection work before it can mutate Gateway state.
+	rejectQueue   chan rejectWork
+	rejectMu      sync.Mutex
+	rejectPending map[string]struct{}
 
 	wsMu   sync.RWMutex
 	wsConn *websocket.Conn
@@ -373,6 +393,8 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 		inFlightReceived: make(map[string]time.Time),
 		shutdownCh:       make(chan struct{}),
 		discoverySem:     make(chan struct{}, 1),
+		rejectQueue:      make(chan rejectWork, maxRejectQueue),
+		rejectPending:    make(map[string]struct{}),
 		desiredStates:    make(map[string]desiredPrinterRecord),
 		gatewayOwned:     make(map[string]struct{}),
 		desiredStatePath: desiredStatePath(configPath),
@@ -613,6 +635,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.recoverInterruptedJobs(ctx)
 
 	a.launchTracked(func() { a.connectWebSocket(ctx) })
+	a.launchTracked(func() { a.runRejectWorker(ctx) })
 	a.launchTracked(func() { a.runInitialAsyncDiscovery(ctx) })
 
 	heartbeatTicker := time.NewTicker(30 * time.Second)
@@ -632,7 +655,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer cleanupTicker.Stop()
 
 	// Send an immediate heartbeat/poll on startup instead of waiting a full tick.
-	a.launchTracked(func() { a.sendHeartbeatGuarded() })
+	a.launchTracked(func() { a.sendHeartbeatGuardedContext(ctx) })
 	a.launchTracked(func() { a.pollJobsGuarded(ctx) })
 	a.launchTracked(func() { a.pollDiscovery(ctx) })
 
@@ -653,7 +676,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-heartbeatTicker.C:
 			// Never block the select loop: heartbeat probes TCP-reachability
 			// of every configured printer, which can take seconds when offline.
-			a.launchTracked(func() { a.sendHeartbeatGuarded() })
+			a.launchTracked(func() { a.sendHeartbeatGuardedContext(ctx) })
 		case <-pollTicker.C:
 			// Poll is the primary delivery path while the WebSocket is down.
 			// While the socket IS up it still runs as a safety net every
@@ -794,7 +817,9 @@ func (a *Agent) connectWebSocket(ctx context.Context) {
 			a.setWSConn(c)
 			log.Println("WebSocket connected.")
 
-			err = a.handleWSMessages(ctx)
+			sessionCtx, sessionCancel := context.WithCancel(ctx)
+			err = a.handleWSMessages(sessionCtx)
+			sessionCancel()
 			a.setWSConn(nil)
 			_ = c.Close()
 			if err != nil {
@@ -995,7 +1020,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) boo
 		// PATCH fails (network down), the undelivered-claim sweep remains
 		// the safe backstop: it only re-queues claims that never showed
 		// delivery evidence.
-		a.rejectJob(ctx, jobID, jobClaimToken(job), "agent_shutting_down")
+		a.enqueueReject(ctx, jobID, jobClaimToken(job), "agent_shutting_down")
 		return false
 	default:
 	}
@@ -1019,7 +1044,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) boo
 		a.inFlightMu.Unlock()
 		a.shutdownGate.RUnlock()
 		log.Printf("Job %s dropped: printer %s has reached the per-printer pending ceiling (%d); handing it back to the gateway queue.", jobID, pendingPrinter, maxPendingJobsPerPrinter)
-		a.rejectJob(ctx, jobID, jobClaimToken(job), "printer_pending_full")
+		a.enqueueReject(ctx, jobID, jobClaimToken(job), "printer_pending_full")
 		return false
 	}
 	a.inFlight[jobID] = struct{}{}
@@ -1055,7 +1080,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) boo
 		// agent holding a big backlog cannot burn jobs into a delivery-budget
 		// failure (see the reject gate in src/app/api/agent/jobs).
 		// Best-effort: the lease reclaim is the backstop if this PATCH fails.
-		a.rejectJob(ctx, jobID, jobClaimToken(job), "pending_full")
+		a.enqueueReject(ctx, jobID, jobClaimToken(job), "pending_full")
 		return false
 	}
 
@@ -1195,16 +1220,12 @@ func (a *Agent) inFlightJobIDs(limit int) []map[string]string {
 // temporarily overloaded agent never drives a healthy backlog into
 // 'exceeded max retries'. Best-effort — the gateway's 90s claim-lease
 // reclaim remains the backstop if this request fails or races.
-func (a *Agent) rejectJob(ctx context.Context, jobID, token, reason string) {
+func (a *Agent) rejectJob(ctx context.Context, jobID, token, reason string) error {
 	if live := a.currentClaimToken(jobID); live != "" {
 		token = live
 	}
 	reqURL := fmt.Sprintf("%s/api/agent/jobs", a.cfg.Server.URL)
 	body := map[string]interface{}{
-		// status "queued" + an explicit pre-execution reason is the
-		// gateway's fenced rejection gate (claimed -> queued without
-		// burning retries). The claim token proves WHICH attempt is
-		// rejecting; a superseded claim cannot disturb the new one.
 		"jobId":  jobID,
 		"status": "queued",
 		"reason": reason,
@@ -1214,14 +1235,76 @@ func (a *Agent) rejectJob(ctx context.Context, jobID, token, reason string) {
 	}
 	resp, err := a.doAuthorizedRequest(ctx, "PATCH", reqURL, body)
 	if err != nil {
-		log.Printf("Job %s: failed to report pending-full rejection: %v (claim lease remains the backstop)", jobID, err)
-		return
+		log.Printf("Job %s: failed to report pre-execution rejection: %v (claim lease remains the backstop)", jobID, err)
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes))
-		log.Printf("Job %s: server rejected the pending-full rejection (%d): %s", jobID, resp.StatusCode, string(respBody))
+		log.Printf("Job %s: server rejected the pre-execution rejection (%d): %s", jobID, resp.StatusCode, string(respBody))
+		return fmt.Errorf("gateway rejected job hand-back: HTTP %d", resp.StatusCode)
 	}
+	return nil
+}
+
+func rejectKey(jobID, token, reason string) string {
+	return jobID + "\x00" + token + "\x00" + reason
+}
+
+// enqueueReject never performs network I/O. It registers at most one queued
+// rejection per (job, claim token, reason), then places it into a bounded
+// channel. A full queue deliberately drops the best-effort signal: the
+// Gateway's lease/reclaim path is the authoritative recovery backstop.
+func (a *Agent) enqueueReject(ctx context.Context, jobID, token, reason string) bool {
+	if jobID == "" {
+		return false
+	}
+	if live := a.currentClaimToken(jobID); live != "" {
+		token = live
+	}
+	key := rejectKey(jobID, token, reason)
+
+	a.rejectMu.Lock()
+	if _, exists := a.rejectPending[key]; exists {
+		a.rejectMu.Unlock()
+		return true
+	}
+	work := rejectWork{ctx: ctx, jobID: jobID, claimToken: token, reason: reason, key: key}
+	select {
+	case <-ctx.Done():
+		a.rejectMu.Unlock()
+		return false
+	case a.rejectQueue <- work:
+		a.rejectPending[key] = struct{}{}
+		a.rejectMu.Unlock()
+		return true
+	default:
+		a.rejectMu.Unlock()
+		log.Printf("Job %s: rejection queue full (%d); relying on gateway claim lease for recovery", jobID, maxRejectQueue)
+		return false
+	}
+}
+
+// runRejectWorker is the only owner that performs queued pre-execution
+// rejection network calls. It is tracked by runtimeWG, consumes a bounded
+// queue, and uses the original session context so disconnect/shutdown cancels
+// stale work instead of mutating a newer lifecycle.
+func (a *Agent) runRejectWorker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case work := <-a.rejectQueue:
+			if err := work.ctx.Err(); err == nil {
+				_ = a.rejectJob(work.ctx, work.jobID, work.claimToken, work.reason)
+			}
+			a.rejectMu.Lock()
+			delete(a.rejectPending, work.key)
+			a.rejectMu.Unlock()
+		}
+	}
+}
+
 }
 
 // waitForJobs blocks until in-flight job handlers finish (bounded by
@@ -1270,11 +1353,18 @@ func (a *Agent) getPrinterLock(printerID string) *sync.Mutex {
 // heartbeat is still running (slow gateway, many offline printers) the tick
 // is skipped instead of queueing up duplicate probes and HTTP calls.
 func (a *Agent) sendHeartbeatGuarded() {
+	a.sendHeartbeatGuardedContext(context.Background())
+}
+
+// sendHeartbeatGuardedContext makes production heartbeat ticks cancellable by
+// the Agent lifecycle while preserving the background-context helper used by
+// direct diagnostic tests.
+func (a *Agent) sendHeartbeatGuardedContext(ctx context.Context) {
 	if !a.hbMu.TryLock() {
 		return
 	}
 	defer a.hbMu.Unlock()
-	a.sendHeartbeat()
+	a.sendHeartbeatContext(ctx)
 }
 
 // pollJobsGuarded is the non-reentrant variant for the poll fallback.
@@ -1734,6 +1824,10 @@ func (a *Agent) reloadRegistryPrinters() {
 }
 
 func (a *Agent) sendHeartbeat() {
+	a.sendHeartbeatContext(context.Background())
+}
+
+func (a *Agent) sendHeartbeatContext(parent context.Context) {
 	a.reloadRegistryPrinters()
 	reqURL := fmt.Sprintf("%s/api/agent/heartbeat", a.cfg.Server.URL)
 	payload := map[string]interface{}{
@@ -1753,7 +1847,7 @@ func (a *Agent) sendHeartbeat() {
 	if ids := a.inFlightJobIDs(64); len(ids) > 0 {
 		payload["keepAliveJobIds"] = ids
 	}
-	heartbeatCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	heartbeatCtx, cancel := context.WithTimeout(parent, 15*time.Second)
 	defer cancel()
 	resp, err := a.doAuthorizedRequest(heartbeatCtx, "POST", reqURL, payload)
 	if err != nil {
@@ -1947,6 +2041,17 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// repeated under that fence immediately before any physical dispatch.
 	reportStart := time.Now()
 	if err := a.updateJobStatus(ctx, jobID, "printing", "", claimToken); err != nil {
+		// Context cancellation is an authoritative local lifecycle signal, not
+		// a generic gateway transport failure. Never use the stale-claim
+		// freshness heuristic to proceed to hardware after shutdown/session
+		// cancellation.
+		if ctx.Err() != nil {
+			log.Printf("Job %s: printing report cancelled by agent lifecycle; aborting before hardware", jobID)
+			if aberr := a.queue.AbortPrint(jobID, "dispatch_refused: agent context cancelled before physical dispatch; zero bytes transmitted"); aberr != nil {
+				log.Printf("Job %s: failed to abort local ledger row: %v", jobID, aberr)
+			}
+			return
+		}
 		if proceed, reason := a.authorizeDispatchAfterReportFailure(jobID, expiresAtStr, err); !proceed {
 			log.Printf("Job %s: physical dispatch refused (%s); aborting before any byte is sent", jobID, reason)
 			if aberr := a.queue.AbortPrint(jobID, "dispatch_refused: "+reason+"; zero bytes transmitted"); aberr != nil {
@@ -2038,7 +2143,11 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 				drawerCmd = printer.DrawerKickPin5
 			}
 			_ = p.Print(printCtx, drawerCmd)
-			time.Sleep(150 * time.Millisecond)
+			select {
+			case <-printCtx.Done():
+				return
+			case <-time.After(150 * time.Millisecond):
+			}
 			profile.DrawerKickMode = "none"
 		}
 		printData = printer.WrapPeripheralCommands(printData, pl.Protocol, profile)
