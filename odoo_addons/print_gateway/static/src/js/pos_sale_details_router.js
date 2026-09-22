@@ -70,12 +70,12 @@ patch(SaleDetailsButton.prototype, {
             }
             if (["unknown", "partial"].includes(result?.status)) {
                 this.env.services.notification.add(
-                    "Print outcome unknown - the report may or may not have printed. Check the printer before reprinting.",
+                    "Print status is unknown. Check the printer before trying again.",
                     { type: "warning", sticky: true }
                 );
             } else {
                 this.env.services.notification.add(
-                    result.message || "Sale Details print job accepted by the Gateway queue.",
+                    result.message || "Sales Details sent to the printing service.",
                     { type: "success" }
                 );
             }
@@ -84,7 +84,7 @@ patch(SaleDetailsButton.prototype, {
             // Fail-safe parity with the receipt router: notify once and
             // return false instead of re-throwing, so a Gateway failure
             // cannot freeze the Sale Details button with a double dialog.
-            this.env.services.notification.add(error?.message || "Sale Details printing failed.", { type: "danger" });
+            this.env.services.notification.add(error?.message || "Sales Details could not be printed.", { type: "danger" });
             return false;
         }
     },

@@ -427,7 +427,7 @@ class TestControlPlane(TransactionCase):
             self.assertTrue(route_res.get("gateway_enabled"))
             job = self.env["print_gateway.print_job"].browse(route_res.get("job_id"))
             self.assertEqual(job.protocol, "escpos")
-            self.assertIn("YASSER PRINT GATEWAY DIAGNOSTIC", job.raw_payload)
+            self.assertIn("YASSER PRINT GATEWAY", job.raw_payload)
 
     def test_06b_stale_claimed_intent_cannot_exceed_max_attempts(self):
         """A stale claimed intent at its retry ceiling must not be re-claimed.

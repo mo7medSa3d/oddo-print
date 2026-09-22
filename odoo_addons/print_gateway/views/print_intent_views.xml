@@ -4,13 +4,13 @@
         <field name="name">print_gateway.intent.list</field>
         <field name="model">print_gateway.intent</field>
         <field name="arch" type="xml">
-            <list string="Automated Print Intents" create="0" edit="0" delete="0">
-                <field name="create_date" string="Captured At"/>
+            <list string="Automation Activity" create="0" edit="0" delete="0">
+                <field name="create_date" string="Created"/>
                 <field name="company_id" optional="show"/>
                 <field name="policy_id"/>
                 <field name="event_type"/>
-                <field name="res_model" string="Source Model"/>
-                <field name="res_id" string="Source ID"/>
+                <field name="res_model" string="Record Type"/>
+                <field name="res_id" string="Record"/>
                 <field name="intent_key" optional="hide"/>
                 <field name="status" widget="badge"
                        decoration-info="status == 'pending'"
@@ -29,27 +29,24 @@
         <field name="name">print_gateway.intent.form</field>
         <field name="model">print_gateway.intent</field>
         <field name="arch" type="xml">
-            <form string="Automated Print Intent" create="0" delete="0" class="o_pg_view o_pg_form">
+            <form string="Automation Activity" create="0" delete="0" class="o_pg_view o_pg_form">
                 <header>
-                    <button name="action_rearm_intent" type="object" string="Re-arm for Dispatch" class="btn-warning"
-                            confirm="Re-arming re-enqueues this failed print intent for immediate dispatch. If the previous attempt produced any output, a duplicate may print. Confirm you have verified the physical result."
+                    <button name="action_rearm_intent" type="object" string="Retry Print" class="btn-warning"
+                            confirm="Retry this failed print activity. Check the printer first because the previous attempt may already have produced a page."
                             invisible="status != 'failed'" groups="base.group_system"/>
                     <field name="status" widget="statusbar" statusbar_visible="pending,claimed,dispatched,failed,skipped"
                            decoration-danger="status == 'failed'" decoration-warning="status == 'claimed'"/>
                 </header>
                 <sheet>
                     <div class="alert alert-warning" role="alert" invisible="status != 'failed'">
-                        <b>Routing failed after all automatic attempts.</b>
-                        Check the error below, fix its cause (binding, printer or Gateway), then use
-                        <i>Re-arm for Dispatch</i>. Re-arm creates no duplicate intent: it reuses this
-                        durable record and its unique intent key.
+                        <b>Automatic printing could not be completed.</b>
+                        Check the issue below, correct the print rule or printer, then select <i>Retry Print</i>.
                     </div>
                     <div class="alert alert-info" role="alert" invisible="status != 'pending'">
-                        Waiting for the source business transaction to commit; dispatch happens only
-                        afterwards.
+                        Waiting for the business transaction to finish. Printing will continue afterwards.
                     </div>
                     <group>
-                        <group string="Source Event">
+                        <group string="Business Event">
                             <field name="company_id" readonly="1"/>
                             <field name="policy_id" readonly="1"/>
                             <field name="event_type" readonly="1"/>
@@ -57,7 +54,7 @@
                             <field name="res_id" readonly="1"/>
                             <field name="intent_key" readonly="1"/>
                         </group>
-                        <group string="Dispatch Progress">
+                        <group string="Activity">
                             <field name="attempts" readonly="1"/>
                             <field name="max_attempts" readonly="1"/>
                             <field name="next_retry_at" readonly="1"/>
@@ -65,7 +62,7 @@
                             <field name="print_job_id" readonly="1"/>
                         </group>
                     </group>
-                    <group string="Last Error" invisible="not last_error">
+                    <group string="Issue" invisible="not last_error">
                         <field name="last_error" readonly="1" nolabel="1" class="o_pg_mono text-danger"/>
                     </group>
                 </sheet>
@@ -77,14 +74,14 @@
         <field name="name">print_gateway.intent.search</field>
         <field name="model">print_gateway.intent</field>
         <field name="arch" type="xml">
-            <search string="Search Print Intents">
+            <search string="Search Automation Activity">
                 <field name="intent_key"/>
                 <field name="policy_id"/>
                 <field name="res_model"/>
                 <field name="res_id"/>
-                <filter name="filter_failed_intents" string="Failed (needs operator)" domain="[('status', '=', 'failed')]"/>
-                <filter name="filter_inflight_intents" string="Pending / Claimed" domain="[('status', 'in', ['pending', 'claimed'])]"/>
-                <filter name="filter_dispatched_intents" string="Dispatched" domain="[('status', '=', 'dispatched')]"/>
+                <filter name="filter_failed_intents" string="Failed - Needs Attention" domain="[('status', '=', 'failed')]"/>
+                <filter name="filter_inflight_intents" string="In Progress" domain="[('status', 'in', ['pending', 'claimed'])]"/>
+                <filter name="filter_dispatched_intents" string="Completed" domain="[('status', '=', 'dispatched')]"/>
                 <separator/>
                 <group>
                     <filter name="group_intent_status" string="Status" context="{'group_by': 'status'}"/>

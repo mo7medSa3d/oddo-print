@@ -5,16 +5,16 @@
         <field name="name">print_gateway.policy.list</field>
         <field name="model">print_gateway.policy</field>
         <field name="arch" type="xml">
-            <list string="Print Policies" create="1" delete="1" class="o_pg_list">
+            <list string="Automation Rules" create="1" delete="1" class="o_pg_list">
                 <field name="priority" widget="handle"/>
-                <field name="name" string="Policy Name"/>
-                <field name="company_id" string="Odoo Company" optional="hide" groups="base.group_multi_company"/>
-                <field name="branch_id" string="Odoo Branch" placeholder="All Branches / Root Default"/>
-                <field name="model_id" string="Model"/>
-                <field name="event_type" string="Event" widget="badge"/>
+                <field name="name" string="Rule Name"/>
+                <field name="company_id" string="Company" optional="hide" groups="base.group_multi_company"/>
+                <field name="branch_id" string="Branch" placeholder="All Branches / Root Default"/>
+                <field name="model_id" string="Record Type"/>
+                <field name="event_type" string="When" widget="badge"/>
                 <field name="action_type" widget="badge"/>
-                <field name="report_id" string="Report Action" optional="show"/>
-                <field name="binding_id" string="Explicit Binding" optional="show"/>
+                <field name="report_id" string="Document" optional="show"/>
+                <field name="binding_id" string="Print Rule" optional="show"/>
                 <field name="active" widget="boolean_toggle"/>
             </list>
         </field>
@@ -24,20 +24,20 @@
         <field name="name">print_gateway.policy.form</field>
         <field name="model">print_gateway.policy</field>
         <field name="arch" type="xml">
-            <form string="Print Policy" class="o_pg_view o_pg_form">
+            <form string="Automation Rule" class="o_pg_view o_pg_form">
                 <sheet>
                     <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger" invisible="active"/>
 
                     <div class="oe_title mb-3">
-                        <label for="name" string="Policy Name"/>
+                        <label for="name" string="Rule Name"/>
                         <h1>
                             <field name="name" placeholder="e.g. Auto-print delivery slip on validate" required="1"/>
                         </h1>
-                        <div class="text-muted">Event-driven print policy rule for automated hardware printing.</div>
+                        <div class="text-muted">Automatically print documents when a business event occurs.</div>
                     </div>
 
                     <group>
-                        <group name="scope_trigger" string="Scope &amp; Trigger">
+                        <group name="scope_trigger" string="When this happens">
                             <field name="company_id" domain="[('parent_id', '=', False)]" options="{'no_create': True}" groups="base.group_multi_company"/>
                             <field name="branch_id" domain="[('parent_id', '=', company_id)]" invisible="not company_id" placeholder="All Branches / Root Default" options="{'no_create': True}"/>
                             <field name="model_id" options="{'no_create': True}" required="1"/>
@@ -47,7 +47,7 @@
                             <field name="active" widget="boolean_toggle"/>
                         </group>
 
-                        <group name="print_action" string="Print Action">
+                        <group name="print_action" string="What to print">
 
                             <field name="action_type" widget="radio" options="{'horizontal': true}"/>
                             
@@ -65,11 +65,11 @@
                         </group>
                     </group>
 
-                    <group string="Raw Command Configuration" invisible="action_type != 'raw_template'">
+                    <group string="Advanced Printer Command" invisible="action_type != 'raw_template'">
                         <field name="raw_template" nolabel="1" placeholder="e.g. ^XA^FO50,50^ADN,36,20^FD{name}^FS^XZ" class="font-monospace" style="min-height: 120px;"/>
                     </group>
 
-                    <group string="Filters &amp; Conditions">
+                    <group string="Conditions">
                         <field name="warehouse_id" invisible="model_name != 'stock.picking'" options="{'no_create': True}"/>
                         <field name="picking_type_id" invisible="model_name != 'stock.picking'" options="{'no_create': True}"/>
                         <field name="domain_filter" widget="domain" options="{'model': 'model_name'}" placeholder="e.g. [('state', '=', 'done')]"/>

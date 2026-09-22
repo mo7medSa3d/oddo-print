@@ -4,15 +4,15 @@
         <field name="name">print_gateway.binding.list</field>
         <field name="model">print_gateway.binding</field>
         <field name="arch" type="xml">
-            <list string="Print Gateway Bindings" create="1" delete="1" class="o_pg_list">
-                <field name="company_id" string="Odoo Company" optional="hide"/>
-                <field name="branch_id" string="Odoo Branch" placeholder="All Branches / Root Default" help="Empty means this binding applies to the whole company as the default route."/>
+            <list string="Print Rules" create="1" delete="1" class="o_pg_list">
+                <field name="company_id" string="Company" optional="hide"/>
+                <field name="branch_id" string="Branch" placeholder="All Branches / Root Default" help="Empty means this binding applies to the whole company as the default route."/>
                 <field name="effective_company_id" column_invisible="1"/>
-                <field name="destination_type" string="Destination Type" widget="badge" decoration-info="destination_type == 'pos'" decoration-success="destination_type == 'report'" decoration-warning="destination_type == 'picking_type'"/>
-                <field name="destination_ref" string="Odoo Destination"/>
+                <field name="destination_type" string="Print Area" widget="badge" decoration-info="destination_type == 'pos'" decoration-success="destination_type == 'report'" decoration-warning="destination_type == 'picking_type'"/>
+                <field name="destination_ref" string="Document / Destination"/>
                 <field name="document_type" string="Document Type"/>
-                <field name="runtime_agent_id" string="Gateway Runtime Agent" optional="show"/>
-                <field name="printer_id" string="Gateway Runtime Printer"/>
+                <field name="runtime_agent_id" string="Print Agent" optional="show"/>
+                <field name="printer_id" string="Printer"/>
                 <field name="enabled" widget="boolean_toggle"/>
                 <field name="priority" optional="show"/>
             </list>
@@ -23,32 +23,32 @@
         <field name="name">print_gateway.binding.form</field>
         <field name="model">print_gateway.binding</field>
         <field name="arch" type="xml">
-            <form string="Print Gateway Binding" class="o_pg_view o_pg_form">
+            <form string="Print Rule" class="o_pg_view o_pg_form">
                 <header>
-                    <button name="action_send_test_print" type="object" string="Send Test Page" class="btn btn-primary" icon="fa-print" invisible="not runtime_agent_id or not printer_id"
-                            confirm="This will print a physical test page on the bound printer. Continue?"/>
-                    <button name="action_verify_remote_hardware" type="object" string="Validate Registration (Gateway)" class="btn btn-secondary" icon="fa-check-circle" invisible="not runtime_agent_id or not printer_id"/>
+                    <button name="action_send_test_print" type="object" string="Test Print" class="btn btn-primary" icon="fa-print" invisible="not runtime_agent_id or not printer_id"
+                            confirm="A test receipt will be printed on the selected printer. Continue?"/>
+                    <button name="action_verify_remote_hardware" type="object" string="Check Setup" class="btn btn-secondary" icon="fa-check-circle" invisible="not runtime_agent_id or not printer_id"/>
                 </header>
                 <sheet>
                     <div class="oe_title">
-                        <h1>Print Binding</h1>
-                        <p class="text-muted">Connect an Odoo document route to a Gateway printer.</p>
+                        <h1>Print Rule</h1>
+                        <p class="text-muted">Choose where each document should be printed.</p>
                     </div>
 
-                    <separator string="Route"/>
+                    <separator string="Rule"/>
                     <div class="mb-3">
                         <field name="name" readonly="1"/>
                     </div>
-                    <div class="text-muted mb-3"><small>Odoo defines the business route. Gateway handles physical execution.</small></div>
+                    <div class="text-muted mb-3"><small>Select the document, branch, and printer for this rule.</small></div>
 
-                    <group string="Context">
+                    <group string="Scope">
                         <field name="company_id" string="Company" domain="[('parent_id', '=', False)]" options="{'no_create': True}"/>
                         <field name="branch_id" string="Branch" domain="[('parent_id', '=', company_id)]"
                                invisible="not company_id" placeholder="All Branches / Root Default" options="{'no_create': True}" help="Empty means this binding applies to the whole company as the default route."/>
                     </group>
 
-                    <group string="Destination">
-                        <field name="destination_type" string="Destination Type" widget="radio" options="{'horizontal': true}"/>
+                    <group string="Document &amp; Destination">
+                        <field name="destination_type" string="Print Area" widget="radio" options="{'horizontal': true}"/>
                         <field name="destination_pos_config_id" string="POS Shop"
                                invisible="destination_type != 'pos'" required="destination_type == 'pos'"
                                domain="['&amp;', '|', ('company_id', '=', False), ('company_id', '=', effective_company_id), ('active', '=', True)]"/>
@@ -65,23 +65,23 @@
                         <field name="document_type" string="Document Type" readonly="1"/>
                     </group>
 
-                    <group string="Hardware">
-                        <field name="runtime_agent_id" string="Runtime Agent" widget="gateway_runtime_agent"/>
+                    <group string="Printer Setup">
+                        <field name="runtime_agent_id" string="Print Agent" widget="gateway_runtime_agent"/>
                         <field name="printer_id" string="Runtime Printer" widget="gateway_runtime_printer"/>
                     </group>
 
                     <notebook>
-                        <page string="Advanced Routing">
+                        <page string="Advanced">
                             <group>
                                 <field name="printer_protocol" string="Printer Protocol"/>
-                                <field name="fallback_binding_id" string="Failover Backup Binding" options="{'no_create': True}"/>
+                                <field name="fallback_binding_id" string="Backup Rule" options="{'no_create': True}"/>
                                 <field name="enabled" widget="boolean_toggle"/>
                                 <field name="priority"/>
                             </group>
                         </page>
-                        <page string="Hardware Options">
+                        <page string="Printer Options">
                             <group>
-                                <field name="drawer_kick_mode" string="Cash Drawer Kick"/>
+                                <field name="drawer_kick_mode" string="Cash Drawer"/>
                                 <field name="cutter_mode" string="Paper Cutter"/>
                                 <field name="buzzer_mode" string="Kitchen Chime"/>
                             </group>

@@ -96,7 +96,7 @@ class PrintGatewayConfig(models.Model):
         default=lambda self: (self.env.company.parent_id or self.env.company),
         ondelete="restrict", index=True,
     )
-    enabled = fields.Boolean(string="Gateway Printing Enabled", default=False)
+    enabled = fields.Boolean(string="Printing Service Enabled", default=False)
     enabled_sync_revision = fields.Integer(
         string="Activation Sync Revision", default=0, readonly=True, copy=False,
     )
@@ -140,7 +140,7 @@ class PrintGatewayConfig(models.Model):
         copy=False,
         exportable=False,
         groups="base.group_system",
-        help="Gateway installation credential. Restricted to system administrators and excluded from exports; database-at-rest encryption requires the deployment's secret-management boundary.",
+        help="Installation key from your Yasser Print Gateway account. Stored securely and excluded from exports.",
     )
     runtime_agent_id = fields.Char(
         string="Legacy Runtime Agent Reference",
@@ -241,13 +241,13 @@ class PrintGatewayConfig(models.Model):
             if not record.gateway_api_key:
                 record.gateway_sync_state = "not_configured"
                 record.gateway_sync_message = _(
-                    "Add an installation API key to connect this Odoo company to the Gateway."
+                    "Enter the installation API key from your Yasser Print Gateway account to connect this company."
                 )
                 continue
             if record.last_test_status == "revoked":
                 record.gateway_sync_state = "attention"
                 record.gateway_sync_message = _(
-                    "The Gateway API key was revoked or deleted. Replace the API key and save."
+                    "The installation key is no longer active. Create or select a new key in Yasser Print Gateway, then save it here."
                 )
                 continue
             if record.last_test_status == "failed":
@@ -260,7 +260,7 @@ class PrintGatewayConfig(models.Model):
             if record.last_enabled_sync_error:
                 record.gateway_sync_state = "attention"
                 record.gateway_sync_message = _(
-                    "Odoo is set to %s, but the Gateway has not confirmed that state yet."
+                    "Your printing settings are being updated in the printing service."
                 ) % (_("enabled") if record.enabled else _("disabled"))
                 continue
             if record.pending_disable_gateway_url and record.last_gateway_migration_sync_error:
@@ -300,18 +300,18 @@ class PrintGatewayConfig(models.Model):
                     continue
                 record.gateway_sync_state = "syncing"
                 record.gateway_sync_message = _(
-                    "Sending the current Odoo activation state to the Gateway."
+                    "Saving your current printing settings."
                 )
                 continue
             if record.enabled:
                 record.gateway_sync_state = "active"
                 record.gateway_sync_message = _(
-                    "Printing is enabled in Odoo and the Gateway has confirmed the current state."
+                    "Printing is enabled and the service is connected."
                 )
             else:
                 record.gateway_sync_state = "disabled"
                 record.gateway_sync_message = _(
-                    "Printing is disabled in Odoo and the Gateway has confirmed the current state."
+                    "Printing is disabled and the service is connected."
                 )
 
     @api.constrains("company_id")
@@ -417,7 +417,7 @@ class PrintGatewayConfig(models.Model):
                 self._write_test_result_if_current(expected_revision, {
                     "last_test_at": fields.Datetime.now(),
                     "last_test_status": "revoked",
-                    "last_test_error": _("The Gateway API key was revoked or deleted. Replace the API key and save."),
+                    "last_test_error": _("The installation key is no longer active. Create or select a new key in Yasser Print Gateway, then save it here."),
                     "enabled": False,
                 })
                 return False

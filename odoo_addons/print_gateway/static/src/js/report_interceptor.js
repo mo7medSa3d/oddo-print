@@ -20,7 +20,7 @@ import { _t } from "@web/core/l10n/translation";
  */
 function openJobsButton(env) {
     return {
-        name: _t("Open Print Jobs"),
+        name: _t("Open Print Activity"),
         primary: true,
         onClick: () => env.services.action.doAction("print_gateway.action_print_gateway_jobs"),
     };
@@ -83,7 +83,7 @@ async function silentPrintReportHandler(action, options, env) {
         // remain fail-closed; it must never silently reopen native PDF printing.
         if (!res || typeof res !== "object" || typeof res.has_binding !== "boolean") {
             notification.add(
-                _t("Gateway print dispatch returned an invalid response. Native PDF download cancelled."),
+                _t("We couldn't complete this print request. Native PDF download cancelled. Check Print Activity for details."),
                 { type: "danger", sticky: true, buttons: [openJobsButton(env)] }
             );
             return true;
@@ -108,12 +108,12 @@ async function silentPrintReportHandler(action, options, env) {
             const openJobs = openJobsButton(env);
             if (["unknown", "partial"].includes(res.status)) {
                 notification.add(
-                    _t("Print outcome unknown - the printer may have received part or all of this report. Verify at the printer before reprinting (Print Jobs > Force Reprint)."),
+                    _t("Print status is unknown. Check the printer before trying again."),
                     { type: "warning", sticky: true, buttons: [openJobs] }
                 );
             } else {
                 notification.add(
-                    res.message || _t("Report queued on Gateway printer: %s - watch the Print Jobs list for the final result.", res.printer_name || "Printer"),
+                    res.message || _t("Document sent to %s. Check Print Activity for the final status.", res.printer_name || "Printer"),
                     { type: "success", buttons: [openJobs] }
                 );
             }
@@ -124,7 +124,7 @@ async function silentPrintReportHandler(action, options, env) {
         // must stay visible until dismissed, with the Jobs list one click
         // away for verification.
         notification.add(
-            _t("Gateway print dispatch error: %s", err?.message || err),
+            _t("Printing service error: %s", err?.message || err),
             { type: "danger", sticky: true, buttons: [openJobsButton(env)] }
         );
         return true; // FAIL-CLOSED: Dispatch call failed, cancel native PDF dialog

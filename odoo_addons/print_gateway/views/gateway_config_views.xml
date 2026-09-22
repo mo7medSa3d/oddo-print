@@ -4,8 +4,8 @@
         <field name="name">print_gateway.gateway_config.list</field>
         <field name="model">print_gateway.gateway_config</field>
         <field name="arch" type="xml">
-            <list string="Gateway Configuration" create="1" class="o_pg_list">
-                <field name="company_id" string="Odoo Company"/>
+            <list string="Connection &amp; Printing" create="1" class="o_pg_list">
+                <field name="company_id" string="Company"/>
                 <field name="last_test_status"
                        string="Connection"
                        widget="badge"
@@ -22,14 +22,14 @@
         <field name="name">print_gateway.gateway_config.form</field>
         <field name="model">print_gateway.gateway_config</field>
         <field name="arch" type="xml">
-            <form string="Gateway Configuration" create="1" class="o_pg_view o_pg_form">
+            <form string="Connection &amp; Printing" create="1" class="o_pg_view o_pg_form">
                 <header/>
                 <sheet>
                     <group>
-                        <field name="company_id" string="Odoo Company"/>
-                        <field name="enabled" widget="boolean_toggle" string="Enable Gateway Printing"/>
+                        <field name="company_id" string="Company"/>
+                        <field name="enabled" widget="boolean_toggle" string="Enable Printing Service"/>
                         <field name="gateway_url" placeholder="https://print.example.com"/>
-                        <field name="gateway_api_key" password="True" placeholder="Paste the installation API key"/>
+                        <field name="gateway_api_key" password="True" placeholder="Enter the installation API key"/>
                         <field name="last_test_status"
                                string="Connection"
                                widget="badge"
@@ -47,7 +47,7 @@
         <field name="name">print_gateway.gateway_config.search</field>
         <field name="model">print_gateway.gateway_config</field>
         <field name="arch" type="xml">
-            <search string="Gateway Configuration">
+            <search string="Connection &amp; Printing">
                 <field name="company_id"/>
                 <field name="gateway_url"/>
                 <field name="last_test_status"/>
@@ -76,22 +76,22 @@
         <field name="name">print_gateway.pair_agent_wizard.form</field>
         <field name="model">print_gateway.pair_agent_wizard</field>
         <field name="arch" type="xml">
-            <form string="Assign Runtime Agent" class="o_pg_view o_pg_pairing_wizard">
+            <form string="Connect Print Agent" class="o_pg_view o_pg_pairing_wizard">
                 <sheet>
                     <div class="o_pg_wizard_header text-center mb-4">
-                        <i class="fa fa-plug fa-3x text-primary mb-2" title="Assign Agent" role="img" aria-label="Assign Agent"/>
-                        <h3 class="fw-bold">Assign Runtime Agent</h3>
-                        <p class="text-muted">Select the target Branch, then enter the ID of an active Gateway Agent. Multiple Agents can be assigned to the same Branch.</p>
+                        <i class="fa fa-plug fa-3x text-primary mb-2" title="Connect Agent" role="img" aria-label="Connect Agent"/>
+                        <h3 class="fw-bold">Connect Print Agent</h3>
+                        <p class="text-muted">Select the branch and choose an available Print Agent. A branch can use more than one agent.</p>
                     </div>
                     <group>
                         <field name="config_id" invisible="1"/>
                         <field name="company_id" invisible="1"/>
-                        <field name="branch_id" string="Target Branch" options="{'no_create': True, 'no_open': True}"/>
-                        <field name="agent_id" string="Runtime Agent" widget="gateway_runtime_agent_picker" placeholder="Select an active Gateway agent" class="o_pg_pairing_code_input" required="1" help="Select an active agent registered with the Central Gateway."/>
+                        <field name="branch_id" string="Branch" options="{'no_create': True, 'no_open': True}"/>
+                        <field name="agent_id" string="Print Agent" widget="gateway_runtime_agent_picker" placeholder="Select a connected Print Agent" class="o_pg_pairing_code_input" required="1" help="Choose a connected Print Agent for this branch."/>
                     </group>
                 </sheet>
                 <footer>
-                    <button name="action_confirm_pairing" string="Assign Agent" type="object" class="btn-primary"/>
+                    <button name="action_confirm_pairing" string="Connect Agent" type="object" class="btn-primary"/>
                     <button string="Cancel" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>
