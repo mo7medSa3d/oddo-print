@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { db } from "../db";
 import { plans, tenantSubscriptions, tenants } from "../db/schema";
 import { eq } from "drizzle-orm";
+import { ThemeToggle } from "../components/ThemeToggle";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -93,7 +94,7 @@ function PublicHome() {
 
               <h1 className="mt-7 max-w-[680px] text-[45px] font-bold tracking-[-0.045em] leading-[0.98] text-ink sm:text-[58px] lg:text-[68px]">
                 Turn Odoo events into
-                <span className="block text-brand">reliable physical prints.</span>
+                <span className="block text-gradient-brand">reliable physical prints.</span>
               </h1>
 
               <p className="mt-6 max-w-[590px] text-[17px] leading-[1.72] text-ink-2 sm:text-[18px]">
@@ -105,14 +106,14 @@ function PublicHome() {
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link
                   href="/signup"
-                  className="inline-flex h-12 items-center justify-center gap-2 rounded-[10px] bg-brand px-6 text-[14px] font-semibold text-white shadow-sm transition hover:bg-brand-hover"
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-brand px-6 text-[14px] font-semibold text-white shadow-sm transition hover:bg-brand-hover"
                 >
                   Start with the Gateway
                   <ArrowRight className="h-4 w-4" />
                 </Link>
                 <Link
                   href="/platform"
-                  className="inline-flex h-12 items-center justify-center gap-2 rounded-[10px] border border-edge bg-surface px-6 text-[14px] font-semibold text-ink transition hover:border-edge-strong hover:bg-surface-2"
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-edge bg-surface px-6 text-[14px] font-semibold text-ink transition hover:border-edge-strong hover:bg-surface-2"
                 >
                   Explore the platform
                   <ArrowUpRight className="h-4 w-4" />
@@ -131,21 +132,12 @@ function PublicHome() {
           </div>
         </section>
 
-        <section className="border-b border-edge bg-surface">
-          <div className="mx-auto grid w-full max-w-[1320px] gap-px px-6 sm:px-8 lg:grid-cols-4 lg:px-10">
-            <TrustPanel index="01" eyebrow="Business source" title="Odoo owns intent" text="Companies, branches, POS, reports, document context, and print policy stay where the business truth lives." />
-            <TrustPanel index="02" eyebrow="Runtime control" title="Gateway owns delivery" text="Queueing, agents, printers, idempotency, entitlement checks, and operational state are centralized." />
-            <TrustPanel index="03" eyebrow="Edge execution" title="Agent owns hardware" text="The Windows Agent handles local admission, rendering, spooler/raw transport, and physical execution." />
-            <TrustPanel index="04" eyebrow="Operational proof" title="Every outcome is explicit" text="Queued, claimed, printing, success, failed, expired, and unknown states are represented intentionally." />
-          </div>
-        </section>
-
         <section id="product" className="scroll-mt-20 bg-surface">
           <div className="mx-auto w-full max-w-[1320px] px-6 py-20 sm:px-8 sm:py-24 lg:px-10">
             <SectionIntro
               eyebrow="One print path"
               title="A Gateway built around the way Odoo actually works."
-              text="The product is not another browser print helper. It is a control plane for reliable print execution across offices, warehouses, stores, and branches."
+              text="Not another browser print helper — a control plane for reliable print execution across offices, warehouses, stores, and branches."
             />
 
             <div className="mt-12 grid gap-4 lg:grid-cols-3">
@@ -219,8 +211,8 @@ function PublicHome() {
           <div className="mx-auto w-full max-w-[1320px] px-6 py-20 sm:px-8 sm:py-24 lg:px-10">
             <SectionIntro
               eyebrow="Security & control"
-              title="Operational controls that match the architecture."
-              text="The Gateway is built as a multi-tenant runtime boundary, with authentication, scoped access, explicit state, and auditability kept close to the data that matters."
+              title="A multi-tenant runtime boundary, not a side script."
+              text="Scoped access, explicit states, and auditability kept close to the data that matters."
             />
 
             <div className="mt-12 grid gap-4 lg:grid-cols-2">
@@ -228,20 +220,18 @@ function PublicHome() {
                 title="Integration security"
                 icon={<KeyRound className="h-5 w-5" />}
                 items={[
-                  "Installation API keys are stored as cryptographic hashes in the Gateway.",
-                  "Odoo activation is fenced per integration key and protected by monotonic revisions.",
-                  "Authenticated status reads are scoped to the API key that owns the job.",
-                  "The transport boundary is HTTPS / WSS rather than browser print UI state.",
+                  "API keys are stored as cryptographic hashes — never plaintext.",
+                  "Odoo activation is fenced per key and protected by monotonic revisions.",
+                  "Job reads are scoped to the owning key over HTTPS / WSS — never browser print state.",
                 ]}
               />
               <SecurityPanel
                 title="Operational visibility"
                 icon={<Sparkles className="h-5 w-5" />}
                 items={[
-                  "Agent heartbeats and printer capability state are visible to operators.",
-                  "Queue and delivery outcomes remain separate from business truth in Odoo.",
-                  "Failure states carry actionable operational meaning instead of generic errors.",
-                  "Audit events preserve important control-plane changes and ownership context.",
+                  "Live Agent heartbeats and printer capability state for operators.",
+                  "Delivery outcomes stay separate from business truth in Odoo.",
+                  "Audit events preserve control-plane changes and ownership context.",
                 ]}
               />
             </div>
@@ -269,14 +259,14 @@ function PublicHome() {
                 <div className="flex flex-col gap-2.5 sm:flex-row lg:flex-col">
                   <Link
                     href="/signup"
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-[10px] bg-brand px-5 text-[13px] font-semibold text-white transition hover:bg-brand-hover"
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-brand px-5 text-[13px] font-semibold text-white transition hover:bg-brand-hover"
                   >
                     Create workspace
                     <ArrowRight className="h-4 w-4" />
                   </Link>
                   <Link
                     href="/pricing"
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-[10px] border border-edge bg-surface px-5 text-[13px] font-semibold text-ink transition hover:border-edge-strong hover:bg-surface-3"
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-edge bg-surface px-5 text-[13px] font-semibold text-ink transition hover:border-edge-strong hover:bg-surface-3"
                   >
                     View plans
                     <ChevronRight className="h-4 w-4" />
@@ -295,7 +285,7 @@ function PublicHome() {
 
 function PublicHeader() {
   return (
-    <header className="sticky top-0 z-40 border-b border-edge/80 bg-app/90 backdrop-blur-xl">
+    <header className="sticky top-0 z-40 border-b border-edge/80 bg-app/75 backdrop-blur-xl backdrop-saturate-180">
       <div className="mx-auto flex h-[68px] w-full max-w-[1320px] items-center gap-5 px-6 sm:px-8 lg:px-10">
         <Link href="/" className="shrink-0 rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25">
           <BrandMark title="Yasser" subtitle="Print Gateway" size="sm" showWordmark />
@@ -305,13 +295,15 @@ function PublicHeader() {
           <Anchor href="#how-it-works">How it works</Anchor>
           <Anchor href="#reliability">Reliability</Anchor>
           <Anchor href="#security">Security</Anchor>
-          <Link href="/pricing" className="inline-flex h-10 items-center rounded-[9px] px-3 text-[12.5px] font-medium text-ink-2 transition hover:bg-surface-2 hover:text-ink">
+          <Link href="/pricing" className="inline-flex h-10 items-center rounded-full px-3 text-[12.5px] font-medium text-ink-2 transition hover:bg-surface-2 hover:text-ink">
             Pricing
           </Link>
         </nav>
 
-        <details className="relative ml-auto md:hidden">
-          <summary className="flex h-10 list-none cursor-pointer items-center justify-center rounded-[9px] border border-edge bg-surface px-3 text-[12px] font-semibold text-ink-2 [&::-webkit-details-marker]:hidden">
+        <ThemeToggle />
+
+        <details className="relative md:hidden">
+          <summary className="flex h-10 list-none cursor-pointer items-center justify-center rounded-full border border-edge bg-surface px-3 text-[12px] font-semibold text-ink-2 transition hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
             Menu
           </summary>
           <div className="absolute right-0 top-12 z-50 w-56 rounded-[14px] border border-edge-strong bg-surface p-2 shadow-xl">
@@ -320,10 +312,10 @@ function PublicHeader() {
               <Anchor href="#how-it-works">How it works</Anchor>
               <Anchor href="#reliability">Reliability</Anchor>
               <Anchor href="#security">Security</Anchor>
-              <Link href="/pricing" className="flex h-10 items-center rounded-[9px] px-3 text-[12.5px] font-medium text-ink-2 transition hover:bg-surface-2 hover:text-ink">
+              <Link href="/pricing" className="flex h-10 items-center rounded-full px-3 text-[12.5px] font-medium text-ink-2 transition hover:bg-surface-2 hover:text-ink">
                 Pricing
               </Link>
-              <Link href="/login" className="flex h-10 items-center rounded-[9px] px-3 text-[12.5px] font-semibold text-ink-2 transition hover:bg-surface-2 hover:text-ink sm:hidden">
+              <Link href="/login" className="flex h-10 items-center rounded-full px-3 text-[12.5px] font-semibold text-ink-2 transition hover:bg-surface-2 hover:text-ink sm:hidden">
                 Sign in
               </Link>
             </div>
@@ -331,10 +323,10 @@ function PublicHeader() {
         </details>
 
         <div className="ml-auto hidden items-center gap-2.5 md:flex">
-          <Link href="/login" className="hidden h-10 items-center rounded-[9px] px-3.5 text-[12.5px] font-semibold text-ink-2 transition hover:bg-surface-2 hover:text-ink sm:inline-flex">
+          <Link href="/login" className="hidden h-10 items-center rounded-full px-3.5 text-[12.5px] font-semibold text-ink-2 transition hover:bg-surface-2 hover:text-ink sm:inline-flex">
             Sign in
           </Link>
-          <Link href="/signup" className="inline-flex h-10 items-center gap-2 rounded-[9px] bg-brand px-4 text-[12.5px] font-semibold text-white transition hover:bg-brand-hover">
+          <Link href="/signup" className="inline-flex h-10 items-center gap-2 rounded-full bg-brand px-4 text-[12.5px] font-semibold text-white transition hover:bg-brand-hover">
             Start trial
             <ArrowRight className="h-3.5 w-3.5" />
           </Link>
@@ -346,7 +338,7 @@ function PublicHeader() {
 
 function PublicFooter() {
   return (
-    <footer className="border-t border-edge bg-app">
+    <footer className="border-t border-edge bg-surface-2">
       <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-6 px-6 py-10 sm:px-8 lg:flex-row lg:items-end lg:justify-between lg:px-10">
         <div>
           <BrandMark title="Yasser" subtitle="Print Gateway" size="sm" showWordmark />
@@ -367,7 +359,7 @@ function PublicFooter() {
 
 function Anchor({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <a href={href} className="inline-flex h-10 items-center rounded-[9px] px-3 text-[12.5px] font-medium text-ink-2 transition hover:bg-surface-2 hover:text-ink">
+    <a href={href} className="inline-flex h-10 items-center rounded-full px-3 text-[12.5px] font-medium text-ink-2 transition hover:bg-surface-2 hover:text-ink">
       {children}
     </a>
   );
@@ -522,19 +514,6 @@ function HeroMetric({ value, label }: { value: string; label: string }) {
   );
 }
 
-function TrustPanel({ index, eyebrow, title, text }: { index: string; eyebrow: string; title: string; text: string }) {
-  return (
-    <div className="border-b border-edge px-1 py-8 lg:border-b-0 lg:border-r lg:px-6 lg:py-10 first:lg:pl-0 last:lg:border-r-0 last:lg:pr-0">
-      <div className="flex items-center justify-between gap-3">
-        <span className="font-mono text-[10px] font-bold tracking-[0.12em] text-brand">{index}</span>
-        <span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-ink-4">{eyebrow}</span>
-      </div>
-      <h2 className="mt-4 text-[17px] font-semibold tracking-[-0.02em] text-ink">{title}</h2>
-      <p className="mt-2 text-[12px] leading-relaxed text-ink-3">{text}</p>
-    </div>
-  );
-}
-
 function SectionIntro({ eyebrow, title, text }: { eyebrow: string; title: string; text: string }) {
   return (
     <div className="max-w-[700px]">
@@ -638,10 +617,10 @@ function AuthenticatedHome({
             <p className="mt-2 text-[16px] text-ink-2">{tenantName}</p>
           </div>
           <div className="flex flex-wrap gap-2.5">
-            <Link href="/dashboard" className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-brand px-5 text-[13px] font-semibold text-white shadow-sm hover:bg-brand-hover">
+            <Link href="/dashboard" className="inline-flex h-10 items-center gap-2 rounded-full bg-brand px-5 text-[13px] font-semibold text-white shadow-sm hover:bg-brand-hover">
               Open console <ArrowRight className="h-4 w-4" />
             </Link>
-            {canBilling && <Link href="/billing" className="inline-flex h-10 items-center gap-2 rounded-[10px] border border-edge bg-surface px-5 text-[13px] font-semibold text-ink hover:bg-surface-2">Billing</Link>}
+            {canBilling && <Link href="/billing" className="inline-flex h-10 items-center gap-2 rounded-full border border-edge bg-surface px-5 text-[13px] font-semibold text-ink hover:bg-surface-2">Billing</Link>}
           </div>
         </div>
 

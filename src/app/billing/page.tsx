@@ -130,7 +130,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
         </div>
         <Link
           href="/pricing"
-          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[10px] bg-brand px-4 text-[13px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md"
+          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full bg-brand px-4 text-[13px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md"
         >
           {hasActivePlan ? "Upgrade plan" : "View plans"}
           <ArrowRight className="h-4 w-4" />
@@ -178,7 +178,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
               <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
                 <Link
                   href="/pricing"
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-[10px] bg-brand px-5 text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-brand px-5 text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md"
                 >
                   {hasActivePlan ? "Upgrade plan" : "Choose a plan"}
                   <ArrowRight className="h-4 w-4" />
@@ -186,7 +186,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                 {hasStripeSubscription && (
                   <a
                     href="#billing-actions"
-                    className="inline-flex h-11 items-center justify-center rounded-[10px] border border-edge bg-surface px-5 text-[13.5px] font-semibold text-ink-2 transition hover:border-edge-strong hover:bg-surface-2 hover:text-ink"
+                    className="inline-flex h-11 items-center justify-center rounded-full border border-edge bg-surface px-5 text-[13.5px] font-semibold text-ink-2 transition hover:border-edge-strong hover:bg-surface-2 hover:text-ink"
                   >
                     Manage billing
                   </a>

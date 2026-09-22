@@ -158,7 +158,7 @@ export default async function Pricing() {
                   ) : (
                     <Link
                       href={destination(plan.id)}
-                      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-brand px-4 text-[13.5px] font-semibold text-white shadow-sm transition-all duration-150 hover:bg-brand-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20"
+                      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-brand px-4 text-[13.5px] font-semibold text-white shadow-sm transition-all duration-150 hover:bg-brand-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20"
                     >
                       {claims ? "Choose plan" : "Get started"}
                       <ArrowRight className="h-4 w-4" />
@@ -181,7 +181,7 @@ export default async function Pricing() {
         </div>
         <Link
           href={claims ? "/billing" : "/login"}
-          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[9px] border border-edge bg-surface px-3 text-[12.5px] font-semibold text-ink-2 transition hover:border-edge-strong hover:bg-surface-2 hover:text-ink"
+          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-edge bg-surface px-3 text-[12.5px] font-semibold text-ink-2 transition hover:border-edge-strong hover:bg-surface-2 hover:text-ink"
         >
           {claims ? "Open Billing" : "Sign in"}
           <ArrowRight className="h-3.5 w-3.5" />

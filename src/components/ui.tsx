@@ -52,7 +52,7 @@ export function jobTone(status: string): Tone {
   return sharedJobTone(String(status)) as Tone;
 }
 
-/* ---------- Buttons — premium, restrained ---------- */
+/* ---------- Buttons — Apple-grade pills ---------- */
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success";
 
@@ -60,11 +60,11 @@ const buttonVariants: Record<ButtonVariant, string> = {
   primary:
     "bg-brand text-white border border-transparent shadow-sm hover:bg-brand-hover hover:shadow-md active:bg-brand-active active:shadow-none",
   secondary:
-    "bg-surface text-ink border border-edge shadow-xs hover:bg-surface-2 hover:border-edge-strong active:bg-surface-3",
+    "bg-surface-2 text-ink border border-transparent shadow-xs hover:bg-surface-3 active:bg-surface-3",
   ghost:
     "bg-transparent text-ink-2 border border-transparent hover:bg-surface-2 hover:text-ink active:bg-surface-3",
   danger:
-    "bg-bad-solid text-white border border-transparent shadow-xs hover:bg-[#be123c] active:bg-[#9f1239]",
+    "bg-bad-solid text-white border border-transparent shadow-xs hover:brightness-[0.96] active:brightness-[0.92]",
   success:
     "bg-ok-solid text-white border border-transparent shadow-xs hover:brightness-[0.96] active:brightness-[0.92]",
 };
@@ -94,12 +94,12 @@ export function Button({
 }: ButtonProps) {
   const sizes =
     size === "sm"
-      ? "h-9 px-3 text-[13px] gap-1.5 rounded-[8px]"
+      ? "h-8 px-3.5 text-[13px] gap-1.5 rounded-full"
       : size === "lg"
-        ? "h-11 px-5 text-[14px] gap-2.5 rounded-[10px]"
-        : "h-10 px-4 text-[13.5px] gap-2 rounded-[9px]";
+        ? "h-12 px-7 text-[15px] gap-2.5 rounded-full"
+        : "h-10 px-5 text-[14px] gap-2 rounded-full";
 
-  const baseClasses = `inline-flex items-center justify-center font-[600] tracking-[-0.01em] transition-all duration-150 disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 focus-visible:border-brand ${buttonVariants[variant]} ${sizes} ${className}`;
+  const baseClasses = `inline-flex items-center justify-center font-[600] tracking-[-0.015em] transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 focus-visible:ring-offset-1 focus-visible:ring-offset-app ${buttonVariants[variant]} ${sizes} ${className}`;
 
   if (href) {
     const linkDisabled = loading || disabled;
@@ -152,7 +152,7 @@ export function IconButton({
     <button
       aria-label={label}
       title={label}
-      className={`inline-flex items-center justify-center h-9 w-9 rounded-[10px] text-ink-3 transition-all duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 disabled:opacity-50 ${className}`}
+      className={`inline-flex items-center justify-center h-9 w-9 rounded-full text-ink-3 transition-all duration-200 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 disabled:opacity-50 ${className}`}
       {...props}
     >
       {children}
@@ -226,7 +226,7 @@ export function StatCard({
 }) {
   return (
     <div
-      className={`group relative overflow-hidden rounded-[14px] border border-edge bg-surface p-5 shadow-card transition-all duration-180 hover:shadow-card-hover hover:border-edge-strong hover:-translate-y-px ${className}`}
+      className={`group relative overflow-hidden rounded-2xl border border-edge bg-surface p-5 shadow-card transition-all duration-200 hover:shadow-card-hover hover:border-edge-strong hover:-translate-y-0.5 ${className}`}
     >
       <div className="flex items-start justify-between gap-3">
         <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-ink-3">{title}</span>
@@ -543,7 +543,7 @@ export function Field({
 }
 
 export const inputClass =
-  "w-full h-10 rounded-[9px] border border-edge bg-surface px-3.5 text-[13.5px] text-ink placeholder:text-ink-4 shadow-xs transition-all duration-150 hover:border-edge-strong focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/15 disabled:opacity-50 disabled:bg-surface-2";
+  "w-full h-11 rounded-xl border border-edge-strong bg-surface px-4 text-[14px] text-ink placeholder:text-ink-4 shadow-xs transition-all duration-200 hover:border-ink-4 focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15 disabled:opacity-50 disabled:bg-surface-2";
 
 export function Input({
   className = "",
@@ -726,9 +726,9 @@ export function Modal({
         tabIndex={-1}
         className={`pg-scale-in relative w-full ${
           wide ? "sm:max-w-2xl" : "sm:max-w-[480px]"
-        } max-h-[90vh] overflow-auto rounded-t-[16px] sm:rounded-[16px] border border-edge bg-surface shadow-2xl outline-none`}
+        } max-h-[90vh] overflow-auto rounded-t-[22px] sm:rounded-[22px] border border-edge bg-surface shadow-2xl outline-none`}
       >
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-edge bg-surface px-6 py-5">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-edge bg-surface/85 px-6 py-5 backdrop-blur-xl backdrop-saturate-150">
           <div className="min-w-0">
             <h2 className="text-[16px] font-semibold tracking-[-0.015em] text-ink">{title}</h2>
             {description && (
@@ -856,8 +856,8 @@ export function Tabs<T extends string>({
             tabIndex={selected ? 0 : -1}
             data-tab={t}
             onClick={() => onChange(t)}
-            className={`relative flex items-center gap-2 whitespace-nowrap px-3.5 py-2.5 text-[13px] font-[600] tracking-[-0.01em] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 rounded-[8px] ${
-              selected ? "text-ink bg-surface-2" : "text-ink-3 hover:text-ink hover:bg-surface-2"
+            className={`relative flex items-center gap-2 whitespace-nowrap px-4 py-2 text-[13px] font-[600] tracking-[-0.01em] transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 rounded-full ${
+              selected ? "text-ink bg-surface-2 shadow-xs" : "text-ink-3 hover:text-ink hover:bg-surface-2"
             }`}
           >
             <span className="capitalize">{t}</span>
@@ -906,7 +906,7 @@ export function CopyButton({
           setTimeout(() => setCopied(false), 2000);
         } catch {}
       }}
-      className={`inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-edge bg-surface px-2.5 text-[12px] font-medium text-ink-2 transition-all duration-150 hover:border-edge-accent hover:bg-brand-subtle hover:text-brand-subtle-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 ${className}`}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-edge bg-surface px-3 text-[12px] font-medium text-ink-2 transition-all duration-200 hover:border-edge-accent hover:bg-brand-subtle hover:text-brand-subtle-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 ${className}`}
     >
       {copied ? (
         <>
@@ -944,7 +944,7 @@ export function Toast({
   return (
     <div
       role="status"
-      className={`pg-toast-in fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-[12px] border px-4 py-3.5 text-[13px] shadow-xl backdrop-blur-sm ${toneBg[tone]}`}
+      className={`pg-toast-in fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-2xl border px-4 py-3.5 text-[13px] shadow-xl backdrop-blur-xl backdrop-saturate-150 ${toneBg[tone]}`}
     >
       {toast.type === "success" ? (
         <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-ok" aria-hidden />
@@ -1004,7 +1004,7 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <div className={`border-b border-edge/80 bg-surface/92 backdrop-blur-xl ${className}`}>
+    <div className={`border-b border-edge/80 bg-surface/80 backdrop-blur-xl backdrop-saturate-150 ${className}`}>
       <div className="mx-auto max-w-[1440px] px-6 py-6 sm:px-8">
         {breadcrumbs && <div className="mb-3 text-[12px] text-ink-3">{breadcrumbs}</div>}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -1058,7 +1058,7 @@ export function DataTableShell({
   className?: string;
 }) {
   return (
-    <div className={`overflow-hidden rounded-[14px] border border-edge bg-surface shadow-card ${className}`}>
+    <div className={`overflow-hidden rounded-2xl border border-edge bg-surface shadow-card ${className}`}>
       {children}
     </div>
   );

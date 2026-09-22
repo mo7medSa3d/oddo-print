@@ -30,7 +30,7 @@ function rel(t?: string | null) {
 function statusMeta(s: string) {
   switch (s) {
     case "ONLINE": return { label: "Online", cls: "bg-ink text-white border-ink" };
-    case "DEGRADED": return { label: "Degraded", cls: "bg-warn-bg0 text-white border-warn-solid" };
+    case "DEGRADED": return { label: "Degraded", cls: "bg-warn-solid text-white border-warn-solid" };
     case "OFFLINE": return { label: "Offline", cls: "bg-surface-3 text-ink-2 border-edge" };
     case "STARTING": return { label: "Starting", cls: "bg-info-solid text-white border-info-solid" };
     default: return { label: s, cls: "bg-surface-3 text-ink-3 border-edge" };
@@ -88,7 +88,7 @@ export default function AgentHealthMatrix() {
         return (
           <div key={a.agentId} className="group flex items-center justify-between gap-4 rounded-xl border border-edge bg-surface px-5 py-4 transition hover:border-edge-strong hover:shadow-sm">
             <div className="flex items-center gap-4 min-w-0">
-              <div className={`h-2 w-2 rounded-full ${a.status === "ONLINE" ? "bg-ok-solid" : a.status === "OFFLINE" ? "bg-ink-4" : "bg-warn-bg0"}`} />
+              <div className={`h-2 w-2 rounded-full ${a.status === "ONLINE" ? "bg-ok-solid" : a.status === "OFFLINE" ? "bg-ink-4" : "bg-warn-solid"}`} />
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-[14px] font-semibold tracking-tight text-ink truncate">{a.name}</span>

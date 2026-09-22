@@ -726,7 +726,7 @@ export default function DashboardClient({
             subtitle={`${kpis.onlinePrinters} online • ${filteredPrinters.length} shown`}
             icon={<PrinterIcon className="h-4 w-4 text-brand" />}
             actions={
-              <div className="flex items-center gap-1 rounded-[10px] border border-edge bg-surface-2 p-0.5">
+              <div className="flex items-center gap-1 rounded-full border border-edge bg-surface-2 p-0.5">
                 <button type="button" aria-pressed={printerViewMode === "grid"} onClick={() => setPrinterViewMode("grid")} className={`rounded-[7px] p-1.5 transition ${printerViewMode === "grid" ? "bg-surface text-brand shadow-xs" : "text-ink-3 hover:text-ink"}`}>
                   <LayoutGrid className="h-4 w-4" />
                 </button>
@@ -881,7 +881,7 @@ export default function DashboardClient({
                 <button
                   key={tab.id}
                   onClick={() => setJobStatusFilter(tab.id)}
-                  className={`rounded-[9px] px-3 py-1.5 text-[12px] font-semibold transition ${jobStatusFilter === tab.id ? "bg-brand text-white shadow-sm" : "bg-surface-2 text-ink-3 hover:text-ink hover:bg-surface-3 border border-edge"}`}
+                  className={`rounded-full px-3 py-1.5 text-[12px] font-semibold transition ${jobStatusFilter === tab.id ? "bg-brand text-white shadow-sm" : "bg-surface-2 text-ink-3 hover:text-ink hover:bg-surface-3 border border-edge"}`}
                 >
                   {tab.label}
                 </button>

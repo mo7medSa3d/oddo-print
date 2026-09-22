@@ -1,101 +1,115 @@
 @import "tailwindcss";
 
+/* ============================================================
+   YASSER — Apple-grade design system
+   Light-first; the in-app toggle (and OS default before any
+   choice) drives <html data-theme="light|dark">.
+   Achromatic foundation (#fbfbfd / #000), ink #1d1d1f / #f5f5f7,
+   signature blue #0071e3 / #0a84ff, hairline borders, soft depth.
+   Token names are stable — components consume var() only.
+   ============================================================ */
+
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  --brand-50: #0f1f35;
-  --brand-100: #142a46;
-  --brand-200: #1b3b62;
-  --brand-300: #2f6aa5;
-  --brand-400: #4f8fe8;
-  --brand-500: #3b82f6;
-  --brand-600: #3b82f6;
-  --brand-700: #2563eb;
-  --brand-800: #1f55a8;
-  --brand-900: #163466;
-  --brand-950: #0c1d35;
+  /* Brand ramp (light) */
+  --brand-50: #eef7ff;
+  --brand-100: #d9edff;
+  --brand-200: #b6dfff;
+  --brand-300: #7ec4ff;
+  --brand-400: #3ea7ff;
+  --brand-500: #0a84ff;
+  --brand-600: #0071e3;
+  --brand-700: #0060c8;
+  --brand-800: #004e9f;
+  --brand-900: #003d7a;
+  --brand-950: #002a55;
 
-  --brand: #3b82f6;
-  --brand-hover: #4c8dff;
-  --brand-active: #2f73da;
+  --brand: #0071e3;
+  --brand-hover: #0077ed;
+  --brand-active: #0062c3;
   --brand-contrast: #ffffff;
-  --brand-subtle: #102343;
-  --brand-subtle-hover: #173055;
-  --brand-subtle-border: #28538f;
-  --brand-subtle-text: #8bb9ff;
-  --brand-ring: rgba(59, 130, 246, 0.24);
+  --brand-subtle: #e9f3ff;
+  --brand-subtle-hover: #d9edff;
+  --brand-subtle-border: #a3cdf5;
+  --brand-subtle-text: #0060c8;
+  --brand-ring: rgba(0, 113, 227, 0.28);
 
-  --bg: #080b11;
-  --bg-subtle: #0c1118;
-  --surface: #0f141c;
-  --surface-2: #141b25;
-  --surface-3: #192230;
-  --surface-hover: #171f2b;
-  --surface-accent: #111f34;
-  --surface-accent-2: #172b49;
-  --surface-elevated: #121923;
-  --surface-overlay: rgba(15,20,28,0.96);
+  /* Surfaces (light) — white cards on #fbfbfd canvas */
+  --bg: #fbfbfd;
+  --bg-subtle: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #f5f5f7;
+  --surface-3: #ebebf0;
+  --surface-hover: #f0f0f3;
+  --surface-accent: #f0f7ff;
+  --surface-accent-2: #e3f0ff;
+  --surface-elevated: #ffffff;
+  --surface-overlay: rgba(255, 255, 255, 0.86);
 
-  --border: #273244;
-  --border-strong: #354258;
-  --border-accent: #2d6cdf;
-  --border-subtle: #202a38;
-  --divider: #202a38;
+  --border: #e3e3e8;
+  --border-strong: #d2d2d7;
+  --border-accent: #a3cdf5;
+  --border-subtle: #ececf0;
+  --divider: #e8e8ed;
 
-  --text: #f4f7fb;
-  --text-2: #c4cedb;
-  --text-3: #8d9aab;
-  --text-4: #637287;
+  /* Ink (light) — Apple #1d1d1f / grays */
+  --text: #1d1d1f;
+  --text-2: #424245;
+  --text-3: #6e6e73;
+  --text-4: #86868b;
   --text-on-brand: #ffffff;
   --text-on-solid: #ffffff;
-  --text-display: #ffffff;
+  --text-display: #1d1d1f;
 
-  --success: #4fd197;
-  --success-solid: #22c994;
-  --success-bg: #0d241b;
-  --success-border: #1e6148;
+  --success: #1a7f37;
+  --success-solid: #34c759;
+  --success-bg: #eaf8ef;
+  --success-border: #b9e4c8;
 
-  --warning: #e6b65a;
-  --warning-solid: #f2b84a;
-  --warning-bg: #261e0e;
-  --warning-border: #725321;
+  --warning: #9a5b00;
+  --warning-solid: #ff9f0a;
+  --warning-bg: #fff5e6;
+  --warning-border: #f0d3a4;
 
-  --danger: #ee7f9a;
-  --danger-solid: #ef5677;
-  --danger-bg: #28131a;
-  --danger-border: #753044;
+  --danger: #d70015;
+  --danger-solid: #ff3b30;
+  --danger-bg: #fff0f0;
+  --danger-border: #ffc9c6;
 
-  --info: #7eb4ff;
-  --info-solid: #5a9eff;
-  --info-bg: #101f34;
-  --info-border: #28538f;
+  --info: #0060c8;
+  --info-solid: #007aff;
+  --info-bg: #eef6ff;
+  --info-border: #bcd9f8;
 
-  --notice-bg: #24180e;
-  --notice-border: #75431d;
-  --notice-text: #edb27a;
-  --notice-icon: #f08d46;
+  --notice-bg: #fff5e6;
+  --notice-border: #f0d3a4;
+  --notice-text: #9a5b00;
+  --notice-icon: #cc7a00;
 
-  --focus-ring: #4f91ff;
-  --focus-ring-shadow: 0 0 0 4px rgba(59, 130, 246, 0.24);
-  --overlay: rgba(0, 0, 0, 0.64);
+  --focus-ring: #0071e3;
+  --focus-ring-shadow: 0 0 0 4px rgba(0, 113, 227, 0.28);
+  --overlay: rgba(0, 0, 0, 0.4);
+  --glow: rgba(0, 113, 227, 0.14);
 
   --r-xs: 4px;
   --r-sm: 6px;
-  --r-md: 8px;
-  --r-lg: 10px;
-  --r-xl: 12px;
-  --r-2xl: 14px;
-  --r-3xl: 16px;
+  --r-md: 10px;
+  --r-lg: 12px;
+  --r-xl: 14px;
+  --r-2xl: 18px;
+  --r-3xl: 24px;
   --r-pill: 9999px;
 
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.28);
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.24);
-  --shadow-md: 0 8px 20px rgba(0, 0, 0, 0.30);
-  --shadow-lg: 0 16px 34px rgba(0, 0, 0, 0.34);
-  --shadow-xl: 0 26px 56px rgba(0, 0, 0, 0.42);
-  --shadow-2xl: 0 34px 80px rgba(0, 0, 0, 0.50);
-  --shadow-card: 0 1px 2px rgba(0,0,0,0.24), 0 6px 18px rgba(0,0,0,0.18);
-  --shadow-card-hover: 0 12px 28px rgba(0,0,0,0.30), 0 4px 10px rgba(0,0,0,0.18);
+  /* Soft, layered elevation (light) */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.05), 0 10px 24px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.05), 0 18px 40px rgba(0, 0, 0, 0.08);
+  --shadow-xl: 0 6px 12px rgba(0, 0, 0, 0.06), 0 26px 60px rgba(0, 0, 0, 0.1);
+  --shadow-2xl: 0 8px 16px rgba(0, 0, 0, 0.06), 0 34px 80px rgba(0, 0, 0, 0.12);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.05);
+  --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.05), 0 12px 32px rgba(0, 0, 0, 0.09);
 
   --fs-small: 12px;
   --fs-body: 14px;
@@ -103,8 +117,8 @@
   --fs-subtitle: 18px;
   --fs-heading: 20px;
   --fs-heading-lg: 24px;
-  --fs-display: 30px;
-  --fs-display-lg: 38px;
+  --fs-display: 32px;
+  --fs-display-lg: 40px;
 
   --lh-tight: 1.12;
   --lh-snug: 1.25;
@@ -126,11 +140,111 @@
   --header-height: 64px;
   --content-max: 1440px;
 
-  --platform-bg: #0b1018;
-  --platform-surface: #111824;
-  --platform-border: #202b3a;
-  --platform-text: #f4f7fb;
-  --platform-muted: #93a4b8;
+  --platform-bg: #fbfbfd;
+  --platform-surface: #ffffff;
+  --platform-border: #e3e3e8;
+  --platform-text: #1d1d1f;
+  --platform-muted: #6e6e73;
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+
+    /* Brand ramp (dark) */
+    --brand-50: #0a1626;
+    --brand-100: #0d1f38;
+    --brand-200: #0f2a4d;
+    --brand-300: #164a80;
+    --brand-400: #1e63ad;
+    --brand-500: #0a84ff;
+    --brand-600: #0a84ff;
+    --brand-700: #0066db;
+    --brand-800: #0052b0;
+    --brand-900: #003f87;
+    --brand-950: #002b5e;
+
+    --brand: #0a84ff;
+    --brand-hover: #3395ff;
+    --brand-active: #0a72d6;
+    --brand-contrast: #ffffff;
+    --brand-subtle: #10273f;
+    --brand-subtle-hover: #153252;
+    --brand-subtle-border: #1f4f85;
+    --brand-subtle-text: #7ab8ff;
+    --brand-ring: rgba(10, 132, 255, 0.32);
+
+    /* Surfaces (dark) — true black canvas, #1d1d1f cards (Apple dark) */
+    --bg: #000000;
+    --bg-subtle: #0a0a0b;
+    --surface: #161617;
+    --surface-2: #1f1f21;
+    --surface-3: #2c2c2e;
+    --surface-hover: #232325;
+    --surface-accent: #0d1c30;
+    --surface-accent-2: #122844;
+    --surface-elevated: #1c1c1e;
+    --surface-overlay: rgba(22, 22, 23, 0.92);
+
+    --border: #2c2c2e;
+    --border-strong: #3a3a3c;
+    --border-accent: #1f4f85;
+    --border-subtle: #232325;
+    --divider: #2c2c2e;
+
+    /* Ink (dark) — #f5f5f7 / Apple grays */
+    --text: #f5f5f7;
+    --text-2: #d2d2d7;
+    --text-3: #a1a1a6;
+    --text-4: #86868b;
+    --text-on-brand: #ffffff;
+    --text-on-solid: #ffffff;
+    --text-display: #f5f5f7;
+
+    --success: #63e297;
+    --success-solid: #30d158;
+    --success-bg: #0d2818;
+    --success-border: #26633e;
+
+    --warning: #f5c542;
+    --warning-solid: #ff9f0a;
+    --warning-bg: #2c2109;
+    --warning-border: #7a5d22;
+
+    --danger: #ff7b73;
+    --danger-solid: #ff453a;
+    --danger-bg: #2e1215;
+    --danger-border: #7a2e33;
+
+    --info: #64b5ff;
+    --info-solid: #0a84ff;
+    --info-bg: #0c1c30;
+    --info-border: #24548c;
+
+    --notice-bg: #2c2109;
+    --notice-border: #7a5d22;
+    --notice-text: #f5c542;
+    --notice-icon: #ff9f0a;
+
+    --focus-ring: #0a84ff;
+    --focus-ring-shadow: 0 0 0 4px rgba(10, 132, 255, 0.32);
+    --overlay: rgba(0, 0, 0, 0.62);
+    --glow: rgba(10, 132, 255, 0.2);
+
+    /* Depth (dark) — deep, quiet shadows */
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.4), 0 10px 24px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 4px 10px rgba(0, 0, 0, 0.45), 0 18px 40px rgba(0, 0, 0, 0.4);
+    --shadow-xl: 0 6px 14px rgba(0, 0, 0, 0.5), 0 26px 60px rgba(0, 0, 0, 0.45);
+    --shadow-2xl: 0 8px 18px rgba(0, 0, 0, 0.5), 0 34px 80px rgba(0, 0, 0, 0.5);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.28);
+    --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.4), 0 12px 28px rgba(0, 0, 0, 0.38);
+
+    --platform-bg: #000000;
+    --platform-surface: #161617;
+    --platform-border: #2c2c2e;
+    --platform-text: #f5f5f7;
+    --platform-muted: #a1a1a6;
 }
 
 @theme inline {
@@ -138,6 +252,7 @@
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
+  --color-surface-hover: var(--surface-hover);
   --color-surface-accent: var(--surface-accent);
   --color-surface-accent-2: var(--surface-accent-2);
   --color-edge: var(--border);
@@ -156,6 +271,7 @@
   --color-brand-contrast: var(--brand-contrast);
   --color-brand-subtle: var(--brand-subtle);
   --color-brand-subtle-hover: var(--brand-subtle-hover);
+  --color-brand-subtle-border: var(--brand-subtle-border);
   --color-brand-subtle-text: var(--brand-subtle-text);
   --color-brand-50: var(--brand-50);
   --color-brand-100: var(--brand-100);
@@ -184,8 +300,10 @@
   --color-info-solid: var(--info-solid);
   --color-info-bg: var(--info-bg);
   --color-info-edge: var(--info-border);
-  --font-sans: "Avenir Next", "Segoe UI", "Helvetica Neue", ui-sans-serif, sans-serif;
-  --font-mono: "SFMono-Regular", "Cascadia Mono", "Cascadia Code", "Segoe UI Mono", monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Mono",
+    "Segoe UI Mono", Menlo, monospace;
   --radius-xs: var(--r-xs);
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
@@ -219,6 +337,7 @@
     font-family: var(--font-sans);
     font-size: var(--fs-body);
     line-height: var(--lh-normal);
+    letter-spacing: -0.01em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -232,9 +351,9 @@
     text-wrap: pretty;
   }
 
-  h1 { font-size: var(--fs-display); line-height: var(--lh-tight); font-weight: 700; letter-spacing: var(--tracking-tighter); }
-  h2 { font-size: var(--fs-heading-lg); line-height: var(--lh-snug); }
-  h3 { font-size: var(--fs-heading); line-height: var(--lh-snug); }
+  h1 { font-size: var(--fs-display); line-height: var(--lh-tight); font-weight: 700; letter-spacing: -0.032em; }
+  h2 { font-size: var(--fs-heading-lg); line-height: var(--lh-snug); letter-spacing: -0.024em; }
+  h3 { font-size: var(--fs-heading); line-height: var(--lh-snug); letter-spacing: -0.018em; }
   h4 { font-size: var(--fs-subtitle); line-height: var(--lh-snug); }
 
   button, input, select, textarea { font: inherit; }
@@ -246,12 +365,17 @@
   }
 
   ::selection {
-    background: var(--brand-100);
-    color: var(--brand-900);
+    background: rgba(0, 113, 227, 0.18);
+    color: var(--text);
+  }
+
+  :root[data-theme="dark"] ::selection {
+    background: rgba(10, 132, 255, 0.35);
+    color: var(--text);
   }
 
   * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
-  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
     background: var(--border-strong);
@@ -280,11 +404,16 @@
     from { opacity: 0; transform: translateX(14px); }
     to { opacity: 1; transform: translateX(0); }
   }
+  @keyframes pg-toast-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
 
   .pg-fade-in { animation: pg-fade-in var(--dur-fast) var(--ease-out) both; }
   .pg-rise-in { animation: pg-rise-in var(--dur-normal) var(--ease-out) both; }
   .pg-scale-in { animation: pg-scale-in var(--dur-normal) var(--ease-out) both; }
   .pg-slide-in-right { animation: pg-slide-in-right var(--dur-slow) var(--ease-out) both; }
+  .pg-toast-in { animation: pg-toast-in var(--dur-slow) var(--ease-out) both; }
 
   .page-transition {
     animation: pg-rise-in 180ms var(--ease-out) both;
@@ -320,7 +449,7 @@
   .billing-premium,
   .balance-card,
   .inset-panel {
-    border-color: var(--border-strong);
+    border-color: var(--border);
   }
 
   .card-interactive {
@@ -328,8 +457,8 @@
   }
 
   .card-interactive:hover {
-    transform: translateY(-1px);
-    border-color: var(--border-accent);
+    transform: translateY(-2px);
+    border-color: var(--border-strong);
     box-shadow: var(--shadow-card-hover);
   }
 
@@ -337,7 +466,7 @@
     position: relative;
     overflow: hidden;
     background: var(--surface);
-    border: 1px solid var(--border-accent);
+    border: 1px solid var(--border);
     border-radius: var(--r-2xl);
     box-shadow: var(--shadow-card);
   }
@@ -347,7 +476,7 @@
     position: absolute;
     inset: 0 0 auto 0;
     height: 2px;
-    background: var(--brand);
+    background: linear-gradient(90deg, var(--brand) 0%, var(--brand-400) 72%, transparent 100%);
   }
 
   .balance-card {
@@ -383,10 +512,12 @@
 
   .canvas-wash { background: var(--bg); }
 
+  /* Apple-style frosted chrome */
   .page-header {
     border-bottom: 1px solid var(--border);
-    background: rgba(8,11,17,0.86);
-    backdrop-filter: blur(12px);
+    background: color-mix(in srgb, var(--bg) 78%, transparent);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
   }
 
   .table-head {
@@ -425,8 +556,16 @@
     color: var(--text-display);
     font-size: var(--fs-display);
     font-weight: 700;
-    letter-spacing: var(--tracking-tighter);
+    letter-spacing: -0.03em;
     line-height: var(--lh-tight);
+  }
+
+  /* Signature Apple gradient headline accent */
+  .text-gradient-brand {
+    background: linear-gradient(90deg, var(--brand) 0%, var(--brand-400) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
 
   .text-financial {

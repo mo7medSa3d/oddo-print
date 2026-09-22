@@ -77,7 +77,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // Platform control plane keeps its own layout (src/app/platform/layout.tsx).
   if (isPlatformScreen) {
-    return <main className="min-h-screen bg-[#080a12] text-slate-100">{children}</main>;
+    return <main className="min-h-screen bg-app text-ink">{children}</main>;
   }
 
   // Auth screens render their own centered card — no shell chrome.
