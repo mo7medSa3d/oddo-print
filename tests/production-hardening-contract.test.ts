@@ -61,7 +61,8 @@ describe("production hardening contracts", () => {
   it("fails closed in production when the platform tenant identity is not configured", () => {
     const server = read("server.ts");
     expect(server).toContain('runtimeSecret("PLATFORM_TENANT_ID")?.trim()');
-    expect(server).toContain("PLATFORM_TENANT_ID must be configured");
+    expect(server).toContain("<required-platform-tenant-id>");
+    expect(server).toContain("PLATFORM_TENANT_ID must be configured with the real platform workspace ID");
     expect(server).toContain("Refusing production startup");
   });
 
