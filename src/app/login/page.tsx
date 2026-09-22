@@ -100,7 +100,7 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthShell subtitle="Customer portal">
+    <AuthShell subtitle="Yasser Print Gateway">
       <section className="overflow-hidden rounded-[16px] border border-edge-strong bg-surface shadow-lg">
         <div className="border-b border-edge bg-surface-2/55 px-6 py-6 sm:px-7">
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Workspace access</div>
