@@ -161,6 +161,51 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     expect(auditLogs.some((a) => a.action === "billing.customer.subscription.updated" && a.resourceId === eventId)).toBe(true);
   });
 
+
+  it("1b. preserves the stored period start when Stripe omits current_period_start", async () => {
+    const tenantId = `tenant_${nanoid(8)}`;
+    const planId = `plan_${nanoid(8)}`;
+    const stripePriceId = `price_${nanoid(8)}`;
+    const customerId = `cus_${nanoid(8)}`;
+    const subscriptionId = `sub_${nanoid(8)}`;
+    const eventId = `evt_${nanoid(8)}`;
+
+    await createTenant(tenantId);
+    await createPlan(planId, "Fallback Period Plan", stripePriceId);
+    await createSubscription(tenantId, planId, customerId, subscriptionId, "active");
+
+    const before = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, tenantId),
+    });
+    expect(before?.currentPeriodStart).toBeInstanceOf(Date);
+
+    const eventCreatedTs = Math.floor(Date.now() / 1000);
+    const payload = JSON.stringify({
+      id: eventId,
+      type: "customer.subscription.updated",
+      created: eventCreatedTs,
+      data: {
+        object: {
+          id: subscriptionId,
+          customer: customerId,
+          status: "active",
+          current_period_end: eventCreatedTs + 30 * 86400,
+          cancel_at_period_end: false,
+          items: { data: [{ price: { id: stripePriceId } }] },
+          metadata: { tenant_id: tenantId },
+        },
+      },
+    });
+
+    const res = await postWebhook(payload);
+    expect(res.status).toBe(200);
+
+    const after = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, tenantId),
+    });
+    expect(after?.currentPeriodStart?.getTime()).toBe(before?.currentPeriodStart?.getTime());
+    expect(after?.currentPeriodEnd?.getTime()).toBe((eventCreatedTs + 30 * 86400) * 1000);
+  });
   it("repeated processed subscription events are acknowledged without another Stripe retrieval", async () => {
     const tenantId = `tenant_${nanoid(8)}`;
     const planId = `plan_${nanoid(8)}`;
