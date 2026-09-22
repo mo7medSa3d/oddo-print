@@ -70,13 +70,24 @@ suite("real PostgreSQL runtime architecture gate", () => {
     const result = await pool().query(`
       SELECT pg_get_constraintdef(oid) AS definition
       FROM pg_constraint
-      WHERE conname = 'tenant_subscriptions_status_check'
+      WHERE conrelid = 'tenant_subscriptions'::regclass
+        AND conname = 'tenant_subscriptions_status_check'
     `);
     expect(result.rows).toHaveLength(1);
     const definition = String(result.rows[0].definition);
     for (const state of ["trialing", "active", "past_due", "incomplete", "incomplete_expired", "unpaid", "paused", "cancelled"]) {
       expect(definition).toContain(state);
     }
+    const column = await pool().query(`
+      SELECT is_nullable, column_default
+      FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = 'tenant_subscriptions'
+        AND column_name = 'current_period_start'
+    `);
+    expect(column.rows).toEqual([
+      { is_nullable: "NO", column_default: "CURRENT_TIMESTAMP" },
+    ]);
   });
   it("enforces tenant-scoped idempotency keys", async () => {
     await pool().query(`INSERT INTO tenants (id, name) VALUES ('tenant_arch', 'Arch Test Tenant') ON CONFLICT (id) DO NOTHING`);

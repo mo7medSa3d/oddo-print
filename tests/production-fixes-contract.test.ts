@@ -97,7 +97,7 @@ describe("production fixes contracts (2026-09)", () => {
     expect(dashboard).toContain('error.code === "PRINT_QUOTA_EXCEEDED"');
     expect(dashboard).toContain("<UpgradeLimitDialog");
     expect(agentRoute).toContain("ActionError");
-    expect(agentRoute).toContain("error.details");
+    expect(agentRoute).toContain("enforceTenantResourceEntitlement");
   });
 
   it("print quota is a billing-period entitlement and is charged once per logical job", () => {
