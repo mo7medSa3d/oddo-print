@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { agents, printers, plans, tenantSubscriptions } from "../../../../db/schema";
-import { getTenantPrintUsage, isTenantBillingError } from "../../../../lib/entitlements";
+import { getTenantEntitlements, getTenantPrintUsage, isTenantBillingError } from "../../../../lib/entitlements";
 import { validateManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { eq, sql } from "drizzle-orm";
@@ -26,6 +26,7 @@ export async function GET(req: Request) {
     });
     if (!plan) return NextResponse.json({ error: "Plan configuration is unavailable", code: "TENANT_ENTITLEMENT_UNAVAILABLE" }, { status: 403 });
 
+    const entitlements = await getTenantEntitlements(db, manager.tenantId);
     const printUsage = await getTenantPrintUsage(db, manager.tenantId);
     const counts = await db.execute(sql`
       SELECT
@@ -37,8 +38,8 @@ export async function GET(req: Request) {
     return NextResponse.json({
       plan: { id: plan.id, name: plan.name },
       resources: {
-        agents: { used: Number(row?.agents ?? 0), limit: plan.entitlements?.max_agents ?? null },
-        printers: { used: Number(row?.printers ?? 0), limit: plan.entitlements?.max_printers ?? null },
+        agents: { used: Number(row?.agents ?? 0), limit: entitlements.max_agents },
+        printers: { used: Number(row?.printers ?? 0), limit: entitlements.max_printers },
         prints: {
           unit: "job",
           used: printUsage.used,
