@@ -499,6 +499,36 @@ suite("WS claim-before-delivery", () => {
     expect(ids.length).toBe(10);
   });
 
+  it("concurrent polls honor the agent in-flight ceiling", async () => {
+    // The poll path uses the same per-agent advisory lock as the WebSocket
+    // delivery path. With exactly one slot left, two simultaneous polls must
+    // serialize so only one can claim the next job.
+    await pool().query(
+      `INSERT INTO print_jobs (id, tenant_id, destination, document_type, agent_id, printer_id, status, payload, expires_at)
+       SELECT 'poll_cap_fill_' || g, $1, $2, 'receipt', $3, $4, 'claimed',
+              '{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb,
+              now() + interval '1 hour'
+       FROM generate_series(1, $5) g`,
+      [f.tenantId, f.destination, f.agentId, f.printerId, MAX_AGENT_IN_FLIGHT_JOBS - 1],
+    );
+    await insertQueuedJob(f, "poll_cap_race");
+
+    const [r1, r2] = await Promise.all([
+      agentJobsGET(agentRequest(f, "GET")).then((r) => r.json()),
+      agentJobsGET(agentRequest(f, "GET")).then((r) => r.json()),
+    ]);
+
+    const claimedIds = [
+      ...r1.map((r: any) => r.id),
+      ...r2.map((r: any) => r.id),
+    ].filter((id) => id === "poll_cap_race");
+    expect(claimedIds).toHaveLength(1);
+    const row = await jobRow("poll_cap_race");
+    expect(row.status).toBe("claimed");
+    expect(row.error).toBe("DELIVERY_EVIDENCE_PENDING");
+    expect(Number(row.delivery_attempts)).toBe(1);
+  });
+
   it("terminal job is never claimed again", async () => {
     const ws = await connectAgent();
     const messages: any[] = [];
