@@ -414,6 +414,13 @@
       "when": 1790000000058,
       "tag": "0058_scope_odoo_activation_to_api_key",
       "breakpoints": false
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1790000000059,
+      "tag": "0059_remove_api_key_restrictions",
+      "breakpoints": false
     }
   ]
 }
