@@ -20,7 +20,7 @@ type Stats = {
   users: { total: number; verified: number };
   agents: { total: number; online: number; offline: number };
   printers: { total: number; online: number; offline: number };
-  jobs24h: { total: number; success: number; failed: number; queued: number };
+  jobs24h: { total: number; success: number; failed: number; queued: number; inFlight: number; expired: number };
 };
 
 type TenantRow = {
@@ -196,14 +196,14 @@ export default function PlatformDashboardPage() {
     const usersTotal = stats?.users.total ?? 0;
     const agentsTotal = stats?.agents.total ?? 0;
     const printersTotal = stats?.printers.total ?? 0;
-    const resolvedJobs = (stats?.jobs24h.success ?? 0) + (stats?.jobs24h.failed ?? 0);
+    const terminalJobs = (stats?.jobs24h.success ?? 0) + (stats?.jobs24h.failed ?? 0) + (stats?.jobs24h.expired ?? 0);
 
     return {
       activeTenantRate: percent(stats?.tenants.active ?? 0, tenantsTotal),
       verifiedUserRate: percent(stats?.users.verified ?? 0, usersTotal),
       onlineAgentRate: percent(stats?.agents.online ?? 0, agentsTotal),
       onlinePrinterRate: percent(stats?.printers.online ?? 0, printersTotal),
-      jobSuccessRate: percent(stats?.jobs24h.success ?? 0, resolvedJobs),
+      jobSuccessRate: percent(stats?.jobs24h.success ?? 0, terminalJobs),
     };
   }, [stats]);
 
@@ -287,7 +287,7 @@ export default function PlatformDashboardPage() {
           label="Print deliveries · 24h"
           value={stats?.jobs24h.total ?? 0}
           icon={Activity}
-          detail={`${formatNumber(stats?.jobs24h.success ?? 0)} success · ${formatNumber(stats?.jobs24h.failed ?? 0)} failed · ${formatNumber(stats?.jobs24h.queued ?? 0)} queued`}
+          detail={`${formatNumber(stats?.jobs24h.success ?? 0)} delivered · ${formatNumber(stats?.jobs24h.failed ?? 0)} failed · ${formatNumber((stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0))} open`}
         />
       </section>
 
@@ -333,12 +333,12 @@ export default function PlatformDashboardPage() {
             <h2 className="text-[17px] font-semibold text-ink">Print activity · last 24 hours</h2>
           </div>
 
-          <div className="mt-6 grid grid-cols-3 gap-3">
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="inset-panel p-4">
               <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Delivered</div>
               <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.jobs24h.success ?? 0)}</div>
               <div className="mt-1 text-[11px] text-ok">
-                {derived.jobSuccessRate === null ? "No resolved deliveries" : `${derived.jobSuccessRate}% of resolved`}
+                {derived.jobSuccessRate === null ? "No terminal jobs" : `${derived.jobSuccessRate}% of terminal jobs`}
               </div>
             </div>
             <div className="inset-panel p-4">
@@ -347,9 +347,9 @@ export default function PlatformDashboardPage() {
               <div className="mt-1 text-[11px] text-bad">Recorded failures</div>
             </div>
             <div className="inset-panel p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Queued</div>
-              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.jobs24h.queued ?? 0)}</div>
-              <div className="mt-1 text-[11px] text-warn">Not terminal yet</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Open</div>
+              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber((stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0))}</div>
+              <div className="mt-1 text-[11px] text-warn">{formatNumber(stats?.jobs24h.queued ?? 0)} queued · {formatNumber(stats?.jobs24h.inFlight ?? 0)} in flight</div>
             </div>
           </div>
 
@@ -357,7 +357,8 @@ export default function PlatformDashboardPage() {
             {[
               ["Delivered", stats?.jobs24h.success ?? 0, "bg-ok-solid"],
               ["Failed", stats?.jobs24h.failed ?? 0, "bg-bad-solid"],
-              ["Queued", stats?.jobs24h.queued ?? 0, "bg-warn-solid"],
+              ["Open", (stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0), "bg-warn-solid"],
+              ["Expired", stats?.jobs24h.expired ?? 0, "bg-info-solid"],
             ].map(([label, value, barClass]) => {
               const total = stats?.jobs24h.total ?? 0;
               const width = total > 0 ? ((value as number) / total) * 100 : 0;
