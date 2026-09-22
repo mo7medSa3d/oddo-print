@@ -154,6 +154,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
           <BillingActions
             hasSubscription={hasActivePlan && hasStripeSubscription}
             cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd}
+            subscriptionStatus={sub?.status}
             selectedPlan={selectedPlan}
           />
         </div>
@@ -254,6 +255,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
               <BillingActions
                 hasSubscription={hasActivePlan && hasStripeSubscription}
                 cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd}
+                subscriptionStatus={sub?.status}
               />
             </div>
           </section>
