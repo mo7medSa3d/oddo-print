@@ -206,6 +206,6 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
 
 const INPUT = "w-full rounded-xl border border-edge-strong bg-surface-2 px-3.5 py-2.5 text-[13px] text-ink placeholder:text-ink-4 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
 
-function Field({ label, full, children }: { label: string; full?: boolean; children: React.ReactNode }) {
-  return <label className={full ? "sm:col-span-2 space-y-2" : "space-y-2"}><span className="block text-[12px] font-medium text-ink-2">{label}</span>{children}</label>;
+function Field({ label, full, hint, children }: { label: string; full?: boolean; hint?: string; children: React.ReactNode }) {
+  return <label className={full ? "sm:col-span-2 space-y-2" : "space-y-2"}><span className="block text-[12px] font-medium text-ink-2">{label}</span>{children}{hint ? <span className="block text-[10px] leading-relaxed text-ink-4">{hint}</span> : null}</label>;
 }
