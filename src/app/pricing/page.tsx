@@ -4,7 +4,7 @@ import { db } from "../../db";
 import { plans, tenantSubscriptions } from "../../db/schema";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { getManagerCookieName, validateManagerClaims, verifyManagerToken } from "../../lib/manager-auth";
-import { ArrowRight, Check, CreditCard, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, Check, CreditCard, Sparkles } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +38,6 @@ export default async function Pricing() {
   const claims = await validateManagerClaims(token ? verifyManagerToken(token) : null);
 
   let currentPlanId: string | null = null;
-  let currentPlanName: string | null = null;
 
   if (claims) {
     const subscription = await db.query.tenantSubscriptions.findFirst({
@@ -46,8 +45,6 @@ export default async function Pricing() {
     });
     if (subscription) {
       currentPlanId = subscription.planId;
-      const current = rows.find((plan) => plan.id === subscription.planId);
-      currentPlanName = current?.name ?? subscription.planId;
     }
   }
 
@@ -62,27 +59,8 @@ export default async function Pricing() {
         <h1 className="mt-4 text-[36px] font-bold leading-[1.06] tracking-[-0.045em] text-ink sm:text-[48px]">
           Choose the capacity your workspace needs
         </h1>
-        <p className="mx-auto mt-4 max-w-2xl text-[15px] leading-7 text-ink-3">
-          Compare the public Yasser plans side by side. Your current plan is marked automatically.
-        </p>
+        <p className="mx-auto mt-4 max-w-xl text-[14px] leading-6 text-ink-3">Compare plans and choose the right capacity.</p>
       </header>
-
-      {currentPlanId && (
-        <div className="mx-auto mt-7 flex max-w-[1200px] items-center justify-between gap-4 rounded-[14px] border border-brand-subtle-border bg-brand-subtle px-4 py-3.5">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-surface-2 text-brand shadow-xs">
-              <ShieldCheck className="h-4 w-4" />
-            </span>
-            <div className="min-w-0">
-              <div className="text-[12px] font-semibold text-brand-subtle-text">Current plan</div>
-              <div className="truncate text-[13px] font-semibold text-ink">{currentPlanName}</div>
-            </div>
-          </div>
-          <Link href="/billing" className="inline-flex shrink-0 items-center gap-1.5 text-[12.5px] font-semibold text-brand-subtle-text hover:text-brand-hover">
-            Back to Billing <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
-      )}
 
       {rows.length === 0 ? (
         <div className="mx-auto mt-12 max-w-xl rounded-[14px] border border-dashed border-edge-strong bg-surface px-6 py-12 text-center shadow-card">
@@ -239,19 +217,6 @@ export default async function Pricing() {
         </div>
       )}
 
-      <div className="mx-auto mt-9 flex max-w-[1200px] flex-col gap-3 rounded-[14px] border border-edge bg-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-[13px] font-semibold text-ink">Need to manage the subscription you already have?</div>
-          <p className="mt-0.5 text-[12px] text-ink-3">Billing shows your current plan, renewal state, entitlements, and account controls.</p>
-        </div>
-        <Link
-          href={claims ? "/billing" : "/login"}
-          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-edge bg-surface px-3 text-[12.5px] font-semibold text-ink-2 transition hover:border-edge-strong hover:bg-surface-2 hover:text-ink"
-        >
-          {claims ? "Open Billing" : "Sign in"}
-          <ArrowRight className="h-3.5 w-3.5" />
-        </Link>
-      </div>
     </div>
   );
 }
