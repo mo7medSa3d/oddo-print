@@ -3,7 +3,11 @@ import { logError } from "./log";
 
 export class TenantEntitlementError extends Error {
   readonly code = "TENANT_ENTITLEMENT_EXCEEDED" as const;
-  constructor(public readonly entitlement: string, public readonly limit: number) {
+  constructor(
+    public readonly entitlement: string,
+    public readonly limit: number,
+    public readonly used: number = limit,
+  ) {
     super(`Tenant entitlement ${entitlement} exceeded (limit ${limit})`);
   }
 }
@@ -156,7 +160,7 @@ export async function enforceTenantResourceEntitlement(tx: EntitlementTx, tenant
   if (limit === null) return;
   const result = await tx.execute(currentCountSql);
   const count = Number(result.rows[0]?.count ?? 0);
-  if (count >= limit) throw new TenantEntitlementError(key, limit);
+  if (count >= limit) throw new TenantEntitlementError(key, limit, count);
 }
 
 type TenantPrintQuotaRow = {
@@ -253,7 +257,7 @@ export async function enforceTenantJobEntitlements(tx: EntitlementTx, tenantId: 
         AND created_at >= now() - interval '1 minute'
     `);
     const count = Number(recent.rows[0]?.count ?? 0);
-    if (count >= minuteLimit) throw new TenantEntitlementError("max_jobs_per_minute", minuteLimit);
+    if (count >= minuteLimit) throw new TenantEntitlementError("max_jobs_per_minute", minuteLimit, count);
   }
 
   const concurrentLimit = await getTenantEntitlementLimit(tx, tenantId, "max_concurrent_jobs");
@@ -266,6 +270,6 @@ export async function enforceTenantJobEntitlements(tx: EntitlementTx, tenantId: 
         AND expires_at > now()
     `);
     const count = Number(current.rows[0]?.count ?? 0);
-    if (count >= concurrentLimit) throw new TenantEntitlementError("max_concurrent_jobs", concurrentLimit);
+    if (count >= concurrentLimit) throw new TenantEntitlementError("max_concurrent_jobs", concurrentLimit, count);
   }
 }
