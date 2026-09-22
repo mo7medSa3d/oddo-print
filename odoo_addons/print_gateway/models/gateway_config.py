@@ -1426,15 +1426,6 @@ class PrintGatewayConfig(models.Model):
             ("pending_disable_gateway_url", "!=", False),
         ])
         for config in configs:
-            # Health is checked independently of activation revision. This catches
-            # a Gateway key that was revoked/deleted after the last successful
-            # configuration sync, without requiring an operator to press a button.
-            if config.gateway_url and config.gateway_api_key:
-                if not config._probe_gateway_connection():
-                    # The probe already recorded the user-facing reason.
-                    # Do not immediately issue another request with the same
-                    # invalid or unreachable credential.
-                    continue
             skipped_same_endpoint_revision = None
             if (
                 config.pending_disable_gateway_url
@@ -1486,6 +1477,13 @@ class PrintGatewayConfig(models.Model):
                     _logger.exception(
                         "Gateway shutdown cron crashed for config %s", config.id
                     )
+                    continue
+
+            # Probe the current credential only after any pending old-endpoint
+            # shutdown. URL migration therefore keeps its existing old-first
+            # safety ordering while ordinary key revocation is detected here.
+            if config.gateway_url and config.gateway_api_key:
+                if not config._probe_gateway_connection():
                     continue
 
             if (
