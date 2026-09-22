@@ -254,15 +254,6 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
             </div>
           </section>
 
-          <section className="rounded-[14px] border border-edge bg-surface-2 p-5">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-ok" />
-              <div>
-                <div className="text-[13px] font-semibold text-ink">Stripe is the billing source of truth</div>
-                <p className="mt-1.5 text-[12px] leading-relaxed text-ink-3">Checkout, subscription status, and payment-method changes are confirmed through Stripe events.</p>
-              </div>
-            </div>
-          </section>
         </aside>
       </div>
     </div>
