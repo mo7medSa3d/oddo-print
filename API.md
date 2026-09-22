@@ -19,7 +19,7 @@ The raw Odoo key is returned only when generated. Gateway persists only its cryp
 
 ## `GET /api/odoo/health`
 
-Authenticated with the Odoo installation key. Returns `{ "ok": true }` only for a valid, non-revoked key. This endpoint is used by the Odoo **Test Connection** button.
+Authenticated with the Odoo installation key. Returns the authenticated integration health, including its replicated Odoo activation state (`enabled`). This endpoint is used by the Odoo **Test Connection** button.
 
 ## `GET /api/odoo/printers`
 
@@ -93,7 +93,7 @@ Response:
   "jobs": [
     {
       "jobId": "job-1",
-      "status": "completed",
+      "status": "success",
       "printerId": "runtime-printer-id",
       "agentId": "agent-id",
       "destination": "Main POS",
