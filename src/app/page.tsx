@@ -8,6 +8,7 @@ import { ThemeToggle } from "../components/ThemeToggle";
 import {
   ArrowRight,
   ArrowUpRight,
+  Activity,
   Boxes,
   Check,
   ChevronRight,
@@ -24,7 +25,6 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
-  Sparkles,
   Users,
   Waypoints,
   Zap,
@@ -226,7 +226,7 @@ function PublicHome() {
               />
               <SecurityPanel
                 title="Operational visibility"
-                icon={<Sparkles className="h-5 w-5" />}
+                icon={<Activity className="h-5 w-5" />}
                 items={[
                   "See connected Agents and available printers from one console.",
                   "Track every job from queue to delivery outcome.",
