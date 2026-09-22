@@ -58,7 +58,7 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "succ
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary:
-    "bg-brand text-white border border-transparent shadow-sm hover:bg-brand-hover hover:shadow-md active:bg-brand-active active:shadow-none",
+    "bg-brand text-white border border-transparent shadow-sm hover:bg-brand-hover active:bg-brand-active active:shadow-none",
   secondary:
     "bg-surface text-ink border border-edge shadow-xs hover:bg-surface-2 hover:border-edge-strong active:bg-surface-3",
   ghost:
@@ -94,10 +94,10 @@ export function Button({
 }: ButtonProps) {
   const sizes =
     size === "sm"
-      ? "h-9 px-3 text-[13px] gap-1.5 rounded-[8px]"
+      ? "h-8 px-3 text-[12.5px] gap-1.5 rounded-[8px]"
       : size === "lg"
-        ? "h-11 px-5 text-[14px] gap-2.5 rounded-[10px]"
-        : "h-10 px-4 text-[13.5px] gap-2 rounded-[9px]";
+        ? "h-10 px-5 text-[14px] gap-2.5 rounded-[9px]"
+        : "h-9 px-4 text-[13px] gap-2 rounded-[9px]";
 
   const baseClasses = `inline-flex items-center justify-center font-[600] tracking-[-0.01em] transition-all duration-150 disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 focus-visible:border-brand ${buttonVariants[variant]} ${sizes} ${className}`;
 
@@ -152,7 +152,7 @@ export function IconButton({
     <button
       aria-label={label}
       title={label}
-      className={`inline-flex items-center justify-center h-9 w-9 rounded-[10px] text-ink-3 transition-all duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 disabled:opacity-50 ${className}`}
+      className={`inline-flex items-center justify-center h-9 w-9 rounded-[9px] text-ink-3 transition-all duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 disabled:opacity-50 ${className}`}
       {...props}
     >
       {children}
@@ -226,7 +226,7 @@ export function StatCard({
 }) {
   return (
     <div
-      className={`group relative overflow-hidden rounded-[14px] border border-edge bg-surface p-5 shadow-card transition-all duration-180 hover:shadow-card-hover hover:border-edge-strong hover:-translate-y-px ${className}`}
+      className={`group relative overflow-hidden rounded-[16px] border border-edge bg-surface p-5 shadow-card transition-colors duration-180 hover:bg-surface-2 hover:border-edge-strong ${className}`}
     >
       <div className="flex items-start justify-between gap-3">
         <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-ink-3">{title}</span>
@@ -239,7 +239,7 @@ export function StatCard({
         )}
       </div>
       <div className="mt-4">
-        <div className="text-[28px] font-bold tracking-[-0.02em] leading-none text-ink tabular-nums">
+        <div className="text-[27px] font-bold tracking-[-0.025em] leading-none text-ink tabular-nums">
           {value}
         </div>
         {(subtitle || trend) && (
@@ -273,7 +273,7 @@ export function CardHeader({
   icon?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-4">
+    <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-5">
       <div className="min-w-0">
         <h2 className="flex items-center gap-2.5 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-ink">
           {icon}

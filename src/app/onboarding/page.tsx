@@ -116,14 +116,14 @@ export default function Onboarding() {
   const canContinue = name.trim().length >= 2 && !!planId && !plansLoading && !plansError;
 
   return (
-    <main className="canvas-wash min-h-screen px-4 py-12">
-      <div className="mx-auto w-full max-w-3xl">
+    <main className="canvas-wash min-h-screen px-4 py-10 sm:px-6 lg:py-12">
+      <div className="mx-auto w-full max-w-[900px]">
         <div className="mx-auto max-w-2xl text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-edge-accent bg-brand-subtle px-3 py-1.5 text-xs font-semibold text-brand-subtle-text">
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
             Workspace setup
           </div>
-          <h1 className="mt-4 text-3xl font-bold tracking-tight text-ink sm:text-4xl">Set up your print workspace</h1>
+          <h1 className="mt-4 text-[34px] font-bold tracking-[-0.04em] text-ink sm:text-[42px]">Set up your print workspace</h1>
           <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-ink-3 sm:text-base">
             Name the workspace and choose the operating plan that fits the number of agents, printers, and jobs you expect to run.
           </p>
@@ -157,7 +157,7 @@ export default function Onboarding() {
               {plansLoading ? (
                 <div className="mt-3 grid gap-3 md:grid-cols-2" role="status" aria-label="Loading plans">
                   {[0, 1].map((item) => (
-                    <div key={item} className="rounded-xl border border-edge bg-surface-2 p-5">
+                    <div key={item} className="rounded-[14px] border border-edge bg-surface-2 p-5 shadow-xs">
                       <div className="skeleton h-4 w-28" />
                       <div className="mt-3 skeleton h-3 w-20" />
                       <div className="mt-4 skeleton h-3 w-full" />
@@ -175,7 +175,7 @@ export default function Onboarding() {
                   {plans.map((plan) => {
                     const selected = planId === plan.id;
                     const included = Object.entries(plan.entitlements ?? {}).slice(0, 4);
-                    const cardClass = "rounded-xl border p-5 text-left transition-[border-color,background-color,box-shadow] duration-150 focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] " +
+                    const cardClass = "rounded-[14px] border p-5 text-left transition-[border-color,background-color,box-shadow] duration-150 focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] " +
                       (selected ? "border-brand bg-brand-subtle shadow-xs" : "border-edge bg-surface hover:border-edge-strong hover:bg-surface-2") +
                       (loading ? " pointer-events-none opacity-60" : "");
                     return (

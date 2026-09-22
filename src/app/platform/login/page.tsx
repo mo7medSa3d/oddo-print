@@ -77,7 +77,7 @@ export default function PlatformLoginPage() {
             <p className="mt-1.5 text-[13px] leading-relaxed text-slate-400">Control tenants, plans, subscriptions and platform audit data.</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5 p-6 sm:p-7">
+          <form onSubmit={handleSubmit} className="space-y-6 p-6 sm:p-7">
             {error && (
               <div role="alert" className="rounded-[11px] border border-rose-400/20 bg-rose-500/10 px-3.5 py-3 text-[12.5px] text-rose-200">
                 {error}

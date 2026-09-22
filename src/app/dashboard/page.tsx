@@ -108,17 +108,17 @@ export default async function DashboardPage() {
   const visibleAgents = allAgents.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" }));
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-7 sm:px-6 lg:py-8">
+    <div className="mx-auto w-full max-w-[1440px] px-5 py-7 sm:px-7 lg:py-8">
       <header className="mb-7 flex flex-col gap-4 border-b border-edge pb-6 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-[26px] font-bold leading-tight tracking-[-0.02em] text-ink">Management console</h1>
+            <h1 className="text-[28px] font-bold leading-tight tracking-[-0.035em] text-ink">Management console</h1>
             <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-edge-accent bg-brand-subtle text-brand-subtle-text"}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${databaseError ? "bg-bad-solid" : "bg-ok-solid"}`} aria-hidden />
               {databaseError ? "Database unavailable" : "Live console"}
             </span>
           </div>
-          <p className="mt-1.5 max-w-3xl text-[15px] leading-relaxed text-ink-3">
+          <p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-ink-3">
             Runtime agents, printers, and queue state. Business branches, destinations, and document ownership remain in Odoo.
           </p>
         </div>

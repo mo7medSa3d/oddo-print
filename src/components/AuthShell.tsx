@@ -9,11 +9,8 @@ export function AuthShell({
   subtitle?: string;
 }) {
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-app px-4 py-10 sm:px-6">
-      <div className="pointer-events-none absolute inset-0" aria-hidden>
-        <div className="absolute left-1/2 top-[-220px] h-[420px] w-[720px] -translate-x-1/2 rounded-full bg-brand-50/70 blur-3xl" />
-      </div>
-      <div className="relative z-10 w-full max-w-[440px]">
+    <main className="relative flex min-h-screen items-center justify-center bg-app px-4 py-10 sm:px-6">
+      <div className="relative z-10 w-full max-w-[420px]">
         <div className="mb-6 flex justify-center">
           <BrandMark size="lg" title="Yasser" subtitle={subtitle} />
         </div>
