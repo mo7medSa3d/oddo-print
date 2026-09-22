@@ -61,8 +61,17 @@ function planStatus(sub: SubscriptionRow) {
       message: "Stripe is retrying the latest payment. Printing remains available while the subscription is past due; update your payment method to avoid service interruption.",
     };
   }
+  if (sub.status === "unpaid") {
+    return { tone: "bad" as const, label: "Payment required", message: "Stripe has marked the subscription unpaid. Printing is paused until the outstanding payment is resolved in the Customer Portal." };
+  }
   if (sub.status === "paused") {
-    return { tone: "warn" as const, label: "Paused", message: "Printing is paused. Resume from the Customer Portal to restore service." };
+    return { tone: "warn" as const, label: "Paused", message: "Stripe has paused the subscription. Add a valid payment method and resume the existing subscription." };
+  }
+  if (sub.status === "incomplete") {
+    return { tone: "warn" as const, label: "Payment required", message: "The initial Stripe payment is incomplete. Complete the existing checkout or resolve the payment action before printing can start." };
+  }
+  if (sub.status === "incomplete_expired") {
+    return { tone: "bad" as const, label: "Checkout expired", message: "The initial Stripe subscription payment expired before activation. Choose a plan to start a new checkout." };
   }
   return { tone: "neutral" as const, label: "Canceled", message: "Your subscription is canceled. Choose a plan to restart it." };
 }
@@ -103,7 +112,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
     .orderBy(asc(plans.displayOrder), asc(plans.name));
 
   const selectedPlan = selectedPlanId ? availablePlans.find((item) => item.id === selectedPlanId) ?? null : null;
-  const activeStatuses = new Set(["trialing", "active", "past_due", "paused"]);
+  const activeStatuses = new Set(["trialing", "active", "past_due"]);
   const hasActivePlan = !!sub && activeStatuses.has(sub.status);
   const hasStripeSubscription = !!sub?.stripeCustomerId && !!sub?.stripeSubscriptionId;
   const status = sub && hasActivePlan ? planStatus(sub) : null;
