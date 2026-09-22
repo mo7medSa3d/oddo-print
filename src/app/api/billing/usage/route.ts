@@ -3,7 +3,7 @@ import { db } from "../../../../db";
 import { agents, printers, plans, tenantSubscriptions } from "../../../../db/schema";
 import { getTenantPrintUsage, isTenantBillingError } from "../../../../lib/entitlements";
 import { validateManager } from "../../../../lib/manager-auth";
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
