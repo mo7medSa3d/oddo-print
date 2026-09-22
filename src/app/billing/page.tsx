@@ -244,17 +244,6 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
         </section>
 
         <aside className="space-y-4">
-          <section className="rounded-[14px] border border-edge bg-surface p-5 shadow-card">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Subscription details</div>
-            <div className="mt-4 space-y-0">
-              <DetailRow label="Plan" value={currentPlan?.name ?? "Not configured"} />
-              <DetailRow label="Status" value={sub ? formatStatus(sub.status) : "Not configured"} />
-              <DetailRow label="Currency" value={currentPlan?.currency?.toUpperCase() ?? "—"} />
-              <DetailRow label="Interval" value={currentPlan?.interval ?? "—"} />
-              <DetailRow label="Renewal" value={renewalLabel} />
-            </div>
-          </section>
-
           <section className="rounded-[14px] border border-edge bg-surface px-5 py-5 shadow-card" id="billing-actions">
             <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Billing controls</div>
             <div className="mt-3">
@@ -285,15 +274,6 @@ function InfoCell({ label, value }: { label: string; value: string }) {
     <div className="px-6 py-4 sm:px-7">
       <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">{label}</div>
       <div className="mt-1.5 text-[13.5px] font-semibold text-ink">{value}</div>
-    </div>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4 border-b border-dashed border-edge-subtle py-3 last:border-b-0">
-      <span className="text-[12px] text-ink-3">{label}</span>
-      <span className="text-right text-[12.5px] font-semibold text-ink">{value}</span>
     </div>
   );
 }
