@@ -55,7 +55,8 @@ describe("Odoo addon static contracts", () => {
     expect(jobs).toContain('("printed", "Physically verified printed")');
     expect(jobs).toContain('reprint_candidates = self.filtered(lambda row: row.status in ("partial", "unknown"))');
     expect(views).toContain('invisible="status not in (\'partial\', \'unknown\')"');
-    expect(views).toContain("The physical outcome is ambiguous.");
+    expect(views).toContain("Print status is unknown - the printer may have received part or all of the document");
+    expect(views).toContain("Automatic retry is paused to prevent duplicate printing.");
   });
 
   it("keeps bindings Odoo-native and resolves runtime printers without Gateway business ownership", () => {
