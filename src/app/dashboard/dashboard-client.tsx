@@ -563,7 +563,7 @@ export default function DashboardClient({
     <div className="mx-auto w-full max-w-[1800px] space-y-6 px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
       <header className="flex flex-col gap-3 border-b border-edge/80 pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex items-center gap-3">
-          <div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Workspace</div><h1 className="mt-1.5 text-[30px] font-bold tracking-[-0.035em] text-ink">Print console</h1><p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-ink-3">A live operational view of agents, printers and the print queue.</p></div>
+          <div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Workspace</div><h1 className="mt-1.5 text-[30px] font-bold tracking-[-0.035em] text-ink">Print console</h1><p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-ink-3">See what’s connected, what’s printing, and what needs attention.</p></div>
           <span
             className={`inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
               databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-ok-edge bg-ok-bg text-ok"
@@ -879,7 +879,7 @@ export default function DashboardClient({
       <Card className="overflow-hidden">
         <CardHeader
           title="Recent Print Jobs"
-          subtitle="Queue snapshot, execution tracking, diagnostics"
+          subtitle="Queue, delivery status, and job history"
           icon={<Server className="h-4 w-4 text-brand" />}
           actions={<Button variant="secondary" size="sm" onClick={() => void refreshData()} icon={<RefreshCw className="h-3.5 w-3.5" />}>Refresh</Button>}
         />
@@ -958,7 +958,7 @@ export default function DashboardClient({
         </div>
       </Card>
 
-      <Drawer open={selectedJob !== null} onClose={() => setSelectedJob(null)} title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : "Job Details"} description="Runtime execution & diagnostics">
+      <Drawer open={selectedJob !== null} onClose={() => setSelectedJob(null)} title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : "Job Details"} description="Delivery details">
         {selectedJob && (() => {
           const outcome = deriveOutcome(selectedJob.status, selectedJob.error);
           const isTerminal = ["success", "failed", "expired"].includes(selectedJob.status.toLowerCase());
@@ -1032,7 +1032,7 @@ export default function DashboardClient({
         open={certifyPrinter !== null}
         onClose={() => setCertifyPrinter(null)}
         title={certifyPrinter ? `Certify ${certifyPrinter.name}` : "Printer Certification"}
-        description="Real print certification with evidence steps"
+        description="Verify this printer with a real print test"
       >
         <h3 className="sr-only">Certification</h3>
         {certifyPrinter && (
