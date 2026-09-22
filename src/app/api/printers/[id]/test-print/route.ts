@@ -6,7 +6,7 @@ import { requireManagerPermission } from "../../../../../lib/authorization";
 import { requestIdFrom } from "../../../../../lib/log";
 import { and, eq } from "drizzle-orm";
 import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError, PrintJobCapabilityError, PrintJobInputError } from "../../../../../lib/print-job-service";
-import { TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../../../../../lib/entitlements";
+import { TenantEntitlementError, TenantPrintQuotaExceededError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../../../../../lib/entitlements";
 import { buildTestPrintPayloadForPrinter } from "../../../../../lib/payload";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../../lib/job-delivery";
 import { logError } from "../../../../../lib/log";
@@ -67,6 +67,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
     return NextResponse.json({ ok: true, jobId: result.id, printerId: printer.id, status: result.status }, { status: 201 });
   } catch (e) {
+    if (e instanceof TenantPrintQuotaExceededError) {
+      const headers = new Headers({ "Cache-Control": "no-store" });
+      if (e.periodEnd) {
+        headers.set("Retry-After", String(Math.max(1, Math.ceil((e.periodEnd.getTime() - Date.now()) / 1000))));
+      }
+      return NextResponse.json({
+        error: e.message,
+        code: e.code,
+        entitlement: e.entitlement,
+        limit: e.limit,
+        used: e.used,
+        remaining: 0,
+        periodStart: e.periodStart.toISOString(),
+        periodEnd: e.periodEnd?.toISOString() ?? null,
+        upgradeRequired: true,
+        retryable: false,
+      }, { status: 429, headers });
+    }
     if (e instanceof TenantEntitlementError) {
       return NextResponse.json({ error: e.message, code: e.code }, { status: 429, headers: { "Retry-After": "60" } });
     }
