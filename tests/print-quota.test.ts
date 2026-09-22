@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "../src/db";
 import { createPrintJobForPrinter } from "../src/lib/print-job-service";
+import { POST as printJobsPOST } from "../src/app/api/print/jobs/route";
 import { TenantPrintQuotaExceededError, getTenantPrintUsage } from "../src/lib/entitlements";
 import { applyMigrations, closePool, hasTestDatabase, pool, seedFixture, truncateAll } from "./helpers/pg";
 
@@ -44,6 +45,48 @@ suite("tenant print quota", () => {
     expect(Number((await pool().query("SELECT count(*)::int AS n FROM print_jobs WHERE tenant_id = $1", [f.tenantId])).rows[0].n)).toBe(20);
   });
 
+  it("maps quota exhaustion to a structured HTTP 429 and never inserts the next job", async () => {
+    const f = await seedFixture();
+    await setPlanLimit(f.tenantId, 1);
+
+    const request = (key: string) => printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${f.odooKey}`,
+        "content-type": "application/json",
+        "Idempotency-Key": key,
+      },
+      body: JSON.stringify({
+        printerId: f.printerId,
+        destination: f.destination,
+        documentType: "receipt",
+        payload: payload("http-quota"),
+      }),
+    }));
+
+    const first = await request("http-quota-1");
+    expect(first.status).toBe(201);
+
+    const second = await request("http-quota-2");
+    expect(second.status).toBe(429);
+    const body = await second.json();
+    expect(body).toMatchObject({
+      code: "PRINT_QUOTA_EXCEEDED",
+      entitlement: "max_prints_per_period",
+      limit: 1,
+      used: 1,
+      remaining: 0,
+      upgradeRequired: true,
+      retryable: false,
+    });
+
+    const count = Number((await pool().query(
+      "SELECT COUNT(*)::int AS n FROM print_jobs WHERE tenant_id = $1",
+      [f.tenantId],
+    )).rows[0].n);
+    expect(count).toBe(1);
+  });
+
   it("does not double-consume a print credit when an idempotent retry reuses the same job", async () => {
     const f = await seedFixture();
     await setPlanLimit(f.tenantId, 20);
@@ -71,7 +114,7 @@ suite("tenant print quota", () => {
     expect(fulfilled).toHaveLength(5);
     expect(rejected).toHaveLength(15);
     expect(rejected.every((r) => r.reason instanceof TenantPrintQuotaExceededError)).toBe(true);
-    const usage = await getTenantPrintUsage({ execute: (query) => pool().query(query) as never }, f.tenantId);
+    const usage = await getTenantPrintUsage(db, f.tenantId);
     expect(usage.used).toBe(5);
   });
 
