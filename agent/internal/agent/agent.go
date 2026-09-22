@@ -671,7 +671,15 @@ func (a *Agent) Run(ctx context.Context) error {
 				_ = c.Close()
 			}
 			a.runtimeWG.Wait()
-			a.waitForJobs()
+			if !a.waitForJobs() {
+				// Do NOT return and let program.Stop close SQLite while a job
+				// handler may still be using it. Keep the Agent alive until the
+				// job goroutines actually terminate; the service-control
+				// timeout is the outer escalation boundary for an unkillable
+				// Win32/RPC call.
+				log.Printf("WARNING: shutdown grace elapsed; keeping the queue open until all job handlers terminate.")
+				a.waitForJobsUntilDrained()
+			}
 			return nil
 		case <-heartbeatTicker.C:
 			// Never block the select loop: heartbeat probes TCP-reachability
@@ -885,12 +893,14 @@ func (a *Agent) handleWSMessages(ctx context.Context) error {
 			// Trigger discovery immediately, don't wait for 10s poll
 			select {
 			case a.discoverySem <- struct{}{}:
-				go func(sessionID string) {
-					a.executeDiscoverySession(ctx, sessionID)
-				}(discoveryID)
+				a.launchTracked(func() {
+					a.executeDiscoverySession(ctx, discoveryID)
+				})
 			default:
 				log.Printf("[discovery] session %s deferred: a discovery session is already running", discoveryID)
-				go a.reportDiscoveryResult(ctx, discoveryID, "cancelled", nil)
+				a.launchTracked(func() {
+					_ = a.reportDiscoveryResult(ctx, discoveryID, "cancelled", nil)
+				})
 			}
 			continue
 		}
@@ -1224,6 +1234,14 @@ func (a *Agent) rejectJob(ctx context.Context, jobID, token, reason string) erro
 	if live := a.currentClaimToken(jobID); live != "" {
 		token = live
 	}
+	return a.rejectJobExact(ctx, jobID, token, reason)
+}
+
+// rejectJobExact is the fenced form used by the asynchronous rejection worker.
+// Its claim token is immutable: it MUST NOT be replaced with a newer token
+// that may now be active for the same job, otherwise an old saturation event
+// could mutate the replacement claim.
+func (a *Agent) rejectJobExact(ctx context.Context, jobID, token, reason string) error {
 	reqURL := fmt.Sprintf("%s/api/agent/jobs", a.cfg.Server.URL)
 	body := map[string]interface{}{
 		"jobId":  jobID,
@@ -1296,7 +1314,7 @@ func (a *Agent) runRejectWorker(ctx context.Context) {
 			return
 		case work := <-a.rejectQueue:
 			if err := work.ctx.Err(); err == nil {
-				_ = a.rejectJob(work.ctx, work.jobID, work.claimToken, work.reason)
+				_ = a.rejectJobExact(work.ctx, work.jobID, work.claimToken, work.reason)
 			}
 			a.rejectMu.Lock()
 			delete(a.rejectPending, work.key)
@@ -1318,17 +1336,49 @@ func (a *Agent) runRejectWorker(ctx context.Context) {
 // handler) must first synchronize past the Add — e.g. the WS ack alone is
 // NOT enough, it is sent before dispatchJob runs; wait for the print to
 // start (see waitForPrintStarted) before calling this.
-func (a *Agent) waitForJobs() {
-	done := make(chan struct{})
-	go func() {
-		a.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		log.Println("All in-flight jobs finished cleanly.")
-	case <-time.After(shutdownGrace):
-		log.Printf("WARNING: shutdown grace period (%s) reached with jobs still in flight.", shutdownGrace)
+func (a *Agent) inFlightCount() int {
+	a.inFlightMu.Lock()
+	defer a.inFlightMu.Unlock()
+	return len(a.inFlight)
+}
+
+// waitForJobs waits using the same in-flight ownership map that gates
+// dispatch. This avoids spawning an untracked WaitGroup waiter that would
+// itself survive a timeout. The map reaches zero before the job goroutine's
+// final WaitGroup Done, so the caller performs wg.Wait() only after the
+// shutdown gate has stopped all future Add operations.
+func (a *Agent) waitForJobs() bool {
+	timer := time.NewTimer(shutdownGrace)
+	defer timer.Stop()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if a.inFlightCount() == 0 {
+			a.wg.Wait()
+			log.Println("All in-flight jobs finished cleanly.")
+			return true
+		}
+		select {
+		case <-timer.C:
+			log.Printf("WARNING: shutdown grace period (%s) reached with jobs still in flight.", shutdownGrace)
+			return false
+		case <-ticker.C:
+		}
+	}
+}
+
+// waitForJobsUntilDrained is only used after the bounded shutdown grace has
+// elapsed. Run must keep the queue open until every accepted job handler has
+// actually terminated; the Windows service-control timeout in program.Stop
+// is the outer escalation boundary for a truly wedged OS call.
+func (a *Agent) waitForJobsUntilDrained() {
+	for {
+		if a.inFlightCount() == 0 {
+			a.wg.Wait()
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
 }
 
