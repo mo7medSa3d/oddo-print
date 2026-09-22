@@ -189,9 +189,20 @@ def test_gateway_config_form_is_setup_only_without_internal_recovery_buttons():
     assert 'field name="gateway_url"' in form
     assert 'field name="gateway_api_key"' in form
     assert 'field name="enabled" widget="boolean_toggle"' in form
-    assert 'field name="gateway_sync_state"' in form
-    assert 'field name="gateway_sync_message"' in form
+    assert 'field name="last_test_status"' in form
+    assert 'field name="gateway_sync_state"' not in form
+    assert 'field name="gateway_sync_message"' not in form
     assert "Odoo owns business context and print intent." not in form
+
+
+def test_gateway_connection_status_uses_simple_operator_labels():
+    source = read("models/gateway_config.py")
+    field_idx = source.index("last_test_status = fields.Selection(")
+    field = source[field_idx:source.index("gateway_sync_state = fields.Selection(", field_idx)]
+    assert '( "success", "Connected")' in field.replace("("success", "Connected")", '( "success", "Connected")')
+    assert '("failed", "Not connected")' in field
+    assert '("revoked", "API key revoked")' in field
+    assert '("draft", "Not checked")' in field
 
 
 def test_gateway_sync_state_does_not_report_active_after_health_failure():
