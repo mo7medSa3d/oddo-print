@@ -1,6 +1,7 @@
 import { db } from "../src/db";
 import { plans } from "../src/db/schema";
 import { normalizePlanEntitlements } from "../src/lib/entitlements";
+import { validateStripePriceBinding } from "../src/lib/stripe";
 
 /* Provision the public plan catalog from operator-supplied Stripe Price IDs and canonical entitlement limits. */
 async function main() {
@@ -11,7 +12,27 @@ async function main() {
   for (const plan of parsed) {
     if (!plan?.id || !plan.name || !plan.priceId || !plan.entitlements || typeof plan.entitlements !== "object" || Array.isArray(plan.entitlements)) throw new Error("Each plan requires id, name, priceId and entitlements");
     const entitlements = normalizePlanEntitlements(plan.entitlements);
-    await db.insert(plans).values({ id: plan.id, name: plan.name, stripePriceId: plan.priceId, currency: plan.currency ?? "usd", interval: plan.interval ?? "month", entitlements, description: "", isActive: true, isPublic: true, displayOrder: 0, stripeProductId: null })
+    const currency = plan.currency ?? "usd";
+    const interval = plan.interval ?? "month";
+    const stripePrice = await validateStripePriceBinding({
+      priceId: plan.priceId,
+      currency,
+      interval,
+      requireActive: true,
+    });
+    await db.insert(plans).values({
+      id: plan.id,
+      name: plan.name,
+      stripePriceId: plan.priceId,
+      currency,
+      interval,
+      entitlements,
+      description: "",
+      isActive: true,
+      isPublic: true,
+      displayOrder: 0,
+      stripeProductId: stripePrice.productId,
+    })
       .onConflictDoUpdate({ target: plans.id, set: { name: plan.name, stripePriceId: plan.priceId, currency: plan.currency ?? "usd", interval: plan.interval ?? "month", entitlements, updatedAt: new Date() } });
   }
   console.log(`Provisioned ${parsed.length} Stripe-backed plan(s).`);
