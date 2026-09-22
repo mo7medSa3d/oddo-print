@@ -292,6 +292,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                   </div>
                 )}
               </div>
+              </div>
             </div>
           )}
 
