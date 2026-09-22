@@ -14,7 +14,7 @@ import { TopNavbar, type TopNavItem } from "./TopNavbar";
 
 const NAV_ITEMS: TopNavItem[] = [
   { href: "/dashboard", label: "Console", icon: LayoutDashboard, section: "Workspace" },
-  { href: "/api-keys", label: "API Keys", icon: KeyRound, section: "Integration" },
+  { href: "/api-keys", label: "Odoo integration", icon: KeyRound, section: "Integration" },
   { href: "/team", label: "Team", icon: Users, section: "Administration" },
   { href: "/billing", label: "Billing", icon: CreditCard, section: "Administration" },
   { href: "/settings", label: "Settings", icon: Settings, section: "Administration" },
