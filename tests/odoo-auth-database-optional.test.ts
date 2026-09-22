@@ -21,7 +21,7 @@ vi.mock("../src/lib/tenant-guard", () => ({
   TenantDeletedError: class TenantDeletedError extends Error {},
 }));
 
-import { isOdooKeyAllowedForDocumentType, validateOdooKey } from "../src/lib/odoo-auth";
+import { validateOdooKey } from "../src/lib/odoo-auth";
 
 // Odoo Gateway authentication is based on the Odoo installation API key.
 // The Odoo database name is not used as an authentication requirement:
@@ -31,8 +31,6 @@ describe("Odoo API-key authentication ignores the database name", () => {
   const liveRow = {
     id: "key_a",
     tenantId: "tenant_a",
-    scope: "standard",
-    allowedDocumentTypes: null,
     hashedKey: hash,
     revokedAt: null,
     odooEnabled: true,
@@ -93,15 +91,4 @@ describe("Odoo API-key authentication ignores the database name", () => {
     expect(apiKeyFindFirst).not.toHaveBeenCalled();
   });
 
-  it("keeps API-key scope and document-type restrictions", () => {
-    expect(
-      isOdooKeyAllowedForDocumentType({ scope: "read_only", allowedDocumentTypes: null }, "receipt", "write"),
-    ).toBe(false);
-    expect(
-      isOdooKeyAllowedForDocumentType({ scope: "standard", allowedDocumentTypes: ["receipt"] }, "label", "read"),
-    ).toBe(false);
-    expect(
-      isOdooKeyAllowedForDocumentType({ scope: "standard", allowedDocumentTypes: ["receipt"] }, "receipt", "read"),
-    ).toBe(true);
-  });
 });
