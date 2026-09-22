@@ -15,10 +15,17 @@ vi.mock("../src/lib/authorization", () => ({
   requireManagerPermission: vi.fn(),
   hasManagerPermission: vi.fn(() => true),
 }));
-vi.mock("../src/lib/stripe", () => ({
-  stripeRequest: vi.fn(),
-  verifyStripeSignature: vi.fn(() => true),
-}));
+const { stripeRetrieveMock } = vi.hoisted(() => ({ stripeRetrieveMock: vi.fn() }));
+
+vi.mock("../src/lib/stripe", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/stripe")>();
+  return {
+    ...actual,
+    stripeRequest: vi.fn(),
+    stripeRetrieve: stripeRetrieveMock,
+    verifyStripeSignature: vi.fn(() => true),
+  };
+});
 
 const suite = describe.skipIf(!hasTestDatabase);
 
@@ -73,6 +80,15 @@ suite("platform-trial to paid conversion invariants", () => {
     });
     const { stripeRequest } = await import("../src/lib/stripe");
     vi.mocked(stripeRequest).mockReset();
+    stripeRetrieveMock.mockReset();
+    stripeRetrieveMock.mockImplementation(async (path: string) => ({
+      id: decodeURIComponent(path.split("/").pop() ?? ""),
+      object: "subscription",
+      customer: "cus_trial_convert",
+      status: "active",
+      items: { data: [{ price: { id: priceIdPlaceholder } }] },
+      metadata: { tenant_id: TENANT },
+    }));
     vi.mocked(stripeRequest).mockImplementation(async (path: string, _form: URLSearchParams, idempotencyKey?: string) => {
       if (path === "customers") return { id: "cus_trial_convert" };
       if (path === "checkout/sessions") {
