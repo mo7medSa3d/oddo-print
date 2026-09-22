@@ -86,7 +86,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
               { label: "Agent", value: s.isOnline ? "Running" : "Stopped" },
             ]} />
             <div className="mt-4 border-t border-edge pt-4 space-y-2">
-              <div className="flex items-center justify-between text-[11px]"><span className="font-semibold uppercase tracking-wide text-ink-3">Gateway Queue</span><span className={`font-semibold ${s.jobsError || s.jobsLoading ? "text-ink-3" : s.pendingJobs > 20 ? "text-amber-600" : s.pendingJobs > 0 ? "text-brand" : "text-emerald-600"}`}>{s.jobsLoading ? "Checking…" : s.jobsError ? "Unavailable" : s.pendingJobs > 20 ? "Backlogged" : s.pendingJobs > 0 ? "In Flight" : "Clear"}</span></div>
+              <div className="flex items-center justify-between text-[11px]"><span className="font-semibold uppercase tracking-wide text-ink-3">Gateway Queue</span><span className={`font-semibold ${s.jobsError || s.jobsLoading ? "text-ink-3" : s.pendingJobs > 20 ? "text-warn" : s.pendingJobs > 0 ? "text-brand" : "text-ok"}`}>{s.jobsLoading ? "Checking…" : s.jobsError ? "Unavailable" : s.pendingJobs > 20 ? "Backlogged" : s.pendingJobs > 0 ? "In Flight" : "Clear"}</span></div>
               <div className="flex items-baseline justify-between text-[12px]"><span className="font-bold text-ink tabular-nums">{s.jobsLoading || s.jobsError ? "—" : s.pendingJobs}<span className="font-normal text-ink-3"> waiting</span></span><span className="text-ink-3">last 50</span></div>
             </div>
             <div className="mt-4 border-t border-edge pt-4">

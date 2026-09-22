@@ -25,6 +25,7 @@ import {
   StatusDot,
   Toast as ToastView,
 } from "../components/ui";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { PageHeader } from "./ui";
 import { JobTimeline } from "./components/JobTimeline";
 import { Sidebar, type NavItem } from "./components/Sidebar";
@@ -91,7 +92,7 @@ import type {
   ToastMessage,
 } from "./types";
 import "../app/globals.css";
-/* The Desktop Manager is always light — see the file for why. */
+/* Desktop Manager uses the shared light/dark theme tokens. */
 import "./theme-light.css";
 
 const PAGES: Page[] = ["dashboard", "printers", "jobs", "agents", "settings"];
@@ -810,6 +811,7 @@ export default function App() {
                     >
                       <span className="hidden sm:inline">Refresh</span>
                     </Button>
+                      <ThemeToggle />
                   </>
                 }
               />

@@ -1,7 +1,10 @@
-/* Desktop (Tauri) pins the dark Apple palette unconditionally so the
-   shell looks identical regardless of the host OS light/dark setting.
-   Keep in sync with the prefers-color-scheme block in src/app/globals.css. */
+/* Desktop Manager shares the Gateway theme tokens from src/app/globals.css.
+   Theme selection is controlled by <html data-theme="light|dark"> and ThemeToggle. */
 :root {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
   color-scheme: dark;
 
   --brand-50: #0a1626;
@@ -105,8 +108,7 @@
 html, body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-    "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
