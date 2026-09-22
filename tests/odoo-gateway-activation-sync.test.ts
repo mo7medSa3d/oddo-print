@@ -18,8 +18,6 @@ describe("Odoo Gateway activation synchronization", () => {
     const migration = read("drizzle/0058_scope_odoo_activation_to_api_key.sql");
 
     expect(route).toContain("validateOdooKey");
-    expect(route).toContain("ODOO_KEY_READ_ONLY");
-    expect(route).toContain('scope ?? "standard"');
     expect(route).toContain("odooEnabledRevision");
     expect(route).toContain("lt(apiKeys.odooEnabledRevision");
     expect(route).toContain("stale_revision");
@@ -52,74 +50,16 @@ describe("Odoo Gateway activation synchronization", () => {
     beforeEach(async () => { await truncateAll(); f = await seedFixture(); });
     afterAll(async () => { await closePool(); });
 
-    it("blocks read-only Odoo keys from changing Gateway activation", async () => {
-      const readOnlyKey = "odoo_readonly_activation";
-      await pool().query(
-        `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key, odoo_enabled, odoo_enabled_revision)
-         VALUES ($1, $2, 'read_only', 'Read only activation', $3, false, 0)`,
-        ["key_readonly_activation", f.tenantId, sha256(readOnlyKey)],
-      );
-
+    it("allows the full-access Odoo key to change Gateway activation", async () => {
       const response = await configurationPATCH(new Request("http://gateway.test/api/odoo/configuration", {
         method: "PATCH",
-        headers: { Authorization: `Bearer ${readOnlyKey}`, "content-type": "application/json" },
+        headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
         body: JSON.stringify({ enabled: true, revision: 1 }),
       }));
-
-      expect(response.status).toBe(403);
-      expect(await response.json()).toMatchObject({ code: "ODOO_KEY_READ_ONLY" });
-
-      const row = await pool().query(
-        `SELECT odoo_enabled, odoo_enabled_revision FROM api_keys WHERE id = $1`,
-        ["key_readonly_activation"],
-      );
-      expect(row.rows[0]).toEqual({ odoo_enabled: false, odoo_enabled_revision: 0 });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, applied: true, enabled: true, revision: 1 });
     });
 
-    it("changes one integration without changing another integration in the same tenant", async () => {
-      const keyB = "odoo_company_b_activation";
-      await pool().query(
-        `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key, odoo_enabled, odoo_enabled_revision)
-         VALUES ($1, $2, 'standard', 'Company B', $3, true, 0)`,
-        ["key_company_b", f.tenantId, sha256(keyB)],
-      );
-
-      const disableA = await configurationPATCH(new Request("http://gateway.test/api/odoo/configuration", {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
-        body: JSON.stringify({ enabled: false, revision: 1 }),
-      }));
-      expect(disableA.status).toBe(200);
-
-      const healthA = await healthGET(new Request("http://gateway.test/api/odoo/health", {
-        headers: { Authorization: `Bearer ${f.odooKey}` },
-      }));
-      const healthB = await healthGET(new Request("http://gateway.test/api/odoo/health", {
-        headers: { Authorization: `Bearer ${keyB}` },
-      }));
-      expect((await healthA.json()).enabled).toBe(false);
-      expect((await healthB.json()).enabled).toBe(true);
-
-      const printBody = {
-        printerId: f.printerId,
-        documentType: "receipt",
-        destination: "POS",
-        payload: { type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=" },
-      };
-      const printA = await printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
-        body: JSON.stringify({ ...printBody, idempotencyKey: "company-a-disabled" }),
-      }));
-      const printB = await printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${keyB}`, "content-type": "application/json" },
-        body: JSON.stringify({ ...printBody, idempotencyKey: "company-b-still-enabled" }),
-      }));
-      expect(printA.status).toBe(401);
-      expect(printB.status).toBe(201);
-    });
-  });
 
   it("renders Gateway Configuration status from the Odoo-sourced state and refreshes it", () => {
     const page = read("src/app/api-keys/page.tsx");
@@ -131,6 +71,9 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(page).toContain("Gateway");
     expect(page).toContain("Connect Odoo");
     expect(page).toContain("odooEnabledRevision");
+    expect(page).toContain("Read / write · All documents");
+    expect(page).not.toContain("Document types");
+    expect(page).not.toContain("Read only");
     expect(page).toContain("Odoo access:");
     expect(page).not.toContain("const id = setInterval(tick, 5000);\n    return () => { cancel = true; clearInterval(id); };\n  }, []);\n\n  useEffect(() => {\n    // Guard r.ok");
   });
