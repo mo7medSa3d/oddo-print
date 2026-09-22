@@ -55,7 +55,11 @@ function planStatus(sub: SubscriptionRow) {
     };
   }
   if (sub.status === "past_due") {
-    return { tone: "bad" as const, label: "Payment needed", message: "A payment failed. Open the Customer Portal to update your payment method." };
+    return {
+      tone: "warn" as const,
+      label: "Payment attention",
+      message: "Stripe is retrying the latest payment. Printing remains available while the subscription is past due; update your payment method to avoid service interruption.",
+    };
   }
   if (sub.status === "paused") {
     return { tone: "warn" as const, label: "Paused", message: "Printing is paused. Resume from the Customer Portal to restore service." };
@@ -237,7 +241,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
 
           {sub && (sub.status === "past_due" || (sub.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd)) && (
             <div className="border-t border-dashed border-edge-subtle px-6 py-5 sm:px-7">
-              {sub.status === "past_due" && <WarnLine text="Printing is blocked until the failed payment is resolved. Use the Customer Portal to update the payment method." />}
+              {sub.status === "past_due" && <WarnLine text="The latest payment is past due. Printing remains active during Stripe recovery, but service can be interrupted if the subscription becomes unpaid or canceled. Update the payment method in the Customer Portal." />}
               {sub.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd && <WarnLine text={`Cancellation is scheduled for ${formatDate(sub.currentPeriodEnd)}. Resume below to keep the plan.`} />}
             </div>
           )}
