@@ -112,6 +112,7 @@ def test_gateway_connection_test_result_uses_independent_cursor():
     assert "self.env.registry.cursor()" in body
     assert "config.with_context(skip_enabled_sync=True).write(values)" in body
     assert "cr.commit()" in body
+    assert "FOR UPDATE NOWAIT" in body
     assert "self.env.cr.execute(" not in body
     assert "serialization conflict cannot abort the whole Odoo request" in body
 
