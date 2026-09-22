@@ -2333,11 +2333,10 @@ var ErrStaleClaim = errors.New("gateway rejected claim fence: stale or reclaimed
 // evaluated our transition and refused it, so physical dispatch must stop.
 var ErrTransitionRejected = errors.New("gateway rejected status transition")
 
-// currentClaimToken returns the claim token most recently delivered to this
-// agent for an in-flight job. A redelivery (e.g. a gateway reclaim after a
-// lost delivery-evidence write) adopts its newer token, so status reports
-// must be authenticated with the token the gateway CURRENTLY holds rather
-// than the one the attempt started with.
+// currentClaimToken returns the immutable claim token recorded for the
+// active local execution. Duplicate deliveries never replace this token;
+// status reports from this physical attempt therefore remain fenced to the
+// claim that admitted the execution.
 func (a *Agent) currentClaimToken(jobID string) string {
 	a.inFlightMu.Lock()
 	defer a.inFlightMu.Unlock()
