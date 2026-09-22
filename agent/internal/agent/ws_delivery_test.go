@@ -308,6 +308,54 @@ func TestWSReaderRemainsResponsiveWhileRejectionHTTPIsBlocked(t *testing.T) {
 	ag.runtimeWG.Wait()
 }
 
+func TestWSDisconnectDoesNotCancelAdmittedJob(t *testing.T) {
+	gw := newRecordingGateway(t)
+	p := &fakePrinter{blocked: make(chan struct{}), startedCh: make(chan string, 1)}
+	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
+	ctx, cancel := context.WithCancel(context.Background())
+	go ag.connectWebSocket(ctx)
+	waitFor(t, 5*time.Second, func() bool { return ag.getWSConn() != nil })
+
+	gw.sendCh <- claimedEnvelope("job_survives_ws_reconnect", "p1")
+	select {
+	case <-p.startedCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("job never started")
+	}
+
+	// Close only the WebSocket session. The Agent lifecycle context remains
+	// active, so an already-admitted physical job must continue independently
+	// of reconnect activity.
+	oldConn := ag.getWSConn()
+	if oldConn == nil {
+		t.Fatal("expected active WebSocket before forced disconnect")
+	}
+	if err := oldConn.Close(); err != nil {
+		t.Fatalf("close WebSocket: %v", err)
+	}
+
+	close(p.blocked)
+	ag.waitForJobs()
+
+	if p.calls != 1 {
+		t.Fatalf("WS disconnect must not cancel an admitted job, got %d printer calls", p.calls)
+	}
+	var success bool
+	for _, update := range gw.Updates() {
+		if update.JobID == "job_survives_ws_reconnect" && update.Status == "success" {
+			success = true
+			break
+		}
+	}
+	if !success {
+		t.Fatalf("admitted job must report terminal success after WS reconnect; updates=%+v", gw.Updates())
+	}
+
+	cancel()
+	waitFor(t, 2*time.Second, func() bool { return ag.getWSConn() == nil })
+	ag.runtimeWG.Wait()
+}
+
 func TestWSDeliveryDoesNotAckWhenLocalExecutorIsFull(t *testing.T) {
 	gw := newRecordingGateway(t)
 	p := &fakePrinter{}
