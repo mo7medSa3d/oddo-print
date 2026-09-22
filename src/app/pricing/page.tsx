@@ -106,7 +106,7 @@ export default async function Pricing() {
                             label: "Popular",
                             badgeClass:
                               "rounded-full border border-brand-subtle-border bg-brand-subtle text-brand-subtle-text",
-                            icon: "sparkles" as const,
+                            icon: "none" as const,
                           }
                         : rows.length === 1
                           ? {
