@@ -79,13 +79,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return { kind: "missing_endpoint" as const };
     }
 
-    await enforceTenantResourceEntitlement(
-      tx,
-      claims.tenantId,
-      "max_printers",
-      sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId} AND lifecycle <> 'retired'`,
-    );
-
     if (device.ipAddress && device.port) {
       const all = await tx.query.printers.findMany({ where: and(eq(printers.agentId, agentId), eq(printers.tenantId, claims.tenantId)) });
       for (const p of all) {
@@ -99,6 +92,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         }
       }
     }
+
+    await enforceTenantResourceEntitlement(
+      tx,
+      claims.tenantId,
+      "max_printers",
+      sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId} AND lifecycle <> 'retired'`,
+    );
 
     const ippAddress = device.uri
       ?? (device.ipAddress && device.port
