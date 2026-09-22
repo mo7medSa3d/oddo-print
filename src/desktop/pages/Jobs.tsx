@@ -5,12 +5,12 @@ import type { DesktopState } from "../types";
 import { cleanupLocalJobs } from "../lib/ipc";
 import { friendlyPrinterError, jobDestination, jobDocType, jobId, jobPrinterId, jobStatus, labelJob, toneJob } from "../lib/printers";
 
-const TABS = ["all", "in_flight", "queued", "unassigned", "printed", "failed", "unknown", "expired"] as const;
+const TABS = ["all", "in_flight", "queued", "unassigned", "delivered", "failed", "unknown", "expired"] as const;
 
 export function JobsPage({ s }: { s: DesktopState }) {
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [cleanupBusy, setCleanupBusy] = useState(false);
-  const tabCounts = { all: s.jobCounts.all, queued: s.jobCounts.queued, in_flight: s.jobCounts.in_flight, unassigned: s.jobCounts.unassigned, printed: s.jobCounts.printed, unknown: s.jobCounts.unknown, failed: s.jobCounts.failed, expired: s.jobCounts.expired };
+  const tabCounts = { all: s.jobCounts.all, queued: s.jobCounts.queued, in_flight: s.jobCounts.in_flight, unassigned: s.jobCounts.unassigned, printed: s.jobCounts.delivered, unknown: s.jobCounts.unknown, failed: s.jobCounts.failed, expired: s.jobCounts.expired };
 
   const handleCleanup = async () => {
     setCleanupBusy(true);
@@ -39,7 +39,7 @@ export function JobsPage({ s }: { s: DesktopState }) {
 
       <Card className="overflow-hidden">
         {s.jobsLoading ? <div className="p-5"><LoadingState rows={5} /></div> : s.jobsError ? <div className="p-5"><ErrorState title="Jobs unavailable" message={s.jobsError} retry={() => { void s.refreshJobs(); }} /></div> : s.jobsFiltered.length === 0 ? (
-          <EmptyState icon={s.jobTab === "failed" ? <XCircle className="h-8 w-8 text-bad" /> : s.jobTab === "unknown" ? <AlertTriangle className="h-8 w-8 text-warn" /> : s.jobTab === "printed" ? <CheckCircle2 className="h-8 w-8 text-ok" /> : <Inbox className="h-8 w-8" />} title={s.jobPrinterFilter ? `No jobs for ${s.printerFilterName}` : s.jobTab === "all" ? "No print jobs yet" : `No ${s.jobTab} jobs`} description={s.jobPrinterFilter ? "Clear filter to see full queue." : s.jobTab === "failed" ? "Failed jobs appear here with reason and printer." : s.jobTab === "queued" ? "Queued jobs waiting for agent." : "Print jobs will appear here."} action={s.jobPrinterFilter ? <Button variant="secondary" onClick={() => s.setJobPrinterFilter(null)} icon={<X className="h-4 w-4" />}>Clear filter</Button> : undefined} />
+          <EmptyState icon={s.jobTab === "failed" ? <XCircle className="h-8 w-8 text-bad" /> : s.jobTab === "unknown" ? <AlertTriangle className="h-8 w-8 text-warn" /> : s.jobTab === "delivered" ? <CheckCircle2 className="h-8 w-8 text-ok" /> : <Inbox className="h-8 w-8" />} title={s.jobPrinterFilter ? `No jobs for ${s.printerFilterName}` : s.jobTab === "all" ? "No print jobs yet" : `No ${s.jobTab} jobs`} description={s.jobPrinterFilter ? "Clear filter to see full queue." : s.jobTab === "failed" ? "Failed jobs appear here with reason and printer." : s.jobTab === "queued" ? "Queued jobs waiting for agent." : "Print jobs will appear here."} action={s.jobPrinterFilter ? <Button variant="secondary" onClick={() => s.setJobPrinterFilter(null)} icon={<X className="h-4 w-4" />}>Clear filter</Button> : undefined} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
