@@ -9,6 +9,7 @@ import { ArrowRight, Check, CreditCard } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 function entitlementLabel(value: string) {
+  if (value === "max_prints_per_period") return "Print jobs / period";
   return value.replace(/^max_/, "").replace(/_/g, " ");
 }
 
