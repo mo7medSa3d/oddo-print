@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Field, Input, ErrorState } from "../../components/ui";
@@ -14,6 +14,8 @@ export default function Signup() {
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const params = useSearchParams();
+  const planId = params.get("plan") ?? "";
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -23,7 +25,7 @@ export default function Signup() {
       const response = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, planId }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Registration failed");
