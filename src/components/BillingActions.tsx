@@ -35,11 +35,15 @@ export function BillingActions({
   hasSubscription,
   cancelAtPeriodEnd,
   subscriptionStatus,
+  canOpenPortal = false,
+  checkoutUrl,
   selectedPlan,
 }: {
   hasSubscription: boolean;
   cancelAtPeriodEnd: boolean;
   subscriptionStatus?: string | null;
+  canOpenPortal?: boolean;
+  checkoutUrl?: string | null;
   selectedPlan?: PlanOption | null;
 }) {
   const router = useRouter();
@@ -63,10 +67,15 @@ export function BillingActions({
     if (!selectedPlan) return;
 
     void run("selected-plan", async () => {
-      if (hasSubscription) {
+      if (hasSubscription || subscriptionStatus === "paused" || subscriptionStatus === "unpaid") {
         const data = await post("/api/billing/portal");
         if (typeof data.url !== "string" || !data.url) throw new Error("Billing portal URL was not returned");
         window.location.href = data.url;
+        return;
+      }
+
+      if (subscriptionStatus === "incomplete" && checkoutUrl) {
+        window.location.href = checkoutUrl;
         return;
       }
 
@@ -108,7 +117,7 @@ export function BillingActions({
         <div className="flex flex-wrap gap-2.5">
           <button
             type="button"
-            disabled={!hasSubscription || !!busy}
+            disabled={!canOpenPortal || !!busy}
             onClick={() => run("portal", async () => {
               const data = await post("/api/billing/portal");
               if (typeof data.url !== "string" || !data.url) throw new Error("Billing portal URL was not returned");
@@ -118,7 +127,7 @@ export function BillingActions({
           >
             {busy === "portal" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
             {busy === "portal" ? "Opening…" : "Customer Portal"}
-            {hasSubscription && <ExternalLink className="h-3 w-3 text-ink-4" />}
+{canOpenPortal && <ExternalLink className="h-3 w-3 text-ink-4" />}
           </button>
 
           {hasSubscription && subscriptionStatus !== "paused" && !cancelAtPeriodEnd && (
@@ -146,6 +155,16 @@ export function BillingActions({
             </button>
           )}
         </div>
+
+        {subscriptionStatus === "incomplete" && checkoutUrl && (
+          <a
+            href={checkoutUrl}
+            className="inline-flex h-9 items-center gap-2 rounded-full bg-brand px-3.5 text-[12.5px] font-semibold text-white transition hover:bg-brand-hover"
+          >
+            Continue existing checkout
+            <ArrowRight className="h-3.5 w-3.5" />
+          </a>
+        )}
 
         {error && (
           <div role="alert" className="rounded-[10px] border border-bad-edge bg-bad-bg px-4 py-3 text-[12.5px] text-bad">
