@@ -76,6 +76,19 @@ describe("production fixes contracts (2026-09)", () => {
     expect(net).toContain("_ = conn.SetWriteDeadline(time.Now().Add(writeStallTimeout))");
   });
 
+  it("quota UX remains machine-readable and upgradeable across dashboard surfaces", () => {
+    const dialog = read("src/components/UpgradeLimitDialog.tsx");
+    const dashboard = read("src/app/dashboard/dashboard-client.tsx");
+    const agentRoute = read("src/app/api/agents/route.ts");
+    expect(dialog).toContain('href="/billing"');
+    expect(dialog).toContain("Upgrade plan");
+    expect(dialog).toContain("Metering unit: 1 admitted Gateway print job = 1 print credit.");
+    expect(dashboard).toContain('error.code === "MAX_AGENTS_EXCEEDED"');
+    expect(dashboard).toContain('error.code === "PRINT_QUOTA_EXCEEDED"');
+    expect(dashboard).toContain("<UpgradeLimitDialog");
+    expect(agentRoute).toContain("upgradeRequired");
+  });
+
   it("print quota is a billing-period entitlement and is charged once per logical job", () => {
     const entitlements = read("src/lib/entitlements.ts");
     const service = read("src/lib/print-job-service.ts");
