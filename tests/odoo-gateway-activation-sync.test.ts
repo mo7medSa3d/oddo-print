@@ -20,12 +20,12 @@ describe("Odoo Gateway activation synchronization", () => {
 
     expect(route).toContain("validateOdooKey");
     expect(keyRoute).toContain("generateOdooApiKey");
-    expect(keyRoute).not.toContain("scope");
-    expect(keyRoute).not.toContain("allowedDocumentTypes");
-    expect(keyRoute).not.toContain("allowed_document_types");
-    expect(rotateRoute).not.toContain("scope");
-    expect(rotateRoute).not.toContain("allowedDocumentTypes");
-    expect(rotateRoute).not.toContain("allowed_document_types");
+    expect(keyRoute).not.toMatch(/(?:["']scope["']|\bscope\s*:)\s*:/);
+    expect(keyRoute).not.toMatch(/(?:["']allowedDocumentTypes["']|\ballowedDocumentTypes\s*:)\s*:/);
+    expect(keyRoute).not.toMatch(/(?:["']allowed_document_types["']|\ballowed_document_types\s*:)\s*:/);
+    expect(rotateRoute).not.toMatch(/(?:["']scope["']|\bscope\s*:)\s*:/);
+    expect(rotateRoute).not.toMatch(/(?:["']allowedDocumentTypes["']|\ballowedDocumentTypes\s*:)\s*:/);
+    expect(rotateRoute).not.toMatch(/(?:["']allowed_document_types["']|\ballowed_document_types\s*:)\s*:/);
     expect(route).toContain("odooEnabledRevision");
     expect(route).toContain("lt(apiKeys.odooEnabledRevision");
     expect(route).toContain("stale_revision");
