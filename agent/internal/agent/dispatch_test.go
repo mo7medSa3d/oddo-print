@@ -259,18 +259,35 @@ func TestDispatchRejectsAfterShutdown(t *testing.T) {
 // passing if anyone touches the grace, the wait, or the close ordering.
 func TestWaitForJobsNeverBlocksShutdownForever(t *testing.T) {
 	ag := newTestAgent(t, "p1", &fakePrinter{})
+	ag.inFlightMu.Lock()
+	ag.inFlight["wedged_job"] = struct{}{}
+	ag.inFlightMu.Unlock()
 	ag.wg.Add(1) // simulate a handler that never returns (wedged syscall)
 	start := time.Now()
-	ag.waitForJobs()
+	drained := ag.waitForJobs()
 	elapsed := time.Since(start)
+	if drained {
+		t.Fatal("waitForJobs must report a grace-period timeout while an in-flight handler remains")
+	}
 	if elapsed < shutdownGrace {
 		t.Fatalf("waitForJobs returned after %v, before the %v grace - in-flight work was not awaited", elapsed, shutdownGrace)
 	}
 	if elapsed > shutdownGrace+15*time.Second {
-		t.Fatalf("waitForJobs blocked %v, beyond the %v grace + margin - shutdown is not bounded", elapsed, shutdownGrace)
+		t.Fatalf("waitForJobs blocked %v, beyond the %v grace + margin - bounded shutdown wait regressed", elapsed, shutdownGrace)
+	}
+
+	// The production caller keeps SQLite open after this bounded result and
+	// waits for the handler to terminate. Simulate that final termination
+	// before exercising Close.
+	ag.inFlightMu.Lock()
+	delete(ag.inFlight, "wedged_job")
+	ag.inFlightMu.Unlock()
+	ag.wg.Done()
+	if !ag.waitForJobs() {
+		t.Fatal("waitForJobs should drain immediately after the accepted handler terminates")
 	}
 	if err := ag.Close(); err != nil {
-		t.Fatalf("Close after bounded wait must succeed: %v", err)
+		t.Fatalf("Close after drained shutdown must succeed: %v", err)
 	}
 }
 
@@ -522,4 +539,27 @@ func TestQueuedRejectionIsCancelledWithItsSession(t *testing.T) {
 
 	workerCancel()
 	ag.runtimeWG.Wait()
+}
+
+
+func TestEnqueueRejectPreservesOriginalClaimToken(t *testing.T) {
+	ag := newTestAgent(t, "p1", &fakePrinter{})
+	ag.inFlightMu.Lock()
+	ag.inFlight["job_token_fence"] = struct{}{}
+	ag.inFlightTokens["job_token_fence"] = "claim-new"
+	ag.inFlightMu.Unlock()
+
+	ctx := context.Background()
+	if !ag.enqueueReject(ctx, "job_token_fence", "claim-old", "pending_full") {
+		t.Fatal("expected rejection to be queued")
+	}
+
+	select {
+	case work := <-ag.rejectQueue:
+		if work.claimToken != "claim-old" {
+			t.Fatalf("queued rejection must preserve the token captured from the delivery, got %q", work.claimToken)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("queued rejection was not available")
+	}
 }
