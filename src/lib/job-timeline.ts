@@ -1,6 +1,6 @@
 import { db, queryWithTimeout } from "../db/client";
-import { jobEvents, printJobs } from "../db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { jobEvents } from "../db/schema";
+import { eq, and } from "drizzle-orm";
 import { nanoid } from "./nanoid";
 import { getCorrelationContext } from "../server/correlation";
 import { logInfo } from "./log";
