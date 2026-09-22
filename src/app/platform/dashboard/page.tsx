@@ -77,16 +77,16 @@ export default function PlatformDashboardPage() {
       {error && <div className="rounded-[12px] border border-red-500/20 bg-red-500/10 px-4 py-3 text-[13px] text-red-300">{error}</div>}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Tenants" value={stats?.tenants.total ?? 0} icon={<Building2 className="h-4 w-4" />} accent="from-indigo-400 to-transparent" sub={<><span className="text-emerald-400 font-medium">{stats?.tenants.active ?? 0} active</span><span className="text-slate-600">•</span><span className="text-amber-400">{stats?.tenants.suspended ?? 0} suspended</span></>} />
-        <KpiCard label="Subscriptions" value={stats?.subscriptions.total ?? 0} icon={<CreditCard className="h-4 w-4" />} accent="from-blue-400 to-transparent" sub={<><span className="text-emerald-400 font-medium">{stats?.subscriptions.active ?? 0} active</span><span className="text-slate-600">•</span><span className="text-blue-400">{stats?.subscriptions.trialing ?? 0} trialing</span></>} />
-        <KpiCard label="Users" value={stats?.users.total ?? 0} icon={<Users className="h-4 w-4" />} accent="from-violet-400 to-transparent" sub={<span className="text-slate-300">{stats?.users.verified ?? 0} verified • {stats?.users.total ? Math.round((stats.users.verified / stats.users.total) * 100) : 0}%</span>} />
-        <KpiCard label="Jobs 24h" value={stats?.jobs24h.total ?? 0} icon={<Activity className="h-4 w-4" />} accent="from-cyan-400 to-transparent" sub={<><span className="text-emerald-400 font-medium">{stats?.jobs24h.success ?? 0} success</span><span className="text-slate-600">•</span><span className="text-red-400">{stats?.jobs24h.failed ?? 0} failed</span></>} />
+        <KpiCard label="Tenants" value={stats?.tenants.total ?? 0} icon={<Building2 className="h-4 w-4" />} accent="from-brand-400 to-transparent" sub={<><span className="text-emerald-400 font-medium">{stats?.tenants.active ?? 0} active</span><span className="text-slate-600">•</span><span className="text-amber-400">{stats?.tenants.suspended ?? 0} suspended</span></>} />
+        <KpiCard label="Subscriptions" value={stats?.subscriptions.total ?? 0} icon={<CreditCard className="h-4 w-4" />} accent="from-brand-400 to-transparent" sub={<><span className="text-emerald-400 font-medium">{stats?.subscriptions.active ?? 0} active</span><span className="text-slate-600">•</span><span className="text-brand-400">{stats?.subscriptions.trialing ?? 0} trialing</span></>} />
+        <KpiCard label="Users" value={stats?.users.total ?? 0} icon={<Users className="h-4 w-4" />} accent="from-brand-400 to-transparent" sub={<span className="text-slate-300">{stats?.users.verified ?? 0} verified • {stats?.users.total ? Math.round((stats.users.verified / stats.users.total) * 100) : 0}%</span>} />
+        <KpiCard label="Jobs 24h" value={stats?.jobs24h.total ?? 0} icon={<Activity className="h-4 w-4" />} accent="from-brand-400 to-transparent" sub={<><span className="text-emerald-400 font-medium">{stats?.jobs24h.success ?? 0} success</span><span className="text-slate-600">•</span><span className="text-red-400">{stats?.jobs24h.failed ?? 0} failed</span></>} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="lg:col-span-7 rounded-[14px] border border-white/[0.06] bg-[#12151b] p-6">
           <div className="flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-[14px] font-semibold text-white"><Cpu className="h-4 w-4 text-indigo-400" /> Fleet health</h2>
+            <h2 className="flex items-center gap-2 text-[14px] font-semibold text-white"><Cpu className="h-4 w-4 text-brand-400" /> Fleet health</h2>
             <span className="text-[11px] text-slate-500">Last 24h queue depth</span>
           </div>
           <div className="mt-6 grid grid-cols-2 gap-4">
@@ -108,9 +108,9 @@ export default function PlatformDashboardPage() {
               </div>
               <div className="mt-3 text-[24px] font-bold text-white tabular-nums">{stats?.printers.total ?? 0}</div>
               <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
-                <div className="h-full rounded-full bg-indigo-400" style={{ width: `${stats?.printers.total ? Math.round(((stats.printers.online ?? 0) / stats.printers.total) * 100) : 0}%` }} />
+                <div className="h-full rounded-full bg-brand-400" style={{ width: `${stats?.printers.total ? Math.round(((stats.printers.online ?? 0) / stats.printers.total) * 100) : 0}%` }} />
               </div>
-              <div className="mt-2 flex justify-between text-[11px]"><span className="text-sky-300">{stats?.printers.online ?? 0} online</span><span className="text-slate-500">{stats?.printers.offline ?? 0} offline</span></div>
+              <div className="mt-2 flex justify-between text-[11px]"><span className="text-brand-300">{stats?.printers.online ?? 0} online</span><span className="text-slate-500">{stats?.printers.offline ?? 0} offline</span></div>
             </div>
           </div>
           <div className="mt-6 grid grid-cols-3 gap-3 border-t border-white/[0.06] pt-5">
@@ -151,10 +151,10 @@ export default function PlatformDashboardPage() {
 
           <div className="grid grid-cols-1 gap-3">
             <Link href="/platform/tenants" className="group flex items-center justify-between rounded-[12px] border border-white/[0.06] bg-[#12151b] p-4 transition hover:border-white/[0.10] hover:bg-[#151725]">
-              <div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-white/[0.05] border border-white/[0.10] text-sky-300"><Building2 className="h-4 w-4" /></span><div><div className="text-[13px] font-semibold text-white group-hover:text-sky-300">Tenants</div><div className="text-[11px] text-slate-500">Lifecycle & suspension</div></div></div><ArrowRight className="h-4 w-4 text-slate-600 group-hover:text-white transition" />
+              <div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-white/[0.05] border border-white/[0.10] text-brand-300"><Building2 className="h-4 w-4" /></span><div><div className="text-[13px] font-semibold text-white group-hover:text-brand-300">Tenants</div><div className="text-[11px] text-slate-500">Lifecycle & suspension</div></div></div><ArrowRight className="h-4 w-4 text-slate-600 group-hover:text-white transition" />
             </Link>
             <Link href="/platform/subscriptions" className="group flex items-center justify-between rounded-[12px] border border-white/[0.06] bg-[#12151b] p-4 transition hover:border-white/[0.10] hover:bg-[#151725]">
-              <div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-blue-500/10 border border-blue-500/20 text-blue-300"><CreditCard className="h-4 w-4" /></span><div><div className="text-[13px] font-semibold text-white group-hover:text-blue-300">Subscriptions</div><div className="text-[11px] text-slate-500">Stripe & billing states</div></div></div><ArrowRight className="h-4 w-4 text-slate-600 group-hover:text-white transition" />
+              <div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-brand-500/10 border border-brand-500/20 text-brand-300"><CreditCard className="h-4 w-4" /></span><div><div className="text-[13px] font-semibold text-white group-hover:text-brand-300">Subscriptions</div><div className="text-[11px] text-slate-500">Stripe & billing states</div></div></div><ArrowRight className="h-4 w-4 text-slate-600 group-hover:text-white transition" />
             </Link>
             <Link href="/platform/audit" className="group flex items-center justify-between rounded-[12px] border border-white/[0.06] bg-[#12151b] p-4 transition hover:border-white/[0.10] hover:bg-[#151725]">
               <div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"><Layers className="h-4 w-4" /></span><div><div className="text-[13px] font-semibold text-white group-hover:text-emerald-300">Audit feed</div><div className="text-[11px] text-slate-500">Platform events stream</div></div></div><ArrowRight className="h-4 w-4 text-slate-600 group-hover:text-white transition" />
