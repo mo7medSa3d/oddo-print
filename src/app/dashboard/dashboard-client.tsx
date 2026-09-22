@@ -415,10 +415,6 @@ export default function DashboardClient({
   }, [refreshBillingUsage, router]);
 
   useEffect(() => {
-    void refreshBillingUsage();
-  }, [refreshBillingUsage]);
-
-  useEffect(() => {
     const intervalMs = activePairing ? 3000 : 6000;
     const timer = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "visible") {
