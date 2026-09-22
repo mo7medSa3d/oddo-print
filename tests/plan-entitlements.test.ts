@@ -47,6 +47,14 @@ describe("plan entitlements", () => {
         max_printers: 1,
         max_jobs_per_minute: 60,
         max_concurrent_jobs: 8,
+        max_prints_per_period: 20,
+      })).toThrow();
+      expect(() => normalizePlanEntitlements({
+        max_agents: 1,
+        max_printers: 1,
+        max_jobs_per_minute: 60,
+        max_concurrent_jobs: 8,
+        max_prints_per_period: value,
       })).toThrow();
     }
   });
