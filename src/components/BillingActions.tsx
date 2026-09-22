@@ -67,7 +67,12 @@ export function BillingActions({
     if (!selectedPlan) return;
 
     void run("selected-plan", async () => {
-      if (hasSubscription || subscriptionStatus === "paused" || subscriptionStatus === "unpaid") {
+      if (
+        hasSubscription ||
+        subscriptionStatus === "paused" ||
+        subscriptionStatus === "unpaid" ||
+        (subscriptionStatus === "incomplete" && !checkoutUrl && canOpenPortal)
+      ) {
         const data = await post("/api/billing/portal");
         if (typeof data.url !== "string" || !data.url) throw new Error("Billing portal URL was not returned");
         window.location.href = data.url;
@@ -156,7 +161,7 @@ export function BillingActions({
           )}
         </div>
 
-        {subscriptionStatus === "incomplete" && checkoutUrl && (
+        {!selectedPlan && subscriptionStatus === "incomplete" && checkoutUrl && (
           <a
             href={checkoutUrl}
             className="inline-flex h-9 items-center gap-2 rounded-full bg-brand px-3.5 text-[12.5px] font-semibold text-white transition hover:bg-brand-hover"
