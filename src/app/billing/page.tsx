@@ -25,6 +25,7 @@ function formatStatus(status: string) {
 }
 
 function entitlementLabel(value: string) {
+  if (value === "max_prints_per_period") return "Print jobs / period";
   return value.replace(/^max_/, "").replace(/_/g, " ");
 }
 
