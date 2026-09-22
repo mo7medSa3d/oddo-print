@@ -76,6 +76,31 @@ describe("production fixes contracts (2026-09)", () => {
     expect(net).toContain("_ = conn.SetWriteDeadline(time.Now().Add(writeStallTimeout))");
   });
 
+  it("print quota is a billing-period entitlement and is charged once per logical job", () => {
+    const entitlements = read("src/lib/entitlements.ts");
+    const service = read("src/lib/print-job-service.ts");
+    const route = read("src/app/api/print/jobs/route.ts");
+    const testPrint = read("src/app/api/printers/[id]/test-print/route.ts");
+    const schema = read("src/db/schema.ts");
+    const migration = read("drizzle/0061_print_usage_quota.sql");
+    expect(entitlements).toContain('"max_prints_per_period"');
+    expect(entitlements).toContain("reserveTenantPrintCredit");
+    expect(service).toContain("reserveTenantPrintCredit(tx, tenantId)");
+    expect(route).toContain("PRINT_QUOTA_EXCEEDED");
+    expect(testPrint).toContain("TenantPrintQuotaExceededError");
+    expect(testPrint).toContain("upgradeRequired: true");
+    expect(schema).toContain('printUsagePeriods = pgTable("print_usage_periods"');
+    expect(migration).toContain("print_usage_periods");
+    expect(migration).toContain("current_period_start");
+  });
+
+  it("printer provisioning serializes max_printers with the direct printer admission path", () => {
+    const source = read("src/app/api/agents/[id]/discovered-printers/[deviceId]/provision/route.ts");
+    expect(source).toContain("pg_advisory_xact_lock(hashtext('printers:' ||");
+    expect(source).toContain('enforceTenantResourceEntitlement');
+    expect(source).toContain('"max_printers"');
+  });
+
   it("Go agent: interrupted jobs are reprinted, not skipped as processed", () => {
     const agent = read("agent/internal/agent/agent.go");
     expect(agent).toContain("recoverInterruptedJobs");
