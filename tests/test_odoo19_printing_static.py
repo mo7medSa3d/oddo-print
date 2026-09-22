@@ -121,9 +121,13 @@ def test_gateway_api_key_view_is_password_masked_and_system_admin_only():
     field_idx = source.index('field name="gateway_api_key"')
     field_tail = source[field_idx:field_idx + 280]
     assert 'password="True"' in field_tail
-    button_idx = source.index('name="action_clear_api_key"')
-    button_tail = source[button_idx:button_idx + 500]
-    assert 'groups="base.group_system"' in button_tail
+    assert 'groups="base.group_system"' in (read("models/gateway_config.py")[
+        read("models/gateway_config.py").index("gateway_api_key = fields.Char("):
+        read("models/gateway_config.py").index("gateway_api_key = fields.Char(") + 500
+    ])
+    form_start = source.index('id="view_print_gateway_config_form"')
+    form_end = source.index('<record id="view_print_gateway_config_search"', form_start)
+    assert 'name="action_clear_api_key"' not in source[form_start:form_end]
 
 
 def test_gateway_http_requires_explicit_development_opt_in():
