@@ -287,7 +287,7 @@ export default function PlatformDashboardPage() {
           label="Print jobs · 24h"
           value={stats?.jobs24h.total ?? 0}
           icon={Activity}
-          detail={`${formatNumber(stats?.jobs24h.success ?? 0)} delivered · ${formatNumber(stats?.jobs24h.failed ?? 0)} failed · ${formatNumber((stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0))} open`}
+          detail={`${formatNumber(stats?.jobs24h.success ?? 0)} success · ${formatNumber(stats?.jobs24h.failed ?? 0)} failed · ${formatNumber((stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0))} open`}
         />
       </section>
 
@@ -355,7 +355,7 @@ export default function PlatformDashboardPage() {
 
           <div className="mt-5 space-y-2">
             {[
-              ["Delivered", stats?.jobs24h.success ?? 0, "bg-ok-solid"],
+              ["Success", stats?.jobs24h.success ?? 0, "bg-ok-solid"],
               ["Failed", stats?.jobs24h.failed ?? 0, "bg-bad-solid"],
               ["Open", (stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0), "bg-warn-solid"],
               ["Expired", stats?.jobs24h.expired ?? 0, "bg-info-solid"],
