@@ -104,7 +104,7 @@ export default function PlatformTenantsPage() {
             <ShieldAlert className="h-3.5 w-3.5" /> Control Plane • Tenants
           </div>
           <h1 className="mt-4 flex items-center gap-2.5 text-[28px] font-bold tracking-[-0.04em] text-white leading-tight">
-            <Building2 className="h-6 w-6 text-indigo-400" /> Tenants
+            <Building2 className="h-6 w-6 text-brand-400" /> Tenants
           </h1>
           <p className="mt-2 text-[13px] leading-relaxed text-slate-400">Workspace directory, lifecycle control, and fleet overview — suspension reason required, audit preserved.</p>
         </div>
@@ -123,7 +123,7 @@ export default function PlatformTenantsPage() {
 
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by tenant name or ID…" aria-label="Search tenants" className="w-full rounded-[12px] border border-white/[0.08] bg-[#12151b] py-2.5 pl-10 pr-4 text-[13px] text-slate-100 placeholder-slate-500 outline-none focus:border-indigo-500/30 focus:ring-2 focus:ring-indigo-500/15" />
+        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by tenant name or ID…" aria-label="Search tenants" className="w-full rounded-[12px] border border-white/[0.08] bg-[#12151b] py-2.5 pl-10 pr-4 text-[13px] text-slate-100 placeholder-slate-500 outline-none focus:border-brand-500/30 focus:ring-2 focus:ring-brand-500/15" />
       </div>
 
       <div className="overflow-hidden rounded-[16px] border border-white/[0.08] bg-[#12151b]">
