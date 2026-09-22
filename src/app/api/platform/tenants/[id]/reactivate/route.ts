@@ -18,7 +18,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID")?.trim() ?? "";
   if (platformTenantId && id === platformTenantId) {
-    return NextResponse.json({ error: "The platform tenant cannot be suspended.", code: "PLATFORM_TENANT_PROTECTED" }, { status: 409 });
+    return NextResponse.json({ error: "The platform tenant lifecycle cannot be changed.", code: "PLATFORM_TENANT_PROTECTED" }, { status: 409 });
   }
 
   try {
