@@ -33,7 +33,6 @@ import {
   Eye,
   Trash2,
   Cpu,
-  Zap,
   ShieldCheck,
 } from "lucide-react";
 import {
