@@ -159,6 +159,55 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     expect(auditLogs.some((a) => a.action === "billing.customer.subscription.updated" && a.resourceId === eventId)).toBe(true);
   });
 
+  it("repeated processed subscription events are acknowledged without another Stripe retrieval", async () => {
+    const tenantId = `tenant_${nanoid(8)}`;
+    const planId = `plan_${nanoid(8)}`;
+    const stripePriceId = `price_${nanoid(8)}`;
+    const customerId = `cus_${nanoid(8)}`;
+    const subscriptionId = `sub_${nanoid(8)}`;
+    const eventId = `evt_duplicate_fast_path_${nanoid(8)}`;
+
+    await createTenant(tenantId);
+    await createPlan(planId, "Starter Plan", stripePriceId);
+    await createSubscription(tenantId, planId, customerId, subscriptionId, "trialing");
+
+    const payload = JSON.stringify({
+      id: eventId,
+      type: "customer.subscription.updated",
+      created: Math.floor(Date.now() / 1000),
+      data: {
+        object: {
+          id: subscriptionId,
+          customer: customerId,
+          status: "active",
+          items: { data: [{ price: { id: stripePriceId } }] },
+          metadata: { tenant_id: tenantId },
+        },
+      },
+    });
+    const signature = signPayload(payload);
+
+    stripeRetrieveMock.mockResolvedValueOnce({
+      id: subscriptionId,
+      object: "subscription",
+      customer: customerId,
+      status: "active",
+      items: { data: [{ price: { id: stripePriceId } }] },
+      metadata: { tenant_id: tenantId },
+      current_period_end: Math.floor(Date.now() / 1000) + 3600,
+      cancel_at_period_end: false,
+    });
+
+    const first = await POST(createWebhookRequest(payload, signature));
+    expect(first.status).toBe(200);
+    expect(stripeRetrieveMock).toHaveBeenCalledTimes(1);
+
+    stripeRetrieveMock.mockRejectedValueOnce(new Error("Stripe temporarily unavailable"));
+    const second = await POST(createWebhookRequest(payload, signature));
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual({ received: true, idempotent: true });
+    expect(stripeRetrieveMock).toHaveBeenCalledTimes(1);
+  });
   it("2. invalid Stripe signature: 400 Bad Request, no database mutation", async () => {
     const tenantId = `tenant_${nanoid(8)}`;
     const planId = `plan_${nanoid(8)}`;
