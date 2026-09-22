@@ -306,11 +306,12 @@ export async function POST(req: Request) {
           // timestamp; equal-second ties remain intentionally ambiguous.
           const sameOrUnboundSubscription =
             !tenantRow.stripeSubscriptionId || tenantRow.stripeSubscriptionId === subId;
+          const storedStripeEventCreatedAt = tenantRow.stripeLastEventCreatedAt;
           const newerReplacementSubscription =
             differentSubscription &&
             tenantRow.status === "cancelled" &&
-            tenantRow.stripeLastEventCreatedAt !== null &&
-            eventCreatedAt.getTime() > tenantRow.stripeLastEventCreatedAt.getTime();
+            storedStripeEventCreatedAt instanceof Date &&
+            eventCreatedAt.getTime() > storedStripeEventCreatedAt.getTime();
           if (sameOrUnboundSubscription || newerReplacementSubscription) {
             const nextStatus = typeof stateObj.status === "string" ? statusOf(stateObj.status) : tenantRow.status;
             await tx.update(tenantSubscriptions).set({
