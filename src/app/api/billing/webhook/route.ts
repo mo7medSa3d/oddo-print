@@ -8,12 +8,14 @@ import { stripeRetrieve, verifyStripeSignature } from "../../../../lib/stripe";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
-function statusOf(status: string): "trialing" | "active" | "past_due" | "paused" | "cancelled" {
+function statusOf(status: string): "trialing" | "active" | "past_due" | "incomplete" | "incomplete_expired" | "unpaid" | "paused" | "cancelled" {
   if (status === "trialing") return "trialing";
   if (status === "active") return "active";
   if (status === "past_due") return "past_due";
-  if (status === "unpaid") return "paused";
-  if (status === "paused" || status === "incomplete") return "paused";
+  if (status === "incomplete") return "incomplete";
+  if (status === "incomplete_expired") return "incomplete_expired";
+  if (status === "unpaid") return "unpaid";
+  if (status === "paused") return "paused";
   return "cancelled";
 }
 
@@ -215,7 +217,7 @@ export async function POST(req: Request) {
           const current = currentResult.rows[0] as {
             stripeSubscriptionId?: string | null;
             stripeCustomerId?: string | null;
-            status?: "trialing" | "active" | "past_due" | "paused" | "cancelled";
+            status?: "trialing" | "active" | "past_due" | "incomplete" | "incomplete_expired" | "unpaid" | "paused" | "cancelled";
             stripeLastEventCreatedAt?: Date | string | null;
           } | undefined;
           const differentSubscription = Boolean(current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId);
@@ -350,7 +352,7 @@ export async function POST(req: Request) {
               currentPeriodEnd: typeof stateObj.current_period_end === "number" ? new Date(stateObj.current_period_end * 1000) : parseDbTime(tenantRow.currentPeriodEnd),
               cancelAtPeriodEnd: stateObj.cancel_at_period_end === true,
               planId: plan?.id ?? tenantRow.planId,
-              ...(nextStatus === "cancelled"
+              ...(nextStatus === "cancelled" || nextStatus === "incomplete_expired"
                 ? {
                     checkoutStatus: "none" as const,
                     checkoutPlanId: null,
