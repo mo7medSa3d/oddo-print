@@ -1426,6 +1426,15 @@ class PrintGatewayConfig(models.Model):
             ("pending_disable_gateway_url", "!=", False),
         ])
         for config in configs:
+            # Health is checked independently of activation revision. This catches
+            # a Gateway key that was revoked/deleted after the last successful
+            # configuration sync, without requiring an operator to press a button.
+            if config.gateway_url and config.gateway_api_key:
+                if not config._probe_gateway_connection():
+                    # The probe already recorded the user-facing reason.
+                    # Do not immediately issue another request with the same
+                    # invalid or unreachable credential.
+                    continue
             skipped_same_endpoint_revision = None
             if (
                 config.pending_disable_gateway_url
