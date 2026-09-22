@@ -55,7 +55,7 @@ suite("tenant print quota", () => {
     const second = await createPrintJobForPrinter(f.printerId, payload("same-print"), options);
     expect(second.isReused).toBe(true);
     expect(second.id).toBe(first.id);
-    const usage = await getTenantPrintUsage({ execute: (query) => pool().query(query) as never }, f.tenantId);
+    const usage = await getTenantPrintUsage(db, f.tenantId);
     expect(usage.used).toBe(1);
   });
 
