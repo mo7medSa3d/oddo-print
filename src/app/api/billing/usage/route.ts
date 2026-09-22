@@ -3,6 +3,7 @@ import { db } from "../../../../db";
 import { agents, printers, plans, tenantSubscriptions } from "../../../../db/schema";
 import { getTenantPrintUsage, isTenantBillingError } from "../../../../lib/entitlements";
 import { validateManager } from "../../../../lib/manager-auth";
+import { requireManagerPermission } from "../../../../lib/authorization";
 import { eq, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const manager = await validateManager(req);
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try { requireManagerPermission(manager, "billing.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
   try {
     const subscription = await db.query.tenantSubscriptions.findFirst({
