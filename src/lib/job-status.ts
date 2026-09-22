@@ -60,7 +60,9 @@ export const PHYSICAL_OUTCOME_UNKNOWN_MARKERS = [
 ] as const;
 
 export function derivePhysicalOutcome(status: JobStatus | string, error: string | null | undefined): PhysicalOutcome {
-  if (status === "success") return "printed";
+  // Current transports prove successful submission/execution, not paper
+  // output. Never infer physical output from an ACK/WritePrinter result.
+  if (status === "success") return "unknown";
   if (PHYSICAL_OUTCOME_UNKNOWN_MARKERS.some((marker) => (error ?? "").startsWith(marker))) return "unknown";
   return "not_printed";
 }
@@ -193,8 +195,9 @@ export interface ExpiredLateSuccessCandidate {
 }
 
 /**
- * An expired job may still be flipped to success when the agent proves the
- * physical print completed within the grace window after TTL expiry.
+ * An expired job may still be flipped to success when the agent reports the
+ * job execution completed within the grace window after TTL expiry. Physical
+ * paper output remains unverified unless a future transport supplies proof.
  * The window is measured from the database TTL (expiresAt), not from when
  * the sweeper happened to terminalize the row.
  */
