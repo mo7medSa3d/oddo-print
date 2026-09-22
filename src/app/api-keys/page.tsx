@@ -116,8 +116,8 @@ export default function ApiKeysPage() {
       <header className="mb-7 flex flex-col gap-4 border-b border-edge/80 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4"><KeyRound className="h-3.5 w-3.5" /> Odoo Gateway</div>
-          <h1 className="text-[28px] font-bold tracking-[-0.04em] text-ink">API Keys &amp; Integration</h1>
-          <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-3">Create and manage Odoo credentials.</p>
+          <h1 className="text-[28px] font-bold tracking-[-0.04em] text-ink">Odoo integration</h1>
+          <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-3">Connect Odoo and manage its access credentials.</p>
         </div>
         {active > 0 ? (
           <span className="text-[12px] font-semibold text-ink-3">{active} active</span>
@@ -129,7 +129,7 @@ export default function ApiKeysPage() {
       {hasSubscription === false && (
         <div className="mb-6 flex flex-col gap-3 rounded-xl border border-warn-edge bg-warn-bg px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-[13px] font-medium text-warn">
-            Choose a plan to enable Gateway setup.
+            Choose a plan before connecting Odoo.
           </p>
           <Link
             href="/billing"
@@ -142,26 +142,26 @@ export default function ApiKeysPage() {
 
       <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-[14px] border border-edge bg-surface px-5 py-4 shadow-card">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Credential</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Active keys</div>
           <div className="mt-2 flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${active ? "bg-ok-solid" : "bg-ink-4"}`} />
-            <span className="text-[13px] font-semibold text-ink">{active ? `${active} Active` : "None"}</span>
+            <span className="text-[13px] font-semibold text-ink">{active ? active : "None"}</span>
           </div>
         </div>
         <div className="rounded-[14px] border border-edge bg-surface px-5 py-4 shadow-card">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Odoo</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Odoo connections</div>
           <div className="mt-2 flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${enabled > 0 ? "bg-ok-solid" : "bg-ink-4"}`} />
-            <span className="text-[13px] font-semibold text-ink">{active ? `${enabled} Enabled · ${disabled} Disabled` : "No active integrations"}</span>
+            <span className="text-[13px] font-semibold text-ink">{active ? `${enabled} enabled · ${disabled} disabled` : "None"}</span>
           </div>
-          <div className="mt-1 text-[11px] text-ink-3">Activation is tracked independently for each Odoo API key.</div>
+          
         </div>
         <div className="rounded-[14px] border border-edge bg-surface px-5 py-4 shadow-card">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Gateway</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Print access</div>
           <div className="mt-2 flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${enabled > 0 ? "bg-ok-solid" : "bg-ink-4"}`} />
             <span className="text-[13px] font-semibold text-ink">
-              {active === 0 ? "No credential" : enabled === active ? "Ready to print" : "Some integrations off"}
+              {active === 0 ? "Not connected" : enabled === active ? "Ready to print" : "Partially enabled"}
             </span>
           </div>
         </div>
@@ -182,14 +182,14 @@ export default function ApiKeysPage() {
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.75fr)]">
         <div className="space-y-6">
       <Card>
-        <CardHeader title="Generate API Key" subtitle="Used in Odoo Gateway Configuration" icon={<KeyRound className="h-4 w-4 text-brand" />} />
+        <CardHeader title="Connect Odoo" subtitle="Generate the credential used by Odoo to reach the Gateway." icon={<KeyRound className="h-4 w-4 text-brand" />} />
         <form onSubmit={e => { e.preventDefault(); void generate(); }} className="px-5 pb-5 space-y-4">
           <div className="flex gap-3">
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="Odoo Production" className="h-9 flex-1" aria-label="Key name" />
             <Button type="submit" variant="primary" loading={busy} disabled={busy || hasSubscription === false} size="sm" title={hasSubscription === false ? "Choose a plan first" : undefined}>Generate</Button>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Scope" htmlFor="key-scope" hint="A read-only key cannot create print jobs; it can only read status and list jobs.">
+            <Field label="Scope" htmlFor="key-scope" hint="Choose whether this credential can only read status or can also create print jobs.">
               <Select id="key-scope" value={scope} onChange={(e) => setScope(e.target.value as "standard" | "read_only")} disabled={busy}>
                 <option value="standard">Standard (read + print)</option>
                 <option value="read_only">Read only</option>
@@ -203,7 +203,7 @@ export default function ApiKeysPage() {
       </Card>
 
       <div className="mt-6 overflow-hidden rounded-[14px] border border-edge bg-surface">
-        <div className="border-b border-edge-subtle bg-surface-2 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink-3">Keys • {keys.length}</div>
+        <div className="border-b border-edge-subtle bg-surface-2 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink-3">Credentials • {keys.length}</div>
         {loading ? <div className="p-10 text-center text-[13px] text-ink-3">Loading…</div> : keys.length === 0 ? <div className="p-12 text-center text-[13px] font-medium text-ink-3">No keys.</div> : (
           <div className="divide-y divide-edge-subtle">
             {keys.map(k => (
@@ -222,7 +222,7 @@ export default function ApiKeysPage() {
                     {new Date(k.createdAt).toLocaleDateString()} • Last used {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : "Never"}
                     {!k.revokedAt ? (
                       <div className="mt-2 text-[11px] font-semibold text-ink-3">
-                        Odoo printing: {k.odooEnabled ? "Enabled" : "Disabled"} · Revision {k.odooEnabledRevision}
+                        Odoo access: {k.odooEnabled ? "Enabled" : "Disabled"}
                         {k.odooEnabledUpdatedAt ? ` · Synced ${new Date(k.odooEnabledUpdatedAt).toLocaleString()}` : ""}
                       </div>
                     ) : null}
@@ -241,13 +241,13 @@ export default function ApiKeysPage() {
 
         <aside className="space-y-6">
           <Card>
-            <CardHeader title="How it works" icon={<Shield className="h-4 w-4 text-ok" />} />
+            <CardHeader title="Connection flow" icon={<Shield className="h-4 w-4 text-ok" />} />
             <div className="space-y-4 px-5 pb-5 text-[13px] text-ink-2">
               {[
-                ["01", "Odoo sends print intent", "Odoo uses this key when it calls the Gateway API."],
-                ["02", "Gateway validates access", "The key is checked for tenant, scope, and entitlement."],
-                ["03", "Agent executes locally", "Jobs are queued safely, then claimed by the right agent."],
-                ["04", "Rotate without downtime", "Create a replacement key before revoking the old one."],
+                ["01", "Odoo connects", "Odoo uses this credential to reach the Gateway."],
+                ["02", "Gateway checks access", "The credential is checked against workspace and key permissions."],
+                ["03", "Agent prints locally", "The job is queued, routed, and executed by the right Windows Agent."],
+                ["04", "Rotate safely", "Create a replacement credential before revoking the old one."],
               ].map(([step, title, body]) => <div key={step} className="flex gap-3"><span className="font-mono text-[11px] font-bold text-brand">{step}</span><div><div className="font-semibold text-ink">{title}</div><p className="mt-1 text-[12px] leading-relaxed text-ink-3">{body}</p></div></div>)}
             </div>
           </Card>
