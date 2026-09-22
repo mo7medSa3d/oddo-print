@@ -44,12 +44,12 @@ export default function Signup() {
   }
 
   return (
-    <AuthShell subtitle="Customer account">
+    <AuthShell subtitle="Yasser Print Gateway">
       <section className="overflow-hidden rounded-[16px] border border-edge-strong bg-surface shadow-lg">
         <div className="border-b border-edge bg-surface-2/55 px-6 py-6">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Create workspace access</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Get started</div>
           <h1 className="mt-2 text-[28px] font-bold tracking-[-0.035em] text-ink">Create your account</h1>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-3">Use your business email. A verification link is required.</p>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-3">Use your business email. We’ll send a verification link.</p>
         </div>
 
         {done ? (
