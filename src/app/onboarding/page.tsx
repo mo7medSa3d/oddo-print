@@ -129,7 +129,7 @@ export default function Onboarding() {
 
         <Card className="mt-8 p-6 sm:p-8">
           <div className="grid gap-8">
-            <Field label="Workspace name" htmlFor="workspace-name" hint="Use the name your team will recognize in the Gateway console.">
+            <Field label="Workspace name" htmlFor="workspace-name">
               <Input
                 id="workspace-name"
                 value={name}
