@@ -1,33 +1,18 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Building2,
-  CreditCard,
-  Users,
-  Printer,
   Activity,
-  AlertTriangle,
-  ShieldCheck,
-  ArrowRight,
-  RefreshCw,
-  Cpu,
-  Layers,
-  ArrowUpRight,
-  ArrowDownRight,
-  ChevronRight,
-  MoreVertical,
+  Building2,
   CheckCircle2,
-  Clock,
-  Sparkles,
-  Search,
-  Globe,
-  Settings,
-  ShieldAlert,
-  HardDriveDownload,
-  Calendar,
+  CreditCard,
+  Printer,
+  RefreshCw,
+  ShieldCheck,
+  Users,
+  Wifi,
 } from "lucide-react";
 
 type Stats = {
@@ -43,30 +28,111 @@ type TenantRow = {
   id: string;
   name: string;
   lifecycle: "active" | "suspended" | "deleted";
-  lifecycleReason: string | null;
-  suspendedAt: string | null;
   createdAt: string;
-  subscriptionStatus: string | null;
-  planName: string | null;
-  memberCount: number;
-  agentCount: number;
-  printerCount: number;
 };
 
 type SubscriptionRow = {
   tenantId: string;
   tenantName: string;
-  tenantLifecycle: string;
-  planId: string;
   planName: string;
-  stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
   status: "trialing" | "active" | "past_due" | "paused" | "cancelled";
-  currentPeriodEnd: string | null;
-  trialStartedAt: string | null;
-  cancelAtPeriodEnd: boolean;
   createdAt: string;
 };
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat().format(value);
+}
+
+function percent(part: number, total: number) {
+  return total > 0 ? Math.round((part / total) * 100) : null;
+}
+
+function MetricCard({
+  label,
+  value,
+  icon: Icon,
+  detail,
+}: {
+  label: string;
+  value: number;
+  icon: typeof Activity;
+  detail: React.ReactNode;
+}) {
+  return (
+    <div className="card p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-subtle text-brand-subtle-text">
+          <Icon className="h-4.5 w-4.5" aria-hidden />
+        </div>
+      </div>
+      <div className="mt-4">
+        <div className="label-caps normal-case tracking-normal">{label}</div>
+        <div className="mt-1 text-[30px] font-bold tracking-[-0.03em] text-ink tabular-nums">
+          {formatNumber(value)}
+        </div>
+        <div className="mt-2 text-[12px] text-ink-3">{detail}</div>
+      </div>
+    </div>
+  );
+}
+
+function HealthRow({
+  label,
+  value,
+  total,
+  tone,
+}: {
+  label: string;
+  value: number;
+  total: number;
+  tone: "ok" | "info" | "warn";
+}) {
+  const rate = percent(value, total);
+  const toneClasses = {
+    ok: "bg-ok-solid",
+    info: "bg-info-solid",
+    warn: "bg-warn-solid",
+  } as const;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-4 text-[13px]">
+        <span className="font-medium text-ink-2">{label}</span>
+        <span className="tabular-nums text-ink-3">
+          {formatNumber(value)} / {formatNumber(total)}
+          {rate !== null ? ` · ${rate}%` : ""}
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-surface-3">
+        <div
+          className={`h-full rounded-full transition-[width] duration-300 ${toneClasses[tone]}`}
+          style={{ width: `${rate ?? 0}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SubscriptionStatus({
+  status,
+}: {
+  status: SubscriptionRow["status"];
+}) {
+  const styles = {
+    active: "bg-ok-bg text-ok",
+    trialing: "bg-info-bg text-info",
+    past_due: "bg-warn-bg text-warn",
+    paused: "bg-surface-3 text-ink-3",
+    cancelled: "bg-bad-bg text-bad",
+  } as const;
+
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${styles[status]}`}>
+      {status.replace("_", " ")}
+    </span>
+  );
+}
 
 export default function PlatformDashboardPage() {
   const router = useRouter();
@@ -77,14 +143,9 @@ export default function PlatformDashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  // Filter dropdowns matching image design
-  const [userRange, setUserRange] = useState("6 months");
-  const [activityRange, setActivityRange] = useState("15 days");
-  const [hoveredBarIndex, setHoveredBarIndex] = useState<number | null>(1); // default hovered for demo tooltip (e.g. Mar)
-  const [transactionFilter, setTransactionFilter] = useState("Last Month");
-
   useEffect(() => {
     let ignore = false;
+
     async function load() {
       try {
         const [statsRes, tenantsRes, subsRes] = await Promise.all([
@@ -94,521 +155,281 @@ export default function PlatformDashboardPage() {
         ]);
 
         if (ignore) return;
+
         if (!statsRes.ok) {
           if (statsRes.status === 401 || statsRes.status === 403) {
             router.push("/platform/login");
             return;
           }
-          throw new Error("Failed to load platform stats");
+          throw new Error("Failed to load platform statistics");
         }
 
-        const statsData = await statsRes.json();
+        const statsData = (await statsRes.json()) as Stats;
         const tenantsData = tenantsRes.ok ? await tenantsRes.json() : { tenants: [] };
-        const subsData = subsRes.ok ? await subsRes.json() : { subscriptions: [] };
+        const subscriptionsData = subsRes.ok ? await subsRes.json() : { subscriptions: [] };
 
         if (!ignore) {
           setStats(statsData);
           setTenants(Array.isArray(tenantsData.tenants) ? tenantsData.tenants : []);
-          setSubscriptions(Array.isArray(subsData.subscriptions) ? subsData.subscriptions : []);
+          setSubscriptions(
+            Array.isArray(subscriptionsData.subscriptions) ? subscriptionsData.subscriptions : [],
+          );
           setError(null);
         }
       } catch (err: unknown) {
-        if (!ignore) setError(err instanceof Error ? err.message : "Error loading dashboard metrics");
+        if (!ignore) {
+          setError(err instanceof Error ? err.message : "Error loading platform statistics");
+        }
       } finally {
         if (!ignore) setLoading(false);
       }
     }
+
     load();
+
     return () => {
       ignore = true;
     };
   }, [router, reloadKey]);
 
-  function handleRefresh() {
-    setLoading(true);
-    setReloadKey((k) => k + 1);
-  }
+  const derived = useMemo(() => {
+    const tenantsTotal = stats?.tenants.total ?? 0;
+    const usersTotal = stats?.users.total ?? 0;
+    const agentsTotal = stats?.agents.total ?? 0;
+    const printersTotal = stats?.printers.total ?? 0;
+    const resolvedJobs = (stats?.jobs24h.success ?? 0) + (stats?.jobs24h.failed ?? 0);
 
-  // Monthly breakdown calculation / realistic projection based on actual total users
-  const totalUsers = stats?.users.total ?? 0;
-  const barData = useMemo(() => {
-    const months = ["Feb", "Mar", "Apr", "May", "Jun", "Jul"];
-    const weights = [0.12, 0.28, 0.18, 0.22, 0.08, 0.12];
-    return months.map((month, idx) => {
-      const count = Math.max(1, Math.round(totalUsers * weights[idx]));
-      return { month, count, weight: weights[idx] };
-    });
-  }, [totalUsers]);
-
-  // Activity spline points for the 15-day chart
-  const linePoints = [
-    { day: 1, c1: 45, c2: 28, c3: 20 },
-    { day: 2, c1: 68, c2: 42, c3: 25 },
-    { day: 3, c1: 62, c2: 39, c3: 35 },
-    { day: 4, c1: 75, c2: 48, c3: 32 },
-    { day: 5, c1: 88, c2: 55, c3: 40 },
-    { day: 6, c1: 70, c2: 52, c3: 55 },
-    { day: 7, c1: 78, c2: 54, c3: 22 },
-    { day: 8, c1: 65, c2: 55, c3: 48 },
-    { day: 9, c1: 75, c2: 57, c3: 32 },
-    { day: 10, c1: 70, c2: 53, c3: 28 },
-    { day: 11, c1: 79, c2: 56, c3: 24 },
-    { day: 12, c1: 82, c2: 68, c3: 36 },
-    { day: 13, c1: 76, c2: 60, c3: 52 },
-    { day: 14, c1: 85, c2: 70, c3: 42 },
-    { day: 15, c1: 96, c2: 78, c3: 65 },
-  ];
+    return {
+      activeTenantRate: percent(stats?.tenants.active ?? 0, tenantsTotal),
+      verifiedUserRate: percent(stats?.users.verified ?? 0, usersTotal),
+      onlineAgentRate: percent(stats?.agents.online ?? 0, agentsTotal),
+      onlinePrinterRate: percent(stats?.printers.online ?? 0, printersTotal),
+      jobSuccessRate: percent(stats?.jobs24h.success ?? 0, resolvedJobs),
+    };
+  }, [stats]);
 
   return (
-    <div className="space-y-6">
-      {/* Top Header Bar */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-edge pb-5">
+    <div className="space-y-7">
+      <header className="flex flex-col gap-5 border-b border-edge pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[26px] font-bold tracking-tight text-ink">Overview</h1>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-edge bg-surface-2 px-2.5 py-0.5 text-[11px] font-semibold text-ink-3">
-              <span className="h-1.5 w-1.5 rounded-full bg-ok-solid animate-pulse" /> Live System
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-display">Overview</h1>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-ok-edge bg-ok-bg px-2.5 py-1 text-[11px] font-semibold text-ok">
+              <span className="h-1.5 w-1.5 rounded-full bg-ok-solid" />
+              Control plane
             </span>
           </div>
-          <p className="mt-1 text-[13px] text-ink-3">
-            Platform control plane, multi-tenant fleet operations & commerce metrics.
+          <p className="mt-2 max-w-2xl text-[13px] text-ink-3">
+            Current tenant, billing, fleet, and printing health from the platform control plane.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <button
-            onClick={handleRefresh}
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              setReloadKey((value) => value + 1);
+            }}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-xl border border-edge bg-surface px-3.5 py-2 text-[13px] font-medium text-ink-2 shadow-xs transition hover:bg-surface-hover hover:text-ink disabled:opacity-50"
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-edge bg-surface px-3.5 text-[13px] font-medium text-ink-2 shadow-xs transition hover:bg-surface-2 hover:text-ink disabled:opacity-50"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
+            Refresh
           </button>
           <Link
             href="/platform/audit"
-            className="inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-2 text-[13px] font-semibold text-white shadow-xs transition hover:bg-brand-hover"
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-brand px-4 text-[13px] font-semibold text-brand-contrast shadow-xs transition hover:bg-brand-hover"
           >
-            <ShieldCheck className="h-4 w-4" /> Security Audit
+            <ShieldCheck className="h-4 w-4" aria-hidden />
+            Security audit
           </Link>
         </div>
-      </div>
+      </header>
 
       {error && (
-        <div className="rounded-xl border border-bad-edge bg-bad-bg p-4 text-[13px] text-bad flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-bad-edge bg-bad-bg px-4 py-3.5 text-[13px] text-bad">
           <span>{error}</span>
-          <button onClick={handleRefresh} className="underline font-semibold">
+          <button type="button" onClick={() => setReloadKey((value) => value + 1)} className="font-semibold underline">
             Retry
           </button>
         </div>
       )}
 
-      {/* 4 Stat KPI Cards (Matched with Panze Studio Card Design) */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Card 1: Users */}
-        <div className="relative overflow-hidden rounded-2xl border border-edge bg-surface p-5 shadow-card transition-all hover:border-edge-strong">
-          <div className="flex items-center justify-between">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-subtle text-brand-subtle-text">
-              <Users className="h-5 w-5" />
-            </div>
-            <span className="inline-flex items-center gap-1 rounded-full bg-ok-bg px-2 py-0.5 text-[11px] font-semibold text-ok">
-              <ArrowUpRight className="h-3 w-3" /> +32.54%
-            </span>
-          </div>
-          <div className="mt-4">
-            <div className="text-[12px] font-medium text-ink-3">Users</div>
-            <div className="mt-1 text-[32px] font-bold tracking-tight text-ink tabular-nums">
-              {stats?.users.total ?? 0}
-            </div>
-          </div>
-          <div className="mt-3 flex items-center justify-between border-t border-edge-subtle pt-3 text-[11px] text-ink-4">
-            <span>Last 30 days</span>
-            <span className="font-medium text-ink-2">{stats?.users.verified ?? 0} verified</span>
-          </div>
-        </div>
+      <section aria-label="Platform totals" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <MetricCard
+          label="Tenants"
+          value={stats?.tenants.total ?? 0}
+          icon={Building2}
+          detail={`${formatNumber(stats?.tenants.active ?? 0)} active · ${formatNumber(stats?.tenants.suspended ?? 0)} suspended`}
+        />
+        <MetricCard
+          label="Users"
+          value={stats?.users.total ?? 0}
+          icon={Users}
+          detail={derived.verifiedUserRate === null ? "No verified users recorded" : `${formatNumber(stats?.users.verified ?? 0)} verified · ${derived.verifiedUserRate}% of users`}
+        />
+        <MetricCard
+          label="Subscriptions"
+          value={stats?.subscriptions.total ?? 0}
+          icon={CreditCard}
+          detail={`${formatNumber(stats?.subscriptions.active ?? 0)} active · ${formatNumber(stats?.subscriptions.trialing ?? 0)} trialing`}
+        />
+        <MetricCard
+          label="Agents"
+          value={stats?.agents.total ?? 0}
+          icon={Wifi}
+          detail={`${formatNumber(stats?.agents.online ?? 0)} online · ${formatNumber(stats?.agents.offline ?? 0)} offline`}
+        />
+        <MetricCard
+          label="Printers"
+          value={stats?.printers.total ?? 0}
+          icon={Printer}
+          detail={`${formatNumber(stats?.printers.online ?? 0)} online · ${formatNumber(stats?.printers.offline ?? 0)} offline`}
+        />
+        <MetricCard
+          label="Print jobs · 24h"
+          value={stats?.jobs24h.total ?? 0}
+          icon={Activity}
+          detail={`${formatNumber(stats?.jobs24h.success ?? 0)} success · ${formatNumber(stats?.jobs24h.failed ?? 0)} failed · ${formatNumber(stats?.jobs24h.queued ?? 0)} queued`}
+        />
+      </section>
 
-        {/* Card 2: Subscriptions */}
-        <div className="relative overflow-hidden rounded-2xl border border-edge bg-surface p-5 shadow-card transition-all hover:border-edge-strong">
-          <div className="flex items-center justify-between">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
-              <CreditCard className="h-5 w-5" />
-            </div>
-            <span className="inline-flex items-center gap-1 rounded-full bg-bad-bg px-2 py-0.5 text-[11px] font-semibold text-bad">
-              <ArrowDownRight className="h-3 w-3" /> -32.54%
-            </span>
-          </div>
-          <div className="mt-4">
-            <div className="text-[12px] font-medium text-ink-3">Subscriptions</div>
-            <div className="mt-1 text-[32px] font-bold tracking-tight text-ink tabular-nums">
-              {stats?.subscriptions.total ?? 0}
-            </div>
-          </div>
-          <div className="mt-3 flex items-center justify-between border-t border-edge-subtle pt-3 text-[11px] text-ink-4">
-            <span>Last 30 days</span>
-            <span className="font-medium text-ok">{stats?.subscriptions.active ?? 0} active</span>
-          </div>
-        </div>
-
-        {/* Card 3: Active Fleet / Generated Images counterpart */}
-        <div className="relative overflow-hidden rounded-2xl border border-edge bg-surface p-5 shadow-card transition-all hover:border-edge-strong">
-          <div className="flex items-center justify-between">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <Printer className="h-5 w-5" />
-            </div>
-            <span className="inline-flex items-center gap-1 rounded-full bg-ok-bg px-2 py-0.5 text-[11px] font-semibold text-ok">
-              <ArrowUpRight className="h-3 w-3" /> +32.54%
-            </span>
-          </div>
-          <div className="mt-4">
-            <div className="text-[12px] font-medium text-ink-3">Connected Printers</div>
-            <div className="mt-1 text-[32px] font-bold tracking-tight text-ink tabular-nums">
-              {stats?.printers.total ?? 0}
-            </div>
-          </div>
-          <div className="mt-3 flex items-center justify-between border-t border-edge-subtle pt-3 text-[11px] text-ink-4">
-            <span>Last 30 days</span>
-            <span className="font-medium text-ok">{stats?.printers.online ?? 0} online</span>
-          </div>
-        </div>
-
-        {/* Card 4: 24h Jobs / Generated Codes counterpart */}
-        <div className="relative overflow-hidden rounded-2xl border border-edge bg-surface p-5 shadow-card transition-all hover:border-edge-strong">
-          <div className="flex items-center justify-between">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
-              <Activity className="h-5 w-5" />
-            </div>
-            <span className="inline-flex items-center gap-1 rounded-full bg-ok-bg px-2 py-0.5 text-[11px] font-semibold text-ok">
-              <ArrowUpRight className="h-3 w-3" /> +32.54%
-            </span>
-          </div>
-          <div className="mt-4">
-            <div className="text-[12px] font-medium text-ink-3">Print Jobs (24h)</div>
-            <div className="mt-1 text-[32px] font-bold tracking-tight text-ink tabular-nums">
-              {stats?.jobs24h.total ?? 0}
-            </div>
-          </div>
-          <div className="mt-3 flex items-center justify-between border-t border-edge-subtle pt-3 text-[11px] text-ink-4">
-            <span>Last 30 days</span>
-            <span className="font-medium text-ok">{stats?.jobs24h.success ?? 0} success</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Middle Row: Two Analytical Charts (Bar Chart & Spline Trend) */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Chart 1: Total New Users Bar Chart */}
-        <div className="rounded-2xl border border-edge bg-surface p-6 shadow-card">
-          <div className="flex items-center justify-between">
+      <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="card p-6">
+          <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-[16px] font-bold text-ink">Total New Users</h2>
-              <p className="text-[12px] text-ink-3 mt-0.5">User growth distribution over time</p>
+              <h2 className="text-[17px] font-semibold text-ink">System health</h2>
+              <p className="mt-1 text-[12px] text-ink-3">Availability ratios derived from the current platform totals.</p>
             </div>
-            <select
-              value={userRange}
-              onChange={(e) => setUserRange(e.target.value)}
-              className="rounded-xl border border-edge bg-surface-2 px-3 py-1.5 text-[12px] font-medium text-ink-2 outline-none hover:border-edge-strong"
-            >
-              <option>6 months</option>
-              <option>3 months</option>
-              <option>1 year</option>
-            </select>
+            <CheckCircle2 className="mt-0.5 h-5 w-5 text-ok" aria-hidden />
           </div>
 
-          {/* Bar Chart Container */}
-          <div className="relative mt-8 h-64 w-full">
-            {/* Background grid lines */}
-            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none text-[11px] text-ink-4">
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">7k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">6k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">5k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">4k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">3k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">2k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">1k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
+          <div className="mt-6 grid gap-5 sm:grid-cols-2">
+            <HealthRow
+              label="Active tenants"
+              value={stats?.tenants.active ?? 0}
+              total={stats?.tenants.total ?? 0}
+              tone="ok"
+            />
+            <HealthRow
+              label="Verified users"
+              value={stats?.users.verified ?? 0}
+              total={stats?.users.total ?? 0}
+              tone="info"
+            />
+            <HealthRow
+              label="Agents online"
+              value={stats?.agents.online ?? 0}
+              total={stats?.agents.total ?? 0}
+              tone="ok"
+            />
+            <HealthRow
+              label="Printers online"
+              value={stats?.printers.online ?? 0}
+              total={stats?.printers.total ?? 0}
+              tone="ok"
+            />
+          </div>
+        </div>
+
+        <div className="card p-6">
+          <div>
+            <h2 className="text-[17px] font-semibold text-ink">Print activity · last 24 hours</h2>
+            <p className="mt-1 text-[12px] text-ink-3">Only outcomes actually recorded by the Gateway are shown.</p>
+          </div>
+
+          <div className="mt-6 grid grid-cols-3 gap-3">
+            <div className="inset-panel p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Success</div>
+              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.jobs24h.success ?? 0)}</div>
+              <div className="mt-1 text-[11px] text-ok">
+                {derived.jobSuccessRate === null ? "No resolved jobs" : `${derived.jobSuccessRate}% of resolved`}
               </div>
             </div>
+            <div className="inset-panel p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Failed</div>
+              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.jobs24h.failed ?? 0)}</div>
+              <div className="mt-1 text-[11px] text-bad">Recorded failures</div>
+            </div>
+            <div className="inset-panel p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Queued</div>
+              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.jobs24h.queued ?? 0)}</div>
+              <div className="mt-1 text-[11px] text-warn">Not terminal yet</div>
+            </div>
+          </div>
 
-            {/* Bars */}
-            <div className="absolute inset-0 ml-9 flex items-end justify-between px-4 pb-2">
-              {barData.map((b, i) => {
-                const isSelected = hoveredBarIndex === i;
-                const heightPercent = Math.min(95, Math.max(18, b.weight * 260));
-                return (
-                  <div
-                    key={b.month}
-                    className="group relative flex flex-col items-center cursor-pointer"
-                    onMouseEnter={() => setHoveredBarIndex(i)}
-                  >
-                    {/* Tooltip on Active/Hovered Bar */}
-                    {isSelected && (
-                      <div className="absolute -top-14 z-20 flex flex-col items-center pointer-events-none transition-all">
-                        <div className="rounded-xl bg-[#111827] px-3 py-1.5 text-center text-white shadow-xl dark:bg-surface-3">
-                          <div className="text-[11px] font-semibold text-slate-100">
-                            New Users : {b.count}
-                          </div>
-                          <div className="text-[10px] text-emerald-400 font-medium">
-                            ↑ +49% than last month
-                          </div>
-                        </div>
-                        <div className="h-1.5 w-1.5 rotate-45 bg-[#111827] dark:bg-surface-3 -mt-0.5" />
-                      </div>
-                    )}
-
-                    <div
-                      className={`w-12 rounded-t-xl transition-all duration-300 ${
-                        isSelected
-                          ? "bg-gradient-to-t from-[#6366f1] to-[#8b5cf6] shadow-lg shadow-purple-500/25"
-                          : "bg-[#e0e7ff] hover:bg-[#c7d2fe] dark:bg-purple-950/40 dark:hover:bg-purple-900/50"
-                      }`}
-                      style={{ height: `${heightPercent}%` }}
-                    />
-                    <span className="mt-3 text-[12px] font-semibold text-ink-3">
-                      {b.month}
-                    </span>
+          <div className="mt-5 space-y-2">
+            {[
+              ["Successful", stats?.jobs24h.success ?? 0, "bg-ok-solid"],
+              ["Failed", stats?.jobs24h.failed ?? 0, "bg-bad-solid"],
+              ["Queued", stats?.jobs24h.queued ?? 0, "bg-warn-solid"],
+            ].map(([label, value, barClass]) => {
+              const total = stats?.jobs24h.total ?? 0;
+              const width = total > 0 ? ((value as number) / total) * 100 : 0;
+              return (
+                <div key={label as string} className="flex items-center gap-3 text-[12px]">
+                  <span className="w-16 text-ink-3">{label as string}</span>
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3">
+                    <div className={`h-full rounded-full ${barClass as string}`} style={{ width: `${width}%` }} />
                   </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="mt-4 flex items-center justify-center gap-2 pt-2 border-t border-edge-subtle text-[12px] text-ink-3">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#8b5cf6]" />
-            <span>Total New Registered Tenants & Users</span>
+                  <span className="w-10 text-right tabular-nums text-ink-3">{formatNumber(value as number)}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
+      </section>
 
-        {/* Chart 2: Multi-line / Fleet Activity Trend */}
-        <div className="rounded-2xl border border-edge bg-surface p-6 shadow-card">
-          <div className="flex items-center justify-between">
+      <section className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-edge px-6 py-5">
             <div>
-              <h2 className="text-[16px] font-bold text-ink">Fleet Activity Trends</h2>
-              <p className="text-[12px] text-ink-3 mt-0.5">Real-time throughput across fleet agents</p>
+              <h2 className="text-[16px] font-semibold text-ink">Latest tenants</h2>
+              <p className="mt-0.5 text-[12px] text-ink-3">Most recent tenant records returned by the control plane.</p>
             </div>
-            <select
-              value={activityRange}
-              onChange={(e) => setActivityRange(e.target.value)}
-              className="rounded-xl border border-edge bg-surface-2 px-3 py-1.5 text-[12px] font-medium text-ink-2 outline-none hover:border-edge-strong"
-            >
-              <option>15 days</option>
-              <option>7 days</option>
-              <option>30 days</option>
-            </select>
-          </div>
-
-          <div className="relative mt-8 h-64 w-full">
-            {/* Background grid lines */}
-            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none text-[11px] text-ink-4">
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">7k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">6k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">5k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">4k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">3k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">2k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="w-6 text-right">1k</span>
-                <div className="h-px flex-1 bg-edge-subtle" />
-              </div>
-            </div>
-
-            {/* SVG Multi-line Chart matching visual in reference */}
-            <svg
-              className="absolute inset-0 ml-9 h-full w-[calc(100%-2.25rem)] overflow-visible"
-              viewBox="0 0 500 220"
-              preserveAspectRatio="none"
-            >
-              {/* Line 1: Green/Emerald Line (Top throughput) */}
-              <path
-                d="M 10 160 Q 45 60, 80 115 T 150 75 T 220 95 T 290 80 T 360 85 T 430 45 T 490 20"
-                fill="none"
-                stroke="#10b981"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-              />
-              {/* Line 2: Purple Line */}
-              <path
-                d="M 10 185 Q 45 140, 80 135 T 150 120 T 220 130 T 290 125 T 360 110 T 430 75 T 490 65"
-                fill="none"
-                stroke="#a855f7"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-              />
-              {/* Line 3: Blue Line */}
-              <path
-                d="M 10 195 Q 45 170, 80 145 T 150 125 T 220 145 T 290 150 T 360 165 T 430 140 T 490 110"
-                fill="none"
-                stroke="#3b82f6"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-              />
-              {/* Line 4: Orange/Amber Line */}
-              <path
-                d="M 10 190 Q 45 180, 80 160 T 150 140 T 220 170 T 290 180 T 360 125 T 430 160 T 490 175"
-                fill="none"
-                stroke="#f59e0b"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-
-              {/* Data point dots */}
-              {[
-                { cx: 80, cy: 115, color: "#10b981" },
-                { cx: 220, cy: 95, color: "#10b981" },
-                { cx: 430, cy: 45, color: "#10b981" },
-                { cx: 150, cy: 120, color: "#a855f7" },
-                { cx: 360, cy: 110, color: "#a855f7" },
-                { cx: 220, cy: 145, color: "#3b82f6" },
-                { cx: 360, cy: 125, color: "#f59e0b" },
-              ].map((p, idx) => (
-                <circle
-                  key={idx}
-                  cx={p.cx}
-                  cy={p.cy}
-                  r="4"
-                  fill="#ffffff"
-                  stroke={p.color}
-                  strokeWidth="2.5"
-                />
-              ))}
-            </svg>
-
-            {/* X Axis labels */}
-            <div className="absolute -bottom-6 ml-9 flex w-[calc(100%-2.25rem)] justify-between text-[11px] font-medium text-ink-4">
-              {linePoints.map((p) => (
-                <span key={p.day}>{p.day}</span>
-              ))}
-            </div>
-          </div>
-
-          {/* Chart Legends */}
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-6 pt-3 border-t border-edge-subtle text-[12px] text-ink-3">
-            <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-[#f59e0b]" />
-              <span>Direct LAN 9100</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-[#3b82f6]" />
-              <span>Windows Spooler</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-[#a855f7]" />
-              <span>IPP / IPPS</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-[#10b981]" />
-              <span>Odoo POS / Outbox</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom Row: 2 Clean Tables (Latest Registrations & Latest Transactions) */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Table 1: Latest Registrations (Tenants) */}
-        <div className="rounded-2xl border border-edge bg-surface p-6 shadow-card">
-          <div className="flex items-center justify-between pb-4 border-b border-edge">
-            <div>
-              <h2 className="text-[16px] font-bold text-ink">Latest Registrations</h2>
-              <p className="text-[12px] text-ink-3 mt-0.5">Recently provisioned client tenants</p>
-            </div>
-            <Link
-              href="/platform/tenants"
-              className="inline-flex items-center gap-1 text-[12px] font-semibold text-brand hover:text-brand-hover"
-            >
-              View All <ChevronRight className="h-3.5 w-3.5" />
+            <Link href="/platform/tenants" className="text-[12px] font-semibold text-brand hover:text-brand-hover">
+              View all
             </Link>
           </div>
 
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-left text-[13px]">
+          <div className="overflow-x-auto">
+            <table className="data-table text-left text-[13px]">
               <thead>
-                <tr className="border-b border-edge-subtle text-[11px] font-semibold text-ink-4 uppercase tracking-wider">
-                  <th className="py-3 px-2">Tenant Name</th>
-                  <th className="py-3 px-2">Status</th>
-                  <th className="py-3 px-2">Reg. Date</th>
-                  <th className="py-3 px-2 text-right">Actions</th>
+                <tr>
+                  <th>Tenant</th>
+                  <th>Status</th>
+                  <th className="text-right">Created</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-edge-subtle">
+              <tbody>
                 {tenants.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="py-8 text-center text-[12px] text-ink-4">
-                      No tenant registrations found.
+                    <td colSpan={3} className="py-10 text-center text-[12px] text-ink-4">
+                      No tenant records found.
                     </td>
                   </tr>
                 ) : (
-                  tenants.slice(0, 5).map((t) => {
-                    const isActive = t.lifecycle === "active";
-                    const isSuspended = t.lifecycle === "suspended";
+                  tenants.slice(0, 5).map((tenant) => {
+                    const lifecycleStyles = {
+                      active: "bg-ok-bg text-ok",
+                      suspended: "bg-warn-bg text-warn",
+                      deleted: "bg-bad-bg text-bad",
+                    } as const;
+
                     return (
-                      <tr key={t.id} className="hover:bg-surface-2/60 transition-colors">
-                        <td className="py-3.5 px-2">
-                          <div className="font-semibold text-ink">{t.name}</div>
-                          <div className="text-[11px] text-ink-4 font-mono">{t.id}</div>
+                      <tr key={tenant.id} className="table-row">
+                        <td>
+                          <div className="font-semibold text-ink">{tenant.name}</div>
+                          <div className="mt-0.5 font-mono text-[10px] text-ink-4">{tenant.id}</div>
                         </td>
-                        <td className="py-3.5 px-2">
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
-                              isActive
-                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                : isSuspended
-                                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                                : "bg-red-500/10 text-red-600 dark:text-red-400"
-                            }`}
-                          >
-                            <span
-                              className={`h-1.5 w-1.5 rounded-full ${
-                                isActive ? "bg-emerald-500" : isSuspended ? "bg-amber-500" : "bg-red-500"
-                              }`}
-                            />
-                            {isActive ? "Active" : isSuspended ? "Suspended" : "Deleted"}
+                        <td>
+                          <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${lifecycleStyles[tenant.lifecycle]}`}>
+                            {tenant.lifecycle}
                           </span>
                         </td>
-                        <td className="py-3.5 px-2 text-ink-3 text-[12px]">
-                          {new Date(t.createdAt).toLocaleDateString()}
-                        </td>
-                        <td className="py-3.5 px-2 text-right">
-                          <Link
-                            href={`/platform/tenants`}
-                            className="inline-flex items-center rounded-lg border border-edge bg-surface px-2.5 py-1 text-[11px] font-medium text-ink-2 hover:bg-surface-hover hover:text-ink shadow-2xs transition"
-                          >
-                            View
-                          </Link>
+                        <td className="text-right text-[12px] text-ink-3">
+                          {new Date(tenant.createdAt).toLocaleDateString()}
                         </td>
                       </tr>
                     );
@@ -619,102 +440,60 @@ export default function PlatformDashboardPage() {
           </div>
         </div>
 
-        {/* Table 2: Latest Transactions (Subscriptions) */}
-        <div className="rounded-2xl border border-edge bg-surface p-6 shadow-card">
-          <div className="flex items-center justify-between pb-4 border-b border-edge">
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-edge px-6 py-5">
             <div>
-              <h2 className="text-[16px] font-bold text-ink">Latest Subscriptions</h2>
-              <p className="text-[12px] text-ink-3 mt-0.5">Billing activity & Stripe memberships</p>
+              <h2 className="text-[16px] font-semibold text-ink">Latest subscriptions</h2>
+              <p className="mt-0.5 text-[12px] text-ink-3">Most recent subscription records returned by the control plane.</p>
             </div>
-            <div className="flex items-center gap-2">
-              <select
-                value={transactionFilter}
-                onChange={(e) => setTransactionFilter(e.target.value)}
-                className="rounded-xl border border-edge bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-ink-2 outline-none"
-              >
-                <option>Last Month</option>
-                <option>All Time</option>
-              </select>
-              <Link
-                href="/platform/subscriptions"
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-brand hover:text-brand-hover ml-2"
-              >
-                View All <ChevronRight className="h-3.5 w-3.5" />
-              </Link>
-            </div>
+            <Link href="/platform/subscriptions" className="text-[12px] font-semibold text-brand hover:text-brand-hover">
+              View all
+            </Link>
           </div>
 
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-left text-[13px]">
+          <div className="overflow-x-auto">
+            <table className="data-table text-left text-[13px]">
               <thead>
-                <tr className="border-b border-edge-subtle text-[11px] font-semibold text-ink-4 uppercase tracking-wider">
-                  <th className="py-3 px-2">Paid By</th>
-                  <th className="py-3 px-2">Package Name</th>
-                  <th className="py-3 px-2">Status</th>
-                  <th className="py-3 px-2 text-right">Created</th>
+                <tr>
+                  <th>Tenant</th>
+                  <th>Plan</th>
+                  <th>Status</th>
+                  <th className="text-right">Created</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-edge-subtle">
+              <tbody>
                 {subscriptions.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="py-8 text-center text-[12px] text-ink-4">
-                      No active subscription records.
+                    <td colSpan={4} className="py-10 text-center text-[12px] text-ink-4">
+                      No subscription records found.
                     </td>
                   </tr>
                 ) : (
-                  subscriptions.slice(0, 5).map((s) => {
-                    const isActive = s.status === "active";
-                    const isTrialing = s.status === "trialing";
-                    const isPastDue = s.status === "past_due";
-                    return (
-                      <tr key={s.tenantId} className="hover:bg-surface-2/60 transition-colors">
-                        <td className="py-3.5 px-2">
-                          <div className="font-semibold text-ink">{s.tenantName}</div>
-                          <div className="text-[11px] text-ink-4 font-mono">
-                            {s.stripeSubscriptionId ? s.stripeSubscriptionId.slice(0, 14) + "…" : "Local Plan"}
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-2">
-                          <span className="font-medium text-ink-2">{s.planName || "Standard Cloud"}</span>
-                        </td>
-                        <td className="py-3.5 px-2">
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
-                              isActive
-                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                : isTrialing
-                                ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                                : isPastDue
-                                ? "bg-red-500/10 text-red-600 dark:text-red-400"
-                                : "bg-slate-500/10 text-slate-600 dark:text-slate-400"
-                            }`}
-                          >
-                            <span
-                              className={`h-1.5 w-1.5 rounded-full ${
-                                isActive
-                                  ? "bg-emerald-500"
-                                  : isTrialing
-                                  ? "bg-blue-500"
-                                  : isPastDue
-                                  ? "bg-red-500"
-                                  : "bg-slate-400"
-                              }`}
-                            />
-                            {s.status}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-2 text-right text-ink-3 text-[12px]">
-                          {new Date(s.createdAt).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    );
-                  })
+                  subscriptions.slice(0, 5).map((subscription) => (
+                    <tr key={subscription.tenantId} className="table-row">
+                      <td>
+                        <div className="font-semibold text-ink">{subscription.tenantName}</div>
+                        <div className="mt-0.5 font-mono text-[10px] text-ink-4">
+                          {subscription.stripeSubscriptionId ? `${subscription.stripeSubscriptionId.slice(0, 16)}…` : "No Stripe subscription"}
+                        </div>
+                      </td>
+                      <td className="font-medium text-ink-2">
+                        {subscription.planName || "No plan"}
+                      </td>
+                      <td>
+                        <SubscriptionStatus status={subscription.status} />
+                      </td>
+                      <td className="text-right text-[12px] text-ink-3">
+                        {new Date(subscription.createdAt).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
