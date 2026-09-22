@@ -300,12 +300,18 @@ export async function POST(req: Request) {
             tenantRow.stripeSubscriptionId && tenantRow.stripeSubscriptionId !== subId
           );
           // A subscription event for a different Stripe subscription must never
-          // overwrite the tenant's currently bound identity. A new subscription
-          // can still be adopted during the initial bind or after a completed
-          // checkout has already cleared/changed the local identity.
+          // overwrite the tenant's currently bound identity. A replacement is
+          // adopted only when the current local state is cancelled and the
+          // incoming Stripe event is strictly newer than the stored lifecycle
+          // timestamp; equal-second ties remain intentionally ambiguous.
           const sameOrUnboundSubscription =
             !tenantRow.stripeSubscriptionId || tenantRow.stripeSubscriptionId === subId;
-          if (sameOrUnboundSubscription) {
+          const newerReplacementSubscription =
+            differentSubscription &&
+            tenantRow.status === "cancelled" &&
+            tenantRow.stripeLastEventCreatedAt !== null &&
+            eventCreatedAt.getTime() > tenantRow.stripeLastEventCreatedAt.getTime();
+          if (sameOrUnboundSubscription || newerReplacementSubscription) {
             const nextStatus = typeof stateObj.status === "string" ? statusOf(stateObj.status) : tenantRow.status;
             await tx.update(tenantSubscriptions).set({
               stripeCustomerId: typeof stateObj.customer === "string" ? stateObj.customer : tenantRow.stripeCustomerId,
@@ -324,7 +330,7 @@ export async function POST(req: Request) {
                     checkoutSessionExpiresAt: null,
                   }
                 : {}),
-              stripeLastEventCreatedAt: sql`GREATEST(COALESCE(${tenantSubscriptions.stripeLastEventCreatedAt}, ${eventCreatedAt}), ${eventCreatedAt})`,
+              stripeLastEventCreatedAt: eventCreatedAt,
               updatedAt: new Date(),
             }).where(eq(tenantSubscriptions.tenantId, tenantId));
           }
