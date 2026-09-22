@@ -27,11 +27,32 @@ export const PLAN_ENTITLEMENT_KEYS = [
   "max_printers",
   "max_jobs_per_minute",
   "max_concurrent_jobs",
+  "max_prints_per_period",
 ] as const;
 
 export type PlanEntitlementKey = typeof PLAN_ENTITLEMENT_KEYS[number];
 export type EntitlementValue = number | "unlimited";
 export type TenantEntitlements = Record<PlanEntitlementKey, EntitlementValue>;
+
+export const PRINT_QUOTA_ENTITLEMENT = "max_prints_per_period" as const;
+export const PRINT_QUOTA_UNIT = "job" as const;
+
+export type TenantPrintUsage = {
+  limit: number | "unlimited";
+  used: number;
+  remaining: number | "unlimited";
+  periodStart: Date;
+  periodEnd: Date | null;
+};
+
+export class TenantPrintQuotaExceededError extends Error {
+  readonly code = "PRINT_QUOTA_EXCEEDED" as const;
+  readonly entitlement = PRINT_QUOTA_ENTITLEMENT;
+  readonly upgradeRequired = true;
+  constructor(public readonly limit: number, public readonly used: number, public readonly periodStart: Date, public readonly periodEnd: Date | null) {
+    super("Print limit reached for this billing period");
+  }
+}
 
 export function normalizePlanEntitlements(input: unknown): TenantEntitlements {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("entitlements must be an object");
@@ -138,6 +159,90 @@ export async function enforceTenantResourceEntitlement(tx: EntitlementTx, tenant
   if (count >= limit) throw new TenantEntitlementError(key, limit);
 }
 
+type TenantPrintQuotaRow = {
+  entitlements: unknown;
+  periodStart: Date | string;
+  periodEnd: Date | string | null;
+};
+
+function parseEntitlementDate(value: Date | string | null): Date | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value;
+  const text = String(value).trim();
+  const iso = /(?:Z|[+-]\\d{2}:?\\d{2})$/.test(text) ? text : text.replace(" ", "T") + "Z";
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string): Promise<{ limit: number | "unlimited"; periodStart: Date; periodEnd: Date | null }> {
+  const result = await tx.execute(sql`
+    SELECT p.entitlements, ts.current_period_start AS "periodStart", ts.current_period_end AS "periodEnd"
+    FROM tenant_subscriptions ts
+    JOIN plans p ON p.id = ts.plan_id
+    WHERE ts.tenant_id = ${tenantId}
+      AND ts.status IN ('trialing','active','past_due')
+      AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+    LIMIT 1
+  `);
+  const row = result.rows[0] as TenantPrintQuotaRow | undefined;
+  if (!row) throw new TenantSubscriptionRequiredError();
+  let entitlements: TenantEntitlements;
+  try {
+    entitlements = normalizePlanEntitlements(row.entitlements);
+  } catch (err) {
+    logError("entitlements.plan_malformed", { tenantId, key: PRINT_QUOTA_ENTITLEMENT, error: err instanceof Error ? err.message : String(err) });
+    throw new TenantEntitlementConfigError(PRINT_QUOTA_ENTITLEMENT);
+  }
+  const periodStart = parseEntitlementDate(row.periodStart);
+  if (!periodStart) throw new TenantEntitlementConfigError("subscription_period");
+  const periodEnd = parseEntitlementDate(row.periodEnd);
+  if (periodEnd && periodEnd <= periodStart) throw new TenantEntitlementConfigError("subscription_period");
+  return { limit: entitlements[PRINT_QUOTA_ENTITLEMENT], periodStart, periodEnd };
+}
+
+/** Atomically consumes one print credit for one newly-created logical print job. */
+export async function reserveTenantPrintCredit(tx: EntitlementTx, tenantId: string): Promise<TenantPrintUsage> {
+  const context = await getTenantPrintQuotaContext(tx, tenantId);
+  const limit = context.limit;
+  const predicate = limit === "unlimited"
+    ? sql`TRUE`
+    : sql`print_usage_periods.used_prints < ${limit}`;
+  const upsert = await tx.execute(sql`
+    INSERT INTO print_usage_periods (tenant_id, period_start, period_end, used_prints, created_at, updated_at)
+    VALUES (${tenantId}, ${context.periodStart}, ${context.periodEnd}, 1, now(), now())
+    ON CONFLICT (tenant_id, period_start)
+    DO UPDATE SET
+      period_end = EXCLUDED.period_end,
+      used_prints = print_usage_periods.used_prints + 1,
+      updated_at = now()
+    WHERE ${predicate}
+    RETURNING used_prints
+  `);
+  if (upsert.rows.length === 0) {
+    const current = await tx.execute(sql`
+      SELECT used_prints AS "usedPrints"
+      FROM print_usage_periods
+      WHERE tenant_id = ${tenantId} AND period_start = ${context.periodStart}
+      LIMIT 1
+    `);
+    const used = Number((current.rows[0] as { usedPrints?: number | string } | undefined)?.usedPrints ?? 0);
+    throw new TenantPrintQuotaExceededError(Number(limit), used, context.periodStart, context.periodEnd);
+  }
+  const used = Number((upsert.rows[0] as { used_prints?: number | string } | undefined)?.used_prints ?? 0);
+  return { limit, used, remaining: limit === "unlimited" ? "unlimited" : Math.max(0, Number(limit) - used), periodStart: context.periodStart, periodEnd: context.periodEnd };
+}
+
+export async function getTenantPrintUsage(tx: EntitlementTx, tenantId: string): Promise<TenantPrintUsage> {
+  const context = await getTenantPrintQuotaContext(tx, tenantId);
+  const current = await tx.execute(sql`
+    SELECT used_prints AS "usedPrints"
+    FROM print_usage_periods
+    WHERE tenant_id = ${tenantId} AND period_start = ${context.periodStart}
+    LIMIT 1
+  `);
+  const used = Number((current.rows[0] as { usedPrints?: number | string } | undefined)?.usedPrints ?? 0);
+  return { limit: context.limit, used, remaining: context.limit === "unlimited" ? "unlimited" : Math.max(0, Number(context.limit) - used), periodStart: context.periodStart, periodEnd: context.periodEnd };
+}
 export async function enforceTenantJobEntitlements(tx: EntitlementTx, tenantId: string): Promise<void> {
   const minuteLimit = await getTenantEntitlementLimit(tx, tenantId, "max_jobs_per_minute");
   if (minuteLimit !== null) {
