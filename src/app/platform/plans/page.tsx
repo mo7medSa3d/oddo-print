@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Archive, CheckCircle2, CircleAlert, CreditCard, Eye, EyeOff, Loader2, Pencil, Plus, RefreshCw, Search, ShieldAlert, X } from "lucide-react";
 
-type EntitlementKey = "max_agents" | "max_printers" | "max_jobs_per_minute" | "max_concurrent_jobs";
+type EntitlementKey = "max_agents" | "max_printers" | "max_jobs_per_minute" | "max_concurrent_jobs" | "max_prints_per_period";
 type Entitlements = Record<EntitlementKey, number | "unlimited">;
 
 type Plan = {
@@ -24,8 +24,8 @@ type Plan = {
   activeSubscriberCount: number;
 };
 
-const EMPTY_ENTITLEMENTS: Entitlements = { max_agents: 1, max_printers: 1, max_jobs_per_minute: 60, max_concurrent_jobs: 8 };
-const ENTITLEMENT_LABELS: Record<EntitlementKey, string> = { max_agents: "Agents", max_printers: "Printers", max_jobs_per_minute: "Jobs / min", max_concurrent_jobs: "Concurrent" };
+const EMPTY_ENTITLEMENTS: Entitlements = { max_agents: 1, max_printers: 1, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: 20 };
+const ENTITLEMENT_LABELS: Record<EntitlementKey, string> = { max_agents: "Agents", max_printers: "Printers", max_jobs_per_minute: "Jobs / min", max_concurrent_jobs: "Concurrent", max_prints_per_period: "Prints / period" };
 
 function emptyForm() {
   return { id: "", name: "", description: "", stripePriceId: "", stripeProductId: "", currency: "usd", interval: "month", displayOrder: 0, isActive: true, isPublic: true, entitlements: { ...EMPTY_ENTITLEMENTS } };
