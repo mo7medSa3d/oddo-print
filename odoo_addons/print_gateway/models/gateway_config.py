@@ -151,7 +151,7 @@ class PrintGatewayConfig(models.Model):
     last_test_at = fields.Datetime(readonly=True)
     last_test_status = fields.Selection(
         [
-            ("draft", "Not checked"),
+            ("draft", "Not configured"),
             ("success", "Connected"),
             ("failed", "Not connected"),
             ("revoked", "API key revoked"),
