@@ -850,7 +850,7 @@ func (a *Agent) connectWebSocket(ctx context.Context) {
 				a.runWSAckWorker(sessionCtx, sessionAckQueue)
 			})
 
-			err = a.handleWSMessages(sessionCtx, sessionAckQueue)
+			err = a.handleWSMessages(ctx, sessionCtx, sessionAckQueue)
 			close(sessionDone)
 			sessionCancel()
 			a.setWSConn(nil)
@@ -873,7 +873,7 @@ const wsIdleTimeout = 90 * time.Second
 // base64 payload of up to ~5 MiB. Anything larger is hostile or corrupt.
 const maxWSFrameBytes = 8 << 20
 
-func (a *Agent) handleWSMessages(ctx context.Context, ackQueue chan<- wsAckWork) error {
+func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context, ackQueue chan<- wsAckWork) error {
 	conn := a.getWSConn()
 	if conn == nil {
 		return fmt.Errorf("connection closed")
@@ -958,8 +958,8 @@ func (a *Agent) handleWSMessages(ctx context.Context, ackQueue chan<- wsAckWork)
 		// executor slot. Rejected/saturated/duplicate deliveries are not ACKed;
 		// this prevents the Gateway from mistaking a pre-execution rejection for
 		// a locally accepted job.
-		if a.dispatchJob(ctx, job) {
-			if err := a.enqueueJobAck(ctx, ackQueue, jobID, jobClaimToken(job)); err != nil {
+		if a.dispatchJobWithContexts(ctx, sessionCtx, job) {
+			if err := a.enqueueJobAck(sessionCtx, ackQueue, jobID, jobClaimToken(job)); err != nil {
 				log.Printf("Job %s: failed to queue job_ack after local admission: %v", jobID, err)
 			}
 		}
@@ -1063,6 +1063,14 @@ func (a *Agent) runWSAckWorker(ctx context.Context, queue <-chan wsAckWork) {
 // It never blocks the caller (WS read loop / poll loop) for more than
 // bookkeeping, so WebSocket ping/pong handling is never starved.
 func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) bool {
+	return a.dispatchJobWithContexts(ctx, ctx, job)
+}
+
+// dispatchJobWithContexts separates the Agent execution lifecycle from the
+// WebSocket session lifecycle. Once a job is admitted locally, its execution
+// must survive a WS reconnect; only Agent shutdown cancels physical execution.
+// Rejection/ACK side effects remain tied to the originating WS session.
+func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context, job map[string]interface{}) bool {
 	jobID, _ := job["id"].(string)
 	if jobID == "" {
 		log.Printf("Received malformed job (missing id); ignoring")
@@ -1085,7 +1093,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) boo
 		// PATCH fails (network down), the undelivered-claim sweep remains
 		// the safe backstop: it only re-queues claims that never showed
 		// delivery evidence.
-		a.enqueueReject(ctx, jobID, jobClaimToken(job), "agent_shutting_down")
+		a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "agent_shutting_down")
 		return false
 	default:
 	}
@@ -1109,7 +1117,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) boo
 		a.inFlightMu.Unlock()
 		a.shutdownGate.RUnlock()
 		log.Printf("Job %s dropped: printer %s has reached the per-printer pending ceiling (%d); handing it back to the gateway queue.", jobID, pendingPrinter, maxPendingJobsPerPrinter)
-		a.enqueueReject(ctx, jobID, jobClaimToken(job), "printer_pending_full")
+		a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "printer_pending_full")
 		return false
 	}
 	a.inFlight[jobID] = struct{}{}
@@ -1145,7 +1153,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) boo
 		// agent holding a big backlog cannot burn jobs into a delivery-budget
 		// failure (see the reject gate in src/app/api/agent/jobs).
 		// Best-effort: the lease reclaim is the backstop if this PATCH fails.
-		a.enqueueReject(ctx, jobID, jobClaimToken(job), "pending_full")
+		a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "pending_full")
 		return false
 	}
 
@@ -1162,7 +1170,7 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) boo
 			}
 		}()
 
-		a.processJob(ctx, job)
+		a.processJob(executionCtx, job)
 	}()
 	return true
 }
