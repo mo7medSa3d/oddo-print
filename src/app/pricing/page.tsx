@@ -98,31 +98,50 @@ export default async function Pricing() {
             // pick, the top tier is the scale pick. Works for 2- and 3-plan
             // catalogs without hardcoding plan names.
             const spotlight =
-              rows.length >= 3 && index === 1
+              rows.length >= 3 && index === 0
                 ? {
-                    label: "Popular",
+                    label: "Essential",
                     badgeClass:
-                      "rounded-full border border-brand-subtle-border bg-brand-subtle text-brand-subtle-text",
-                    barClass: "bg-brand",
-                    icon: "sparkles" as const,
+                      "rounded-[7px] border border-edge-strong bg-surface-2 text-ink-3",
+                    icon: "none" as const,
                   }
-                : rows.length >= 3 && index === 2
+                : rows.length >= 3 && index === 1
                   ? {
-                      label: "Scale",
-                      badgeClass: "rounded-[8px] border border-info-edge bg-info-bg text-info",
-                      barClass: "bg-info-solid",
-                      icon: "dot" as const,
+                      label: "Popular",
+                      badgeClass:
+                        "rounded-full border border-brand-subtle-border bg-brand-subtle text-brand-subtle-text",
+                      icon: "sparkles" as const,
                     }
-                  : rows.length === 2 && index === 1
+                  : rows.length >= 3 && index === 2
                     ? {
-                        label: "Popular",
+                        label: "Scale",
                         badgeClass:
-                          "rounded-full border border-brand-subtle-border bg-brand-subtle text-brand-subtle-text",
-                        barClass: "bg-brand",
-                        icon: "sparkles" as const,
+                          "rounded-[6px] border border-dashed border-info-edge bg-info-bg text-info",
+                        icon: "dot" as const,
                       }
-                    : null;
-            const highlighted = !!spotlight && !isCurrent;
+                    : rows.length === 2 && index === 0
+                      ? {
+                          label: "Essential",
+                          badgeClass:
+                            "rounded-[7px] border border-edge-strong bg-surface-2 text-ink-3",
+                          icon: "none" as const,
+                        }
+                      : rows.length === 2 && index === 1
+                        ? {
+                            label: "Popular",
+                            badgeClass:
+                              "rounded-full border border-brand-subtle-border bg-brand-subtle text-brand-subtle-text",
+                            icon: "sparkles" as const,
+                          }
+                        : rows.length === 1
+                          ? {
+                              label: "Essential",
+                              badgeClass:
+                                "rounded-[7px] border border-edge-strong bg-surface-2 text-ink-3",
+                              icon: "none" as const,
+                            }
+                          : null;
+            const highlighted = rows.length >= 3 && index === 1 && !isCurrent;
 
             return (
               <article
@@ -135,20 +154,16 @@ export default async function Pricing() {
                       : "border-edge hover:border-edge-accent"
                 }`}
               >
-                {isCurrent && <div className="h-1 bg-brand" aria-hidden="true" />}
-                {highlighted && (
-                  <div className={`h-1 ${spotlight?.barClass ?? "bg-brand"}`} aria-hidden="true" />
-                )}
-                {spotlight && !isCurrent && (
-                  <div className="flex items-center justify-center px-4 py-2">
+                {spotlight && (
+                  <div className="flex items-center justify-center px-4 pb-1 pt-5">
                     <span
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${spotlight.badgeClass}`}
                     >
                       {spotlight.icon === "sparkles" ? (
                         <Sparkles className="h-3 w-3 text-brand" aria-hidden />
-                      ) : (
+                      ) : spotlight.icon === "dot" ? (
                         <span className="h-1.5 w-1.5 rounded-full bg-info-solid" aria-hidden />
-                      )}
+                      ) : null}
                       {spotlight.label}
                     </span>
                   </div>
