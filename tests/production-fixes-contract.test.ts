@@ -82,8 +82,8 @@ describe("production fixes contracts (2026-09)", () => {
     expect(service.indexOf("reserveTenantPrintCredit(tx, tenantId)")).toBeGreaterThan(service.indexOf("if (effectiveIdempotencyKey)"));
     expect(service.indexOf("await tx.insert(printJobs).values")).toBeGreaterThan(service.indexOf("reserveTenantPrintCredit(tx, tenantId)"));
     expect(agentJobs).not.toContain("max_prints_per_period");
-    expect(agentJobs).toContain("MAX_AGENT_IN_FLIGHT_JOBS");
-    expect(agentJobs).toContain("MAX_AGENT_QUEUED_JOBS");
+    expect(service).toContain("MAX_AGENT_IN_FLIGHT_JOBS");
+    expect(service).toContain("MAX_AGENT_QUEUED_JOBS");
   });
 
   it("quota UX remains machine-readable and upgradeable across dashboard surfaces", () => {
@@ -96,7 +96,8 @@ describe("production fixes contracts (2026-09)", () => {
     expect(dashboard).toContain('error.code === "MAX_AGENTS_EXCEEDED"');
     expect(dashboard).toContain('error.code === "PRINT_QUOTA_EXCEEDED"');
     expect(dashboard).toContain("<UpgradeLimitDialog");
-    expect(agentRoute).toContain("upgradeRequired");
+    expect(agentRoute).toContain("ActionError");
+    expect(agentRoute).toContain("enforceTenantResourceEntitlement");
   });
 
   it("print quota is a billing-period entitlement and is charged once per logical job", () => {
@@ -109,7 +110,7 @@ describe("production fixes contracts (2026-09)", () => {
     expect(entitlements).toContain('"max_prints_per_period"');
     expect(entitlements).toContain("reserveTenantPrintCredit");
     expect(service).toContain("reserveTenantPrintCredit(tx, tenantId)");
-    expect(route).toContain("PRINT_QUOTA_EXCEEDED");
+    expect(route).toContain("TenantPrintQuotaExceededError");
     expect(testPrint).toContain("TenantPrintQuotaExceededError");
     expect(testPrint).toContain("upgradeRequired: true");
     expect(schema).toContain('printUsagePeriods = pgTable("print_usage_periods"');
