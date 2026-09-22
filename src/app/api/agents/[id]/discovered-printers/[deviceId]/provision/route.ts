@@ -23,6 +23,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   let result: Awaited<ReturnType<typeof db.transaction>>;
   try {
     result = await db.transaction(async (tx) => {
+    // Tenant resource admission must serialize with direct printer creation;
+    // otherwise two different Agents could both observe capacity and insert
+    // simultaneously past max_printers.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printers:' || ${claims.tenantId}))`);
+
     // Lifecycle changes serialize on the same Agent row. Lock it before
     // reading the discovery candidate so an Agent cannot be retired/disabled
     // between the outer pre-check and printer creation.
