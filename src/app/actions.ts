@@ -72,8 +72,15 @@ export async function createAgent(name: string) {
       });
     });
   } catch (error) {
-    if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
-    if (isTenantBillingError(error)) throw new ActionError(error.message, 403);
+    if (error instanceof TenantEntitlementError) {
+      const code = error.entitlement === "max_agents" ? "MAX_AGENTS_EXCEEDED" : "TENANT_ENTITLEMENT_EXCEEDED";
+      throw new ActionError(error.message, 429, code, {
+        entitlement: error.entitlement,
+        limit: error.limit,
+        upgradeRequired: error.entitlement === "max_agents",
+      });
+    }
+    if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
     throw error;
   }
   void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.paired", resourceType: "agent", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
