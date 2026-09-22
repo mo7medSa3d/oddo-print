@@ -71,9 +71,9 @@ suite("real PostgreSQL runtime architecture gate", () => {
     await pool().query(`INSERT INTO agents (id,tenant_id,name,lifecycle,status) VALUES ('agt_unique','tenant_arch','Agent','active','online')`);
     await pool().query(`INSERT INTO printers (id,tenant_id,agent_id,name,printer_type,device_class,connection_type,protocol,status,lifecycle,config,capabilities)
       VALUES ('prn_unique','tenant_arch','agt_unique','Printer','physical','other','spooler','spooler','online','active','{}'::jsonb,'{}'::jsonb)`);
-    await pool().query(`INSERT INTO api_keys (id,tenant_id,scope,name,hashed_key) VALUES
-      ('key_unique_a','tenant_arch','standard','A','hash_unique_a'),
-      ('key_unique_b','tenant_arch','standard','B','hash_unique_b')`);
+    await pool().query(`INSERT INTO api_keys (id,tenant_id,name,hashed_key) VALUES
+      ('key_unique_a','tenant_arch','A','hash_unique_a'),
+      ('key_unique_b','tenant_arch','B','hash_unique_b')`);
     const payload = JSON.stringify({ type: "raw", protocol: "raw", encoding: "base64", data: "aA==" });
     await pool().query(`INSERT INTO print_jobs (id,tenant_id,api_key_id,destination,document_type,agent_id,printer_id,status,payload,expires_at,idempotency_key)
       VALUES ('job_unique_1','tenant_arch','key_unique_a','POS','receipt','agt_unique','prn_unique','queued',$1::jsonb,now()+interval '1 hour','same-key')`, [payload]);
