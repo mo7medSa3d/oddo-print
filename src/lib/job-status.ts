@@ -6,9 +6,10 @@
 //   failed, expired. Nothing else is ever persisted (PostgreSQL CHECK) and
 //   nothing else is accepted on the agent API (isJobStatus).
 // - Physical outcome metadata is CLOSED: printed, not_printed, unknown.
-//   success => printed; any UNKNOWN marker prefix => unknown; else
-//   not_printed (derivePhysicalOutcome). There is no "maybe printed" or
-//   "partially printed" outcome: ambiguity is always exactly `unknown`.
+//   Transport-level `success` does NOT prove paper physically printed; it
+//   remains `unknown` until a transport supplies explicit physical proof.
+//   Any UNKNOWN marker prefix is also `unknown`; ordinary pre-dispatch
+//   failures are `not_printed`.
 // - Odoo maps a Gateway `failed` whose error starts with any
 //   _GATEWAY_UNKNOWN_MARKERS prefix to outbox status 'unknown' (never
 //   'failed', which would read as "definitely not printed").
