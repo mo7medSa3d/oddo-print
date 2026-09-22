@@ -10,7 +10,7 @@ const TABS = ["all", "in_flight", "queued", "unassigned", "delivered", "failed",
 export function JobsPage({ s }: { s: DesktopState }) {
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [cleanupBusy, setCleanupBusy] = useState(false);
-  const tabCounts = { all: s.jobCounts.all, queued: s.jobCounts.queued, in_flight: s.jobCounts.in_flight, unassigned: s.jobCounts.unassigned, printed: s.jobCounts.delivered, unknown: s.jobCounts.unknown, failed: s.jobCounts.failed, expired: s.jobCounts.expired };
+  const tabCounts = { all: s.jobCounts.all, queued: s.jobCounts.queued, in_flight: s.jobCounts.in_flight, unassigned: s.jobCounts.unassigned, delivered: s.jobCounts.delivered, unknown: s.jobCounts.unknown, failed: s.jobCounts.failed, expired: s.jobCounts.expired };
 
   const handleCleanup = async () => {
     setCleanupBusy(true);
