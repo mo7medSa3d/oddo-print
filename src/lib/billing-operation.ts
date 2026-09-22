@@ -44,6 +44,14 @@ type BillingOperationState =
   | { kind: "in_progress" }
   | { kind: "missing" };
 
+export function stripeBillingMutation(operation: BillingOperation, subscriptionStatus: string, subscriptionId: string) {
+  const pausedResume = operation.type === "resume" && subscriptionStatus === "paused";
+  return {
+    path: pausedResume ? `subscriptions/${subscriptionId}/resume` : `subscriptions/${subscriptionId}`,
+    params: pausedResume ? new URLSearchParams() : operation.stripeParams,
+  };
+}
+
 export async function runBillingOperation(
   tenantId: string,
   operation: BillingOperation,
@@ -151,15 +159,8 @@ export async function runBillingOperation(
   }
 
   try {
-    const stripePath =
-      operation.type === "resume" && state.subscriptionStatus === "paused"
-        ? `subscriptions/${state.subscriptionId}/resume`
-        : `subscriptions/${state.subscriptionId}`;
-    const stripeParams =
-      operation.type === "resume" && state.subscriptionStatus === "paused"
-        ? new URLSearchParams()
-        : operation.stripeParams;
-    await stripeRequest(stripePath, stripeParams, state.idempotencyKey);
+    const mutation = stripeBillingMutation(operation, state.subscriptionStatus, state.subscriptionId);
+    await stripeRequest(mutation.path, mutation.params, state.idempotencyKey);
   } catch (error) {
     // Keep the persistent operation claim and its idempotency key. A retry
     // can safely replay the same Stripe request after a lost/ambiguous
