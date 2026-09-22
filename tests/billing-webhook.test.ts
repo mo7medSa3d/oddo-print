@@ -46,7 +46,7 @@ async function createPlan(id: string, name: string, stripePriceId: string) {
     stripePriceId,
     currency: "usd",
     interval: "month",
-    entitlements: { maxPrinters: 5, maxAgents: 2 },
+    entitlements: { max_agents: 2, max_printers: 5, max_jobs_per_minute: 300, max_concurrent_jobs: 32, max_prints_per_period: 20 },
   });
 }
 
@@ -150,6 +150,8 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     expect(storedSub).toBeDefined();
     expect(storedSub?.status).toBe("active");
     expect(storedSub?.stripeLastEventCreatedAt?.getTime()).toBe(eventCreatedTs * 1000);
+    expect(storedSub?.currentPeriodStart).toBeNull();
+    expect(storedSub?.currentPeriodEnd?.getTime()).toBe((eventCreatedTs + 30 * 86400) * 1000);
 
     // Assert audit event recorded
     const auditLogs = await db.query.auditEvents.findMany({
