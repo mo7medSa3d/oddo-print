@@ -23,22 +23,20 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
   useEffect(() => {
     if (isLoginPage) return;
     let cancelled = false;
+
     fetch("/api/platform/auth/me", { credentials: "include", cache: "no-store" })
       .then((res) => {
         if (cancelled) return;
         if (res.ok) {
           setAuthenticated(true);
         } else {
-          // Presentation-only redirect: every /api/platform route independently
-          // enforces the platform-owner session, so hiding chrome here never
-          // weakens authorization. Keeps expired/reconnect sessions from
-          // staring at an erroring chrome-less control plane.
           router.replace("/platform/login");
         }
       })
       .catch(() => {
         if (!cancelled) setAuthenticated(false);
       });
+
     return () => {
       cancelled = true;
     };
@@ -52,11 +50,9 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
     router.refresh();
   }
 
-  // Brief session-resolution state: render nothing so the control plane never
-  // flashes privileged chrome before proving the session.
   if (authenticated === null) {
     return (
-      <div className="min-h-screen bg-[var(--platform-bg)]" aria-busy="true">
+      <div className="min-h-screen bg-app" aria-busy="true">
         <span className="sr-only">Checking session…</span>
       </div>
     );
@@ -64,14 +60,14 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
 
   if (authenticated === false) {
     return (
-      <div className="min-h-screen bg-[var(--platform-bg)]" aria-busy="true">
+      <div className="min-h-screen bg-app" aria-busy="true">
         <span className="sr-only">Redirecting to sign in…</span>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[var(--platform-bg)] text-[var(--platform-text)] font-sans selection:bg-brand/20">
+    <div className="min-h-screen bg-app text-ink font-sans selection:bg-brand/20">
       <TopNavbar
         items={NAV_ITEMS}
         brandHref="/platform/dashboard"
@@ -80,7 +76,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         onLogout={handleLogout}
         variant="platform"
       />
-      <main className="bg-app text-ink">
+      <main className="min-h-[calc(100vh-56px)] bg-app text-ink">
         <div className="mx-auto w-full max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9">{children}</div>
       </main>
     </div>

@@ -108,7 +108,7 @@ export default function PlatformPlansPage() {
           <button onClick={() => refresh()} disabled={loading} className="inline-flex items-center gap-2 rounded-full border border-edge-strong bg-surface-2 px-4 py-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink disabled:opacity-50">
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} /> Refresh
           </button>
-          <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-full bg-brand text-white px-4 py-2.5 text-[13px] font-semibold hover:bg-brand-hover transition">
+          <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-full bg-brand text-brand-contrast px-4 py-2.5 text-[13px] font-semibold hover:bg-brand-hover transition">
             <Plus className="h-4 w-4" /> New plan
           </button>
         </div>
@@ -198,7 +198,7 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
         {localError && <div role="alert" className="mx-6 mb-5 flex items-start gap-2.5 rounded-[12px] border border-bad-edge bg-bad-bg px-4 py-3 text-[12px] text-bad"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><span>{localError}</span></div>}
         <div className="flex justify-end gap-2 border-t border-edge bg-surface-2/50 px-6 py-4">
           <button onClick={onClose} disabled={saving} className="rounded-full border border-edge-strong bg-surface-2 px-4 py-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink disabled:opacity-50">Cancel</button>
-          <button onClick={() => void submit()} disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-brand px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-brand-hover disabled:opacity-50">{saving && <Loader2 className="h-4 w-4 animate-spin" />}{saving ? "Saving…" : isNew ? "Create plan" : "Save changes"}</button>
+          <button onClick={() => void submit()} disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-brand px-4 py-2.5 text-[13px] font-semibold text-brand-contrast hover:bg-brand-hover disabled:opacity-50">{saving && <Loader2 className="h-4 w-4 animate-spin" />}{saving ? "Saving…" : isNew ? "Create plan" : "Save changes"}</button>
         </div>
       </div>
     </div>

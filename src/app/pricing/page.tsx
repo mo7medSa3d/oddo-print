@@ -97,15 +97,51 @@ export default async function Pricing() {
             // Modern plan spotlight: the middle tier is the compatibility
             // pick, the top tier is the scale pick. Works for 2- and 3-plan
             // catalogs without hardcoding plan names.
-            const spotlight: { label: string; hint: string } | null =
-              rows.length >= 3 && index === 1
-                ? { label: "Most Compatible", hint: "Fits most branches and teams" }
-                : rows.length >= 3 && index === 2
-                  ? { label: "Best for Scale", hint: "Multi-branch and high volume" }
-                  : rows.length === 2 && index === 1
-                    ? { label: "Most Compatible", hint: "Fits most branches and teams" }
-                    : null;
-            const highlighted = !!spotlight && !isCurrent;
+            const spotlight =
+              rows.length >= 3 && index === 0
+                ? {
+                    label: "Essential",
+                    badgeClass:
+                      "rounded-[7px] border border-edge-strong bg-surface-2 text-ink-3",
+                    icon: "none" as const,
+                  }
+                : rows.length >= 3 && index === 1
+                  ? {
+                      label: "Popular",
+                      badgeClass:
+                        "rounded-full border border-brand-subtle-border bg-brand-subtle text-brand-subtle-text",
+                      icon: "sparkles" as const,
+                    }
+                  : rows.length >= 3 && index === 2
+                    ? {
+                        label: "Scale",
+                        badgeClass:
+                          "rounded-[6px] border border-dashed border-info-edge bg-info-bg text-info",
+                        icon: "dot" as const,
+                      }
+                    : rows.length === 2 && index === 0
+                      ? {
+                          label: "Essential",
+                          badgeClass:
+                            "rounded-[7px] border border-edge-strong bg-surface-2 text-ink-3",
+                          icon: "none" as const,
+                        }
+                      : rows.length === 2 && index === 1
+                        ? {
+                            label: "Popular",
+                            badgeClass:
+                              "rounded-full border border-brand-subtle-border bg-brand-subtle text-brand-subtle-text",
+                            icon: "sparkles" as const,
+                          }
+                        : rows.length === 1
+                          ? {
+                              label: "Essential",
+                              badgeClass:
+                                "rounded-[7px] border border-edge-strong bg-surface-2 text-ink-3",
+                              icon: "none" as const,
+                            }
+                          : null;
+            const highlighted = rows.length >= 3 && index === 1 && !isCurrent;
 
             return (
               <article
@@ -118,21 +154,22 @@ export default async function Pricing() {
                       : "border-edge hover:border-edge-accent"
                 }`}
               >
-                {isCurrent && <div className="h-1 bg-brand" aria-hidden="true" />}
-                {highlighted && (
-                  <div className="h-1 bg-gradient-to-r from-brand via-brand-400 to-brand" aria-hidden="true" />
-                )}
-                {spotlight && !isCurrent && (
-                  <div className="flex items-center justify-center gap-2 border-b border-brand-subtle-border bg-brand-subtle px-4 py-2">
-                    <Sparkles className="h-3.5 w-3.5 text-brand" aria-hidden />
-                    <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-brand-subtle-text">
+                {spotlight && (
+                  <div className="flex items-center justify-center px-4 pb-1 pt-5">
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${spotlight.badgeClass}`}
+                    >
+                      {spotlight.icon === "sparkles" ? (
+                        <Sparkles className="h-3 w-3 text-brand" aria-hidden />
+                      ) : spotlight.icon === "dot" ? (
+                        <span className="h-1.5 w-1.5 rounded-full bg-info-solid" aria-hidden />
+                      ) : null}
                       {spotlight.label}
                     </span>
-                    <span className="hidden text-[11px] text-brand-subtle-text/80 sm:inline">· {spotlight.hint}</span>
                   </div>
                 )}
 
-                <div className="border-b border-edge bg-surface px-6 py-7">
+                <div className="border-b border-dashed border-edge-subtle bg-surface px-6 py-7">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
@@ -161,9 +198,9 @@ export default async function Pricing() {
 
                 <div className="flex-1 px-6 py-7">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Included capacity</div>
-                  <dl className="mt-3 divide-y divide-edge">
+                  <dl className="mt-3">
                     {entries.length > 0 ? entries.map(([key, value]) => (
-                      <div key={key} className="flex items-center justify-between gap-4 py-3">
+                      <div key={key} className="flex items-center justify-between gap-4 border-t border-dashed border-edge-subtle py-3 first:border-t-0">
                         <dt className="flex min-w-0 items-center gap-2 text-[13px] text-ink-2">
                           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ok-bg text-ok">
                             <Check className="h-3 w-3" />
@@ -178,7 +215,7 @@ export default async function Pricing() {
                   </dl>
                 </div>
 
-                <div className="border-t border-edge px-6 py-4.5">
+                <div className="border-t border-dashed border-edge-subtle px-6 py-4.5">
                   {isCurrent ? (
                     <div className="flex h-11 w-full items-center justify-center rounded-[10px] border border-edge bg-surface-2 text-[13px] font-semibold text-ink-2">
                       Your current plan
@@ -186,7 +223,7 @@ export default async function Pricing() {
                   ) : (
                     <Link
                       href={destination(plan.id)}
-                      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-brand px-4 text-[13.5px] font-semibold text-white shadow-sm transition-all duration-150 hover:bg-brand-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20"
+                      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-brand px-4 text-[13.5px] font-semibold text-brand-contrast shadow-sm transition-all duration-150 hover:bg-brand-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20"
                     >
                       {claims ? "Choose plan" : "Get started"}
                       <ArrowRight className="h-4 w-4" />

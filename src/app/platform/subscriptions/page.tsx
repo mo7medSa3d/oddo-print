@@ -72,7 +72,7 @@ export default function PlatformSubscriptionsPage() {
 
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" />
-        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by tenant name, ID, or Stripe customer ID…" className="w-full rounded-[12px] border border-edge-strong bg-surface py-2.5 pl-10 pr-4 text-[13px] text-ink placeholder-ink-4 outline-none focus:border-blue-500/30 focus:ring-2 focus:ring-blue-500/15" />
+        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by tenant name, ID, or Stripe customer ID…" className="w-full rounded-[12px] border border-edge-strong bg-surface py-2.5 pl-10 pr-4 text-[13px] text-ink placeholder-ink-4 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
       </div>
 
       <div className="overflow-hidden rounded-[14px] border border-edge bg-surface">

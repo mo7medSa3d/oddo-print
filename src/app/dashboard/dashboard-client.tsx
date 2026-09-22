@@ -564,7 +564,17 @@ export default function DashboardClient({
       <header className="flex flex-col gap-3 border-b border-edge/80 pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex items-center gap-3">
           <div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Workspace</div><h1 className="mt-1.5 text-[30px] font-bold tracking-[-0.035em] text-ink">Print console</h1><p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-ink-3">A live operational view of agents, printers and the print queue.</p></div>
-          <span className={`inline-flex h-6 items-center rounded-full border px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-ink bg-ink text-white"}`}>{databaseError ? "Down" : "Live"}</span>
+          <span
+            className={`inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
+              databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-ok-edge bg-ok-bg text-ok"
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${databaseError ? "bg-bad-solid" : "bg-ok-solid"}`}
+              aria-hidden
+            />
+            {databaseError ? "Down" : "Live"}
+          </span>
         </div>
         <Button variant="ghost" size="sm" onClick={() => void refreshData()} icon={<RefreshCw className="h-4 w-4" />}>Refresh</Button>
       </header>
