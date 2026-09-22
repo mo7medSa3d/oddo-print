@@ -80,6 +80,7 @@ services:
       STALE_AGENT_THRESHOLD_SECONDS: ${STALE_AGENT_THRESHOLD_SECONDS:-90}
       TRUST_PROXY: ${TRUST_PROXY:-1}
       TRUST_PROXY_SECRET_FILE: /run/secrets/trust_proxy_secret
+      PLATFORM_TENANT_ID: ${PLATFORM_TENANT_ID:-}
     secrets:
       - postgres_password
       - gateway_jwt_secret

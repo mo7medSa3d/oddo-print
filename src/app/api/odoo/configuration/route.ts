@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { and, eq, lt } from "drizzle-orm";
 import { db } from "../../../../db";
-import { apiKeys } from "../../../../db/schema";
+import { apiKeys, tenantSubscriptions } from "../../../../db/schema";
 import { validateManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
@@ -49,6 +49,21 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   const apiKey = await validateOdooKey(req, { requireIntegrationEnabled: false });
   if (!apiKey) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Odoo activation sync requires an active plan subscription. Without it
+  // the workspace cannot pair agents or execute jobs, so report the billing
+  // state explicitly instead of silently accepting a state that can never run.
+  const sub = await db.query.tenantSubscriptions.findFirst({
+    where: eq(tenantSubscriptions.tenantId, apiKey.tenantId),
+    columns: { status: true, currentPeriodEnd: true },
+  });
+  const periodLive = !sub?.currentPeriodEnd || new Date(sub.currentPeriodEnd) > new Date();
+  if (!sub || !["trialing", "active", "past_due"].includes(sub.status) || !periodLive) {
+    return NextResponse.json(
+      { error: "An active subscription is required for Gateway printing. Choose a plan in Billing first.", code: "SUBSCRIPTION_REQUIRED" },
+      { status: 403 },
+    );
+  }
 
   let body: unknown;
   try {

@@ -44,7 +44,7 @@ export function TopNavbar({
   return (
     <header
       className={isPlatform
-        ? "sticky top-0 z-40 border-b border-edge bg-surface/72 text-ink backdrop-blur-xl backdrop-saturate-180"
+        ? "sticky top-0 z-40 border-b border-[var(--platform-border)] bg-[var(--platform-bg)] text-[var(--platform-text)]"
         : "sticky top-0 z-40 border-b border-edge/80 bg-surface/72 text-ink backdrop-blur-xl backdrop-saturate-180"}
     >
       <div className="mx-auto flex h-14 w-full max-w-[1440px] items-center gap-3 px-4 sm:px-7 lg:px-8">
@@ -71,7 +71,7 @@ export function TopNavbar({
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((value) => !value)}
           className={isPlatform
-            ? "ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-edge text-ink-2 transition hover:bg-surface-2 hover:text-ink sm:hidden"
+            ? "ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--platform-border)] text-[var(--platform-muted)] transition hover:bg-white/10 hover:text-[var(--platform-text)] sm:hidden"
             : "ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-transparent text-ink-2 transition hover:bg-surface-2 hover:text-ink sm:hidden"}
         >
           {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
@@ -83,7 +83,7 @@ export function TopNavbar({
             menuOpen ? "flex" : "hidden",
             "absolute left-3 right-3 top-[68px] z-50 flex-col gap-1 rounded-[14px] border p-2 shadow-xl",
             "sm:static sm:flex sm:min-w-0 sm:flex-1 sm:flex-row sm:items-center sm:gap-1 sm:overflow-x-auto sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none",
-            isPlatform ? "border-edge bg-surface" : "border-edge bg-surface",
+            isPlatform ? "border-[var(--platform-border)] bg-[var(--platform-surface)]" : "border-edge bg-surface",
           ].join(" ")}
         >
           {items.map((item, index) => {
@@ -109,8 +109,8 @@ export function TopNavbar({
                     "inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-3.5 text-[13px] font-medium transition-all duration-200",
                     isPlatform
                       ? active
-                        ? "bg-brand-subtle text-brand-subtle-text font-semibold shadow-[inset_0_0_0_1px_var(--brand-subtle-border)]"
-                        : "text-ink-2 hover:bg-surface-2 hover:text-ink"
+                        ? "bg-white/12 text-white font-semibold shadow-[inset_0_0_0_1px_rgba(255,255,255,0.16)]"
+                        : "text-[var(--platform-muted)] hover:bg-white/8 hover:text-white"
                       : active
                         ? "bg-brand-subtle text-brand-subtle-text font-semibold shadow-[inset_0_0_0_1px_var(--brand-subtle-border)]"
                         : "text-ink-2 hover:bg-surface-2 hover:text-ink",
@@ -120,8 +120,12 @@ export function TopNavbar({
                     <Icon
                       className={
                         active
-                          ? "h-4 w-4 shrink-0 text-brand"
-                          : "h-4 w-4 shrink-0 text-ink-3"
+                          ? isPlatform
+                            ? "h-4 w-4 shrink-0 text-white"
+                            : "h-4 w-4 shrink-0 text-brand"
+                          : isPlatform
+                            ? "h-4 w-4 shrink-0 text-[var(--platform-muted)]"
+                            : "h-4 w-4 shrink-0 text-ink-3"
                       }
                     />
                   )}
@@ -141,7 +145,9 @@ export function TopNavbar({
           onClick={onLogout}
           disabled={loggingOut}
           className={
-            "inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-edge bg-surface px-3.5 text-[13px] font-medium text-ink-2 shadow-xs transition-all duration-200 hover:border-edge-strong hover:bg-surface-2 hover:text-ink disabled:opacity-50"
+            isPlatform
+              ? "inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-white/15 bg-white/8 px-3.5 text-[13px] font-medium text-[var(--platform-text)] shadow-xs transition-all duration-200 hover:border-white/25 hover:bg-white/12 hover:text-white disabled:opacity-50"
+              : "inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-edge bg-surface px-3.5 text-[13px] font-medium text-ink-2 shadow-xs transition-all duration-200 hover:border-edge-strong hover:bg-surface-2 hover:text-ink disabled:opacity-50"
           }
         >
           <LogOut className="h-4 w-4" />

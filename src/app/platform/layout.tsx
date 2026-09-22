@@ -64,14 +64,14 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
 
   if (authenticated === false) {
     return (
-      <div className="min-h-screen bg-app" aria-busy="true">
+      <div className="min-h-screen bg-[var(--platform-bg)]" aria-busy="true">
         <span className="sr-only">Redirecting to sign in…</span>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[var(--platform-bg)] text-ink font-sans selection:bg-brand/20">
+    <div className="min-h-screen bg-[var(--platform-bg)] text-[var(--platform-text)] font-sans selection:bg-brand/20">
       <TopNavbar
         items={NAV_ITEMS}
         brandHref="/platform/dashboard"
@@ -80,7 +80,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         onLogout={handleLogout}
         variant="platform"
       />
-      <main className="min-h-screen bg-app">
+      <main className="bg-app text-ink">
         <div className="mx-auto w-full max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9">{children}</div>
       </main>
     </div>

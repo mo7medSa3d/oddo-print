@@ -63,8 +63,6 @@ import {
 import { copyTextToClipboard } from "../../lib/clipboard";
 import { generateIdempotencyKey } from "../../lib/idempotency";
 import { getPrinterLanguageBadges } from "../../lib/printer-capability";
-import PrinterCapabilityMatrix from "../../components/PrinterCapabilityMatrix";
-import AgentHealthMatrix from "../../components/AgentHealthMatrix";
 import PrintCertificationWizard from "../../components/PrintCertificationWizard";
 import JobTimeline from "../../components/JobTimeline";
 
@@ -226,6 +224,7 @@ export default function DashboardClient({
   const [agentName, setAgentName] = useState("");
   const [busy, setBusy] = useState(false);
   const [testingPrinterId, setTestingPrinterId] = useState<string | null>(null);
+  const [certifyPrinter, setCertifyPrinter] = useState<Printer | null>(null);
   const [message, setMessage] = useState<{ text: string; type: "ok" | "err" } | null>(null);
   const [activePairing, setActivePairing] = useState<{ id?: string; code: string; expiresAt: Date } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -785,9 +784,14 @@ export default function DashboardClient({
                         </div>
                       </div>
                       <div className="mt-4 flex items-center justify-between border-t border-edge-subtle pt-3">
-                        <Button size="sm" variant="secondary" onClick={() => void handleGatewayTestPrint(printer.id, printer.name)} loading={testingPrinterId === printer.id} disabled={busy || testingPrinterId !== null || printer.lifecycle !== "active"} icon={<PlayCircle className="h-3.5 w-3.5" />}>
-                          {testingPrinterId === printer.id ? "Sending…" : "Send Test Page"}
-                        </Button>
+                        <div className="flex items-center gap-1.5">
+                          <Button size="sm" variant="secondary" onClick={() => void handleGatewayTestPrint(printer.id, printer.name)} loading={testingPrinterId === printer.id} disabled={busy || testingPrinterId !== null || printer.lifecycle !== "active"} icon={<PlayCircle className="h-3.5 w-3.5" />}>
+                            {testingPrinterId === printer.id ? "Sending…" : "Send Test Page"}
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setCertifyPrinter(printer)} disabled={busy} icon={<ShieldCheck className="h-3.5 w-3.5" />}>
+                            Certify
+                          </Button>
+                        </div>
                         {printer.lifecycle === "active" ? (
                           <Button size="sm" variant="ghost" onClick={() => void runAction(() => setPrinterLifecycle(printer.id, "disabled"), "Printer disabled.")} disabled={busy}>
                             Disable
@@ -839,9 +843,14 @@ export default function DashboardClient({
                           </td>
                           <td className="px-4 py-3"><StatusBadge label={printerLabel(effStatus)} tone={sharedPrinterTone(effStatus)} /></td>
                           <td className="px-4 py-3 text-right">
-                            <Button size="sm" variant="secondary" onClick={() => void handleGatewayTestPrint(printer.id, printer.name)} loading={testingPrinterId === printer.id} disabled={busy || testingPrinterId !== null || printer.lifecycle !== "active"}>
-                              Test
-                            </Button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Button size="sm" variant="ghost" onClick={() => setCertifyPrinter(printer)} disabled={busy} icon={<ShieldCheck className="h-3.5 w-3.5" />}>
+                                Certify
+                              </Button>
+                              <Button size="sm" variant="secondary" onClick={() => void handleGatewayTestPrint(printer.id, printer.name)} loading={testingPrinterId === printer.id} disabled={busy || testingPrinterId !== null || printer.lifecycle !== "active"}>
+                                Test
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1007,6 +1016,17 @@ export default function DashboardClient({
         })()}
       </Drawer>
 
+      <Drawer
+        open={certifyPrinter !== null}
+        onClose={() => setCertifyPrinter(null)}
+        title={certifyPrinter ? `Certify ${certifyPrinter.name}` : "Printer Certification"}
+        description="Real print certification with evidence steps"
+      >
+        {certifyPrinter && (
+          <PrintCertificationWizard key={certifyPrinter.id} printerId={certifyPrinter.id} />
+        )}
+      </Drawer>
+
       <Modal open={Boolean(reprintCandidate)} onClose={() => { if (!busy) setReprintCandidate(null); }} title="Reprint this document?" description="Sends ORIGINAL document again.">
         <div className="space-y-3 text-[13px] text-ink-2">
           <p>Printer: <strong className="text-ink">{reprintCandidate?.printerId}</strong> · Doc: {reprintCandidate?.documentType || "standard"}</p>
@@ -1037,30 +1057,6 @@ export default function DashboardClient({
           <Button variant={pendingAgentAction?.next === "retired" ? "danger" : "primary"} disabled={busy} loading={busy} onClick={async () => { await confirmAgentAction(); }}>{pendingAgentAction?.next === "retired" ? "Retire agent" : "Disable agent"}</Button>
         </div>
       </Modal>
-
-      {/* System Health — professional, concise */}
-      <Card className="overflow-hidden">
-        <CardHeader title="Infrastructure" icon={<Server className="h-4 w-4 text-ink" />} />
-        <div className="space-y-10 px-5 pb-6">
-          <div>
-            <h3 className="mb-4 text-[11px] font-bold uppercase tracking-widest text-ink-4">Agents</h3>
-            <AgentHealthMatrix />
-          </div>
-          <div>
-            <h3 className="mb-4 text-[11px] font-bold uppercase tracking-widest text-ink-4">Printers</h3>
-            <PrinterCapabilityMatrix />
-          </div>
-          <div>
-            <h3 className="mb-4 text-[11px] font-bold uppercase tracking-widest text-ink-4">Certification</h3>
-            <div className="grid gap-3 md:grid-cols-2">
-              {printers.slice(0, 4).map(p => (
-                <PrintCertificationWizard key={p.id} printerId={p.id} />
-              ))}
-              {printers.length === 0 && <div className="rounded-xl border border-dashed border-edge bg-surface p-8 text-center text-[13px] font-medium text-ink-3">No printers.</div>}
-            </div>
-          </div>
-        </div>
-      </Card>
 
       <Modal open={Boolean(agentToDelete)} onClose={() => { if (!busy) setAgentToDelete(null); }} title="Delete Agent" description="Permanently removes this agent from Gateway.">
         <div className="space-y-4 text-[13px] text-ink-2">

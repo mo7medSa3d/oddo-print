@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Copy, KeyRound, Shield } from "lucide-react";
+import Link from "next/link";
 import { Button, Card, CardHeader, Input, Field, Modal, Select, StatusBadge } from "../../components/ui";
 import { copyTextToClipboard } from "../../lib/clipboard";
 
@@ -29,6 +30,7 @@ export default function ApiKeysPage() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pending, setPending] = useState<{ kind: "revoke" | "remove"; id: string; name: string } | null>(null);
+  const [hasSubscription, setHasSubscription] = useState<boolean | null>(null);
 
   async function loadKeys() {
     const r = await fetch("/api/odoo/keys", { cache: "no-store", credentials: "include" });
@@ -60,6 +62,13 @@ export default function ApiKeysPage() {
       .then((d) => setKeys(d))
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
+    fetch("/api/billing/status", { cache: "no-store", credentials: "include" })
+      .then(async (r) => {
+        if (!r.ok) return;
+        const b = (await r.json()) as { hasSubscription?: boolean };
+        setHasSubscription(b.hasSubscription ?? null);
+      })
+      .catch(() => {});
   }, []);
 
   async function generate() {
@@ -117,6 +126,20 @@ export default function ApiKeysPage() {
 
       {error && <div className="mb-6 rounded-xl border border-bad-edge bg-bad-bg px-4 py-3 text-[13px] font-medium text-bad">{error}</div>}
 
+      {hasSubscription === false && (
+        <div className="mb-6 flex flex-col gap-3 rounded-xl border border-warn-edge bg-warn-bg px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[13px] font-medium text-warn">
+            No active subscription on this workspace — pairing agents and configuring a Gateway are paused until you choose a plan.
+          </p>
+          <Link
+            href="/billing"
+            className="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-brand px-4 text-[12.5px] font-semibold text-white transition hover:bg-brand-hover"
+          >
+            Choose a plan
+          </Link>
+        </div>
+      )}
+
       <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-[14px] border border-edge bg-surface px-5 py-4 shadow-card">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Credential</div>
@@ -163,7 +186,7 @@ export default function ApiKeysPage() {
         <form onSubmit={e => { e.preventDefault(); void generate(); }} className="px-5 pb-5 space-y-4">
           <div className="flex gap-3">
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="Odoo Production" className="h-9 flex-1" aria-label="Key name" />
-            <Button type="submit" variant="primary" loading={busy} disabled={busy} size="sm">Generate</Button>
+            <Button type="submit" variant="primary" loading={busy} disabled={busy || hasSubscription === false} size="sm" title={hasSubscription === false ? "Choose a plan first" : undefined}>Generate</Button>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Scope" htmlFor="key-scope" hint="A read-only key cannot create print jobs; it can only read status and list jobs.">

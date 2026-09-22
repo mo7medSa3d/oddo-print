@@ -24,7 +24,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID");
+  const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID")?.trim() ?? "";
   if (!platformTenantId || claims.tenantId !== platformTenantId) {
     return NextResponse.json({ error: "Forbidden: platform admin access required" }, { status: 403 });
   }

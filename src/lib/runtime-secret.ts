@@ -11,8 +11,10 @@ export function runtimeSecret(name: string): string | undefined {
     const value = readFileSync(file, "utf8").trim();
     return value || undefined;
   }
-  const value = process.env[name];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+  const raw = process.env[name];
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim();
+  return value.length > 0 ? value : undefined;
 }
 
 export function requiredRuntimeSecret(name: string): string {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
-import { apiKeys } from "../../../../db/schema";
+import { apiKeys, tenantSubscriptions } from "../../../../db/schema";
 import { validateManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { generateOdooApiKey } from "../../../../lib/odoo-auth";
@@ -62,6 +62,22 @@ export async function POST(req: Request) {
   const manager = await validateManager(req);
   if (manager) { try { requireManagerPermission(manager, "integrations.manage"); } catch { return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { "content-type": "application/json" } }); } }
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Configuring a Gateway requires an active plan subscription. Without it
+  // Odoo could never print (agent pairing and job execution are gated too),
+  // so fail fast with an actionable billing error instead of a key that
+  // can never converge.
+  const sub = await db.query.tenantSubscriptions.findFirst({
+    where: eq(tenantSubscriptions.tenantId, manager.tenantId),
+    columns: { status: true, currentPeriodEnd: true },
+  });
+  const periodLive = !sub?.currentPeriodEnd || new Date(sub.currentPeriodEnd) > new Date();
+  if (!sub || !["trialing", "active", "past_due"].includes(sub.status) || !periodLive) {
+    return NextResponse.json(
+      { error: "An active subscription is required before configuring a Gateway. Choose a plan in Billing first.", code: "SUBSCRIPTION_REQUIRED" },
+      { status: 403 },
+    );
+  }
 
   let body: unknown = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }

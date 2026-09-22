@@ -377,71 +377,59 @@ function TrustItem({ icon, text }: { icon: ReactNode; text: string }) {
 function GatewayHeroVisual() {
   return (
     <div className="relative">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -inset-8 rounded-[36px] bg-[radial-gradient(52%_58%_at_68%_18%,var(--brand-ring)_0%,transparent_62%),radial-gradient(42%_46%_at_18%_82%,var(--brand-subtle)_0%,transparent_65%)] opacity-70 blur-2xl"
+      />
       <div className="absolute -inset-5 rounded-[30px] border border-brand/10" aria-hidden />
       <div className="relative overflow-hidden rounded-[22px] border border-edge-strong bg-surface shadow-2xl">
         <div className="flex items-center justify-between border-b border-edge bg-surface-2/70 px-4 py-3.5 sm:px-5">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-brand text-white">
-              <Printer className="h-4 w-4" />
-            </span>
-            <div>
-              <div className="text-[12px] font-semibold text-ink">Yasser Gateway</div>
-              <div className="text-[10px] text-ink-4">Print operations</div>
-            </div>
+            <BrandMark title="Yasser Gateway" subtitle="Print operations" size="sm" />
           </div>
           <span className="inline-flex items-center gap-1.5 rounded-full border border-ok-edge bg-ok-bg px-2.5 py-1 text-[10px] font-semibold text-ok">
-            <span className="h-1.5 w-1.5 rounded-full bg-ok-solid" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ok-solid" />
             Operational
           </span>
         </div>
 
         <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[1fr_0.92fr]">
           <div className="space-y-3">
-            <ConsoleCard label="Latest print flow">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[13px] font-semibold text-ink">POS Receipt #10482</div>
-                  <div className="mt-1 text-[10.5px] text-ink-4">Cairo Branch • Receipt</div>
-                </div>
-                <span className="rounded-full border border-ok-edge bg-ok-bg px-2 py-1 text-[9.5px] font-semibold text-ok">Success</span>
-              </div>
-              <div className="mt-4 grid grid-cols-4 gap-1.5">
-                <ProgressNode active label="Odoo" />
-                <ProgressNode active label="Queued" />
-                <ProgressNode active label="Agent" />
-                <ProgressNode active label="Printer" />
+            <ConsoleCard label="Live architecture">
+              <div className="space-y-2">
+                <RuntimeNode icon={<Layers3 className="h-3.5 w-3.5" />} title="Odoo" meta="Business intent stays in ERP" />
+                <RuntimeConnector />
+                <RuntimeNode icon={<Network className="h-3.5 w-3.5" />} title="Gateway" meta="Durable queue + routing" active />
+                <RuntimeConnector />
+                <RuntimeNode icon={<Server className="h-3.5 w-3.5" />} title="Windows Agent" meta="Edge execution + fencing" />
+                <RuntimeConnector />
+                <RuntimeNode icon={<Printer className="h-3.5 w-3.5" />} title="Printer" meta="Spooler / raw / USB output" />
               </div>
             </ConsoleCard>
 
-            <ConsoleCard label="Queue">
-              <div className="space-y-2.5">
-                <MiniQueueRow title="Invoice #INV-2041" meta="Accounting printer" state="Claimed" />
-                <MiniQueueRow title="Kitchen Ticket #719" meta="Kitchen printer" state="Printing" />
-                <MiniQueueRow title="Delivery Label #522" meta="Warehouse printer" state="Queued" />
-              </div>
-            </ConsoleCard>
+            <div className="flex flex-wrap gap-2">
+              <HeroPill icon={<Zap className="h-3 w-3" />} text="Silent printing" />
+              <HeroPill icon={<ShieldCheck className="h-3 w-3" />} text="Tenant isolated" />
+              <HeroPill icon={<LockKeyhole className="h-3 w-3" />} text="Claim fenced" />
+            </div>
           </div>
 
           <div className="space-y-3">
-            <ConsoleCard label="Runtime path">
-              <div className="space-y-2">
-                <RuntimeNode icon={<Layers3 className="h-3.5 w-3.5" />} title="Odoo 19" meta="Print intent" />
-                <RuntimeConnector />
-                <RuntimeNode icon={<Network className="h-3.5 w-3.5" />} title="Gateway" meta="Queue + routing" active />
-                <RuntimeConnector />
-                <RuntimeNode icon={<Server className="h-3.5 w-3.5" />} title="Windows Agent" meta="Local execution" />
-                <RuntimeConnector />
-                <RuntimeNode icon={<Printer className="h-3.5 w-3.5" />} title="Printer" meta="Physical output" />
-              </div>
+            <ConsoleCard label="Why teams switch">
+              <ul className="space-y-2.5">
+                <HeroCheck text="No browser dialogs on the shop floor" />
+                <HeroCheck text="Branch-aware routing out of the box" />
+                <HeroCheck text="Explicit delivery states, never guessed" />
+              </ul>
             </ConsoleCard>
 
             <div className="rounded-[14px] border border-edge-accent bg-surface-accent p-4">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-brand-subtle-text">Delivery evidence</div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-brand-subtle-text">Platform guarantees</div>
               <div className="mt-3 grid grid-cols-2 gap-2.5">
-                <HeroMetric value="64" label="max local pending jobs" />
-                <HeroMetric value="8" label="concurrent Agent workers" />
-                <HeroMetric value="WS" label="fast delivery path" />
-                <HeroMetric value="10s" label="polling fallback" />
+                <HeroMetric value="WS + poll" label="fast path with fallback" />
+                <HeroMetric value="Fenced" label="stale claims rejected" />
+                <HeroMetric value="Queued" label="durable until claimed" />
+                <HeroMetric value="Audited" label="every state preserved" />
               </div>
             </div>
           </div>
@@ -464,25 +452,23 @@ function ConsoleCard({ label, children }: { label: string; children: ReactNode }
   );
 }
 
-function ProgressNode({ label, active }: { label: string; active?: boolean }) {
+function HeroPill({ icon, text }: { icon: ReactNode; text: string }) {
   return (
-    <div className="rounded-[8px] border border-edge bg-surface px-2 py-2 text-center">
-      <div className={`mx-auto h-1.5 w-1.5 rounded-full ${active ? "bg-ok-solid" : "bg-ink-4"}`} />
-      <div className="mt-1 text-[8.5px] font-semibold text-ink-3">{label}</div>
-    </div>
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-edge bg-surface-2/70 px-2.5 py-1.5 text-[10px] font-semibold text-ink-2">
+      <span className="text-brand">{icon}</span>
+      {text}
+    </span>
   );
 }
 
-function MiniQueueRow({ title, meta, state }: { title: string; meta: string; state: string }) {
-  const tone = state === "Success" ? "text-ok" : state === "Printing" ? "text-brand" : "text-ink-2";
+function HeroCheck({ text }: { text: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-[10px] border border-edge bg-surface px-3 py-2.5">
-      <div className="min-w-0">
-        <div className="truncate text-[11.5px] font-semibold text-ink">{title}</div>
-        <div className="mt-0.5 truncate text-[9.5px] text-ink-4">{meta}</div>
-      </div>
-      <span className={`shrink-0 text-[9.5px] font-semibold ${tone}`}>{state}</span>
-    </div>
+    <li className="flex items-center gap-2 text-[12px] font-medium text-ink-2">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ok-bg text-ok">
+        <Check className="h-3 w-3" />
+      </span>
+      <span>{text}</span>
+    </li>
   );
 }
 
