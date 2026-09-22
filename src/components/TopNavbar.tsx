@@ -46,7 +46,7 @@ export function TopNavbar({
         ? "sticky top-0 z-40 border-b border-white/[0.06] bg-[var(--platform-bg)]/92 text-slate-100 backdrop-blur-xl"
         : "sticky top-0 z-40 border-b border-edge/80 bg-surface/88 text-ink backdrop-blur-xl"}
     >
-      <div className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-3 sm:px-6">
+      <div className="mx-auto flex h-14 w-full max-w-[1440px] items-center gap-3 px-4 sm:px-7 lg:px-8">
         <Link
           href={brandHref}
           className="shrink-0 rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25"
@@ -70,7 +70,7 @@ export function TopNavbar({
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((value) => !value)}
           className={isPlatform
-            ? "ml-auto inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-white/[0.08] text-slate-300 transition hover:bg-white/[0.06] sm:hidden"
+            ? "ml-auto inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-white/[0.08] text-slate-300 transition hover:bg-white/[0.06] sm:hidden"
             : "ml-auto inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-transparent text-ink-2 transition hover:bg-surface-2 hover:text-ink sm:hidden"}
         >
           {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
@@ -80,7 +80,7 @@ export function TopNavbar({
           aria-label="Main"
           className={[
             menuOpen ? "flex" : "hidden",
-            "absolute left-3 right-3 top-[68px] z-50 flex-col gap-1 rounded-[14px] border p-2 shadow-xl",
+            "absolute left-3 right-3 top-[60px] z-50 flex-col gap-1 rounded-[14px] border p-1.5 shadow-xl",
             "sm:static sm:flex sm:min-w-0 sm:flex-1 sm:flex-row sm:items-center sm:gap-1 sm:overflow-x-auto sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none",
             isPlatform ? "border-white/10 bg-[var(--platform-surface)]" : "border-edge bg-surface",
           ].join(" ")}
@@ -105,7 +105,7 @@ export function TopNavbar({
                   aria-current={active ? "page" : undefined}
                   onClick={() => setMenuOpen(false)}
                   className={[
-                    "inline-flex h-10 shrink-0 items-center gap-2 rounded-[10px] px-3 text-[13px] font-medium transition-all duration-150",
+                    "inline-flex h-9 shrink-0 items-center gap-2 rounded-[9px] px-3 text-[13px] font-medium transition-all duration-150",
                     isPlatform
                       ? active
                         ? "bg-white/[0.10] text-white shadow-sm"
@@ -140,7 +140,7 @@ export function TopNavbar({
           onClick={onLogout}
           disabled={loggingOut}
           className={isPlatform
-            ? "inline-flex h-10 shrink-0 items-center gap-2 rounded-[10px] border border-white/[0.08] px-3 text-[13px] font-medium text-slate-300 transition-all duration-150 hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
+            ? "inline-flex h-9 shrink-0 items-center gap-2 rounded-[9px] border border-white/[0.08] px-3 text-[13px] font-medium text-slate-300 transition-all duration-150 hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
             : "inline-flex h-10 shrink-0 items-center gap-2 rounded-[10px] border border-edge bg-surface px-3 text-[13px] font-medium text-ink-2 shadow-xs transition-all duration-150 hover:border-edge-strong hover:bg-surface-2 hover:text-ink disabled:opacity-50"}
         >
           <LogOut className="h-4 w-4" />
