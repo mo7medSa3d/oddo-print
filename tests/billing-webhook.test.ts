@@ -392,13 +392,14 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     await createPlan(planId, "Starter Plan", stripePriceId);
     await createSubscription(tenantId, planId, customerId, subscriptionId, "trialing");
 
-    const statusMappings: Array<{ stripeStatus: string; expectedDbStatus: "trialing" | "active" | "past_due" | "paused" | "cancelled" }> = [
+    const statusMappings: Array<{ stripeStatus: string; expectedDbStatus: "trialing" | "active" | "past_due" | "incomplete" | "incomplete_expired" | "unpaid" | "paused" | "cancelled" }> = [
       { stripeStatus: "trialing", expectedDbStatus: "trialing" },
       { stripeStatus: "active", expectedDbStatus: "active" },
       { stripeStatus: "past_due", expectedDbStatus: "past_due" },
-      { stripeStatus: "unpaid", expectedDbStatus: "paused" },
+      { stripeStatus: "unpaid", expectedDbStatus: "unpaid" },
       { stripeStatus: "paused", expectedDbStatus: "paused" },
-      { stripeStatus: "incomplete", expectedDbStatus: "paused" },
+      { stripeStatus: "incomplete", expectedDbStatus: "incomplete" },
+      { stripeStatus: "incomplete_expired", expectedDbStatus: "incomplete_expired" },
       { stripeStatus: "canceled", expectedDbStatus: "cancelled" },
       { stripeStatus: "cancelled", expectedDbStatus: "cancelled" },
     ];
