@@ -51,6 +51,7 @@ describe("production fixes contracts (2026-09)", () => {
     const normalizedJobs = jobs.replace(/\s+/g, " ");
     expect(normalizedJobs).toContain("COALESCE(p.error, '') <> ${DELIVERY_EVIDENCE_PENDING}");
     expect(normalizedJobs).toContain("error = ${DELIVERY_EVIDENCE_PENDING}");
+  });
 
   it("Go agent: size-aware print budget with fenced pre-execution rejection", () => {
     const agent = read("agent/internal/agent/agent.go");
