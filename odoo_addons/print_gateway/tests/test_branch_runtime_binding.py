@@ -435,6 +435,27 @@ class TestBranchRuntimeBinding(TransactionCase):
         ))
         self.assertEqual(binding.runtime_agent_id, "agent-root-assigned")
 
+    def test_duplicate_company_wide_assignment_is_rejected(self):
+        model = self.env["print_gateway.runtime_agent_assignment"]
+        model.create({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "runtime_agent_id": "agent-company-wide-duplicate",
+            "enabled": True,
+        })
+        with self.env.cr.savepoint():
+            with self.assertRaises(IntegrityError) as ctx:
+                model.create({
+                    "company_id": self.company.id,
+                    "branch_id": False,
+                    "runtime_agent_id": "agent-company-wide-duplicate",
+                    "enabled": True,
+                })
+            self.assertIn(
+                "print_gateway_runtime_agent_assignment_company_wide",
+                str(ctx.exception),
+            )
+
     def test_binding_write_validates_the_new_runtime_agent_not_the_previous_one(self):
         model = self.env["print_gateway.runtime_agent_assignment"]
         model.create({
