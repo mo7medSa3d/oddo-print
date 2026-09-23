@@ -156,6 +156,10 @@ suite("printer desired-state authority", () => {
 
   it("merges partial config patches instead of deleting unspecified printer settings", async () => {
     const f = await seedFixture();
+    await pool().query(
+      "UPDATE printers SET connection_type = 'network', protocol = 'raw', config = $2::jsonb WHERE id = $1",
+      [f.printerId, JSON.stringify({ ip: "192.168.1.50", port: 9100 })],
+    );
     const session = await createManagerSession(f.tenantId);
     const response = await printerPATCH(
       new Request("http://gateway.test/api/printers/" + encodeURIComponent(f.printerId), {
