@@ -21,9 +21,35 @@ describe("deep production review contracts", () => {
 
   it("uses the calibrated Gateway clock for Odoo API-key rotation grace", () => {
     const source = read("src/lib/odoo-auth.ts");
-    expect(source).toContain('import { gatewayNow } from "./database-clock";');
+    expect(source).toContain('import { gatewayNow, refreshClockSkew } from "./database-clock";');
+    expect(source).toContain("await refreshClockSkew()");
     expect(source).toContain("const now = gatewayNow()");
     expect(source).not.toContain("const now = new Date()");
+  });
+
+  it("redacts claim credentials before timeline persistence and logging", () => {
+    const timeline = read("src/lib/job-timeline.ts");
+    const log = read("src/lib/log.ts");
+    expect(timeline).toContain("createHash");
+    expect(timeline).toContain("redactClaimId(input.claimId ?? ctx?.claimId)");
+    expect(timeline).not.toContain("claimId: input.claimId ?? ctx?.claimId");
+    expect(log).toContain("redactClaimId(ctx.claimId)");
+  });
+
+  it("keeps WebSocket global socket accounting exact when evicting a socket", () => {
+    const source = read("src/server/ws.ts");
+    expect(source).toContain("socketCounted?: boolean;");
+    expect(source).toContain("function uncountAgentSocket(ws: AgentSocket): void");
+    expect(source).toContain("uncountAgentSocket(oldest)");
+    expect(source).toContain("uncountAgentSocket(target)");
+    expect(source).toContain("uncountAgentSocket(ws);");
+  });
+
+  it("scrubs legacy raw UUID claim ids from the timeline during migration", () => {
+    const source = read("drizzle/0069_redact_legacy_claim_ids.sql");
+    expect(source).toContain("UPDATE job_events");
+    expect(source).toContain("md5(claim_id)");
+    expect(source).toContain("WHERE claim_id ~");
   });
 
   it("keeps Odoo configuration and billing-operation timestamps on PostgreSQL", () => {

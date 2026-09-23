@@ -6,7 +6,14 @@
  * A correlation id is taken from `x-request-id` / `x-correlation-id` or minted.
  */
 
+import { createHash } from "node:crypto";
+
 const SENSITIVE = /secret|password|passwd|token|authorization|cookie|api[_-]?key|payload|pairing/i;
+
+function redactClaimId(value: unknown): unknown {
+  if (typeof value !== "string" || !value) return value;
+  return "claim_" + createHash("sha256").update(value, "utf8").digest("hex").slice(0, 12);
+}
 
 export type LogFields = Record<string, unknown>;
 
@@ -50,7 +57,7 @@ function emit(level: "info" | "warn" | "error", event: string, fields: LogFields
         agentId: ctx.agentId,
         printerId: ctx.printerId,
         attemptId: ctx.attemptId,
-        claimId: ctx.claimId,
+        claimId: redactClaimId(ctx.claimId),
         spoolerJobId: ctx.spoolerJobId,
       };
       // Remove undefined
