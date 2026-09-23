@@ -139,7 +139,10 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       FOR UPDATE SKIP LOCKED
     )
     UPDATE print_jobs SET status='failed',
-      error='exceeded max retries before delivery', updated_at=now()
+      error='exceeded max retries before delivery',
+      claim_token=NULL,
+      claimed_at=NULL,
+      updated_at=now()
     FROM candidates
     WHERE print_jobs.id = candidates.id
     RETURNING print_jobs.id
