@@ -25,6 +25,7 @@ describe("Odoo runtime agent picker contract", () => {
     expect(source).toContain("extractProps: () => ({");
     expect(source).toContain("assignmentOnly: true,");
     expect(source).toContain('"gateway_runtime_agent_binding"');
+    expect(source.match(/force: true/g)?.length).toBe(3);
     expect(bindingView).toContain('widget="gateway_runtime_agent_binding"');
     expect(bindingView).not.toContain("assignment_only");
     expect(assignmentView).toContain('widget="gateway_runtime_agent"');
