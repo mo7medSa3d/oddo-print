@@ -233,7 +233,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertNotIn("Job %s expired before agent processing. Skipping.", agent_source)
         self.assertNotIn("time.Now().UTC().After(expiresAt.UTC())", agent_source)
 
-        gateway_source = (Path(__file__).resolve().parents[2] / "src" / "app" / "api" / "agent" / "jobs" / "route.ts").read_text(encoding="utf-8")
+        gateway_source = (Path(__file__).resolve().parents[3] / "src" / "app" / "api" / "agent" / "jobs" / "route.ts").read_text(encoding="utf-8")
         self.assertIn('requestedStatus === "printing"', gateway_source)
         self.assertIn("${printJobs.expiresAt} > now()", gateway_source)
     def test_automated_hooks_delegate_to_one_policy_dispatcher(self):
