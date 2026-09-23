@@ -12,6 +12,7 @@ type ApiKey = {
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
+  readOnlyUntil: string | null;
   odooEnabled: boolean;
   odooEnabledRevision: number;
   odooEnabledUpdatedAt: string | null;
@@ -190,7 +191,13 @@ export default function ApiKeysPage() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[13px] font-semibold text-ink">{k.name}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${k.revokedAt ? "border border-edge bg-surface-3 text-ink-3" : "border border-ok-edge bg-ok-bg text-ok"}`}>{k.revokedAt ? "Revoked" : "Active"}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${k.revokedAt ? "border border-edge bg-surface-3 text-ink-3" : "border border-ok-edge bg-ok-bg text-ok"}`}>{
+                      k.revokedAt && k.readOnlyUntil && new Date(k.readOnlyUntil).getTime() > Date.now()
+                        ? "Retiring"
+                        : k.revokedAt
+                          ? "Revoked"
+                          : "Active"
+                    }</span>
                   </div>
                   <div className="mt-1 text-[11px] text-ink-3">
                     {new Date(k.createdAt).toLocaleDateString()} • Last used {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : "Never"}
