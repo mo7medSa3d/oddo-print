@@ -121,6 +121,59 @@ export function errMsg(e: unknown): string {
   return String(e);
 }
 
+export function friendlyAgentError(raw: string): string {
+  const lower = raw.toLowerCase();
+
+  if (
+    lower.includes("load agent config failed") ||
+    lower.includes("config.yaml") ||
+    lower.includes("access is denied") ||
+    lower.includes("permission denied") ||
+    lower.includes("administrator privilege")
+  ) {
+    return "Administrator permission is required to access the local Agent. Reopen Yasser Print Manager as Administrator and try again.";
+  }
+  if (lower.includes("requires elevation") || lower.includes("elevation required")) {
+    return "Administrator permission is required for this operation. Reopen Yasser Print Manager as Administrator and try again.";
+  }
+  if (lower.includes("pairing code")) {
+    return "Pairing could not be completed. Check the pairing code and make sure it has not expired.";
+  }
+  if (lower.includes("timeout") || lower.includes("timed out") || lower.includes("deadline")) {
+    return "The local Agent did not respond in time. Try again.";
+  }
+  if (lower.includes("connection refused") || lower.includes("failed to connect")) {
+    return "The local Agent service is unavailable. Start or restart the Agent, then try again.";
+  }
+  if (lower.includes("not found") || lower.includes("cannot find the file") || lower.includes("no such file")) {
+    return "The local Agent configuration or service is unavailable. Start the Agent service and try again.";
+  }
+  return "The local Agent could not complete the operation. Try again.";
+}
+
+export function friendlyGatewayError(raw: string): string {
+  const lower = raw.toLowerCase();
+
+  if (lower.includes("401") || lower.includes("403") || lower.includes("unauthorized") || lower.includes("forbidden")) {
+    return "Gateway access is unavailable. Pair this PC with the Gateway and verify the connection.";
+  }
+  if (
+    lower.includes("connection refused") ||
+    lower.includes("failed to fetch") ||
+    lower.includes("network is unreachable") ||
+    lower.includes("econnrefused")
+  ) {
+    return "The Gateway could not be reached. Check the Gateway URL and network connection, then try again.";
+  }
+  if (lower.includes("timeout") || lower.includes("timed out") || lower.includes("deadline")) {
+    return "The Gateway did not respond in time. Check the connection and try again.";
+  }
+  if (lower.includes("pairing code")) {
+    return "Pairing could not be completed. Check the pairing code and make sure it has not expired.";
+  }
+  return "The Gateway could not complete the request. Check the connection and try again.";
+}
+
 export function friendlyPrinterError(raw: string): string {
   // SAFETY-CRITICAL: an unknown physical outcome must never be reworded into
   // "did not respond" - that phrasing makes operators reprint and
