@@ -114,6 +114,8 @@ describe("deep production review contracts", () => {
     const wsClaim = read("src/lib/job-delivery.ts");
     const pollClaim = read("src/app/api/agent/jobs/route.ts");
     for (const source of [wsClaim, pollClaim]) {
+      expect(source).toContain("observed_desired_revision >= pr.desired_revision");
+      expect(source).toContain("applied_desired_revision >= pr.desired_revision");
       expect(source).toContain("printerStaleThresholdSeconds");
       expect(source).toContain("pr.last_seen_at IS NOT NULL");
       expect(source).toContain("pr.last_seen_at > now() - make_interval");
