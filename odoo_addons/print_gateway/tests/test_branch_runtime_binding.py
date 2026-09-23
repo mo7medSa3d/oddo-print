@@ -180,6 +180,34 @@ class TestBranchRuntimeBinding(TransactionCase):
         self.assertEqual(binding_root.effective_company_id, self.company)
 
 
+    def test_runtime_agent_assignment_scope_is_exact_to_selected_branch(self):
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": "agent-a",
+            "enabled": True,
+        })
+        assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": "agent-b",
+            "enabled": True,
+        })
+        assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": self.other_branch.id,
+            "runtime_agent_id": "agent-b",
+            "enabled": True,
+        })
+        from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
+        controller = PrintGatewayRuntimePrinterController()
+        with patch("odoo.addons.print_gateway.controllers.runtime_printers.request", create=True):
+            branch_agents = controller._assigned_runtime_agent_ids(self.company, self.branch, env=self.env)
+            other_branch_agents = controller._assigned_runtime_agent_ids(self.other_company, self.other_branch, env=self.env)
+        self.assertEqual(branch_agents, {"agent-a", "agent-b"})
+        self.assertEqual(other_branch_agents, {"agent-b"})
+
     def test_branch_accepts_multiple_distinct_agent_assignments(self):
         model = self.env["print_gateway.runtime_agent_assignment"]
         first = model.create({
