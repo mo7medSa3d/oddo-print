@@ -13,6 +13,7 @@ type ApiKey = {
   lastUsedAt: string | null;
   revokedAt: string | null;
   readOnlyUntil: string | null;
+  rotationState: "active" | "retiring" | "revoked";
   odooEnabled: boolean;
   odooEnabledRevision: number;
   odooEnabledUpdatedAt: string | null;
@@ -191,10 +192,16 @@ export default function ApiKeysPage() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[13px] font-semibold text-ink">{k.name}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${k.revokedAt ? "border border-edge bg-surface-3 text-ink-3" : "border border-ok-edge bg-ok-bg text-ok"}`}>{
-                      k.revokedAt && k.readOnlyUntil && new Date(k.readOnlyUntil).getTime() > Date.now()
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                      k.rotationState === "active"
+                        ? "border border-ok-edge bg-ok-bg text-ok"
+                        : k.rotationState === "retiring"
+                          ? "border border-warning-edge bg-warning-bg text-warning"
+                          : "border border-edge bg-surface-3 text-ink-3"
+                    }`}>{
+                      k.rotationState === "retiring"
                         ? "Retiring"
-                        : k.revokedAt
+                        : k.rotationState === "revoked"
                           ? "Revoked"
                           : "Active"
                     }</span>
