@@ -3,6 +3,7 @@ import { managerSessions, tenants, tenantDomains, tenantUsers, users } from "../
 import { and, eq, sql } from "drizzle-orm";
 import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
+import { databaseNowMs } from "./database-clock";
 import { hashPassword, verifyPassword, normalizeEmail } from "./password";
 import { requireActiveTenantOrNull } from "./tenant-guard";
 
@@ -110,9 +111,6 @@ export async function validateManagerClaims(claims: ManagerClaims | null): Promi
     });
     if (!membership || membership.role !== row.role) return null;
   }
-  // Tenant lifecycle denials are an expected authentication outcome. Unexpected
-  // database/transport failures must propagate as operational errors rather than
-  // being misclassified as invalid credentials.
   const tenantLifecycle = await requireActiveTenantOrNull(claims.tenantId);
   if (!tenantLifecycle) return null;
   return claims;
@@ -152,8 +150,8 @@ export async function resolveManagerTenantId(req: Request): Promise<string | nul
 
 export async function createManagerSession(tenantId: string, identity?: { userId?: string; role?: ManagerRole }): Promise<{ token: string; jti: string; exp: Date }> {
   const jti = randomBytes(16).toString("hex");
-  const clock = await db.execute(sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`);
-  const now = Number(clock.rows[0]?.now_sec);
+  const nowMs = await databaseNowMs();
+  const now = Math.floor(nowMs / 1000);
   if (!Number.isSafeInteger(now)) throw new Error("Database clock is unavailable");
   const exp = now + MAX_AGE_SECONDS;
   const role = identity?.role ?? "owner";
@@ -288,7 +286,7 @@ export async function authenticateManagerUser(username: string, password: string
     });
     if (!current || current.passwordHash !== legacyHash) return null;
     const upgradedRows = await db.update(users)
-      .set({ passwordHash: upgraded, updatedAt: sql`now()` })
+      .set({ passwordHash: upgraded, updatedAt: new Date() })
       .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)))
       .returning({ id: users.id });
     if (upgradedRows.length !== 1) return null;
@@ -322,7 +320,7 @@ export async function authenticateCustomer(email: string, password: string): Pro
     });
     if (!current || current.passwordHash !== legacyHash) return null;
     const upgradedRows = await db.update(users)
-      .set({ passwordHash: upgraded, updatedAt: sql`now()` })
+      .set({ passwordHash: upgraded, updatedAt: new Date() })
       .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)))
       .returning({ id: users.id });
     if (upgradedRows.length !== 1) return null;
