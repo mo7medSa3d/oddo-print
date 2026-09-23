@@ -478,6 +478,32 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding.write({"runtime_agent_id": "agent-write-b"})
         self.assertEqual(binding.runtime_agent_id, "agent-write-b")
 
+    def test_root_runtime_printer_discovery_requires_company_wide_assignment(self):
+        from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
+        controller = PrintGatewayRuntimePrinterController()
+
+        with patch.object(controller, "_require_runtime_admin"),              patch.object(controller, "_scope", return_value=(self.company, False)),              patch.object(controller, "_get_config", return_value=(self.config, self.company)),              patch("odoo.addons.print_gateway.controllers.runtime_printers.request", type("RequestStub", (), {"env": self.env})()),              patch("odoo.addons.print_gateway.controllers.runtime_printers.requests.get", side_effect=self._gets()) as remote_get:
+            with self.assertRaises(Forbidden):
+                controller.runtime_printers(
+                    company_id=self.company.id,
+                    branch_id=False,
+                    agent_id="agent-b",
+                )
+            remote_get.assert_not_called()
+
+            self.env["print_gateway.runtime_agent_assignment"].create({
+                "company_id": self.company.id,
+                "branch_id": False,
+                "runtime_agent_id": "agent-a",
+                "enabled": True,
+            })
+            result = controller.runtime_printers(
+                company_id=self.company.id,
+                branch_id=False,
+                agent_id="agent-a",
+            )
+            self.assertEqual([printer["id"] for printer in result["printers"]], ["printer-a"])
+
     def test_runtime_agent_assignment_scope_is_exact_to_selected_branch(self):
         assignment_model = self.env["print_gateway.runtime_agent_assignment"]
         branch_agent = "agent-a-%s" % self.branch.id
