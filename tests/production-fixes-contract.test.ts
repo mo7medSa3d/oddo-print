@@ -93,8 +93,8 @@ describe("production fixes contracts (2026-09)", () => {
     expect(dialog).toContain('href="/billing"');
     expect(dialog).toContain("Upgrade plan");
     expect(dialog).toContain("Metering unit: 1 admitted Gateway print job = 1 print credit.");
-    expect(dashboard).toContain('error.code === "MAX_AGENTS_EXCEEDED"');
-    expect(dashboard).toContain('error.code === "PRINT_QUOTA_EXCEEDED"');
+    expect(dashboard).toContain('case "max_agents": return "agents"');
+    expect(dashboard).toContain('case "max_prints_per_period": return "prints"');
     expect(dashboard).toContain("<UpgradeLimitDialog");
     expect(agentRoute).toContain("ActionError");
     expect(agentRoute).toContain("error.details");
