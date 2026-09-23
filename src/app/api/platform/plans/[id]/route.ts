@@ -188,7 +188,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       // current Stripe price only changes the price used by future checkout.
       // Existing Stripe subscriptions keep their current Stripe price item.
       const updated = await tx.update(plans)
-        .set({ ...patch, updatedAt: new Date() })
+        .set({ ...patch, updatedAt: sql`clock_timestamp()` })
         .where(eq(plans.id, id))
         .returning({ id: plans.id, name: plans.name });
 
