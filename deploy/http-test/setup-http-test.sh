@@ -123,7 +123,19 @@ chmod 600 "$ENV_FILE"
 
 : > "$TEST_DATA_DIR/verification-email.txt"
 
-docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml up -d --build
+if ! docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml up -d --build; then
+  echo
+  echo "ERROR: HTTP test Gateway stack failed to start."
+  echo "Gateway container status:"
+  docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml ps || true
+  echo
+  echo "Gateway startup logs:"
+  docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml logs --no-color --tail=200 gateway || true
+  echo
+  echo "Migration logs:"
+  docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml logs --no-color --tail=100 migrate || true
+  exit 1
+fi
 
 LOCAL_BASE_URL="http://127.0.0.1:$HTTP_TEST_PORT"
 
@@ -135,8 +147,18 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 
-curl -fsS --max-time 10 "$LOCAL_BASE_URL/api/live" >/dev/null
-curl -fsS --max-time 10 "$LOCAL_BASE_URL/api/health" >/dev/null
+if ! curl -fsS --max-time 10 "$LOCAL_BASE_URL/api/live" >/dev/null; then
+  echo "ERROR: Gateway /api/live is not reachable after startup."
+  docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml ps || true
+  docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml logs --no-color --tail=200 gateway || true
+  exit 1
+fi
+if ! curl -fsS --max-time 10 "$LOCAL_BASE_URL/api/health" >/dev/null; then
+  echo "ERROR: Gateway /api/health is not ready."
+  docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml ps || true
+  docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml logs --no-color --tail=200 gateway || true
+  exit 1
+fi
 
 docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml run --rm gateway npm run db:provision-plans
 
