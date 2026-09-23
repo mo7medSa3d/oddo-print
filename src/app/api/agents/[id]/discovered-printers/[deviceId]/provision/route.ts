@@ -102,7 +102,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         const ip = cfg?.ip ?? cfg?.address;
         if (ip === device.ipAddress && cfg?.port === device.port) {
           await tx.update(discoveredDevices)
-            .set({ candidateStatus: "provisioned", provisionedPrinterId: p.id, updatedAt: new Date() })
+            .set({ candidateStatus: "provisioned", provisionedPrinterId: p.id, updatedAt: sql`now()` })
             .where(and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.tenantId, claims.tenantId), eq(discoveredDevices.candidateStatus, "verified")));
           return { kind: "already" as const, printerId: p.id };
         }
@@ -146,7 +146,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       },
     });
     await tx.update(discoveredDevices)
-      .set({ candidateStatus: "provisioned", provisionedPrinterId: printerId, updatedAt: new Date() })
+      .set({ candidateStatus: "provisioned", provisionedPrinterId: printerId, updatedAt: sql`now()` })
       .where(and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.tenantId, claims.tenantId), eq(discoveredDevices.candidateStatus, "verified")));
 
     return { kind: "created" as const, printerId };
