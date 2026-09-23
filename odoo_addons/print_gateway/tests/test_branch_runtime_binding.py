@@ -194,17 +194,17 @@ class TestBranchRuntimeBinding(TransactionCase):
             "runtime_agent_id": "agent-b",
             "enabled": True,
         })
+        second_branch = self.env["res.company"].create({"name": "Gateway Branch 2", "parent_id": self.company.id})
         assignment_model.create({
             "company_id": self.company.id,
-            "branch_id": self.other_branch.id,
+            "branch_id": second_branch.id,
             "runtime_agent_id": "agent-b",
             "enabled": True,
         })
         from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
         controller = PrintGatewayRuntimePrinterController()
-        with patch("odoo.addons.print_gateway.controllers.runtime_printers.request", create=True):
-            branch_agents = controller._assigned_runtime_agent_ids(self.company, self.branch, env=self.env)
-            other_branch_agents = controller._assigned_runtime_agent_ids(self.other_company, self.other_branch, env=self.env)
+        branch_agents = controller._assigned_runtime_agent_ids(self.company, self.branch, env=self.env)
+        other_branch_agents = controller._assigned_runtime_agent_ids(self.company, second_branch, env=self.env)
         self.assertEqual(branch_agents, {"agent-a", "agent-b"})
         self.assertEqual(other_branch_agents, {"agent-b"})
 
