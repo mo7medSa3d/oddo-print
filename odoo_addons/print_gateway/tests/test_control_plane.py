@@ -35,6 +35,16 @@ class TestControlPlane(TransactionCase):
         })
         self.env = self.env(context=dict(self.env.context, allowed_company_ids=[self.company.id, self.branch.id]))
 
+        # Branch -> Agent assignments are explicit source-of-truth data for
+        # bindings. Provision the assignment before creating branch bindings;
+        # bindings themselves never create or widen assignments.
+        self.env["print_gateway.runtime_agent_assignment"].create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": "agent-cp-01",
+            "enabled": True,
+        })
+
         ConfigClass = PrintGatewayConfig or type(self.env["print_gateway.gateway_config"])
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None):
             config_model = self.env["print_gateway.gateway_config"]
