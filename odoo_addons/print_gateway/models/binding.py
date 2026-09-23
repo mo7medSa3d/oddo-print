@@ -240,7 +240,7 @@ class PrintGatewayBinding(models.Model):
 
     def _validate_runtime_target(self):
         self.ensure_one()
-        if not self.branch_id or not self.runtime_agent_id:
+        if not self.runtime_agent_id:
             return
         config = self._get_gateway_config()
         assignment_model = self.env["print_gateway.runtime_agent_assignment"]
