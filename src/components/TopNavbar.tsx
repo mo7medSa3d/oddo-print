@@ -78,7 +78,7 @@ export function TopNavbar({
           aria-label="Main"
           className={[
             menuOpen ? "flex" : "hidden",
-            "absolute left-3 right-3 top-[60px] z-50 flex-col gap-1 rounded-[14px] border border-edge bg-surface p-2 shadow-xl lg:hidden",
+            "absolute left-3 right-3 top-[60px] z-50 flex-col gap-1 rounded-[14px] border border-edge bg-surface p-2 shadow-xl",
             "lg:static lg:flex lg:min-w-0 lg:flex-1 lg:flex-row lg:items-center lg:gap-1 lg:overflow-x-auto lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none",
           ].join(" ")}
         >
