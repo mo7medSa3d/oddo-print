@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { tenantUsers, authRateLimits } from "../db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { authenticateCustomer, createManagerSession, managerCookieHeader, type ManagerRole } from "./manager-auth";
 import { normalizeEmail } from "./password";
 import { createHash, createHmac, timingSafeEqual } from "crypto";
@@ -37,8 +37,10 @@ export type TenantSelectionClaims = {
   email: string;
 };
 
-export function createTenantSelectionToken(userId: string, email: string): string {
-  const now = Math.floor(Date.now() / 1000);
+export async function createTenantSelectionToken(userId: string, email: string): Promise<string> {
+  const clock = await db.execute(sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`);
+  const now = Number(clock.rows[0]?.now_sec);
+  if (!Number.isSafeInteger(now)) throw new Error("Database clock is unavailable");
   const claims: TenantSelectionClaims = {
     jti: `tsel_${nanoid(20)}`,
     iat: now,
@@ -54,7 +56,7 @@ export function createTenantSelectionToken(userId: string, email: string): strin
   return `${data}.${sig}`;
 }
 
-export function verifyTenantSelectionToken(token: string): TenantSelectionClaims | null {
+export async function verifyTenantSelectionToken(token: string): Promise<TenantSelectionClaims | null> {
   if (typeof token !== "string" || token.length < 40 || token.length > 4096) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
@@ -80,11 +82,15 @@ export function verifyTenantSelectionToken(token: string): TenantSelectionClaims
       typeof claims.userId !== "string" ||
       typeof claims.email !== "string" ||
       typeof claims.iat !== "number" ||
-      typeof claims.exp !== "number"
+      typeof claims.exp !== "number" ||
+      !Number.isSafeInteger(claims.iat) ||
+      !Number.isSafeInteger(claims.exp)
     ) {
       return null;
     }
-    const now = Math.floor(Date.now() / 1000);
+    const clock = await db.execute(sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`);
+    const now = Number(clock.rows[0]?.now_sec);
+    if (!Number.isSafeInteger(now)) return null;
     if (claims.exp <= now || claims.iat > now + 60) return null;
     return claims as TenantSelectionClaims;
   } catch {
@@ -117,7 +123,7 @@ export async function authenticateForTenant(email: string, password: string, ten
     return { ...identity, multipleTenants: false, memberships: [] };
   }
   if (memberships.length > 1) {
-    const selectionToken = createTenantSelectionToken(identity.userId, identity.email);
+    const selectionToken = await createTenantSelectionToken(identity.userId, identity.email);
     return { ...identity, multipleTenants: true, selectionToken, memberships };
   }
   if (!(await requireActiveTenantOrNull(memberships[0].tenantId))) return null;
