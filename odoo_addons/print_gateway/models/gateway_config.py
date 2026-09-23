@@ -264,7 +264,7 @@ class PrintGatewayConfig(models.Model):
                 record.gateway_sync_state = "attention"
                 record.gateway_sync_message = _(
                     "Your printing settings are being updated in the printing service."
-                ) % (_("enabled") if record.enabled else _("disabled"))
+                )
                 continue
             if record.pending_disable_gateway_url and record.last_gateway_migration_sync_error:
                 # The old-endpoint shutdown fence is blocking the current
