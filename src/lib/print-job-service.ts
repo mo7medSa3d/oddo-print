@@ -224,27 +224,6 @@ async function insertQueuedJobAtomically({
       }
     }
 
-    // The Gateway database is the authoritative clock for job TTL.
-    // Never accept an expiry based only on the app-server wall clock: a host
-    // clock drift could otherwise create an already-expired job or extend a TTL.
-    let effectiveExpiresAt = expiresAt;
-    if (effectiveExpiresAt) {
-      if (!(effectiveExpiresAt instanceof Date) || Number.isNaN(effectiveExpiresAt.getTime())) {
-        throw new PrintJobInputError("expiresAt must be a valid timestamp", "INVALID_REQUEST", 400);
-      }
-      const clockResult = await tx.execute(sql`
-        SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms
-      `);
-      const dbNowMs = Number((clockResult.rows[0] as { now_ms?: number | string } | undefined)?.now_ms ?? NaN);
-      const expiresMs = effectiveExpiresAt.getTime();
-      if (!Number.isFinite(dbNowMs) || expiresMs <= dbNowMs) {
-        throw new PrintJobInputError("expiresAt must be in the future according to the Gateway database clock", "INVALID_REQUEST", 400);
-      }
-      if (expiresMs - dbNowMs > 24 * 60 * 60 * 1000) {
-        throw new PrintJobInputError("expiresAt exceeds the 24 hour maximum", "INVALID_REQUEST", 400);
-      }
-    }
-
     // Re-validate the runtime owner INSIDE the enqueue transaction.
     // The initial pre-check in createPrintJobForPrinter intentionally happens
     // before payload validation, but printer/agent lifecycle and health can
@@ -387,7 +366,7 @@ async function insertQueuedJobAtomically({
       requestedBy,
       requestId: requestId ?? null,
       idempotencyKey: effectiveIdempotencyKey,
-      expiresAt: effectiveExpiresAt ?? sql`clock_timestamp() + interval '1 hour'`,
+      expiresAt: effectiveExpiresAt,
     });
 
     await tx.execute(sql`SELECT pg_notify('print_gateway_agent_jobs', ${JSON.stringify({ jobId, agentId, requestId: requestId ?? null })})`);
