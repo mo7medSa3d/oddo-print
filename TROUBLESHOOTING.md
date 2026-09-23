@@ -84,6 +84,23 @@
 4. Check the browser console for API errors
 5. Verify the API key has not been revoked
 
+### Odoo login fails with "Session expired (invalid CSRF token)"
+
+**Cause**: The Odoo web client is opened inside a cross-site iframe (embedded
+preview, portal, or desktop shell). The login POST is then a cross-site request,
+and the `session_id` cookie Odoo sets is `SameSite=Lax` by default, so the
+browser does not send it — Odoo sees a POST without a session and rejects the
+CSRF token as expired. The error is Odoo's own CSRF guard, not the print addon.
+
+**Resolution**:
+1. Serve the web client over HTTPS through the reverse proxy and run Odoo with
+   `proxy_mode = True`, so it reads `X-Forwarded-Proto` and marks the session
+   cookie `Secure; SameSite=None` (required for embedded/cross-site use).
+2. If the browser blocks third-party cookies, open the Odoo URL in its own tab
+   so the session cookie is first-party.
+3. `SameSite=None` must be paired with `Secure`; over plain HTTP keep Odoo's
+   default `Lax` cookie and open the client in a top-level tab instead.
+
 ### Report downloads PDF instead of printing via Gateway
 
 **Cause**: No binding exists for the report/destination/company/branch combination.
