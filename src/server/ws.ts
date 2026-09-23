@@ -24,6 +24,7 @@ type AgentSocket = WebSocket & {
   tenantId?: string;
   lifecycleRevision?: number;
   isAlive?: boolean;
+  socketCounted?: boolean;
 };
 
 type WritableSocket = Pick<Duplex, "end" | "destroy">;
@@ -235,8 +236,15 @@ function logUpgradeError(error: unknown): void {
   console.error(`[ws] upgrade handling failed: ${message.slice(0, 500)}`);
 }
 
+function uncountAgentSocket(ws: AgentSocket): void {
+  if (ws.socketCounted !== true) return;
+  ws.socketCounted = false;
+  totalAgentSockets = Math.max(0, totalAgentSockets - 1);
+}
+
 function trackAgentSocket(agentId: string, ws: AgentSocket) {
   ws.agentId = agentId;
+  ws.socketCounted = false;
   let set = agentSockets.get(agentId);
   if (!set) {
     set = new Set();
@@ -250,15 +258,17 @@ function trackAgentSocket(agentId: string, ws: AgentSocket) {
   while (set.size >= MAX_AGENT_SOCKETS) {
     const oldest = set.values().next().value as AgentSocket | undefined;
     if (!oldest) break;
+    uncountAgentSocket(oldest);
     try { oldest.terminate(); } catch {}
     set.delete(oldest);
   }
   set.add(ws);
+  ws.socketCounted = true;
   totalAgentSockets += 1;
   void incrementMetric("websocket_connections_opened_total");
   ws.on("close", () => {
     set!.delete(ws);
-    totalAgentSockets = Math.max(0, totalAgentSockets - 1);
+    uncountAgentSocket(ws);
     void incrementMetric("websocket_connections_closed_total");
     // Identity guard: a terminated-but-late-closing evicted socket must
     // never delete a replacement Set that a newer connection created after
@@ -297,6 +307,7 @@ export function sendToAgent(agentId: string, message: unknown): boolean {
     } catch (e) {
       logWarn(`[ws] send to agent ${agentId} failed; removing socket:`, { error: e });
       set.delete(target);
+      uncountAgentSocket(target);
       try { target.terminate(); } catch {}
     }
   }
