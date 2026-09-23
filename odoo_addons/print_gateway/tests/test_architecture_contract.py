@@ -101,6 +101,14 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         # Verbose legacy labels must stay out of the simplified form.
         self.assertNotIn("Hardware Print Binding", source)
 
+    def test_database_utc_clock_is_the_shared_scheduler_clock(self):
+        clock = (ADDON / "runtime_clock.py").read_text(encoding="utf-8")
+        self.assertIn("SELECT NOW() AT TIME ZONE 'UTC'", clock)
+        intent = (MODELS / "print_intent.py").read_text(encoding="utf-8")
+        jobs = (MODELS / "print_job.py").read_text(encoding="utf-8")
+        self.assertIn("db_now_utc", intent)
+        self.assertIn("db_now_utc", jobs)
+
     def test_automated_hooks_delegate_to_policy_dispatcher(self):
         hooks = {
             "stock": (MODELS / "stock_picking.py").read_text(encoding="utf-8"),
