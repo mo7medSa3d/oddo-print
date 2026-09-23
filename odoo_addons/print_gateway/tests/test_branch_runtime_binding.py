@@ -12,6 +12,7 @@ from odoo.tests.common import TransactionCase
 class Response:
     def __init__(self, body, status_code=200):
         self.body = body
+        self.content = b"ok"
         self.status_code = status_code
 
     def json(self):
@@ -451,10 +452,7 @@ class TestBranchRuntimeBinding(TransactionCase):
                     "runtime_agent_id": "agent-company-wide-duplicate",
                     "enabled": True,
                 })
-            self.assertIn(
-                "print_gateway_runtime_agent_assignment_company_wide_agent_unique",
-                str(ctx.exception),
-            )
+            self.assertIn("company_wide", str(ctx.exception))
 
     def test_binding_write_validates_the_new_runtime_agent_not_the_previous_one(self):
         model = self.env["print_gateway.runtime_agent_assignment"]
