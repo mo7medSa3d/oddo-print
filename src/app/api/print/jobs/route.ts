@@ -23,11 +23,12 @@ const bodySchema = z.object({
 }).strict();
 
 function parseExpiresAt(value?: string) {
-  const now = Date.now();
-  if (!value) return new Date(now + 60 * 60 * 1000);
+  if (!value) return undefined;
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= now) throw new Error("expiresAt must be in the future");
-  if (parsed.getTime() - now > 24 * 60 * 60 * 1000) throw new Error("expiresAt exceeds the 24 hour maximum");
+  if (Number.isNaN(parsed.getTime())) throw new Error("expiresAt must be a valid ISO-8601 timestamp");
+  // Relative TTL/future validation belongs to the Gateway database clock in
+  // createPrintJobForPrinter. This parser only validates syntax so an app-host
+  // clock drift can never reject/accept a job inconsistently with the DB.
   return parsed;
 }
 
