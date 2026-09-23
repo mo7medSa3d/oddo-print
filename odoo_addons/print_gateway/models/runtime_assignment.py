@@ -65,6 +65,11 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
             branch = branch.exists()
             if not branch or len(branch) != 1:
                 return set()
+            # Never inherit a company-wide assignment into an unrelated
+            # branch. This guard is deliberately inside the source-of-truth
+            # lookup, not only in model constraints or UI domains.
+            if branch.parent_id != company:
+                return set()
             domain = [
                 "|",
                 ("branch_id", "=", branch.id),
