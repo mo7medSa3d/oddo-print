@@ -93,7 +93,7 @@ export async function POST(req: Request) {
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid payload" }, { status: 400 }); }
 
   const request = { ...parsed.data, payload };
-  let expiresAt: Date;
+  let expiresAt: Date | undefined;
   try { expiresAt = parseExpiresAt(parsed.data.expiresAt); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid expiresAt" }, { status: 400 }); }
 
