@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Print Policy engine for event-driven automated print dispatch."""
 
+import logging
+
 from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
 from odoo.tools.safe_eval import safe_eval
@@ -208,6 +210,22 @@ class PrintGatewayPolicy(models.Model):
 
 
 
+    @api.constrains("company_id", "branch_id", "binding_id")
+    def _check_binding_scope(self):
+        for policy in self:
+            binding = policy.binding_id
+            if not binding:
+                continue
+            if policy.company_id.parent_id:
+                raise ValidationError(_("Odoo Company must be a root company, not a branch."))
+            if binding.company_id != policy.company_id:
+                raise ValidationError(_("Target Binding must belong to the same Odoo Company as the Policy."))
+            if policy.branch_id:
+                if binding.branch_id != policy.branch_id:
+                    raise ValidationError(_("A Branch Policy must use a Binding for that exact Branch."))
+            elif binding.branch_id:
+                raise ValidationError(_("A Company Policy must use a company-wide Binding, not a Branch Binding."))
+
     @api.constrains("action_type", "report_id", "raw_template", "raw_protocol", "domain_filter", "model_id", "event_type", "binding_id")
     def _check_action_configuration(self):
         for policy in self:
@@ -281,6 +299,42 @@ class PrintGatewayPolicy(models.Model):
             ("branch_id", "in", [False, branch.id] if branch else [False]),
             ("active", "=", True),
         ], order="priority asc, id asc")
+
+    @api.model
+    @api.private
+    def dispatch_for_record(self, record, event_type):
+        """Schedule every applicable automated print policy independently.
+
+        Odoo policy data is authoritative for automated routing. Each policy
+        is evaluated independently so a bad target cannot block unrelated
+        valid policies, while the Intent model remains the single idempotency
+        boundary for the physical print operation.
+        """
+        policies = self.resolve_for_record(record, event_type)
+        intent_model = self.env["print_gateway.intent"].sudo()
+        executed_targets = set()
+        scheduled = 0
+        failures = 0
+        for policy in policies:
+            try:
+                if not policy.matches_record(record):
+                    continue
+                target_key = policy.effective_target_key(record)
+                if target_key in executed_targets:
+                    continue
+                executed_targets.add(target_key)
+                intent_model.create_and_route(policy, record, event_type)
+                scheduled += 1
+            except Exception as exc:
+                failures += 1
+                _logger.error(
+                    "Failed to schedule automated print policy '%s' for %s(%s): %s",
+                    policy.name,
+                    record._name,
+                    record.id,
+                    exc,
+                )
+        return {"scheduled": scheduled, "failed": failures}
 
     def effective_target_key(self, record):
         """Return the validated effective target used for policy fan-out dedup."""
