@@ -1,6 +1,6 @@
 # Odoo Integration Guide
 
-> Module: `print_gateway` | Version: 19.0.2.4.0 | Odoo: 19 Community Edition
+> Module: `print_gateway` | Version: 19.0.2.8.0 | Odoo: 19 Community Edition
 
 ## Overview
 
@@ -41,11 +41,10 @@ Odoo 19 ────────────────────────
 ### Layer 1: ORM Level (`ir_actions_report.py`)
 Overrides `report_action()` to intercept `ir.actions.report` execution. If a binding exists, the report is dispatched to the Gateway and a notification is shown instead of opening a PDF.
 
-### Layer 2: HTTP Controller (`report_download_override.py`)
-Overrides `/report/download` as defense-in-depth. Catches browser-level PDF download requests that bypass the ORM layer.
+### Layer 2: Client-Side JS (`report_interceptor.js`)
+Uses the supported Odoo 19 client-side report action interception path to stop the native PDF download flow when Gateway printing is selected.
 
-### Layer 3: Client-Side JS (`report_interceptor.js`)
-OWL 3 `ir.actions.report` handler (sequence 5). Catches report actions in the web client before the default PDF dialog opens.
+The former `report_download_override.py` HTTP controller is intentionally absent; Odoo's native report controller remains untouched.
 
 **Fail-Closed Policy**: If a binding exists but dispatch fails, the native PDF download is cancelled. The operator sees an error notification with a link to the Print Jobs list.
 
