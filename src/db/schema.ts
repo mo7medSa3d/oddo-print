@@ -382,7 +382,6 @@ export const jobEvents = pgTable("job_events", {
     name: "job_events_tenant_id_job_id_print_jobs_fk",
     columns: [table.tenantId, table.jobId],
     foreignColumns: [printJobs.tenantId, printJobs.id],
-    onDelete: "cascade",
   }),
   jobIdIdx: index("job_events_job_id_idx").on(table.jobId),
   tenantJobIdx: index("job_events_tenant_job_idx").on(table.tenantId, table.jobId),
