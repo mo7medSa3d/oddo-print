@@ -42,7 +42,7 @@ export async function POST(req: Request) {
           eq(tenantInvitations.id, row.id),
           isNull(tenantInvitations.acceptedAt),
           isNull(tenantInvitations.revokedAt),
-          gt(tenantInvitations.expiresAt, new Date()),
+          gt(tenantInvitations.expiresAt, sql`clock_timestamp()`),
         ))
         .returning({ id: tenantInvitations.id });
       if (consumed.length !== 1) throw new Error("Invitation already consumed or expired");
