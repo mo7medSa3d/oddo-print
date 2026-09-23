@@ -35,6 +35,24 @@ export type TenantLifecycleStatus = "active" | "suspended" | "deleted";
  * This is designed to be called in auth validation paths so all
  * tenant-scoped operations are consistently gated.
  */
+/**
+ * Lifecycle-only convenience guard for authentication paths.
+ *
+ * Expected tenant lifecycle denials become null so callers can preserve their
+ * existing authentication return contract. Unexpected database/transport
+ * errors are rethrown and must remain visible as operational failures.
+ */
+export async function requireActiveTenantOrNull(tenantId: string): Promise<TenantLifecycleStatus | null> {
+  try {
+    return await requireActiveTenant(tenantId);
+  } catch (error) {
+    if (error instanceof TenantSuspendedError || error instanceof TenantDeletedError) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 export async function requireActiveTenant(tenantId: string): Promise<TenantLifecycleStatus> {
   const tenant = await db.query.tenants.findFirst({
     where: eq(tenants.id, tenantId),
