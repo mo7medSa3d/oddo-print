@@ -1,6 +1,6 @@
 /** @odoo-module */
 
-import { Component, onWillStart, onWillUpdateProps, useState, xml } from "@odoo/owl";
+import { Component, onWillStart, useEffect, useState, xml } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { rpc } from "@web/core/network/rpc";
 
@@ -28,7 +28,7 @@ export class RuntimePrinterField extends Component {
                     <option t-foreach="filteredPrinters" t-as="printer" t-key="printer.id" t-att-value="printer.id" t-att-selected="printer.id === props.record.data[props.name]">
                         <t t-esc="printer.name"/> [<t t-esc="printer.deviceClass || 'generic'"/>] — <t t-esc="printer.status"/>
                     </option>
-                    <option t-if="!state.loading &amp;&amp; !state.error &amp;&amp; state.agentId &amp;&amp; !filteredPrinters.length &amp;&amp; !configuredPrinterMissing" value="" disabled="disabled">No printers found for this Print Agent — check the printer or workstation</option>
+                    <option t-if="!state.loading &amp;&amp; !state.error &amp;&amp; state.agentId &amp;&amp; !filteredPrinters.length &amp;&amp; !configuredPrinterMissing" value="" disabled="disabled"><t t-esc="emptyMessage"/></option>
                 </select>
                 <div t-if="state.error" class="mt-1 d-flex align-items-center gap-2">
                     <small id="o_pg_printer_error" class="text-danger">Could not load printers. Check the Print Agent connection, then retry.</small>
@@ -40,18 +40,38 @@ export class RuntimePrinterField extends Component {
     setup() {
         this.rpc = rpc;
         this.currentRequestId = 0;
-        this.state = useState({ loading: false, printers: [], agentId: false, destinationType: false, error: null });
-        onWillStart(() => this.load(this.props));
-        onWillUpdateProps((nextProps) => {
-            const before = this.scope(this.props);
-            const after = this.scope(nextProps);
-            if (before.companyId !== after.companyId || before.branchId !== after.branchId || before.agentId !== after.agentId || before.destinationType !== after.destinationType) {
-                if (before.agentId !== after.agentId) {
-                    this.state.printers = [];
-                }
-                this.load(nextProps);
-            }
-        });
+        this.loadedScopeKey = null;
+        this.loadedAgentId = null;
+        this.state = useState({ loading: false, printers: [], agentId: false, destinationType: false, enabled: true, error: null });
+
+        // Print Agent is not the field this widget renders: a prop-based reload
+        // never fires when the operator picks another Agent, so the printer list
+        // kept showing the previous Agent's printers (or stayed empty). Reading
+        // the scope inside the effect dependencies subscribes this component to
+        // those fields and re-issues the query as soon as they change.
+        useEffect(
+            () => {
+                this.load();
+            },
+            () => [this.companyId, this.branchId, this.agentId, this.destinationType],
+        );
+        onWillStart(() => this.load());
+    }
+
+    get companyId() {
+        return relationalId(this.props.record?.data?.company_id);
+    }
+
+    get branchId() {
+        return relationalId(this.props.record?.data?.branch_id);
+    }
+
+    get agentId() {
+        return this.props.record?.data?.runtime_agent_id || false;
+    }
+
+    get destinationType() {
+        return this.props.record?.data?.destination_type || false;
     }
 
     get filteredPrinters() {
@@ -70,29 +90,44 @@ export class RuntimePrinterField extends Component {
         return this.state.printers;
     }
 
+    get emptyMessage() {
+        return this.state.enabled
+            ? "No printers found for this Print Agent — check the printer or workstation"
+            : "The printing service is disabled or unreachable for this company — check Connection & Printing";
+    }
+
     get configuredPrinterMissing() {
         const val = this.props.record?.data?.[this.props.name];
         if (!val || typeof val !== "string" || !val.trim()) return false;
         return !this.filteredPrinters.some((p) => p.id === val);
     }
 
-    scope(props) {
-        return {
-            companyId: relationalId(props.record?.data?.company_id),
-            branchId: relationalId(props.record?.data?.branch_id),
-            agentId: props.record?.data?.runtime_agent_id || false,
-            destinationType: props.record?.data?.destination_type || false,
-        };
+    scopeKey(companyId, branchId, agentId) {
+        return `${companyId || ""}|${branchId || ""}|${agentId || ""}`;
     }
 
-    async load(props) {
-        const reqId = ++this.currentRequestId;
-        this.state.printers = [];
-        this.state.error = null;
+    async load() {
+        const companyId = this.companyId;
+        const branchId = this.branchId;
+        const agentId = this.agentId;
+        const destinationType = this.destinationType;
 
-        const { companyId, branchId, agentId, destinationType } = this.scope(props);
         this.state.agentId = agentId;
         this.state.destinationType = destinationType;
+
+        const key = this.scopeKey(companyId, branchId, agentId);
+        if (key === this.loadedScopeKey) {
+            return;
+        }
+        this.loadedScopeKey = key;
+
+        const reqId = ++this.currentRequestId;
+        if (this.loadedAgentId !== agentId) {
+            // Another Agent's printers must never stay selectable.
+            this.loadedAgentId = agentId;
+            this.state.printers = [];
+        }
+        this.state.error = null;
 
         if (!companyId || !agentId) {
             this.state.loading = false;
@@ -107,6 +142,7 @@ export class RuntimePrinterField extends Component {
                 agent_id: agentId,
             });
             if (reqId !== this.currentRequestId) return;
+            this.state.enabled = result?.enabled !== false;
             this.state.printers = Array.isArray(result?.printers) ? result.printers : [];
         } catch (error) {
             if (reqId !== this.currentRequestId) return;
@@ -131,7 +167,10 @@ export class RuntimePrinterField extends Component {
     }
 
     retryLoad() {
-        this.load(this.props);
+        // Drop the memoized scope so the query is re-issued even when the scope
+        // key did not change (the previous attempt may have failed transiently).
+        this.loadedScopeKey = null;
+        this.load();
     }
 }
 
@@ -143,5 +182,13 @@ if (!registry.category("fields").contains("gateway_runtime_printer")) {
     registry.category("fields").add("gateway_runtime_printer", {
         component: RuntimePrinterField,
         supportedTypes: ["char"],
+        // The runtime target is described by other fields of the same record;
+        // declare them so the picker also works from a compact form view.
+        fieldDependencies: [
+            { name: "company_id", type: "many2one" },
+            { name: "branch_id", type: "many2one" },
+            { name: "runtime_agent_id", type: "char" },
+            { name: "destination_type", type: "selection" },
+        ],
     });
 }
