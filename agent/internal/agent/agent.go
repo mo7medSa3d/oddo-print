@@ -400,7 +400,7 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 		inFlightReceived: make(map[string]time.Time),
 		shutdownCh:       make(chan struct{}),
 		discoverySem:     make(chan struct{}, 1),
-			rejectQueue:      make(chan rejectWork, maxRejectQueue),
+		rejectQueue:      make(chan rejectWork, maxRejectQueue),
 		rejectPending:    make(map[string]struct{}),
 		desiredStates:    make(map[string]desiredPrinterRecord),
 		gatewayOwned:     make(map[string]struct{}),
@@ -1382,7 +1382,6 @@ func (a *Agent) runRejectWorker(ctx context.Context) {
 		}
 	}
 }
-
 
 // waitForJobs blocks until in-flight job handlers finish (bounded by
 // shutdownGrace), so the SQLite queue is never closed mid-write on service
