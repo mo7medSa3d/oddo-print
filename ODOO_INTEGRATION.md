@@ -93,7 +93,7 @@ Root Company
 
 - Root company must not be a branch
 - Branch must belong to the selected root company
-- Agent must be assigned to the branch
+- Agent must be assigned to the branch, or to the root company as a company-wide assignment inherited by its branches
 - Printer must belong to the selected agent
 - POS receipts cannot target laser/inkjet printers
 - Kitchen bindings cannot have a report_id
