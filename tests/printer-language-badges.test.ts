@@ -147,7 +147,7 @@ describe("ApiKeysPage API-key authoring", () => {
     });
 
     expect(posted[0]).toEqual({ name: "Odoo Production" });
-    expect(host!.textContent ?? "").toContain("Read / write · All documents");
+    expect(host!.textContent ?? "").toContain("Integration read / write · All documents");
     expect(host!.textContent ?? "").not.toContain("Read only");
     expect(host!.textContent ?? "").not.toContain("Document types");
   });
