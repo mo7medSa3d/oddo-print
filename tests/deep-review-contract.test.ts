@@ -193,6 +193,7 @@ describe("deep production review contracts", () => {
     expect(source).toContain('("branch_id", "=", branch.id)');
     expect(source).toContain('("branch_id", "=", False)');
     expect(source).toContain('record.branch_id.parent_id != record.company_id');
+    expect(source).toContain('if branch.parent_id != company:');
     expect(source).toContain('record.company_id.parent_id');
     expect(source).toContain("self.assigned_agent_ids(company, branch)");
   });
