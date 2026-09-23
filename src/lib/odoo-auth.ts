@@ -57,11 +57,8 @@ export async function validateOdooKey(
   // Odoo operations. Health probes may opt out so the caller can return the
   // correct 403 lifecycle status instead of misclassifying it as bad credentials.
   if (options.requireActiveTenant !== false) {
-    try {
-      await requireActiveTenant(row.tenantId);
-    } catch {
-      return null;
-    }
+    const tenantLifecycle = await requireActiveTenantOrNull(row.tenantId);
+    if (!tenantLifecycle) return null;
   }
   // Credential validity and integration activation are deliberately separate.
   // Configuration/health must remain callable while this integration is disabled
