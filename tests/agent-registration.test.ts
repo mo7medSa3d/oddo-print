@@ -23,6 +23,42 @@ suite("agent registration contract", () => {
     await truncateAll();
   });
 
+  it("rejects pairing when the tenant subscription is not billable and preserves the one-time code", async () => {
+    const f = await seedFixture();
+    const pairingCode = "XY55ZZ";
+    await pool().query(
+      `UPDATE agents
+       SET pairing_code_hash = $1, pairing_code_expires_at = now() + interval '30 minutes', secret = NULL, status = 'offline'
+       WHERE id = $2`,
+      [hashPairingCode(pairingCode), f.agentId],
+    );
+    await pool().query(
+      `UPDATE tenant_subscriptions
+       SET status = 'cancelled', current_period_end = now() - interval '1 minute'
+       WHERE tenant_id = $1`,
+      [f.tenantId],
+    );
+
+    const response = await registerPOST(new Request("http://gateway.test/api/agent/register", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-real-ip": "127.0.0.51" },
+      body: JSON.stringify({ pairingCode }),
+    }));
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      code: "SUBSCRIPTION_REQUIRED",
+    });
+
+    const row = (await pool().query(
+      `SELECT pairing_code_hash, secret, status FROM agents WHERE id = $1`,
+      [f.agentId],
+    )).rows[0];
+    expect(row.pairing_code_hash).toBe(hashPairingCode(pairingCode));
+    expect(row.secret).toBeNull();
+    expect(row.status).toBe("offline");
+  });
+
   it("pairs using only the one-time pairing code and preserves runtime-only agent ownership", async () => {
     const f = await seedFixture();
     const pairingCode = "AB22CD";

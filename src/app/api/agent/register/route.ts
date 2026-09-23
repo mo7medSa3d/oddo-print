@@ -1,8 +1,7 @@
 import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
-import { agents } from "../../../../db/schema";
-import { and, eq, gt, isNotNull, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { generateSecret, hashPairingCode, hashSecret, isValidPairingCode } from "../../../../lib/agent-auth";
 import {
   clientIpFrom,
@@ -87,33 +86,93 @@ export async function POST(req: Request) {
     }
 
     const targetAgentId = parsed.data.agent_id || parsed.data.agentId;
-    const clock = await db.execute(sql`SELECT clock_timestamp() AS now`);
-    const rawDbNow = clock.rows[0]?.now;
-    const dbNow = rawDbNow instanceof Date ? rawDbNow : new Date(String(rawDbNow ?? ""));
-    if (!rawDbNow || Number.isNaN(dbNow.getTime())) return NextResponse.json({ error: "Registration temporarily unavailable" }, { status: 503 });
-    const conditions = [
-      eq(agents.pairingCodeHash, hashedCode),
-      isNotNull(agents.pairingCodeHash),
-      gt(agents.pairingCodeExpiresAt, dbNow),
-      eq(agents.lifecycle, "active"),
-    ];
-    if (targetAgentId) conditions.push(eq(agents.id, targetAgentId));
 
-    const agent = await db.query.agents.findFirst({ where: and(...conditions) });
-    if (!agent) {    const billingResult = await db.execute(sql`
-      SELECT 1
-      FROM tenant_subscriptions
-      WHERE tenant_id = ${agent.tenantId}
-        AND status IN ('trialing', 'active', 'past_due')
-        AND (status = 'past_due' OR current_period_end IS NULL OR current_period_end > clock_timestamp())
-        AND COALESCE(entitlement_blocked, false) = false
-      LIMIT 1
-    `);
-    if (billingResult.rows.length === 0) {
-      return NextResponse.json({ error: "An active subscription is required before pairing agents.", code: "SUBSCRIPTION_REQUIRED" }, { status: 403 });
+    const outcome = await db.transaction(async (tx) => {
+      const targetAgentPredicate = targetAgentId
+        ? sql`AND id = ${targetAgentId}`
+        : sql``;
+      const agentResult = await tx.execute(sql`
+        SELECT id, tenant_id AS "tenantId", metadata
+        FROM agents
+        WHERE pairing_code_hash = ${hashedCode}
+          AND pairing_code_hash IS NOT NULL
+          AND pairing_code_expires_at > clock_timestamp()
+          AND lifecycle = 'active'
+          ${targetAgentPredicate}
+        FOR UPDATE
+      `);
+      const agent = agentResult.rows[0] as {
+        id: string;
+        tenantId: string;
+        metadata?: Record<string, unknown> | null;
+      } | undefined;
+
+      if (!agent) {
+        return { kind: "not_found" as const };
+      }
+
+      // Pairing grants a fresh runtime credential, so subscription entitlement
+      // must be checked at the same database boundary as consuming the
+      // one-time code. Past-due remains usable; active/trialing require a live
+      // current period unless Stripe has not recorded an end yet.
+      const billingResult = await tx.execute(sql`
+        SELECT 1
+        FROM tenant_subscriptions
+        WHERE tenant_id = ${agent.tenantId}
+          AND status IN ('trialing', 'active', 'past_due')
+          AND (
+            status = 'past_due'
+            OR current_period_end IS NULL
+            OR current_period_end > clock_timestamp()
+          )
+          AND COALESCE(entitlement_blocked, false) = false
+        FOR UPDATE
+      `);
+      if (billingResult.rows.length !== 1) {
+        return { kind: "billing_required" as const };
+      }
+
+      const meta: Record<string, unknown> = {
+        ...(agent.metadata ?? {}),
+        ...(parsed.data.metadata ?? {}),
+        ...(parsed.data.hostname ? { hostname: parsed.data.hostname } : {}),
+        ...(parsed.data.client_version || parsed.data.clientVersion ? { version: parsed.data.client_version || parsed.data.clientVersion } : {}),
+        ...(parsed.data.platform ? { os: parsed.data.platform } : {}),
+      };
+
+      const secret = generateSecret();
+      const updated = await tx.execute(sql`
+        UPDATE agents
+        SET pairing_code_hash = NULL,
+            pairing_code_expires_at = NULL,
+            secret = ${hashSecret(secret)},
+            status = 'online',
+            metadata = ${JSON.stringify(meta)}::jsonb,
+            last_seen_at = clock_timestamp(),
+            updated_at = clock_timestamp()
+        WHERE id = ${agent.id}
+          AND tenant_id = ${agent.tenantId}
+          AND pairing_code_hash = ${hashedCode}
+          AND lifecycle = 'active'
+          AND pairing_code_expires_at > clock_timestamp()
+        RETURNING id
+      `);
+
+      if (updated.rows.length !== 1) {
+        return { kind: "consumed" as const };
+      }
+
+      return { kind: "paired" as const, agentId: agent.id, secret };
+    });
+
+    if (outcome.kind === "billing_required") {
+      return NextResponse.json({
+        error: "An active subscription is required before pairing agents.",
+        code: "SUBSCRIPTION_REQUIRED",
+      }, { status: 403 });
     }
 
-
+    if (outcome.kind === "not_found") {
       if (decision.retryAfterSec) {
         const response = NextResponse.json({ error: "Too many pairing attempts. Try again later." }, { status: 429 });
         response.headers.set("Retry-After", String(decision.retryAfterSec));
@@ -122,32 +181,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unknown, disabled, retired, or expired agent registration" }, { status: 400 });
     }
 
-    const meta: Record<string, unknown> = {
-      ...(agent.metadata ?? {}),
-      ...(parsed.data.metadata ?? {}),
-      ...(parsed.data.hostname ? { hostname: parsed.data.hostname } : {}),
-      ...(parsed.data.client_version || parsed.data.clientVersion ? { version: parsed.data.client_version || parsed.data.clientVersion } : {}),
-      ...(parsed.data.platform ? { os: parsed.data.platform } : {}),
-    };
-
-    const secret = generateSecret();
-    const now = dbNow;
-    const updated = await db.update(agents).set({
-      pairingCodeHash: null,
-      pairingCodeExpiresAt: null,
-      secret: hashSecret(secret),
-      status: "online",
-      metadata: meta,
-      lastSeenAt: now,
-      updatedAt: now,
-    }).where(and(
-      eq(agents.id, agent.id),
-      eq(agents.pairingCodeHash, hashedCode),
-      eq(agents.lifecycle, "active"),
-      gt(agents.pairingCodeExpiresAt, now),
-    )).returning({ id: agents.id });
-
-    if (!updated.length) {
+    if (outcome.kind === "consumed") {
       if (decision.retryAfterSec) {
         const response = NextResponse.json({ error: "Too many pairing attempts. Try again later." }, { status: 429 });
         response.headers.set("Retry-After", String(decision.retryAfterSec));
@@ -155,6 +189,13 @@ export async function POST(req: Request) {
       }
       return NextResponse.json({ error: "Pairing code was consumed or expired; retry with a fresh code" }, { status: 409 });
     }
+
+    return NextResponse.json({
+      agentId: outcome.agentId,
+      agent_id: outcome.agentId,
+      secret: outcome.secret,
+      agent_secret: outcome.secret,
+    }, { status: 200 });
 
     // Do not clear the IP pairing limiter after success. A valid pairing
     // should not reset the brute-force budget for subsequent codes.
