@@ -99,24 +99,41 @@ function httpTestCatalogBinding(input: {
 
   try {
     const catalog = JSON.parse(raw) as Array<Record<string, unknown>>;
-    if (!Array.isArray(catalog)) return null;
-    const entry = catalog.find((item) => item && item.priceId === input.priceId);
-    if (!entry) return null;
+    if (Array.isArray(catalog)) {
+      const entry = catalog.find((item) => item && item.priceId === input.priceId);
+      if (entry) {
+        const currency = typeof entry.currency === "string" ? entry.currency.trim().toLowerCase() : "usd";
+        const interval = typeof entry.interval === "string" ? entry.interval.trim().toLowerCase() : "month";
+        const productId = typeof entry.productId === "string" ? entry.productId.trim() : null;
 
-    const currency = typeof entry.currency === "string" ? entry.currency.trim().toLowerCase() : "usd";
-    const interval = typeof entry.interval === "string" ? entry.interval.trim().toLowerCase() : "month";
-    const productId = typeof entry.productId === "string" ? entry.productId.trim() : null;
+        if (currency !== input.currency.toLowerCase() || interval !== input.interval) return null;
+        if (input.productId && input.productId !== productId) return null;
 
-    if (currency !== input.currency.toLowerCase() || interval !== input.interval) return null;
-    if (input.productId && input.productId !== productId) return null;
+        return {
+          id: input.priceId,
+          active: true,
+          type: "recurring",
+          currency,
+          interval,
+          productId,
+        };
+      }
+    }
+
+    // The isolated HTTP deployment is intentionally offline from Stripe.
+    // Accept a syntactically valid Price ID as a recurring test price so
+    // Platform Admin can create local test plans with arbitrary fake IDs.
+    if (!/^price_[A-Za-z0-9_]+$/.test(input.priceId)) return null;
+    if (!/^[a-z]{3}$/.test(input.currency) || !["day", "week", "month", "year"].includes(input.interval)) return null;
+    if (input.productId && !/^prod_[A-Za-z0-9_]+$/.test(input.productId)) return null;
 
     return {
       id: input.priceId,
       active: true,
       type: "recurring",
-      currency,
-      interval,
-      productId,
+      currency: input.currency.toLowerCase(),
+      interval: input.interval,
+      productId: input.productId ?? null,
     };
   } catch {
     return null;
