@@ -129,7 +129,15 @@ jobs:
               WHERE table_schema='public' AND table_name='printers' AND column_name='connection_type'
                 AND (column_default IS NULL OR column_default NOT LIKE '%network%')
             ) THEN RAISE EXCEPTION 'printers.connection_type default does not match the application contract (network)'; END IF;
-            FOREACH column_name_value IN ARRAY ARRAY['management_source','desired_revision','applied_desired_revision','observed_desired_revision','observed_device_class'] LOOP
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='api_keys' AND column_name='read_only_until'
+            ) THEN RAISE EXCEPTION 'api_keys.read_only_until is missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='api_keys_read_only_until_check'
+            ) THEN RAISE EXCEPTION 'Odoo key rotation state constraint is missing'; END IF;
+            FOREACH column_name_value IN ARRAY ARRAY['management_source','desired_revision','applied_desired_revision','observed_device_class'] LOOP
               IF NOT EXISTS (
                 SELECT 1 FROM information_schema.columns
                 WHERE table_schema='public' AND table_name='printers' AND column_name=column_name_value
