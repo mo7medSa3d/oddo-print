@@ -54,7 +54,7 @@ export async function POST(req: Request) {
         eq(tenantInvitations.email, email),
         isNull(tenantInvitations.acceptedAt),
         isNull(tenantInvitations.revokedAt),
-        gt(tenantInvitations.expiresAt, new Date()),
+        gt(tenantInvitations.expiresAt, sql`clock_timestamp()`),
       ),
       columns: { id: true },
     });
@@ -135,7 +135,7 @@ export async function DELETE(req: Request) {
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
   try {
     await db.transaction(async (tx) => {
-      const result = await tx.update(tenantInvitations).set({ revokedAt: new Date() }).where(and(eq(tenantInvitations.id, id), eq(tenantInvitations.tenantId, claims.tenantId), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt))).returning({ id: tenantInvitations.id });
+      const result = await tx.update(tenantInvitations).set({ revokedAt: sql`now()` }).where(and(eq(tenantInvitations.id, id), eq(tenantInvitations.tenantId, claims.tenantId), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt))).returning({ id: tenantInvitations.id });
       if (result.length !== 1) throw new Error("INVITATION_NOT_FOUND");
       await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "team.invitation.revoked", resourceType: "tenant_invitation", resourceId: id }, tx);
     });
