@@ -353,12 +353,14 @@ function WarnLine({ text }: { text: string }) {
   return <div className="flex items-start gap-2.5 rounded-[10px] border border-warn-edge bg-warn-bg px-3.5 py-3 text-[12.5px] text-warn"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{text}</span></div>;
 }
 
-function Notice({ tone, title, children }: { tone: "success" | "info" | "neutral"; title: string; children: React.ReactNode }) {
+function Notice({ tone, title, children }: { tone: "success" | "info" | "warn" | "neutral"; title: string; children: React.ReactNode }) {
   const classes = tone === "success"
     ? "border-ok-edge bg-ok-bg text-ok"
     : tone === "info"
       ? "border-info-edge bg-info-bg text-info"
-      : "border-edge bg-surface-2 text-ink-2";
+      : tone === "warn"
+        ? "border-warn-edge bg-warn-bg text-warn"
+        : "border-edge bg-surface-2 text-ink-2";
   const Icon = tone === "success" ? CheckCircle2 : AlertTriangle;
   return <div className={`flex items-start gap-3 rounded-[12px] border px-4 py-3.5 text-[13px] ${classes}`}><Icon className="mt-0.5 h-4 w-4 shrink-0" /><div><div className="font-semibold">{title}</div><div className="mt-0.5 leading-relaxed opacity-90">{children}</div></div></div>;
 }
