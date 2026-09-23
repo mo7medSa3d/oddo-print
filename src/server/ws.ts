@@ -3,6 +3,7 @@ import type { IncomingMessage, Server as HttpServer } from "http";
 import type { Duplex } from "node:stream";
 import type { PoolClient } from "pg";
 import { isIP } from "node:net";
+import { performance } from "node:perf_hooks";
 import { pool } from "../db";
 import { validateAgent } from "../lib/agent-auth";
 import { recordWsUpgradeSuccess, reserveWsUpgradeAttempt } from "../lib/ws-rate-limit";
@@ -49,10 +50,10 @@ const WS_MESSAGE_REFILL_PER_SECOND = 5;
 
 class TokenBucket {
   private tokens = WS_MESSAGE_BUCKET_CAPACITY;
-  private lastRefillMs = Date.now();
+  private lastRefillMs = performance.now();
 
   consume(cost = 1): boolean {
-    const now = Date.now();
+    const now = performance.now();
     const elapsed = Math.max(0, now - this.lastRefillMs) / 1000;
     this.tokens = Math.min(
       WS_MESSAGE_BUCKET_CAPACITY,
@@ -77,7 +78,7 @@ const WS_BUCKET_IDLE_TTL_MS = 60 * 60 * 1000; // prune limiters idle > 1 hour
 const WS_BUCKET_GC_INTERVAL_MS = 10 * 60 * 1000; // GC runs every 10 minutes
 
 function getBucketForAgent(agentId: string): TokenBucket {
-  const now = Date.now();
+  const now = performance.now();
   const existing = wsMessageBucketsByAgentId.get(agentId);
   if (existing) {
     existing.lastSeenMs = now;
@@ -88,7 +89,7 @@ function getBucketForAgent(agentId: string): TokenBucket {
   return bucket;
 }
 
-function pruneIdleWsBuckets(nowMs = Date.now()): number {
+function pruneIdleWsBuckets(nowMs = performance.now()): number {
   let pruned = 0;
   for (const [agentId, entry] of wsMessageBucketsByAgentId) {
     if (nowMs - entry.lastSeenMs > WS_BUCKET_IDLE_TTL_MS) {

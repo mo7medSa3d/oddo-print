@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { performance } from "node:perf_hooks";
 import { sql } from "drizzle-orm";
 
 const WINDOW_MS = 60_000;
@@ -24,7 +25,7 @@ function parseDbTimeMs(value: Date | string | null | undefined): number | null {
 
 const localLockedUntil = new Map<string, number>();
 
-export function isWsUpgradeLocallyLocked(key: string, now = Date.now()): boolean {
+export function isWsUpgradeLocallyLocked(key: string, now = performance.now()): boolean {
   const until = localLockedUntil.get(key) ?? 0;
   if (until <= now) {
     localLockedUntil.delete(key);
@@ -39,9 +40,12 @@ export async function recordWsUpgradeSuccess(key: string): Promise<void> {
 }
 
 export async function reserveWsUpgradeAttempt(key: string): Promise<{ allowed: true; retryAfterSec?: number } | { allowed: false; retryAfterSec: number }> {
-  const now = new Date();
-  const cutoff = new Date(now.getTime() - WINDOW_MS);
   return db.transaction(async (tx) => {
+    const clock = await tx.execute(sql`SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms`);
+    const nowMs = Number(clock.rows[0]?.now_ms);
+    if (!Number.isFinite(nowMs)) throw new Error("Database clock is unavailable");
+    const now = new Date(nowMs);
+    const cutoff = new Date(now.getTime() - WINDOW_MS);
     const bucketKey = `ws-upgrade:${key}`;
     await tx.execute(sql`
       INSERT INTO auth_rate_limits (key, failures, window_started_at, locked_until, updated_at)
@@ -63,7 +67,7 @@ export async function reserveWsUpgradeAttempt(key: string): Promise<{ allowed: t
 
     const existingLock = parseDbTimeMs(row.locked_until) ?? 0;
     if (existingLock > now.getTime()) {
-      localLockedUntil.set(key, existingLock);
+      localLockedUntil.set(key, performance.now() + Math.max(1, Math.ceil((existingLock - now.getTime()) / 1000)) * 1000);
       return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((existingLock - now.getTime()) / 1000)) } as const;
     }
 
@@ -84,7 +88,7 @@ export async function reserveWsUpgradeAttempt(key: string): Promise<{ allowed: t
 
     if (!lockedUntil) return { allowed: true } as const;
     const retryAfterSec = Math.max(1, Math.ceil((lockedUntil.getTime() - now.getTime()) / 1000));
-    localLockedUntil.set(key, lockedUntil.getTime());
+    localLockedUntil.set(key, performance.now() + retryAfterSec * 1000);
     // The reservation itself is allowed; a failed authentication on this
     // attempt should return 429 and the next attempt is already blocked.
     return { allowed: true, retryAfterSec } as const;

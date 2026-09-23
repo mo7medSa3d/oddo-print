@@ -1390,6 +1390,28 @@ class PrintGatewayJob(models.Model):
             },
         }
 
+    def _schedule_postcommit_submission(self, job_id):
+        """Submit an explicit operator reprint only after its Odoo row commits.
+
+        The outbox row is durable before the remote side effect. A UI action
+        transaction may still roll back after this method returns; sending to
+        the Gateway before commit could therefore create a remote print with
+        no surviving Odoo job. The post-commit hook turns the local row into
+        the durable hand-off point, while the Gateway's own retries remain
+        available if the first post-commit attempt fails.
+        """
+        def submit():
+            try:
+                self.env["print_gateway.print_router"]._submit_durable_job(job_id)
+            except Exception as exc:
+                _logger.error(
+                    "Post-commit submission failed for explicit Odoo reprint job %s; "
+                    "the durable outbox row remains queued for cron recovery: %s",
+                    job_id,
+                    exc,
+                )
+        self.env.cr.postcommit.add(submit)
+
     def action_retry(self):
         self._require_outbox_write()
         """Create a new logical print operation only from a definitely failed job.
@@ -1429,7 +1451,7 @@ class PrintGatewayJob(models.Model):
                 report=job.report_id,
                 idempotency_key=uuid.uuid4().hex,
             )
-            retry.with_context(_print_gateway_submission_precommit=True).action_submit()
+            self._schedule_postcommit_submission(retry.id)
             retried_jobs |= retry
         return {
             "type": "ir.actions.client",
@@ -1507,7 +1529,7 @@ class PrintGatewayJob(models.Model):
                 (new_count, job.id),
             )
             job.invalidate_recordset(["reprint_attempt_count"])
-            retry.with_context(_print_gateway_submission_precommit=True).action_submit()
+            self._schedule_postcommit_submission(retry.id)
             reprinted_jobs |= retry
         return {
             "type": "ir.actions.client",

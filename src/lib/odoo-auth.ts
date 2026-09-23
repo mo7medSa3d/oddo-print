@@ -3,6 +3,7 @@ import { apiKeys } from "../db/schema";
 import { and, eq } from "drizzle-orm";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { requireActiveTenantOrNull } from "./tenant-guard";
+import { gatewayNow } from "./database-clock";
 
 function hashKey(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
@@ -39,7 +40,7 @@ export async function validateOdooKey(
 
   const hashed = hashKey(raw);
   const row = await db.query.apiKeys.findFirst({ where: eq(apiKeys.hashedKey, hashed) });
-  const now = new Date();
+  const now = gatewayNow();
   const rotationGraceActive = Boolean(
     row?.revokedAt &&
     row.readOnlyUntil &&

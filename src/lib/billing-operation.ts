@@ -104,7 +104,7 @@ export async function runBillingOperation(
           billingOperationType: null,
           billingOperationIdempotencyKey: null,
           billingOperationSubscriptionId: null,
-          updatedAt: new Date(),
+          updatedAt: sql`clock_timestamp()`,
         })
         .where(eq(tenantSubscriptions.tenantId, tenantId));
       row.billingOperationId = null;
@@ -138,7 +138,7 @@ export async function runBillingOperation(
         billingOperationType: operation.type,
         billingOperationIdempotencyKey: idempotencyKey,
         billingOperationSubscriptionId: row.stripeSubscriptionId,
-        updatedAt: new Date(),
+        updatedAt: sql`clock_timestamp()`,
       })
       .where(eq(tenantSubscriptions.tenantId, tenantId));
 
@@ -199,7 +199,7 @@ export async function runBillingOperation(
             billingOperationType: null,
             billingOperationIdempotencyKey: null,
             billingOperationSubscriptionId: null,
-            updatedAt: new Date(),
+            updatedAt: sql`clock_timestamp()`,
           })
           .where(eq(tenantSubscriptions.tenantId, tenantId));
         return { kind: "stale_identity" as const };
@@ -212,7 +212,7 @@ export async function runBillingOperation(
           billingOperationType: null,
           billingOperationIdempotencyKey: null,
           billingOperationSubscriptionId: null,
-          updatedAt: new Date(),
+          updatedAt: sql`clock_timestamp()`,
         })
         .where(eq(tenantSubscriptions.tenantId, tenantId));
       return { kind: "updated" as const };
