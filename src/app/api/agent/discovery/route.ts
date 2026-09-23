@@ -162,38 +162,38 @@ export async function POST(req: Request) {
       }
 
       if (identityRows.length > 0) {
-        const inserted = await tx.insert(discoveredDevices)
+        const upserted = await tx.insert(discoveredDevices)
           .values(identityRows)
           .onConflictDoUpdate({
             target: [discoveredDevices.tenantId, discoveredDevices.agentId, discoveredDevices.identityKey],
             set: {
-              discoveryId: sql`EXCLUDED.discovery_id`,
-              source: sql`EXCLUDED.source`,
-              protocol: sql`EXCLUDED.protocol`,
-              ipAddress: sql`EXCLUDED.ip_address`,
-              hostname: sql`EXCLUDED.hostname`,
-              port: sql`EXCLUDED.port`,
-              uri: sql`EXCLUDED.uri`,
-              deviceName: sql`EXCLUDED.device_name`,
-              spoolerName: sql`EXCLUDED.spooler_name`,
-              deviceClass: sql`EXCLUDED.device_class`,
-              transport: sql`EXCLUDED.transport`,
-              manufacturer: sql`EXCLUDED.manufacturer`,
-              model: sql`EXCLUDED.model`,
-              serialNumber: sql`EXCLUDED.serial_number`,
-              capabilities: sql`EXCLUDED.capabilities`,
-              rawMetadata: sql`EXCLUDED.raw_metadata`,
+              discoveryId: sql`excluded.discovery_id`,
+              source: sql`excluded.source`,
+              protocol: sql`excluded.protocol`,
+              ipAddress: sql`excluded.ip_address`,
+              hostname: sql`excluded.hostname`,
+              port: sql`excluded.port`,
+              uri: sql`excluded.uri`,
+              deviceName: sql`excluded.device_name`,
+              spoolerName: sql`excluded.spooler_name`,
+              deviceClass: sql`excluded.device_class`,
+              transport: sql`excluded.transport`,
+              manufacturer: sql`excluded.manufacturer`,
+              model: sql`excluded.model`,
+              serialNumber: sql`excluded.serial_number`,
+              capabilities: sql`excluded.capabilities`,
+              rawMetadata: sql`excluded.raw_metadata`,
               lastSeenAt: sql`now()`,
               updatedAt: sql`now()`,
             },
           })
-          .returning({ id: discoveredDevices.id });
+          .returning({ id: discoveredDevices.id, inserted: sql<boolean>`xmax = 0` });
 
-        // PostgreSQL returns one row for both insert and update. Track inserts
-        // separately so the API can expose useful sync metrics without making
-        // correctness depend on application-side bookkeeping.
-        insertedCount += Math.min(inserted.length, identityRows.length);
-        updatedCount += Math.max(identityRows.length - inserted.length, 0);
+        // PostgreSQL's tuple metadata distinguishes INSERT (xmax=0) from the
+        // UPDATE side of ON CONFLICT, keeping the metrics truthful without a
+        // second race-prone read.
+        insertedCount += upserted.filter((row) => row.inserted).length;
+        updatedCount += upserted.filter((row) => !row.inserted).length;
       }
     }
 
