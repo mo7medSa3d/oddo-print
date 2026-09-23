@@ -216,6 +216,14 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn('widget="gateway_runtime_agent_binding"', view_source)
         self.assertNotIn("assignment_only", view_source)
 
+    def test_gateway_time_authority_has_no_local_agent_expiry_gate(self):
+        agent_source = (Path(__file__).resolve().parents[3] / "agent" / "internal" / "agent" / "agent.go").read_text(encoding="utf-8")
+        self.assertNotIn("Job %s expired before agent processing. Skipping.", agent_source)
+        self.assertNotIn("time.Now().UTC().After(expiresAt.UTC())", agent_source)
+
+        gateway_source = (Path(__file__).resolve().parents[3] / "src" / "app" / "api" / "agent" / "jobs" / "route.ts").read_text(encoding="utf-8")
+        self.assertIn('requestedStatus === "printing"', gateway_source)
+        self.assertIn("${printJobs.expiresAt} > now()", gateway_source)
     def test_automated_hooks_delegate_to_one_policy_dispatcher(self):
         for filename, trigger in (
             ("account_move.py", "invoice_posted"),
