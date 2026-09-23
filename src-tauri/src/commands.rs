@@ -157,10 +157,12 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     if scheme != "https" && scheme != "http" {
         return Err("gateway URL must use http:// or https://".into());
     }
+    let remote_http = scheme == "http";
     // This isolated test branch intentionally accepts remote HTTP so the Azure
     // HTTP test Gateway can be exercised directly by IP before DNS/TLS exists.
-    if scheme == "http" {
-        return Ok(parsed.as_str().trim_end_matches('/').to_string());
+    if remote_http {
+        // HTTP is permitted only in this isolated test branch; URL credential
+        // and query/fragment validation below remains mandatory.
     }
     if parsed.username() != "" || parsed.password().is_some() {
         return Err("gateway URL cannot include embedded credentials".into());
