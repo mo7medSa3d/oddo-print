@@ -733,13 +733,26 @@ export default function DashboardClient({
       )}
 
       {activePairing && (
-        <div className="flex items-center justify-between rounded-xl border border-ink bg-ink px-6 py-4 text-white">
-          <div className="flex items-center gap-5">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Pairing</div>
-            <div className="font-mono text-[24px] font-bold tracking-[0.3em]">{activePairing.code}</div>
-            <div className="text-[12px] tabular-nums text-ink-4">{countdownText}</div>
+        <div className="rounded-[14px] border border-edge-accent bg-surface-accent px-5 py-4 shadow-card sm:px-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand">Agent pairing</span>
+                <span className="inline-flex items-center rounded-full border border-edge bg-surface px-2.5 py-1 text-[10px] font-semibold tabular-nums text-ink-3">
+                  Expires in {countdownText}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2.5">
+                <code className="inline-flex min-h-11 items-center rounded-[10px] border border-edge bg-surface px-3.5 font-mono text-[22px] font-bold tracking-[0.24em] text-ink shadow-xs">
+                  {activePairing.code}
+                </code>
+                <Button variant="secondary" size="sm" onClick={() => copyPairingCode(activePairing.code)} icon={<Copy className="h-4 w-4" />}>
+                  {copiedCode ? "Copied" : "Copy code"}
+                </Button>
+              </div>
+              <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">Enter this code in the Windows Agent to pair this machine with the Gateway.</p>
+            </div>
           </div>
-          <Button variant="secondary" size="sm" onClick={() => copyPairingCode(activePairing.code)} icon={<Copy className="h-4 w-4" />}>{copiedCode ? "Copied" : "Copy"}</Button>
         </div>
       )}
 
