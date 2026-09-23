@@ -348,5 +348,6 @@ def test_agent_registration_pairing_uses_database_clock():
     actions = (ROOT / "src" / "app" / "actions.ts").read_text(encoding="utf-8")
     register = (ROOT / "src" / "app" / "api" / "agent" / "register" / "route.ts").read_text(encoding="utf-8")
     assert "clock_timestamp() + interval '10 minutes'" in actions
-    assert "gt(agents.pairingCodeExpiresAt, dbNow)" in register
+    assert "pairing_code_expires_at > clock_timestamp()" in register
+    assert "FOR UPDATE" in register
     assert "const now = new Date()" not in register

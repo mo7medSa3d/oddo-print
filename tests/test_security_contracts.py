@@ -255,7 +255,7 @@ def test_plan_catalog_uses_shared_canonical_entitlement_normalizer():
 
 def test_failover_binding_is_same_route_scope_and_execution_rechecks_it():
     binding = read("odoo_addons/print_gateway/models/binding.py")
-    assert '("branch_id", "=", branch_id)' in binding
+    assert "('branch_id', '=', branch_id)" in binding
     assert "def _check_fallback_binding_scope" in binding
     assert "fallback.company_id != record.company_id or fallback.branch_id != record.branch_id" in binding
     assert "fallback.destination_type != record.destination_type" in binding
