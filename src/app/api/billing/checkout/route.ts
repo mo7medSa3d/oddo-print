@@ -200,7 +200,7 @@ export async function POST(req: Request) {
               checkoutSessionId: null,
               checkoutSessionUrl: null,
               checkoutSessionExpiresAt: null,
-              updatedAt: new Date(),
+              updatedAt: sql`clock_timestamp()`,
             })
             .where(eq(tenantSubscriptions.tenantId, claims.tenantId));
         } else {
@@ -308,7 +308,7 @@ export async function POST(req: Request) {
         if (!current) throw new Error("TENANT_SUBSCRIPTION_MISSING");
         if (!current.stripeCustomerId) {
           await tx.update(tenantSubscriptions)
-            .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+            .set({ stripeCustomerId: customerId, updatedAt: sql`clock_timestamp()` })
             .where(eq(tenantSubscriptions.tenantId, claims.tenantId));
         } else {
           customerId = current.stripeCustomerId;
@@ -373,7 +373,7 @@ export async function POST(req: Request) {
           checkoutSessionId: session.id,
           checkoutSessionUrl: session.url,
           checkoutSessionExpiresAt: sessionExpiresAt,
-          updatedAt: new Date(),
+          updatedAt: sql`clock_timestamp()`,
         })
         .where(and(
           eq(tenantSubscriptions.tenantId, claims.tenantId),
