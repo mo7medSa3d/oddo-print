@@ -235,8 +235,9 @@ suite("discovery trust and approval flow", () => {
       ipAddress: "192.168.10.60", port: 9100, deviceName: "Receipt Renamed",
     }]);
     expect(second.status).toBe(200);
-    expect((await second.json()).inserted).toBe(0);
-    expect((await second.json()).updated).toBe(1);
+    const secondBody = await second.json();
+    expect(secondBody.inserted).toBe(0);
+    expect(secondBody.updated).toBe(1);
 
     const rows = await pool().query(
       `SELECT id, discovery_id, identity_key, device_name FROM discovered_devices
