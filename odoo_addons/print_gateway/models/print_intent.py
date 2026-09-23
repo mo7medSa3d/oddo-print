@@ -10,6 +10,8 @@ from psycopg2 import IntegrityError
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, ValidationError
 
+from ..runtime_clock import db_now_utc
+
 _logger = logging.getLogger(__name__)
 
 
@@ -88,11 +90,11 @@ class PrintGatewayIntent(models.Model):
         """Atomically claim intent with a unique token in an independent transaction (or provided cursor).
         Returns claim_token if acquired, or None if already claimed, fresh, or non-retryable."""
         claim_token = uuid.uuid4().hex
-        now = fields.Datetime.now()
-        stale_threshold = now - datetime.timedelta(minutes=5)
         manage_cr = cr is None
         try:
             target_cr = env.registry.cursor() if manage_cr else cr
+            now = db_now_utc(target_cr)
+            stale_threshold = now - datetime.timedelta(minutes=5)
             try:
                 target_cr.execute("""
                     UPDATE print_gateway_intent
@@ -210,7 +212,7 @@ class PrintGatewayIntent(models.Model):
                 next_retry = False
                 if intent.attempts < intent.max_attempts:
                     delay_sec = min(300, 15 * (2 ** max(0, intent.attempts - 1)))
-                    next_retry = fields.Datetime.now() + datetime.timedelta(seconds=delay_sec)
+                    next_retry = db_now_utc(cr) + datetime.timedelta(seconds=delay_sec)
                 target_status = "failed" if intent.attempts >= intent.max_attempts else "pending"
                 cls._finalize_intent_state(
                     env, intent_id, claim_token,
@@ -242,7 +244,7 @@ class PrintGatewayIntent(models.Model):
                 _logger.info("Print intent %s already completed (%s) for %s(%s); skipping duplicate dispatch.", key[:12], existing.status, record._name, record.id)
                 return existing
             elif existing.status == "claimed":
-                now = fields.Datetime.now()
+                now = db_now_utc(self.env.cr)
                 if existing.claimed_at and (now - existing.claimed_at).total_seconds() < 300:
                     _logger.info("Print intent %s is actively being processed by another worker; skipping duplicate dispatch.", key[:12])
                     return existing
@@ -329,7 +331,7 @@ class PrintGatewayIntent(models.Model):
         # which all enforce the outbox write ACL.
         if not self.env.user.has_group("base.group_system"):
             raise AccessError(_("Only scheduled actions (administrator) may run this method."))
-        now = fields.Datetime.now()
+        now = db_now_utc(self.env.cr)
         stale_threshold = now - datetime.timedelta(minutes=5)
 
         candidates = self.search([
