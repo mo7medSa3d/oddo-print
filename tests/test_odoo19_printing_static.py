@@ -285,3 +285,25 @@ def test_odoo_integration_guide_matches_current_module_architecture():
     assert "report_interceptor.js" in guide
     assert "runtime_agent_assignment" in guide
     assert "company-wide assignment inherited by its branches" in guide
+
+
+def test_critical_addon_models_have_no_duplicate_methods():
+    import ast
+
+    for rel in (
+        "models/binding.py",
+        "models/runtime_assignment.py",
+        "models/print_router.py",
+        "controllers/runtime_printers.py",
+    ):
+        source = read(rel)
+        tree = ast.parse(source, filename=rel)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                methods = [
+                    child.name
+                    for child in node.body
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                ]
+                duplicates = sorted({name for name in methods if methods.count(name) > 1})
+                assert not duplicates, f"{rel}::{node.name} defines duplicate methods: {duplicates}"
