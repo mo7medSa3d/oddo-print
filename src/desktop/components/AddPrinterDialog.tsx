@@ -9,7 +9,7 @@ import {
   ErrorState,
 } from "../../components/ui";
 import { fetchGatewayAgents, registerGatewayPrinter, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
-import { errMsg, friendlyPrinterError, isProductionPrinter } from "../lib/printers";
+import { errMsg, friendlyGatewayError, friendlyPrinterError, isProductionPrinter } from "../lib/printers";
 
 type Conn = "spooler" | "network" | "usb" | "ipp" | "ipps";
 
@@ -162,7 +162,7 @@ export function AddPrinterDialog({
       onClose();
       reset();
     } catch (e) {
-      setError(friendlyPrinterError(errMsg(e)));
+      setError(friendlyGatewayError(errMsg(e)));
     } finally {
       setBusy(false);
     }
