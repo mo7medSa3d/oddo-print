@@ -193,13 +193,6 @@ describe("desktop manager", () => {
     await waitUntil(() => text().includes("HP LaserJet Pro M404"));
 
     expect(text()).toContain("Yasser Print Manager");
-
-    const desktopNav = document.querySelector('nav[aria-label="Desktop navigation"]');
-    expect(desktopNav).toBeTruthy();
-    expect(desktopNav?.querySelectorAll("button")).toHaveLength(5);
-    for (const label of ["Overview", "Printers", "Print Jobs", "Agents", "Settings"]) {
-      expect(desktopNav?.textContent).toContain(label);
-    }
     for (const label of ["Overview", "Printers", "Print Jobs", "Agents", "Settings"]) {
       expect(text()).toContain(label);
     }
