@@ -4,7 +4,6 @@
 import json
 import logging
 
-from psycopg2 import IntegrityError
 import requests
 
 from odoo import api, fields, models, _
