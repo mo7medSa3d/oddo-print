@@ -8,7 +8,7 @@ import { nanoid } from "../lib/nanoid";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { generatePairingCode, hashPairingCode } from "../lib/agent-auth";
-import { getManagerCookieName, verifyManagerToken, validateManagerClaims } from "../lib/manager-auth";
+import { getManagerCookieName, verifyManagerToken } from "../lib/manager-auth";
 import { createPrintJobForPrinter } from "../lib/print-job-service";
 import {
   isTerminal,
@@ -29,7 +29,7 @@ import { gatewayNow } from "../lib/database-clock";
 
 async function requireManager() {
   const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
-  const claims = await validateManagerClaims(token ? verifyManagerToken(token) : null);
+  const claims = token ? await verifyManagerToken(token) : null;
   if (!claims) throw new ActionError("Your manager session has expired. Sign in again.", 401);
   return claims;
 }
