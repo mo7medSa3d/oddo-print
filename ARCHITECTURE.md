@@ -151,7 +151,7 @@ claimed → queued (fenced rejection / lease timeout)
 | Agent → Gateway | Bearer token: `{agentId}:{secret}` with SHA-256 hash comparison (timing-safe) |
 | Odoo → Gateway | API key (Bearer token) with SHA-256 hash lookup |
 | Manager → Gateway | JWT with per-session JTI, stored in `manager_sessions` |
-| Customer → Gateway | Email/password with bcrypt hash, email verification, rate limiting |
+| Customer → Gateway | Email/password with Argon2id hash; legacy scrypt hashes are upgraded on successful login, with email verification and rate limiting |
 | Proxy → Gateway | `TRUST_PROXY_SECRET` header validation (≥32 chars, reject known placeholders) |
 
 ### Rate Limiting
@@ -173,7 +173,7 @@ claimed → queued (fenced rejection / lease timeout)
 
 ### PostgreSQL + Drizzle ORM
 
-**Schema**: 24 tables defined in `src/db/schema.ts`
+**Schema**: 25 tables defined in `src/db/schema.ts`
 **Migrations**: 70 forward-only migrations (`0000`–`0069`) in `drizzle/`
 **Driver**: `pg` 8.23.0 with connection pool
 
@@ -262,9 +262,10 @@ one authority per decision:
 4. Durations, not instants, cross system boundaries: the Gateway returns
    `Retry-After` seconds computed on its own clock, and Odoo/Agent apply them to
    their own clock.
-5. Authentication tokens (`manager`/`platform` JWTs and session rows) are minted
-   and validated by the same process and therefore stay on the host clock by
-   design; `cleanupExpired*` jobs compare them against that same clock.
+5. Manager/platform sessions and tenant-selection tokens use PostgreSQL time for
+   their signed `iat`/`exp` values and session-expiry predicates. Host wall-clock
+   time is not an authority for authentication validity; cleanup predicates also
+   use database time.
 
 **Enforcement**: `tests/database-clock.test.ts` (unit, behaviour and source
 contracts) and `tests/database-clock.integration.test.ts` (live calibration,
