@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Button, Field, Input, Modal, Select } from "../../components/ui";
+import { friendlyGatewayError } from "../lib/printers";
 import { updateGatewayPrinter, type PrinterInfo } from "../lib/ipc";
 
 type ConnectionType = "network" | "spooler" | "usb" | "ipp" | "ipps";
@@ -179,7 +180,7 @@ export function EditPrinterDialog({
       await onSaved();
       onClose();
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Could not update printer.");
+      onError(friendlyGatewayError(e instanceof Error ? e.message : "Could not update printer."));
     } finally {
       setBusy(false);
     }
