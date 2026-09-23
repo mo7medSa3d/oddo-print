@@ -8,6 +8,14 @@ describe("Odoo runtime agent picker contract", () => {
       join(process.cwd(), "odoo_addons/print_gateway/static/src/components/runtime_agent_field.js"),
       "utf8",
     );
+    const bindingView = readFileSync(
+      join(process.cwd(), "odoo_addons/print_gateway/views/binding_views.xml"),
+      "utf8",
+    );
+    const assignmentView = readFileSync(
+      join(process.cwd(), "odoo_addons/print_gateway/views/runtime_assignment_views.xml"),
+      "utf8",
+    );
 
     expect(source).toContain("extractProps: ({ options }) => ({");
     expect(source).toContain("assignmentOnly: Boolean(options?.assignment_only)");
@@ -17,5 +25,9 @@ describe("Odoo runtime agent picker contract", () => {
     expect(source).toContain("extractProps: () => ({");
     expect(source).toContain("assignmentOnly: true,");
     expect(source).toContain('"gateway_runtime_agent_binding"');
+    expect(bindingView).toContain('widget="gateway_runtime_agent_binding"');
+    expect(bindingView).not.toContain("options="{'assignment_only': true}"");
+    expect(assignmentView).toContain('widget="gateway_runtime_agent"');
+    expect(assignmentView).not.toContain('widget="gateway_runtime_agent_binding"');
   });
 });
