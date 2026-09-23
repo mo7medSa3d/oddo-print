@@ -216,6 +216,11 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn('widget="gateway_runtime_agent_binding"', view_source)
         self.assertNotIn("assignment_only", view_source)
 
+    def test_policy_scope_domain_matches_backend_invariant(self):
+        model_source = (MODELS / "print_policy.py").read_text(encoding="utf-8")
+        self.assertIn("domain=\"[('company_id', '=', company_id), ('branch_id', '=', branch_id)]\"", model_source)
+        self.assertIn("Optional explicit Print Rule for this exact Odoo Company and Branch scope.", model_source)
+
     def test_automation_binding_picker_is_scope_filtered(self):
         source = (VIEWS / "print_policy_views.xml").read_text(encoding="utf-8")
         self.assertIn("('company_id', '=', company_id)", source)
