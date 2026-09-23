@@ -850,14 +850,79 @@ class PrintGatewayJob(models.Model):
                         # Quota/entitlement throttling is a definite server-side
                         # rejection: the Gateway did not accept a new job, so
                         # retrying the same idempotency key is physically safe.
-                        # Honor Retry-After when present and clamp it to a sane
-                        # range so a malformed header cannot create a runaway delay.
+                        # Preserve the retry queue, but surface a structured
+                        # billing-limit signal to interactive Odoo clients.
                         retry_after = 60
                         try:
                             retry_after = int(response.headers.get("Retry-After", "60"))
                         except (TypeError, ValueError):
                             retry_after = 60
                         retry_after = min(3600, max(5, retry_after))
+
+                        try:
+                            rate_body = response.json()
+                        except (ValueError, TypeError):
+                            rate_body = {}
+
+                        entitlement = str(rate_body.get("entitlement") or "").strip()
+                        allowed_entitlements = {
+                            "max_agents",
+                            "max_printers",
+                            "max_jobs_per_minute",
+                            "max_concurrent_jobs",
+                            "max_prints_per_period",
+                        }
+                        billing_limit = bool(rate_body.get("upgradeRequired")) and entitlement in allowed_entitlements
+                        if billing_limit:
+                            raw_limit = rate_body.get("limit")
+                            raw_used = rate_body.get("used")
+                            limit = int(raw_limit) if isinstance(raw_limit, (int, float)) and int(raw_limit) >= 1 else 0
+                            used = int(raw_used) if isinstance(raw_used, (int, float)) and int(raw_used) >= 0 else limit
+                            period_end = rate_body.get("periodEnd")
+                            period_end = str(period_end) if period_end else None
+
+                            now = fields.Datetime.now()
+                            next_retry = now + datetime.timedelta(seconds=retry_after)
+                            if entitlement == "max_prints_per_period" and period_end:
+                                try:
+                                    candidate = fields.Datetime.to_datetime(period_end)
+                                    if candidate and candidate > now:
+                                        next_retry = candidate
+                                except (TypeError, ValueError):
+                                    pass
+
+                            values = {
+                                "status": "queued",
+                                "attempts": job.attempts + 1,
+                                "last_error": "GATEWAY_BILLING_LIMIT_REACHED: %s (limit %s, used %s)" % (entitlement, limit or "unknown", used),
+                                "next_retry_at": next_retry,
+                            }
+                            if raise_on_failure:
+                                job._persist_state(values)
+                            else:
+                                job.write(values)
+
+                            message_map = {
+                                "max_agents": _("Your Gateway plan has reached its Agent limit."),
+                                "max_printers": _("Your Gateway plan has reached its Printer limit."),
+                                "max_jobs_per_minute": _("Your Gateway plan has reached its print rate limit."),
+                                "max_concurrent_jobs": _("Your Gateway plan has reached its concurrent print-job limit."),
+                                "max_prints_per_period": _("Your Gateway plan has used all included print jobs for this billing period."),
+                            }
+                            marker_payload = {
+                                "code": str(rate_body.get("code") or "TENANT_ENTITLEMENT_EXCEEDED"),
+                                "entitlement": entitlement,
+                                "limit": limit if limit else None,
+                                "used": used,
+                                "message": message_map[entitlement],
+                                "retryAfterSeconds": retry_after,
+                                "periodEnd": period_end,
+                            }
+                            marker_message = "GATEWAY_BILLING_LIMIT:" + json.dumps(marker_payload, separators=(",", ":"))
+                            if raise_on_failure:
+                                raise ValidationError(marker_message)
+                            break
+
                         values = {
                             "status": "queued",
                             "attempts": job.attempts + 1,
@@ -869,7 +934,7 @@ class PrintGatewayJob(models.Model):
                         else:
                             job.write(values)
                         if raise_on_failure:
-                            raise ValidationError(_("Gateway is temporarily rate-limiting print submissions. The job was safely re-queued for retry.")) 
+                            raise ValidationError(_("Gateway is temporarily rate-limiting print submissions. The job was safely re-queued for retry."))
                         break
 
                     if response.status_code not in (200, 201):
