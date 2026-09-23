@@ -276,3 +276,12 @@ def test_gateway_config_auto_syncs_activation_toggle_without_manual_refresh():
     # finally block reading the authoritative persisted state.
     assert source.count('await this.model.load({ resId });') == 1
 
+
+
+def test_odoo_integration_guide_matches_current_module_architecture():
+    guide = (ROOT / "ODOO_INTEGRATION.md").read_text(encoding="utf-8")
+    assert "Version: 19.0.2.8.0" in guide
+    assert "report_download_override.py" not in guide
+    assert "report_interceptor.js" in guide
+    assert "runtime_agent_assignment" in guide
+    assert "company-wide assignment inherited by its branches" in guide
