@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   const claims = await validateManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "users.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const rows = await db.select({ id: tenantInvitations.id, email: tenantInvitations.email, role: tenantInvitations.role, expiresAt: tenantInvitations.expiresAt, createdAt: tenantInvitations.createdAt })
-    .from(tenantInvitations).where(and(eq(tenantInvitations.tenantId, claims.tenantId), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt), gt(tenantInvitations.expiresAt, new Date())));
+    .from(tenantInvitations).where(and(eq(tenantInvitations.tenantId, claims.tenantId), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt), gt(tenantInvitations.expiresAt, sql`clock_timestamp()`)));
   return NextResponse.json({ invitations: rows });
 }
 
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   if (!email || !ROLES.includes(role as (typeof ROLES)[number])) return NextResponse.json({ error: "Invalid invitation" }, { status: 400 });
   const raw = generateOpaqueToken();
   const id = `inv_${nanoid(18)}`;
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000);
+  const expiresAt = sql`clock_timestamp() + interval '7 days'`;
   try {
     await db.transaction(async (tx) => {
       // Lock the tenant row before checking for another active invitation so
@@ -96,7 +96,7 @@ export async function POST(req: Request) {
   } catch {
     const revoked = await db.transaction(async (tx) => {
       const result = await tx.update(tenantInvitations)
-        .set({ revokedAt: new Date() })
+        .set({ revokedAt: sql`now()` })
         .where(and(
           eq(tenantInvitations.id, id),
           isNull(tenantInvitations.acceptedAt),
