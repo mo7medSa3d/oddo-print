@@ -13,8 +13,10 @@ vi.mock("../src/db", () => ({
   },
 }));
 
+const requireActiveTenantOrNull = vi.fn().mockResolvedValue("active");
+
 vi.mock("../src/lib/tenant-guard", () => ({
-  requireActiveTenant: vi.fn().mockResolvedValue("active"),
+  requireActiveTenantOrNull,
   TenantSuspendedError: class TenantSuspendedError extends Error {},
   TenantDeletedError: class TenantDeletedError extends Error {},
 }));
@@ -110,6 +112,13 @@ describe("Odoo API-key authentication ignores the database name", () => {
     });
     const req = post({ authorization: "Bearer odoo_testkey" });
     await expect(validateOdooKey(req)).resolves.toBeNull();
+  });
+
+  it("propagates unexpected tenant database errors instead of treating them as bad credentials", async () => {
+    const failure = new Error("database temporarily unavailable");
+    requireActiveTenantOrNull.mockRejectedValueOnce(failure);
+    const req = post({ authorization: "Bearer odoo_testkey" });
+    await expect(validateOdooKey(req)).rejects.toBe(failure);
   });
 
   it("rejects keys without the odoo_ prefix", async () => {
