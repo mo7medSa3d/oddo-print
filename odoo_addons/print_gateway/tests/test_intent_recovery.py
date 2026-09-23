@@ -10,7 +10,7 @@ class TestPrintGatewayIntentRecovery(TransactionCase):
         """Exhausted failures must not consume the cron's bounded recovery batch."""
         cr = self.env.registry.cursor()
         try:
-            env = api.Environment(cr, self.uid, dict(self.env.context))
+            env = api.Environment(cr, self.env.uid, dict(self.env.context))
             company = env.company
             stock_model = env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
             self.assertTrue(stock_model)
@@ -54,14 +54,14 @@ class TestPrintGatewayIntentRecovery(TransactionCase):
 
         cr = self.env.registry.cursor()
         try:
-            env = api.Environment(cr, self.uid, dict(self.env.context))
+            env = api.Environment(cr, self.env.uid, dict(self.env.context))
             recovered = env["print_gateway.intent"].cron_recover_pending_intents()
         finally:
             cr.close()
 
         verify = self.env.registry.cursor()
         try:
-            env = api.Environment(verify, self.uid, dict(self.env.context))
+            env = api.Environment(verify, self.env.uid, dict(self.env.context))
             row = env["print_gateway.intent"].browse(retryable_id).exists()
             self.assertTrue(row)
             self.assertEqual(row.status, "skipped")
