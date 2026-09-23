@@ -10,6 +10,7 @@ import {
 } from "../../components/ui";
 import { fetchGatewayAgents, registerGatewayPrinter, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
 import { errMsg, friendlyGatewayError, friendlyPrinterError, isProductionPrinter } from "../lib/printers";
+import UpgradeLimitDialog, { type UpgradeLimitResource } from "../../components/UpgradeLimitDialog";
 
 type Conn = "spooler" | "network" | "usb" | "ipp" | "ipps";
 
@@ -38,6 +39,11 @@ export function AddPrinterDialog({
   const [busy, setBusy] = useState(false);
   const [agents, setAgents] = useState<Array<{ id: string; name: string; status?: string; lifecycle?: string }>>([]);
   const [agentId, setAgentId] = useState("");
+  const [upgradeLimit, setUpgradeLimit] = useState<{
+    resource: UpgradeLimitResource;
+    used?: number | null;
+    limit?: number | "unlimited" | null;
+  } | null>(null);
 
   const loadAgents = useCallback(async () => {
     if (!gatewayUrl || agents.length > 0) return;
@@ -162,7 +168,28 @@ export function AddPrinterDialog({
       onClose();
       reset();
     } catch (e) {
-      setError(friendlyGatewayError(errMsg(e)));
+      const raw = errMsg(e);
+      let parsed: Record<string, unknown> = {};
+      try {
+        const value = JSON.parse(raw);
+        if (value && typeof value === "object") parsed = value as Record<string, unknown>;
+      } catch {
+        // Keep the normal friendly Gateway error path for non-JSON failures.
+      }
+      const entitlement = typeof parsed.entitlement === "string" ? parsed.entitlement : "";
+      if (
+        parsed.upgradeRequired === true &&
+        (entitlement === "max_printers" || parsed.code === "MAX_PRINTERS_EXCEEDED")
+      ) {
+        setError(null);
+        setUpgradeLimit({
+          resource: "printers",
+          used: typeof parsed.used === "number" ? parsed.used : null,
+          limit: typeof parsed.limit === "number" || parsed.limit === "unlimited" ? parsed.limit : null,
+        });
+      } else {
+        setError(friendlyGatewayError(raw));
+      }
     } finally {
       setBusy(false);
     }
@@ -332,5 +359,13 @@ export function AddPrinterDialog({
         {error && <ErrorState title="Cannot add printer" message={error} />}
       </div>
     </Modal>
+
+    <UpgradeLimitDialog
+      open={upgradeLimit !== null}
+      onClose={() => setUpgradeLimit(null)}
+      resource={upgradeLimit?.resource ?? "printers"}
+      used={upgradeLimit?.used}
+      limit={upgradeLimit?.limit}
+    />
   );
 }
