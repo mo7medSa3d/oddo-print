@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function SystemHealthPage() {
   const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
-  const claims = await validateManagerClaims(token ? verifyManagerToken(token) : null);
+  const claims = token ? await verifyManagerToken(token) : null;
   if (!claims) redirect("/login");
 
   return (
