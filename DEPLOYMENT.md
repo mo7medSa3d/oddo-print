@@ -69,7 +69,7 @@ NODE_ENV=production npm start
 
 ### 3. Configure Reverse Proxy (Caddy Example)
 
-Production startup requires `TRUST_PROXY=1`, a real `TRUST_PROXY_SECRET`, and a clean HTTPS `APP_BASE_URL`. The bundled Docker Compose keeps Gateway port 3000 private with Caddy as the public TLS entry point. Do not publish Gateway port 3000 directly to the Internet.
+Production startup requires `TRUST_PROXY=1` and a real `TRUST_PROXY_SECRET` whenever the Gateway binds a non-loopback interface. A loopback-only Gateway may omit proxy trust because it is not directly network-addressable. The bundled Docker deployment uses `0.0.0.0` inside the private Docker network, so it must keep `TRUST_PROXY=1`. The bundled Docker Compose keeps Gateway port 3000 private with Caddy as the public TLS entry point. Do not publish Gateway port 3000 directly to the Internet.
 
 
 
