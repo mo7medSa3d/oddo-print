@@ -72,6 +72,8 @@ plan-conflict 409, and refuses to start a second subscription while Stripe owns 
 blocking one. `Retry-After` values are always relative durations computed on the
 Gateway clock.
 
+**Discovery synchronization.** Discovery reports carry an Agent-scoped stable device identity, and PostgreSQL enforces `(tenant_id, agent_id, identity_key)` uniqueness so repeated scans converge instead of creating duplicate candidates. Reports are processed in bounded batches; invalid candidates are isolated as partial-sync errors, and the Agent retries transient Gateway report failures without retrying terminal 4xx responses. Approval/provisioning state is preserved during observation updates.
+
 **WebSocket and fallback.** Per-agent token buckets that survive reconnects,
 in-flight and payload caps, socket caps, lifecycle-revision socket fencing,
 tenant-suspension closes, `LISTEN`/`pg_notify` with reconnection plus a polling
