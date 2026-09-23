@@ -168,34 +168,60 @@ jobs:
               WHERE schemaname='public' AND tablename='tenant_users'
                 AND indexname='tenant_users_single_owner_idx'
             ) THEN RAISE EXCEPTION 'single tenant owner uniqueness index is missing'; END IF;
-            -- Verify every runtime cross-object relationship carries tenant identity
-            -- into the foreign key. Names alone are insufficient; the definition
-            -- must contain the tenant column pair as part of the FK.
+            -- Verify every runtime cross-object relationship carries tenant
+            -- identity into the foreign key. Inspect pg_constraint metadata rather
+            -- than the formatted SQL text so harmless PostgreSQL formatting
+            -- differences cannot make the release gate flaky.
             FOR expected IN
-              SELECT * FROM (VALUES
-                ('printers', 'FOREIGN KEY (tenant_id, agent_id) REFERENCES agents (tenant_id, id)'),
-                ('discovery_sessions', 'FOREIGN KEY (tenant_id, agent_id) REFERENCES agents (tenant_id, id)'),
-                ('discovered_devices', 'FOREIGN KEY (tenant_id, discovery_id) REFERENCES discovery_sessions (tenant_id, id)'),
-                ('discovered_devices', 'FOREIGN KEY (tenant_id, agent_id) REFERENCES agents (tenant_id, id)'),
-                ('discovered_devices', 'FOREIGN KEY (tenant_id, provisioned_printer_id) REFERENCES printers (tenant_id, id)'),
-                ('print_jobs', 'FOREIGN KEY (tenant_id, agent_id) REFERENCES agents (tenant_id, id)'),
-                ('print_jobs', 'FOREIGN KEY (tenant_id, printer_id) REFERENCES printers (tenant_id, id)'),
-                ('print_jobs', 'FOREIGN KEY (tenant_id, api_key_id) REFERENCES api_keys (tenant_id, id)'),
-                ('job_events', 'FOREIGN KEY (tenant_id, job_id) REFERENCES print_jobs (tenant_id, id) ON DELETE CASCADE')
-              ) AS v(child_table, expected_definition)
+              SELECT *
+              FROM (VALUES
+                ('printers', 'agents', ARRAY['tenant_id','agent_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('discovery_sessions', 'agents', ARRAY['tenant_id','agent_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('discovered_devices', 'discovery_sessions', ARRAY['tenant_id','discovery_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('discovered_devices', 'agents', ARRAY['tenant_id','agent_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('discovered_devices', 'printers', ARRAY['tenant_id','provisioned_printer_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('print_jobs', 'agents', ARRAY['tenant_id','agent_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('print_jobs', 'printers', ARRAY['tenant_id','printer_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('print_jobs', 'api_keys', ARRAY['tenant_id','api_key_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('job_events', 'print_jobs', ARRAY['tenant_id','job_id']::text[], ARRAY['tenant_id','id']::text[], true)
+              ) AS v(child_table, parent_table, child_columns, parent_columns, require_cascade)
             LOOP
               IF NOT EXISTS (
                 SELECT 1
                 FROM pg_constraint c
                 JOIN pg_class child ON child.oid = c.conrelid
-                JOIN pg_namespace n ON n.oid = child.relnamespace
+                JOIN pg_namespace child_ns ON child_ns.oid = child.relnamespace
+                JOIN pg_class parent ON parent.oid = c.confrelid
+                JOIN pg_namespace parent_ns ON parent_ns.oid = parent.relnamespace
                 WHERE c.contype = 'f'
-                  AND n.nspname = 'public'
+                  AND child_ns.nspname = 'public'
+                  AND parent_ns.nspname = 'public'
                   AND child.relname = expected.child_table
-                  AND pg_get_constraintdef(c.oid) LIKE expected.expected_definition || '%'
+                  AND parent.relname = expected.parent_table
+                  AND c.conkey = (
+                    SELECT array_agg(att.attnum ORDER BY cols.ord)
+                    FROM unnest(expected.child_columns) WITH ORDINALITY AS cols(column_name, ord)
+                    JOIN pg_attribute att
+                      ON att.attrelid = child.oid
+                     AND att.attname = cols.column_name
+                  )
+                  AND c.confkey = (
+                    SELECT array_agg(att.attnum ORDER BY cols.ord)
+                    FROM unnest(expected.parent_columns) WITH ORDINALITY AS cols(column_name, ord)
+                    JOIN pg_attribute att
+                      ON att.attrelid = parent.oid
+                     AND att.attname = cols.column_name
+                  )
+                  AND (
+                    NOT expected.require_cascade
+                    OR c.confdeltype = 'c'
+                  )
               ) THEN
-                RAISE EXCEPTION 'Missing tenant-scoped foreign key on %. Expected definition: %',
-                  expected.child_table, expected.expected_definition;
+                RAISE EXCEPTION 'Missing tenant-scoped foreign key %.(%)->%.(%)',
+                  expected.child_table,
+                  array_to_string(expected.child_columns, ','),
+                  expected.parent_table,
+                  array_to_string(expected.parent_columns, ',');
               END IF;
             END LOOP;
           END $$;
