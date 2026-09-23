@@ -6,7 +6,7 @@ import { isIP } from "node:net";
 import { pool } from "../db";
 import { validateAgent } from "../lib/agent-auth";
 import { recordWsUpgradeSuccess, reserveWsUpgradeAttempt } from "../lib/ws-rate-limit";
-import { isTrustedProxyUpgrade, trustProxyEnabled } from "./trusted-proxy";
+import { isAllowedWebSocketOrigin, isTrustedProxyUpgrade, trustProxyEnabled } from "./trusted-proxy";
 import { incrementMetric } from "../lib/metrics";
 import {
   claimJobForDelivery,
@@ -669,6 +669,12 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
 
       if (trustProxyEnabled() && !isTrustedProxyUpgrade(req.headers)) {
         writeWsHttpError(socket, 400, "TRUSTED_PROXY_REQUIRED");
+        return;
+      }
+
+      const origin = typeof req.headers.origin === "string" ? req.headers.origin : null;
+      if (!isAllowedWebSocketOrigin(origin)) {
+        writeWsHttpError(socket, 403, "WEBSOCKET_ORIGIN_FORBIDDEN");
         return;
       }
 
