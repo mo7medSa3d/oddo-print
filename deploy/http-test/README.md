@@ -9,7 +9,8 @@ It intentionally uses:
 - Caddy as an HTTP-only reverse proxy.
 - `COOKIE_SECURE=0` only under `YASSER_HTTP_TEST_MODE=1`.
 - Local verification-email capture instead of Resend.
-- A fake Stripe Price ID only for the trial/onboarding test.
+- A fake Stripe Price ID only for the trial/onboarding test; HTTP test mode does not contact Stripe when provisioning this isolated plan.
+- A fixed test-only platform tenant identity (`http-test-platform`) so the production lifecycle protection check remains enabled.
 - No public PostgreSQL port.
 - No dependency on the production `GATEWAY_DOMAIN`.
 
