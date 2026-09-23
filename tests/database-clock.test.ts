@@ -243,6 +243,14 @@ describe("clock authority is enforced in the source", () => {
     expect(expiry).not.toContain("Date.now()");
   });
 
+  it("calibrates the Gateway clock before the Odoo agent subscription gate", () => {
+    const source = read("src/app/api/odoo/agents/route.ts");
+    const calibration = source.indexOf("await refreshClockSkew();");
+    const subscription = source.indexOf("isSubscriptionPeriodLive(sub.currentPeriodEnd)");
+    expect(calibration).toBeGreaterThanOrEqual(0);
+    expect(subscription).toBeGreaterThan(calibration);
+  });
+
   it("routes the subscription gate through one helper instead of per-route host-clock comparisons", () => {
     for (const path of [
       "src/app/api/billing/status/route.ts",
