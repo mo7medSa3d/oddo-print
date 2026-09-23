@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   let tokenJti: string | null = null;
 
   if (selectionToken) {
-    const verified = verifyTenantSelectionToken(selectionToken);
+    const verified = await verifyTenantSelectionToken(selectionToken);
     if (!verified) return NextResponse.json({ error: "Invalid or expired workspace selection token" }, { status: 401 });
     userId = verified.userId;
     isSelectionToken = true;

@@ -1,9 +1,8 @@
 import { db } from "../db";
 import { apiKeys } from "../db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { requireActiveTenantOrNull } from "./tenant-guard";
-import { gatewayNow } from "./database-clock";
 
 function hashKey(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
@@ -39,13 +38,24 @@ export async function validateOdooKey(
   if (!raw.startsWith("odoo_")) return null;
 
   const hashed = hashKey(raw);
-  const row = await db.query.apiKeys.findFirst({ where: eq(apiKeys.hashedKey, hashed) });
-  const now = gatewayNow();
-  const rotationGraceActive = Boolean(
-    row?.revokedAt &&
-    row.readOnlyUntil &&
-    new Date(row.readOnlyUntil).getTime() > now.getTime(),
-  );
+  const row = await db.query.apiKeys.findFirst({
+    where: and(
+      eq(apiKeys.hashedKey, hashed),
+      or(
+        and(
+          isNull(apiKeys.revokedAt),
+          isNull(apiKeys.readOnlyUntil),
+        ),
+        and(
+          isNotNull(apiKeys.revokedAt),
+          lte(apiKeys.revokedAt, sql`clock_timestamp()`),
+          isNotNull(apiKeys.readOnlyUntil),
+          gt(apiKeys.readOnlyUntil, sql`clock_timestamp()`),
+        ),
+      ),
+    ),
+  });
+  const rotationGraceActive = Boolean(row?.revokedAt && row.readOnlyUntil);
   if (
     !row ||
     !timingSafeEqualStr(row.hashedKey, hashed) ||
@@ -53,7 +63,7 @@ export async function validateOdooKey(
     (!row.revokedAt && row.readOnlyUntil)
   ) return null;
 
-  await db.update(apiKeys).set({ lastUsedAt: now }).where(and(eq(apiKeys.id, row.id), eq(apiKeys.tenantId, row.tenantId))).catch(() => undefined);
+  await db.update(apiKeys).set({ lastUsedAt: sql`now()` }).where(and(eq(apiKeys.id, row.id), eq(apiKeys.tenantId, row.tenantId))).catch(() => undefined);
   // Tenant lifecycle gate: suspended/deleted tenants cannot perform normal
   // Odoo operations. Health probes may opt out so the caller can return the
   // correct 403 lifecycle status instead of misclassifying it as bad credentials.

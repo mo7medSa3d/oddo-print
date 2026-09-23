@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { db } from "../../../../db";
 import { managerSessions, platformSessions, passwordResetTokens, tenantUsers, users } from "../../../../db/schema";
-import { and, eq, isNull, gt } from "drizzle-orm";
+import { and, eq, isNull, gt, sql } from "drizzle-orm";
 import { hashPassword, hashToken } from "../../../../lib/password";
 import { writeAuditEvent } from "../../../../lib/audit";
 
@@ -21,26 +21,29 @@ export async function POST(req: Request) {
     where: and(
       eq(passwordResetTokens.tokenHash, await hashToken(token)),
       isNull(passwordResetTokens.consumedAt),
-      gt(passwordResetTokens.expiresAt, new Date())
+      gt(passwordResetTokens.expiresAt, sql`clock_timestamp()`)
     ),
   });
   if (!row) return NextResponse.json({ error: "Reset link expired or invalid" }, { status: 400 });
 
   const nextHash = await hashPassword(password);
-  const now = new Date();
 
   try {
     await db.transaction(async (tx) => {
       const consumed = await tx
         .update(passwordResetTokens)
-        .set({ consumedAt: now })
-        .where(and(eq(passwordResetTokens.id, row.id), isNull(passwordResetTokens.consumedAt)))
+        .set({ consumedAt: sql`now()` })
+        .where(and(
+          eq(passwordResetTokens.id, row.id),
+          isNull(passwordResetTokens.consumedAt),
+          gt(passwordResetTokens.expiresAt, sql`clock_timestamp()`),
+        ))
         .returning({ id: passwordResetTokens.id });
 
       if (consumed.length !== 1) throw new Error("Reset token already consumed");
 
       const updatedUser = await tx.update(users)
-        .set({ passwordHash: nextHash, updatedAt: now })
+        .set({ passwordHash: nextHash, updatedAt: sql`now()` })
         .where(eq(users.id, row.userId))
         .returning({ id: users.id });
       if (updatedUser.length !== 1) throw new Error("Reset user missing");
@@ -48,7 +51,7 @@ export async function POST(req: Request) {
       // Revoke all tenant manager sessions for this user
       await tx
         .update(managerSessions)
-        .set({ revokedAt: now })
+        .set({ revokedAt: sql`now()` })
         .where(and(eq(managerSessions.userId, row.userId), isNull(managerSessions.revokedAt)));
 
       // Revoke all platform owner sessions for this user

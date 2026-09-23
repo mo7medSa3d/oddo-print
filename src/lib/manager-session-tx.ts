@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from "crypto";
 import { db } from "../db";
 import { managerSessions } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { managerCookieHeader, type ManagerClaims, type ManagerRole } from "./manager-auth";
 
@@ -29,7 +29,9 @@ export async function createManagerSessionInTransaction(
   identity: { userId?: string; role: ManagerRole },
 ): Promise<{ token: string; jti: string; exp: Date }> {
   const jti = randomBytes(16).toString("hex");
-  const now = Math.floor(Date.now() / 1000);
+  const clock = await tx.execute(sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`);
+  const now = Number(clock.rows[0]?.now_sec);
+  if (!Number.isSafeInteger(now)) throw new Error("Database clock is unavailable");
   const exp = new Date((now + MAX_AGE_SECONDS) * 1000);
   const claims: ManagerClaims = {
     jti,
@@ -55,7 +57,7 @@ export async function createManagerSessionInTransaction(
 
 export async function revokeManagerSessionInTransaction(tx: TxRunner, jti: string): Promise<void> {
   await tx.update(managerSessions)
-    .set({ revokedAt: new Date() })
+    .set({ revokedAt: sql`now()` })
     .where(eq(managerSessions.jti, jti));
 }
 

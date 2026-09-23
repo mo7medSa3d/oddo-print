@@ -194,7 +194,7 @@ def test_odoo_activation_can_always_disable_but_enable_is_subscription_gated():
     route = read("src/app/api/odoo/configuration/route.ts")
     assert "if (enabled) {" in route
     assert "An active subscription is required to enable Gateway printing" in route
-    gate = route[route.index("if (enabled) {"):route.index("const updated = await db.transaction")]
+    gate = route[route.index("if (enabled) {"):route.index("const now = new Date();")]
     assert "if (enabled)" in gate
     assert "enabled" in gate
 

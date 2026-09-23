@@ -150,6 +150,64 @@ describe("clock authority is enforced in the source", () => {
     expect(heartbeat).toContain("lastSeenAt: sql`now()`");
   });
 
+  it("writes legacy job lease refreshes on the database clock", () => {
+    const heartbeat = read("src/app/api/agent/heartbeat/route.ts");
+    expect(heartbeat).not.toContain("updatedAt: new Date()");
+    expect(heartbeat).toContain("updatedAt: sql`now()`");
+  });
+
+  it("keeps API-key rotation state on PostgreSQL time", () => {
+    const auth = read("src/lib/odoo-auth.ts");
+    const keys = read("src/app/api/odoo/keys/route.ts");
+    expect(auth).toContain("clock_timestamp()");
+    expect(auth).not.toContain("gatewayNow()");
+    expect(auth).not.toContain("Date.now()");
+    expect(keys).toContain("rotationState: sql<");
+    expect(keys).toContain("clock_timestamp()");
+    expect(keys).not.toContain("const now = Date.now()");
+  });
+
+  it("keeps manager JWT/session validity and creation off the host wall clock", () => {
+    const auth = read("src/lib/manager-auth.ts");
+    const tx = read("src/lib/manager-session-tx.ts");
+    expect(auth).toContain("clock_timestamp()");
+    expect(auth).toContain("EXTRACT(EPOCH FROM clock_timestamp())");
+    expect(auth).toContain("SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))");
+    expect(auth).not.toContain("claims.exp * 1000 <= Date.now()");
+    expect(auth).not.toContain("claims.iat * 1000 > Date.now()");
+    expect(auth).not.toContain("row.expiresAt.getTime() <= Date.now()");
+    expect(tx).toContain("clock_timestamp()");
+    expect(tx).not.toContain("Math.floor(Date.now() / 1000)");
+  });
+
+  it("keeps authentication token TTLs on PostgreSQL time", () => {
+    const platform = read("src/lib/platform-auth.ts");
+    const selection = read("src/lib/customer-auth.ts");
+    const verifyEmail = read("src/app/api/auth/verify-email/route.ts");
+    const resend = read("src/app/api/auth/resend-verification/route.ts");
+    const forgot = read("src/app/api/auth/forgot-password/route.ts");
+    const reset = read("src/app/api/auth/reset-password/route.ts");
+
+    expect(platform).toContain("EXTRACT(EPOCH FROM clock_timestamp())");
+    expect(platform).toContain("clock_timestamp()");
+    expect(platform).not.toContain("claims.exp * 1000 <= Date.now()");
+    expect(platform).not.toContain("session.expiresAt.getTime() <= Date.now()");
+
+    expect(selection).toContain("EXTRACT(EPOCH FROM clock_timestamp())");
+    expect(selection).not.toContain("Math.floor(Date.now() / 1000)");
+
+    expect(verifyEmail).toContain("gt(emailVerificationTokens.expiresAt, sql`clock_timestamp()`)");
+    expect(verifyEmail).toContain("consumedAt: sql`now()`");
+    expect(resend).toContain("clock_timestamp() + interval '30 minutes'");
+    expect(resend).toContain("consumedAt: sql`now()`");
+    expect(forgot).toContain("clock_timestamp() + interval '20 minutes'");
+    expect(forgot).toContain("consumedAt: sql`now()`");
+    expect(reset).toContain("gt(passwordResetTokens.expiresAt, sql`clock_timestamp()`)");
+    expect(reset).toContain("consumedAt: sql`now()`");
+    expect(reset).toContain("updatedAt: sql`now()`");
+    expect(reset).not.toContain("new Date()");
+  });
+
   it("keeps every JS availability default on the calibrated clock", () => {
     for (const path of ["src/lib/agent-availability.ts", "src/lib/agent-health.ts", "src/lib/routing.ts"]) {
       const source = read(path);

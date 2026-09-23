@@ -17,17 +17,17 @@ export async function POST(req: Request) {
   if (!rate.allowed) { const res = NextResponse.json(generic, { status: 202 }); res.headers.set("Retry-After", String(rate.retryAfterSec)); return res; }
   const user = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id:true,email:true } });
   if (!user) return NextResponse.json(generic, { status: 202 });
-  const raw=generateOpaqueToken(); const expiresAt=new Date(Date.now()+20*60_000);
+  const raw=generateOpaqueToken();
   await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT id FROM users WHERE id = ${user.id} FOR UPDATE`);
     await tx.update(passwordResetTokens)
-      .set({ consumedAt: new Date() })
+      .set({ consumedAt: sql`now()` })
       .where(and(eq(passwordResetTokens.userId, user.id), isNull(passwordResetTokens.consumedAt)));
     await tx.insert(passwordResetTokens).values({
       id: `prt_${nanoid(18)}`,
       userId: user.id,
       tokenHash: await hashToken(raw),
-      expiresAt,
+      expiresAt: sql`clock_timestamp() + interval '20 minutes'`,
     });
   });
   try { const url=`${appBaseUrl(req)}/reset-password?token=${encodeURIComponent(raw)}`; await sendTransactionalEmail({to:user.email,subject:"Reset your Yasser password",html:`<p><a href="${url}">Reset password</a></p>`,text:`Reset your password: ${url}`}); } catch { /* Keep the response enumeration-safe. */ }

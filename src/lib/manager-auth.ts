@@ -37,7 +37,7 @@ function sign(claims: ManagerClaims): string {
   return `${data}.${sig}`;
 }
 
-function verify(token: string): ManagerClaims | null {
+function verifySignature(token: string): ManagerClaims | null {
   if (typeof token !== "string" || token.length < 40 || token.length > 4096) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
@@ -74,8 +74,6 @@ function verify(token: string): ManagerClaims | null {
       !(["owner", "admin", "operator", "viewer", "integration_admin", "billing_admin"] as string[]).includes(claims.role) ||
       (claims.userId !== undefined && (typeof claims.userId !== "string" || claims.userId.length < 1 || claims.userId.length > 128))
     ) return null;
-    if (claims.exp * 1000 <= Date.now()) return null;
-    if (claims.iat * 1000 > Date.now() + 60_000) return null;
     return claims as ManagerClaims;
   } catch {
     return null;
@@ -86,15 +84,24 @@ export function getManagerCookieName() {
   return COOKIE_NAME;
 }
 
-export function verifyManagerToken(token: string): ManagerClaims | null {
-  return verify(token);
+export async function verifyManagerToken(token: string): Promise<ManagerClaims | null> {
+  const claims = verifySignature(token);
+  return claims ? validateManagerClaims(claims) : null;
 }
 
 export async function validateManagerClaims(claims: ManagerClaims | null): Promise<ManagerClaims | null> {
   if (!claims) return null;
-  const row = await db.query.managerSessions.findFirst({ where: eq(managerSessions.jti, claims.jti) });
+  const row = await db.query.managerSessions.findFirst({
+    where: and(
+      eq(managerSessions.jti, claims.jti),
+      sql`${managerSessions.expiresAt} > clock_timestamp()`,
+      sql`${claims.iat} <= FLOOR(EXTRACT(EPOCH FROM clock_timestamp())) + 60`,
+    ),
+  });
   if (!row || row.revokedAt) return null;
-  if (row.expiresAt.getTime() <= Date.now()) return null;
+  // The durable session row is authoritative for expiry and must agree with
+  // the signed JWT. No host-clock comparison is used for session validity.
+  if (Math.floor(row.expiresAt.getTime() / 1000) !== claims.exp) return null;
   if (row.tenantId !== claims.tenantId || row.role !== claims.role || (row.userId ?? undefined) !== claims.userId) return null;
   if (row.userId) {
     const membership = await db.query.tenantUsers.findFirst({
@@ -110,7 +117,6 @@ export async function validateManagerClaims(claims: ManagerClaims | null): Promi
   if (!tenantLifecycle) return null;
   return claims;
 }
-
 function normalizeHost(host: string | null): string | null {
   if (!host) return null;
   const raw = host.trim().toLowerCase().replace(/\.$/, "");
@@ -146,13 +152,16 @@ export async function resolveManagerTenantId(req: Request): Promise<string | nul
 
 export async function createManagerSession(tenantId: string, identity?: { userId?: string; role?: ManagerRole }): Promise<{ token: string; jti: string; exp: Date }> {
   const jti = randomBytes(16).toString("hex");
-  const now = Math.floor(Date.now() / 1000);
+  const clock = await db.execute(sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`);
+  const now = Number(clock.rows[0]?.now_sec);
+  if (!Number.isSafeInteger(now)) throw new Error("Database clock is unavailable");
   const exp = now + MAX_AGE_SECONDS;
   const role = identity?.role ?? "owner";
   const claims: ManagerClaims = { jti, iat: now, exp, sub: "manager", tenantId, role, ...(identity?.userId ? { userId: identity.userId } : {}) };
   const token = sign(claims);
-  await db.insert(managerSessions).values({ jti, tenantId, userId: identity?.userId ?? null, role, expiresAt: new Date(exp * 1000) });
-  return { token, jti, exp: new Date(exp * 1000) };
+  const expiresAt = new Date(exp * 1000);
+  await db.insert(managerSessions).values({ jti, tenantId, userId: identity?.userId ?? null, role, expiresAt });
+  return { token, jti, exp: expiresAt };
 }
 
 export async function validateManager(req: Request): Promise<ManagerClaims | null> {
@@ -171,18 +180,17 @@ export async function validateManager(req: Request): Promise<ManagerClaims | nul
     if (auth?.startsWith("Bearer ")) token = auth.slice(7).trim();
   }
   if (!token) return null;
-  const claims = verify(token);
-  return claims ? validateManagerClaims(claims) : null;
+  return verifyManagerToken(token);
 }
 
 export async function revokeManagerSession(jti: string) {
-  await db.update(managerSessions).set({ revokedAt: new Date() }).where(eq(managerSessions.jti, jti));
+  await db.update(managerSessions).set({ revokedAt: sql`now()` }).where(eq(managerSessions.jti, jti));
 }
 
-export async function cleanupExpiredManagerSessions(now = new Date()): Promise<number> {
+export async function cleanupExpiredManagerSessions(): Promise<number> {
   const result = await db.execute(sql`
     DELETE FROM manager_sessions
-    WHERE expires_at <= ${now}
+    WHERE expires_at <= clock_timestamp()
     RETURNING jti
   `);
   return result.rows.length;
