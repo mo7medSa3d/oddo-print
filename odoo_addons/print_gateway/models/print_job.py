@@ -970,7 +970,7 @@ class PrintGatewayJob(models.Model):
             def persist_submit_state(values):
                 if claim_token:
                     return job._persist_state(values, claim_token=claim_token)
-                persist_submit_state(values)
+                job.write(values)
                 return True
 
             def advance_submit_status(target, values):
@@ -1121,14 +1121,16 @@ class PrintGatewayJob(models.Model):
                         # elapsed). Mirror the physical outcome honestly.
                         expired_error = remote_error or "GATEWAY_JOB_EXPIRED: the Gateway release window elapsed before the job was claimed"
                         expired_status = "unknown" if str(expired_error).startswith(job._GATEWAY_UNKNOWN_MARKERS) or "JOB_EXPIRED_DURING_PRINT" in str(expired_error) else "failed"
-                        job.write({
+                        if not persist_submit_state({
                             "gateway_job_id": str(remote_id),
                             "status": expired_status,
                             "attempts": job.attempts + 1,
                             "last_error": expired_error,
                             "next_retry_at": False,
                             "completed_at": db_now_utc(self.env.cr),
-                        })
+                        }):
+                            _logger.info("Submission lease lost while finalizing expired Odoo print job %s.", job.id)
+                            break
                         job._post_source_audit(_("Print Job #%s expired at the Gateway (%s).") % (remote_id or job.id, expired_status))
                         break
                     if remote_status not in {"queued", "submitted", "claimed", "printing", "success", "failed", "unknown"}:
@@ -1157,24 +1159,19 @@ class PrintGatewayJob(models.Model):
                         # a refused connection. A read/ambiguous timeout
                         # stays terminal-unknown below.
                         current_binding, failover_count, resume = self._handle_pre_dispatch_failure(
-                            job, exc, current_binding, visited_bindings, failover_count, raise_on_failure)
+                            job, exc, current_binding, visited_bindings, failover_count, raise_on_failure, claim_token)
                         if resume == "continue":
                             continue
                         break
-                    values = {
-                        "status": "unknown",
-                        "attempts": job.attempts + 1,
-                        "last_error": "UNKNOWN_SUBMISSION_OUTCOME: gateway request timed out (ambiguous dispatch)",
-                        "next_retry_at": False,
-                    }
-                    if raise_on_failure:
-                        persist_submit_state(values)
-                    else:
-                        persist_submit_state(values)
-                    job._post_source_audit(_("WARNING: Print Job #%s timed out; physical outcome is unknown on '%s'.") % (job.id, job.printer_id))
-                    _logger.warning("Gateway submission timed out; outcome is unknown for job %s", job.idempotency_key[:8])
-                    if raise_on_failure:
-                        raise ValidationError(_("Gateway submission timed out; physical outcome is unknown. Automated retries are paused to prevent duplicate prints. Operator reprint required.")) from exc
+                    persisted = self._record_ambiguous_submission(
+                        job,
+                        exc,
+                        "gateway request timed out",
+                        raise_on_failure,
+                        claim_token,
+                    )
+                    if persisted is False:
+                        _logger.info("Submission lease lost while recording ambiguous timeout for Odoo print job %s.", job.id)
                     break
                 except requests.exceptions.ConnectionError as exc:
                     if not self._is_pre_dispatch_error(exc):
@@ -1190,7 +1187,7 @@ class PrintGatewayJob(models.Model):
                             claim_token)
                         break
                     current_binding, failover_count, resume = self._handle_pre_dispatch_failure(
-                        job, exc, current_binding, visited_bindings, failover_count, raise_on_failure)
+                        job, exc, current_binding, visited_bindings, failover_count, raise_on_failure, claim_token)
                     if resume == "continue":
                         continue
                     break
