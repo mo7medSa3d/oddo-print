@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   if (!token || token.length > 256 || !email) return NextResponse.json({ error: "Invitation is invalid or expired" }, { status: 400 });
 
   const row = await db.query.tenantInvitations.findFirst({
-    where: and(eq(tenantInvitations.tokenHash, await hashToken(token)), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt), gt(tenantInvitations.expiresAt, new Date())),
+    where: and(eq(tenantInvitations.tokenHash, await hashToken(token)), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt), gt(tenantInvitations.expiresAt, sql`clock_timestamp()`)),
   });
   if (!row || row.email !== email) return NextResponse.json({ error: "Invitation is invalid or expired" }, { status: 400 });
   const user = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true } });
@@ -37,7 +37,7 @@ export async function POST(req: Request) {
       });
       if (existingMembership) throw new Error("USER_ALREADY_MEMBER");
 
-      const consumed = await tx.update(tenantInvitations).set({ acceptedAt: new Date() })
+      const consumed = await tx.update(tenantInvitations).set({ acceptedAt: sql`now()` })
         .where(and(
           eq(tenantInvitations.id, row.id),
           isNull(tenantInvitations.acceptedAt),
