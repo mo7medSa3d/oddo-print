@@ -12,7 +12,7 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
 
     company_id = fields.Many2one(
         "res.company", string="Odoo Company", required=True,
-        default=lambda self: self.env.company, ondelete="restrict", index=True,
+        default=lambda self: self.env.company.parent_id or self.env.company, ondelete="restrict", index=True,
         domain="[('parent_id', '=', False)]",
     )
     branch_id = fields.Many2one(
