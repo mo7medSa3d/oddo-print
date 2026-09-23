@@ -18,8 +18,8 @@ describe("production fixes contracts (2026-09)", () => {
     const maintenance = read("src/lib/job-maintenance.ts");
     const delivery = read("src/lib/job-delivery.ts");
     // Terminal failures must not retain live execution credentials.
-    const normalizedMaintenance = maintenance.replace(/\\r\\n/g, "\\n");
-    expect(normalizedMaintenance).toContain("claim_token=NULL,\\n      claimed_at=NULL,\\n      updated_at=now()");
+    const normalizedMaintenance = maintenance.replace(/\r\n/g, "\n");
+    expect(normalizedMaintenance).toContain("claim_token=NULL,\n      claimed_at=NULL,\n      updated_at=now()");
     const terminalFailureUpdates = [...maintenance.matchAll(/UPDATE print_jobs SET status='failed',[\s\S]*?FROM candidates\s+WHERE print_jobs\.id = candidates\.id\s+RETURNING print_jobs\.id/g)];
     expect(terminalFailureUpdates.length).toBeGreaterThanOrEqual(2);
     for (const match of terminalFailureUpdates) {
