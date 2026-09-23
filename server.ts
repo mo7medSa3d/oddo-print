@@ -35,8 +35,10 @@ const KNOWN_PLACEHOLDER_SECRETS = new Set([
   "replace-with-another-at-least-32-random-secret",
 ]);
 
-function assertRealSecret(name: string, value: string | undefined, minLength: number): string | undefined {
-  if (!value || value.length < minLength) return value;
+function assertRealSecret(name: string, value: string | undefined, minLength: number): string {
+  if (!value || value.length < minLength) {
+    throw new Error(`Refusing production startup: ${name} must be configured with a real secret of at least ${minLength} characters.`);
+  }
   if (KNOWN_PLACEHOLDER_SECRETS.has(value.trim())) {
     throw new Error(`Refusing production startup: ${name} is a known example placeholder from the repository. Generate a real secret (>=${minLength} chars).`);
   }
@@ -57,12 +59,10 @@ if (process.env.NODE_ENV === "production") {
     throw new Error("Refusing production startup: PLATFORM_TENANT_ID must be configured with the real platform workspace ID so the platform tenant cannot be suspended or deleted.");
   }
   assertRealSecret("GATEWAY_JWT_SECRET", runtimeSecret("GATEWAY_JWT_SECRET"), 32);
-  if (trustProxyEnabled()) {
-    const proxySecret = assertRealSecret("TRUST_PROXY_SECRET", runtimeSecret("TRUST_PROXY_SECRET"), 32);
-    if (!proxySecret || proxySecret.length < 32) {
-      throw new Error("Refusing production startup with TRUST_PROXY enabled without TRUST_PROXY_SECRET (>=32 chars).");
-    }
+  if (!trustProxyEnabled()) {
+    throw new Error("Refusing production startup: TRUST_PROXY=1 is required for the bundled reverse-proxy deployment. Do not expose the Gateway application port directly.");
   }
+  assertRealSecret("TRUST_PROXY_SECRET", runtimeSecret("TRUST_PROXY_SECRET"), 32);
 }
 
 let httpServer: HttpServer | null = null;
