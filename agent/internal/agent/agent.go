@@ -2257,7 +2257,9 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 			if pl.Peripherals.Drawer == "pin5" {
 				drawerCmd = printer.DrawerKickPin5
 			}
-			_ = p.Print(printCtx, drawerCmd)
+			if err := p.Print(printCtx, drawerCmd); err != nil {
+				log.Printf("print.trace peripheral_drawer_kick_failed request_id=%s job_id=%s printer_id=%s error=%v", requestID, jobID, printerID, err)
+			}
 			select {
 			case <-printCtx.Done():
 				return
