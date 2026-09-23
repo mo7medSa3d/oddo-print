@@ -26,7 +26,8 @@ describe("production fixes contracts (2026-09)", () => {
       expect(match[0]).toContain("claim_token=NULL");
       expect(match[0]).toContain("claimed_at=NULL");
     }
-    expect(delivery).toContain("SET status = 'failed',\n        claim_token = NULL,\n        claimed_at = NULL,");
+    const normalizedDelivery = delivery.replace(/\r\n/g, "\n");
+    expect(normalizedDelivery).toContain("SET status = 'failed',\n        claim_token = NULL,\n        claimed_at = NULL,");
     // Expired jobs intentionally retain the claim token because the agent has a
     // bounded post-expiration physical-success reconciliation window.
     const agentJobs = read("src/app/api/agent/jobs/route.ts");
