@@ -2,6 +2,13 @@ import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 
 describe("print-certification", () => {
+  it("certification derives timing decisions from the database clock", () => {
+    const source = fs.readFileSync("src/app/api/printers/[id]/certify/route.ts", "utf8");
+    expect(source).toContain("const certificationNowMs = await databaseNowMs();");
+    expect(source).toContain("const expiresAt = new Date(certificationNowMs + 5 * 60 * 1000);");
+    expect(source).not.toContain("const expiresAt = new Date(Date.now() + 5 * 60 * 1000);");
+  });
+
   it("certification route uses canonical pipeline (createPrintJobForPrinter)", () => {
     const source = fs.readFileSync("src/app/api/printers/[id]/certify/route.ts", "utf8");
     expect(source).toContain("createPrintJobForPrinter");

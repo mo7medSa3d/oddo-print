@@ -61,6 +61,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
 
     setStep("gateway", "ok", "Gateway reachable", `request_id=${requestId}`);
+    // Certification constructs an expiry and interprets DB last-seen timestamps,
+    // so use the same PostgreSQL clock as canonical job admission and delivery.
+    const certificationNowMs = await databaseNowMs();
 
     // Auth: tenant + printer ownership via DB, same as canonical pre-check
     const printerRows = await db.select().from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.id, printerId))).limit(1);
@@ -95,7 +98,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       // If client provides key, use it; otherwise generate a key that will dedupe double-click within 5min window per printer
       // Use cert:<printerId>:<requestId> is NOT idempotent across retries, so we use cert:<printerId>:<tenantId>:<minute-bucket> for auto-generated
       // But for true idempotency, we require client to send Idempotency-Key; we generate one for this request and return it
-      const minuteBucket = Math.floor(Date.now() / 60000);
+      const minuteBucket = Math.floor(certificationNowMs / 60000);
       const autoKey = `cert:${printerId}:${tenantId}:${minuteBucket}`;
       const idempotencyKey = providedKey && providedKey.length >= 8 && providedKey.length <= 200 ? providedKey : autoKey;
 
@@ -119,7 +122,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             data: Buffer.from(`CERTIFICATION ${idempotencyKey} ${requestId}`).toString("base64"),
           };
 
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+      const expiresAt = new Date(certificationNowMs + 5 * 60 * 1000);
 
       // Canonical admission path — same as production
       const result = await createPrintJobForPrinter(printerId, payload, {
@@ -240,7 +243,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       } else if (!agent.lastSeenAt) {
         setStep("agent", "pending", "Agent never seen — waiting for heartbeat", `agentId=${printer.agentId}`);
       } else {
-        const age = Date.now() - new Date(agent.lastSeenAt).getTime();
+        const age = certificationNowMs - new Date(agent.lastSeenAt).getTime();
         if (age <= 90_000) {
           setStep("agent", "pending", `Agent online ${Math.round(age/1000)}s ago, waiting to claim`, `agentId=${printer.agentId} lastSeen ${Math.round(age/1000)}s`);
         } else {

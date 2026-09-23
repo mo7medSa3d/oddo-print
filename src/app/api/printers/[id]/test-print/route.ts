@@ -10,6 +10,7 @@ import { TenantEntitlementError, TenantPrintQuotaExceededError, TenantSubscripti
 import { buildTestPrintPayloadForPrinter } from "../../../../../lib/payload";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../../lib/job-delivery";
 import { logError } from "../../../../../lib/log";
+import { databaseNowMs } from "../../../../../lib/database-clock";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +71,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (e instanceof TenantPrintQuotaExceededError) {
       const headers = new Headers({ "Cache-Control": "no-store" });
       if (e.periodEnd) {
-        headers.set("Retry-After", String(Math.max(1, Math.ceil((e.periodEnd.getTime() - Date.now()) / 1000))));
+        try {
+          const dbNowMs = await databaseNowMs();
+          headers.set("Retry-After", String(Math.max(1, Math.ceil((e.periodEnd.getTime() - dbNowMs) / 1000))));
+        } catch {
+          // The quota decision already succeeded inside PostgreSQL. Do not
+          // fall back to the Node host wall clock when calculating Retry-After.
+          headers.set("Retry-After", "60");
+        }
       }
       return NextResponse.json({
         error: e.message,

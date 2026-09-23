@@ -4,6 +4,24 @@ import { readFileSync } from "node:fs";
 const read = (path: string) => readFileSync(path, "utf8");
 
 describe("deep production review contracts", () => {
+  it("keeps diagnostic test-print retry arithmetic on the database clock", () => {
+    const source = read("src/app/api/printers/[id]/test-print/route.ts");
+    expect(source).toContain("databaseNowMs");
+    expect(source).not.toContain("periodEnd.getTime() - Date.now()");
+    expect(source).toContain('headers.set("Retry-After", "60")');
+  });
+
+  it("keeps certification expiry, idempotency bucket, and heartbeat age on the database clock", () => {
+    const source = read("src/app/api/printers/[id]/certify/route.ts");
+    expect(source).toContain("const certificationNowMs = await databaseNowMs();");
+    expect(source).toContain("Math.floor(certificationNowMs / 60000)");
+    expect(source).toContain("new Date(certificationNowMs + 5 * 60 * 1000)");
+    expect(source).toContain("const age = certificationNowMs - new Date(agent.lastSeenAt).getTime()");
+    expect(source).not.toContain("Math.floor(Date.now() / 60000)");
+    expect(source).not.toContain("new Date(Date.now() + 5 * 60 * 1000)");
+    expect(source).not.toContain("const age = Date.now() -");
+  });
+
   it("keeps time-bound retry responses on the database clock", () => {
     const reprint = read("src/app/api/jobs/[id]/reprint/route.ts");
     expect(reprint).toContain("databaseNowMs");
