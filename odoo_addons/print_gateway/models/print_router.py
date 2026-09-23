@@ -614,7 +614,8 @@ class PrintGatewayRouter(models.AbstractModel):
                     )
             elif current_company.parent_id:
                 # Root binding used from one of its branches: allowed as the
-                # documented find_for fallback. Nothing to reject.
+                # documented find_for fallback. Company-wide assignment is
+                # still required by the centralized runtime authorization.
                 pass
             if not binding.printer_id:
                 raise ValidationError(_("Print binding '%s' has no Gateway Runtime Printer assigned.") % binding.display_name)
