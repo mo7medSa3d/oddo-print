@@ -452,7 +452,7 @@ class TestBranchRuntimeBinding(TransactionCase):
                     "enabled": True,
                 })
             self.assertIn(
-                "print_gateway_runtime_agent_assignment_company_wide",
+                "print_gateway_runtime_agent_assignment_company_wide_agent_unique",
                 str(ctx.exception),
             )
 
