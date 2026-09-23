@@ -3,7 +3,7 @@ import { managerSessions, tenants, tenantDomains, tenantUsers, users } from "../
 import { and, eq, sql } from "drizzle-orm";
 import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
-import { databaseNowMs, gatewayNowMs, refreshClockSkew } from "./database-clock";
+import { databaseNowMs } from "./database-clock";
 import { hashPassword, verifyPassword, normalizeEmail } from "./password";
 import { requireActiveTenantOrNull } from "./tenant-guard";
 
@@ -38,7 +38,7 @@ function sign(claims: ManagerClaims): string {
   return `${data}.${sig}`;
 }
 
-function verify(token: string, nowMs = Date.now()): ManagerClaims | null {
+function verifySignature(token: string): ManagerClaims | null {
   if (typeof token !== "string" || token.length < 40 || token.length > 4096) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
@@ -75,8 +75,6 @@ function verify(token: string, nowMs = Date.now()): ManagerClaims | null {
       !(["owner", "admin", "operator", "viewer", "integration_admin", "billing_admin"] as string[]).includes(claims.role) ||
       (claims.userId !== undefined && (typeof claims.userId !== "string" || claims.userId.length < 1 || claims.userId.length > 128))
     ) return null;
-    if (claims.exp * 1000 <= nowMs) return null;
-    if (claims.iat * 1000 > nowMs + 60_000) return null;
     return claims as ManagerClaims;
   } catch {
     return null;
@@ -87,16 +85,24 @@ export function getManagerCookieName() {
   return COOKIE_NAME;
 }
 
-export function verifyManagerToken(token: string): ManagerClaims | null {
-  return verify(token);
+export async function verifyManagerToken(token: string): Promise<ManagerClaims | null> {
+  const claims = verifySignature(token);
+  return claims ? validateManagerClaims(claims) : null;
 }
 
 export async function validateManagerClaims(claims: ManagerClaims | null): Promise<ManagerClaims | null> {
   if (!claims) return null;
-  await refreshClockSkew();
-  const row = await db.query.managerSessions.findFirst({ where: eq(managerSessions.jti, claims.jti) });
+  const row = await db.query.managerSessions.findFirst({
+    where: and(
+      eq(managerSessions.jti, claims.jti),
+      sql`${managerSessions.expiresAt} > clock_timestamp()`,
+      sql`${claims.iat} <= FLOOR(EXTRACT(EPOCH FROM clock_timestamp())) + 60`,
+    ),
+  });
   if (!row || row.revokedAt) return null;
-  if (row.expiresAt.getTime() <= gatewayNowMs()) return null;
+  // The durable session row is authoritative for expiry and must agree with
+  // the signed JWT. No host-clock comparison is used for session validity.
+  if (Math.floor(row.expiresAt.getTime() / 1000) !== claims.exp) return null;
   if (row.tenantId !== claims.tenantId || row.role !== claims.role || (row.userId ?? undefined) !== claims.userId) return null;
   if (row.userId) {
     const membership = await db.query.tenantUsers.findFirst({
@@ -105,14 +111,10 @@ export async function validateManagerClaims(claims: ManagerClaims | null): Promi
     });
     if (!membership || membership.role !== row.role) return null;
   }
-  // Tenant lifecycle denials are an expected authentication outcome. Unexpected
-  // database/transport failures must propagate as operational errors rather than
-  // being misclassified as invalid credentials.
   const tenantLifecycle = await requireActiveTenantOrNull(claims.tenantId);
   if (!tenantLifecycle) return null;
   return claims;
 }
-
 function normalizeHost(host: string | null): string | null {
   if (!host) return null;
   const raw = host.trim().toLowerCase().replace(/\.$/, "");
@@ -150,12 +152,14 @@ export async function createManagerSession(tenantId: string, identity?: { userId
   const jti = randomBytes(16).toString("hex");
   const nowMs = await databaseNowMs();
   const now = Math.floor(nowMs / 1000);
+  if (!Number.isSafeInteger(now)) throw new Error("Database clock is unavailable");
   const exp = now + MAX_AGE_SECONDS;
   const role = identity?.role ?? "owner";
   const claims: ManagerClaims = { jti, iat: now, exp, sub: "manager", tenantId, role, ...(identity?.userId ? { userId: identity.userId } : {}) };
   const token = sign(claims);
-  await db.insert(managerSessions).values({ jti, tenantId, userId: identity?.userId ?? null, role, expiresAt: new Date(exp * 1000) });
-  return { token, jti, exp: new Date(exp * 1000) };
+  const expiresAt = new Date(exp * 1000);
+  await db.insert(managerSessions).values({ jti, tenantId, userId: identity?.userId ?? null, role, expiresAt });
+  return { token, jti, exp: expiresAt };
 }
 
 export async function validateManager(req: Request): Promise<ManagerClaims | null> {
@@ -174,27 +178,19 @@ export async function validateManager(req: Request): Promise<ManagerClaims | nul
     if (auth?.startsWith("Bearer ")) token = auth.slice(7).trim();
   }
   if (!token) return null;
-  await refreshClockSkew();
-  const claims = verify(token, gatewayNowMs());
-  return claims ? validateManagerClaims(claims) : null;
+  return verifyManagerToken(token);
 }
 
 export async function revokeManagerSession(jti: string) {
-  await db.update(managerSessions).set({ revokedAt: new Date() }).where(eq(managerSessions.jti, jti));
+  await db.update(managerSessions).set({ revokedAt: sql`now()` }).where(eq(managerSessions.jti, jti));
 }
 
-export async function cleanupExpiredManagerSessions(now?: Date): Promise<number> {
-  const result = now
-    ? await db.execute(sql`
-        DELETE FROM manager_sessions
-        WHERE expires_at <= ${now}
-        RETURNING jti
-      `)
-    : await db.execute(sql`
-        DELETE FROM manager_sessions
-        WHERE expires_at <= clock_timestamp()
-        RETURNING jti
-      `);
+export async function cleanupExpiredManagerSessions(): Promise<number> {
+  const result = await db.execute(sql`
+    DELETE FROM manager_sessions
+    WHERE expires_at <= clock_timestamp()
+    RETURNING jti
+  `);
   return result.rows.length;
 }
 
@@ -290,7 +286,7 @@ export async function authenticateManagerUser(username: string, password: string
     });
     if (!current || current.passwordHash !== legacyHash) return null;
     const upgradedRows = await db.update(users)
-      .set({ passwordHash: upgraded, updatedAt: new Date() })
+      .set({ passwordHash: upgraded, updatedAt: sql`now()` })
       .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)))
       .returning({ id: users.id });
     if (upgradedRows.length !== 1) return null;
@@ -324,7 +320,7 @@ export async function authenticateCustomer(email: string, password: string): Pro
     });
     if (!current || current.passwordHash !== legacyHash) return null;
     const upgradedRows = await db.update(users)
-      .set({ passwordHash: upgraded, updatedAt: new Date() })
+      .set({ passwordHash: upgraded, updatedAt: sql`now()` })
       .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)))
       .returning({ id: users.id });
     if (upgradedRows.length !== 1) return null;

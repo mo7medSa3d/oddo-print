@@ -47,8 +47,6 @@ export async function POST(req: Request) {
 
   const rawToken = generateOpaqueToken();
   const tokenHash = await hashToken(rawToken);
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 30 * 60_000);
 
   try {
     const persisted = await db.transaction(async (tx) => {
@@ -63,7 +61,7 @@ export async function POST(req: Request) {
 
       await tx
         .update(emailVerificationTokens)
-        .set({ consumedAt: now })
+        .set({ consumedAt: sql`now()` })
         .where(
           and(
             eq(emailVerificationTokens.userId, user.id),
@@ -75,7 +73,7 @@ export async function POST(req: Request) {
         id: `evt_${nanoid(18)}`,
         userId: user.id,
         tokenHash,
-        expiresAt,
+        expiresAt: sql`clock_timestamp() + interval '30 minutes'`,
       });
       return true;
     });

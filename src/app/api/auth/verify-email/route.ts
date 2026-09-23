@@ -8,31 +8,19 @@ import { nanoid } from "../../../../lib/nanoid";
 import { issueCustomerSession, customerSessionCookie } from "../../../../lib/customer-auth";
 import { writeAuditEvent } from "../../../../lib/audit";
 
-/**
- * Raw `db.execute()` rows surface naive UTC timestamp strings while typed
- * drizzle rows surface Date; normalize either to a Date without host-TZ skew.
- */
-function parseDbTime(value: Date | string | null | undefined): Date | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value;
-  const text = value.trim();
-  if (!text) return null;
-  let iso = text.replace(" ", "T");
-  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
-    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
-  }
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : new Date(ms);
-}
-
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 16 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   let body: { token?: unknown }; try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const token = typeof body.token === "string" ? body.token : "";
   if (!token || token.length > 256) return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
-  const now = new Date();
   const tokenHash = await hashToken(token);
-  const row = await db.query.emailVerificationTokens.findFirst({ where: and(eq(emailVerificationTokens.tokenHash, tokenHash), isNull(emailVerificationTokens.consumedAt), gt(emailVerificationTokens.expiresAt, now)) });
+  const row = await db.query.emailVerificationTokens.findFirst({
+    where: and(
+      eq(emailVerificationTokens.tokenHash, tokenHash),
+      isNull(emailVerificationTokens.consumedAt),
+      gt(emailVerificationTokens.expiresAt, sql`clock_timestamp()`),
+    ),
+  });
   if (!row) return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
   const user = await db.query.users.findFirst({ where: eq(users.id, row.userId), columns: { id: true, emailVerifiedAt: true, email: true } });
   if (!user) return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
@@ -52,13 +40,17 @@ export async function POST(req: Request) {
       if (!currentUser?.id || !currentUser.email) throw new Error("USER_NOT_FOUND");
 
       const consumed = await tx.update(emailVerificationTokens)
-        .set({ consumedAt: now })
-        .where(and(eq(emailVerificationTokens.id, row.id), isNull(emailVerificationTokens.consumedAt)))
+        .set({ consumedAt: sql`now()` })
+        .where(and(
+          eq(emailVerificationTokens.id, row.id),
+          isNull(emailVerificationTokens.consumedAt),
+          gt(emailVerificationTokens.expiresAt, sql`clock_timestamp()`),
+        ))
         .returning({ id: emailVerificationTokens.id });
       if (consumed.length !== 1) throw new Error("Verification token already consumed");
 
       await tx.update(users)
-        .set({ emailVerifiedAt: parseDbTime(currentUser.emailVerifiedAt) ?? now, updatedAt: now })
+        .set({ emailVerifiedAt: sql`COALESCE(email_verified_at, clock_timestamp())`, updatedAt: sql`now()` })
         .where(eq(users.id, currentUser.id));
 
       const existing = await tx.select({ tenantId: tenantUsers.tenantId, role: tenantUsers.role })

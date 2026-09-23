@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { platformSessions, users } from "../db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gt, sql } from "drizzle-orm";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { verifyPassword, normalizeEmail } from "./password";
@@ -60,7 +60,7 @@ function sign(claims: PlatformOwnerClaims): string {
   return `${data}.${sig}`;
 }
 
-export function verifyPlatformToken(token: string): PlatformOwnerClaims | null {
+export function verifyPlatformTokenSignature(token: string): PlatformOwnerClaims | null {
   if (typeof token !== "string" || token.length < 40 || token.length > 4096) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
@@ -96,8 +96,6 @@ export function verifyPlatformToken(token: string): PlatformOwnerClaims | null {
     ) {
       return null;
     }
-    if (claims.exp * 1000 <= Date.now()) return null;
-    if (claims.iat * 1000 > Date.now() + 60_000) return null;
     return claims as PlatformOwnerClaims;
   } catch {
     return null;
@@ -113,7 +111,9 @@ export async function createPlatformSession(
   email: string
 ): Promise<{ token: string; jti: string; exp: Date }> {
   const jti = randomBytes(16).toString("hex");
-  const now = Math.floor(Date.now() / 1000);
+  const clock = await db.execute(sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`);
+  const now = Number(clock.rows[0]?.now_sec);
+  if (!Number.isSafeInteger(now)) throw new Error("Database clock is unavailable");
   const exp = now + MAX_AGE_SECONDS;
   const claims: PlatformOwnerClaims = {
     jti,
@@ -124,12 +124,13 @@ export async function createPlatformSession(
     email,
   };
   const token = sign(claims);
+  const expiresAt = new Date(exp * 1000);
   await db.insert(platformSessions).values({
     jti,
     userId,
-    expiresAt: new Date(exp * 1000),
+    expiresAt,
   });
-  return { token, jti, exp: new Date(exp * 1000) };
+  return { token, jti, exp: expiresAt };
 }
 
 export async function validatePlatformClaims(
@@ -137,10 +138,13 @@ export async function validatePlatformClaims(
 ): Promise<PlatformOwnerClaims | null> {
   if (!claims) return null;
   const session = await db.query.platformSessions.findFirst({
-    where: eq(platformSessions.jti, claims.jti),
+    where: and(
+      eq(platformSessions.jti, claims.jti),
+      gt(platformSessions.expiresAt, sql`clock_timestamp()`),
+    ),
   });
   if (!session || session.revokedAt) return null;
-  if (session.expiresAt.getTime() <= Date.now()) return null;
+  if (Math.floor(session.expiresAt.getTime() / 1000) !== claims.exp) return null;
   if (session.userId !== claims.userId) return null;
 
   const user = await db.query.users.findFirst({
@@ -168,7 +172,7 @@ export async function validatePlatformOwner(req: Request): Promise<PlatformOwner
     if (auth?.startsWith("Bearer ")) token = auth.slice(7).trim();
   }
   if (!token) return null;
-  const claims = verifyPlatformToken(token);
+  const claims = verifyPlatformTokenSignature(token);
   return claims ? validatePlatformClaims(claims) : null;
 }
 
@@ -204,7 +208,7 @@ export async function authenticatePlatformOwner(
 export async function revokePlatformSession(jti: string): Promise<void> {
   await db
     .update(platformSessions)
-    .set({ revokedAt: new Date() })
+    .set({ revokedAt: sql`now()` })
     .where(eq(platformSessions.jti, jti));
 }
 

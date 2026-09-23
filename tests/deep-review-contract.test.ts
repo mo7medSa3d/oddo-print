@@ -19,11 +19,11 @@ describe("deep production review contracts", () => {
     expect(source).not.toMatch(/function reserveAuthAttempt[\s\S]{0,900}const now = new Date\(\)/);
   });
 
-  it("uses the calibrated Gateway clock for Odoo API-key rotation grace", () => {
+  it("uses PostgreSQL time for Odoo API-key rotation grace", () => {
     const source = read("src/lib/odoo-auth.ts");
-    expect(source).toContain('import { gatewayNow, refreshClockSkew } from "./database-clock";');
-    expect(source).toContain("await refreshClockSkew()");
-    expect(source).toContain("const now = gatewayNow()");
+    expect(source).toContain("clock_timestamp()");
+    expect(source).not.toContain("gatewayNow()");
+    expect(source).not.toContain("Date.now()");
     expect(source).not.toContain("const now = new Date()");
   });
 
@@ -70,14 +70,15 @@ describe("deep production review contracts", () => {
     expect(source).toContain("uncountAgentSocket(ws);");
   });
 
-  it("keeps Manager session lifetime on the database/Gateway clock", () => {
+  it("keeps Manager session lifetime on PostgreSQL time", () => {
     const manager = read("src/lib/manager-auth.ts");
     const tx = read("src/lib/manager-session-tx.ts");
     expect(manager).toContain("databaseNowMs");
-    expect(manager).toContain("gatewayNowMs()");
-    expect(manager).toContain("await refreshClockSkew()");
+    expect(manager).toContain("clock_timestamp()");
+    expect(manager).not.toContain("gatewayNowMs()");
+    expect(manager).not.toContain("refreshClockSkew()");
     expect(manager).toContain("expires_at <= clock_timestamp()");
-    expect(tx).toContain("SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms");
+    expect(tx).toContain("clock_timestamp()");
     expect(tx).toContain("Database clock is unavailable");
   });
 

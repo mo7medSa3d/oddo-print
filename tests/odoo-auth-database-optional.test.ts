@@ -40,9 +40,15 @@ describe("Odoo API-key authentication ignores the database name", () => {
 
   beforeEach(() => {
     vi.unstubAllEnvs();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-24T02:00:00.000Z"));
     apiKeyFindFirst.mockReset();
     apiKeyUpdate.mockReset().mockResolvedValue(undefined);
     apiKeyFindFirst.mockResolvedValue(liveRow);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   const post = (headers: Record<string, string>) =>
@@ -86,22 +92,21 @@ describe("Odoo API-key authentication ignores the database name", () => {
     await expect(validateOdooKey(req)).resolves.toBeNull();
   });
 
-  it("accepts a rotated API key as read-only during the grace window", async () => {
+  it("accepts a rotated API key as read-only during the database grace window despite host skew", async () => {
+    // The host is 2h ahead, while PostgreSQL is assumed to be at 01:00Z.
     apiKeyFindFirst.mockResolvedValue({
       ...liveRow,
-      revokedAt: new Date(Date.now() - 1000),
-      readOnlyUntil: new Date(Date.now() + 60_000),
+      revokedAt: new Date("2026-09-24T00:59:59.000Z"),
+      readOnlyUntil: new Date("2026-09-24T01:00:01.000Z"),
     });
     const req = post({ authorization: "Bearer odoo_testkey" });
     await expect(validateOdooKey(req)).resolves.toMatchObject({ id: "key_a", readOnly: true });
   });
 
-  it("rejects a rotated API key after the grace window", async () => {
-    apiKeyFindFirst.mockResolvedValue({
-      ...liveRow,
-      revokedAt: new Date(Date.now() - 60_000),
-      readOnlyUntil: new Date(Date.now() - 1000),
-    });
+  it("rejects a rotated API key after the database grace window", async () => {
+    // PostgreSQL's WHERE predicate excludes expired rotation rows before the
+    // application sees them.
+    apiKeyFindFirst.mockResolvedValue(null);
     const req = post({ authorization: "Bearer odoo_testkey" });
     await expect(validateOdooKey(req)).resolves.toBeNull();
   });

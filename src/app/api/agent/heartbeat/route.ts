@@ -202,7 +202,7 @@ export async function POST(req: Request) {
       }
       if (tokenless.length > 0) {
         await tx.update(printJobs)
-          .set({ updatedAt: new Date() })
+          .set({ updatedAt: sql`now()` })
           .where(and(
             eq(printJobs.tenantId, agent.tenantId),
             eq(printJobs.agentId, agent.id),
