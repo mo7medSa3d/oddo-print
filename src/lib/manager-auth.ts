@@ -286,7 +286,7 @@ export async function authenticateManagerUser(username: string, password: string
     });
     if (!current || current.passwordHash !== legacyHash) return null;
     const upgradedRows = await db.update(users)
-      .set({ passwordHash: upgraded, updatedAt: new Date() })
+      .set({ passwordHash: upgraded, updatedAt: sql`now()` })
       .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)))
       .returning({ id: users.id });
     if (upgradedRows.length !== 1) return null;
@@ -320,7 +320,7 @@ export async function authenticateCustomer(email: string, password: string): Pro
     });
     if (!current || current.passwordHash !== legacyHash) return null;
     const upgradedRows = await db.update(users)
-      .set({ passwordHash: upgraded, updatedAt: new Date() })
+      .set({ passwordHash: upgraded, updatedAt: sql`now()` })
       .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)))
       .returning({ id: users.id });
     if (upgradedRows.length !== 1) return null;
