@@ -74,6 +74,18 @@ jobs:
             echo 'Odoo 19 incompatibility detected.'
             exit 1
           fi
+      - name: Verify Odoo module icon matches desktop Yasser icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          odoo_icon_sha="$(sha256sum odoo_addons/print_gateway/static/description/icon.png | awk '{print $1}')"
+          desktop_icon_sha="$(sha256sum src-tauri/icons/icon.png | awk '{print $1}')"
+          test "$odoo_icon_sha" = "$desktop_icon_sha" || {
+            echo "Odoo module icon does not match the desktop Yasser icon."
+            exit 1
+          }
+          echo "Verified identical Odoo and desktop Yasser icons: $odoo_icon_sha"
+
       - name: Run Odoo static contract tests (Python)
         run: |
           pip install pytest
