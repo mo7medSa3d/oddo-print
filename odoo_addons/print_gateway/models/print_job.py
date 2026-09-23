@@ -1364,7 +1364,7 @@ class PrintGatewayJob(models.Model):
     @api.private
     def cron_submit_pending(self):
         self._require_cron_runner()
-        now = fields.Datetime.now()
+        now = db_now_utc(self.env.cr)
         # Select a bounded batch without holding PostgreSQL row locks across
         # outbound HTTP. Gateway idempotency makes overlapping cron workers
         # safe: a concurrent submit of the same logical operation resolves to
