@@ -9,6 +9,7 @@ import {
   type Fixture,
 } from "./helpers/pg";
 import { sweepPrintJobs, MAX_RETRIES } from "../src/lib/job-maintenance";
+import { createPrintJobForPrinter } from "../src/lib/print-job-service";
 import { GET as agentJobsGET } from "../src/app/api/agent/jobs/route";
 
 const suite = describe.skipIf(!hasTestDatabase);
