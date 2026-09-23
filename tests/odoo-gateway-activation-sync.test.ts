@@ -30,10 +30,14 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(route).toContain("lt(apiKeys.odooEnabledRevision");
     expect(route).toContain("stale_revision");
     expect(route).toContain("Conflicting Odoo gateway activation update");
+    expect(route).toContain("API key is in its rotation grace period and is read-only.");
     expect(route).not.toContain("tenants.lifecycle");
 
     const auth = read("src/lib/odoo-auth.ts");
-    expect(auth).toContain("requireActiveTenant?: boolean");
+    expect(auth).toContain("requireActiveTenant?: boolean");    expect(auth).toContain("readOnlyUntil");
+    expect(auth).toContain("readOnly");
+    expect(auth).toContain("row.revokedAt");
+
     expect(auth).toContain("options.requireActiveTenant !== false");
 
     expect(schema).toContain('odooEnabled: boolean("odoo_enabled")');
@@ -61,7 +65,7 @@ describe("Odoo Gateway activation synchronization", () => {
     beforeEach(async () => { await truncateAll(); f = await seedFixture(); });
     afterAll(async () => { await closePool(); });
 
-    it("allows the full-access Odoo key to change Gateway activation", async () => {
+    it("allows the active Odoo integration key to change Gateway activation", async () => {
       const response = await configurationPATCH(new Request("http://gateway.test/api/odoo/configuration", {
         method: "PATCH",
         headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
@@ -76,7 +80,7 @@ describe("Odoo Gateway activation synchronization", () => {
       });
     });
 
-    it("allows the full-access Odoo key to print any document type", async () => {
+    it("allows the active Odoo integration key to print any document type", async () => {
       const response = await printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
         method: "POST",
         headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
@@ -99,9 +103,10 @@ describe("Odoo Gateway activation synchronization", () => {
       expect(page).toContain("Odoo integration");
       expect(page).toContain("Connect Odoo");
       expect(page).toContain("odooEnabledRevision");
-      expect(page).toContain("Read / write · All documents");
+      expect(page).toContain("Integration read / write · All documents");
       expect(page).not.toContain("Document types");
-      expect(page).not.toContain("Read only");
+      expect(page).toContain("Retiring");
+      expect(page).toContain("readOnlyUntil");
       expect(page).toContain("Odoo access:");
     });
   });
