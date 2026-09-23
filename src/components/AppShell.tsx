@@ -85,6 +85,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <main className="min-h-screen bg-app">{children}</main>;
   }
 
+  // Marketing home / pricing must never inherit authenticated console chrome.
+  // This check intentionally precedes the authenticated branch because auth state
+  // can remain true for one client render while sign-out navigates to "/".
+  if (isPublicScreen) {
+    return <main className="min-h-screen bg-app text-ink">{children}</main>;
+  }
+
   // Authenticated console: compact horizontal top navbar + full-width content.
   if (authenticated === true) {
     return (
@@ -103,7 +110,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  // Marketing home / pricing, and the brief loading state while the session
-  // check resolves, render without navigation chrome.
+  // Brief loading state while the session check resolves, render without navigation chrome.
   return <main className="min-h-screen bg-app text-ink">{children}</main>;
 }
