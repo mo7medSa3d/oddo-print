@@ -61,8 +61,25 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         )
         return config, root_company
 
+    def _assigned_runtime_agent_ids(self, company, branch, env=None):
+        env = env or request.env
+        assignment_model = env["print_gateway.runtime_agent_assignment"].sudo()
+        domain = [
+            ("company_id", "=", company.id),
+            ("enabled", "=", True),
+        ]
+        if branch:
+            domain.append(("branch_id", "=", branch.id))
+        else:
+            domain.append(("branch_id", "=", False))
+        return {
+            assignment.runtime_agent_id.strip()
+            for assignment in assignment_model.search(domain)
+            if isinstance(assignment.runtime_agent_id, str) and assignment.runtime_agent_id.strip()
+        }
+
     @http.route('/print_gateway/runtime-agents', type='jsonrpc', auth='user', methods=['POST'])
-    def runtime_agents(self, company_id=None, branch_id=None):
+    def runtime_agents(self, company_id=None, branch_id=None, assignment_only=False):
         self._require_runtime_admin()
         company, branch = self._scope(company_id, branch_id)
         config, root_company = self._get_config(company)
@@ -105,11 +122,14 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 'name': raw_name,
                 'status': status,
             })
-        # The dropdown is a discovery surface, not the authorization boundary.
-        # Show every active Agent belonging to the same Gateway tenant so the
-        # operator can choose an Agent before an explicit Odoo Branch → Agent
-        # assignment exists. The binding/assignment validation remains the
-        # authoritative write-time control.
+        # Binding pickers must only expose Agents explicitly assigned to the
+        # selected Odoo Company + Branch. The Pair Agent wizard deliberately
+        # omits assignment_only so it can discover a new Agent before creating
+        # that assignment. This is a discovery filter, not the authorization
+        # boundary; binding write-time validation remains authoritative.
+        if assignment_only:
+            allowed_agent_ids = self._assigned_runtime_agent_ids(root_company, branch)
+            sanitized = [agent for agent in sanitized if agent["id"] in allowed_agent_ids]
         selected = sanitized[0]['id'] if len(sanitized) == 1 else False
         return {'enabled': True, 'selectedAgentId': selected, 'agents': sanitized}
 
