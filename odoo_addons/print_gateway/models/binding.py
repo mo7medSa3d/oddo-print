@@ -311,6 +311,7 @@ class PrintGatewayBinding(models.Model):
 
     @api.constrains("company_id", "branch_id", "runtime_agent_id", "printer_id")
     def _check_runtime_scope(self):
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"].sudo()
         for record in self:
             if record.company_id not in self.env.companies:
                 raise ValidationError(_("The selected Odoo Company is not available to the current user."))
@@ -319,6 +320,21 @@ class PrintGatewayBinding(models.Model):
                     raise ValidationError(_("Odoo Branch is not available to the current user."))
                 if not isinstance(record.runtime_agent_id, str) or not record.runtime_agent_id.strip():
                     raise ValidationError(_("A Gateway Runtime Agent is required for a branch binding."))
+
+            if record.runtime_agent_id:
+                assignment_scope = [
+                    ("company_id", "=", record.company_id.id),
+                    ("branch_id", "=", record.branch_id.id if record.branch_id else False),
+                    ("runtime_agent_id", "=", record.runtime_agent_id.strip()),
+                    ("enabled", "=", True),
+                ]
+                if not assignment_model.search_count(assignment_scope):
+                    scope_label = record.branch_id.display_name if record.branch_id else record.company_id.display_name
+                    raise ValidationError(
+                        _("Gateway Runtime Agent '%s' is not explicitly assigned to '%s'. "
+                          "Assign the Agent to this exact Odoo scope before creating the binding.")
+                        % (record.runtime_agent_id.strip(), scope_label)
+                    )
 
     @api.constrains("destination_type", "destination_pos_config_id", "destination_pos_printer_id", "destination_picking_type_id", "destination_report_id", "report_id", "printer_id", "company_id", "branch_id", "effective_company_id")
     def _check_binding(self):
@@ -393,50 +409,16 @@ class PrintGatewayBinding(models.Model):
             },
         }
 
-    def _ensure_branch_agent_assignment(self):
-        """Ensure a binding target is represented in the independent Branch → Agent map.
-
-        This is intentionally additive. The assignment table is the branch-level
-        source of truth, so changing/deleting a binding must not delete a valid
-        explicit branch assignment.
-        """
-        assignment_model = self.env["print_gateway.runtime_agent_assignment"].sudo()
-        for record in self.filtered(lambda r: r.branch_id and r.runtime_agent_id):
-            agent_id = record.runtime_agent_id.strip()
-            if not agent_id:
-                continue
-            existing = assignment_model.search([
-                ("company_id", "=", record.company_id.id),
-                ("branch_id", "=", record.branch_id.id),
-                ("runtime_agent_id", "=", agent_id),
-            ], limit=1)
-            if not existing:
-                try:
-                    with self.env.cr.savepoint():
-                        assignment_model.create({
-                            "company_id": record.company_id.id,
-                            "branch_id": record.branch_id.id,
-                            "runtime_agent_id": agent_id,
-                            "enabled": True,
-                        })
-                except IntegrityError:
-                    pass
-
     @api.model_create_multi
     def create(self, vals_list):
-        records = super().create(vals_list)
-        records._ensure_branch_agent_assignment()
-        return records
+        return super().create(vals_list)
 
     def write(self, vals):
         trigger_fields = {"company_id", "branch_id", "runtime_agent_id", "enabled"}
         if trigger_fields.intersection(vals):
             for record in self:
                 record._check_runtime_scope()
-        result = super().write(vals)
-        if trigger_fields.intersection(vals):
-            self._ensure_branch_agent_assignment()
-        return result
+        return super().write(vals)
 
     def unlink(self):
         return super().unlink()
