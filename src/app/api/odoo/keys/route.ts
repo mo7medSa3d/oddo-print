@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
-import { apiKeys, tenantSubscriptions } from "../../../../db/schema";
+import { apiKeys } from "../../../../db/schema";
 import { validateManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { generateOdooApiKey } from "../../../../lib/odoo-auth";
 import { eq, and, desc, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { writeAuditEvent } from "../../../../lib/audit";
-import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../../../../lib/entitlements";
-import { refreshClockSkew } from "../../../../lib/database-clock";
+import { isTenantBillingError, requireTenantBillingAccess } from "../../../../lib/entitlements";
 
 const keyInputSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
@@ -70,22 +69,6 @@ export async function POST(req: Request) {
   if (manager) { try { requireManagerPermission(manager, "integrations.manage"); } catch { return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { "content-type": "application/json" } }); } }
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // Configuring a Gateway requires an active plan subscription. Without it
-  // Odoo could never print (agent pairing and job execution are gated too),
-  // so fail fast with an actionable billing error instead of a key that
-  // can never converge.
-  await refreshClockSkew();
-  const sub = await db.query.tenantSubscriptions.findFirst({
-    where: eq(tenantSubscriptions.tenantId, manager.tenantId),
-    columns: { status: true, currentPeriodEnd: true },
-  });
-  if (!sub || !isBillingAccessStatus(sub.status) || !isSubscriptionPeriodLive(sub.currentPeriodEnd)) {
-    return NextResponse.json(
-      { error: "An active subscription is required before configuring a Gateway. Choose a plan in Billing first.", code: "SUBSCRIPTION_REQUIRED" },
-      { status: 403 },
-    );
-  }
-
   let body: unknown = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const parsed = keyInputSchema.safeParse(body);
@@ -96,8 +79,14 @@ export async function POST(req: Request) {
   const description = parsed.data.description?.trim() || null;
   const { raw, hashed, id } = generateOdooApiKey();
 
-  await db.transaction(async (tx) => {
-    await tx.insert(apiKeys).values({
+  try {
+    await db.transaction(async (tx) => {
+      // Creating a new Odoo credential grants runtime access. Keep the
+      // entitlement decision and credential insertion in the SAME transaction
+      // so Stripe subscription changes serialize with this control-plane write.
+      await requireTenantBillingAccess(tx, manager.tenantId);
+
+      await tx.insert(apiKeys).values({
       id,
       name,
       description,
@@ -112,8 +101,17 @@ export async function POST(req: Request) {
       resourceType: "api_key",
       resourceId: id,
       metadata: {},
-    }, tx);
-  });
+      }, tx);
+    });
+  } catch (error) {
+    if (isTenantBillingError(error)) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 403, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    throw error;
+  }
   return NextResponse.json({
     id,
     name,
