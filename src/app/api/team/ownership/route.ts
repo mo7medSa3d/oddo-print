@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       if (target.role === "owner") throw new OwnershipConflict("Target member is already an owner; refresh and try again.");
 
       const demoted = await tx.update(tenantUsers)
-        .set({ role: "admin", updatedAt: new Date() })
+        .set({ role: "admin", updatedAt: sql`now()` })
         .where(and(
           eq(tenantUsers.tenantId, claims.tenantId),
           eq(tenantUsers.userId, currentUserId),
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
       if (demoted.length !== 1) throw new OwnershipConflict("Ownership has already changed. Refresh and try again.");
 
       const promoted = await tx.update(tenantUsers)
-        .set({ role: "owner", updatedAt: new Date() })
+        .set({ role: "owner", updatedAt: sql`now()` })
         .where(and(
           eq(tenantUsers.tenantId, claims.tenantId),
           eq(tenantUsers.userId, newOwnerId),
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
       if (promoted.length !== 1) throw new OwnershipConflict("Target membership changed concurrently; no ownership change was committed.");
 
       await tx.update(managerSessions)
-        .set({ revokedAt: new Date() })
+        .set({ revokedAt: sql`now()` })
         .where(and(eq(managerSessions.userId, currentUserId), eq(managerSessions.tenantId, claims.tenantId)));
 
       await writeAuditEvent(
