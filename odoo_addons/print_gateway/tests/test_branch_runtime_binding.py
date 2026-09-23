@@ -531,6 +531,12 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding.write({"runtime_agent_id": "agent-write-b"})
         self.assertEqual(binding.runtime_agent_id, "agent-write-b")
 
+    def test_runtime_printer_scope_rejects_root_company_branch_parameter(self):
+        from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
+        controller = PrintGatewayRuntimePrinterController()
+        with self.assertRaises(ValidationError):
+            controller._scope(self.company.id, self.company.id, env=self.env)
+
     def test_root_runtime_printer_discovery_requires_company_wide_assignment(self):
         from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
         controller = PrintGatewayRuntimePrinterController()
