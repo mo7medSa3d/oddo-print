@@ -37,11 +37,12 @@ suite("manager authentication hardening", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.useRealTimers();
   });
 
   it("creates a session that verifies and is backed by a DB session", async () => {
     const created = await createManagerSession("tenant_manager_test");
-    const claims = verifyManagerToken(created.token);
+    const claims = await verifyManagerToken(created.token);
     expect(claims).not.toBeNull();
     expect(claims?.jti).toBe(created.jti);
     expect(claims?.sub).toBe("manager");
@@ -53,7 +54,7 @@ suite("manager authentication hardening", () => {
     const parts = created.token.split(".");
     const alteredHeader = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
     const tampered = `${alteredHeader}.${parts[1]}.${parts[2]}`;
-    expect(verifyManagerToken(tampered)).toBeNull();
+    await expect(verifyManagerToken(tampered)).resolves.toBeNull();
   });
 
   it("rejects a correctly signed token whose iat is too far in the future", async () => {
@@ -67,7 +68,27 @@ suite("manager authentication hardening", () => {
     const signature = createHmac("sha256", process.env.GATEWAY_JWT_SECRET!)
       .update(data)
       .digest("base64url");
-    expect(verifyManagerToken(`${data}.${signature}`)).toBeNull();
+    await expect(verifyManagerToken(`${data}.${signature}`)).resolves.toBeNull();
+  });
+
+  it("anchors session creation and verification to PostgreSQL when the host clock is skewed", async () => {
+    const dbNow = Number((await pool().query(
+      "SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec",
+    )).rows[0].now_sec);
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date((dbNow + 24 * 60 * 60) * 1000));
+    const created = await createManagerSession("tenant_manager_test");
+
+    expect(Math.floor(created.exp.getTime() / 1000)).toBe(dbNow + 8 * 60 * 60);
+    await expect(verifyManagerToken(created.token)).resolves.toMatchObject({ jti: created.jti });
+
+    await pool().query(
+      "UPDATE manager_sessions SET expires_at = clock_timestamp() - interval '1 minute' WHERE jti = $1",
+      [created.jti],
+    );
+    vi.setSystemTime(new Date((dbNow - 24 * 60 * 60) * 1000));
+    await expect(verifyManagerToken(created.token)).resolves.toBeNull();
   });
 
   it("accepts a valid scrypt password hash", async () => {
