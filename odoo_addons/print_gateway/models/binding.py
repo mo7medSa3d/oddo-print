@@ -243,22 +243,8 @@ class PrintGatewayBinding(models.Model):
         if not self.branch_id or not self.runtime_agent_id:
             return
         config = self._get_gateway_config()
-        assignment_domain = [
-            ("company_id", "=", config.company_id.id),
-            ("runtime_agent_id", "=", self.runtime_agent_id.strip()),
-            ("enabled", "=", True),
-        ]
-        if self.branch_id:
-            assignment_domain = [
-                "|",
-                ("branch_id", "=", self.branch_id.id),
-                ("branch_id", "=", False),
-                *assignment_domain,
-            ]
-        else:
-            assignment_domain.append(("branch_id", "=", False))
-        assignment = self.env["print_gateway.runtime_agent_assignment"].sudo().search_count(assignment_domain)
-        if not assignment:
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        if not assignment_model.is_agent_assigned(config.company_id, self.branch_id, self.runtime_agent_id):
             raise ValidationError(
                 _("The selected Gateway Runtime Agent is not assigned to the current Odoo Branch.")
             )
