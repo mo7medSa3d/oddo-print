@@ -332,6 +332,9 @@ export async function POST(req: Request) {
           stripeLastEventCreatedAt?: Date | string | null;
         } | undefined;
         const plan = priceId ? await tx.query.plans.findFirst({ where: eq(plans.stripePriceId, priceId), columns: { id: true } }) : undefined;
+        const priceMappingAuthoritative =
+          eventType === "customer.subscription.created" || eventType === "customer.subscription.updated";
+        const entitlementBlocked = priceMappingAuthoritative && !plan;
         if (tenantRow && tenantId) {
           const differentSubscription = Boolean(
             tenantRow.stripeSubscriptionId && tenantRow.stripeSubscriptionId !== subId
@@ -371,7 +374,14 @@ export async function POST(req: Request) {
               currentPeriodStart,
               currentPeriodEnd: typeof stateObj.current_period_end === "number" ? new Date(stateObj.current_period_end * 1000) : parseDbTime(tenantRow.currentPeriodEnd),
               cancelAtPeriodEnd: stateObj.cancel_at_period_end === true,
+              // A subscription create/update with an unmapped Stripe Price is
+              // configuration drift. Preserve the last known plan identity for
+              // auditability but block runtime entitlement grants until repaired.
               planId: plan?.id ?? tenantRow.planId,
+              entitlementBlocked,
+              entitlementBlockedReason: entitlementBlocked
+                ? `stripe_price_unmapped:${priceId || "missing"}`
+                : null,
               ...(nextStatus === "cancelled" || nextStatus === "incomplete_expired"
                 ? {
                     checkoutStatus: "none" as const,
