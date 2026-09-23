@@ -68,6 +68,10 @@ export async function GET(req: Request) {
   const claimJobs = async (tx: { execute: typeof db.execute }) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:agent:${agent.id}`}))`);
 
+    // Capacity accounting must include all unexpired claimed/printing jobs owned
+    // by this Agent. Printer health and billing are claim-eligibility gates, not
+    // capacity gates; otherwise stale/offline printers can disappear from the
+    // count and a recovered Agent can exceed its bounded local executor limit.
     const countResult = await tx.execute(sql`
       SELECT COUNT(*)::int AS count
       FROM print_jobs p
@@ -81,23 +85,6 @@ export async function GET(req: Request) {
         AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
-        AND pr.lifecycle = 'active'
-        AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
-        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
-        AND pr.last_seen_at IS NOT NULL
-        AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
-        AND EXISTS (
-          SELECT 1
-          FROM tenant_subscriptions ts
-          WHERE ts.tenant_id = p.tenant_id
-            AND ts.status IN ('trialing', 'active', 'past_due')
-            AND (
-              ts.status = 'past_due'
-              OR ts.current_period_end IS NULL
-              OR ts.current_period_end > now()
-            )
-            AND COALESCE(ts.entitlement_blocked, false) = false
-        )
         AND t.lifecycle = 'active'
     `);
     const inFlight = Number((countResult.rows[0] as { count?: number | string } | undefined)?.count ?? 0);

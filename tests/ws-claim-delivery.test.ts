@@ -807,6 +807,49 @@ suite("WS claim-before-delivery", () => {
     expect(row.claim_token).toBeNull();
   });
 
+  it("capacity accounting keeps stale-printer jobs counted across both WS and poll claim paths", async () => {
+    const stalePrinterId = f.printerId;
+    const freshPrinterId = "capacity_fresh_printer";
+
+    await pool().query(
+      `INSERT INTO printers (id, tenant_id, agent_id, name, printer_type, device_class, connection_type, protocol, status, lifecycle, management_source, desired_revision, applied_desired_revision, observed_desired_revision, config, capabilities, last_seen_at)
+       SELECT $1, tenant_id, agent_id, name || ' fresh', printer_type, device_class, connection_type, protocol, 'online', lifecycle, management_source, desired_revision, applied_desired_revision, observed_desired_revision, config, capabilities, now()
+       FROM printers WHERE id = $2`,
+      [freshPrinterId, f.printerId],
+    );
+    await pool().query(
+      `INSERT INTO print_jobs (id, tenant_id, destination, document_type, agent_id, printer_id, status, payload, expires_at)
+       SELECT 'cap_cross_printer_' || g, $1, $2, 'receipt', $3, $4, 'claimed',
+              '{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb,
+              now() + interval '1 hour'
+       FROM generate_series(1, $5) g`,
+      [f.tenantId, f.destination, f.agentId, stalePrinterId, MAX_AGENT_IN_FLIGHT_JOBS],
+    );
+
+    await pool().query(
+      `UPDATE printers SET status = 'offline', last_seen_at = now() - interval '2 minutes' WHERE id = $1`,
+      [stalePrinterId],
+    );
+
+    const jobId = "job_capacity_cross_printer";
+    await pool().query(
+      `INSERT INTO print_jobs (id, tenant_id, destination, document_type, agent_id, printer_id, status, payload, expires_at)
+       VALUES ($1, $2, $3, 'receipt', $4, $5, 'queued',
+               '{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb,
+               now() + interval '1 hour')`,
+      [jobId, f.tenantId, f.destination, f.agentId, freshPrinterId],
+    );
+
+    expect(await claimJobForDelivery(jobId, f.agentId)).toBeNull();
+
+    const poll = await agentJobsGET(agentRequest(f, "GET"));
+    expect(poll.status).toBe(200);
+    const body = await poll.json();
+    expect(body.find((job: any) => job.id === jobId)).toBeUndefined();
+    const row = await jobRow(jobId);
+    expect(row.status).toBe("queued");
+    expect(row.delivery_attempts).toBe(0);
+  });
   it("WS claim enforces the in-flight ceiling: saturated agent gets no new claim", async () => {
     // The 500 in-flight cap used to be creation- and poll-only: concurrent
     // WS pushes (NOTIFY fan-out, bulk creation) could overshoot it without
