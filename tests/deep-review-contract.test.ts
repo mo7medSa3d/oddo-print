@@ -130,6 +130,15 @@ describe("deep production review contracts", () => {
     expect((pollClaim.match(/pr\.last_seen_at > now\(\) - make_interval/g) ?? []).length).toBeGreaterThanOrEqual(4);
   });
 
+  it("keeps Agent heartbeat as observed telemetry and Manager-owned desired state", async () => {
+    const heartbeat = read("src/app/api/agent/heartbeat/route.ts");
+    expect(heartbeat).toContain("lastSeenAt: sql`now()`");
+    expect(heartbeat).toContain('eq(printers.managementSource, "manager")');
+    expect(heartbeat).toContain("appliedDesiredRevision");
+    expect(heartbeat).toContain("observedDesiredRevision");
+    expect(heartbeat).toContain("gateway_owned_deletion_pending");
+  });
+
   it("keeps the Odoo printer inventory status tied to its observed freshness", () => {
     const source = read("src/app/api/odoo/printers/route.ts");
     expect(source).toContain("lastSeenAt: printers.lastSeenAt");
@@ -183,7 +192,6 @@ describe("deep production review contracts", () => {
     const source = read("odoo_addons/print_gateway/models/runtime_assignment.py");
     expect(source).toContain('("branch_id", "=", branch.id)');
     expect(source).toContain('("branch_id", "=", False)');
-    expect(source).toContain('record.branch_id.parent_id != record.company_id');
     expect(source).toContain('record.branch_id.parent_id != record.company_id');
     expect(source).toContain('record.company_id.parent_id');
     expect(source).toContain("self.assigned_agent_ids(company, branch)");
