@@ -331,12 +331,7 @@ class TestBranchRuntimeBinding(TransactionCase):
                 )
 
     def test_runtime_assignment_defaults_to_root_company_from_branch_context(self):
-        assignment = self.env["print_gateway.runtime_agent_assignment"].new({
-            "runtime_agent_id": "agent-default",
-        })
-        branch_env = self.env["print_gateway.runtime_agent_assignment"].with_context(
-            allowed_company_ids=[self.branch.id],
-        )
+        branch_env = self.env["print_gateway.runtime_agent_assignment"].with_company(self.branch)
         # The default must be derived from the active branch's parent company.
         default_company = branch_env._fields["company_id"].default(branch_env)
         self.assertEqual(default_company, self.company)
@@ -386,10 +381,12 @@ class TestBranchRuntimeBinding(TransactionCase):
 
     def test_company_wide_binding_validates_remote_target(self):
         assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        # Use an Agent and Printer already present in the mocked Gateway
+        # inventory so this test exercises the company-wide scope itself.
         assignment_model.create({
             "company_id": self.company.id,
             "branch_id": False,
-            "runtime_agent_id": "agent-company-wide-verify",
+            "runtime_agent_id": "agent-a",
             "enabled": True,
         })
         with patch(
@@ -401,7 +398,7 @@ class TestBranchRuntimeBinding(TransactionCase):
         ):
             binding = self.env["print_gateway.binding"].create(self._values(
                 branch_id=False,
-                runtime_agent_id="agent-company-wide-verify",
+                runtime_agent_id="agent-a",
                 printer_id="printer-a",
                 priority=99,
             ))
@@ -411,12 +408,18 @@ class TestBranchRuntimeBinding(TransactionCase):
     def test_root_binding_requires_company_wide_agent_assignment(self):
         binding_model = self.env["print_gateway.binding"]
         with self.assertRaises(ValidationError):
-            binding_model.create(self._values(
-                branch_id=False,
-                runtime_agent_id="agent-root-unassigned",
-                printer_id="printer-a",
-                priority=97,
-            ))
+            binding_model.create({
+                "company_id": self.company.id,
+                "branch_id": False,
+                "destination_type": "report",
+                "destination_report_id": self._report().id,
+                "report_id": self._report().id,
+                "runtime_agent_id": "agent-root-unassigned",
+                "printer_id": "printer-a",
+                "printer_protocol": "escpos",
+                "enabled": True,
+                "priority": 97,
+            })
 
         self.env["print_gateway.runtime_agent_assignment"].create({
             "company_id": self.company.id,
@@ -491,7 +494,7 @@ class TestBranchRuntimeBinding(TransactionCase):
         self.assertEqual(other_branch_agents, {"agent-c-%s" % second_branch.id, "agent-company-wide"})
 
         from odoo.addons.print_gateway.models.print_router import PrintGatewayRouter
-        router = PrintGatewayRouter()
+        router = self.env["print_gateway.print_router"]
         router._assert_branch_agent_assignment(self.company, self.branch, "agent-company-wide")
         with self.assertRaises(ValidationError):
             router._assert_branch_agent_assignment(self.company, self.branch, "agent-not-assigned")
