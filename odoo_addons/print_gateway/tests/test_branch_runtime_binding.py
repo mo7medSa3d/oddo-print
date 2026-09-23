@@ -114,6 +114,18 @@ class TestBranchRuntimeBinding(TransactionCase):
                 "priority": 95,
             })
 
+    def test_controller_accepts_active_branch_as_its_own_branch_scope(self):
+        from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
+        controller = PrintGatewayRuntimePrinterController()
+        branch_env = self.env.with_company(self.branch)
+        company, branch = controller._scope(
+            company_id=self.branch.id,
+            branch_id=self.branch.id,
+            env=branch_env,
+        )
+        self.assertEqual(company, self.company)
+        self.assertEqual(branch, self.branch)
+
     def test_controller_rejects_root_company_as_branch(self):
         from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
         controller = PrintGatewayRuntimePrinterController()
