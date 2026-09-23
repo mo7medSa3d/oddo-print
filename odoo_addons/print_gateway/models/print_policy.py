@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Print Policy engine for event-driven automated print dispatch."""
 
+import logging
+
 from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
 from odoo.tools.safe_eval import safe_eval
@@ -281,6 +283,42 @@ class PrintGatewayPolicy(models.Model):
             ("branch_id", "in", [False, branch.id] if branch else [False]),
             ("active", "=", True),
         ], order="priority asc, id asc")
+
+    @api.model
+    @api.private
+    def dispatch_for_record(self, record, event_type):
+        """Schedule every applicable automated print policy independently.
+
+        Policy selection is Odoo-owned control-plane data. Each policy is
+        evaluated and scheduled independently so one invalid target cannot
+        prevent other valid policies from printing. Idempotency is enforced
+        by the Intent layer, not by the hooks themselves.
+        """
+        policies = self.resolve_for_record(record, event_type)
+        intent_model = self.env["print_gateway.intent"].sudo()
+        executed_targets = set()
+        scheduled = 0
+        failures = 0
+        for policy in policies:
+            try:
+                if not policy.matches_record(record):
+                    continue
+                target_key = policy.effective_target_key(record)
+                if target_key in executed_targets:
+                    continue
+                executed_targets.add(target_key)
+                intent_model.create_and_route(policy, record, event_type)
+                scheduled += 1
+            except Exception as exc:
+                failures += 1
+                _logger.error(
+                    "Failed to schedule automated print policy '%s' for %s(%s): %s",
+                    policy.name,
+                    record._name,
+                    record.id,
+                    exc,
+                )
+        return {"scheduled": scheduled, "failed": failures}
 
     def effective_target_key(self, record):
         """Return the validated effective target used for policy fan-out dedup."""
