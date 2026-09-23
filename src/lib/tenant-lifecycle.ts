@@ -93,7 +93,12 @@ export async function transitionTenantLifecycle(
       );
     }
 
-    const now = new Date();
+    const clock = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+    const rawNow = clock.rows[0]?.now;
+    const now = rawNow instanceof Date ? rawNow : new Date(String(rawNow ?? ""));
+    if (!rawNow || Number.isNaN(now.getTime())) {
+      throw new TenantLifecycleError("Database clock is unavailable", "DATABASE_CLOCK_UNAVAILABLE", 503);
+    }
     const updates: Record<string, unknown> = {
       lifecycle: next,
       lifecycleReason: trimmedReason,

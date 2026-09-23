@@ -3,7 +3,7 @@ import { requirePlatformOwner, PlatformUnauthorizedError } from "../../../../lib
 import { db } from "../../../../db";
 import { queryWithTimeout } from "../../../../db/client";
 import { tenants, tenantSubscriptions, users, agents, printers, printJobs } from "../../../../db/schema";
-import { sql, gte, eq } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 import { agentStaleThresholdSeconds } from "../../../../lib/agent-availability";
 
 export async function GET(req: Request) {
@@ -94,7 +94,9 @@ export async function GET(req: Request) {
         queued: sql<number>`count(*) filter (where ${printJobs.status} = 'queued')::int`,
         inFlight: sql<number>`count(*) filter (where ${printJobs.status} in ('claimed','printing'))::int`,
         expired: sql<number>`count(*) filter (where ${printJobs.status} = 'expired')::int`,
-      }).from(printJobs).where(gte(printJobs.createdAt, new Date(Date.now() - 24 * 60 * 60 * 1000))),
+      }).from(printJobs).where(
+        sql`${printJobs.createdAt} >= clock_timestamp() - interval '24 hours'`,
+      ),
     ]),
     8_000,
     "platformStatsAggregate",

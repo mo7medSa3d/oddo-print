@@ -197,6 +197,18 @@ describe("clock authority is enforced in the source", () => {
     expect(verifyEmail).toMatch(/isNull(emailVerificationTokens.consumedAt),s*gt(emailVerificationTokens.expiresAt, sql`clock_timestamp()`)/);
   });
 
+  it("writes tenant lifecycle transition timestamps on the database clock", () => {
+    const lifecycle = read("src/lib/tenant-lifecycle.ts");
+    expect(lifecycle).toContain("SELECT clock_timestamp() AS now");
+    expect(lifecycle).not.toContain("const now = new Date()");
+  });
+
+  it("uses PostgreSQL time for the platform 24-hour job window", () => {
+    const stats = read("src/app/api/platform/stats/route.ts");
+    expect(stats).toContain("clock_timestamp() - interval '24 hours'");
+    expect(stats).not.toContain("Date.now()");
+  });
+
   it("keeps every JS availability default on the calibrated clock", () => {
     for (const path of ["src/lib/agent-availability.ts", "src/lib/agent-health.ts", "src/lib/routing.ts"]) {
       const source = read(path);
