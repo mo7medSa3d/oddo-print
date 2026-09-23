@@ -37,16 +37,20 @@ def test_project_does_not_add_parallel_browser_iot_or_epos_print_path():
     assert "ePOS" not in joined
 
 
-def test_automatic_policy_hooks_use_root_and_exact_branch_resolver():
+def test_automatic_policy_dispatcher_owns_root_and_exact_branch_resolution():
     policy = read("models/print_policy.py")
     assert "root_company = record_company.parent_id or record_company" in policy
     assert "branch = record_company if record_company.parent_id else False" in policy
     assert '("company_id", "=", root_company.id)' in policy
     assert '("branch_id", "in", [False, branch.id] if branch else [False])' in policy
+    assert "def resolve_for_record" in policy
+    assert "def dispatch_for_record" in policy
     for hook in ("models/account_move.py", "models/stock_picking.py", "models/pos_order.py"):
         source = read(hook)
-        assert "resolve_for_record(" in source
-        assert "policy_model.search([" not in source
+        assert "dispatch_for_record(" in source
+        assert "resolve_for_record(" not in source
+        assert "effective_target_key(" not in source
+        assert "create_and_route(" not in source
 
 
 def test_odoo19_report_download_controller_is_left_native():
@@ -68,9 +72,11 @@ def test_lower_priority_explicit_binding_is_exact_and_separate_policy_targets_do
     assert "return binding" in binding[binding.index("def resolve_explicit"):binding.index("def find_for")]
     assert ".find_for(" not in binding[binding.index("def resolve_explicit"):binding.index("def find_for")]
     assert "binding_id = route.get(\"binding_id\") or False" in policy
+    assert "def effective_target_key" in policy
+    assert "def dispatch_for_record" in policy
     for hook in ("models/account_move.py", "models/stock_picking.py", "models/pos_order.py"):
         source = read(hook)
-        assert "policy.effective_target_key(" in source
+        assert "policy.effective_target_key(" not in source
         assert "policy.binding_id.id if policy.binding_id else False" not in source
 
 
