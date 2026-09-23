@@ -70,6 +70,7 @@ services:
       TRUST_PROXY: "1"
       TRUST_PROXY_SECRET_FILE: /run/secrets/trust_proxy_secret
       APP_BASE_URL: ${APP_BASE_URL}
+      PLATFORM_TENANT_ID: ${PLATFORM_TENANT_ID}
       STRIPE_PLAN_CATALOG: ${STRIPE_PLAN_CATALOG}
       YASSER_TEST_EMAIL_CAPTURE_FILE: /test-data/verification-email.txt
     secrets:
