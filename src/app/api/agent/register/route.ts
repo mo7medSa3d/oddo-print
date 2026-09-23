@@ -2,7 +2,7 @@ import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { agents } from "../../../../db/schema";
-import { and, eq, gt, isNotNull } from "drizzle-orm";
+import { and, eq, gt, isNotNull, sql } from "drizzle-orm";
 import { generateSecret, hashPairingCode, hashSecret, isValidPairingCode } from "../../../../lib/agent-auth";
 import {
   clientIpFrom,
@@ -87,10 +87,13 @@ export async function POST(req: Request) {
     }
 
     const targetAgentId = parsed.data.agent_id || parsed.data.agentId;
+    const clock = await db.execute(sql`SELECT clock_timestamp() AS now`);
+    const dbNow = clock.rows[0]?.now;
+    if (!dbNow) return NextResponse.json({ error: "Registration temporarily unavailable" }, { status: 503 });
     const conditions = [
       eq(agents.pairingCodeHash, hashedCode),
       isNotNull(agents.pairingCodeHash),
-      gt(agents.pairingCodeExpiresAt, new Date()),
+      gt(agents.pairingCodeExpiresAt, dbNow),
       eq(agents.lifecycle, "active"),
     ];
     if (targetAgentId) conditions.push(eq(agents.id, targetAgentId));
@@ -114,7 +117,7 @@ export async function POST(req: Request) {
     };
 
     const secret = generateSecret();
-    const now = new Date();
+    const now = dbNow;
     const updated = await db.update(agents).set({
       pairingCodeHash: null,
       pairingCodeExpiresAt: null,
