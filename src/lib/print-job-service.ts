@@ -408,9 +408,9 @@ export async function createPrintJobForPrinter(
   if (typeof options.tenantId !== "string" || !options.tenantId.trim()) throw new PrintJobInputError("tenant context is required", "TENANT_CONTEXT_REQUIRED", 500);
 
   const id = `job_${nanoid(12)}`;
-  const expiresAt = options.expiresAt ?? new Date(Date.now() + 60 * 60 * 1000);
-  if (!(expiresAt instanceof Date) || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
-    throw new PrintJobInputError("expiresAt must be in the future", "INVALID_REQUEST", 400);
+  const expiresAt = options.expiresAt;
+  if (expiresAt !== undefined && (!(expiresAt instanceof Date) || Number.isNaN(expiresAt.getTime()))) {
+    throw new PrintJobInputError("expiresAt must be a valid timestamp", "INVALID_REQUEST", 400);
   }
 
   const enqueueStartedAt = Date.now();
