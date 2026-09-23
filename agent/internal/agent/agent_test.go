@@ -513,18 +513,21 @@ func TestPrintFailureThenRetry(t *testing.T) {
 	assertNoInFlight(t, ag)
 }
 
-func TestTTLExpiredSkipped(t *testing.T) {
+func TestGatewayOwnsJobExpiryEnforcement(t *testing.T) {
 	p := &fakePrinter{}
 	ag := newTestAgent(t, "p1", p)
 	ctx := context.Background()
 	job := map[string]interface{}{
-		"id": "expired_job", "printerId": "p1",
-		"payload":   makeJobPayload("expired_job"),
+		"id": "gateway-expiry-job", "printerId": "p1",
+		"payload":   makeJobPayload("gateway-expiry-job"),
 		"expiresAt": time.Now().Add(-time.Minute).Format(time.RFC3339),
 	}
+	// The Agent deliberately does not enforce expiresAt using its local wall
+	// clock. Gateway time is authoritative; the Agent only applies its local
+	// claim-freshness fence when a printing transition cannot be acknowledged.
 	ag.processJob(ctx, job)
-	if p.calls != 0 {
-		t.Fatalf("expired job should not call Print, got %d", p.calls)
+	if p.calls != 1 {
+		t.Fatalf("agent must not locally reject a Gateway-delivered job by wall-clock expiry, got %d calls", p.calls)
 	}
 }
 
