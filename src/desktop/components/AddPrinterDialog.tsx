@@ -196,7 +196,8 @@ export function AddPrinterDialog({
   };
 
   return (
-    <Modal
+    <>
+      <Modal
       open={open}
       onClose={onClose}
       title="Add printer"
@@ -358,14 +359,15 @@ export function AddPrinterDialog({
         )}
         {error && <ErrorState title="Cannot add printer" message={error} />}
       </div>
-    </Modal>
+      </Modal>
 
-    <UpgradeLimitDialog
+      <UpgradeLimitDialog
       open={upgradeLimit !== null}
       onClose={() => setUpgradeLimit(null)}
       resource={upgradeLimit?.resource ?? "printers"}
       used={upgradeLimit?.used}
-      limit={upgradeLimit?.limit}
-    />
+        limit={upgradeLimit?.limit}
+      />
+    </>
   );
 }
