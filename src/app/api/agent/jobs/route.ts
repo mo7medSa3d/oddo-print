@@ -367,8 +367,8 @@ export async function PATCH(req: Request) {
       })
       .where(and(
         fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
-        sql`\${printJobs.expiresAt} <= now()`,
-        sql`\${printJobs.expiresAt} > now() - interval '5 minutes'`,
+        sql`${printJobs.expiresAt} <= now()`,
+        sql`${printJobs.expiresAt} > now() - interval '5 minutes'`,
       ))
       .returning({ status: printJobs.status, error: printJobs.error });
     if (postExpired.length !== 1) {
@@ -392,14 +392,14 @@ export async function PATCH(req: Request) {
     .set({
       status: requestedStatus,
       error: nextError,
-      // Invalidate the claim token when the job reaches a terminal state
-      // (success, failed). A completed job must never retain a live token.
       ...(isTerminal(requestedStatus) ? { claimToken: sql`NULL` } : {}),
-      // DB-native now() to match the sweeper's clock (updated_at < now() - interval).
       updatedAt: sql`now()`,
       deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
     })
-    .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
+    .where(and(
+      fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
+      lateSuccess ? sql`${printJobs.updatedAt} >= now() - interval '24 hours' AND ${printJobs.updatedAt} <= now()` : sql`TRUE`,
+    ))
     .returning({ status: printJobs.status, error: printJobs.error });
 
   if (updated.length !== 1) {
