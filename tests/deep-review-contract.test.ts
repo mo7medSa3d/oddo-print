@@ -48,7 +48,6 @@ describe("deep production review contracts", () => {
     expect(source).toContain('import { performance } from "node:perf_hooks";');
     expect(source).toContain("private lastRefillMs = performance.now()");
     expect(source).toContain("const now = performance.now();");
-    expect(source).toContain("const now = performance.now();");
     expect(source).toContain("function pruneIdleWsBuckets(nowMs = performance.now())");
     expect(upgradeSource).toContain('import { performance } from "node:perf_hooks";');
     expect(upgradeSource).toContain("now = performance.now()");
