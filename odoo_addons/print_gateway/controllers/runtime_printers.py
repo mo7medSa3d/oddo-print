@@ -49,8 +49,9 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         if branch and branch == company:
             raise ValidationError("Odoo Branch must be a child Branch, not the selected root Company.")
 
-        if branch and branch.parent_id and branch.parent_id.id != company.id:
-            raise ValidationError("Odoo Branch must belong directly to the selected Odoo Company.")
+        if branch:
+            if not branch.parent_id or branch.parent_id.id != company.id:
+                raise ValidationError("Odoo Branch must belong directly to the selected Odoo Company.")
 
         return company, branch
 
