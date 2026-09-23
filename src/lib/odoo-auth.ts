@@ -39,9 +39,20 @@ export async function validateOdooKey(
 
   const hashed = hashKey(raw);
   const row = await db.query.apiKeys.findFirst({ where: eq(apiKeys.hashedKey, hashed) });
-  if (!row || row.revokedAt || !timingSafeEqualStr(row.hashedKey, hashed)) return null;
+  const now = new Date();
+  const rotationGraceActive = Boolean(
+    row?.revokedAt &&
+    row.readOnlyUntil &&
+    new Date(row.readOnlyUntil).getTime() > now.getTime(),
+  );
+  if (
+    !row ||
+    !timingSafeEqualStr(row.hashedKey, hashed) ||
+    (row.revokedAt && !rotationGraceActive) ||
+    (!row.revokedAt && row.readOnlyUntil)
+  ) return null;
 
-  await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(and(eq(apiKeys.id, row.id), eq(apiKeys.tenantId, row.tenantId))).catch(() => undefined);
+  await db.update(apiKeys).set({ lastUsedAt: now }).where(and(eq(apiKeys.id, row.id), eq(apiKeys.tenantId, row.tenantId))).catch(() => undefined);
   // Tenant lifecycle gate: suspended/deleted tenants cannot perform normal
   // Odoo operations. Health probes may opt out so the caller can return the
   // correct 403 lifecycle status instead of misclassifying it as bad credentials.
@@ -57,5 +68,5 @@ export async function validateOdooKey(
   // so the same authenticated credential can re-enable it.
   if (options.requireIntegrationEnabled !== false && !row.odooEnabled) return null;
 
-  return row;
+  return { ...row, readOnly: rotationGraceActive };
 }
