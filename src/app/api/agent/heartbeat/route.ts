@@ -263,9 +263,23 @@ export async function POST(req: Request) {
             continue;
           }
           // Heartbeats are observations. Manager-owned identity/configuration
-          // remains authoritative; the agent may update only live telemetry.
+          // remains authoritative. Agent-owned printers, however, are themselves
+          // defined by the agent inventory, so their stable metadata/config must
+          // converge on every heartbeat (rename, transport change, endpoint change,
+          // disappearance/reappearance) without altering lifecycle or ownership.
+          const updateSet = existing.managementSource === "agent"
+            ? {
+                ...observedUpdateSet,
+                name: p.name,
+                printerType: p.printerType as typeof printers.$inferInsert.printerType,
+                deviceClass: p.deviceClass as typeof printers.$inferInsert.deviceClass,
+                connectionType: p.connectionType as typeof printers.$inferInsert.connectionType,
+                protocol: p.protocol as typeof printers.$inferInsert.protocol,
+                config: p.config as typeof printers.$inferInsert.config,
+              }
+            : observedUpdateSet;
           await tx.update(printers)
-            .set(observedUpdateSet)
+            .set(updateSet)
             .where(and(
               eq(printers.id, p.id),
               eq(printers.tenantId, agent.tenantId),
