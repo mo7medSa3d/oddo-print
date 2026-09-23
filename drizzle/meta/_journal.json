@@ -491,6 +491,13 @@
       "when": 1790574863001,
       "tag": "0069_redact_legacy_claim_ids",
       "breakpoints": false
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1790574863002,
+      "tag": "0070_discovered_device_identity",
+      "breakpoints": false
     }
   ]
 }
