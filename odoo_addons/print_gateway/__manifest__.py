@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Yasser Print Gateway',
-    'version': '19.0.2.7.0',
+    'version': '19.0.2.8.0',
     'summary': 'Reliable silent printing for Odoo through Yasser Print Gateway',
     'description': """
 Yasser Print Gateway connects Odoo with the printers used by your business.
@@ -15,7 +15,7 @@ Gateway printing is silent: when a print rule is active, Odoo sends the document
 to the printing service without opening the browser print dialog.
     """,
     'author': 'Yasser',
-    'website': 'https://github.com/mo7medSa3d/printer-repo',
+    'website': 'https://github.com/mo7medSa3d/oddo-print',
     'category': 'Tools',
     'depends': ['base', 'web', 'sale', 'account', 'stock', 'purchase', 'point_of_sale'],
     'external_dependencies': {'python': ['requests', 'cryptography']},
