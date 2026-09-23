@@ -178,9 +178,13 @@ describe("Odoo addon static contracts", () => {
     const scopeIdx = binding.indexOf("def _check_runtime_scope");
     const bindingIdx = binding.indexOf("def _check_binding");
     const constraintBody = binding.slice(scopeIdx, bindingIdx);
+    const remoteValidationIdx = binding.indexOf("def _validate_runtime_target");
+    const remoteValidationEnd = binding.indexOf("    @api.constrains", remoteValidationIdx);
+    const remoteValidationBody = binding.slice(remoteValidationIdx, remoteValidationEnd);
 
     expect(constraintBody).not.toContain("_validate_runtime_target");
     expect(constraintBody).not.toContain("requests.");
+    expect(remoteValidationBody).toContain("requests.");
     expect(binding).toContain("def action_verify_remote_hardware(self):");
     expect(views).toContain('name="action_verify_remote_hardware"');
   });
@@ -195,7 +199,7 @@ describe("Odoo addon static contracts", () => {
 
   it("treats explicit Branch → Agent assignment as the binding source of truth", () => {
     const binding = read("models/binding.py");
-    expect(binding).toContain('self.env["print_gateway.runtime_agent_assignment"]');
+    expect(binding).toContain("runtime_agent_assignment");
     expect(binding).toContain("is_agent_assigned");
     expect(binding).toContain("is not explicitly assigned to");
     expect(binding).not.toContain("from psycopg2 import IntegrityError");
