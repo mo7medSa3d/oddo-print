@@ -1,0 +1,125 @@
+services:
+  postgres:
+    image: postgres:16.15-alpine
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_http_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - yasser_http_test
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      TZ: UTC
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    command: ["npm", "run", "db:migrate"]
+    networks:
+      - yasser_http_test
+
+  gateway:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      YASSER_HTTP_TEST_MODE: "1"
+      TZ: UTC
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD_FILE: /run/secrets/postgres_password
+      GATEWAY_JWT_SECRET_FILE: /run/secrets/gateway_jwt_secret
+      MANAGER_USERNAME: ${MANAGER_USERNAME}
+      MANAGER_PASSWORD_HASH_FILE: /run/secrets/manager_password_hash
+      ALLOW_PLAINTEXT_MANAGER_PASSWORD:
+      COOKIE_SECURE: "0"
+      STALE_AGENT_THRESHOLD_SECONDS: "90"
+      TRUST_PROXY: "1"
+      TRUST_PROXY_SECRET_FILE: /run/secrets/trust_proxy_secret
+      APP_BASE_URL: ${APP_BASE_URL}
+      PLATFORM_TENANT_ID: ${PLATFORM_TENANT_ID}
+      STRIPE_PLAN_CATALOG: ${STRIPE_PLAN_CATALOG}
+      YASSER_TEST_EMAIL_CAPTURE_FILE: /test-data/verification-email.txt
+    secrets:
+      - postgres_password
+      - gateway_jwt_secret
+      - manager_password_hash
+      - trust_proxy_secret
+    expose:
+      - "3000"
+    volumes:
+      - ./test-data:/test-data
+    command: ["node_modules/.bin/tsx", "server.ts"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - yasser_http_test
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_healthy
+    secrets:
+      - trust_proxy_secret
+    ports:
+      - "${HTTP_TEST_PORT}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      - yasser_http_test
+
+volumes:
+  postgres_http_test_data:
+
+secrets:
+  postgres_password:
+    environment: POSTGRES_PASSWORD
+  gateway_jwt_secret:
+    environment: GATEWAY_JWT_SECRET
+  manager_password_hash:
+    environment: MANAGER_PASSWORD_HASH
+  trust_proxy_secret:
+    environment: TRUST_PROXY_SECRET
+
+networks:
+  yasser_http_test:
+    driver: bridge

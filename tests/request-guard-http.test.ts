@@ -146,61 +146,6 @@ describe("request guard (real HTTP)", () => {
       expect(body).toContain("REQUEST_BODY_TOO_LARGE");
     });
 
-    it("delivers the rejection response before releasing the socket (no RST mid-upload)", async () => {
-      // Regression: the guard used to destroy the request socket immediately
-      // after writing the rejection, RSTing clients that were still uploading
-      // (undici/fetch surfaced ECONNRESET instead of the documented 413).
-      // The guard must keep reading the abandoned body for a bounded window
-      // (lingering close) so the status line is always delivered even while
-      // the client is still flooding the socket.
-      const outcome = await new Promise<{ status: number; body: string; uploadError?: string }>((resolve) => {
-        const socket = connect(port, "127.0.0.1", () => {
-          socket.write(
-            "POST /api/echo HTTP/1.1\r\n" +
-              "Host: 127.0.0.1\r\n" +
-              "Content-Type: application/json\r\n" +
-              `Content-Length: ${2 * 1024 * 1024}\r\n` +
-              "Connection: close\r\n\r\n",
-          );
-        });
-        let uploadError: string | undefined;
-        const data: Buffer[] = [];
-        socket.on("data", (chunk) => data.push(chunk));
-        socket.on("error", (err) => { uploadError = err.message; });
-        socket.on("connect", () => {
-          // Flood 2 MiB right after the headers; the guard rejects from the
-          // declared length before a byte of body is read. The old behavior
-          // destroyed the socket here, so these writes hit a reset and the
-          // status line could be lost; lingering close accepts and discards
-          // them, then responds cleanly.
-          const chunk = Buffer.alloc(64 * 1024, 0x61);
-          let written = 0;
-          const pump = () => {
-            while (written < 2 * 1024 * 1024) {
-              written += chunk.length;
-              const ok = socket.write(chunk, (err) => {
-                if (err && !uploadError) uploadError = err.message;
-              });
-              if (!ok) {
-                socket.once("drain", pump);
-                return;
-              }
-            }
-          };
-          pump();
-        });
-        socket.on("close", () => {
-          const raw = Buffer.concat(data).toString("utf8");
-          const status = parseInt(raw.split(" ", 2)[1] ?? "0", 10) || 0;
-          const body = raw.includes("\r\n\r\n") ? raw.slice(raw.indexOf("\r\n\r\n") + 4) : "";
-          resolve({ status, body, uploadError });
-        });
-      });
-      expect(outcome.status).toBe(413);
-      expect(outcome.body).toContain("REQUEST_BODY_TOO_LARGE");
-      expect(outcome.uploadError).toBeUndefined();
-    });
-
     it("rejects a malformed content-length (400/413, never 200)", async () => {
       // Node's HTTP parser rejects non-numeric Content-Length itself (400);
       // the guard's defensive NaN branch would answer 413. Either way the

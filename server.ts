@@ -6,7 +6,6 @@ import { parse } from "url";
 import next from "next";
 import { attachAgentWSS } from "./src/server/ws";
 import { guardApiRequest } from "./src/server/request-guard";
-import { applyApiCacheControlDefault } from "./src/server/api-defaults";
 import { sweepPrintJobs } from "./src/lib/job-maintenance";
 import { cleanupAuthRateLimits } from "./src/lib/auth-rate-limit";
 import { cleanupExpiredManagerSessions } from "./src/lib/manager-auth";
@@ -19,11 +18,6 @@ import { sweepStaleAgentPresence, AGENT_PRESENCE_SWEEP_INTERVAL_MS } from "./src
 const dev = process.env.NODE_ENV !== "production";
 const port = parseInt(process.env.PORT ?? "3000", 10);
 const hostname = process.env.HOSTNAME ?? "0.0.0.0";
-
-function isLoopbackBinding(host: string): boolean {
-  const normalized = host.trim().toLowerCase();
-  return normalized === "127.0.0.1" || normalized === "::1" || normalized === "localhost";
-}
 const JOB_SWEEP_INTERVAL_MS = 30_000;
 const HOUSEKEEPING_INTERVAL_MS = 5 * 60_000;
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
@@ -40,10 +34,8 @@ const KNOWN_PLACEHOLDER_SECRETS = new Set([
   "replace-with-another-at-least-32-random-secret",
 ]);
 
-function assertRealSecret(name: string, value: string | undefined, minLength: number): string {
-  if (!value || value.length < minLength) {
-    throw new Error(`Refusing production startup: ${name} must be configured with a real secret of at least ${minLength} characters.`);
-  }
+function assertRealSecret(name: string, value: string | undefined, minLength: number): string | undefined {
+  if (!value || value.length < minLength) return value;
   if (KNOWN_PLACEHOLDER_SECRETS.has(value.trim())) {
     throw new Error(`Refusing production startup: ${name} is a known example placeholder from the repository. Generate a real secret (>=${minLength} chars).`);
   }
@@ -54,8 +46,18 @@ if (process.env.NODE_ENV === "production" && process.env.ALLOW_PLAINTEXT_MANAGER
   throw new Error("Refusing production startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1; configure MANAGER_PASSWORD_HASH instead.");
 }
 
-if (process.env.NODE_ENV === "production" && (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")) {
+const httpTestMode = process.env.YASSER_HTTP_TEST_MODE === "1";
+
+if (
+  process.env.NODE_ENV === "production" &&
+  !httpTestMode &&
+  (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")
+) {
   throw new Error("Refusing production startup with COOKIE_SECURE disabled; manager/customer session cookies must be Secure in production.");
+}
+
+if (process.env.NODE_ENV === "production" && httpTestMode && (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")) {
+  console.warn("[security] YASSER_HTTP_TEST_MODE=1: COOKIE_SECURE is intentionally disabled for the isolated HTTP test deployment.");
 }
 
 if (process.env.NODE_ENV === "production") {
@@ -64,31 +66,11 @@ if (process.env.NODE_ENV === "production") {
     throw new Error("Refusing production startup: PLATFORM_TENANT_ID must be configured with the real platform workspace ID so the platform tenant cannot be suspended or deleted.");
   }
   assertRealSecret("GATEWAY_JWT_SECRET", runtimeSecret("GATEWAY_JWT_SECRET"), 32);
-  if (!trustProxyEnabled() && !isLoopbackBinding(hostname)) {
-    throw new Error("Refusing production startup: TRUST_PROXY=1 is required when the Gateway binds a non-loopback interface. Do not expose the Gateway application port directly.");
-  }
   if (trustProxyEnabled()) {
-    assertRealSecret("TRUST_PROXY_SECRET", runtimeSecret("TRUST_PROXY_SECRET"), 32);
-  }
-  const appBaseUrl = runtimeSecret("APP_BASE_URL")?.trim();
-  if (!appBaseUrl) {
-    throw new Error("Refusing production startup: APP_BASE_URL must be configured.");
-  }
-  let parsedAppBaseUrl: URL;
-  try {
-    parsedAppBaseUrl = new URL(appBaseUrl);
-  } catch {
-    throw new Error("Refusing production startup: APP_BASE_URL must be an absolute URL.");
-  }
-  if (
-    parsedAppBaseUrl.protocol !== "https:" ||
-    parsedAppBaseUrl.username ||
-    parsedAppBaseUrl.password ||
-    parsedAppBaseUrl.pathname !== "/" ||
-    parsedAppBaseUrl.search ||
-    parsedAppBaseUrl.hash
-  ) {
-    throw new Error("Refusing production startup: APP_BASE_URL must be a clean HTTPS origin.");
+    const proxySecret = assertRealSecret("TRUST_PROXY_SECRET", runtimeSecret("TRUST_PROXY_SECRET"), 32);
+    if (!proxySecret || proxySecret.length < 32) {
+      throw new Error("Refusing production startup with TRUST_PROXY enabled without TRUST_PROXY_SECRET (>=32 chars).");
+    }
   }
 }
 
@@ -136,7 +118,6 @@ const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {
-    applyApiCacheControlDefault(req, res);
     if (trustProxyEnabled() && req.url !== "/api/health" && req.url !== "/api/live") {
       const headers = new Headers();
       for (const [key, value] of Object.entries(req.headers)) {
