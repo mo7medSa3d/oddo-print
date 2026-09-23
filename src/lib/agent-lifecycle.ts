@@ -4,6 +4,7 @@ import { agents } from "../db/schema";
 import { canTransitionLifecycle } from "./lifecycle";
 import { generatePairingCode, hashPairingCode } from "./agent-auth";
 import { writeAuditEvent, type AuditActor } from "./audit";
+import { requireTenantBillingAccess } from "./entitlements";
 
 export type AgentLifecycleResult = {
   changed: boolean;
@@ -54,6 +55,10 @@ export async function transitionAgentLifecycle(
 
     const reenable = current === "disabled" && next === "active";
     let pairingCode: string | null = null;
+
+    if (reenable) {
+      await requireTenantBillingAccess(tx, tenantId);
+    }
 
     if (reenable) {
       for (let attempt = 0; attempt < 5; attempt += 1) {

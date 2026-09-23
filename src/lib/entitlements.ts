@@ -121,6 +121,19 @@ export function isTenantBillingError(error: unknown): error is TenantSubscriptio
   return error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError;
 }
 
+export async function requireTenantBillingAccess(tx: EntitlementTx, tenantId: string): Promise<void> {
+  const result = await tx.execute(sql`
+    SELECT status, current_period_end AS "currentPeriodEnd", entitlement_blocked AS "entitlementBlocked"
+    FROM tenant_subscriptions
+    WHERE tenant_id = ${tenantId}
+    LIMIT 1
+  `);
+  const row = result.rows[0] as { status?: string | null; currentPeriodEnd?: Date | string | null; entitlementBlocked?: boolean } | undefined;
+  if (!row || !isBillingAccessStatus(row.status) || !isSubscriptionPeriodLive(row.currentPeriodEnd) || row.entitlementBlocked === true) {
+    throw new TenantSubscriptionRequiredError();
+  }
+}
+
 export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: string, key: string, lockRows = false): Promise<number | null> {
   const result = lockRows
     ? await tx.execute(sql`

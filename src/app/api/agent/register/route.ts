@@ -10,6 +10,7 @@ import {
 } from "../../../../lib/auth-rate-limit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { z } from "zod";
+import { requireTenantBillingAccess } from "../../../../lib/entitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -100,7 +101,18 @@ export async function POST(req: Request) {
     if (targetAgentId) conditions.push(eq(agents.id, targetAgentId));
 
     const agent = await db.query.agents.findFirst({ where: and(...conditions) });
-    if (!agent) {
+    if (!agent) {    const billingResult = await db.execute(sql`
+      SELECT status, current_period_end AS "currentPeriodEnd", entitlement_blocked AS "entitlementBlocked"
+      FROM tenant_subscriptions
+      WHERE tenant_id = ${agent.tenantId}
+      LIMIT 1
+    `);
+    const billing = billingResult.rows[0] as { status?: string | null; currentPeriodEnd?: Date | string | null; entitlementBlocked?: boolean } | undefined;
+    if (!billing || !["trialing", "active", "past_due"].includes(String(billing.status ?? "")) || billing.entitlementBlocked === true) {
+      return NextResponse.json({ error: "An active subscription is required before pairing agents.", code: "SUBSCRIPTION_REQUIRED" }, { status: 403 });
+    }
+
+
       if (decision.retryAfterSec) {
         const response = NextResponse.json({ error: "Too many pairing attempts. Try again later." }, { status: 429 });
         response.headers.set("Retry-After", String(decision.retryAfterSec));

@@ -219,3 +219,18 @@ describe("deep production review contracts", () => {
     expect(source).toContain("the durable outbox row remains queued for cron recovery");
   });
 });
+
+
+  it("agent pairing and re-enable enforce the same billing policy as Odoo discovery", () => {
+    const register = read("src/app/api/agent/register/route.ts");
+    const lifecycle = read("src/lib/agent-lifecycle.ts");
+    const entitlements = read("src/lib/entitlements.ts");
+    const odooAgents = read("src/app/api/odoo/agents/route.ts");
+    expect(odooAgents).toContain("active subscription is required before pairing agents");
+    expect(register).toContain("SUBSCRIPTION_REQUIRED");
+    expect(register).toContain("entitlement_blocked");
+    expect(lifecycle).toContain("requireTenantBillingAccess(tx, tenantId)");
+    expect(entitlements).toContain("requireTenantBillingAccess");
+    expect(entitlements).toContain("isBillingAccessStatus(row.status)");
+    expect(entitlements).toContain("row.entitlementBlocked === true");
+  });
