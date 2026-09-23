@@ -14,7 +14,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             raise Forbidden("Access Denied: Runtime printer discovery is restricted to Odoo system administrators.")
 
     def _scope(self, company_id=None, branch_id=None, env=None):
-        env = env or request.env
+        env = env if env is not None else request.env
         if company_id:
             try:
                 company = env["res.company"].browse(int(company_id)).exists()
@@ -52,7 +52,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         return company, branch
 
     def _get_config(self, company, env=None):
-        env = env or request.env
+        env = env if env is not None else request.env
         root_company = company
         while root_company.parent_id:
             root_company = root_company.parent_id
@@ -62,7 +62,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         return config, root_company
 
     def _assigned_runtime_agent_ids(self, company, branch, env=None):
-        env = env or request.env
+        env = env if env is not None else request.env
         assignment_model = env["print_gateway.runtime_agent_assignment"].sudo()
         domain = [
             ("company_id", "=", company.id),
