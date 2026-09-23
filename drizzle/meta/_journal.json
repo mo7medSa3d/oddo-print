@@ -470,6 +470,13 @@
       "when": 1790142862337,
       "tag": "0066_job_events_cascade",
       "breakpoints": false
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1790574862337,
+      "tag": "0067_print_job_wall_clock",
+      "breakpoints": false
     }
   ]
 }

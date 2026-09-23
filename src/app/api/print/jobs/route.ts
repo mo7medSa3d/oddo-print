@@ -7,7 +7,7 @@ import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError
 import { TenantEntitlementError, TenantPrintQuotaExceededError, isTenantBillingError } from "../../../../lib/entitlements";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError, requestIdFrom } from "../../../../lib/log";
-import { databaseNowMs } from "../../../../lib/database-clock";
+import { databaseNowMs, refreshClockSkew } from "../../../../lib/database-clock";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 

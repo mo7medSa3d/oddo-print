@@ -13,6 +13,7 @@ import { db, queryWithTimeout } from "../db/client";
 import { agents, printers, printJobs } from "../db/schema";
 import { eq, and, count, sql } from "drizzle-orm";
 import { logWarn } from "./log";
+import { gatewayNow } from "./database-clock";
 
 export type AgentHealthStatus = "ONLINE" | "DEGRADED" | "OFFLINE" | "STARTING" | "UNKNOWN";
 export type HealthCheckResult = {
@@ -45,7 +46,7 @@ const ONLINE_THRESHOLD_MS = 90_000; // 90s matches claim logic
 const DEGRADED_THRESHOLD_MS = 5 * 60_000; // 5min
 const STARTING_THRESHOLD_MS = 5 * 60_000;
 
-export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: Date | null, now = new Date()): AgentHealthStatus {
+export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: Date | null, now = gatewayNow()): AgentHealthStatus {
   if (!lastSeenAt) {
     if (createdAt) {
       const ageCreated = now.getTime() - new Date(createdAt).getTime();
@@ -68,7 +69,7 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   if (agentRows.length === 0) return null;
   const agent = agentRows[0] as any;
 
-  const now = new Date();
+  const now = gatewayNow();
   const baseStatus = computeAgentHealthStatus(agent.lastSeenAt, agent.createdAt, now);
 
   let queueRows: Array<{ cnt: number }> = [];

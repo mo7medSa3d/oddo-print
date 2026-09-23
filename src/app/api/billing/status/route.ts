@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantSubscriptions } from "../../../../db/schema";
 import { validateManager } from "../../../../lib/manager-auth";
+import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../../../../lib/entitlements";
+import { refreshClockSkew } from "../../../../lib/database-clock";
 import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -17,14 +19,14 @@ export async function GET(req: Request) {
   const manager = await validateManager(req);
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  await refreshClockSkew();
   const sub = await db.query.tenantSubscriptions.findFirst({
     where: eq(tenantSubscriptions.tenantId, manager.tenantId),
     columns: { planId: true, status: true, currentPeriodEnd: true },
   });
 
-  const liveStatuses = new Set(["trialing", "active", "past_due"]);
-  const periodLive = !sub?.currentPeriodEnd || new Date(sub.currentPeriodEnd) > new Date();
-  const hasSubscription = !!sub && liveStatuses.has(sub.status) && periodLive;
+  const hasSubscription =
+    !!sub && isBillingAccessStatus(sub.status) && isSubscriptionPeriodLive(sub.currentPeriodEnd);
 
   return NextResponse.json(
     {

@@ -321,8 +321,13 @@ export const printJobs = pgTable("print_jobs", {
   deliveredAt: timestamp("delivered_at"),
   ackedAt: timestamp("acked_at"),
   expiresAt: timestamp("expires_at").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  // Job lifetime belongs to PostgreSQL's wall clock, not the transaction start
+  // (`now()`): `expires_at` is derived from a `clock_timestamp()` read, and the
+  // per-minute rate window and maintenance sweeps compare these columns against
+  // `now()`. Migration 0067 sets the same defaults in the database; the Gateway
+  // enqueue path stamps both explicitly from that single clock read.
+  createdAt: timestamp("created_at").default(sql`clock_timestamp()`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`clock_timestamp()`).notNull(),
   spoolerJobId: text("spooler_job_id"),
   attemptId: text("attempt_id"),
 }, (table) => ({

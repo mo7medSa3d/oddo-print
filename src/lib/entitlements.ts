@@ -1,5 +1,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import { logError } from "./log";
+import { gatewayNowMs } from "./database-clock";
+import type { EntitlementLimitSignal } from "./limit-signal";
 
 export class TenantEntitlementError extends Error {
   readonly code = "TENANT_ENTITLEMENT_EXCEEDED" as const;
@@ -25,6 +27,34 @@ export class TenantSubscriptionRequiredError extends Error {
  * revoked for unpaid/canceled/paused states by the entitlement query.
  */
 export const BILLING_ACCESS_STATUSES = ["trialing", "active", "past_due"] as const;
+
+/** True when a Stripe subscription status keeps the runtime provisioned. */
+export function isBillingAccessStatus(status: string | null | undefined): boolean {
+  return typeof status === "string" && (BILLING_ACCESS_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * Subscription period gate used by every Odoo/console entry point.
+ *
+ * `current_period_end` is a Stripe/DB timestamp, so it must be compared with
+ * the Gateway's authoritative clock (database-calibrated) rather than the Node
+ * host clock: a host running ahead would revoke access from a paying tenant
+ * (pairing, key creation, and printing all return 403 SUBSCRIPTION_REQUIRED),
+ * while a host running behind would keep an expired subscription provisioned.
+ *
+ * A null period end means "no period boundary recorded yet" and stays live —
+ * matching the SQL predicates in `getTenantEntitlementLimit`, which treat
+ * `period_end IS NULL` as live for active/trialing rows.
+ */
+export function isSubscriptionPeriodLive(
+  currentPeriodEnd: Date | string | null | undefined,
+  nowMs: number = gatewayNowMs(),
+): boolean {
+  if (currentPeriodEnd === null || currentPeriodEnd === undefined) return true;
+  const endsAt = currentPeriodEnd instanceof Date ? currentPeriodEnd.getTime() : parseEntitlementDate(currentPeriodEnd)?.getTime();
+  if (typeof endsAt !== "number" || Number.isNaN(endsAt)) return false;
+  return endsAt > nowMs;
+}
 
 export const PLAN_ENTITLEMENT_KEYS = [
   "max_agents",
@@ -153,6 +183,51 @@ export async function getTenantEntitlements(tx: EntitlementTx, tenantId: string)
     });
     throw new TenantEntitlementConfigError("plan_entitlements");
   }
+}
+
+/**
+ * Convert a limit/entitlement failure into the serializable signal the upgrade
+ * dialog consumes. Returns null for anything that is not a limit trip, so
+ * callers keep their existing error handling for every other failure mode.
+ *
+ * `retryable` distinguishes a periodic allowance that resets (per-minute rate,
+ * concurrent jobs, billing-period quota) from a capacity that only an upgrade
+ * can raise (`max_agents`, `max_printers`).
+ */
+export function entitlementLimitSignal(error: unknown): EntitlementLimitSignal | null {
+  if (error instanceof TenantPrintQuotaExceededError) {
+    return {
+      code: error.code,
+      entitlement: error.entitlement,
+      limit: error.limit,
+      used: error.used,
+      remaining: 0,
+      periodStart: error.periodStart.toISOString(),
+      periodEnd: error.periodEnd?.toISOString() ?? null,
+      retryAfterSeconds: error.periodEnd ? Math.max(1, Math.ceil((error.periodEnd.getTime() - gatewayNowMs()) / 1000)) : null,
+      upgradeRequired: true,
+      message: error.message,
+      // The allowance resets at the next billing period, so an immediate retry
+      // cannot succeed: `retryAfterSeconds` schedules it instead. Matches the
+      // 429 body returned by the HTTP print routes.
+      retryable: false,
+    };
+  }
+  if (error instanceof TenantEntitlementError) {
+    const capacity = error.entitlement === "max_agents" || error.entitlement === "max_printers";
+    return {
+      code: error.code,
+      entitlement: error.entitlement,
+      limit: error.limit,
+      used: error.used,
+      remaining: Math.max(0, error.limit - error.used),
+      retryAfterSeconds: capacity ? null : 60,
+      upgradeRequired: true,
+      message: error.message,
+      retryable: !capacity,
+    };
+  }
+  return null;
 }
 
 export async function enforceTenantResourceEntitlement(tx: EntitlementTx, tenantId: string, key: string, currentCountSql: SQL): Promise<void> {

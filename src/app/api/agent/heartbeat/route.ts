@@ -186,7 +186,7 @@ export async function POST(req: Request) {
       if (currentAgent.lifecycle !== "active") return { kind: "inactive" as const, lifecycle: String(currentAgent.lifecycle) };
 
       await tx.update(agents)
-        .set({ status, lastSeenAt: new Date() })
+        .set({ status, lastSeenAt: sql`now()` })
         .where(and(eq(agents.id, agent.id), eq(agents.tenantId, agent.tenantId), eq(agents.lifecycle, "active")));
 
       if (tokened.length > 0) {
@@ -245,7 +245,12 @@ export async function POST(req: Request) {
           status: p.status,
           observedDeviceClass: p.deviceClass as typeof printers.$inferInsert.observedDeviceClass,
           capabilities: p.capabilities as typeof printers.$inferInsert.capabilities,
-          lastSeenAt: new Date(),
+          // Durable presence must be written on the same clock that gates it:
+          // claim/dispatch queries compare this column against PostgreSQL
+          // now(). A host-clock write drifts from those gates (a host clock
+          // behind the database makes a live Agent look stale and blocks its
+          // claims; ahead of it, a dead Agent never expires).
+          lastSeenAt: sql`now()`,
         };
 
         const existing = await tx.query.printers.findFirst({
@@ -294,7 +299,7 @@ export async function POST(req: Request) {
             observedDeviceClass: p.deviceClass as typeof printers.$inferInsert.observedDeviceClass,
             config: p.config as typeof printers.$inferInsert.config,
             capabilities: p.capabilities as typeof printers.$inferInsert.capabilities,
-            lastSeenAt: new Date(),
+            lastSeenAt: sql`now()`,
           }).onConflictDoNothing({ target: printers.id }).returning({ id: printers.id });
 
           if (inserted.length === 0) {

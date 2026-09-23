@@ -9,6 +9,7 @@ import { parsePrinterInput, validateConnectionConfig, validatePrinterTransportPr
 import { writeAuditEvent } from "../../../lib/audit";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../lib/entitlements";
 import { getEffectivePrinterStatus } from "../../../lib/agent-availability";
+import { gatewayNow, refreshClockSkew } from "../../../lib/database-clock";
 import { logError } from "../../../lib/log";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,8 @@ export async function GET(req: Request) {
     .orderBy(desc(printers.createdAt))
     .limit(limit)
     .offset(offset);
-  const now = new Date();
+  await refreshClockSkew();
+  const now = gatewayNow();
   return NextResponse.json(rows.map(({ printer, agent }) => ({
     ...printer,
     status: getEffectivePrinterStatus(printer, agent, now),

@@ -10,6 +10,7 @@ import { createAgent } from "../../actions";
 import { ActionError } from "../../../lib/action-error";
 import { logError } from "../../../lib/log";
 import { isAgentAvailableForJob } from "../../../lib/agent-availability";
+import { gatewayNow, refreshClockSkew } from "../../../lib/database-clock";
 
 export const dynamic = "force-dynamic";
 const createAgentSchema = z.object({ name: z.string().trim().min(1).max(200) }).strict();
@@ -39,7 +40,8 @@ export async function GET(req: Request) {
     id: agents.id, name: agents.name, status: agents.status, lifecycle: agents.lifecycle,
     metadata: agents.metadata, lastSeenAt: agents.lastSeenAt, createdAt: agents.createdAt,
   }).from(agents).where(where).orderBy(desc(agents.createdAt)).limit(limit).offset(offset);
-  const now = new Date();
+  await refreshClockSkew();
+  const now = gatewayNow();
   return NextResponse.json(rows.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" })));
 }
 

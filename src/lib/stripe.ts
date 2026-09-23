@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { runtimeSecret } from "./runtime-secret";
+import { gatewayNowMs } from "./database-clock";
 export function stripeSecret(): string { const s=runtimeSecret("STRIPE_SECRET_KEY"); if(!s) throw new Error("Stripe is not configured"); return s; }
 export function stripeHeaders(extra:Record<string,string>={}) { return { Authorization:`Bearer ${stripeSecret()}`, "Content-Type":"application/x-www-form-urlencoded", ...(runtimeSecret("STRIPE_API_VERSION")?{"Stripe-Version":runtimeSecret("STRIPE_API_VERSION")!}:{}), ...extra }; }
 export type StripeApiResponse = { id: string; url?: string | null; expires_at?: number };
@@ -126,8 +127,13 @@ export async function validateStripePriceBinding(input: {
   return binding;
 }
 
-export function verifyStripeSignature(payload:string, header:string, secret:string, toleranceSec=300): boolean {
-  const parts=header.split(",").map(p=>p.split("=",2)); const ts=Number(parts.find(([k])=>k==="t")?.[1]); if(!Number.isFinite(ts)||Math.abs(Date.now()/1000-ts)>toleranceSec)return false;
+export function verifyStripeSignature(payload:string, header:string, secret:string, toleranceSec=300, nowSec?: number): boolean {
+  // Replay protection compares Stripe's event timestamp with the Gateway
+  // clock. Using the Node host clock here makes every webhook fail whenever the
+  // host drifts outside the tolerance window, so billing state would silently
+  // stop syncing; the calibrated database clock is the authority.
+  const referenceSec = typeof nowSec === "number" && Number.isFinite(nowSec) ? nowSec : gatewayNowMs() / 1000;
+  const parts=header.split(",").map(p=>p.split("=",2)); const ts=Number(parts.find(([k])=>k==="t")?.[1]); if(!Number.isFinite(ts)||Math.abs(referenceSec-ts)>toleranceSec)return false;
   const provided=parts.filter(([k])=>k==="v1").map(([,v])=>v).filter(Boolean); if(provided.length===0)return false;
   const expected=createHmac("sha256",secret).update(`${ts}.${payload}`).digest("hex"); const expectedBuf=Buffer.from(expected,"hex");
   return provided.some(sig=>{try{const b=Buffer.from(sig,"hex");return b.length===expectedBuf.length&&timingSafeEqual(b,expectedBuf);}catch{return false;}});

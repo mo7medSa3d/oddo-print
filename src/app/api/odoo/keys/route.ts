@@ -7,6 +7,8 @@ import { generateOdooApiKey } from "../../../../lib/odoo-auth";
 import { eq, and, desc, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
 import { writeAuditEvent } from "../../../../lib/audit";
+import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../../../../lib/entitlements";
+import { refreshClockSkew } from "../../../../lib/database-clock";
 
 const keyInputSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
@@ -73,12 +75,12 @@ export async function POST(req: Request) {
   // Odoo could never print (agent pairing and job execution are gated too),
   // so fail fast with an actionable billing error instead of a key that
   // can never converge.
+  await refreshClockSkew();
   const sub = await db.query.tenantSubscriptions.findFirst({
     where: eq(tenantSubscriptions.tenantId, manager.tenantId),
     columns: { status: true, currentPeriodEnd: true },
   });
-  const periodLive = !sub?.currentPeriodEnd || new Date(sub.currentPeriodEnd) > new Date();
-  if (!sub || !["trialing", "active", "past_due"].includes(sub.status) || !periodLive) {
+  if (!sub || !isBillingAccessStatus(sub.status) || !isSubscriptionPeriodLive(sub.currentPeriodEnd)) {
     return NextResponse.json(
       { error: "An active subscription is required before configuring a Gateway. Choose a plan in Billing first.", code: "SUBSCRIPTION_REQUIRED" },
       { status: 403 },

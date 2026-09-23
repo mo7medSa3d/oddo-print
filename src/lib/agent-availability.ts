@@ -1,3 +1,5 @@
+import { gatewayNow } from "./database-clock";
+
 export const DEFAULT_AGENT_STALE_THRESHOLD_SECONDS = 90;
 
 export function agentStaleThresholdSeconds(): number {
@@ -13,7 +15,9 @@ export type AgentAvailability = {
 
 export function getAgentAvailability(
   agent: { lifecycle?: string | null; status?: string | null; lastSeenAt?: Date | string | null },
-  now = new Date(),
+  // Presence timestamps are written with PostgreSQL now(); the comparison must
+  // use the same clock, not the Node host clock (see database-clock.ts).
+  now = gatewayNow(),
 ): AgentAvailability {
   if (agent.lifecycle !== "active") return { available: false, reason: "inactive-lifecycle" };
   if (agent.status !== "online") return { available: false, reason: "offline" };
@@ -29,7 +33,7 @@ export function getAgentAvailability(
 
 export function isAgentAvailableForJob(
   agent: { lifecycle?: string | null; status?: string | null; lastSeenAt?: Date | string | null },
-  now = new Date(),
+  now = gatewayNow(),
 ): boolean {
   return getAgentAvailability(agent, now).available;
 }
@@ -37,7 +41,7 @@ export function isAgentAvailableForJob(
 export function getEffectivePrinterStatus(
   printer: { lifecycle?: string | null; status?: string | null },
   agent?: { lifecycle?: string | null; status?: string | null; lastSeenAt?: Date | string | null } | null,
-  now = new Date(),
+  now = gatewayNow(),
 ): "online" | "offline" | "disabled" | "retired" | "unknown" {
   if (printer.lifecycle === "disabled") return "disabled";
   if (printer.lifecycle === "retired") return "retired";

@@ -6,6 +6,8 @@ import { validateManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
 import { writeAuditEvent } from "../../../../lib/audit";
+import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../../../../lib/entitlements";
+import { refreshClockSkew } from "../../../../lib/database-clock";
 
 export const dynamic = "force-dynamic";
 
@@ -81,12 +83,13 @@ export async function PATCH(req: Request) {
   // even after expiry/cancellation so Odoo can converge the replicated state
   // to a safe OFF value.
   if (enabled) {
+    // The gate compares a Stripe/DB period end against the calibrated Gateway clock.
+    await refreshClockSkew();
     const sub = await db.query.tenantSubscriptions.findFirst({
       where: eq(tenantSubscriptions.tenantId, apiKey.tenantId),
       columns: { status: true, currentPeriodEnd: true },
     });
-    const periodLive = !sub?.currentPeriodEnd || new Date(sub.currentPeriodEnd) > new Date();
-    if (!sub || !["trialing", "active", "past_due"].includes(sub.status) || !periodLive) {
+    if (!sub || !isBillingAccessStatus(sub.status) || !isSubscriptionPeriodLive(sub.currentPeriodEnd)) {
       return NextResponse.json(
         { error: "An active subscription is required to enable Gateway printing. Choose a plan in Billing first.", code: "SUBSCRIPTION_REQUIRED" },
         { status: 403 },
