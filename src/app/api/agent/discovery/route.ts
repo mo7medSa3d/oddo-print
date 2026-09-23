@@ -162,7 +162,6 @@ export async function POST(req: Request) {
       }
 
       if (identityRows.length > 0) {
-        const identityKeys = identityRows.map((row) => row.identityKey).filter((key): key is string => Boolean(key));
         const upserted = await tx.insert(discoveredDevices)
           .values(identityRows)
           .onConflictDoUpdate({
