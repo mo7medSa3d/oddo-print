@@ -10,7 +10,7 @@ import { STALE_CLAIM_SECONDS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "../
 import { CLAIM_RETURNING, MAX_DELIVERY_ATTEMPTS, MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../lib/job-delivery";
 import { fencedJobWrite } from "../../../../lib/job-fencing";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
-import { agentStaleThresholdSeconds } from "../../../../lib/agent-availability";
+import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "../../../../lib/agent-availability";
 import { refreshClockSkew } from "../../../../lib/database-clock";
 import { recordJobEvent } from "../../../../lib/job-timeline";
 import { getCorrelationContext, generateAttemptId } from "../../../../server/correlation";
@@ -84,6 +84,20 @@ export async function GET(req: Request) {
         AND pr.lifecycle = 'active'
         AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
+        AND pr.last_seen_at IS NOT NULL
+        AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
+        AND EXISTS (
+          SELECT 1
+          FROM tenant_subscriptions ts
+          WHERE ts.tenant_id = p.tenant_id
+            AND ts.status IN ('trialing', 'active', 'past_due')
+            AND (
+              ts.status = 'past_due'
+              OR ts.current_period_end IS NULL
+              OR ts.current_period_end > now()
+            )
+            AND COALESCE(ts.entitlement_blocked, false) = false
+        )
         AND t.lifecycle = 'active'
     `);
     const inFlight = Number((countResult.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
@@ -179,6 +193,18 @@ export async function GET(req: Request) {
                        ELSE print_jobs.retries END
       FROM claimable
       WHERE print_jobs.id = claimable.id
+        AND EXISTS (
+          SELECT 1
+          FROM tenant_subscriptions ts
+          WHERE ts.tenant_id = print_jobs.tenant_id
+            AND ts.status IN ('trialing', 'active', 'past_due')
+            AND (
+              ts.status = 'past_due'
+              OR ts.current_period_end IS NULL
+              OR ts.current_period_end > now()
+            )
+            AND COALESCE(ts.entitlement_blocked, false) = false
+        )
       RETURNING ${CLAIM_RETURNING}
     `);
 
