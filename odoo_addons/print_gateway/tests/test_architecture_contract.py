@@ -96,7 +96,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
             'string="Advanced"', 'string="Printer Options"',
         ):
             self.assertIn(label, source)
-        self.assertIn('widget="gateway_runtime_agent"', source)
+        self.assertIn('widget="gateway_runtime_agent_binding"', source)
         self.assertIn('widget="gateway_runtime_printer"', source)
         # Verbose legacy labels must stay out of the simplified form.
         self.assertNotIn("Hardware Print Binding", source)
