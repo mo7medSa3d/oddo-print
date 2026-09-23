@@ -148,6 +148,14 @@ jobs:
               WHERE table_schema='public' AND table_name='api_keys' AND column_name='read_only_until'
             ) THEN RAISE EXCEPTION 'api_keys.read_only_until is missing'; END IF;
             IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='tenant_subscriptions' AND column_name='entitlement_blocked'
+            ) THEN RAISE EXCEPTION 'tenant_subscriptions.entitlement_blocked is missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='tenant_subscriptions' AND column_name='entitlement_blocked_reason'
+            ) THEN RAISE EXCEPTION 'tenant_subscriptions.entitlement_blocked_reason is missing'; END IF;
+            IF NOT EXISTS (
               SELECT 1 FROM pg_constraint
               WHERE conname='api_keys_read_only_until_check'
             ) THEN RAISE EXCEPTION 'Odoo key rotation state constraint is missing'; END IF;
