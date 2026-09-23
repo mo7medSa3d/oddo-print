@@ -114,6 +114,16 @@ jobs:
           if (-not (Test-Path $cli)) { throw "Missing yasser-agent-cli.exe" }
           Get-Item $agent | Select-Object FullName, Length
           Get-Item $cli | Select-Object FullName, Length
+      - name: Verify Odoo module icon matches desktop Yasser icon
+        shell: pwsh
+        run: |
+          $odooHash = (Get-FileHash "odoo_addons/print_gateway/static/description/icon.png" -Algorithm SHA256).Hash
+          $desktopHash = (Get-FileHash "src-tauri/icons/icon.png" -Algorithm SHA256).Hash
+          if ($odooHash -ne $desktopHash) {
+            throw "Odoo module icon does not match the desktop Yasser icon."
+          }
+          Write-Host "Verified identical Odoo and desktop Yasser icons: $odooHash"
+
       - name: Verify Tauri icon assets
         shell: pwsh
         run: |
