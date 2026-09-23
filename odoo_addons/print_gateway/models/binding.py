@@ -243,12 +243,21 @@ class PrintGatewayBinding(models.Model):
         if not self.branch_id or not self.runtime_agent_id:
             return
         config = self._get_gateway_config()
-        assignment = self.env["print_gateway.runtime_agent_assignment"].sudo().search_count([
+        assignment_domain = [
             ("company_id", "=", config.company_id.id),
-            ("branch_id", "=", self.branch_id.id),
             ("runtime_agent_id", "=", self.runtime_agent_id.strip()),
             ("enabled", "=", True),
-        ])
+        ]
+        if self.branch_id:
+            assignment_domain = [
+                "|",
+                ("branch_id", "=", self.branch_id.id),
+                ("branch_id", "=", False),
+                *assignment_domain,
+            ]
+        else:
+            assignment_domain.append(("branch_id", "=", False))
+        assignment = self.env["print_gateway.runtime_agent_assignment"].sudo().search_count(assignment_domain)
         if not assignment:
             raise ValidationError(
                 _("The selected Gateway Runtime Agent is not assigned to the current Odoo Branch.")
@@ -323,10 +332,18 @@ class PrintGatewayBinding(models.Model):
             if record.runtime_agent_id:
                 assignment_scope = [
                     ("company_id", "=", record.company_id.id),
-                    ("branch_id", "=", record.branch_id.id if record.branch_id else False),
                     ("runtime_agent_id", "=", record.runtime_agent_id.strip()),
                     ("enabled", "=", True),
                 ]
+                if record.branch_id:
+                    assignment_scope = [
+                        "|",
+                        ("branch_id", "=", record.branch_id.id),
+                        ("branch_id", "=", False),
+                        *assignment_scope,
+                    ]
+                else:
+                    assignment_scope.append(("branch_id", "=", False))
                 if not assignment_model.search_count(assignment_scope):
                     scope_label = record.branch_id.display_name if record.branch_id else record.company_id.display_name
                     raise ValidationError(
