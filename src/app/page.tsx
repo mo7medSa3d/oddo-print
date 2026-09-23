@@ -41,7 +41,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
-  const claims = await validateManagerClaims(token ? verifyManagerToken(token) : null);
+  const claims = token ? await verifyManagerToken(token) : null;
 
   if (claims) {
     const [tenant, subscription] = await Promise.all([
