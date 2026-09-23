@@ -9,6 +9,7 @@ import { transitionAgentLifecycle, LifecycleConflict } from "../../../../lib/age
 import { logError } from "../../../../lib/log";
 import { getEffectivePrinterStatus, isAgentAvailableForJob } from "../../../../lib/agent-availability";
 import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
+import { isTenantBillingError } from "../../../../lib/entitlements";
 
 export const dynamic = "force-dynamic";
 const patchSchema = z.object({ lifecycle: z.enum(["active", "disabled", "retired"]) }).strict();
@@ -45,6 +46,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ ok: true, lifecycle: result.lifecycle, pairingCode: result.pairingCode });
   } catch (error) {
     if (error instanceof LifecycleConflict) return NextResponse.json({ error: error.message }, { status: 409 });
+    if (isTenantBillingError(error)) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
     logError("agent.lifecycle_failed", { agentId: id, error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

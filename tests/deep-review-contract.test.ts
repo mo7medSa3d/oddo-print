@@ -236,3 +236,11 @@ describe("deep production review contracts", () => {
     expect(entitlements).toContain("COALESCE(entitlement_blocked, false) = false");
     expect(entitlements).toContain("TenantSubscriptionRequiredError");
   });
+
+
+  it("maps Agent re-enable billing rejection to HTTP 403 instead of a generic 500", () => {
+    const route = read("src/app/api/agents/[id]/route.ts");
+    expect(route).toContain("isTenantBillingError");
+    expect(route).toContain("status: 403");
+    expect(route).toContain("error.code");
+  });
