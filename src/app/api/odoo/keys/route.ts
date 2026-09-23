@@ -8,7 +8,7 @@ import { eq, and, desc, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../../../../lib/entitlements";
-import { gatewayNowMs, refreshClockSkew } from "../../../../lib/database-clock";
+import { refreshClockSkew } from "../../../../lib/database-clock";
 
 const keyInputSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
@@ -49,22 +49,20 @@ export async function GET(req: Request) {
       odooEnabled: apiKeys.odooEnabled,
       odooEnabledRevision: apiKeys.odooEnabledRevision,
       odooEnabledUpdatedAt: apiKeys.odooEnabledUpdatedAt,
+      rotationState: sql<"active" | "retiring" | "revoked">`CASE
+        WHEN ${apiKeys.revokedAt} IS NOT NULL
+          AND ${apiKeys.readOnlyUntil} IS NOT NULL
+          AND ${apiKeys.readOnlyUntil} > clock_timestamp()
+          THEN 'retiring'
+        WHEN ${apiKeys.revokedAt} IS NOT NULL THEN 'revoked'
+        ELSE 'active'
+      END`,
     })
     .from(apiKeys)
     .where(eq(apiKeys.tenantId, manager.tenantId))
     .orderBy(desc(apiKeys.createdAt));
 
-  await refreshClockSkew();
-  const now = gatewayNowMs();
-  return NextResponse.json(rows.map((row) => ({
-    ...row,
-    rotationState:
-      row.revokedAt && row.readOnlyUntil && new Date(row.readOnlyUntil).getTime() > now
-        ? "retiring" as const
-        : row.revokedAt
-          ? "revoked" as const
-          : "active" as const,
-  })));
+  return NextResponse.json(rows);
 }
 
 export async function POST(req: Request) {
