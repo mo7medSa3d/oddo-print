@@ -622,7 +622,7 @@ func TestAuthorizeDispatchAfterReportFailure(t *testing.T) {
 		{"transport failure with fresh receipt proceeds", now.Add(-10 * time.Second), time.Time{}, false, transportErr, true},
 		{"transport failure with stale receipt refuses", now.Add(-time.Hour), time.Time{}, false, transportErr, false},
 		{"transport failure with unknown receipt refuses", time.Time{}, time.Time{}, false, transportErr, false},
-		{"transport failure past TTL refuses even when fresh", now.Add(-time.Second), now.Add(-time.Second), true, transportErr, false},
+		{"transport failure ignores Gateway expiry timestamp when receipt is fresh", now.Add(-time.Second), now.Add(-time.Second), true, transportErr, true},
 		{"transport failure before TTL proceeds when fresh", now.Add(-time.Second), now.Add(time.Hour), true, transportErr, true},
 		{"boundary: exactly at the window refuses", now.Add(-staleClaimSafetyWindow), time.Time{}, false, transportErr, false},
 	}
