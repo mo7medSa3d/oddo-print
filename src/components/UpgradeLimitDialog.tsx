@@ -49,6 +49,7 @@ export default function UpgradeLimitDialog({
   used?: number | null;
   limit?: number | "unlimited" | null;
   periodEnd?: string | Date | null;
+  retryAfterSeconds?: number | null;
 }) {
   const copy = COPY[resource];
   const usedText = typeof used === "number" ? used.toLocaleString() : "—";
