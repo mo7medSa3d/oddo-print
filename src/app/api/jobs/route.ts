@@ -10,6 +10,7 @@ import {
   derivePhysicalOutcome,
   PHYSICAL_OUTCOME_UNKNOWN_MARKERS,
 } from "../../../lib/job-status";
+import { databaseNowMs } from "../../../lib/database-clock";
 
 export const dynamic = "force-dynamic";
 
@@ -145,7 +146,8 @@ export async function DELETE(req: Request) {
 
   const before = new Date(beforeRaw);
   if (Number.isNaN(before.getTime())) return NextResponse.json({ error: "before must be a valid ISO-8601 timestamp" }, { status: 400 });
-  if (before.getTime() > Date.now()) return NextResponse.json({ error: "before cannot be in the future" }, { status: 400 });
+  const databaseNow = await databaseNowMs();
+  if (before.getTime() > databaseNow) return NextResponse.json({ error: "before cannot be in the future" }, { status: 400 });
 
   const requestedLimit = limitRaw === null ? MAX_CLEANUP_ROWS : Number(limitRaw);
   if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > MAX_CLEANUP_ROWS) {
