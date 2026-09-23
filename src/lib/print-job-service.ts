@@ -118,6 +118,24 @@ async function insertQueuedJobAtomically({
   if (!tenantId || tenantId.length > 128) throw new PrintJobInputError("tenantId is invalid", "INVALID_TENANT", 400);
 
   return await db.transaction(async (tx) => {
+    // PostgreSQL is the authoritative clock for print-job lifetime.
+    const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+    const clockRows = (clockResult as unknown as { rows?: Array<{ now?: Date | string }> }).rows ?? [];
+    const rawNow = clockRows[0]?.now;
+    const dbNow = rawNow instanceof Date
+      ? rawNow
+      : new Date(typeof rawNow === "string" ? rawNow.replace(" ", "T") + (/z$/i.test(rawNow) ? "" : "Z") : "");
+    if (Number.isNaN(dbNow.getTime())) {
+      throw new PrintJobInputError("Database clock is unavailable", "INTERNAL_ERROR", 500);
+    }
+    const effectiveExpiresAt = expiresAt ?? new Date(dbNow.getTime() + 60 * 60 * 1000);
+    if (!(effectiveExpiresAt instanceof Date) || Number.isNaN(effectiveExpiresAt.getTime()) || effectiveExpiresAt.getTime() <= dbNow.getTime()) {
+      throw new PrintJobInputError("expiresAt must be in the future", "INVALID_REQUEST", 400);
+    }
+    if (effectiveExpiresAt.getTime() - dbNow.getTime() > 24 * 60 * 60 * 1000) {
+      throw new PrintJobInputError("expiresAt exceeds the 24 hour maximum", "INVALID_REQUEST", 400);
+    }
+
     // Serialize admission per tenant so max_jobs_per_minute and
     // max_concurrent_jobs cannot be exceeded by racing requests.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${tenantId}`}))`);
