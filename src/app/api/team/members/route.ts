@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, users } from "../../../../db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { validateManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { writeAuditEvent } from "../../../../lib/audit";
@@ -35,7 +35,7 @@ export async function PATCH(req: Request) {
       if (target.role === "owner") throw new TeamMemberConflict("Owner role must be transferred explicitly", 409);
 
       const updated = await tx.update(tenantUsers)
-        .set({ role, updatedAt: new Date() })
+        .set({ role, updatedAt: sql`now()` })
         .where(and(
           eq(tenantUsers.tenantId, claims.tenantId),
           eq(tenantUsers.userId, userId),
