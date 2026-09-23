@@ -56,8 +56,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         odooEnabledRevision: Number(old.odoo_enabled_revision ?? -1),
         odooEnabledUpdatedAt: old.odoo_enabled_updated_at ? new Date(old.odoo_enabled_updated_at) : null,
       });
-      const rotatedAt = new Date();
-      const readOnlyUntil = new Date(rotatedAt.getTime() + ODOO_KEY_ROTATION_GRACE_MS);
+      // The old key's read-only grace is security-sensitive lifecycle state.
+      // Derive it from PostgreSQL's authoritative clock rather than the app host
+      // so host/database clock skew cannot shorten or extend the grace window.
+      const clock = await tx.execute(sql`SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms`);
+      const rotatedAtMs = Number(clock.rows[0]?.now_ms);
+      if (!Number.isFinite(rotatedAtMs)) throw new Error("Database clock is unavailable");
+      const rotatedAt = new Date(rotatedAtMs);
+      const readOnlyUntil = new Date(rotatedAtMs + ODOO_KEY_ROTATION_GRACE_MS);
       await tx.update(apiKeys)
         .set({ revokedAt: rotatedAt, readOnlyUntil })
         .where(and(eq(apiKeys.id, old.id), eq(apiKeys.tenantId, manager.tenantId)));
