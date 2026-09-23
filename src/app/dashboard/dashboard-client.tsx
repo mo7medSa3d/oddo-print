@@ -197,6 +197,37 @@ async function sendGatewayReprint(jobId: string): Promise<{ jobId?: string }> {
   return { jobId: typeof body?.jobId === "string" ? body.jobId : undefined };
 }
 
+
+function upgradeLimitResourceForEntitlement(entitlement: unknown): UpgradeLimitResource | null {
+  switch (entitlement) {
+    case "max_agents": return "agents";
+    case "max_printers": return "printers";
+    case "max_jobs_per_minute": return "rate";
+    case "max_concurrent_jobs": return "concurrency";
+    case "max_prints_per_period": return "prints";
+    default: return null;
+  }
+}
+
+function upgradeLimitFromApiError(error: DashboardApiError): {
+  resource: UpgradeLimitResource;
+  used?: number | null;
+  limit?: number | "unlimited" | null;
+  periodEnd?: string | null;
+  retryAfterSeconds?: number | null;
+} | null {
+  if (!error.details || typeof error.details !== "object") return null;
+  const resource = upgradeLimitResourceForEntitlement(error.details.entitlement);
+  if (!resource || error.details.upgradeRequired !== true) return null;
+  return {
+    resource,
+    used: typeof error.details.used === "number" ? error.details.used : null,
+    limit: typeof error.details.limit === "number" || error.details.limit === "unlimited" ? error.details.limit : null,
+    periodEnd: typeof error.details.periodEnd === "string" ? error.details.periodEnd : null,
+    retryAfterSeconds: resource === "rate" || resource === "concurrency" ? 60 : null,
+  };
+}
+
 async function sendGatewayTestPage(printerId: string): Promise<{ jobId?: string; status?: string }> {
   const response = await fetch(`/api/printers/${encodeURIComponent(printerId)}/test-print`, {
     method: "POST",
@@ -506,12 +537,15 @@ export default function DashboardClient({
       });
       void refreshData();
     } catch (error) {
-      if (error instanceof DashboardApiError && error.code === "PRINT_QUOTA_EXCEEDED") {
-        setUpgradeLimit({
-          resource: "prints",
-          used: typeof error.details.used === "number" ? error.details.used : null,
-          limit: typeof error.details.limit === "number" || error.details.limit === "unlimited" ? error.details.limit : null,
-          periodEnd: typeof error.details.periodEnd === "string" ? error.details.periodEnd : null,
+      if (error instanceof DashboardApiError) {
+        const limit = upgradeLimitFromApiError(error);
+        if (limit) {
+          setUpgradeLimit(limit);
+          return;
+        }
+        setMessage({
+          text: error instanceof Error ? error.message : "Test page failed. Check the agent and printer status.",
+          type: "err",
         });
       } else {
         setMessage({
@@ -1178,6 +1212,7 @@ export default function DashboardClient({
         used={upgradeLimit?.used}
         limit={upgradeLimit?.limit}
         periodEnd={upgradeLimit?.periodEnd}
+        retryAfterSeconds={upgradeLimit?.retryAfterSeconds}
       />
 
       <Modal open={Boolean(reprintCandidate)} onClose={() => { if (!busy) setReprintCandidate(null); }} title="Reprint this document?" description="Sends ORIGINAL document again.">
@@ -1194,13 +1229,13 @@ export default function DashboardClient({
           setMessage({ text: `Reprint queued for ${job.printerId}`, type: "ok" });
           void refreshData();
         } catch (error) {
-          if (error instanceof DashboardApiError && error.code === "PRINT_QUOTA_EXCEEDED") {
-            setUpgradeLimit({
-              resource: "prints",
-              used: typeof error.details.used === "number" ? error.details.used : null,
-              limit: typeof error.details.limit === "number" || error.details.limit === "unlimited" ? error.details.limit : null,
-              periodEnd: typeof error.details.periodEnd === "string" ? error.details.periodEnd : null,
-            });
+          if (error instanceof DashboardApiError) {
+            const limit = upgradeLimitFromApiError(error);
+            if (limit) {
+              setUpgradeLimit(limit);
+              return;
+            }
+            setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
           } else {
             setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
           }
