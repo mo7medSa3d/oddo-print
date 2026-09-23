@@ -71,6 +71,17 @@ export async function POST(req: Request) {
   if (hasBodyOverLimit(req, MAX_BODY)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   const odoo = await validateOdooKey(req);
   if (!odoo) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (odoo.readOnly) {
+    return NextResponse.json(
+      {
+        error: "API key is in its rotation grace period and is read-only.",
+        code: "API_KEY_READ_ONLY",
+        retryable: false,
+        upgradeRequired: false,
+      },
+      { status: 409, headers: { "Cache-Control": "no-store" } },
+    );
+  }
 
   let raw: unknown;
   try { raw = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
