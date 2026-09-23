@@ -189,7 +189,7 @@ jobs:
                   expected.child_table, expected.expected_definition;
               END IF;
             END LOOP;
-          END $;
+          END $$;
           SQL
       - name: Run integration tests (PostgreSQL)
         env:
