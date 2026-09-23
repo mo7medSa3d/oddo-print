@@ -3,6 +3,7 @@ import { apiKeys } from "../db/schema";
 import { and, eq, gt, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { requireActiveTenantOrNull } from "./tenant-guard";
+import { logWarn } from "./log";
 
 
 function hashKey(raw: string): string {
@@ -61,7 +62,15 @@ export async function validateOdooKey(
     (!row.revokedAt && row.readOnlyUntil)
   ) return null;
 
-  await db.update(apiKeys).set({ lastUsedAt: sql`now()` }).where(and(eq(apiKeys.id, row.id), eq(apiKeys.tenantId, row.tenantId))).catch(() => undefined);
+  await db.update(apiKeys)
+    .set({ lastUsedAt: sql`now()` })
+    .where(and(eq(apiKeys.id, row.id), eq(apiKeys.tenantId, row.tenantId)))
+    .catch((error) => {
+      logWarn("odoo.auth.last_used_update_failed", {
+        apiKeyId: row.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   // Tenant lifecycle gate: suspended/deleted tenants cannot perform normal
   // Odoo operations. Health probes may opt out so the caller can return the
   // correct 403 lifecycle status instead of misclassifying it as bad credentials.
