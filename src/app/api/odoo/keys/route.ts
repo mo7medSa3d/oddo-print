@@ -4,11 +4,11 @@ import { apiKeys, tenantSubscriptions } from "../../../../db/schema";
 import { validateManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { generateOdooApiKey } from "../../../../lib/odoo-auth";
-import { eq, and, desc, isNotNull, isNull, lte, or } from "drizzle-orm";
+import { eq, and, desc, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../../../../lib/entitlements";
-import { refreshClockSkew } from "../../../../lib/database-clock";
+import { gatewayNowMs, refreshClockSkew } from "../../../../lib/database-clock";
 
 const keyInputSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
@@ -54,7 +54,8 @@ export async function GET(req: Request) {
     .where(eq(apiKeys.tenantId, manager.tenantId))
     .orderBy(desc(apiKeys.createdAt));
 
-  const now = Date.now();
+  await refreshClockSkew();
+  const now = gatewayNowMs();
   return NextResponse.json(rows.map((row) => ({
     ...row,
     rotationState:
@@ -147,7 +148,7 @@ export async function DELETE(req: Request) {
           isNotNull(apiKeys.revokedAt),
           or(
             isNull(apiKeys.readOnlyUntil),
-            lte(apiKeys.readOnlyUntil, new Date()),
+            lte(apiKeys.readOnlyUntil, sql`clock_timestamp()`),
           ),
         ))
         .returning({ id: apiKeys.id });
@@ -165,7 +166,7 @@ export async function DELETE(req: Request) {
 
   const revoked = await db.transaction(async (tx) => {
     const result = await tx.update(apiKeys)
-      .set({ revokedAt: new Date(), odooEnabled: false })
+      .set({ revokedAt: sql`clock_timestamp()`, odooEnabled: false })
       .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId)))
       .returning({ id: apiKeys.id, revokedAt: apiKeys.revokedAt });
     if (!result.length) return null;
