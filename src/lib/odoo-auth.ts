@@ -2,7 +2,7 @@ import { db } from "../db";
 import { apiKeys } from "../db/schema";
 import { and, eq } from "drizzle-orm";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
-import { requireActiveTenant } from "./tenant-guard";
+import { requireActiveTenantOrNull } from "./tenant-guard";
 
 function hashKey(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
