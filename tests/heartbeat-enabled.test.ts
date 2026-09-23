@@ -130,6 +130,50 @@ suite("heartbeat validation and lifecycle preservation", () => {
     ]));
   });
 
+  it("syncs agent-owned printer rename, transport, protocol, and config changes", async () => {
+    const before = await pool().query(
+      "SELECT lifecycle, management_source, name, connection_type, protocol, config FROM printers WHERE id = $1",
+      [f.printerId],
+    );
+    expect(before.rows[0].management_source).toBe("agent");
+
+    const res = await heartbeatPOST(new Request("http://gateway.test/api/agent/heartbeat", {
+      method: "POST",
+      headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({
+        status: "online",
+        printers: [{
+          id: f.printerId,
+          name: "Renamed Receipt Printer",
+          printerType: "physical",
+          deviceClass: "thermal",
+          connectionType: "spooler",
+          protocol: "spooler",
+          config: { spooler_name: "Receipt Queue Renamed" },
+          status: "online",
+          capabilities: { supported_protocols: ["spooler", "raw"] },
+        }],
+      }),
+    }));
+    expect(res.status).toBe(200);
+
+    const after = await pool().query(
+      "SELECT lifecycle, management_source, name, printer_type, device_class, connection_type, protocol, config, capabilities FROM printers WHERE id = $1",
+      [f.printerId],
+    );
+    expect(after.rows[0]).toMatchObject({
+      lifecycle: before.rows[0].lifecycle,
+      management_source: "agent",
+      name: "Renamed Receipt Printer",
+      printer_type: "physical",
+      device_class: "thermal",
+      connection_type: "spooler",
+      protocol: "spooler",
+      config: { spooler_name: "Receipt Queue Renamed" },
+      capabilities: { supported_protocols: ["spooler", "raw"] },
+    });
+  });
+
   it("accepts monotonic desired-state acknowledgements and fences them to the authenticated tenant and agent", async () => {
     await pool().query(
       `UPDATE printers
