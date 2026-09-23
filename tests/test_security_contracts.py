@@ -97,7 +97,8 @@ def test_production_startup_fails_closed_on_secrets_and_proxy_boundary():
     source = read("server.ts")
     assert "!value || value.length < minLength" in source
     assert 'assertRealSecret("GATEWAY_JWT_SECRET"' in source
-    assert "TRUST_PROXY=1 is required for the bundled reverse-proxy deployment" in source
+    assert "TRUST_PROXY=1 is required when the Gateway binds a non-loopback interface." in source
+    assert 'if (!trustProxyEnabled() && !isLoopbackBinding(hostname))' in source
     assert 'assertRealSecret("TRUST_PROXY_SECRET"' in source
     assert "Refusing production startup: APP_BASE_URL must be configured." in source
     assert "APP_BASE_URL must be a clean HTTPS origin." in source
