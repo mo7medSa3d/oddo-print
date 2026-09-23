@@ -30,4 +30,16 @@ describe("Odoo runtime agent picker contract", () => {
     expect(assignmentView).toContain('widget="gateway_runtime_agent"');
     expect(assignmentView).not.toContain('widget="gateway_runtime_agent_binding"');
   });
+
+  it("keeps the Odoo module icon byte-identical to the desktop app icon", () => {
+    const odooIcon = readFileSync(
+      join(process.cwd(), "odoo_addons/print_gateway/static/description/icon.png"),
+    );
+    const desktopIcon = readFileSync(
+      join(process.cwd(), "src-tauri/icons/icon.png"),
+    );
+
+    expect(odooIcon.equals(desktopIcon)).toBe(true);
+  });
+
 });
