@@ -1103,6 +1103,36 @@ class PrintGatewayJob(models.Model):
                         break
 
                     if response.status_code not in (200, 201):
+                        # Billing suspension/configuration is recoverable. Keep the
+                        # durable Odoo outbox queued so a renewed subscription or
+                        # repaired entitlement state can automatically resume this
+                        # same logical operation. Other 403 responses remain terminal.
+                        if response.status_code == 403:
+                            try:
+                                billing_body = response.json()
+                            except (ValueError, TypeError):
+                                billing_body = {}
+                            billing_code = str(billing_body.get("code") or "").strip()
+                            if billing_code in {"TENANT_SUBSCRIPTION_REQUIRED", "TENANT_ENTITLEMENT_UNAVAILABLE"}:
+                                retry_after = 60
+                                try:
+                                    retry_after = int(response.headers.get("Retry-After", "60"))
+                                except (TypeError, ValueError):
+                                    retry_after = 60
+                                retry_after = min(3600, max(5, retry_after))
+                                values = {
+                                    "status": "queued",
+                                    "attempts": job.attempts + 1,
+                                    "last_error": "GATEWAY_BILLING_BLOCKED: %s" % billing_code,
+                                    "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=retry_after),
+                                }
+                                persist_submit_state(values)
+                                if raise_on_failure:
+                                    raise ValidationError(
+                                        _("Gateway billing access is temporarily unavailable. The job was safely re-queued for retry.")
+                                    )
+                                break
+
                         # Deterministic client-side rejections (invalid
                         # payload semantics, capability mismatch, idempotency
                         # conflict, forbidden document type) will never
