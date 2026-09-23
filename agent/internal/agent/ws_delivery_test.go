@@ -39,10 +39,10 @@ type recordingGateway struct {
 	// blockQueuedReject makes the first pre-execution hand-back PATCH wait
 	// until releaseQueuedReject. This is used to prove the WS reader can
 	// continue consuming frames while rejection I/O is slow.
-	blockQueuedReject chan struct{}
+	blockQueuedReject   chan struct{}
 	queuedRejectStarted chan struct{}
-	server         *httptest.Server
-	sendCh         chan interface{}
+	server              *httptest.Server
+	sendCh              chan interface{}
 }
 
 func (g *recordingGateway) Updates() []statusUpdate {
