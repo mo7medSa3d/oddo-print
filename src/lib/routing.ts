@@ -1,3 +1,4 @@
+import { gatewayNow } from "./database-clock";
 import { isVirtualPrinterRecord, type PrinterLike } from "./printer-virtual";
 import { getAgentAvailability } from "./agent-availability";
 
@@ -146,7 +147,7 @@ export function isPrinterStatusExecutable(printer: Pick<PrinterAvailability, "st
 export function isPrinterAvailableForJob(
   printer: PrinterAvailability,
   agent?: { lifecycle?: string | null; status?: string | null; lastSeenAt?: Date | string | null } | null,
-  now = new Date(),
+  now = gatewayNow(),
 ): boolean {
   if (printer.lifecycle !== "active") return false;
   if (isVirtualPrinterRecord(printer)) return false;
@@ -160,7 +161,7 @@ export function isAgentAvailableForPrinter(
     status?: string | null;
     lastSeenAt?: Date | string | null;
   } | null | undefined,
-  now = new Date(),
+  now = gatewayNow(),
 ): boolean {
   if (!agent || agent.lifecycle !== "active") return false;
   return getAgentAvailability(agent, now).available;

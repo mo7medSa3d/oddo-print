@@ -11,6 +11,7 @@ import { CLAIM_RETURNING, MAX_DELIVERY_ATTEMPTS, MAX_AGENT_IN_FLIGHT_JOBS } from
 import { fencedJobWrite } from "../../../../lib/job-fencing";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { agentStaleThresholdSeconds } from "../../../../lib/agent-availability";
+import { refreshClockSkew } from "../../../../lib/database-clock";
 import { recordJobEvent } from "../../../../lib/job-timeline";
 import { getCorrelationContext, generateAttemptId } from "../../../../server/correlation";
 import { databaseNowMs } from "../../../../lib/database-clock";
@@ -58,6 +59,11 @@ function toWireIso(value: unknown): unknown {
 export async function GET(req: Request) {
   const agent = await validateAgent(req.headers.get("Authorization"));
   if (!agent) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // The presence gates below compare `a.last_seen_at` against PostgreSQL `now()`.
+  // Calibrate the JS clock (used for Retry-After and availability edges) so both
+  // sides agree even when the host clock drifts from the database clock.
+  await refreshClockSkew();
 
   const claimJobs = async (tx: { execute: typeof db.execute }) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:agent:${agent.id}`}))`);

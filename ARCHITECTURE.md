@@ -229,3 +229,43 @@ Internet → Caddy (reverse proxy + TLS) → Next.js Gateway → PostgreSQL 16
 GitHub Actions with two jobs:
 1. **CI**: TypeScript (typecheck, lint, build), unit tests, migration replay, schema verification, integration tests, Go (build, vet, test, race)
 2. **Odoo 19**: Full Odoo 19 CE environment with addon installation and test execution (≥80 tests expected)
+
+## 10. Time Authority & Clock Discipline
+
+Print-job lifetime, presence, quota, and billing decisions are only correct if
+every component measures time on the same clock. The platform therefore assigns
+one authority per decision:
+
+| Clock | Authority for | Notes |
+| --- | --- | --- |
+| PostgreSQL `now()` / `clock_timestamp()` | Every durable Gateway timestamp and every lifetime comparison | The single authority for job expiry, claim staleness, presence freshness, quota periods, and subscription periods |
+| Database-calibrated Gateway clock (`src/lib/database-clock.ts`) | JavaScript decisions that mirror a SQL comparison | Stripe webhook tolerance, Checkout Session expiry, Retry-After arithmetic, agent/printer availability, subscription period gates |
+| Stripe event timestamps | Billing event ordering | Fenced monotonically per tenant via `stripe_last_event_created_at` |
+| Odoo database clock (`db_now_utc`) | Odoo outbox claim/retry scheduling | `next_retry_at` deferrals are derived from the Gateway's relative `Retry-After`, never from an absolute Gateway timestamp |
+| Windows Agent monotonic clock | Local dispatch/backoff/timeouts | Ownership freshness is measured only with monotonic deltas; the Agent never compares a Gateway timestamp with its own wall clock |
+
+**Rules**
+
+1. A JS process never compares a database/Stripe timestamp with the raw host
+   clock. `gatewayNowMs()` / `gatewayNow()` return host time plus the measured
+   database offset (recalibrated at most every 30s, with the round-trip midpoint
+   removed and a 2s timeout; on failure the last known offset is kept, so the
+   default is plain host time and availability never depends on the database).
+2. Every write that will later be compared by SQL uses the database clock:
+   presence (`agents.last_seen_at`, `printers.last_seen_at`), job lifetime
+   (`created_at`, `updated_at`, `expires_at`), and quota/subscription periods.
+3. Job enqueue reads the database clock exactly once and derives both
+   `expires_at` and `created_at` from that single reading, so a job's stored TTL
+   equals the requested TTL even inside a long transaction. Migration 0067 moves
+   the `print_jobs` defaults from `now()` (transaction start) to
+   `clock_timestamp()` (wall clock) for every other writer.
+4. Durations, not instants, cross system boundaries: the Gateway returns
+   `Retry-After` seconds computed on its own clock, and Odoo/Agent apply them to
+   their own clock.
+5. Authentication tokens (`manager`/`platform` JWTs and session rows) are minted
+   and validated by the same process and therefore stay on the host clock by
+   design; `cleanupExpired*` jobs compare them against that same clock.
+
+**Enforcement**: `tests/database-clock.test.ts` (unit, behaviour and source
+contracts) and `tests/database-clock.integration.test.ts` (live calibration,
+single-reading TTL invariant, quota rollback).

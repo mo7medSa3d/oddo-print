@@ -22,8 +22,10 @@ import { transitionAgentLifecycle, LifecycleConflict } from "../lib/agent-lifecy
 import { ActionError } from "../lib/action-error";
 import { writeAuditEvent } from "../lib/audit";
 import { requireManagerPermission } from "../lib/authorization";
-import { enforceTenantResourceEntitlement, TenantEntitlementError, TenantPrintQuotaExceededError, isTenantBillingError } from "../lib/entitlements";
+import { enforceTenantResourceEntitlement, TenantEntitlementError, entitlementLimitSignal, isTenantBillingError } from "../lib/entitlements";
+import type { LimitSignalResult } from "../lib/limit-signal";
 import { isAgentAvailableForJob } from "../lib/agent-availability";
+import { gatewayNow } from "../lib/database-clock";
 
 async function requireManager() {
   const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
@@ -153,20 +155,16 @@ export async function createPrintJob(printerId: string, payload: unknown) {
   try {
     const result = await createPrintJobForPrinter(printerId, payload, { requestedBy: "manager", tenantId: manager.tenantId });
     revalidatePath("/dashboard");
-    return { id: result.id };
+    return { ok: true as const, id: result.id, reused: result.isReused === true };
   } catch (error) {
-    if (error instanceof TenantPrintQuotaExceededError) throw new ActionError(error.message, 429, error.code, {
-      entitlement: error.entitlement,
-      limit: error.limit,
-      used: error.used,
-      remaining: 0,
-      periodStart: error.periodStart.toISOString(),
-      periodEnd: error.periodEnd?.toISOString() ?? null,
-      upgradeRequired: true,
-      retryable: false,
-    });
-    if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
-    if (isTenantBillingError(error)) throw new ActionError(error.message, 403);
+    // A limit trip is RETURNED, not thrown: Next.js only serializes a sanitized
+    // message for errors thrown from a server action in a production build, so
+    // a thrown ActionError would lose the entitlement details the upgrade
+    // dialog needs. HTTP routes keep using ActionError, which they translate to
+    // a 429/403 body server-side.
+    const limit = entitlementLimitSignal(error);
+    if (limit) return { ok: false as const, limit } satisfies LimitSignalResult;
+    if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
     throw error;
   }
 }
@@ -201,20 +199,13 @@ export async function reprintJob(jobId: string) {
       tenantId: manager.tenantId,
     });
     revalidatePath("/dashboard");
-    return { id: result.id, reused: result.isReused === true };
+    return { ok: true as const, id: result.id, reused: result.isReused === true };
   } catch (error) {
-    if (error instanceof TenantPrintQuotaExceededError) throw new ActionError(error.message, 429, error.code, {
-      entitlement: error.entitlement,
-      limit: error.limit,
-      used: error.used,
-      remaining: 0,
-      periodStart: error.periodStart.toISOString(),
-      periodEnd: error.periodEnd?.toISOString() ?? null,
-      upgradeRequired: true,
-      retryable: false,
-    });
-    if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
-    if (isTenantBillingError(error)) throw new ActionError(error.message, 403);
+    // Same contract as createPrintJob: the quota signal must survive the
+    // server-action boundary, so it is returned instead of thrown.
+    const limit = entitlementLimitSignal(error);
+    if (limit) return { ok: false as const, limit } satisfies LimitSignalResult;
+    if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
     throw error;
   }
 }
@@ -371,7 +362,7 @@ export async function getDashboardState() {
     .orderBy(desc(printJobs.createdAt))
     .limit(50);
 
-  const now = new Date();
+  const now = gatewayNow();
   const agentsForClient = allAgents.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" }));
   return { agents: agentsForClient, printers: allPrinters, jobs: allJobs };
 }

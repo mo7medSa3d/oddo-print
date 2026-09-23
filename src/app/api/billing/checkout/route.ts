@@ -7,21 +7,31 @@ import { validateManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { runtimeSecret } from "../../../../lib/runtime-secret";
 import { stripeRequest } from "../../../../lib/stripe";
+import { gatewayNowMs, refreshClockSkew } from "../../../../lib/database-clock";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due"]);
 const CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES = new Set(["paused", "unpaid", "incomplete"]);
 
+/**
+ * A persisted Checkout Session is expired when Stripe's `expires_at` has
+ * passed. Both sides of the comparison live outside Node's clock (Stripe wrote
+ * the timestamp), so the calibrated Gateway clock is used: with a host clock
+ * running ahead, a still-open session would be treated as expired and the user
+ * would be handed a dead redirect URL — or, worse, a second Stripe Checkout
+ * Session would be opened while the first is still payable.
+ */
 function checkoutIntentExpired(expiresAt: Date | string | null | undefined): boolean {
   if (!expiresAt) return false;
-  if (expiresAt instanceof Date) return expiresAt.getTime() <= Date.now();
+  const nowMs = gatewayNowMs();
+  if (expiresAt instanceof Date) return expiresAt.getTime() <= nowMs;
   // Raw-string fallback: naive PG timestamps parse as UTC, not host-local.
   let iso = expiresAt.replace(" ", "T");
   if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
     iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
   }
   const value = Date.parse(iso);
-  return Number.isFinite(value) && value <= Date.now();
+  return Number.isFinite(value) && value <= nowMs;
 }
 
 export async function POST(req: Request) {
@@ -33,6 +43,10 @@ export async function POST(req: Request) {
   if (!claims?.userId || !hasManagerPermission(claims, "billing.manage")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  // Subscription-period decisions below compare Stripe/DB timestamps with the
+  // calibrated Gateway clock (cached for 30s; never a per-request round trip).
+  await refreshClockSkew();
 
   let body: { planId?: unknown } = {};
   try {
@@ -155,7 +169,12 @@ export async function POST(req: Request) {
           tenantId: claims.tenantId,
           planId: plan.id,
           status: "cancelled",
-          currentPeriodStart: new Date(),
+          // Stamped by PostgreSQL: this value keys print_usage_periods and is
+          // validated against Stripe's current_period_end (period_end must be
+          // later), so a host clock ahead of the database would make a paying
+          // tenant's period look invalid and block every print with 403.
+          currentPeriodStart: sql`now()`,
+          updatedAt: sql`now()`,
           checkoutStatus: "creating",
           checkoutPlanId: plan.id,
           checkoutIdempotencyKey: idempotencyKey,

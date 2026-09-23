@@ -61,6 +61,7 @@ import { getPrinterLanguageBadges } from "../../lib/printer-capability";
 import PrintCertificationWizard from "../../components/PrintCertificationWizard";
 import JobTimeline from "../../components/JobTimeline";
 import UpgradeLimitDialog, { type UpgradeLimitResource } from "../../components/UpgradeLimitDialog";
+import { isLimitSignalResult } from "../../lib/limit-signal";
 
 export type Agent = {
   id: string;
@@ -225,6 +226,36 @@ function upgradeLimitFromApiError(error: DashboardApiError): {
     limit: typeof error.details.limit === "number" || error.details.limit === "unlimited" ? error.details.limit : null,
     periodEnd: typeof error.details.periodEnd === "string" ? error.details.periodEnd : null,
     retryAfterSeconds: resource === "rate" || resource === "concurrency" ? 60 : null,
+  };
+}
+
+/**
+ * Server actions cannot transport thrown error details across the RSC boundary
+ * (Next.js sanitizes them in a production build), so limit trips are returned as
+ * a serializable signal. This maps that signal onto the same dialog state the
+ * HTTP-error path uses, keeping one rendering contract for every surface.
+ */
+function upgradeLimitFromLimitSignal(limit: {
+  entitlement: string;
+  used?: number | null;
+  limit?: number | "unlimited" | null;
+  periodEnd?: string | null;
+  retryAfterSeconds?: number | null;
+}): {
+  resource: UpgradeLimitResource;
+  used?: number | null;
+  limit?: number | "unlimited" | null;
+  periodEnd?: string | null;
+  retryAfterSeconds?: number | null;
+} | null {
+  const resource = upgradeLimitResourceForEntitlement(limit.entitlement);
+  if (!resource) return null;
+  return {
+    resource,
+    used: typeof limit.used === "number" ? limit.used : null,
+    limit: typeof limit.limit === "number" || limit.limit === "unlimited" ? limit.limit : null,
+    periodEnd: typeof limit.periodEnd === "string" ? limit.periodEnd : null,
+    retryAfterSeconds: typeof limit.retryAfterSeconds === "number" ? limit.retryAfterSeconds : null,
   };
 }
 
@@ -524,6 +555,13 @@ export default function DashboardClient({
     setMessage(null);
     try {
       const result = await operation();
+      if (isLimitSignalResult(result)) {
+        const limit = upgradeLimitFromLimitSignal(result.limit);
+        setMessage(null);
+        if (limit) setUpgradeLimit(limit);
+        else setMessage({ text: result.limit.message, type: "err" });
+        return undefined;
+      }
       if (successMsg) setMessage({ text: successMsg, type: "ok" });
       void refreshData();
       return result;

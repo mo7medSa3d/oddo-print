@@ -75,5 +75,5 @@ PostgreSQL, Odoo 19, Windows, and physical-printer E2E are release gates and mus
 
 For a production server first deployment and end-to-end smoke test, follow [SERVER_FIRST_RUN.md](SERVER_FIRST_RUN.md).
 
-See [API.md](API.md), [INSTALLATION.md](INSTALLATION.md), [DEPLOYMENT.md](DEPLOYMENT.md), [OPERATIONS.md](OPERATIONS.md), and [SECURITY.md](SECURITY.md).
+See [API.md](API.md), [INSTALLATION.md](INSTALLATION.md), [DEPLOYMENT.md](DEPLOYMENT.md), [OPERATIONS.md](OPERATIONS.md), [SECURITY.md](SECURITY.md), and [docs/CORRECTNESS_REVIEW.md](docs/CORRECTNESS_REVIEW.md).
 

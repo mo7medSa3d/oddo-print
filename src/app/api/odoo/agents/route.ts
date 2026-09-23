@@ -4,6 +4,8 @@ import { db } from "../../../../db";
 import { agents, tenantSubscriptions } from "../../../../db/schema";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
 import { isAgentAvailableForJob } from "../../../../lib/agent-availability";
+import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
+import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../../../../lib/entitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +18,7 @@ export async function GET(req: Request) {
     where: eq(tenantSubscriptions.tenantId, apiKey.tenantId),
     columns: { status: true, currentPeriodEnd: true },
   });
-  const periodLive = !sub?.currentPeriodEnd || new Date(sub.currentPeriodEnd) > new Date();
-  if (!sub || !["trialing", "active", "past_due"].includes(sub.status) || !periodLive) {
+  if (!sub || !isBillingAccessStatus(sub.status) || !isSubscriptionPeriodLive(sub.currentPeriodEnd)) {
     return NextResponse.json(
       { error: "An active subscription is required before pairing agents.", code: "SUBSCRIPTION_REQUIRED" },
       { status: 403 },
@@ -36,7 +37,8 @@ export async function GET(req: Request) {
     .where(and(eq(agents.lifecycle, "active"), eq(agents.tenantId, apiKey.tenantId)))
     .orderBy(asc(agents.name));
 
-  const now = new Date();
+  await refreshClockSkew();
+  const now = gatewayNow();
   const sanitized = rows.map((agent) => ({
     id: agent.id,
     name: agent.name,

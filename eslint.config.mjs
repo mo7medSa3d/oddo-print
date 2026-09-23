@@ -9,6 +9,9 @@ export default defineConfig([
     rules: {
       // Odoo POS assets use OWL, not React; these React rules are semantically inapplicable here.
       "react-hooks/rules-of-hooks": "off",
+      // OWL's useEffect takes a dependency *function* (re-evaluated on each
+      // patch), so the React rule cannot statically verify the dependency list.
+      "react-hooks/exhaustive-deps": "off",
       "react/no-direct-mutation-state": "off",
     },
   },

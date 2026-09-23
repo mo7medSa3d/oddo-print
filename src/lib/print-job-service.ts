@@ -369,6 +369,13 @@ async function insertQueuedJobAtomically({
       requestId: requestId ?? null,
       idempotencyKey: effectiveIdempotencyKey,
       expiresAt: effectiveExpiresAt,
+      // Stamp creation from the SAME clock read used for the expiry window.
+      // The column default is `now()` (transaction start), which drifts from
+      // the `clock_timestamp()` read above inside a long transaction and makes
+      // `created_at` disagree with `expires_at` and with the per-minute rate
+      // window (`created_at >= now() - interval '1 minute'`).
+      createdAt: dbNow,
+      updatedAt: dbNow,
     });
 
     await tx.execute(sql`SELECT pg_notify('print_gateway_agent_jobs', ${JSON.stringify({ jobId, agentId, requestId: requestId ?? null })})`);

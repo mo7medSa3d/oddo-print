@@ -17,6 +17,7 @@
 import { db, queryWithTimeout } from "../db/client";
 import { printers } from "../db/schema";
 import { eq, and } from "drizzle-orm";
+import { gatewayNow } from "./database-clock";
 
 export type PrinterHealthStatus =
   | "ONLINE"
@@ -53,7 +54,7 @@ export interface PrinterCapabilityMatrix {
 
 const FRESHNESS_THRESHOLD_MS = 90_000;
 
-function isFresh(lastSeenAt?: Date | null, now = new Date()): { fresh: boolean; ageMs?: number } {
+function isFresh(lastSeenAt?: Date | null, now = gatewayNow()): { fresh: boolean; ageMs?: number } {
   if (!lastSeenAt) return { fresh: false };
   const ageMs = now.getTime() - new Date(lastSeenAt).getTime();
   return { fresh: ageMs <= FRESHNESS_THRESHOLD_MS, ageMs };
@@ -68,7 +69,7 @@ export function normalizePrinterStatus(
   rawStatus?: string | null,
   evidence?: { lastSeenAt?: Date | null; config?: any; capabilities?: any; error?: string; now?: Date }
 ): { status: PrinterHealthStatus; evidence: string; freshness: { lastSeenAt?: Date; ageMs?: number; fresh: boolean; source: string } } {
-  const now = evidence?.now ?? new Date();
+  const now = evidence?.now ?? gatewayNow();
   const freshnessCheck = isFresh(evidence?.lastSeenAt ?? null, now);
   const freshness = {
     lastSeenAt: evidence?.lastSeenAt ?? undefined,

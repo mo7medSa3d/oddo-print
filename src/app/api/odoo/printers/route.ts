@@ -4,6 +4,7 @@ import { db } from "../../../../db";
 import { agents, printers } from "../../../../db/schema";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
 import { getEffectivePrinterStatus } from "../../../../lib/agent-availability";
+import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,8 @@ export async function GET(req: Request) {
     .where(and(...conditions))
     .orderBy(printers.name);
 
-  const now = new Date();
+  await refreshClockSkew();
+  const now = gatewayNow();
   return NextResponse.json({
     printers: rows.map((row) => ({
       id: row.id,
