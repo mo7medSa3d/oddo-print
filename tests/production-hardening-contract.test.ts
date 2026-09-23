@@ -134,12 +134,13 @@ describe("production hardening contracts", () => {
     expect(helper).not.toContain("tx.update(printers)");
   });
 
-  it("keeps stock validation print-policy fan-out intact", () => {
+  it("keeps stock validation automated policy dispatch centralized", () => {
     const stock = read("odoo_addons/print_gateway/models/stock_picking.py");
-    expect(stock).toContain("Multi-destination fan-out");
-    expect(stock).toContain("executed_targets = set()");
-    expect(stock).toContain("intent_model.create_and_route(policy, picking, \"picking_validated\")");
-    expect(stock).not.toMatch(/create_and_route\(policy, picking, [^\n]+\n\s*break/);
+    expect(stock).toContain("dispatch_for_record");
+    expect(stock).toContain("\"picking_validated\"");
+    expect(stock).not.toContain("resolve_for_record");
+    expect(stock).not.toContain("effective_target_key");
+    expect(stock).not.toContain("create_and_route(policy, picking");
   });
 
   it("keeps direct print submission printer-scoped and payload-validated", () => {
