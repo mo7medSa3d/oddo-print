@@ -1582,6 +1582,43 @@ class TestControlPlane(TransactionCase):
             "rolled-back business work must leave no orphan intent",
         )
 
+    def test_04c_billing_403_keeps_outbox_queued_for_recovery(self):
+        """A recoverable Gateway billing block must not strand the Odoo outbox.
+
+        Subscription/entitlement state can change without changing the Odoo
+        print operation, so the same durable idempotency operation should remain
+        queued and become eligible after billing is restored. Other deterministic
+        403 responses still use the terminal path covered by test_04d.
+        """
+        job = self.env["print_gateway.print_job"].create({
+            "company_id": self.branch.id,
+            "gateway_config_id": self.gateway_config.id,
+            "printer_id": self.primary_binding.printer_id,
+            "destination": "Billing Recovery",
+            "document_type": "invoice",
+            "status": "queued",
+            "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
+            "idempotency_key": "test_billing_403_recovery_key_01",
+            "fallback_binding_id": self.backup_binding.id,
+        })
+        response = MagicMock()
+        response.status_code = 403
+        response.headers = {"Retry-After": "45"}
+        response.json.return_value = {
+            "error": "An active subscription is required for this operation",
+            "code": "TENANT_SUBSCRIPTION_REQUIRED",
+        }
+        ConfigClass = type(self.gateway_config)
+        with patch.object(ConfigClass, "_validate_gateway_host", return_value=None),              patch("requests.post", return_value=response) as mock_post:
+            job.action_submit()
+
+        mock_post.assert_called_once()
+        self.assertEqual(job.status, "queued")
+        self.assertEqual(job.attempts, 1)
+        self.assertTrue(job.next_retry_at)
+        self.assertIn("GATEWAY_BILLING_BLOCKED: TENANT_SUBSCRIPTION_REQUIRED", job.last_error or "")
+        self.assertFalse(job.gateway_job_id)
+
     def test_04d_deterministic_failures_terminalize_without_retry(self):
         """Validation/contract failures can never succeed on retry: a
         corrupted persisted payload and a contract-violating Gateway reply
