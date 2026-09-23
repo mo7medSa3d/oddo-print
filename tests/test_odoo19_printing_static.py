@@ -307,3 +307,12 @@ def test_critical_addon_models_have_no_duplicate_methods():
                 ]
                 duplicates = sorted({name for name in methods if methods.count(name) > 1})
                 assert not duplicates, f"{rel}::{node.name} defines duplicate methods: {duplicates}"
+
+
+def test_pair_agent_wizard_has_single_agent_input():
+    source = read("models/gateway_config.py")
+    view = read("views/gateway_config_views.xml")
+    assert source.count("pairing_code") == 0
+    assert "agent_id = fields.Char(" in source
+    assert 'field name="agent_id"' in view
+    assert 'gateway_runtime_agent_picker' in view
