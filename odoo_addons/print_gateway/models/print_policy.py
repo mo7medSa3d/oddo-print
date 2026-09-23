@@ -35,7 +35,7 @@ class PrintGatewayPolicy(models.Model):
     active = fields.Boolean(default=True)
     company_id = fields.Many2one(
         "res.company", string="Odoo Company", required=True,
-        default=lambda self: self.env.company, ondelete="restrict", index=True,
+        default=lambda self: self.env.company.parent_id or self.env.company, ondelete="restrict",
         domain="[('parent_id', '=', False)]",
     )
     branch_id = fields.Many2one(
@@ -77,8 +77,8 @@ class PrintGatewayPolicy(models.Model):
     )
     binding_id = fields.Many2one(
         "print_gateway.binding", string="Target Binding", ondelete="restrict",
-        domain="['|', ('company_id', '=', False), ('company_id', '=', effective_company_id)]",
-        help="Explicit print binding to use. If omitted, the standard routing engine will resolve the binding dynamically.",
+        domain="['&', ('company_id', '=', company_id), '|', ('branch_id', '=', False), ('branch_id', '=', branch_id)]",
+        help="Explicit print rule for this Odoo scope. A branch may use its branch rule or the company-wide fallback.",
     )
     warehouse_id = fields.Many2one(
         "stock.warehouse", string="Warehouse Filter", ondelete="restrict",
@@ -160,7 +160,7 @@ class PrintGatewayPolicy(models.Model):
         for policy in self:
             policy.effective_company_id = policy.branch_id or policy.company_id
 
-    @api.constrains("company_id", "branch_id")
+    @api.constrains("company_id", "branch_id", "binding_id")
     def _check_hierarchy(self):
         for policy in self:
             if policy.company_id.parent_id:
@@ -183,6 +183,19 @@ class PrintGatewayPolicy(models.Model):
         "pos.order": {"pos_order_paid"},
     }
     
+    @api.onchange("company_id", "branch_id")
+    def _onchange_scope(self):
+        for policy in self:
+            if policy.binding_id:
+                binding = policy.binding_id
+                valid = binding.company_id == policy.company_id
+                if policy.branch_id:
+                    valid = valid and (not binding.branch_id or binding.branch_id == policy.branch_id)
+                else:
+                    valid = valid and not binding.branch_id
+                if not valid:
+                    policy.binding_id = False
+
     @api.onchange("action_type")
     def _onchange_action_type(self):
         """Clear mutually exclusive fields when switching action type to prevent validation lock."""
