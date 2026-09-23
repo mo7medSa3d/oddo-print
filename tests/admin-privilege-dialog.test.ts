@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-const closeApp = vi.fn();
+const { closeApp } = vi.hoisted(() => ({ closeApp: vi.fn() }));
 vi.mock("../src/desktop/lib/ipc", () => ({ closeApp }));
 
 import { AdminPrivilegeDialog } from "../src/desktop/components/AdminPrivilegeDialog";
