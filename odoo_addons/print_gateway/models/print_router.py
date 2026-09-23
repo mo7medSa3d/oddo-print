@@ -620,8 +620,11 @@ class PrintGatewayRouter(models.AbstractModel):
                 raise ValidationError(_("Print binding '%s' has no Gateway Runtime Printer assigned.") % binding.display_name)
             if binding.branch_id and not binding.runtime_agent_id:
                 raise ValidationError(_("Print binding '%s' has no Gateway Runtime Agent assigned.") % binding.display_name)
-            if binding.branch_id and binding.runtime_agent_id:
-                self._assert_branch_agent_assignment(binding.company_id, binding.branch_id, binding.runtime_agent_id)
+            if binding.runtime_agent_id:
+                binding_scope = current_company if current_company.parent_id else False
+                self._assert_branch_agent_assignment(
+                    binding.company_id, binding_scope, binding.runtime_agent_id,
+                )
 
             target_binding = binding
             target_destination = binding.destination_ref or destination
