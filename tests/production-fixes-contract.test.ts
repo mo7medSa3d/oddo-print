@@ -163,8 +163,8 @@ describe("production fixes contracts (2026-09)", () => {
     const jobs = read("odoo_addons/print_gateway/models/print_job.py");
     // The implementation uses SQL LIMIT clauses rather than the old ORM
     // domain/limit spelling. The contract is the bounded batch size itself.
-    expect(jobs).toContain("LIMIT 50");
-    expect(jobs).toContain("LIMIT 100");
+    expect(jobs).toContain("LIMIT 25"); // pending submission batch
+    expect(jobs).toContain("LIMIT 100"); // status reconciliation batch
     expect(jobs).toContain("/api/print/jobs");
     expect(jobs).toContain("job.gateway_job_id");
     expect(jobs).not.toContain("/api/odoo/sync");

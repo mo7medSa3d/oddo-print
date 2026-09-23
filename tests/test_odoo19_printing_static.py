@@ -322,3 +322,31 @@ def test_pair_agent_wizard_has_single_agent_input():
     assert "agent_id = fields.Char(" in source
     assert 'field name="agent_id"' in view
     assert 'gateway_runtime_agent_picker' in view
+
+def test_print_submission_uses_committed_lease_fencing():
+    source = read("models/print_job.py")
+    assert 'submit_claim_token = fields.Char' in source
+    assert 'submit_claimed_at = fields.Datetime' in source
+    assert "def _claim_submission_lease" in source
+    assert "def _advance_status_claimed" in source
+    assert "Submission lease lost while finalizing Odoo print job" in source
+    assert "_print_gateway_submission_precommit" in source
+
+
+def test_odoo_submission_crons_report_incremental_progress():
+    job_source = read("models/print_job.py")
+    intent_source = read("models/print_intent.py")
+    submit = job_source[job_source.index("def cron_submit_pending"):job_source.index("def cron_sync_status")]
+    recover = intent_source[intent_source.index("def cron_recover_pending_intents"):]
+    assert "LIMIT 25" in submit
+    for source in (submit, recover):
+        assert "_commit_progress" in source
+        assert "remaining_time" in source
+
+
+def test_agent_registration_pairing_uses_database_clock():
+    actions = (ROOT / "src" / "app" / "actions.ts").read_text(encoding="utf-8")
+    register = (ROOT / "src" / "app" / "api" / "agent" / "register" / "route.ts").read_text(encoding="utf-8")
+    assert "clock_timestamp() + interval '10 minutes'" in actions
+    assert "gt(agents.pairingCodeExpiresAt, dbNow)" in register
+    assert "const now = new Date()" not in register
