@@ -49,6 +49,15 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   const apiKey = await validateOdooKey(req, { requireIntegrationEnabled: false });
   if (!apiKey) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (apiKey.readOnly) {
+    return NextResponse.json(
+      {
+        error: "API key is in its rotation grace period and is read-only.",
+        code: "API_KEY_READ_ONLY",
+      },
+      { status: 409, headers: { "Cache-Control": "no-store" } },
+    );
+  }
   let body: unknown;
   try {
     body = await req.json();
