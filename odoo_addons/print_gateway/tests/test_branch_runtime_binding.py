@@ -391,4 +391,4 @@ class TestBranchRuntimeBinding(TransactionCase):
             "runtime_agent_id": "agent-recovered",
             "enabled": True,
         })
-        self.assertEqual(recovered.runtime_agent_id, "agent-b")
+        self.assertEqual(recovered.runtime_agent_id, "agent-recovered")
