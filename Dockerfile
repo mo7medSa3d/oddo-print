@@ -19,6 +19,7 @@ RUN npm ci --omit=dev
 FROM node:24.21.0-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+ENV TZ=UTC
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
