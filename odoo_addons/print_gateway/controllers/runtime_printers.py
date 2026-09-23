@@ -63,27 +63,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
 
     def _assigned_runtime_agent_ids(self, company, branch, env=None):
         env = env if env is not None else request.env
-        assignment_model = env["print_gateway.runtime_agent_assignment"].sudo()
-        domain = [
-            ("company_id", "=", company.id),
-            ("enabled", "=", True),
-        ]
-        if branch:
-            # A company-wide assignment is inherited by its child branches.
-            # Branch-specific assignments remain limited to that exact branch.
-            domain = [
-                "|",
-                ("branch_id", "=", branch.id),
-                ("branch_id", "=", False),
-                *domain,
-            ]
-        else:
-            domain.append(("branch_id", "=", False))
-        return {
-            assignment.runtime_agent_id.strip()
-            for assignment in assignment_model.search(domain)
-            if isinstance(assignment.runtime_agent_id, str) and assignment.runtime_agent_id.strip()
-        }
+        return env["print_gateway.runtime_agent_assignment"].assigned_agent_ids(company, branch)
 
     @http.route('/print_gateway/runtime-agents', type='jsonrpc', auth='user', methods=['POST'])
     def runtime_agents(self, company_id=None, branch_id=None, assignment_only=False):
