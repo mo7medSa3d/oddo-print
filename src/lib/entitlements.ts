@@ -185,6 +185,7 @@ type TenantPrintQuotaRow = {
   entitlements: unknown;
   periodStart: Date | string;
   periodEnd: Date | string | null;
+  entitlementBlocked?: boolean;
 };
 
 function parseEntitlementDate(value: Date | string | null): Date | null {
@@ -210,7 +211,8 @@ async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string, l
         FOR UPDATE OF ts, p
       `)
     : await tx.execute(sql`
-        SELECT p.entitlements, ts.current_period_start AS "periodStart", ts.current_period_end AS "periodEnd"
+        SELECT p.entitlements, ts.current_period_start AS "periodStart", ts.current_period_end AS "periodEnd",
+               ts.entitlement_blocked AS "entitlementBlocked"
         FROM tenant_subscriptions ts
         JOIN plans p ON p.id = ts.plan_id
         WHERE ts.tenant_id = ${tenantId}
@@ -220,7 +222,7 @@ async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string, l
       `);
   const row = result.rows[0] as TenantPrintQuotaRow | undefined;
   if (!row) throw new TenantSubscriptionRequiredError();
-  if ((row as { entitlementBlocked?: boolean }).entitlementBlocked === true) {
+  if (row.entitlementBlocked === true) {
     throw new TenantEntitlementConfigError(PRINT_QUOTA_ENTITLEMENT);
   }
   let entitlements: TenantEntitlements;
