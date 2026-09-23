@@ -4,7 +4,7 @@ import { apiKeys, tenantSubscriptions } from "../../../../db/schema";
 import { validateManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { generateOdooApiKey } from "../../../../lib/odoo-auth";
-import { eq, and, desc, isNotNull } from "drizzle-orm";
+import { eq, and, desc, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
 import { writeAuditEvent } from "../../../../lib/audit";
 
@@ -133,6 +133,10 @@ export async function DELETE(req: Request) {
           eq(apiKeys.id, id),
           eq(apiKeys.tenantId, manager.tenantId),
           isNotNull(apiKeys.revokedAt),
+          or(
+            isNull(apiKeys.readOnlyUntil),
+            lte(apiKeys.readOnlyUntil, new Date()),
+          ),
         ))
         .returning({ id: apiKeys.id });
       if (removed.length) return NextResponse.json({ id: removed[0].id, removed: true }, { status: 200 });
