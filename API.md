@@ -19,7 +19,7 @@ Rotating an Odoo API key creates a new key and immediately removes write capabil
 
 Odoo Gateway authentication is based on the Odoo installation API key. The Odoo database name is not used as an authentication requirement. Odoo may still send `X-Odoo-Database` for informational purposes; the Gateway ignores it for authentication.
 
-The raw Odoo key is returned only when generated. Gateway persists only its cryptographic hash and a revoke timestamp.
+The raw Odoo key is returned only when generated. Gateway persists only its cryptographic hash plus lifecycle metadata; rotated keys use a bounded read-only grace window before full invalidation.
 
 ## `GET /api/odoo/health`
 
