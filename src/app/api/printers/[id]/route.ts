@@ -3,7 +3,7 @@ import { db } from "../../../../db";
 import { agents, printers } from "../../../../db/schema";
 import { validateConsoleAuth } from "../../../../lib/console-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { canTransitionLifecycle } from "../../../../lib/lifecycle";
 import { PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, assertPrinterMetadataLimits, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
@@ -116,7 +116,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       parsed.data.config !== undefined ||
       parsed.data.lifecycle !== undefined;
 
-    const update: Partial<typeof printers.$inferInsert> = { updatedAt: sql`now()` };
+    const update: {
+      updatedAt: SQL;
+      name?: (typeof printers.$inferInsert)["name"];
+      printerType?: (typeof printers.$inferInsert)["printerType"];
+      deviceClass?: (typeof printers.$inferInsert)["deviceClass"];
+      connectionType?: (typeof printers.$inferInsert)["connectionType"];
+      protocol?: (typeof printers.$inferInsert)["protocol"];
+      config?: (typeof printers.$inferInsert)["config"];
+      lifecycle?: (typeof printers.$inferInsert)["lifecycle"];
+} = { updatedAt: sql`now()` };
     if (parsed.data.name !== undefined) update.name = parsed.data.name;
     if (parsed.data.printerType !== undefined) update.printerType = parsed.data.printerType;
     if (parsed.data.deviceClass !== undefined) update.deviceClass = parsed.data.deviceClass;
