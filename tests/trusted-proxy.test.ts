@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { isTrustedProxyRequest, isTrustedProxyUpgrade, trustProxyEnabled } from "../src/server/trusted-proxy";
+import { isAllowedWebSocketOrigin, isTrustedProxyRequest, isTrustedProxyUpgrade, trustProxyEnabled } from "../src/server/trusted-proxy";
 
 describe("trusted proxy boundary", () => {
   beforeEach(() => {
@@ -37,6 +37,20 @@ describe("trusted proxy boundary", () => {
       headers: { "x-gateway-proxy-token": "short" },
     });
     expect(isTrustedProxyRequest(req)).toBe(false);
+  });
+
+  it("accepts native WebSocket handshakes without an Origin header", () => {
+    vi.stubEnv("APP_BASE_URL", "https://gateway.example.com");
+    expect(isAllowedWebSocketOrigin(null)).toBe(true);
+  });
+
+  it("accepts only the configured WebSocket origins", () => {
+    vi.stubEnv("APP_BASE_URL", "https://gateway.example.com");
+    vi.stubEnv("WS_ALLOWED_ORIGINS", "https://admin.example.com, https://ops.example.com");
+    expect(isAllowedWebSocketOrigin("https://gateway.example.com")).toBe(true);
+    expect(isAllowedWebSocketOrigin("https://admin.example.com")).toBe(true);
+    expect(isAllowedWebSocketOrigin("https://attacker.example.com")).toBe(false);
+    expect(isAllowedWebSocketOrigin("null")).toBe(false);
   });
 
   it("applies the same boundary to WebSocket upgrades", () => {
