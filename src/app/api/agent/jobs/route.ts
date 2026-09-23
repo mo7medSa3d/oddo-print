@@ -309,10 +309,7 @@ export async function PATCH(req: Request) {
         deliveryAttempts: sql`GREATEST(${printJobs.deliveryAttempts} - 1, 0)`,
         retries: sql`${printJobs.retries} + 1`,
       })
-      .where(and(
-        fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
-        lateSuccess ? sql`\${printJobs.updatedAt} >= now() - interval '24 hours' AND \${printJobs.updatedAt} <= now()` : sql`TRUE`,
-      ))
+      .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
       .returning({ status: printJobs.status, error: printJobs.error });
     if (updated.length !== 1) {
       const winner = await db.query.printJobs.findFirst({ where: whereClause });
