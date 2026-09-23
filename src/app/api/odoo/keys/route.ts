@@ -43,6 +43,7 @@ export async function GET(req: Request) {
       createdAt: apiKeys.createdAt,
       lastUsedAt: apiKeys.lastUsedAt,
       revokedAt: apiKeys.revokedAt,
+      readOnlyUntil: apiKeys.readOnlyUntil,
       odooEnabled: apiKeys.odooEnabled,
       odooEnabledRevision: apiKeys.odooEnabledRevision,
       odooEnabledUpdatedAt: apiKeys.odooEnabledUpdatedAt,
@@ -128,7 +129,11 @@ export async function DELETE(req: Request) {
   if (bodyRecord.remove === true) {
     try {
       const removed = await db.delete(apiKeys)
-        .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId), isNotNull(apiKeys.revokedAt)))
+        .where(and(
+          eq(apiKeys.id, id),
+          eq(apiKeys.tenantId, manager.tenantId),
+          isNotNull(apiKeys.revokedAt),
+        ))
         .returning({ id: apiKeys.id });
       if (removed.length) return NextResponse.json({ id: removed[0].id, removed: true }, { status: 200 });
     } catch (error) {
