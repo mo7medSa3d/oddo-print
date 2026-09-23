@@ -20,9 +20,10 @@ export const MAX_AGENT_IN_FLIGHT_JOBS = 64;
  * Ownership rules for handing a job to an agent.
  *
  * The Gateway owns runtime delivery state. A queued job is eligible only when
- * its owning agent and runtime printer are still active and online at the
- * delivery boundary. Odoo business entities are intentionally not part of
- * this transaction.
+ * its owning agent and runtime printer are still active, fresh, and executable
+ * at the delivery boundary, and the tenant still has an active billing
+ * entitlement. Odoo business entities are intentionally not part of this
+ * transaction.
  *
  * Every claim mints a fresh `claim_token` (see migration 0024). Agents must
  * echo it on status updates so a stale worker — an attempt whose lease
