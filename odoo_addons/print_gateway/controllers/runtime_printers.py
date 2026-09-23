@@ -69,7 +69,14 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             ("enabled", "=", True),
         ]
         if branch:
-            domain.append(("branch_id", "=", branch.id))
+            # A company-wide assignment is inherited by its child branches.
+            # Branch-specific assignments remain limited to that exact branch.
+            domain = [
+                "|",
+                ("branch_id", "=", branch.id),
+                ("branch_id", "=", False),
+                *domain,
+            ]
         else:
             domain.append(("branch_id", "=", False))
         return {
