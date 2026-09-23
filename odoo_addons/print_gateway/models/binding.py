@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Native Odoo print bindings: Odoo context -> Gateway runtime printer."""
 
+import json
 import logging
 
 from psycopg2 import IntegrityError
@@ -583,6 +584,23 @@ class PrintGatewayBinding(models.Model):
                 "message": route.get("message") or _("Sent silently to printer."),
             }
         except Exception as exc:
+            raw_error = str(exc)
+            prefix = "GATEWAY_BILLING_LIMIT:"
+            if raw_error.startswith(prefix):
+                try:
+                    billing_limit = json.loads(raw_error[len(prefix):])
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    billing_limit = None
+                if isinstance(billing_limit, dict) and billing_limit.get("entitlement"):
+                    return {
+                        "dispatched": False,
+                        "success": False,
+                        "has_binding": True,
+                        "error": billing_limit.get("message") or _("This print operation is blocked by the current Gateway plan limit."),
+                        "billing_limit": billing_limit,
+                        "fail_closed": True,
+                    }
+
             _logger.warning("Failed to execute silent print route: %s", exc)
             return {
                 "dispatched": False,
