@@ -4,7 +4,8 @@ from unittest.mock import patch
 # previously degraded the whole file into silent skips with a green exit.
 from odoo.exceptions import ValidationError
 from odoo.tests.common import TransactionCase
-from odoo.addons.print_gateway.models.gateway_config import PrintGatewayConfig
+from odoo.addons.print_gateway.models.gateway_config import PrintGatewayConfig, _friendly_gateway_request_error
+import requests
 
 
 class TestPrintGatewayURLTransport(TransactionCase):
@@ -48,3 +49,22 @@ class TestPrintGatewayURLTransport(TransactionCase):
             self._config('https://user:pass@gateway.example.com')
         with self.assertRaises(ValidationError):
             self._config('https://gateway.example.com/api')
+
+    def test_friendly_gateway_request_error_formats_requests_exceptions(self):
+        url = "https://gateway.example.com"
+        connection = _friendly_gateway_request_error(
+            requests.exceptions.ConnectionError("Connection refused"),
+            url,
+        )
+        timeout = _friendly_gateway_request_error(
+            requests.exceptions.Timeout("Read timeout"),
+            url,
+        )
+        generic = _friendly_gateway_request_error(
+            requests.exceptions.RequestException("unexpected transport failure"),
+            url,
+        )
+        self.assertIn(url, connection)
+        self.assertIn(url, timeout)
+        self.assertIn(url, generic)
+        self.assertIn("Connection refused", generic)
