@@ -881,15 +881,12 @@ class PrintGatewayJob(models.Model):
                             period_end = rate_body.get("periodEnd")
                             period_end = str(period_end) if period_end else None
 
-                            now = fields.Datetime.now()
-                            next_retry = now + datetime.timedelta(seconds=retry_after)
-                            if entitlement == "max_prints_per_period" and period_end:
-                                try:
-                                    candidate = fields.Datetime.to_datetime(period_end)
-                                    if candidate and candidate > now:
-                                        next_retry = candidate
-                                except (TypeError, ValueError):
-                                    pass
+                            # Retry-After is a relative duration calculated by
+                            # the Gateway from its own authoritative DB clock.
+                            # Never compare Gateway periodEnd against the Odoo
+                            # host clock: the two systems can legitimately have
+                            # different wall clocks/timezones.
+                            next_retry = fields.Datetime.now() + datetime.timedelta(seconds=retry_after)
 
                             values = {
                                 "status": "queued",
