@@ -91,7 +91,7 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
   it("validates platform claims when is_platform_owner is true and email is verified", async () => {
     const user = await createTestUser({ isPlatformOwner: true });
     const session = await createPlatformSession(user.userId, user.email);
-    const validated = await validatePlatformClaims(verifyPlatformToken(session.token));
+    const validated = await validatePlatformClaims(await verifyPlatformToken(session.token));
 
     expect(validated).not.toBeNull();
     expect(validated?.userId).toBe(user.userId);
@@ -112,11 +112,11 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
   it("revokes platform session and invalidates claims", async () => {
     const user = await createTestUser({ isPlatformOwner: true });
     const session = await createPlatformSession(user.userId, user.email);
-    let validated = await validatePlatformClaims(verifyPlatformToken(session.token));
+    let validated = await validatePlatformClaims(await verifyPlatformToken(session.token));
     expect(validated).not.toBeNull();
 
     await revokePlatformSession(session.jti);
-    validated = await validatePlatformClaims(verifyPlatformToken(session.token));
+    validated = await validatePlatformClaims(await verifyPlatformToken(session.token));
     expect(validated).toBeNull();
   });
 
