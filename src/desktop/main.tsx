@@ -276,8 +276,13 @@ export default function App() {
       const list = res.printers.filter(isProductionPrinter);
       setDiscoveredPrinters(list);
       await refreshPrinters();
-      setMsg({ text: "Local discovery found " + list.length + " physical printers; Gateway inventory refreshed.", type: "success" });
-      if (res.errors.length) setPrintersError(res.errors.join("; ").slice(0, 300));
+      setPrintersError(null);
+      setMsg({
+        text: list.length === 0
+          ? "No physical printers were found. Connect a printer or make sure it is reachable, then try Discover again."
+          : `Discovery found ${list.length} physical printer${list.length === 1 ? "" : "s"} and refreshed the Gateway inventory.`,
+        type: "success",
+      });
     } catch (e) {
       setPrintersError(friendlyPrinterError(errMsg(e)));
     } finally {
