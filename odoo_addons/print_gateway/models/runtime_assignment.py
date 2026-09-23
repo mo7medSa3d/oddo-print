@@ -30,6 +30,10 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
         "UNIQUE(company_id, branch_id, runtime_agent_id)",
         "The same Gateway Runtime Agent cannot be assigned more than once to the same Odoo branch.",
     )
+    _company_wide_agent_unique = models.UniqueIndex(
+        "(company_id, runtime_agent_id) WHERE branch_id IS NULL",
+        "The same Gateway Runtime Agent cannot be assigned more than once to the company-wide Odoo scope.",
+    )
 
     @api.depends("company_id", "branch_id", "runtime_agent_id")
     def _compute_name(self):
