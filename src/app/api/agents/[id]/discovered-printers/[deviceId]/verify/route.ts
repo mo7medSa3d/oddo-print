@@ -3,7 +3,7 @@ import { db } from "../../../../../../../db";
 import { agents, discoveredDevices } from "../../../../../../../db/schema";
 import { validateManager } from "../../../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../../../lib/authorization";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +33,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const updated = await db.update(discoveredDevices)
-    .set({ verification: "verified", candidateStatus: "verified", updatedAt: new Date() })
+    .set({ verification: "verified", candidateStatus: "verified", updatedAt: sql`now()` })
     .where(and(
       eq(discoveredDevices.id, deviceId),
       eq(discoveredDevices.agentId, agentId),
