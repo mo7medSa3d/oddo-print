@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { discoverySessions, discoveredDevices } from "../../../../db/schema";
@@ -23,6 +24,7 @@ export async function GET(req: Request) {
 
 const deviceSchema = z.object({
   id: z.string().min(1).max(120).optional(),
+  stableId: z.string().min(1).max(120).optional(),
   source: z.array(z.string().max(64)).max(32).optional(),
   protocol: z.string().min(1).max(32).optional(),
   ipAddress: z.string().max(45).optional(),
@@ -58,20 +60,53 @@ export async function POST(req: Request) {
   if (devices.length > MAX_DISCOVERY_DEVICES) return NextResponse.json({ error: `Too many devices in one discovery report; maximum is ${MAX_DISCOVERY_DEVICES}` }, { status: 413 });
 
   const parsedDevices = [] as Array<ReturnType<typeof deviceSchema.parse>>;
+  const skippedDevices: Array<{ id: string; reason: string }> = [];
   for (const raw of devices) {
     const parsed = deviceSchema.safeParse(raw);
-    if (!parsed.success) return NextResponse.json({ error: `Invalid device: ${parsed.error.issues[0]?.message}` }, { status: 400 });
+    const rawId = raw && typeof raw === "object" && !Array.isArray(raw) && typeof (raw as Record<string, unknown>).id === "string"
+      ? String((raw as Record<string, unknown>).id)
+      : "(unknown)";
+    if (!parsed.success) {
+      skippedDevices.push({ id: rawId, reason: `invalid_device: ${parsed.error.issues[0]?.message ?? "invalid payload"}` });
+      continue;
+    }
     const ip = parsed.data.ipAddress;
-    if (ip && !isPrivateNetworkAddress(ip)) return NextResponse.json({ error: `Device IP must be private or link-local, got ${ip}` }, { status: 400 });
+    if (ip && !isPrivateNetworkAddress(ip)) {
+      skippedDevices.push({ id: parsed.data.id ?? rawId, reason: "invalid_ip: device IP must be private or link-local" });
+      continue;
+    }
     parsedDevices.push(parsed.data);
+  }
+
+  function identityKeyForDevice(d: ReturnType<typeof deviceSchema.parse>): string | null {
+    const supplied = typeof d.stableId === "string" ? d.stableId.trim() : "";
+    if (supplied) return supplied;
+    const explicitId = typeof d.id === "string" ? d.id.trim() : "";
+    if (explicitId) return explicitId;
+    const fingerprint = [
+      d.protocol ?? "",
+      d.ipAddress ?? "",
+      d.port ?? "",
+      d.uri ?? "",
+      d.spoolerName ?? "",
+      d.serialNumber ?? "",
+      d.hostname ?? "",
+      d.manufacturer ?? "",
+      d.model ?? "",
+    ].map(String).join("\u001f").trim();
+    return fingerprint.replace(/\u001f/g, "").trim() ? createHash("sha256").update(fingerprint).digest("hex") : null;
   }
 
   // Discovery is observation, not authorization. Approval is handled by the
   // manager endpoint before a discovered device can become a runtime printer.
   // Keep the report bounded and batch writes so one authenticated Agent cannot
   // force thousands of sequential database round trips in a single request.
+  // identityKey is stable across repeated scans for the same Agent. The
+  // database uniqueness boundary is tenant+agent+identity, so two Agents can
+  // legitimately observe similar hardware without colliding.
   const rows = parsedDevices.map((d) => ({
     id: typeof d.id === "string" && d.id ? d.id : `dev_${nanoid(10)}`,
+    identityKey: identityKeyForDevice(d),
     discoveryId,
     agentId: agent.id,
     source: d.source ?? [],
@@ -111,23 +146,81 @@ export async function POST(req: Request) {
     if (currentSession.status !== "running") return { kind: "not_running" as const, status: currentSession.status ?? "unknown" };
 
     let insertedCount = 0;
+    let updatedCount = 0;
+
     for (let i = 0; i < rows.length; i += DISCOVERY_INSERT_BATCH) {
-      const inserted = await tx.insert(discoveredDevices)
-        .values(rows.slice(i, i + DISCOVERY_INSERT_BATCH))
-        .onConflictDoNothing()
-        .returning({ id: discoveredDevices.id });
-      insertedCount += inserted.length;
+      const batch = rows.slice(i, i + DISCOVERY_INSERT_BATCH);
+      const identityRows = batch.filter((row) => row.identityKey);
+      const anonymousRows = batch.filter((row) => !row.identityKey);
+
+      if (anonymousRows.length > 0) {
+        const inserted = await tx.insert(discoveredDevices)
+          .values(anonymousRows)
+          .onConflictDoNothing()
+          .returning({ id: discoveredDevices.id });
+        insertedCount += inserted.length;
+      }
+
+      if (identityRows.length > 0) {
+        const inserted = await tx.insert(discoveredDevices)
+          .values(identityRows)
+          .onConflictDoUpdate({
+            target: [discoveredDevices.tenantId, discoveredDevices.agentId, discoveredDevices.identityKey],
+            set: {
+              discoveryId: sql`EXCLUDED.discovery_id`,
+              source: sql`EXCLUDED.source`,
+              protocol: sql`EXCLUDED.protocol`,
+              ipAddress: sql`EXCLUDED.ip_address`,
+              hostname: sql`EXCLUDED.hostname`,
+              port: sql`EXCLUDED.port`,
+              uri: sql`EXCLUDED.uri`,
+              deviceName: sql`EXCLUDED.device_name`,
+              spoolerName: sql`EXCLUDED.spooler_name`,
+              deviceClass: sql`EXCLUDED.device_class`,
+              transport: sql`EXCLUDED.transport`,
+              manufacturer: sql`EXCLUDED.manufacturer`,
+              model: sql`EXCLUDED.model`,
+              serialNumber: sql`EXCLUDED.serial_number`,
+              capabilities: sql`EXCLUDED.capabilities`,
+              rawMetadata: sql`EXCLUDED.raw_metadata`,
+              lastSeenAt: sql`now()`,
+              updatedAt: sql`now()`,
+            },
+          })
+          .returning({ id: discoveredDevices.id });
+
+        // PostgreSQL returns one row for both insert and update. Track inserts
+        // separately so the API can expose useful sync metrics without making
+        // correctness depend on application-side bookkeeping.
+        insertedCount += Math.min(inserted.length, identityRows.length);
+        updatedCount += Math.max(identityRows.length - inserted.length, 0);
+      }
     }
 
-    if (status && ["completed", "partial", "failed", "cancelled"].includes(status)) {
+    const effectiveStatus =
+      skippedDevices.length > 0 && status === "completed"
+        ? "partial"
+        : status;
+
+    if (effectiveStatus && ["completed", "partial", "failed", "cancelled"].includes(effectiveStatus)) {
       await tx.update(discoverySessions)
-        .set({ status, completedAt: sql`now()`, updatedAt: sql`now()`, stats: { candidates: parsedDevices.length, inserted: insertedCount } })
+        .set({
+          status: effectiveStatus,
+          completedAt: sql`now()`,
+          updatedAt: sql`now()`,
+          stats: {
+            candidates: devices.length,
+            inserted: insertedCount,
+            updated: updatedCount,
+            skipped: skippedDevices.length,
+          },
+        })
         .where(and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId)));
     }
-    return { kind: "ok" as const, insertedCount };
+    return { kind: "ok" as const, insertedCount, updatedCount };
   });
 
   if (result.kind === "not_found") return NextResponse.json({ error: "Discovery not found" }, { status: 404 });
   if (result.kind === "not_running") return NextResponse.json({ error: `Discovery already ${result.status}` }, { status: 409 });
-  return NextResponse.json({ ok: true, inserted: result.insertedCount, verification: "candidate-only" });
+  return NextResponse.json({ ok: true, inserted: result.insertedCount, updated: result.updatedCount, skipped: skippedDevices, verification: "candidate-only" });
 }
