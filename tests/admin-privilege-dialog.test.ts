@@ -2,6 +2,10 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
+
+const closeApp = vi.fn();
+vi.mock("../src/desktop/lib/ipc", () => ({ closeApp }));
+
 import { AdminPrivilegeDialog } from "../src/desktop/components/AdminPrivilegeDialog";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -10,6 +14,7 @@ let hosts: HTMLElement[] = [];
 let roots: Root[] = [];
 
 afterEach(() => {
+  closeApp.mockReset();
   for (const root of roots) {
     act(() => {
       root.unmount();
@@ -89,7 +94,7 @@ describe("AdminPrivilegeDialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("triggers onRelaunch when 'Close & Reopen as Administrator' is clicked", async () => {
+  it("triggers relaunch and closes the current app when the admin action is clicked", async () => {
     const onRelaunch = vi.fn();
     renderDialog({ open: true, onRelaunch });
 
@@ -101,8 +106,10 @@ describe("AdminPrivilegeDialog", () => {
 
     await act(async () => {
       primaryBtn?.click();
+      await Promise.resolve();
     });
 
     expect(onRelaunch).toHaveBeenCalledTimes(1);
+    expect(closeApp).toHaveBeenCalledTimes(1);
   });
 });
