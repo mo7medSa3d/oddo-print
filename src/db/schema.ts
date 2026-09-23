@@ -152,6 +152,7 @@ export const apiKeys = pgTable("api_keys", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastUsedAt: timestamp("last_used_at"),
   revokedAt: timestamp("revoked_at"),
+  readOnlyUntil: timestamp("read_only_until"),
 }, (table) => ({
   tenantIdUnique: unique("api_keys_tenant_id_unique").on(table.tenantId, table.id),
   odooEnabledRevisionCheck: check("api_keys_odoo_enabled_revision_check", sql`${table.odooEnabledRevision} >= -1`),
