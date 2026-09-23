@@ -160,9 +160,8 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 )
 
         # Validate that the selected Agent is active and belongs to the same
-        # Gateway tenant before exposing its printer inventory. Assignment is
-        # intentionally not required at discovery time; it is created/checked
-        # when the Odoo binding is persisted.
+        # Gateway tenant before exposing its printer inventory. Branch-scoped
+        # callers have already passed the explicit assignment check above.
         try:
             agent_response = requests.get(
                 '%s/api/odoo/agents' % config._gateway_base(for_request=True),
