@@ -26,7 +26,14 @@ export async function POST(req: Request) {
     return res;
   }
   let identity: Awaited<ReturnType<typeof authenticateForTenant>>;
-  try { identity = await authenticateForTenant(email, password, tenantId); } catch { identity = null; }
+  try {
+    identity = await authenticateForTenant(email, password, tenantId);
+  } catch (error) {
+    logError("auth.login.authentication_failed", {
+      error: error instanceof Error ? error.message : "unknown",
+    });
+    return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });
+  }
   if (!identity) {
     const status = pre.allowed && pre.retryAfterSec ? 429 : 401;
     const res = NextResponse.json({ error: "Invalid email or password" }, { status });
@@ -43,6 +50,9 @@ export async function POST(req: Request) {
   }
   if (!("tenantId" in identity) || !identity.tenantId || !identity.role) return NextResponse.json({ error: "Workspace setup is incomplete" }, { status: 409 });
   const session = await (await import("../../../../lib/customer-auth")).issueCustomerSession(identity.userId, identity.tenantId, identity.role);
+  if (!session) {
+    return NextResponse.json({ error: "Workspace is unavailable" }, { status: 403 });
+  }
   const res = NextResponse.json({ ok: true, expiresAt: session.exp.toISOString(), tenantId: identity.tenantId, role: identity.role });
   res.headers.set("Set-Cookie", customerSessionCookie(session));
   await writeAuditEvent({ tenantId: identity.tenantId, actorType: "user", actorId: identity.userId, action: "user.login.success" }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
