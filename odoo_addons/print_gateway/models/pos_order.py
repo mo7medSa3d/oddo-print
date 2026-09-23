@@ -52,9 +52,16 @@ class PosOrderGatewayPrinting(models.Model):
             if order.state not in ("paid", "done", "invoiced"):
                 continue
             try:
-                policy_model.dispatch_for_record(order, "pos_order_paid")
+                result = policy_model.dispatch_for_record(order, "pos_order_paid")
+                if result.get("failed"):
+                    _logger.error(
+                        "Automated print scheduling completed with %s policy failure(s) for POS order %s",
+                        result["failed"],
+                        order.id,
+                    )
             except Exception as exc:
-                _logger.error("Failed to schedule print policies for POS order %s: %s", order.id, exc)
+                # Scheduling must never break order finalization.
+                _logger.error("Failed to schedule automated print intents for POS order %s: %s", order.id, exc)
 
 
     def _process_saved_order(self, draft):
