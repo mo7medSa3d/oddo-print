@@ -2,6 +2,10 @@
 
 The Odoo integration contract is intentionally small. Odoo owns business records, destination/report context, bindings and print intent. Gateway owns runtime agents, printers, queues and physical execution.
 
+## Odoo API key rotation
+
+Rotating an Odoo API key creates a new key and immediately removes write capability from the previous key. The previous key remains read-only for 60 minutes so in-flight Odoo status synchronization can reconcile jobs created under the old credential. After that grace period the previous key is rejected completely. Update the Odoo installation with the new key during the grace window before removing the old key.
+
 ## Authentication
 
 ### Agent
