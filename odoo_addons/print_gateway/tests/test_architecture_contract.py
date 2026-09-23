@@ -113,7 +113,8 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         source = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
         self.assertIn("type='jsonrpc'", source)
         self.assertNotIn("type='json'", source)
-        self.assertIn("company_id=None, branch_id=None, agent_id=None", source)
+        self.assertIn("company_id=None, branch_id=None", source)
+        self.assertIn("agent_id=None", source)
 
     def test_manifest_contains_final_integration_entrypoints(self):
         manifest = (ADDON / "__manifest__.py").read_text(encoding="utf-8")
@@ -173,16 +174,21 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         source = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
         self.assertIn("api/odoo/agents", source)
         self.assertIn("selected_agent_id", source)
-        self.assertIn("same Gateway tenant", source)
+        self.assertIn("_assigned_runtime_agent_ids", source)
+        self.assertIn("assignment_only=False", source)
+        self.assertIn('if assignment_only:', source)
         self.assertNotIn("Access Denied: The selected Agent is not assigned to this Odoo Branch.", source)
-        self.assertNotIn("runtime_agent_assignment", source)
 
-        # Assignment remains mandatory for an actual branch binding; discovery
-        # must not be the chicken-and-egg gate that hides otherwise valid
-        # tenant Agents from the selector.
+        # Binding pickers must be assignment-scoped to the selected Branch,
+        # while the pairing wizard retains tenant-wide discovery so it can
+        # create a new assignment.
         binding_source = (MODELS / "binding.py").read_text(encoding="utf-8")
         self.assertIn('runtime_agent_assignment', binding_source)
         self.assertIn("The selected Gateway Runtime Agent is not assigned to the current Odoo Branch.", binding_source)
+        widget_source = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
+        self.assertIn("assignment_only", widget_source)
+        view_source = (VIEWS / "binding_views.xml").read_text(encoding="utf-8")
+        self.assertIn("options="{'assignment_only': true}"", view_source)
 
     def test_agent_widget_clears_previous_printer_on_agent_change(self):
         source = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
