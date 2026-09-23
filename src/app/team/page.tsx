@@ -204,9 +204,9 @@ export default function TeamPage() {
           <h1 className="mt-4 text-[28px] font-bold tracking-[-0.04em] text-ink">Team</h1>
           <p className="mt-2 text-[14px] leading-relaxed text-ink-3">Invite teammates and manage workspace access.</p>
         </div>
-        <div className="flex items-center gap-2 text-[12px] text-ink-3">
-          <Shield className="h-4 w-4" />
-          <span>{members.length} members • {invitations.length} pending</span>
+        <div className="inline-flex w-fit max-w-full items-center gap-2 rounded-full border border-edge bg-surface-2 px-3 py-1.5 text-[12px] text-ink-3">
+          <Shield className="h-4 w-4 shrink-0" />
+          <span className="truncate">{members.length} members • {invitations.length} pending</span>
         </div>
       </header>
 
@@ -229,11 +229,11 @@ export default function TeamPage() {
                   </Select>
                 </div>
               </div>
-              <div className="flex items-center justify-between">
-                <div className="text-[11px] text-ink-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-[11px] leading-relaxed text-ink-3">
                   {ROLE_OPTIONS.find((r) => r.value === role)?.desc}
                 </div>
-                <Button type="submit" variant="primary" size="sm" disabled={busy} loading={busy}>Invite member</Button>
+                <Button type="submit" variant="primary" size="sm" disabled={busy} loading={busy} className="w-full sm:w-auto">Invite member</Button>
               </div>
             </form>
           </Card>
@@ -247,7 +247,7 @@ export default function TeamPage() {
 
           <Card>
             <CardHeader title="Members" subtitle={`${members.length} active members`} icon={<Users className="h-4 w-4 text-brand" />} />
-            <div className="overflow-x-auto">
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-left text-[13px]">
                 <thead className="border-y border-edge bg-surface-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
                   <tr>
@@ -269,81 +269,95 @@ export default function TeamPage() {
                       <td colSpan={3} className="px-5 py-12">
                         <div className="flex flex-col items-center gap-3 text-center">
                           <span role="alert" className="text-[13px] text-bad">{loadError}</span>
-                          <Button variant="secondary" size="sm" onClick={() => void load()}>
-                            Retry
-                          </Button>
+                          <Button variant="secondary" size="sm" onClick={() => void load()}>Retry</Button>
                         </div>
                       </td>
                     </tr>
                   ) : members.length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="px-5 py-12 text-center text-[13px] text-ink-3">No members yet.</td>
-                    </tr>
+                    <tr><td colSpan={3} className="px-5 py-12 text-center text-[13px] text-ink-3">No members yet.</td></tr>
                   ) : (
                     members.map((member) => (
-                    <tr key={member.userId} className="hover:bg-surface-2/60 transition-colors">
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-surface-2 border border-edge text-[11px] font-bold text-ink-2">
-                            {member.email.charAt(0).toUpperCase()}
+                      <tr key={member.userId} className="hover:bg-surface-2/60 transition-colors">
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-[8px] border border-edge bg-surface-2 text-[11px] font-bold text-ink-2">
+                              {member.email.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="truncate text-[13px] font-medium text-ink">{member.email}</div>
+                              <div className="font-mono text-[11px] text-ink-3">{member.userId.slice(0, 8)}</div>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <div className="truncate text-[13px] font-medium text-ink">{member.email}</div>
-                            <div className="text-[11px] text-ink-3 font-mono">{member.userId.slice(0, 8)}</div>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-2">
+                            {member.role === "owner" && <Crown className="h-3.5 w-3.5 text-warn-solid" />}
+                            <StatusBadge tone={roleTone(member.role)} label={member.role.replace(/_/g, " ")} />
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-2">
-                          {member.role === "owner" && <Crown className="h-3.5 w-3.5 text-warn-solid" />}
-                          <StatusBadge tone={roleTone(member.role)} label={member.role.replace(/_/g, " ")} />
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        </td>
+                        <td className="px-5 py-3.5 text-right">
                           {member.role !== "owner" && (
-                            <>
+                            <div className="flex items-center justify-end gap-2">
                               <Select disabled={busy} value={member.role} onChange={(e) => void updateRole(member.userId, e.target.value)} className="w-[160px]">
-                                {ROLE_OPTIONS.map((r) => (
-                                  <option key={r.value} value={r.value}>{r.label}</option>
-                                ))}
+                                {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                               </Select>
                               <Button variant="ghost" size="sm" disabled={busy} onClick={() => setTransferTarget(member)} icon={<ArrowRightLeft className="h-3.5 w-3.5" />} title="Transfer ownership">Transfer</Button>
                               <Button variant="ghost" size="sm" disabled={busy} onClick={() => void remove(member.userId)} icon={<UserMinus className="h-3.5 w-3.5" />} className="text-bad hover:bg-bad-bg hover:text-bad" title="Remove">Remove</Button>
-                            </>
+                            </div>
                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                      </tr>
+                    ))
                   )}
                 </tbody>
               </table>
             </div>
-          </Card>
-        </div>
 
-        <div className="space-y-6">
-          <Card>
-            <CardHeader title="Pending invitations" subtitle={`${invitations.length} awaiting acceptance`} icon={<Clock className="h-4 w-4 text-brand" />} />
-            <div className="px-5 pb-5">
-              {invitations.length === 0 ? (
-                <div className="rounded-[10px] border border-dashed border-edge p-6 text-center">
-                  <div className="text-[13px] font-medium text-ink">No pending invites</div>
+            <div className="sm:hidden">
+              {!loaded ? (
+                <div className="px-5 py-12 text-center text-[13px] text-ink-3">
+                  <span className="skeleton inline-block h-4 w-40 align-middle" aria-hidden />
+                  <span className="sr-only">Loading members…</span>
                 </div>
+              ) : loadError ? (
+                <div className="flex flex-col items-center gap-3 px-5 py-12 text-center">
+                  <span role="alert" className="text-[13px] text-bad">{loadError}</span>
+                  <Button variant="secondary" size="sm" onClick={() => void load()}>Retry</Button>
+                </div>
+              ) : members.length === 0 ? (
+                <div className="px-5 py-12 text-center text-[13px] text-ink-3">No members yet.</div>
               ) : (
-                <div className="space-y-2.5">
-                  {invitations.map((inv) => (
-                    <div key={inv.id} className="flex items-center justify-between gap-3 rounded-[10px] border border-edge bg-surface-2 p-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-[13px] font-medium text-ink">{inv.email}</div>
-                        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-ink-3">
-                          <StatusBadge tone="neutral" label={inv.role} />
-                          <span>expires {new Date(inv.expiresAt).toLocaleDateString()}</span>
+                <div className="divide-y divide-edge">
+                  {members.map((member) => (
+                    <article key={member.userId} className="px-5 py-4">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] border border-edge bg-surface-2 text-[11px] font-bold text-ink-2">
+                          {member.email.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="break-words text-[13px] font-semibold text-ink">{member.email}</div>
+                          <div className="mt-0.5 font-mono text-[10px] text-ink-4">{member.userId.slice(0, 8)}</div>
+                        </div>
+                        <div className="shrink-0">
+                          <div className="flex items-center gap-1.5">
+                            {member.role === "owner" && <Crown className="h-3.5 w-3.5 text-warn-solid" />}
+                            <StatusBadge tone={roleTone(member.role)} label={member.role.replace(/_/g, " ")} />
+                          </div>
                         </div>
                       </div>
-                      <Button variant="ghost" size="sm" disabled={busy} onClick={() => void revokeInvitation(inv.id)} icon={<Trash2 className="h-3.5 w-3.5" />} className="text-bad hover:bg-bad-bg hover:text-bad">Revoke</Button>
-                    </div>
+
+                      {member.role !== "owner" && (
+                        <div className="mt-4 space-y-2.5">
+                          <Select disabled={busy} value={member.role} onChange={(e) => void updateRole(member.userId, e.target.value)} className="w-full">
+                            {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                          </Select>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Button variant="secondary" size="sm" disabled={busy} onClick={() => setTransferTarget(member)} icon={<ArrowRightLeft className="h-3.5 w-3.5" />} className="w-full">Transfer</Button>
+                            <Button variant="ghost" size="sm" disabled={busy} onClick={() => void remove(member.userId)} icon={<UserMinus className="h-3.5 w-3.5" />} className="w-full text-bad hover:bg-bad-bg hover:text-bad">Remove</Button>
+                          </div>
+                        </div>
+                      )}
+                    </article>
                   ))}
                 </div>
               )}
