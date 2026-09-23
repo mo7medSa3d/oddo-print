@@ -50,26 +50,30 @@ class PosOrderGatewayPrinting(models.Model):
         intent_model = self.env["print_gateway.intent"].sudo()
 
         for order in self:
+            if order.state not in ("paid", "done", "invoiced"):
+                continue
             try:
-                if order.state not in ("paid", "done", "invoiced"):
-                    continue
                 policies = policy_model.resolve_for_record(order, "pos_order_paid")
-
-                # Multi-destination fan-out with same-target dedup: distinct
-                # bindings print (counter receipt AND kitchen ticket), but two
-                # policies resolving to the identical target/content fire once.
-                executed_targets = set()
-                for policy in policies:
-                    if policy.matches_record(order):
-                        target_key = policy.effective_target_key(order)
-                        if target_key in executed_targets:
-                            continue
-                        executed_targets.add(target_key)
-                        intent_model.create_and_route(policy, order, "pos_order_paid")
             except Exception as exc:
-                # Print scheduling must never break order finalization: log
-                # per order and continue, mirroring account_move handling.
-                _logger.error("Failed to schedule print intent for POS order %s: %s", order.id, exc)
+                _logger.error("Failed to resolve print policies for POS order %s: %s", order.id, exc)
+                continue
+
+            # One broken policy must not prevent a separate valid policy from printing.
+            executed_targets = set()
+            for policy in policies:
+                try:
+                    if not policy.matches_record(order):
+                        continue
+                    target_key = policy.effective_target_key(order)
+                    if target_key in executed_targets:
+                        continue
+                    executed_targets.add(target_key)
+                    intent_model.create_and_route(policy, order, "pos_order_paid")
+                except Exception as exc:
+                    _logger.error(
+                        "Failed to schedule print intent for POS order %s policy %s: %s",
+                        order.id, policy.id, exc,
+                    )
 
     def _process_saved_order(self, draft):
         res = super()._process_saved_order(draft)
