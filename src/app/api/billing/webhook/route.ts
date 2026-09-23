@@ -187,7 +187,7 @@ export async function POST(req: Request) {
 
       if (billingIdentityConflict) {
         await tx.update(billingEvents)
-          .set({ tenantId: boundTenantId ?? null, processedAt: new Date() })
+          .set({ tenantId: boundTenantId ?? null, processedAt: sql`clock_timestamp()` })
           .where(eq(billingEvents.eventId, eventId));
         if (boundTenantId) {
           await writeAuditEvent({
@@ -223,7 +223,7 @@ export async function POST(req: Request) {
           const differentSubscription = Boolean(current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId);
           if (differentSubscription && current?.status !== "cancelled") {
             await tx.update(billingEvents)
-              .set({ tenantId, processedAt: new Date() })
+              .set({ tenantId, processedAt: sql`clock_timestamp()` })
               .where(eq(billingEvents.eventId, eventId));
             await writeAuditEvent({
               tenantId,
@@ -241,7 +241,7 @@ export async function POST(req: Request) {
             typeof checkoutSubscription?.status === "string" ? checkoutSubscription.status : undefined;
           if (currentStripeCheckoutCustomer && customerId && currentStripeCheckoutCustomer !== customerId) {
             await tx.update(billingEvents)
-              .set({ tenantId, processedAt: new Date() })
+              .set({ tenantId, processedAt: sql`clock_timestamp()` })
               .where(eq(billingEvents.eventId, eventId));
             await writeAuditEvent({
               tenantId,
@@ -255,7 +255,7 @@ export async function POST(req: Request) {
           }
           if (differentSubscription && current?.status === "cancelled" && currentStripeCheckoutStatus === "canceled") {
             await tx.update(billingEvents)
-              .set({ tenantId, processedAt: new Date() })
+              .set({ tenantId, processedAt: sql`clock_timestamp()` })
               .where(eq(billingEvents.eventId, eventId));
             await writeAuditEvent({
               tenantId,
@@ -269,7 +269,7 @@ export async function POST(req: Request) {
           }
           if (current?.stripeCustomerId && customerId && current.stripeCustomerId !== customerId) {
             await tx.update(billingEvents)
-              .set({ tenantId, processedAt: new Date() })
+              .set({ tenantId, processedAt: sql`clock_timestamp()` })
               .where(eq(billingEvents.eventId, eventId));
             await writeAuditEvent({
               tenantId,
@@ -293,7 +293,7 @@ export async function POST(req: Request) {
             currentPeriodEnd: typeof checkoutSubscription?.current_period_end === "number"
               ? new Date(checkoutSubscription.current_period_end * 1000)
               : undefined,
-            updatedAt: new Date(),
+            updatedAt: sql`clock_timestamp()`,
           }).where(eq(tenantSubscriptions.tenantId, tenantId));
         }
       } else if (eventType.startsWith("customer.subscription.")) {
@@ -393,7 +393,7 @@ export async function POST(req: Request) {
                   }
                 : {}),
               stripeLastEventCreatedAt: sql`GREATEST(COALESCE(${tenantSubscriptions.stripeLastEventCreatedAt}, ${eventCreatedAt}), ${eventCreatedAt})`,
-              updatedAt: new Date(),
+              updatedAt: sql`clock_timestamp()`,
             }).where(eq(tenantSubscriptions.tenantId, tenantId));
           }
         }
@@ -407,7 +407,7 @@ export async function POST(req: Request) {
       }
 
       await tx.update(billingEvents)
-        .set({ tenantId: tenantId ?? null, processedAt: new Date() })
+        .set({ tenantId: tenantId ?? null, processedAt: sql`clock_timestamp()` })
         .where(eq(billingEvents.eventId, eventId));
 
       if (tenantId) {
