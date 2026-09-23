@@ -190,20 +190,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Pairing code was consumed or expired; retry with a fresh code" }, { status: 409 });
     }
 
+    // Do not clear the IP pairing limiter after success. A valid pairing
+    // should not reset the brute-force budget for subsequent codes.
     return NextResponse.json({
       agentId: outcome.agentId,
       agent_id: outcome.agentId,
       secret: outcome.secret,
       agent_secret: outcome.secret,
-    }, { status: 200 });
-
-    // Do not clear the IP pairing limiter after success. A valid pairing
-    // should not reset the brute-force budget for subsequent codes.
-    return NextResponse.json({
-      agentId: agent.id,
-      agent_id: agent.id,
-      secret,
-      agent_secret: secret,
     }, { status: 200 });
   } catch (error) {
     logError("[agent/register] registration failed", { error: error });
