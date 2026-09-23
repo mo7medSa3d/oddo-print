@@ -116,7 +116,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       parsed.data.config !== undefined ||
       parsed.data.lifecycle !== undefined;
 
-    const update: Partial<typeof printers.$inferInsert> = { updatedAt: new Date() };
+    const update: Partial<typeof printers.$inferInsert> = { updatedAt: sql`now()` };
     if (parsed.data.name !== undefined) update.name = parsed.data.name;
     if (parsed.data.printerType !== undefined) update.printerType = parsed.data.printerType;
     if (parsed.data.deviceClass !== undefined) update.deviceClass = parsed.data.deviceClass;
