@@ -554,7 +554,8 @@ class TestControlPlane(TransactionCase):
         })
         IntentClass = type(intent_model)
         with patch.object(IntentClass, "_execute_dispatched_route") as mock_exec, \
-             patch.object(IntentClass, "_claim_intent", return_value="fake_token_123"):
+             patch.object(IntentClass, "_claim_intent", return_value="fake_token_123"), \
+             patch.object(type(self.env["ir.cron"]), "_commit_progress", return_value=30.0):
             recovered = intent_model.cron_recover_pending_intents()
             self.assertGreaterEqual(recovered, 1)
             mock_exec.assert_called()

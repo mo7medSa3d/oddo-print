@@ -121,29 +121,34 @@ export function isTenantBillingError(error: unknown): error is TenantSubscriptio
   return error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError;
 }
 
-export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: string, key: string): Promise<number | null> {
-  const result = await tx.execute(sql`
-    SELECT p.entitlements
+export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: string, key: string, lockRows = false): Promise<number | null> {
+  const result = lockRows
+    ? await tx.execute(sql`
+    SELECT p.entitlements, ts.entitlement_blocked AS "entitlementBlocked"
     FROM tenant_subscriptions ts
     JOIN plans p ON p.id = ts.plan_id
     WHERE ts.tenant_id = ${tenantId}
       AND ts.status IN ('trialing','active','past_due')
-      AND (
-        ts.status = 'past_due'
-        OR ts.current_period_end IS NULL
-        OR ts.current_period_end > now()
-      )
+      AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+    LIMIT 1
+    FOR UPDATE OF ts
+  `)
+    : await tx.execute(sql`
+    SELECT p.entitlements, ts.entitlement_blocked AS "entitlementBlocked"
+    FROM tenant_subscriptions ts
+    JOIN plans p ON p.id = ts.plan_id
+    WHERE ts.tenant_id = ${tenantId}
+      AND ts.status IN ('trialing','active','past_due')
+      AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
     LIMIT 1
   `);
   if (!result.rows[0]) throw new TenantSubscriptionRequiredError();
   if (!(PLAN_ENTITLEMENT_KEYS as readonly string[]).includes(key)) throw new TenantEntitlementConfigError(key);
+  if (result.rows[0].entitlementBlocked === true) throw new TenantEntitlementConfigError(key);
   let entitlements: TenantEntitlements;
   try {
     entitlements = normalizePlanEntitlements(result.rows[0].entitlements);
   } catch (err) {
-    // normalizePlanEntitlements throws a generic Error for malformed plan data.
-    // Log the raw error for internal diagnostics and convert it to a typed
-    // TenantEntitlementConfigError so callers produce a sanitized response.
     logError("entitlements.plan_malformed", {
       tenantId,
       key,
@@ -156,26 +161,22 @@ export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: str
   return value;
 }
 
+
 export async function getTenantEntitlements(tx: EntitlementTx, tenantId: string): Promise<TenantEntitlements> {
   const result = await tx.execute(sql`
-    SELECT p.entitlements
+    SELECT p.entitlements, ts.entitlement_blocked AS "entitlementBlocked"
     FROM tenant_subscriptions ts
     JOIN plans p ON p.id = ts.plan_id
     WHERE ts.tenant_id = ${tenantId}
       AND ts.status IN ('trialing','active','past_due')
-      AND (
-        ts.status = 'past_due'
-        OR ts.current_period_end IS NULL
-        OR ts.current_period_end > now()
-      )
+      AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
     LIMIT 1
   `);
   if (!result.rows[0]) throw new TenantSubscriptionRequiredError();
+  if (result.rows[0].entitlementBlocked === true) throw new TenantEntitlementConfigError("plan_entitlements");
   try {
     return normalizePlanEntitlements(result.rows[0].entitlements);
   } catch (err) {
-    // Same as getTenantEntitlementLimit: log raw error and convert to typed error
-    // so callers never surface raw internal details in a 500 response.
     logError("entitlements.plan_malformed", {
       tenantId,
       key: "plan_entitlements",
@@ -184,6 +185,7 @@ export async function getTenantEntitlements(tx: EntitlementTx, tenantId: string)
     throw new TenantEntitlementConfigError("plan_entitlements");
   }
 }
+
 
 /**
  * Convert a limit/entitlement failure into the serializable signal the upgrade
@@ -231,7 +233,7 @@ export function entitlementLimitSignal(error: unknown): EntitlementLimitSignal |
 }
 
 export async function enforceTenantResourceEntitlement(tx: EntitlementTx, tenantId: string, key: string, currentCountSql: SQL): Promise<void> {
-  const limit = await getTenantEntitlementLimit(tx, tenantId, key);
+  const limit = await getTenantEntitlementLimit(tx, tenantId, key, true);
   if (limit === null) return;
   const result = await tx.execute(currentCountSql);
   const count = Number(result.rows[0]?.count ?? 0);
@@ -242,6 +244,7 @@ type TenantPrintQuotaRow = {
   entitlements: unknown;
   periodStart: Date | string;
   periodEnd: Date | string | null;
+  entitlementBlocked?: boolean;
 };
 
 function parseEntitlementDate(value: Date | string | null): Date | null {
@@ -256,17 +259,17 @@ function parseEntitlementDate(value: Date | string | null): Date | null {
 async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string, lockRows = false): Promise<{ limit: number | "unlimited"; periodStart: Date; periodEnd: Date | null }> {
   const result = lockRows
     ? await tx.execute(sql`
-        SELECT p.entitlements, ts.current_period_start AS "periodStart", ts.current_period_end AS "periodEnd"
+        SELECT p.entitlements, ts.current_period_start AS "periodStart", ts.current_period_end AS "periodEnd", ts.entitlement_blocked AS "entitlementBlocked"
         FROM tenant_subscriptions ts
         JOIN plans p ON p.id = ts.plan_id
         WHERE ts.tenant_id = ${tenantId}
           AND ts.status IN ('trialing','active','past_due')
           AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
         LIMIT 1
-        FOR UPDATE OF ts, p
+        FOR UPDATE OF ts
       `)
     : await tx.execute(sql`
-        SELECT p.entitlements, ts.current_period_start AS "periodStart", ts.current_period_end AS "periodEnd"
+        SELECT p.entitlements, ts.current_period_start AS "periodStart", ts.current_period_end AS "periodEnd", ts.entitlement_blocked AS "entitlementBlocked"
         FROM tenant_subscriptions ts
         JOIN plans p ON p.id = ts.plan_id
         WHERE ts.tenant_id = ${tenantId}
@@ -276,6 +279,7 @@ async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string, l
       `);
   const row = result.rows[0] as TenantPrintQuotaRow | undefined;
   if (!row) throw new TenantSubscriptionRequiredError();
+  if (row.entitlementBlocked === true) throw new TenantEntitlementConfigError(PRINT_QUOTA_ENTITLEMENT);
   let entitlements: TenantEntitlements;
   try {
     entitlements = normalizePlanEntitlements(row.entitlements);
@@ -334,7 +338,7 @@ export async function getTenantPrintUsage(tx: EntitlementTx, tenantId: string): 
   return { limit: context.limit, used, remaining: context.limit === "unlimited" ? "unlimited" : Math.max(0, Number(context.limit) - used), periodStart: context.periodStart, periodEnd: context.periodEnd };
 }
 export async function enforceTenantJobEntitlements(tx: EntitlementTx, tenantId: string): Promise<void> {
-  const minuteLimit = await getTenantEntitlementLimit(tx, tenantId, "max_jobs_per_minute");
+  const minuteLimit = await getTenantEntitlementLimit(tx, tenantId, "max_jobs_per_minute", true);
   if (minuteLimit !== null) {
     const recent = await tx.execute(sql`
       SELECT COUNT(*)::int AS count
@@ -346,7 +350,7 @@ export async function enforceTenantJobEntitlements(tx: EntitlementTx, tenantId: 
     if (count >= minuteLimit) throw new TenantEntitlementError("max_jobs_per_minute", minuteLimit, count);
   }
 
-  const concurrentLimit = await getTenantEntitlementLimit(tx, tenantId, "max_concurrent_jobs");
+  const concurrentLimit = await getTenantEntitlementLimit(tx, tenantId, "max_concurrent_jobs", true);
   if (concurrentLimit !== null) {
     const current = await tx.execute(sql`
       SELECT COUNT(*)::int AS count

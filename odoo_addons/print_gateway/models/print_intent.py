@@ -324,11 +324,6 @@ class PrintGatewayIntent(models.Model):
     @api.private
     def cron_recover_pending_intents(self):
         """Recover stranded or crashed print intents across worker/server restarts."""
-        # Recovery claims intents with raw SQL and dispatches them through
-        # the elevated service boundary; it is reserved for the scheduled
-        # action runner (administrator). An interactive RPC caller must not
-        # be able to trigger a dispatch wave outside the operator paths,
-        # which all enforce the outbox write ACL.
         if not self.env.user.has_group("base.group_system"):
             raise AccessError(_("Only scheduled actions (administrator) may run this method."))
         now = db_now_utc(self.env.cr)
@@ -342,14 +337,17 @@ class PrintGatewayIntent(models.Model):
             "&", ("status", "=", "failed"), "|", ("next_retry_at", "=", False), ("next_retry_at", "<=", now),
         ], order="id asc", limit=50)
 
+        cron = self.env["ir.cron"]
+        remaining_time = cron._commit_progress(remaining=len(candidates))
         recovered_count = 0
         for candidate in candidates:
-            if candidate.attempts >= candidate.max_attempts:
-                continue
-            claim_token = self._claim_intent(self.env, candidate.id)
-            if not claim_token:
-                continue
-            self._execute_dispatched_route(self.env, candidate.id, candidate.res_model, candidate.res_id, claim_token)
-            recovered_count += 1
-
+            if remaining_time <= 0:
+                break
+            if candidate.attempts < candidate.max_attempts:
+                claim_token = self._claim_intent(self.env, candidate.id)
+                if claim_token:
+                    self._execute_dispatched_route(self.env, candidate.id, candidate.res_model, candidate.res_id, claim_token)
+                    recovered_count += 1
+            remaining_time = cron._commit_progress(1)
         return recovered_count
+

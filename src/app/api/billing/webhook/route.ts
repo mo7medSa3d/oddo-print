@@ -312,6 +312,8 @@ export async function POST(req: Request) {
                  current_period_end AS "currentPeriodEnd",
                  cancel_at_period_end AS "cancelAtPeriodEnd",
                  plan_id AS "planId",
+                 entitlement_blocked AS "entitlementBlocked",
+                 entitlement_blocked_reason AS "entitlementBlockedReason",
                  stripe_last_event_created_at AS "stripeLastEventCreatedAt"
           FROM tenant_subscriptions
           WHERE tenant_id = ${tenantId}
@@ -329,9 +331,13 @@ export async function POST(req: Request) {
           currentPeriodEnd?: Date | string | null;
           cancelAtPeriodEnd?: boolean;
           planId?: string;
+          entitlementBlocked?: boolean;
+          entitlementBlockedReason?: string | null;
           stripeLastEventCreatedAt?: Date | string | null;
         } | undefined;
         const plan = priceId ? await tx.query.plans.findFirst({ where: eq(plans.stripePriceId, priceId), columns: { id: true } }) : undefined;
+        const priceMappingAuthoritative = eventType === "customer.subscription.created" || eventType === "customer.subscription.updated";
+        const entitlementBlocked = priceMappingAuthoritative ? !plan : tenantRow?.entitlementBlocked === true;
         if (tenantRow && tenantId) {
           const differentSubscription = Boolean(
             tenantRow.stripeSubscriptionId && tenantRow.stripeSubscriptionId !== subId
@@ -372,6 +378,10 @@ export async function POST(req: Request) {
               currentPeriodEnd: typeof stateObj.current_period_end === "number" ? new Date(stateObj.current_period_end * 1000) : parseDbTime(tenantRow.currentPeriodEnd),
               cancelAtPeriodEnd: stateObj.cancel_at_period_end === true,
               planId: plan?.id ?? tenantRow.planId,
+              entitlementBlocked,
+              entitlementBlockedReason: priceMappingAuthoritative && entitlementBlocked
+                ? `stripe_price_unmapped:${priceId || "missing"}`
+                : (priceMappingAuthoritative ? null : tenantRow.entitlementBlockedReason),
               ...(nextStatus === "cancelled" || nextStatus === "incomplete_expired"
                 ? {
                     checkoutStatus: "none" as const,
