@@ -273,7 +273,7 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
           lifecycle,
           managementSource: "manager",
           desiredRevision: sql<number>`${printers.desiredRevision} + 1`,
-          updatedAt: new Date(),
+          updatedAt: sql`now()`,
         })
         .where(and(eq(printers.id, id), eq(printers.tenantId, manager.tenantId), eq(printers.lifecycle, current)))
         .returning({ id: printers.id, lifecycle: printers.lifecycle, desiredRevision: printers.desiredRevision });
