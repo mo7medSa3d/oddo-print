@@ -14,6 +14,8 @@ from psycopg2 import IntegrityError
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, ValidationError
 
+from ..runtime_clock import db_now_utc
+
 
 _logger = logging.getLogger(__name__)
 
