@@ -111,10 +111,14 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
                 raise ValidationError(_("The selected Odoo Company is not available to the current user."))
             if record.company_id.parent_id:
                 raise ValidationError(_("Odoo Company must be a parent Company, not a Branch."))
+            # A root company is a company-wide scope, not a branch scope.
+            # Reject it explicitly because form domains are not an API security boundary.
+            if record.branch_id and record.branch_id == record.company_id:
+                raise ValidationError(_("Odoo Branch must be a child Branch, not the selected root Company."))
             # Standalone organizations without child branches leave branch
             # empty (company-wide assignment). Only a DISTINCT, set branch
             # must belong to the selected company.
-            if record.branch_id and record.branch_id != record.company_id:
+            if record.branch_id:
                 if record.branch_id not in self.env.user.company_ids:
                     raise ValidationError(_("The selected Odoo Branch is not available to the current user."))
                 if not record.branch_id.parent_id or record.branch_id.parent_id != record.company_id:

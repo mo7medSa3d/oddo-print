@@ -122,7 +122,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (parsed.data.deviceClass !== undefined) update.deviceClass = parsed.data.deviceClass;
     if (parsed.data.connectionType !== undefined || connectionType !== existing.connectionType) update.connectionType = connectionType;
     if (parsed.data.protocol !== undefined || protocol !== existing.protocol) update.protocol = protocol;
-    if (parsed.data.config !== undefined) update.config = parsed.data.config;
+    if (parsed.data.config !== undefined) update.config = cfg;
     if (parsed.data.lifecycle !== undefined) update.lifecycle = parsed.data.lifecycle;
 
     const setValues = desiredStateChanged

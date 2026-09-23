@@ -36,6 +36,9 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             if not branch or branch not in env.companies:
                 raise Forbidden("Access Denied: The selected Odoo Branch is not available to the current user.")
 
+        if branch and company and branch == company:
+            raise ValidationError("Odoo Branch must be a child Branch, not the selected root Company.")
+
         if company.parent_id:
             # Tolerate branch-scoped callers (e.g. a branch cashier whose
             # active company is the branch itself): lift to the parent

@@ -81,6 +81,35 @@ class TestBranchRuntimeBinding(TransactionCase):
             self._ensure_assignment(vals["runtime_agent_id"], branch=branch)
         return vals
 
+    def test_root_company_cannot_be_used_as_branch(self):
+        model = self.env["print_gateway.runtime_agent_assignment"]
+        with self.assertRaises(ValidationError):
+            model.create({
+                "company_id": self.company.id,
+                "branch_id": self.company.id,
+                "runtime_agent_id": "agent-root-as-branch",
+                "enabled": True,
+            })
+
+    def test_binding_cannot_use_root_company_as_branch(self):
+        with self.assertRaises(ValidationError):
+            self.env["print_gateway.binding"].create(self._values(
+                branch_id=self.company.id,
+                runtime_agent_id=False,
+                printer_id="printer-a",
+                priority=95,
+            ))
+
+    def test_controller_rejects_root_company_as_branch(self):
+        from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
+        controller = PrintGatewayRuntimePrinterController()
+        with self.assertRaises(ValidationError):
+            controller._scope(
+                company_id=self.company.id,
+                branch_id=self.company.id,
+                env=self.env,
+            )
+
     def test_non_root_company_is_rejected(self):
         record = self.env["print_gateway.binding"].new({
             "company_id": self.branch.id,

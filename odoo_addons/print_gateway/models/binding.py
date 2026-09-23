@@ -300,6 +300,8 @@ class PrintGatewayBinding(models.Model):
     @api.constrains("company_id", "branch_id")
     def _check_company_hierarchy(self):
         for record in self:
+            if record.branch_id and record.branch_id == record.company_id:
+                raise ValidationError(_("Odoo Branch must be a child Branch, not the selected root Company."))
             if record.company_id.parent_id:
                 raise ValidationError(_("Odoo Company must be a root Company, not a Branch."))
             if record.branch_id and record.branch_id.parent_id != record.company_id:
