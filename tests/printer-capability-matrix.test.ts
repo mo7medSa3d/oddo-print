@@ -50,6 +50,15 @@ describe("printer-capability-matrix", () => {
     expect(result.freshness.fresh).toBe(false);
   });
 
+  it("future-dated observations are not fresh or ONLINE", () => {
+    const now = new Date("2026-09-24T00:00:00.000Z");
+    const futureLastSeen = new Date(now.getTime() + 30_000);
+    const result = normalizePrinterStatus("online", { lastSeenAt: futureLastSeen, now });
+    expect(result.status).toBe("UNKNOWN");
+    expect(result.freshness.fresh).toBe(false);
+    expect(result.freshness.ageMs).toBe(-30_000);
+  });
+
   it("no lastSeen returns UNKNOWN", () => {
     const result = normalizePrinterStatus("online", { lastSeenAt: null });
     expect(result.status).toBe("UNKNOWN");
