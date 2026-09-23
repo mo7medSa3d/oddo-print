@@ -193,10 +193,10 @@ def test_tauri_manager_login_token_stays_inside_rust():
 def test_odoo_activation_can_always_disable_but_enable_is_subscription_gated():
     route = read("src/app/api/odoo/configuration/route.ts")
     assert "if (enabled) {" in route
-    assert "An active subscription is required to enable Gateway printing" in route
-    gate = route[route.index("if (enabled) {"):route.index("const updated = await db.transaction")]
-    assert "if (enabled)" in gate
-    assert "enabled" in gate
+    assert "await requireTenantBillingAccess(tx, apiKey.tenantId);" in route
+    assert 'code: error.code' in route
+    assert 'status: 403' in route
+    assert 'const updated = await db.transaction(async (tx) =>' in route
 
 
 def test_settings_does_not_duplicate_first_class_operational_pages():
