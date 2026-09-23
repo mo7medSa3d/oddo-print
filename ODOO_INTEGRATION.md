@@ -36,7 +36,7 @@ Odoo 19 ────────────────────────
 | `print_gateway.runtime_agent_assignment` | Branch → Agent mapping |
 | `print_gateway.crypto` | Cryptographic utilities |
 
-## Report Interception (3 Layers)
+## Report Interception (2 Layers)
 
 ### Layer 1: ORM Level (`ir_actions_report.py`)
 Overrides `report_action()` to intercept `ir.actions.report` execution. If a binding exists, the report is dispatched to the Gateway and a notification is shown instead of opening a PDF.
@@ -44,7 +44,7 @@ Overrides `report_action()` to intercept `ir.actions.report` execution. If a bin
 ### Layer 2: Client-Side JS (`report_interceptor.js`)
 Uses the supported Odoo 19 client-side report action interception path to stop the native PDF download flow when Gateway printing is selected.
 
-The former `report_download_override.py` HTTP controller is intentionally absent; Odoo's native report controller remains untouched.
+Odoo's native `/report/download` HTTP controller remains untouched.
 
 **Fail-Closed Policy**: If a binding exists but dispatch fails, the native PDF download is cancelled. The operator sees an error notification with a link to the Print Jobs list.
 
