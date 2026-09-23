@@ -131,7 +131,7 @@ export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: str
       AND ts.status IN ('trialing','active','past_due')
       AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
     LIMIT 1
-    FOR UPDATE OF ts, p
+    FOR UPDATE OF ts
   `)
     : await tx.execute(sql`
     SELECT p.entitlements, ts.entitlement_blocked AS "entitlementBlocked"
@@ -266,7 +266,7 @@ async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string, l
           AND ts.status IN ('trialing','active','past_due')
           AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
         LIMIT 1
-        FOR UPDATE OF ts, p
+        FOR UPDATE OF ts
       `)
     : await tx.execute(sql`
         SELECT p.entitlements, ts.current_period_start AS "periodStart", ts.current_period_end AS "periodEnd", ts.entitlement_blocked AS "entitlementBlocked"
