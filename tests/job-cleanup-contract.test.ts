@@ -76,6 +76,6 @@ describe("print-job cleanup contract", () => {
 
   it("keeps print-job TTL validation on the database clock", async () => {
     const src = await import("node:fs").then(fs => fs.readFileSync("src/lib/print-job-service.ts", "utf8"));
-    expect(src).toContain("EXTRACT(EPOCH FROM clock_timestamp()) * 1000");
-    expect(src).toContain("clock_timestamp() + interval '1 hour'");
+    expect(src).toContain("SELECT clock_timestamp() AS now");
+    expect(src).toContain("const effectiveExpiresAt = expiresAt ?? new Date(dbNow.getTime() + 60 * 60 * 1000);");
   });
