@@ -27,6 +27,9 @@ class PrintGatewayJob(models.Model):
 
     company_id = fields.Many2one("res.company", required=True, ondelete="restrict", index=True)
     gateway_config_id = fields.Many2one("print_gateway.gateway_config", required=True, ondelete="restrict", index=True)
+    submit_claim_token = fields.Char(string="Submission Claim Token", index=True, copy=False, readonly=True)
+    submit_claimed_at = fields.Datetime(string="Submission Claimed At", index=True, copy=False, readonly=True)
+
     gateway_job_id = fields.Char(string="Gateway Job ID", index=True, copy=False, readonly=True)
     printer_id = fields.Char(string="Printer", required=True, index=True, readonly=True)
     destination = fields.Char(required=True, readonly=True)
@@ -456,24 +459,146 @@ class PrintGatewayJob(models.Model):
                 return existing
             raise
 
-    def _persist_state(self, values):
-        # Status/audit persistence for the submit path: runs elevated because
-        # the submitter may be a normal print operator (see create_operation's
-        # service-boundary note); the submitter's authorization was already
-        # established when the durable job was created.
+    def _claim_submission_lease(self, job):
+        """Claim a committed outbox row without holding a DB lock over HTTP."""
+        token = uuid.uuid4().hex
+        cr = self.env.registry.cursor()
+        claimed = False
+        try:
+            cr.execute("SET LOCAL lock_timeout = '5s'")
+            now = db_now_utc(cr)
+            stale_before = now - datetime.timedelta(seconds=120)
+            cr.execute(
+                """
+                UPDATE print_gateway_print_job
+                   SET submit_claim_token = %s,
+                       submit_claimed_at = %s
+                 WHERE id = %s
+                   AND gateway_job_id IS NULL
+                   AND status NOT IN ('success', 'failed', 'partial', 'unknown')
+                   AND (
+                       submit_claim_token IS NULL
+                       OR submit_claimed_at IS NULL
+                       OR submit_claimed_at < %s
+                   )
+                RETURNING id
+                """,
+                (token, now, job.id, stale_before),
+            )
+            claimed = bool(cr.fetchone())
+            if claimed:
+                cr.commit()
+            else:
+                cr.rollback()
+        finally:
+            cr.close()
+        if claimed:
+            job.invalidate_recordset(["submit_claim_token", "submit_claimed_at"])
+            return token
+        return False
+
+    def _persist_state(self, values, *, claim_token=None, release_claim=True):
         self.ensure_one()
         cr = self.env.registry.cursor()
         try:
-            # Cross-cursor deadlock guard. The interactive submit path opens
-            # this second cursor while the caller's own transaction (cursor
-            # C1) may still be open; if C1 ever holds an uncommitted lock on
-            # this row, this UPDATE must fail loudly instead of hanging a
-            # worker forever (deadlocks in this topology are invisible to
-            # PostgreSQL, which only sees the C2->C1 wait edge).
             cr.execute("SET LOCAL lock_timeout = '5s'")
+            if claim_token:
+                cr.execute(
+                    """
+                    SELECT submit_claim_token
+                      FROM print_gateway_print_job
+                     WHERE id = %s
+                     FOR UPDATE
+                    """,
+                    (self.id,),
+                )
+                row = cr.fetchone()
+                if not row or row[0] != claim_token:
+                    cr.rollback()
+                    return False
             env = api.Environment(cr, self.env.uid, dict(self.env.context))
-            env["print_gateway.print_job"].sudo().browse(self.id).write(values)
+            write_values = dict(values)
+            if claim_token and release_claim:
+                write_values.update({
+                    "submit_claim_token": False,
+                    "submit_claimed_at": False,
+                })
+            env["print_gateway.print_job"].sudo().browse(self.id).write(write_values)
             cr.commit()
+            self.invalidate_recordset([
+                "status", "gateway_job_id", "attempts", "last_error",
+                "next_retry_at", "completed_at", "printer_id", "destination",
+                "submit_claim_token", "submit_claimed_at",
+            ])
+            return True
+        finally:
+            cr.close()
+
+    def _advance_status_claimed(self, job, target, values, claim_token):
+        """Advance a claimed job through the canonical status chain."""
+        job.ensure_one()
+        if target not in self._FORWARD_CHAIN and target not in ("failed", "unknown"):
+            raise ValidationError(
+                _("Invalid print job state transition from '%s' to '%s'.")
+                % (job.status, target)
+            )
+        cr = self.env.registry.cursor()
+        try:
+            cr.execute("SET LOCAL lock_timeout = '5s'")
+            cr.execute(
+                """
+                SELECT status, submit_claim_token
+                  FROM print_gateway_print_job
+                 WHERE id = %s
+                 FOR UPDATE
+                """,
+                (job.id,),
+            )
+            row = cr.fetchone()
+            if not row or row[1] != claim_token:
+                cr.rollback()
+                return False
+            env = api.Environment(cr, self.env.uid, dict(self.env.context))
+            locked_job = env["print_gateway.print_job"].sudo().browse(job.id)
+            current = locked_job.status
+            if current == target or target in ("failed", "unknown"):
+                final_values = dict(values)
+                final_values["status"] = target
+                final_values.update({
+                    "submit_claim_token": False,
+                    "submit_claimed_at": False,
+                })
+                locked_job.write(final_values)
+            else:
+                try:
+                    start = self._FORWARD_CHAIN.index(current)
+                    end = self._FORWARD_CHAIN.index(target)
+                except ValueError:
+                    raise ValidationError(
+                        _("Invalid print job state transition from '%s' to '%s'.")
+                        % (current, target)
+                    )
+                if end < start:
+                    raise ValidationError(
+                        _("Invalid print job state transition from '%s' to '%s'.")
+                        % (current, target)
+                    )
+                for hop in self._FORWARD_CHAIN[start + 1:end + 1]:
+                    hop_values = {"status": hop}
+                    if hop == target:
+                        hop_values.update({k: v for k, v in values.items() if k != "status"})
+                        hop_values.update({
+                            "submit_claim_token": False,
+                            "submit_claimed_at": False,
+                        })
+                    locked_job.write(hop_values)
+            cr.commit()
+            job.invalidate_recordset([
+                "status", "gateway_job_id", "attempts", "last_error",
+                "next_retry_at", "completed_at", "submit_claim_token",
+                "submit_claimed_at",
+            ])
+            return True
         finally:
             cr.close()
 
@@ -668,7 +793,7 @@ class PrintGatewayJob(models.Model):
             "InvalidHeader",
         )
 
-    def _record_ambiguous_submission(self, job, exc, detail, raise_on_failure=False):
+    def _record_ambiguous_submission(self, job, exc, detail, raise_on_failure=False, claim_token=None):
         """Terminalize a submission whose outcome cannot be proven.
 
         Used for post-dispatch timeouts AND for connection failures that are
@@ -682,16 +807,21 @@ class PrintGatewayJob(models.Model):
             "last_error": "UNKNOWN_SUBMISSION_OUTCOME: %s (ambiguous dispatch)" % detail,
             "next_retry_at": False,
         }
-        if raise_on_failure:
-            job._persist_state(values)
+        if claim_token:
+            persisted = job._persist_state(values, claim_token=claim_token)
+        elif raise_on_failure:
+            persisted = job._persist_state(values)
         else:
             job.write(values)
+            persisted = True
+        if not persisted:
+            return False
         job._post_source_audit(_("WARNING: Print Job #%s submission outcome is unknown on '%s'.") % (job.id, job.printer_id))
         _logger.warning("Gateway submission outcome unknown for job %s: %s", job.idempotency_key[:8], detail)
         if raise_on_failure:
             raise ValidationError(_("Gateway submission outcome is unknown; physical outcome is ambiguous. Automated retries are paused to prevent duplicate prints. Operator reprint required.")) from exc
 
-    def _handle_pre_dispatch_failure(self, job, exc, current_binding, visited_bindings, failover_count, raise_on_failure):
+    def _handle_pre_dispatch_failure(self, job, exc, current_binding, visited_bindings, failover_count, raise_on_failure, claim_token=None):
         """Retry/failover for failures PROVEN to precede any transmission.
 
         The caller must have established _is_pre_dispatch_error(exc) first.
@@ -742,21 +872,12 @@ class PrintGatewayJob(models.Model):
                     "destination": current_binding.destination_ref.display_name if current_binding.destination_ref else current_binding.name,
                     "last_error": "PRE_DISPATCH_FAILOVER: Routed to backup printer %s" % next_printer,
                 }
-                if raise_on_failure:
-                    # Same-cursor prohibition (deadlock): in the interactive
-                    # raise-on-failure path the caller transaction (C1) later
-                    # persists terminal state through _persist_state (a
-                    # dedicated cursor C2 committing immediately). Any
-                    # uncommitted C1 write to this row would block C2
-                    # forever — a worker hang PG cannot detect (it only sees
-                    # the C2->C1 wait edge). Route every raise-path write
-                    # through the dedicated cursor so C1 stays read-only.
+                if claim_token:
+                    if not job._persist_state(failover_values, claim_token=claim_token, release_claim=False):
+                        return current_binding, failover_count, "break"
+                    job.invalidate_recordset(["printer_id", "destination", "last_error"])
+                elif raise_on_failure:
                     job._persist_state(failover_values)
-                    # Reload the C2-committed row into this environment's
-                    # cache (plain SELECT, takes no row lock). Without this,
-                    # the next loop iteration's _submission_body() would
-                    # still see the pre-failover printer and retry the dead
-                    # primary instead of the backup.
                     job.invalidate_recordset(["printer_id", "destination", "last_error"])
                 else:
                     job.write(failover_values)
@@ -773,9 +894,12 @@ class PrintGatewayJob(models.Model):
             "attempts": next_attempt,
             "last_error": "CONNECTION_ERROR: %s" % str(exc)[:4000],
             "next_retry_at": next_retry,
-            "completed_at": fields.Datetime.now() if terminal else False,
+            "completed_at": db_now_utc(self.env.cr) if terminal else False,
         }
-        if raise_on_failure:
+        if claim_token:
+            if not job._persist_state(values, claim_token=claim_token):
+                return current_binding, failover_count, "break"
+        elif raise_on_failure:
             job._persist_state(values)
         else:
             job.write(values)
@@ -835,6 +959,25 @@ class PrintGatewayJob(models.Model):
             # creates a NEW operation.
             if job.status in self._TERMINAL:
                 continue
+
+            claim_token = False
+            if not self.env.context.get("_print_gateway_submission_precommit"):
+                claim_token = self._claim_submission_lease(job)
+                if not claim_token:
+                    _logger.info("Skipping Odoo print job %s; another worker owns its submission lease.", job.id)
+                    continue
+
+            def persist_submit_state(values):
+                if claim_token:
+                    return job._persist_state(values, claim_token=claim_token)
+                persist_submit_state(values)
+                return True
+
+            def advance_submit_status(target, values):
+                if claim_token:
+                    return self._advance_status_claimed(job, target, values, claim_token)
+                self._advance_status(job, target, values)
+                return True
 
             current_binding = job.fallback_binding_id
             visited_bindings = {job.printer_id}
@@ -897,9 +1040,9 @@ class PrintGatewayJob(models.Model):
                                 "next_retry_at": next_retry,
                             }
                             if raise_on_failure:
-                                job._persist_state(values)
+                                persist_submit_state(values)
                             else:
-                                job.write(values)
+                                persist_submit_state(values)
 
                             message_map = {
                                 "max_agents": _("Your Gateway plan has reached its Agent limit."),
@@ -929,9 +1072,9 @@ class PrintGatewayJob(models.Model):
                             "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=retry_after),
                         }
                         if raise_on_failure:
-                            job._persist_state(values)
+                            persist_submit_state(values)
                         else:
-                            job.write(values)
+                            persist_submit_state(values)
                         if raise_on_failure:
                             raise ValidationError(_("Gateway is temporarily rate-limiting print submissions. The job was safely re-queued for retry."))
                         break
@@ -954,12 +1097,12 @@ class PrintGatewayJob(models.Model):
                                 "attempts": job.attempts + 1,
                                 "last_error": terminal_error,
                                 "next_retry_at": False,
-                                "completed_at": fields.Datetime.now(),
+                                "completed_at": db_now_utc(self.env.cr),
                             }
                             if raise_on_failure:
-                                job._persist_state(values)
+                                persist_submit_state(values)
                             else:
-                                job.write(values)
+                                persist_submit_state(values)
                             _logger.warning("Gateway rejected job %s deterministically (%s): %s", job.idempotency_key[:8], response.status_code, reason[:300])
                             if raise_on_failure:
                                 raise ValidationError(_("The Gateway rejected this print job: %s") % reason[:500])
@@ -984,7 +1127,7 @@ class PrintGatewayJob(models.Model):
                             "attempts": job.attempts + 1,
                             "last_error": expired_error,
                             "next_retry_at": False,
-                            "completed_at": fields.Datetime.now(),
+                            "completed_at": db_now_utc(self.env.cr),
                         })
                         job._post_source_audit(_("Print Job #%s expired at the Gateway (%s).") % (remote_id or job.id, expired_status))
                         break
@@ -997,12 +1140,14 @@ class PrintGatewayJob(models.Model):
                     if remote_status == "failed" and remote_error:
                         values["last_error"] = str(remote_error)[:4000]
                     if remote_status in {"success", "failed", "unknown"}:
-                        values["completed_at"] = fields.Datetime.now()
+                        values["completed_at"] = db_now_utc(self.env.cr)
                     # An idempotent replay may report the job beyond
                     # 'submitted' (claimed/printing/success at the Gateway).
                     # Record it hop-by-hop through the canonical chain rather
                     # than jumping queued -> success in one privileged write.
-                    self._advance_status(job, "submitted" if remote_status == "queued" else remote_status, values)
+                    if not advance_submit_status("submitted" if remote_status == "queued" else remote_status, values):
+                        _logger.info("Submission lease lost while finalizing Odoo print job %s.", job.id)
+                        break
                     job._post_source_audit(_("Print Job #%s queued to Gateway for '%s'") % (remote_id or job.id, job.printer_id))
                     break  # Success
                 except requests.exceptions.Timeout as exc:
@@ -1023,9 +1168,9 @@ class PrintGatewayJob(models.Model):
                         "next_retry_at": False,
                     }
                     if raise_on_failure:
-                        job._persist_state(values)
+                        persist_submit_state(values)
                     else:
-                        job.write(values)
+                        persist_submit_state(values)
                     job._post_source_audit(_("WARNING: Print Job #%s timed out; physical outcome is unknown on '%s'.") % (job.id, job.printer_id))
                     _logger.warning("Gateway submission timed out; outcome is unknown for job %s", job.idempotency_key[:8])
                     if raise_on_failure:
@@ -1041,7 +1186,8 @@ class PrintGatewayJob(models.Model):
                         self._record_ambiguous_submission(
                             job, exc,
                             "connection broke after the request may have been transmitted",
-                            raise_on_failure)
+                            raise_on_failure,
+                            claim_token)
                         break
                     current_binding, failover_count, resume = self._handle_pre_dispatch_failure(
                         job, exc, current_binding, visited_bindings, failover_count, raise_on_failure)
@@ -1056,12 +1202,12 @@ class PrintGatewayJob(models.Model):
                         "attempts": next_attempt,
                         "last_error": "GATEWAY_TRANSPORT_ERROR: %s" % str(exc)[:4000],
                         "next_retry_at": False if terminal else db_now_utc(self.env.cr) + datetime.timedelta(seconds=15),
-                        "completed_at": fields.Datetime.now() if terminal else False,
+                        "completed_at": db_now_utc(self.env.cr) if terminal else False,
                     }
                     if raise_on_failure:
-                        job._persist_state(values)
+                        persist_submit_state(values)
                     else:
-                        job.write(values)
+                        persist_submit_state(values)
                     if raise_on_failure:
                         raise ValidationError(_("Gateway request failed: %s") % str(exc)[:500]) from exc
                     break
@@ -1076,12 +1222,12 @@ class PrintGatewayJob(models.Model):
                             "status": "failed", "attempts": job.attempts + 1,
                             "last_error": str(exc)[:4000],
                             "next_retry_at": False,
-                            "completed_at": fields.Datetime.now(),
+                            "completed_at": db_now_utc(self.env.cr),
                         }
                         if raise_on_failure:
-                            job._persist_state(values)
+                            persist_submit_state(values)
                         else:
-                            job.write(values)
+                            persist_submit_state(values)
                         _logger.warning("Gateway submission failed deterministically for job %s: %s", job.idempotency_key[:8], str(exc)[:300])
                         if raise_on_failure:
                             raise ValidationError(_("Gateway submission failed: %s") % str(exc)[:500]) from exc
@@ -1092,12 +1238,12 @@ class PrintGatewayJob(models.Model):
                         "status": "failed" if terminal else "queued", "attempts": next_attempt,
                         "last_error": str(exc)[:4000],
                         "next_retry_at": False if terminal else db_now_utc(self.env.cr),
-                        "completed_at": fields.Datetime.now() if terminal else False,
+                        "completed_at": db_now_utc(self.env.cr) if terminal else False,
                     }
                     if raise_on_failure:
-                        job._persist_state(values)
+                        persist_submit_state(values)
                     else:
-                        job.write(values)
+                        persist_submit_state(values)
                     if raise_on_failure:
                         raise ValidationError(_("Gateway submission failed: %s") % str(exc)[:500]) from exc
                     break
@@ -1146,7 +1292,7 @@ class PrintGatewayJob(models.Model):
             status = "unknown"
         values = {"last_error": err_msg}
         if status in self._TERMINAL:
-            values["completed_at"] = fields.Datetime.now()
+            values["completed_at"] = db_now_utc(self.env.cr)
         if status == "submitted" and job.status in ("claimed", "printing"):
             return True
         if status == "success" and job.status == "failed" and str(values.get("last_error") or "").startswith("LATE_SUCCESS:"):
@@ -1188,7 +1334,7 @@ class PrintGatewayJob(models.Model):
                         "status": "unknown",
                         "last_error": "GATEWAY_JOB_NOT_FOUND: the Gateway no longer has this job (expired or cleaned up). Physical outcome unknown - verify at the printer, then use Force Reprint if needed.",
                         "next_retry_at": False,
-                        "completed_at": fields.Datetime.now(),
+                        "completed_at": db_now_utc(self.env.cr),
                     })
                     job._post_source_audit(_("Print Job #%s is no longer known to the Gateway; outcome marked UNKNOWN for manual reconciliation.") % (job.gateway_job_id or job.id))
                     failed_count += 1
@@ -1263,7 +1409,7 @@ class PrintGatewayJob(models.Model):
                 report=job.report_id,
                 idempotency_key=uuid.uuid4().hex,
             )
-            retry.action_submit()
+            retry.with_context(_print_gateway_submission_precommit=True).action_submit()
             retried_jobs |= retry
         return {
             "type": "ir.actions.client",
@@ -1341,7 +1487,7 @@ class PrintGatewayJob(models.Model):
                 (new_count, job.id),
             )
             job.invalidate_recordset(["reprint_attempt_count"])
-            retry.action_submit()
+            retry.with_context(_print_gateway_submission_precommit=True).action_submit()
             reprinted_jobs |= retry
         return {
             "type": "ir.actions.client",
@@ -1444,7 +1590,7 @@ class PrintGatewayJob(models.Model):
                                     "status": "unknown",
                                     "last_error": "GATEWAY_JOB_NOT_FOUND: the Gateway no longer has this job (expired or cleaned up). Physical outcome unknown - verify at the printer, then use Force Reprint if needed.",
                                     "next_retry_at": False,
-                                    "completed_at": fields.Datetime.now(),
+                                    "completed_at": db_now_utc(self.env.cr),
                                 })
                                 job._post_source_audit(_("Print Job #%s is no longer known to the Gateway; outcome marked UNKNOWN for manual reconciliation.") % (job.gateway_job_id or job.id))
                             total_synced += 1
