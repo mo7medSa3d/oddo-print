@@ -162,6 +162,7 @@ export async function POST(req: Request) {
       }
 
       if (identityRows.length > 0) {
+        const identityKeys = identityRows.map((row) => row.identityKey).filter((key): key is string => Boolean(key));
         const upserted = await tx.insert(discoveredDevices)
           .values(identityRows)
           .onConflictDoUpdate({
@@ -188,10 +189,6 @@ export async function POST(req: Request) {
             },
           })
           .returning({ id: discoveredDevices.id, inserted: sql<boolean>`xmax = 0` });
-
-        // PostgreSQL's tuple metadata distinguishes INSERT (xmax=0) from the
-        // UPDATE side of ON CONFLICT, keeping the metrics truthful without a
-        // second race-prone read.
         insertedCount += upserted.filter((row) => row.inserted).length;
         updatedCount += upserted.filter((row) => !row.inserted).length;
       }
