@@ -472,14 +472,15 @@ class TestPrintGatewayRoutingContract(TransactionCase):
             job = model_env["print_gateway.print_job"].browse(job_id).exists()
             job.write({"status": "unknown", "next_retry_at": False})
 
-            with patch.object(type(job), "action_submit", autospec=True, return_value=True) as mocked_submit:
+            with patch.object(type(job), "_schedule_postcommit_submission", autospec=True) as schedule_submit:
                 job.action_force_reprint()
                 self.assertEqual(job.reprint_attempt_count, 1)
                 derived_jobs = model_env["print_gateway.print_job"].search([
                     ("idempotency_key", "=", "%s-reprint-1" % job.idempotency_key),
                 ])
                 self.assertEqual(len(derived_jobs), 1)
-                mocked_submit.assert_called_once()
+                self.assertEqual(schedule_submit.call_count, 1)
+                self.assertEqual(schedule_submit.call_args.args[1], derived_jobs.id)
         finally:
             cr.rollback()
             cr.close()
@@ -522,7 +523,7 @@ class TestPrintGatewayRoutingContract(TransactionCase):
             model_env = env["print_gateway.print_job"].with_company(company).env
             job = model_env["print_gateway.print_job"].browse(job_id).exists()
             job.write({"status": "failed", "last_error": "GATEWAY_HTTP_503"})
-            with patch.object(type(job), "action_submit", autospec=True, return_value=True) as submit:
+            with patch.object(type(job), "_schedule_postcommit_submission", autospec=True) as schedule_submit:
                 job.action_retry()
             retries = model_env["print_gateway.print_job"].search(
                 [
@@ -534,7 +535,8 @@ class TestPrintGatewayRoutingContract(TransactionCase):
             )
             self.assertEqual(len(retries), 1)
             self.assertNotEqual(retries.idempotency_key, job.idempotency_key)
-            submit.assert_called_once()
+            self.assertEqual(schedule_submit.call_count, 1)
+            self.assertEqual(schedule_submit.call_args.args[1], retries.id)
         finally:
             cr.rollback()
             cr.close()
