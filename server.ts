@@ -19,6 +19,11 @@ import { sweepStaleAgentPresence, AGENT_PRESENCE_SWEEP_INTERVAL_MS } from "./src
 const dev = process.env.NODE_ENV !== "production";
 const port = parseInt(process.env.PORT ?? "3000", 10);
 const hostname = process.env.HOSTNAME ?? "0.0.0.0";
+
+function isLoopbackBinding(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return normalized === "127.0.0.1" || normalized === "::1" || normalized === "localhost";
+}
 const JOB_SWEEP_INTERVAL_MS = 30_000;
 const HOUSEKEEPING_INTERVAL_MS = 5 * 60_000;
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
@@ -59,10 +64,12 @@ if (process.env.NODE_ENV === "production") {
     throw new Error("Refusing production startup: PLATFORM_TENANT_ID must be configured with the real platform workspace ID so the platform tenant cannot be suspended or deleted.");
   }
   assertRealSecret("GATEWAY_JWT_SECRET", runtimeSecret("GATEWAY_JWT_SECRET"), 32);
-  if (!trustProxyEnabled()) {
-    throw new Error("Refusing production startup: TRUST_PROXY=1 is required for the bundled reverse-proxy deployment. Do not expose the Gateway application port directly.");
+  if (!trustProxyEnabled() && !isLoopbackBinding(hostname)) {
+    throw new Error("Refusing production startup: TRUST_PROXY=1 is required when the Gateway binds a non-loopback interface. Do not expose the Gateway application port directly.");
   }
-  assertRealSecret("TRUST_PROXY_SECRET", runtimeSecret("TRUST_PROXY_SECRET"), 32);
+  if (trustProxyEnabled()) {
+    assertRealSecret("TRUST_PROXY_SECRET", runtimeSecret("TRUST_PROXY_SECRET"), 32);
+  }
   const appBaseUrl = runtimeSecret("APP_BASE_URL")?.trim();
   if (!appBaseUrl) {
     throw new Error("Refusing production startup: APP_BASE_URL must be configured.");
