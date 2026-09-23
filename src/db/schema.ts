@@ -465,6 +465,8 @@ export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   billingOperationType: text("billing_operation_type"),
   billingOperationIdempotencyKey: text("billing_operation_idempotency_key"),
   billingOperationSubscriptionId: text("billing_operation_subscription_id"),
+  entitlementBlocked: boolean("entitlement_blocked").notNull().default(false),
+  entitlementBlockedReason: text("entitlement_blocked_reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
