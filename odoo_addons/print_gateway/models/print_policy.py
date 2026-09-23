@@ -7,6 +7,8 @@ from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
 from odoo.tools.safe_eval import safe_eval
 
+_logger = logging.getLogger(__name__)
+
 
 EVENT_TYPES = [
     ("picking_validated", "Stock Picking Validated"),
