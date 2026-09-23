@@ -26,8 +26,8 @@ Internet → Caddy (TLS + reverse proxy) → Gateway (Node.js) → PostgreSQL 16
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `GATEWAY_JWT_SECRET` | ≥ 32 chars, random, for manager/customer session signing |
-| `TRUST_PROXY_SECRET` | ≥ 32 chars, shared with reverse proxy |
-| `APP_BASE_URL` | Public-facing Gateway URL used by email/billing callbacks |
+| `TRUST_PROXY_SECRET` | ≥ 32 chars, shared with reverse proxy; required when `TRUST_PROXY=1` |
+| `APP_BASE_URL` | Public-facing HTTPS origin used by email/billing callbacks |
 
 ### Email and Billing Providers (Optional)
 
@@ -68,6 +68,10 @@ NODE_ENV=production npm start
 ```
 
 ### 3. Configure Reverse Proxy (Caddy Example)
+
+Production startup requires `TRUST_PROXY=1`, a real `TRUST_PROXY_SECRET`, and a clean HTTPS `APP_BASE_URL`. The bundled Docker Compose keeps Gateway port 3000 private with Caddy as the public TLS entry point. Do not publish Gateway port 3000 directly to the Internet.
+
+
 
 ```caddyfile
 gateway.example.com {
@@ -110,6 +114,9 @@ The `docker-compose.yml` includes Gateway, PostgreSQL, and Caddy services. Compo
 - [ ] Stripe webhook secret is configured for billing
 - [ ] `NODE_ENV=production` is set
 - [ ] `PLATFORM_TENANT_ID` is set to the immutable platform workspace ID
+- [ ] `TRUST_PROXY=1` is enabled for the bundled reverse-proxy deployment
+- [ ] Gateway port `3000` is private/unpublished; only the TLS reverse proxy is public
+- [ ] Static security gates (CodeQL, Dependency Review, Gitleaks) are required branch checks
 
 ## Graceful Shutdown
 
