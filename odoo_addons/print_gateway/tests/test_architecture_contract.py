@@ -435,6 +435,12 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
                     "gateway_api_key": "test_api_key_branch_submit",
                     "enabled": True,
                 })
+            scope_env["print_gateway.runtime_agent_assignment"].create({
+                "company_id": scope_root.id,
+                "branch_id": scope_branch.id,
+                "runtime_agent_id": "agt-branch-submit-%s" % suffix,
+                "enabled": True,
+            })
             report = scope_env.ref("sale.action_report_saleorder", raise_if_not_found=False)
             self.assertTrue(report)
             scope_binding = scope_env["print_gateway.binding"].create({
