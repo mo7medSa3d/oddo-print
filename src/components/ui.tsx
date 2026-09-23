@@ -856,10 +856,11 @@ export function Tabs<T extends string>({
             tabIndex={selected ? 0 : -1}
             data-tab={t}
             onClick={() => onChange(t)}
-            className={`relative flex items-center gap-2 whitespace-nowrap px-4 py-2 text-[13px] font-[600] tracking-[-0.01em] transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 rounded-full ${
-              selected ? "text-ink bg-surface-2 shadow-xs" : "text-ink-3 hover:text-ink hover:bg-surface-2"
+            className={`relative flex items-center gap-2 whitespace-nowrap rounded-full border px-3.5 py-2 text-[13px] font-[600] tracking-[-0.01em] transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 ${
+              selected ? "border-edge-accent bg-brand-subtle text-brand-subtle-text shadow-xs" : "border-transparent text-ink-3 hover:border-edge hover:bg-surface-2 hover:text-ink"
             }`}
           >
+            {selected && <Check className="h-3.5 w-3.5 shrink-0 text-brand" aria-hidden="true" />}
             <span className="capitalize">{t}</span>
             {count !== undefined && (
               <span
