@@ -1011,7 +1011,6 @@ func TestPollJobsDispatchesBoundedBatch(t *testing.T) {
 	}
 }
 
-
 func TestProcessJobCancellationBeforePrintingRefusesHardware(t *testing.T) {
 	printingStarted := make(chan struct{})
 	var printingOnce sync.Once
