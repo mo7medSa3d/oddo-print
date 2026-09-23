@@ -27,7 +27,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     const rotated = await db.transaction(async (tx) => {
       const locked = await tx.execute(sql`
-        SELECT id, name, description, revoked_at
+        SELECT id, name, description, revoked_at,
+               odoo_enabled, odoo_enabled_revision, odoo_enabled_updated_at
         FROM api_keys
         WHERE id = ${id} AND tenant_id = ${manager.tenantId}
         FOR UPDATE
@@ -48,6 +49,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         name: old.name,
         description: old.description,
         hashedKey: hashed,
+        odooEnabled: old.odoo_enabled === true,
+        odooEnabledRevision: Number(old.odoo_enabled_revision ?? -1),
+        odooEnabledUpdatedAt: old.odoo_enabled_updated_at ?? null,
       });
       const rotatedAt = new Date();
       const readOnlyUntil = new Date(rotatedAt.getTime() + ODOO_KEY_ROTATION_GRACE_MS);
