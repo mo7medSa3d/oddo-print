@@ -11,8 +11,7 @@ WHERE identity_key IS NULL;
 
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS discovered_devices_tenant_agent_identity_unique
-  ON discovered_devices (tenant_id, agent_id, identity_key)
-  WHERE identity_key IS NOT NULL;
+  ON discovered_devices (tenant_id, agent_id, identity_key);
 
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS discovered_devices_tenant_agent_identity_idx
