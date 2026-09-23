@@ -214,6 +214,53 @@ class TestBranchRuntimeBinding(TransactionCase):
                 )
             remote_get.assert_not_called()
 
+    def test_runtime_agents_filters_available_agents_to_selected_branch(self):
+        second_branch = self.env["res.company"].create({"name": "Gateway Branch 2", "parent_id": self.company.id})
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": "agent-a",
+            "enabled": True,
+        })
+        assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": second_branch.id,
+            "runtime_agent_id": "agent-b",
+            "enabled": True,
+        })
+
+        from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
+        controller = PrintGatewayRuntimePrinterController()
+
+        with patch.object(controller, "_require_runtime_admin"),              patch.object(controller, "_get_config", return_value=(self.config, self.company)),              patch("odoo.addons.print_gateway.controllers.runtime_printers.requests.get", return_value=Response({"agents": self.agents})):
+            with patch.object(controller, "_scope", return_value=(self.company, self.branch)):
+                result = controller.runtime_agents(
+                    company_id=self.company.id,
+                    branch_id=self.branch.id,
+                    assignment_only=True,
+                )
+                self.assertEqual([agent["id"] for agent in result["agents"]], ["agent-a"])
+
+            with patch.object(controller, "_scope", return_value=(self.company, second_branch)):
+                result = controller.runtime_agents(
+                    company_id=self.company.id,
+                    branch_id=second_branch.id,
+                    assignment_only=True,
+                )
+                self.assertEqual([agent["id"] for agent in result["agents"]], ["agent-b"])
+
+            with patch.object(controller, "_scope", return_value=(self.company, self.branch)):
+                result = controller.runtime_agents(
+                    company_id=self.company.id,
+                    branch_id=self.branch.id,
+                    assignment_only=False,
+                )
+                self.assertEqual(
+                    [agent["id"] for agent in result["agents"]],
+                    ["agent-a", "agent-b"],
+                )
+
     def test_runtime_agent_assignment_scope_is_exact_to_selected_branch(self):
         assignment_model = self.env["print_gateway.runtime_agent_assignment"]
         branch_agent = "agent-a-%s" % self.branch.id
