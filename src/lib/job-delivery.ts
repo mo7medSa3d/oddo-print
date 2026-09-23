@@ -3,7 +3,7 @@ import { printJobs } from "../db/schema";
 import { sql } from "drizzle-orm";
 import { fencedDeliveryWrite } from "./job-fencing";
 import { STALE_CLAIM_SECONDS, MAX_DELIVERY_ATTEMPTS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "./job-maintenance";
-import { agentStaleThresholdSeconds } from "./agent-availability";
+import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./agent-availability";
 
 /**
  * Hard ceiling on live (claimed + printing, unexpired) jobs per agent.
@@ -124,6 +124,20 @@ export async function claimJobForDelivery(
         AND pr.lifecycle = 'active'
         AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
+        AND pr.last_seen_at IS NOT NULL
+        AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
+        AND EXISTS (
+          SELECT 1
+          FROM tenant_subscriptions ts
+          WHERE ts.tenant_id = p.tenant_id
+            AND ts.status IN ('trialing', 'active', 'past_due')
+            AND (
+              ts.status = 'past_due'
+              OR ts.current_period_end IS NULL
+              OR ts.current_period_end > now()
+            )
+            AND COALESCE(ts.entitlement_blocked, false) = false
+        )
         AND t.lifecycle = 'active'
     `);
     const inFlight = Number((live.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
@@ -148,7 +162,21 @@ export async function claimJobForDelivery(
         AND pr.lifecycle = 'active'
         AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
+        AND pr.last_seen_at IS NOT NULL
+        AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
         AND t.lifecycle = 'active'
+        AND EXISTS (
+          SELECT 1
+          FROM tenant_subscriptions ts
+          WHERE ts.tenant_id = p.tenant_id
+            AND ts.status IN ('trialing', 'active', 'past_due')
+            AND (
+              ts.status = 'past_due'
+              OR ts.current_period_end IS NULL
+              OR ts.current_period_end > now()
+            )
+            AND COALESCE(ts.entitlement_blocked, false) = false
+        )
       FOR UPDATE OF p, a, pr, t SKIP LOCKED
     `);
     if (locked.rows.length === 0) return null;
@@ -168,6 +196,18 @@ export async function claimJobForDelivery(
         AND agent_id = ${agentId}
         AND status = 'queued'
         AND expires_at > now()
+        AND EXISTS (
+          SELECT 1
+          FROM tenant_subscriptions ts
+          WHERE ts.tenant_id = print_jobs.tenant_id
+            AND ts.status IN ('trialing', 'active', 'past_due')
+            AND (
+              ts.status = 'past_due'
+              OR ts.current_period_end IS NULL
+              OR ts.current_period_end > now()
+            )
+            AND COALESCE(ts.entitlement_blocked, false) = false
+        )
       RETURNING ${CLAIM_RETURNING}
     `);
     return (claimed.rows[0] as ClaimedJobRow | undefined) ?? null;
