@@ -284,6 +284,8 @@ export const discoveredDevices = pgTable("discovered_devices", {
   capabilities: jsonb("capabilities").$type<Record<string, unknown>>(),
   rawMetadata: jsonb("raw_metadata").$type<Record<string, unknown>>(),
   provisionedPrinterId: text("provisioned_printer_id"),
+  // Stable per-agent discovery identity used to converge repeated scans.
+  identityKey: text("identity_key"),
   candidateStatus: text("candidate_status").notNull().default("discovered"),
   discoveredAt: timestamp("discovered_at").defaultNow().notNull(),
   lastSeenAt: timestamp("last_seen_at").defaultNow().notNull(),
