@@ -141,7 +141,6 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         # printer inventory even when the caller is a system administrator.
         allowed_agent_ids = self._assigned_runtime_agent_ids(root_company, branch)
         if selected_agent_id not in allowed_agent_ids:
-            scope_label = branch.display_name if branch else root_company.display_name
             raise Forbidden(
                 'Access Denied: The selected Gateway Agent is not assigned to this Odoo scope.'
             )
