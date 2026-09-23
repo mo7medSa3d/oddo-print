@@ -1055,7 +1055,7 @@ class PrintGatewayJob(models.Model):
                         "status": "failed" if terminal else "queued",
                         "attempts": next_attempt,
                         "last_error": "GATEWAY_TRANSPORT_ERROR: %s" % str(exc)[:4000],
-                        "next_retry_at": False if terminal else fields.Datetime.now() + datetime.timedelta(seconds=15),
+                        "next_retry_at": False if terminal else db_now_utc(self.env.cr) + datetime.timedelta(seconds=15),
                         "completed_at": fields.Datetime.now() if terminal else False,
                     }
                     if raise_on_failure:
@@ -1091,7 +1091,7 @@ class PrintGatewayJob(models.Model):
                     values = {
                         "status": "failed" if terminal else "queued", "attempts": next_attempt,
                         "last_error": str(exc)[:4000],
-                        "next_retry_at": False if terminal else fields.Datetime.now(),
+                        "next_retry_at": False if terminal else db_now_utc(self.env.cr),
                         "completed_at": fields.Datetime.now() if terminal else False,
                     }
                     if raise_on_failure:
