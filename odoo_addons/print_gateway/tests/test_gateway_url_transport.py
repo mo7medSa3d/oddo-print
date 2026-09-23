@@ -67,4 +67,4 @@ class TestPrintGatewayURLTransport(TransactionCase):
         self.assertIn(url, connection)
         self.assertIn(url, timeout)
         self.assertIn(url, generic)
-        self.assertIn("Connection refused", generic)
+        self.assertIn("unexpected transport failure", generic)
