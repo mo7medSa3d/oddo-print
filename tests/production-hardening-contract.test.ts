@@ -122,6 +122,11 @@ describe("production hardening contracts", () => {
     expect(dashboard).not.toContain("Technical confidence remains unchanged");
   });
 
+  it("does not silently discard drawer-kick transport failures", () => {
+    const agent = read("agent/internal/agent/agent.go");
+    expect(agent).toContain("peripheral_drawer_kick_failed");
+  });
+
   it("keeps tenant scoping fail-closed in manager dashboard and agent lifecycle routes", () => {
     const dashboard = read("src/app/dashboard/page.tsx");
     const lifecycle = read("src/app/api/agents/[id]/route.ts");
