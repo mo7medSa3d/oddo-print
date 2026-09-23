@@ -13,6 +13,11 @@ export async function GET(req: Request) {
   const apiKey = await validateOdooKey(req);
   if (!apiKey) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  // Billing period decisions must use the calibrated Gateway clock before
+  // evaluating currentPeriodEnd. Otherwise a cold Gateway can briefly make
+  // Odoo agent discovery disagree with the delivery boundary.
+  await refreshClockSkew();
+
   // Pairing an agent requires an active plan subscription.
   const sub = await db.query.tenantSubscriptions.findFirst({
     where: eq(tenantSubscriptions.tenantId, apiKey.tenantId),
@@ -37,7 +42,6 @@ export async function GET(req: Request) {
     .where(and(eq(agents.lifecycle, "active"), eq(agents.tenantId, apiKey.tenantId)))
     .orderBy(asc(agents.name));
 
-  await refreshClockSkew();
   const now = gatewayNow();
   const sanitized = rows.map((agent) => ({
     id: agent.id,
