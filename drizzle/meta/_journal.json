@@ -442,6 +442,13 @@
       "when": 1790100000062,
       "tag": "0062_subscription_period_start_default",
       "breakpoints": false
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1790141532356,
+      "tag": "0063_job_events_tenant_fk",
+      "breakpoints": false
     }
   ]
 }
