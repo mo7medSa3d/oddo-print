@@ -127,6 +127,20 @@ export async function GET(req: Request) {
           AND pr.lifecycle = 'active'
           AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
+        AND pr.last_seen_at IS NOT NULL
+        AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
+        AND EXISTS (
+          SELECT 1
+          FROM tenant_subscriptions ts
+          WHERE ts.tenant_id = p.tenant_id
+            AND ts.status IN ('trialing', 'active', 'past_due')
+            AND (
+              ts.status = 'past_due'
+              OR ts.current_period_end IS NULL
+              OR ts.current_period_end > now()
+            )
+            AND COALESCE(ts.entitlement_blocked, false) = false
+        )
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${MAX_CLAIM_BATCH}
@@ -150,6 +164,20 @@ export async function GET(req: Request) {
           AND pr.lifecycle = 'active'
           AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
+        AND pr.last_seen_at IS NOT NULL
+        AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
+        AND EXISTS (
+          SELECT 1
+          FROM tenant_subscriptions ts
+          WHERE ts.tenant_id = p.tenant_id
+            AND ts.status IN ('trialing', 'active', 'past_due')
+            AND (
+              ts.status = 'past_due'
+              OR ts.current_period_end IS NULL
+              OR ts.current_period_end > now()
+            )
+            AND COALESCE(ts.entitlement_blocked, false) = false
+        )
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${queuedLimit}
@@ -173,6 +201,20 @@ export async function GET(req: Request) {
           AND pr.lifecycle = 'active'
           AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
+        AND pr.last_seen_at IS NOT NULL
+        AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
+        AND EXISTS (
+          SELECT 1
+          FROM tenant_subscriptions ts
+          WHERE ts.tenant_id = p.tenant_id
+            AND ts.status IN ('trialing', 'active', 'past_due')
+            AND (
+              ts.status = 'past_due'
+              OR ts.current_period_end IS NULL
+              OR ts.current_period_end > now()
+            )
+            AND COALESCE(ts.entitlement_blocked, false) = false
+        )
           AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC
         LIMIT ${MAX_CLAIM_BATCH}
