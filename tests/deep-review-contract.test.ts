@@ -27,6 +27,31 @@ describe("deep production review contracts", () => {
     expect(source).not.toContain("const now = new Date()");
   });
 
+  it("keeps Odoo API-key lifecycle timestamps on the database clock", () => {
+    const keys = read("src/app/api/odoo/keys/route.ts");
+    const rotate = read("src/app/api/odoo/keys/[id]/rotate/route.ts");
+    expect(keys).toContain("gatewayNowMs()");
+    expect(keys).toContain("await refreshClockSkew()");
+    expect(keys).toContain("lte(apiKeys.readOnlyUntil, sql`clock_timestamp()`)");
+    expect(keys).toContain("revokedAt: sql`clock_timestamp()`");
+    expect(keys).not.toContain("revokedAt: new Date()");
+    expect(rotate).toContain("SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms");
+    expect(rotate).not.toContain("const rotatedAt = new Date();");
+  });
+
+  it("keeps billing and cleanup lifecycle timestamps on the database clock", () => {
+    const checkout = read("src/app/api/billing/checkout/route.ts");
+    const webhook = read("src/app/api/billing/webhook/route.ts");
+    const jobs = read("src/app/api/jobs/route.ts");
+    expect(checkout).not.toContain("updatedAt: new Date()");
+    expect(webhook).not.toContain("processedAt: new Date()");
+    expect(webhook).not.toContain("updatedAt: new Date()");
+    expect(webhook).toContain("processedAt: sql`clock_timestamp()`");
+    expect(webhook).toContain("updatedAt: sql`clock_timestamp()`");
+    expect(jobs).toContain("const databaseNow = await databaseNowMs()");
+    expect(jobs).not.toContain("before.getTime() > Date.now()");
+  });
+
   it("redacts claim credentials before timeline persistence and logging", () => {
     const timeline = read("src/lib/job-timeline.ts");
     const log = read("src/lib/log.ts");
