@@ -81,8 +81,8 @@ class PrintGatewayPolicy(models.Model):
     )
     binding_id = fields.Many2one(
         "print_gateway.binding", string="Target Binding", ondelete="restrict",
-        domain="['&', ('company_id', '=', company_id), '|', ('branch_id', '=', False), ('branch_id', '=', branch_id)]",
-        help="Explicit print rule for this Odoo scope. A branch may use its branch rule or the company-wide fallback.",
+        domain="[('company_id', '=', company_id), ('branch_id', '=', branch_id)]",
+        help="Optional explicit Print Rule for this exact Odoo Company and Branch scope.",
     )
     warehouse_id = fields.Many2one(
         "stock.warehouse", string="Warehouse Filter", ondelete="restrict",
