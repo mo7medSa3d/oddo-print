@@ -69,7 +69,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     try {
       await fetch("/api/auth/logout", { method: "POST", credentials: "include", cache: "no-store" });
     } finally {
-      router.replace("/login");
+      router.replace("/");
       router.refresh();
       setLoggingOut(false);
     }
