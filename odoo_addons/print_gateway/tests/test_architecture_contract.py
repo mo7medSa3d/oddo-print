@@ -229,7 +229,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("def _check_binding_scope", policy_source)
 
     def test_gateway_time_authority_has_no_local_agent_expiry_gate(self):
-        agent_source = (Path(__file__).resolve().parents[3] / "agent" / "internal" / "agent" / "agent.go").read_text(encoding="utf-8")
+        agent_source = (Path(__file__).resolve().parents[4] / "agent" / "internal" / "agent" / "agent.go").read_text(encoding="utf-8")
         self.assertNotIn("Job %s expired before agent processing. Skipping.", agent_source)
         self.assertNotIn("time.Now().UTC().After(expiresAt.UTC())", agent_source)
 
