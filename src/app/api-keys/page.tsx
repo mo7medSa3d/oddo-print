@@ -151,7 +151,7 @@ export default function ApiKeysPage() {
           <div className="mt-2 flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${enabled > 0 ? "bg-ok-solid" : "bg-ink-4"}`} />
             <span className="text-[13px] font-semibold text-ink">
-              {active === 0 ? "Not connected" : enabled === active ? "Read / write · All documents" : "Odoo integration disabled"}
+              {active === 0 ? "Not connected" : enabled === active ? "Integration read / write · All documents" : "Odoo integration disabled"}
             </span>
           </div>
         </div>
