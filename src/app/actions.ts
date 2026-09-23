@@ -58,7 +58,7 @@ export async function createAgent(name: string) {
     await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('agents:' || ${manager.tenantId}))`);
       const clock = await tx.execute(sql`SELECT clock_timestamp() + interval '10 minutes' AS expires_at`);
-      const expiresAt = clock.rows[0]?.expires_at;
+      const expiresAt = clock.rows[0]?.expires_at as Date | string | undefined;
       if (!expiresAt) throw new Error("Database clock is unavailable");
 
       await enforceTenantResourceEntitlement(
@@ -89,7 +89,7 @@ export async function createAgent(name: string) {
   }
   void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.paired", resourceType: "agent", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   revalidatePath("/dashboard");
-  return { id, pairingCode, expiresAt, expires_at: expiresAt.toISOString() };
+  return { id, pairingCode, expiresAt, expires_at: new Date(expiresAt).toISOString() };
 }
 
 export async function deleteAgent(id: string) {
