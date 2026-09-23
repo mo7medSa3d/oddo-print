@@ -38,6 +38,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         name: string;
         description: string | null;
         revoked_at: Date | string | null;
+        odoo_enabled: boolean;
+        odoo_enabled_revision: number | string;
+        odoo_enabled_updated_at: Date | string | null;
       } | undefined;
       if (!old) return { kind: "not_found" as const };
       if (old.revoked_at) return { kind: "revoked" as const };
