@@ -1088,6 +1088,7 @@ func TestProcessJobCancellationBeforePrintingRefusesHardware(t *testing.T) {
 
 func TestHeartbeatStopsWhenAgentContextIsCancelled(t *testing.T) {
 	heartbeatStarted := make(chan struct{})
+	handlerDone := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/agent/heartbeat" || r.Method != http.MethodPost {
 			http.NotFound(w, r)
@@ -1095,6 +1096,7 @@ func TestHeartbeatStopsWhenAgentContextIsCancelled(t *testing.T) {
 		}
 		close(heartbeatStarted)
 		<-r.Context().Done()
+		close(handlerDone)
 	}))
 	defer server.Close()
 
@@ -1127,5 +1129,11 @@ func TestHeartbeatStopsWhenAgentContextIsCancelled(t *testing.T) {
 	case <-done:
 	case <-time.After(1 * time.Second):
 		t.Fatal("heartbeat did not stop promptly after agent context cancellation")
+	}
+
+	select {
+	case <-handlerDone:
+	case <-time.After(1 * time.Second):
+		t.Fatal("heartbeat HTTP request context was not canceled")
 	}
 }
