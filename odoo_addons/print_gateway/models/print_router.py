@@ -111,7 +111,7 @@ class PrintGatewayRouter(models.AbstractModel):
     @api.model
     def _assert_branch_agent_assignment(self, gateway_company, branch, runtime_agent_id):
         """Fail closed unless the Agent is assigned to the current Odoo scope."""
-        if not branch or not runtime_agent_id:
+        if not runtime_agent_id:
             return
         assignment_model = self.env["print_gateway.runtime_agent_assignment"]
         if not assignment_model.is_agent_assigned(gateway_company, branch, runtime_agent_id):
