@@ -152,12 +152,6 @@ const runtimeAgentBindingField = {
     }),
 };
 
-if (!registry.category("fields").contains("gateway_runtime_agent")) {
-    registry.category("fields").add("gateway_runtime_agent", runtimeAgentField);
-}
-if (!registry.category("fields").contains("gateway_runtime_agent_picker")) {
-    registry.category("fields").add("gateway_runtime_agent_picker", runtimeAgentField);
-}
-if (!registry.category("fields").contains("gateway_runtime_agent_binding")) {
-    registry.category("fields").add("gateway_runtime_agent_binding", runtimeAgentBindingField);
-}
+registry.category("fields").add("gateway_runtime_agent", runtimeAgentField, { force: true });
+registry.category("fields").add("gateway_runtime_agent_picker", runtimeAgentField, { force: true });
+registry.category("fields").add("gateway_runtime_agent_binding", runtimeAgentBindingField, { force: true });
