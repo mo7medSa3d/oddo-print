@@ -824,6 +824,31 @@ export default function App() {
               />
             </div>
           </div>
+
+          <nav
+            className="mt-4 flex items-center gap-1 overflow-x-auto border-t border-edge/70 pt-3"
+            aria-label="Desktop navigation"
+          >
+            {nav.map((item) => {
+              const active = page === item.id;
+              const Icon = item.icon;
+              const itemClass = active
+                ? "bg-brand-subtle font-semibold text-brand"
+                : "text-ink-2 hover:bg-surface-2 hover:text-ink";
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => navigate(item.id)}
+                  aria-current={active ? "page" : undefined}
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-[9px] px-3 py-2 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 ${itemClass}`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
         </header>
 
         {isAdmin === false && adminDismissed && (
