@@ -41,8 +41,10 @@ This runs `scripts/db-migrate.ts` which applies all pending migrations from `dri
 | 0057 | 1 | API key composite index |
 | 0058 | 1 | Scope Odoo activation to the installation API key |
 | 0059 | 1 | Remove API key scope and document-type restrictions |
+| 0060–0069 | 10 | Billing, usage, time authority, key rotation, job-event hardening, and claim-id redaction |
+| 0070 | 1 | Durable discovered-device identity for per-Agent sync convergence |
 
-**Total**: 60 migrations (0000–0059)
+**Total**: 71 migrations (0000–0070)
 
 ## Migration Policy
 

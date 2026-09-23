@@ -1,6 +1,6 @@
 # Yasser Cloud Printing Platform — Architecture
 
-> **Version**: 19.0.2.4.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
+> **Version**: 19.0.2.8.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
 
 ## 1. System Overview
 
@@ -124,6 +124,9 @@ Pool → Bridge (schema-per-tenant) → Silo (DB-per-tenant) → Cells/Stamps
 
 ## 4. State Model
 
+### Discovery synchronization
+Discovered printer candidates are Gateway runtime observations owned by the Agent. Each Agent report carries a durable `identity_key`; repeated observations for the same Agent converge through the tenant+Agent+identity uniqueness boundary. Omitted devices are not automatically deleted from runtime inventory, and cancelled/failed/partial discovery sessions remain visible for reconciliation.
+
 The system uses four DISTINCT state dimensions that must NOT be collapsed:
 
 | Dimension | Values | Owner | Purpose |
@@ -174,7 +177,7 @@ claimed → queued (fenced rejection / lease timeout)
 ### PostgreSQL + Drizzle ORM
 
 **Schema**: 25 tables defined in `src/db/schema.ts`
-**Migrations**: 70 forward-only migrations (`0000`–`0069`) in `drizzle/`
+**Migrations**: 71 forward-only migrations (`0000`–`0070`) in `drizzle/`
 **Driver**: `pg` 8.23.0 with connection pool
 
 ### Key Design Patterns

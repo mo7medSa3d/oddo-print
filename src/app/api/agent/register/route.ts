@@ -10,7 +10,6 @@ import {
 } from "../../../../lib/auth-rate-limit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { z } from "zod";
-import { requireTenantBillingAccess } from "../../../../lib/entitlements";
 
 export const dynamic = "force-dynamic";
 
