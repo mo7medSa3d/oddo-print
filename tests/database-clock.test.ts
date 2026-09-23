@@ -180,6 +180,17 @@ describe("clock authority is enforced in the source", () => {
     expect(tx).not.toContain("Math.floor(Date.now() / 1000)");
   });
 
+  it("writes auth consumption and lifecycle metadata on PostgreSQL time", () => {
+    const selection = read("src/app/api/auth/select-tenant/route.ts");
+    const actions = read("src/app/actions.ts");
+    const manager = read("src/lib/manager-auth.ts");
+
+    expect(selection).toContain("windowStartedAt: sql`now()`");
+    expect(selection).toContain("updatedAt: sql`now()`");
+    expect(actions).toContain("updatedAt: sql`now()`");
+    expect(manager).toContain("updatedAt: sql`now()`");
+  });
+
   it("keeps authentication token TTLs on PostgreSQL time", () => {
     const platform = read("src/lib/platform-auth.ts");
     const selection = read("src/lib/customer-auth.ts");
