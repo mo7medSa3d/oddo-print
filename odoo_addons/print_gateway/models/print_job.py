@@ -489,28 +489,32 @@ class PrintGatewayJob(models.Model):
             claimed = bool(row)
             if claimed:
                 cr.commit()
-            else:
-                # A freshly-created job can be visible only to the caller's
-                # transaction. The dedicated lease cursor cannot see it
-                # without committing the caller's business transaction, so
-                # fall back to the original same-transaction submit path.
-                cr.rollback()
+                return token
+
+            # This query uses the same dedicated cursor/transaction as the
+            # claim attempt. READ COMMITTED gives it a fresh snapshot, so a
+            # committed row that already exists but is owned by another
+            # worker is distinguishable from a row that exists only in the
+            # caller's still-uncommitted transaction.
+            cr.execute(
+                """
+                SELECT id
+                  FROM print_gateway_print_job
+                 WHERE id = %s
+                """,
+                (job.id,),
+            )
+            committed_visible = bool(cr.fetchone())
+            cr.rollback()
+            if committed_visible:
+                return False
+
+            # No committed row is visible on the dedicated cursor: the row
+            # is still uncommitted in the caller's transaction. Preserve the
+            # same-transaction submission path without holding a lock.
+            return "__precommit__"
         finally:
             cr.close()
-        if claimed:
-            job.invalidate_recordset(["submit_claim_token", "submit_claimed_at"])
-            return token
-
-        # Distinguish an uncommitted insert from a committed row leased by
-        # another worker. The dedicated cursor has already closed, so no DB
-        # lock is held across the outbound HTTP request.
-        self.env.cr.execute(
-            "SELECT id FROM print_gateway_print_job WHERE id = %s",
-            (job.id,),
-        )
-        if self.env.cr.fetchone():
-            return "__precommit__"
-        return False
 
     def _persist_state(self, values, *, claim_token=None, release_claim=True):
         self.ensure_one()
