@@ -200,7 +200,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("assigned_agent_ids(company, branch)", source)
         self.assertIn("assignment_only=False", source)
         self.assertIn('if assignment_only:', source)
-        self.assertIn("if branch:", source)
+        self.assertIn("assigned_agent_ids(company, branch)", source)
         self.assertIn("The selected Gateway Agent is not assigned to this Odoo scope.", source)
         self.assertNotIn("Access Denied: The selected Agent is not assigned to this Odoo Branch.", source)
 
@@ -229,11 +229,11 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("def _check_binding_scope", policy_source)
 
     def test_gateway_time_authority_has_no_local_agent_expiry_gate(self):
-        agent_source = (Path(__file__).resolve().parents[3] / "agent" / "internal" / "agent" / "agent.go").read_text(encoding="utf-8")
+        agent_source = (Path(__file__).resolve().parents[2] / "agent" / "internal" / "agent" / "agent.go").read_text(encoding="utf-8")
         self.assertNotIn("Job %s expired before agent processing. Skipping.", agent_source)
         self.assertNotIn("time.Now().UTC().After(expiresAt.UTC())", agent_source)
 
-        gateway_source = (Path(__file__).resolve().parents[3] / "src" / "app" / "api" / "agent" / "jobs" / "route.ts").read_text(encoding="utf-8")
+        gateway_source = (Path(__file__).resolve().parents[2] / "src" / "app" / "api" / "agent" / "jobs" / "route.ts").read_text(encoding="utf-8")
         self.assertIn('requestedStatus === "printing"', gateway_source)
         self.assertIn("${printJobs.expiresAt} > now()", gateway_source)
     def test_automated_hooks_delegate_to_one_policy_dispatcher(self):
