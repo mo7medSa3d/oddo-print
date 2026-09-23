@@ -101,6 +101,17 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         # Verbose legacy labels must stay out of the simplified form.
         self.assertNotIn("Hardware Print Binding", source)
 
+    def test_automated_hooks_delegate_to_policy_dispatcher(self):
+        hooks = {
+            "stock": (MODELS / "stock_picking.py").read_text(encoding="utf-8"),
+            "invoice": (MODELS / "account_move.py").read_text(encoding="utf-8"),
+            "pos": (MODELS / "pos_order.py").read_text(encoding="utf-8"),
+        }
+        for name, source in hooks.items():
+            self.assertIn("dispatch_for_record", source, f"{name} hook must use the shared policy dispatcher")
+            self.assertNotIn("effective_target_key(", source, f"{name} hook must not duplicate policy dedup logic")
+            self.assertNotIn("create_and_route(", source, f"{name} hook must not bypass the shared policy dispatcher")
+
     def test_direct_pos_controller_is_loaded_and_runtime_printer_controller_is_loaded(self):
         pos_controller = (CONTROLLERS / "pos.py").read_text(encoding="utf-8")
         init_source = (CONTROLLERS / "__init__.py").read_text(encoding="utf-8")
