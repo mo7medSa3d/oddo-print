@@ -27,7 +27,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!session?.id) return { kind: "not_found" as const };
     if (session.status !== "running") return { kind: "already" as const, status: session.status ?? "unknown" };
     await tx.update(discoverySessions)
-      .set({ status: "cancelled", completedAt: new Date(), updatedAt: new Date() })
+      .set({ status: "cancelled", completedAt: sql`now()`, updatedAt: sql`now()` })
       .where(and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agentId), eq(discoverySessions.tenantId, claims.tenantId)));
     return { kind: "cancelled" as const };
   });
