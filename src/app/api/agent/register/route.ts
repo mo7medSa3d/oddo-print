@@ -88,8 +88,11 @@ export async function POST(req: Request) {
 
     const targetAgentId = parsed.data.agent_id || parsed.data.agentId;
     const clock = await db.execute(sql`SELECT clock_timestamp() AS now`);
-    const dbNow = clock.rows[0]?.now;
-    if (!dbNow) return NextResponse.json({ error: "Registration temporarily unavailable" }, { status: 503 });
+    const rawDbNow = clock.rows[0]?.now;
+    const dbNow = rawDbNow instanceof Date ? rawDbNow : new Date(String(rawDbNow ?? ""));
+    if (!rawDbNow || Number.isNaN(dbNow.getTime())) {
+      return NextResponse.json({ error: "Registration temporarily unavailable" }, { status: 503 });
+    }
     const conditions = [
       eq(agents.pairingCodeHash, hashedCode),
       isNotNull(agents.pairingCodeHash),
