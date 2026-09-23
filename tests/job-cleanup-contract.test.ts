@@ -73,3 +73,9 @@ describe("print-job cleanup contract", () => {
     expect(purge).toContain("--include-unknown");
   });
 });
+
+  it("keeps print-job TTL validation on the database clock", async () => {
+    const src = await import("node:fs").then(fs => fs.readFileSync("src/lib/print-job-service.ts", "utf8"));
+    expect(src).toContain("EXTRACT(EPOCH FROM clock_timestamp()) * 1000");
+    expect(src).toContain("clock_timestamp() + interval '1 hour'");
+  });
