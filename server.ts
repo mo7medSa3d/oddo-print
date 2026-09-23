@@ -77,6 +77,7 @@ if (process.env.NODE_ENV === "production") {
     parsedAppBaseUrl.protocol !== "https:" ||
     parsedAppBaseUrl.username ||
     parsedAppBaseUrl.password ||
+    parsedAppBaseUrl.pathname !== "/" ||
     parsedAppBaseUrl.search ||
     parsedAppBaseUrl.hash
   ) {
