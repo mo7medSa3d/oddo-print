@@ -392,7 +392,6 @@ func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
 	}
 }
 
-
 func TestDispatchSaturationDoesNotBlockOnRejectNetworkCall(t *testing.T) {
 	var mu sync.Mutex
 	rejectCalls := 0
@@ -540,7 +539,6 @@ func TestQueuedRejectionIsCancelledWithItsSession(t *testing.T) {
 	workerCancel()
 	ag.runtimeWG.Wait()
 }
-
 
 func TestEnqueueRejectPreservesOriginalClaimToken(t *testing.T) {
 	ag := newTestAgent(t, "p1", &fakePrinter{})
