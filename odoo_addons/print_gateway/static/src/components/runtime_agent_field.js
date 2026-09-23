@@ -46,7 +46,11 @@ export class RuntimeAgentField extends Component {
         onWillUpdateProps((nextProps) => {
             const before = this.scope(this.props);
             const after = this.scope(nextProps);
-            if (before.companyId !== after.companyId || before.branchId !== after.branchId) {
+            if (
+                before.companyId !== after.companyId ||
+                before.branchId !== after.branchId ||
+                before.assignmentOnly !== after.assignmentOnly
+            ) {
                 this.load(nextProps);
             }
         });
@@ -61,6 +65,7 @@ export class RuntimeAgentField extends Component {
         return {
             companyId: relationalId(props.record?.data?.company_id),
             branchId: relationalId(props.record?.data?.branch_id),
+            assignmentOnly: Boolean(props.assignmentOnly),
         };
     }
 
@@ -83,7 +88,7 @@ export class RuntimeAgentField extends Component {
             const result = await this.rpc("/print_gateway/runtime-agents", {
                 company_id: companyId,
                 branch_id: branchId,
-                assignment_only: Boolean(this.props.options?.assignment_only),
+                assignment_only: Boolean(props.assignmentOnly),
             });
             if (reqId !== this.currentRequestId) return;
             this.state.agents = Array.isArray(result?.agents) ? result.agents : [];
@@ -122,6 +127,16 @@ export class RuntimeAgentField extends Component {
 const runtimeAgentField = {
     component: RuntimeAgentField,
     supportedTypes: ["char"],
+    supportedOptions: [
+        {
+            label: "Restrict agents to explicit Branch assignment",
+            name: "assignment_only",
+            type: "boolean",
+        },
+    ],
+    extractProps: ({ options }) => ({
+        assignmentOnly: Boolean(options?.assignment_only),
+    }),
 };
 
 // The binding field keeps its original technical name. The picker alias is
