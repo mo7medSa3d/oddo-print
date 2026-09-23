@@ -329,7 +329,9 @@ export async function PATCH(req: Request) {
         requestId,
         metadata: { reason },
       });
-    } catch {}
+    } catch (error) {
+      logWarn("print.job.event_persist_failed", { requestId, jobId, stage: "queued", error: error instanceof Error ? error.message : "unknown" });
+    }
     return NextResponse.json({ success: true, status: "queued", physicalOutcome: "not_printed" });
   }
 
@@ -409,7 +411,9 @@ export async function PATCH(req: Request) {
   if (spoolerJobId) {
     try {
       await db.update(printJobs).set({ spoolerJobId, updatedAt: sql`now()` } as any).where(and(eq(printJobs.id, jobId), eq(printJobs.tenantId, agent.tenantId)));
-    } catch {}
+    } catch (error) {
+      logWarn("print.job.spooler_link_persist_failed", { requestId, jobId, spoolerJobId, error: error instanceof Error ? error.message : "unknown" });
+    }
   }
 
   // Record timeline event (non-blocking for main flow)

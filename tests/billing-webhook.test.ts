@@ -429,6 +429,50 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     expect(storedEvent?.processedAt).toBeInstanceOf(Date);
   });
 
+  it("5b. ignores an out-of-order snapshot-only lifecycle event for the same subscription", async () => {
+    const tenantId = `tenant_${nanoid(8)}`;
+    const planId = `plan_${nanoid(8)}`;
+    const stripePriceId = `price_${nanoid(8)}`;
+    const customerId = `cus_${nanoid(8)}`;
+    const subscriptionId = `sub_${nanoid(8)}`;
+    const newerDate = new Date("2026-06-15T12:00:00Z");
+
+    await createTenant(tenantId);
+    await createPlan(planId, "Starter Plan", stripePriceId);
+    await createSubscription(tenantId, planId, customerId, subscriptionId, "active", newerDate);
+
+    const olderTs = Math.floor(new Date("2026-06-10T12:00:00Z").getTime() / 1000);
+    const eventId = `evt_old_snapshot_${nanoid(8)}`;
+    const payload = JSON.stringify({
+      id: eventId,
+      type: "customer.subscription.paused",
+      created: olderTs,
+      data: {
+        object: {
+          id: subscriptionId,
+          customer: customerId,
+          status: "paused",
+          metadata: { tenant_id: tenantId },
+        },
+      },
+    });
+
+    // No Stripe retrieve should be needed for snapshot-only events.
+    const res = await POST(createWebhookRequest(payload, signPayload(payload)));
+
+    expect(res.status).toBe(200);
+    const sub = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, tenantId),
+    });
+    expect(sub?.status).toBe("active");
+    expect(sub?.stripeLastEventCreatedAt?.toISOString()).toBe(newerDate.toISOString());
+
+    const storedEvent = await db.query.billingEvents.findFirst({
+      where: eq(billingEvents.eventId, eventId),
+    });
+    expect(storedEvent?.processedAt).toBeInstanceOf(Date);
+  });
+
   it("6. status mapping: correctly maps Stripe subscription statuses", async () => {
     const tenantId = `tenant_${nanoid(8)}`;
     const planId = `plan_${nanoid(8)}`;

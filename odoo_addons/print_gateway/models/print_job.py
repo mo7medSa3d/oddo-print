@@ -1459,8 +1459,8 @@ class PrintGatewayJob(models.Model):
                         try:
                             job.action_sync_status()
                             total_synced += 1
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            _logger.warning("Per-job status sync failed for Gateway job %s (Odoo job %s): %s", job.gateway_job_id, job.id, exc)
 
                 # Let Odoo's scheduler commit each bounded unit of work and
                 # enforce its remaining-time budget instead of accumulating

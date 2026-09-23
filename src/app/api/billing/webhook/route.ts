@@ -346,12 +346,19 @@ export async function POST(req: Request) {
           // stripeLastEventCreatedAt comes from raw execute(): naive UTC string,
           // not Date. Normalize via parseDbTimeMs so the newer-event gate works.
           const storedStripeEventCreatedAtMs = parseDbTimeMs(tenantRow.stripeLastEventCreatedAt);
+          const isNewerThanStoredEvent =
+            storedStripeEventCreatedAtMs === null || eventCreatedAt.getTime() > storedStripeEventCreatedAtMs;
           const newerReplacementSubscription =
             differentSubscription &&
             tenantRow.status === "cancelled" &&
-            storedStripeEventCreatedAtMs !== null &&
-            eventCreatedAt.getTime() > storedStripeEventCreatedAtMs;
-          if (sameOrUnboundSubscription || newerReplacementSubscription) {
+            isNewerThanStoredEvent;
+          // Stripe does not guarantee webhook delivery order. Snapshot-only lifecycle
+          // events (paused/resumed/deleted) cannot be refreshed from the API and must
+          // therefore be fenced by the last processed event timestamp too. For
+          // created/updated events we retrieve Stripe's current object, but still use
+          // the event timestamp to prevent a stale snapshot-only event from regressing
+          // the tenant state after a newer lifecycle event has already been applied.
+          if (isNewerThanStoredEvent && (sameOrUnboundSubscription || newerReplacementSubscription)) {
             const nextStatus = typeof stateObj.status === "string" ? statusOf(stateObj.status) : tenantRow.status;
             const currentPeriodStart = typeof stateObj.current_period_start === "number"
               ? new Date(stateObj.current_period_start * 1000)

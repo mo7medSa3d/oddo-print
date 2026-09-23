@@ -9,7 +9,7 @@ import { canonicalize } from "./canonicalize";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "./job-delivery";
 
 import { enforceTenantJobEntitlements, reserveTenantPrintCredit } from "./entitlements";
-import { logInfo } from "./log";
+import { logInfo, logWarn } from "./log";
 import { recordJobEvent } from "./job-timeline";
 
 export const MAX_AGENT_QUEUED_JOBS = 256;
@@ -444,7 +444,15 @@ export async function createPrintJobForPrinter(
         printerId: result.printerId,
         requestId: options.requestId ?? undefined,
       });
-    } catch {}
+    } catch (error) {
+      // Timeline persistence is best-effort; keep enqueue availability while
+      // making the degraded audit trail observable.
+      logWarn("print.job.timeline_persist_failed", {
+        jobId: result.jobId,
+        tenantId: options.tenantId,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+    }
   }
 
   if (result.isReused) {

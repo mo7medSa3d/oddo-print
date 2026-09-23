@@ -1,4 +1,4 @@
-import { logError } from "../../../../lib/log";
+import { logError, logWarn } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { authenticateForTenant, customerSessionCookie } from "../../../../lib/customer-auth";
 import { reserveAuthAttempt, clientIpFrom, recordAuthSuccess } from "../../../../lib/auth-rate-limit";
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     if (status === 429 && pre.retryAfterSec) res.headers.set("Retry-After", String(pre.retryAfterSec));
     return res;
   }
-  await recordAuthSuccess(ip, email).catch(() => undefined);
+  await recordAuthSuccess(ip, email).catch((error) => logWarn("auth.login.rate_limit_clear_failed", { ip, error: error instanceof Error ? error.message : "unknown" }));
   if ("selectionToken" in identity && identity.multipleTenants) {
     return NextResponse.json({
       error: "Choose a workspace",

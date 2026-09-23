@@ -14,6 +14,24 @@ describe("production fixes contracts (2026-09)", () => {
     expect(read("src/app/api/print/jobs/route.ts")).not.toContain("branchId");
   });
 
+  it("invalidates execution leases on terminal failure paths without changing the deliberate expired-job grace token", () => {
+    const maintenance = read("src/lib/job-maintenance.ts");
+    const delivery = read("src/lib/job-delivery.ts");
+    // Terminal failures must not retain live execution credentials.
+    expect(maintenance).toContain("claim_token=NULL,\n      claimed_at=NULL,\n      updated_at=now()");
+    const terminalFailureUpdates = [...maintenance.matchAll(/UPDATE print_jobs SET status='failed',[\s\S]*?FROM candidates\s+WHERE print_jobs\.id = candidates\.id\s+RETURNING print_jobs\.id/g)];
+    expect(terminalFailureUpdates.length).toBeGreaterThanOrEqual(2);
+    for (const match of terminalFailureUpdates) {
+      expect(match[0]).toContain("claim_token=NULL");
+      expect(match[0]).toContain("claimed_at=NULL");
+    }
+    expect(delivery).toContain("SET status = 'failed',\n        claim_token = NULL,\n        claimed_at = NULL,");
+    // Expired jobs intentionally retain the claim token because the agent has a
+    // bounded post-expiration physical-success reconciliation window.
+    const agentJobs = read("src/app/api/agent/jobs/route.ts");
+    expect(agentJobs).toContain('if (currentStatus === "expired" && requestedStatus === "success")');
+  });
+
   it("keeps the print-job GET status response metadata-only", () => {
     const route = read("src/app/api/print/jobs/route.ts");
     const getSection = route.slice(route.indexOf("export async function GET"));

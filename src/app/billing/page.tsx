@@ -10,6 +10,7 @@ import { ArrowRight, AlertTriangle, CalendarDays, Check, CheckCircle2, CreditCar
 import Link from "next/link";
 import { StatusBadge } from "../../components/ui";
 import { getTenantPrintUsage } from "../../lib/entitlements";
+import { logWarn } from "../../lib/log";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +19,6 @@ type SubscriptionRow = typeof tenantSubscriptions.$inferSelect;
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
-
-function formatStatus(status: string) {
-  return status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function entitlementLabel(value: string) {
@@ -99,9 +96,16 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
       })
     : null;
 
-  const printUsage = sub
-    ? await getTenantPrintUsage(db, claims.tenantId).catch(() => null)
-    : null;
+  let printUsage: Awaited<ReturnType<typeof getTenantPrintUsage>> | null = null;
+  let printUsageUnavailable = false;
+  if (sub) {
+    try {
+      printUsage = await getTenantPrintUsage(db, claims.tenantId);
+    } catch (error) {
+      printUsageUnavailable = true;
+      logWarn("billing.print_usage_unavailable", { error });
+    }
+  }
 
   const availablePlans = await db
     .select({
@@ -169,6 +173,14 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
           <Notice tone="info" title="Checkout in progress">A billing operation is already running. The subscription will update when Stripe confirms it.</Notice>
         )}
       </div>
+
+      {printUsageUnavailable && (
+        <div className="mt-6">
+          <Notice tone="warn" title="Print usage temporarily unavailable">
+            Current usage could not be loaded. Billing and printing controls remain available; refresh this page to try again.
+          </Notice>
+        </div>
+      )}
 
       {selectedPlan && selectedPlan.id !== currentPlan?.id && (
         <div className="mt-6">

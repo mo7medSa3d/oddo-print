@@ -892,6 +892,7 @@ export function CopyButton({
   className?: string;
 }) {
   const [copied, setCopied] = React.useState(false);
+  const [copyFailed, setCopyFailed] = React.useState(false);
 
   return (
     <button
@@ -901,11 +902,16 @@ export function CopyButton({
       onClick={async (e) => {
         e.stopPropagation();
         try {
+          setCopyFailed(false);
           await navigator.clipboard.writeText(value);
           setCopied(true);
           onCopied?.();
           setTimeout(() => setCopied(false), 2000);
-        } catch {}
+        } catch {
+          setCopied(false);
+          setCopyFailed(true);
+          setTimeout(() => setCopyFailed(false), 2500);
+        }
       }}
       className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-edge bg-surface px-3 text-[12px] font-medium text-ink-2 transition-all duration-200 hover:border-edge-accent hover:bg-brand-subtle hover:text-brand-subtle-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 ${className}`}
     >
@@ -913,6 +919,11 @@ export function CopyButton({
         <>
           <Check className="h-3 w-3 text-ok" aria-hidden />
           <span className="text-ok">Copied</span>
+        </>
+      ) : copyFailed ? (
+        <>
+          <AlertTriangle className="h-3 w-3 text-bad" aria-hidden />
+          <span className="text-bad">Copy failed</span>
         </>
       ) : (
         <>

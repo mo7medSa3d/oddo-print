@@ -9,6 +9,7 @@ import { parsePrinterInput, validateConnectionConfig, validatePrinterTransportPr
 import { writeAuditEvent } from "../../../lib/audit";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../lib/entitlements";
 import { getEffectivePrinterStatus } from "../../../lib/agent-availability";
+import { logError } from "../../../lib/log";
 
 export const dynamic = "force-dynamic";
 const MAX_PRINTERS_LIST = 1000;
@@ -134,7 +135,8 @@ export async function POST(req: Request) {
       if (error instanceof Error && /already exists|duplicate/i.test(error.message)) return NextResponse.json({ error: "printer id already exists" }, { status: 409 });
       throw error;
     }
-  } catch {
+  } catch (error) {
+    logError("printers.register.failed", { tenantId: auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId, error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Internal server error", code: "INTERNAL_ERROR" }, { status: 500 });
   }
 }

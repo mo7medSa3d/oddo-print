@@ -100,6 +100,8 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       error=CASE WHEN expires_at <= now()
         THEN 'JOB_EXPIRED_DURING_PRINT: physical output is unknown (full, partial or none)'
         ELSE 'AGENT_EXECUTION_TIMEOUT: agent execution lease expired (physical output is unknown; manual reconciliation required)' END,
+      claim_token=NULL,
+      claimed_at=NULL,
       updated_at=now()
     FROM candidates
     WHERE print_jobs.id = candidates.id
@@ -118,7 +120,10 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       FOR UPDATE SKIP LOCKED
     )
     UPDATE print_jobs SET status='failed',
-      error='exceeded max retries after a stale claim (agent likely crashed or lost connection)', updated_at=now()
+      error='exceeded max retries after a stale claim (agent likely crashed or lost connection)',
+      claim_token=NULL,
+      claimed_at=NULL,
+      updated_at=now()
     FROM candidates
     WHERE print_jobs.id = candidates.id
     RETURNING print_jobs.id

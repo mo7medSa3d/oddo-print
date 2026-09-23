@@ -254,6 +254,8 @@ export async function releaseUndeliveredClaim(jobId: string, tenantId: string, a
   const failed = await db.execute(sql`
     UPDATE print_jobs
     SET status = 'failed',
+        claim_token = NULL,
+        claimed_at = NULL,
         updated_at = now(),
         error = ${`${reason} (giving up after ${MAX_DELIVERY_ATTEMPTS} delivery attempts)`}
     WHERE id = ${jobId}

@@ -19,8 +19,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!agent) return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   if (agent.lifecycle !== "active") return NextResponse.json({ error: `Agent is ${agent.lifecycle}` }, { status: 409 });
 
-  let body: unknown = {};
-  try { body = await req.json(); } catch {}
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
   const v = validateDiscoveryRequest(body);
   if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
 

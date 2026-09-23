@@ -62,6 +62,114 @@ def test_registration_flow_does_not_clear_auth_rate_limit():
     assert "disposable account creations" in source
 
 
+def test_manager_login_does_not_mask_identity_lookup_failures_as_invalid_credentials():
+    source = read("src/app/api/auth/manager/login/route.ts")
+    start = source.index('if (!identity && username.includes("@"))')
+    end = source.index("const legacyEnabled", start)
+    block = source[start:end]
+    assert 'logError("auth.login.user_lookup_failed"' in block
+    assert 'return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });' in block
+    # The catch must terminate this branch instead of falling through to the
+    # generic INVALID credentials response.
+    catch_start = block.index("catch")
+    catch_end = block.index("}\n", catch_start) + 2
+    assert "return NextResponse.json" in block[catch_start:catch_end]
+
+
+
+
+
+
+
+def test_platform_owner_routes_distinguish_invalid_auth_from_platform_dependency_failure():
+    routes = [p for p in Path(ROOT / "src/app/api/platform").rglob("route.ts") if "requirePlatformOwner(" in p.read_text(encoding="utf-8")]
+    assert routes
+    for route in routes:
+        source = route.read_text(encoding="utf-8")
+        assert "PlatformUnauthorizedError" in source, route
+        assert "Platform authentication temporarily unavailable" in source, route
+        assert "status: 503" in source, route
+
+def test_billing_page_surfaces_print_usage_lookup_failures():
+    source = read("src/app/billing/page.tsx")
+    assert "billing.print_usage_unavailable" in source
+    assert "printUsageUnavailable = true" in source
+    assert "Print usage temporarily unavailable" in source
+
+def test_health_metrics_do_not_turn_database_lookup_failures_into_zero_values():
+    source = read("src/lib/agent-health.ts")
+    assert "queueDataAvailable = false" in source
+    assert "printerDataAvailable = false" in source
+    assert 'status: "unknown"' in source
+    assert 'agent.health.queue_lookup_failed' in source
+    assert 'agent.health.printer_lookup_failed' in source
+
+
+def test_customer_login_rate_limit_clear_failure_is_observable():
+    source = read("src/app/api/auth/login/route.ts")
+    assert 'auth.login.rate_limit_clear_failed' in source
+    assert 'recordAuthSuccess(ip, email).catch((error)' in source
+
+def test_logout_does_not_report_success_when_session_revocation_fails():
+    for rel in (
+        "src/app/api/auth/logout/route.ts",
+        "src/app/api/auth/manager/logout/route.ts",
+    ):
+        source = read(rel)
+        assert "session_revoke_failed" in source
+        assert 'revokeFailed ? { ok: false, error: "Logout temporarily unavailable" } : { ok: true }' in source
+        assert "status: revokeFailed ? 503 : 200" in source
+        assert 'action: "session.revoked"' in source
+
+
+def test_discovery_rejects_malformed_json_instead_of_defaulting_to_empty_request():
+    source = read("src/app/api/agents/[id]/discovery/route.ts")
+    assert 'return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });' in source
+    assert 'let body: unknown = {}' not in source
+
+
+def test_certification_does_not_convert_database_errors_into_missing_or_pending_state():
+    source = read("src/app/api/printers/[id]/certify/route.ts")
+    assert "jobStateLookupFailed = true" in source
+    assert 'if (jobStateLookupFailed)' in source
+    assert 'print.certification.job_state_lookup_failed' in source
+    assert 'print.certification.agent_lookup_failed' in source
+    assert 'print.certification.capability_lookup_failed' in source
+
+def test_terminal_claim_credentials_are_cleared_without_breaking_crash_recovery():
+    gateway_maintenance = read("src/lib/job-maintenance.ts")
+    gateway_delivery = read("src/lib/job-delivery.ts")
+    go_queue = read("agent/internal/queue/queue.go")
+
+    for marker in (
+        "UNKNOWN_PARTIAL_DELIVERY: claim lease expired",
+        "AGENT_EXECUTION_TIMEOUT",
+        "exceeded max retries after a stale claim",
+    ):
+        start = gateway_maintenance.index(marker)
+        block = gateway_maintenance[max(0, start - 220): start + 220]
+        assert "claim_token=NULL" in block
+        assert "claimed_at=NULL" in block
+
+    failed_release = gateway_delivery[gateway_delivery.index("SET status = 'failed'"):gateway_delivery.index("RETURNING id", gateway_delivery.index("SET status = 'failed'"))]
+    assert "claim_token = NULL" in failed_release
+    assert "claimed_at = NULL" in failed_release
+
+    assert "status == \"success\" || status == \"failed\"" in go_queue
+    assert "claim_token = NULL" in go_queue
+    mark_start = go_queue.index("func (q *Queue) MarkInterrupted()")
+    mark_block = go_queue[mark_start:mark_start + 1800]
+    assert "SELECT id, printer_id, COALESCE(claim_token, '')" in mark_block
+
+def test_ui_dependency_failures_are_visible_instead_of_silently_disappearing():
+    dashboard = read("src/app/dashboard/dashboard-client.tsx")
+    ui = read("src/components/ui.tsx")
+    assert "billingUsageError" in dashboard
+    assert 'Print usage is temporarily unavailable' in dashboard
+    assert "setBillingUsageError(true)" in dashboard
+    assert 'setCopyFailed(true)' in ui
+    assert "Copy failed" in ui
+
 def test_registration_email_failure_is_observable_not_swallowed():
     """Regression: the verification-email send used to end in a bare ``catch {}``.
 

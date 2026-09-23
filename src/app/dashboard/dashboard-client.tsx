@@ -308,6 +308,7 @@ export default function DashboardClient({
     retryAfterSeconds?: number | null;
   } | null>(null);
   const [billingUsage, setBillingUsage] = useState<BillingUsage | null>(null);
+  const [billingUsageError, setBillingUsageError] = useState(false);
 
   const [printerViewMode, setPrinterViewMode] = useState<"grid" | "table">("grid");
   const [printerSearch, setPrinterSearch] = useState("");
@@ -389,10 +390,20 @@ export default function DashboardClient({
   const refreshBillingUsage = React.useCallback(async () => {
     try {
       const res = await fetch("/api/billing/usage", { credentials: "same-origin", cache: "no-store" });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setBillingUsageError(true);
+        return;
+      }
       const data = await res.json().catch(() => null);
-      if (data && typeof data === "object") setBillingUsage(data as BillingUsage);
-    } catch {}
+      if (!data || typeof data !== "object") {
+        setBillingUsageError(true);
+        return;
+      }
+      setBillingUsage(data as BillingUsage);
+      setBillingUsageError(false);
+    } catch {
+      setBillingUsageError(true);
+    }
   }, []);
 
   const refreshData = React.useCallback(async () => {
@@ -736,6 +747,12 @@ export default function DashboardClient({
           <button onClick={() => setMessage(null)} className="shrink-0 text-[12px] font-semibold underline opacity-80 hover:opacity-100">
             Dismiss
           </button>
+        </div>
+      )}
+
+      {billingUsageError && (
+        <div role="alert" className="rounded-[12px] border border-warn-edge bg-warn-bg px-4 py-3 text-[13px] text-warn">
+          Print usage is temporarily unavailable. Retry after the billing service recovers.
         </div>
       )}
 

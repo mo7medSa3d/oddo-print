@@ -176,8 +176,13 @@ func loadConfigForCLI(configPath string) *struct {
 	cfg  *config.Config
 	path string
 } {
-	// Ensure registry dir exists
-	_ = config.Ensure(configPath)
+	// Printer-management subcommands are independent of pairing, so they must
+	// fail closed when the protected config directory cannot be prepared.
+	// Ignoring Ensure() here previously allowed a permission/ACL failure to be
+	// misreported later as a missing or empty configuration.
+	if err := config.Ensure(configPath); err != nil {
+		log.Fatalf("Failed to prepare protected config %s: %v", configPath, err)
+	}
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config %s: %v", configPath, err)

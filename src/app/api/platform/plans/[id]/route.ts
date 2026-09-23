@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { plans } from "../../../../../db/schema";
 import { eq, sql } from "drizzle-orm";
-import { requirePlatformOwner } from "../../../../../lib/platform-auth";
+import { requirePlatformOwner, PlatformUnauthorizedError } from "../../../../../lib/platform-auth";
 import { normalizePlanEntitlements } from "../../../../../lib/entitlements";
 import { validateStripePriceBinding, StripePriceBindingError } from "../../../../../lib/stripe";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
@@ -70,7 +70,12 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   let claims;
   try { claims = await requirePlatformOwner(req); }
-  catch { return NextResponse.json({ error: "Platform Owner authentication required" }, { status: 401 }); }
+  catch (error) {
+    if (error instanceof PlatformUnauthorizedError) {
+      return NextResponse.json({ error: "Platform Owner authentication required" }, { status: 401 });
+    }
+    return NextResponse.json({ error: "Platform authentication temporarily unavailable" }, { status: 503 });
+  }
 
   const { id: rawId } = await context.params;
   let id: string;
