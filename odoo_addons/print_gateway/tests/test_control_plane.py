@@ -1711,6 +1711,31 @@ class TestControlPlane(TransactionCase):
                     idempotency_key="test_scope_%s_%s" % (company.id, binding.id),
                 )
 
+        # A root Binding is authorized by its own company-wide scope. Revoking
+        # that assignment must not be bypassed by adding a branch-only
+        # assignment for the same Agent.
+        revocable_printer = "printer-scope-revocable-root"
+        revocable_agent = "agent-scope-%s" % revocable_printer
+        self.env["print_gateway.runtime_agent_assignment"].create({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "runtime_agent_id": revocable_agent,
+            "enabled": True,
+        })
+        revocable_root_binding = _binding(self.company, False, revocable_printer)
+        self.env["print_gateway.runtime_agent_assignment"].search([
+            ("company_id", "=", self.company.id),
+            ("branch_id", "=", False),
+            ("runtime_agent_id", "=", revocable_agent),
+        ]).write({"enabled": False})
+        self.env["print_gateway.runtime_agent_assignment"].create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": revocable_agent,
+            "enabled": True,
+        })
+        with self.assertRaises(ValidationError):
+            _route(self.branch, revocable_root_binding)
         # Same branch: the binding find_for would resolve here.
         self.assertTrue(_route(self.branch, branch_binding).get("gateway_enabled"))
         # Manually supplied binding works the same as a resolved one.
