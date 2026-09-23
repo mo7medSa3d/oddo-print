@@ -449,6 +449,13 @@
       "when": 1790141532356,
       "tag": "0063_job_events_tenant_fk",
       "breakpoints": false
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1790141866457,
+      "tag": "0064_odoo_key_rotation_grace",
+      "breakpoints": false
     }
   ]
 }
