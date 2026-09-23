@@ -1921,14 +1921,9 @@ class PrintGatewayPairAgentWizard(models.TransientModel):
         string="Runtime Agent ID",
         help="Identifier of an active Agent registered with the Central Gateway.",
     )
-    pairing_code = fields.Char(
-        string="Agent Reference / ID",
-        help="Identifier or name of the Agent to assign to this branch.",
-    )
-
     def action_confirm_pairing(self):
         self.ensure_one()
-        target = (self.agent_id or self.pairing_code or "").strip()
+        target = (self.agent_id or "").strip()
         if not target:
             raise ValidationError(_("Please provide a valid Runtime Agent ID."))
         config = self.config_id
