@@ -117,7 +117,7 @@ TRUST_PROXY=1
 YASSER_HTTP_TEST_MODE=1
 HTTP_TEST_PORT=$HTTP_TEST_PORT
 APP_BASE_URL=$APP_BASE_URL
-STRIPE_PLAN_CATALOG='[{"id":"http-test","name":"HTTP Test","priceId":"price_http_test_yasser","currency":"usd","interval":"month","entitlements":{"max_agents":5,"max_printers":10,"max_jobs_per_minute":60,"max_concurrent_jobs":8}}]'
+STRIPE_PLAN_CATALOG='[{"id":"http-test","name":"HTTP Test","priceId":"price_http_test_yasser","currency":"usd","interval":"month","entitlements":{"max_agents":5,"max_printers":10,"max_jobs_per_minute":60,"max_concurrent_jobs":8,"max_prints_per_period":"unlimited"}}]'
 EOF
 chmod 600 "$ENV_FILE"
 
