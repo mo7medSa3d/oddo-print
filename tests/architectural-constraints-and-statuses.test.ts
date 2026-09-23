@@ -39,8 +39,8 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(ctrlPy).toContain("_assigned_runtime_agent_ids");
     expect(ctrlPy).toContain("assignment_only=False");
     expect(ctrlPy).toContain("if assignment_only:");
-    expect(ctrlPy).toContain("if branch:");
-    expect(ctrlPy).toContain("The selected Gateway Agent is not assigned to this Odoo Branch.");
+    expect(ctrlPy).toContain("assigned_agent_ids(company, branch)");
+    expect(ctrlPy).toContain("The selected Gateway Agent is not assigned to this Odoo scope.");
     expect(ctrlPy).toContain("'selectedAgentId': selected");
   });
 
