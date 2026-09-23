@@ -58,7 +58,7 @@ export async function createManagerSessionInTransaction(
 
 export async function revokeManagerSessionInTransaction(tx: TxRunner, jti: string): Promise<void> {
   await tx.update(managerSessions)
-    .set({ revokedAt: new Date() })
+    .set({ revokedAt: sql`now()` })
     .where(eq(managerSessions.jti, jti));
 }
 
