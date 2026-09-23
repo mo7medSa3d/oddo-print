@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
 import { and, eq, lt, sql } from "drizzle-orm";
 import { db } from "../../../../db";
-import { apiKeys, tenantSubscriptions } from "../../../../db/schema";
+import { apiKeys } from "../../../../db/schema";
 import { validateManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
 import { writeAuditEvent } from "../../../../lib/audit";
-import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../../../../lib/entitlements";
-import { refreshClockSkew } from "../../../../lib/database-clock";
+import { isTenantBillingError, requireTenantBillingAccess } from "../../../../lib/entitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -78,108 +77,109 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "revision must be a non-negative integer" }, { status: 400 });
   }
 
-  // Enabling Gateway printing creates a billable/executable runtime state and
-  // therefore requires a live subscription. Disabling must remain possible
-  // even after expiry/cancellation so Odoo can converge the replicated state
-  // to a safe OFF value.
-  if (enabled) {
-    // The gate compares a Stripe/DB period end against the calibrated Gateway clock.
-    await refreshClockSkew();
-    const sub = await db.query.tenantSubscriptions.findFirst({
-      where: eq(tenantSubscriptions.tenantId, apiKey.tenantId),
-      columns: { status: true, currentPeriodEnd: true },
+  try {
+    const updated = await db.transaction(async (tx) => {
+      // Enabling Gateway printing is a billable/executable runtime state.
+      // Keep the entitlement decision and activation mutation in the SAME
+      // transaction. requireTenantBillingAccess() locks the subscription row
+      // and therefore serializes this decision with Stripe webhook updates.
+      // Disabling remains available after subscription expiry/cancellation so
+      // Odoo can always converge the replicated state to OFF.
+      if (enabled) {
+        await requireTenantBillingAccess(tx, apiKey.tenantId);
+      }
+
+      const result = await tx.update(apiKeys)
+        .set({
+          odooEnabled: enabled,
+          odooEnabledRevision: Number(revision),
+          odooEnabledUpdatedAt: sql`clock_timestamp()`,
+        })
+        .where(and(
+          eq(apiKeys.id, apiKey.id),
+          eq(apiKeys.tenantId, apiKey.tenantId),
+          lt(apiKeys.odooEnabledRevision, Number(revision)),
+        ))
+        .returning({
+          enabled: apiKeys.odooEnabled,
+          revision: apiKeys.odooEnabledRevision,
+          updatedAt: apiKeys.odooEnabledUpdatedAt,
+        });
+
+      if (result.length) {
+        await writeAuditEvent({
+          tenantId: apiKey.tenantId,
+          actorType: "odoo",
+          actorId: apiKey.id,
+          action: "odoo.gateway_configuration.updated",
+          resourceType: "api_key",
+          resourceId: apiKey.id,
+          metadata: { enabled, revision: Number(revision) },
+        }, tx);
+      }
+      return result;
     });
-    if (!sub || !isBillingAccessStatus(sub.status) || !isSubscriptionPeriodLive(sub.currentPeriodEnd)) {
+
+    if (updated.length) {
+      return NextResponse.json({ ok: true, applied: true, ...updated[0] }, {
+        status: 200,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
+    const current = await db.query.apiKeys.findFirst({
+      where: and(eq(apiKeys.id, apiKey.id), eq(apiKeys.tenantId, apiKey.tenantId)),
+      columns: {
+        odooEnabled: true,
+        odooEnabledRevision: true,
+        odooEnabledUpdatedAt: true,
+      },
+    });
+    if (!current) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+
+    if (Number(revision) < current.odooEnabledRevision) {
+      return NextResponse.json({
+        ok: true,
+        applied: false,
+        reason: "stale_revision",
+        enabled: current.odooEnabled,
+        revision: current.odooEnabledRevision,
+        updatedAt: current.odooEnabledUpdatedAt,
+      }, {
+        status: 200,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
+    if (current.odooEnabled === enabled) {
+      return NextResponse.json({
+        ok: true,
+        applied: false,
+        reason: "already_current",
+        enabled: current.odooEnabled,
+        revision: current.odooEnabledRevision,
+        updatedAt: current.odooEnabledUpdatedAt,
+      }, {
+        status: 200,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
+    return NextResponse.json({
+      error: "Conflicting Odoo gateway activation update for the same revision",
+      current: {
+        enabled: current.odooEnabled,
+        revision: current.odooEnabledRevision,
+        updatedAt: current.odooEnabledUpdatedAt,
+      },
+    }, { status: 409 });
+  } catch (error) {
+    if (isTenantBillingError(error)) {
       return NextResponse.json(
-        { error: "An active subscription is required to enable Gateway printing. Choose a plan in Billing first.", code: "SUBSCRIPTION_REQUIRED" },
-        { status: 403 },
+        { error: error.message, code: error.code },
+        { status: 403, headers: { "Cache-Control": "no-store" } },
       );
     }
+    throw error;
   }
-
-  const updated = await db.transaction(async (tx) => {
-    const result = await tx.update(apiKeys)
-      .set({
-        odooEnabled: enabled,
-        odooEnabledRevision: Number(revision),
-        odooEnabledUpdatedAt: sql`clock_timestamp()`,
-      })
-      .where(and(
-        eq(apiKeys.id, apiKey.id),
-        eq(apiKeys.tenantId, apiKey.tenantId),
-        lt(apiKeys.odooEnabledRevision, Number(revision)),
-      ))
-      .returning({
-        enabled: apiKeys.odooEnabled,
-        revision: apiKeys.odooEnabledRevision,
-        updatedAt: apiKeys.odooEnabledUpdatedAt,
-      });
-
-    if (result.length) {
-      await writeAuditEvent({
-        tenantId: apiKey.tenantId,
-        actorType: "odoo",
-        actorId: apiKey.id,
-        action: "odoo.gateway_configuration.updated",
-        resourceType: "api_key",
-        resourceId: apiKey.id,
-        metadata: { enabled, revision: Number(revision) },
-      }, tx);
-    }
-    return result;
-  });
-
-  if (updated.length) {
-    return NextResponse.json({ ok: true, applied: true, ...updated[0] }, {
-      status: 200,
-      headers: { "Cache-Control": "no-store" },
-    });
-  }
-
-  const current = await db.query.apiKeys.findFirst({
-    where: and(eq(apiKeys.id, apiKey.id), eq(apiKeys.tenantId, apiKey.tenantId)),
-    columns: {
-      odooEnabled: true,
-      odooEnabledRevision: true,
-      odooEnabledUpdatedAt: true,
-    },
-  });
-  if (!current) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
-
-  if (Number(revision) < current.odooEnabledRevision) {
-    return NextResponse.json({
-      ok: true,
-      applied: false,
-      reason: "stale_revision",
-      enabled: current.odooEnabled,
-      revision: current.odooEnabledRevision,
-      updatedAt: current.odooEnabledUpdatedAt,
-    }, {
-      status: 200,
-      headers: { "Cache-Control": "no-store" },
-    });
-  }
-
-  if (current.odooEnabled === enabled) {
-    return NextResponse.json({
-      ok: true,
-      applied: false,
-      reason: "already_current",
-      enabled: current.odooEnabled,
-      revision: current.odooEnabledRevision,
-      updatedAt: current.odooEnabledUpdatedAt,
-    }, {
-      status: 200,
-      headers: { "Cache-Control": "no-store" },
-    });
-  }
-
-  return NextResponse.json({
-    error: "Conflicting Odoo gateway activation update for the same revision",
-    current: {
-      enabled: current.odooEnabled,
-      revision: current.odooEnabledRevision,
-      updatedAt: current.odooEnabledUpdatedAt,
-    },
-  }, { status: 409 });
 }
