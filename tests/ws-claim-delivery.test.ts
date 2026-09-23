@@ -552,6 +552,28 @@ suite("WS claim-before-delivery", () => {
     expect(await claimJobForDelivery("job_ttl", f.agentId)).toBeNull();
   });
 
+  it("claimed job cannot enter printing after authoritative TTL expiry", async () => {
+    await insertQueuedJob(f, "job_db_ttl_printing");
+    const claim = await claimJobForDelivery("job_db_ttl_printing", f.agentId);
+    expect(claim).not.toBeNull();
+
+    await pool().query(
+      "UPDATE print_jobs SET expires_at = now() - interval '1 second' WHERE id = $1",
+      ["job_db_ttl_printing"],
+    );
+
+    const response = await agentJobsPATCH(agentRequest(f, "PATCH", {
+      jobId: "job_db_ttl_printing",
+      status: "printing",
+      claimToken: claim!.claimToken,
+    }));
+    expect(response.status).toBe(409);
+
+    const row = await jobRow("job_db_ttl_printing");
+    expect(row.status).toBe("claimed");
+    expect(row.claim_token).toBe(claim!.claimToken);
+  });
+
   it("pre-execution rejection refunds the delivery budget and consumes the retry budget", async () => {
     // LAW 9: a rejected job transmitted ZERO bytes, so it must not burn the
     // physical-delivery-attempt ceiling. It DOES consume one retry (bounded).
