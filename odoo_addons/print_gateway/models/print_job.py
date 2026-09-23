@@ -1510,26 +1510,27 @@ class PrintGatewayJob(models.Model):
     def cron_submit_pending(self):
         self._require_cron_runner()
         now = db_now_utc(self.env.cr)
-        # Select a bounded batch without holding PostgreSQL row locks across
-        # outbound HTTP. Gateway idempotency makes overlapping cron workers
-        # safe: a concurrent submit of the same logical operation resolves to
-        # the same Gateway job instead of creating a second physical print.
         self.env.cr.execute("""
             SELECT id FROM print_gateway_print_job
             WHERE status = 'queued' AND (next_retry_at IS NULL OR next_retry_at <= %s)
             ORDER BY id ASC
-            LIMIT 50
+            LIMIT 25
         """, (now,))
         job_ids = [row[0] for row in self.env.cr.fetchall()]
         if not job_ids:
             return 0
-        jobs = self.browse(job_ids)
-        started = time.monotonic()
-        for job in jobs:
-            if time.monotonic() - started > 20:
+
+        cron = self.env["ir.cron"]
+        remaining_time = cron._commit_progress(remaining=len(job_ids))
+        processed = 0
+        for job in self.browse(job_ids):
+            if remaining_time <= 0:
                 break
             job.action_submit()
-        return len(jobs)
+            processed += 1
+            remaining_time = cron._commit_progress(1)
+        return processed
+
 
     @api.model
     @api.private
