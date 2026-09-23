@@ -106,7 +106,7 @@ async function insertQueuedJobAtomically({
   agentId: string;
   tenantId: string;
   validatedPayload: ReturnType<typeof validatePrintJobPayload>;
-  expiresAt: Date;
+  expiresAt?: Date;
   requestedBy: string;
   idempotencyKey?: string | null;
   destination?: string | null;
