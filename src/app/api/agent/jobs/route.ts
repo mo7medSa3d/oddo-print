@@ -395,7 +395,7 @@ export async function PATCH(req: Request) {
     })
     .where(and(
       fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
-      lateSuccess ? sql`${printJobs.updatedAt} >= now() - interval '24 hours' AND ${printJobs.updatedAt} <= now()` : sql`TRUE`,
+      lateSuccess ? sql`${printJobs.updatedAt} >= now() - interval '24 hours' AND ${printJobs.updatedAt} <= now()` : requestedStatus === "printing" ? sql`${printJobs.expiresAt} > now()` : sql`TRUE`,
     ))
     .returning({ status: printJobs.status, error: printJobs.error });
 
