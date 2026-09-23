@@ -111,7 +111,7 @@ class PrintGatewayBinding(models.Model):
     fallback_binding_id = fields.Many2one(
         "print_gateway.binding", string="Failover Backup Binding", ondelete="set null",
         check_company=True,
-        domain="['&', ('id', '!=', id), ('company_id', '=', company_id)]",
+        domain="['&', '&', ('id', '!=', id), ('company_id', '=', company_id), ('branch_id', '=', branch_id)]",
         help="Pre-dispatch failover target if the primary printer is confirmed offline before bytes are sent.",
     )
     drawer_kick_mode = fields.Selection([
@@ -153,6 +153,27 @@ class PrintGatewayBinding(models.Model):
     def _compute_effective_company_id(self):
         for record in self:
             record.effective_company_id = record.branch_id or record.company_id
+
+    @api.constrains("fallback_binding_id", "company_id", "branch_id", "destination_type", "destination_ref", "document_type")
+    def _check_fallback_binding_scope(self):
+        for record in self:
+            fallback = record.fallback_binding_id
+            if not fallback:
+                continue
+            if fallback == record:
+                raise ValidationError(_("A Print Binding cannot use itself as its failover target."))
+            if fallback.company_id != record.company_id or fallback.branch_id != record.branch_id:
+                raise ValidationError(_(
+                    "The failover binding must use the same Odoo Company and Branch as the primary binding."
+                ))
+            if fallback.destination_type != record.destination_type or fallback.destination_ref != record.destination_ref:
+                raise ValidationError(_(
+                    "The failover binding must target the same destination as the primary binding."
+                ))
+            if fallback.document_type != record.document_type:
+                raise ValidationError(_(
+                    "The failover binding must use the same document type as the primary binding."
+                ))
 
     @api.depends("destination_type", "destination_pos_config_id", "destination_pos_printer_id", "destination_picking_type_id", "destination_report_id")
     def _compute_destination_ref(self):

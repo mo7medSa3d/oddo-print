@@ -251,3 +251,19 @@ def test_plan_catalog_uses_shared_canonical_entitlement_normalizer():
     assert 'value === "unlimited"' in helper
     assert 'must be a positive integer or "unlimited"' in helper
 
+
+
+def test_failover_binding_is_same_route_scope_and_execution_rechecks_it():
+    binding = read("models/binding.py")
+    assert '("branch_id", "=", branch_id)' in binding
+    assert "def _check_fallback_binding_scope" in binding
+    assert "fallback.company_id != record.company_id or fallback.branch_id != record.branch_id" in binding
+    assert "fallback.destination_type != record.destination_type" in binding
+    assert "fallback.destination_ref != record.destination_ref" in binding
+    assert "fallback.document_type != record.document_type" in binding
+
+    job = read("models/print_job.py")
+    assert "route_compatible = bool(" in job
+    assert "current_binding.destination_ref.display_name == job.destination" in job
+    assert "current_binding.document_type == job.document_type" in job
+    assert "and route_compatible" in job

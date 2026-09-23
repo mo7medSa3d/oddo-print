@@ -856,11 +856,19 @@ class PrintGatewayJob(models.Model):
         MAX_FAILOVER_DEPTH = 3
         # Pre-dispatch failure: zero bytes transmitted. Safe failover check!
         if job.attempts == 0 and current_binding and failover_count < MAX_FAILOVER_DEPTH:
+            # Failover references live on the durable outbox row. Re-check route
+            # identity here so legacy rows or bindings created before the
+            # model constraint cannot send a job to a different destination.
             next_printer = current_binding.printer_id
             binding_company = current_binding.branch_id or current_binding.company_id
             company_compatible = (
                 binding_company == job.company_id
                 or (not current_binding.branch_id and current_binding.company_id == (job.company_id.parent_id or job.company_id))
+            )
+            route_compatible = bool(
+                current_binding.destination_ref
+                and current_binding.destination_ref.display_name == job.destination
+                and current_binding.document_type == job.document_type
             )
             # Phase 11: failover requires EXACT protocol/capability
             # parity - never a broadened match to "make failover work".
@@ -878,6 +886,7 @@ class PrintGatewayJob(models.Model):
                 and next_printer
                 and next_printer not in visited_bindings
                 and company_compatible
+                and route_compatible
                 and protocol_compatible
             ):
                 visited_bindings.add(next_printer)
