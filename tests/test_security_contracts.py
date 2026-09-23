@@ -17,6 +17,14 @@ def test_generated_odoo_api_key_responses_are_not_cacheable():
         assert "apiKey:" in source
 
 
+def test_go_service_recovery_does_not_resolve_sc_from_path():
+    source = read("agent/cmd/agent/main.go")
+    assert 'exec.LookPath("sc.exe")' not in source
+    assert 'os.Getenv("SystemRoot")' in source
+    assert '"System32", "sc.exe"' in source
+    assert 'exec.Command(sc, "failure", serviceName' in source
+
+
 def test_windows_system_utilities_are_not_path_resolved():
     source = read("src-tauri/src/agent.rs")
 
