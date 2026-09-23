@@ -172,7 +172,7 @@ describe("clock authority is enforced in the source", () => {
     const tx = read("src/lib/manager-session-tx.ts");
     expect(auth).toContain("clock_timestamp()");
     expect(auth).toContain("EXTRACT(EPOCH FROM clock_timestamp())");
-    expect(auth).toContain("SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))");
+    expect(auth).toContain("databaseNowMs");
     expect(auth).not.toContain("claims.exp * 1000 <= Date.now()");
     expect(auth).not.toContain("claims.iat * 1000 > Date.now()");
     expect(auth).not.toContain("row.expiresAt.getTime() <= Date.now()");
