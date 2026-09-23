@@ -122,6 +122,9 @@ export function isTenantBillingError(error: unknown): error is TenantSubscriptio
 }
 
 export async function requireTenantBillingAccess(tx: EntitlementTx, tenantId: string): Promise<void> {
+  // Lock the subscription row while deciding whether to grant or re-enable
+  // runtime access. Webhook updates use the same row, so billing state cannot
+  // change between this decision and the protected runtime mutation.
   const result = await tx.execute(sql`
     SELECT 1
     FROM tenant_subscriptions
@@ -130,6 +133,7 @@ export async function requireTenantBillingAccess(tx: EntitlementTx, tenantId: st
       AND (status = 'past_due' OR current_period_end IS NULL OR current_period_end > clock_timestamp())
       AND COALESCE(entitlement_blocked, false) = false
     LIMIT 1
+    FOR UPDATE
   `);
   if (result.rows.length === 0) throw new TenantSubscriptionRequiredError();
 }
