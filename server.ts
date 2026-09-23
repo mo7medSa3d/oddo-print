@@ -63,6 +63,25 @@ if (process.env.NODE_ENV === "production") {
     throw new Error("Refusing production startup: TRUST_PROXY=1 is required for the bundled reverse-proxy deployment. Do not expose the Gateway application port directly.");
   }
   assertRealSecret("TRUST_PROXY_SECRET", runtimeSecret("TRUST_PROXY_SECRET"), 32);
+  const appBaseUrl = runtimeSecret("APP_BASE_URL")?.trim();
+  if (!appBaseUrl) {
+    throw new Error("Refusing production startup: APP_BASE_URL must be configured.");
+  }
+  let parsedAppBaseUrl: URL;
+  try {
+    parsedAppBaseUrl = new URL(appBaseUrl);
+  } catch {
+    throw new Error("Refusing production startup: APP_BASE_URL must be an absolute URL.");
+  }
+  if (
+    parsedAppBaseUrl.protocol !== "https:" ||
+    parsedAppBaseUrl.username ||
+    parsedAppBaseUrl.password ||
+    parsedAppBaseUrl.search ||
+    parsedAppBaseUrl.hash
+  ) {
+    throw new Error("Refusing production startup: APP_BASE_URL must be a clean HTTPS origin.");
+  }
 }
 
 let httpServer: HttpServer | null = null;
