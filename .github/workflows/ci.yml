@@ -181,7 +181,7 @@ jobs:
                 ('print_jobs', 'FOREIGN KEY (tenant_id, agent_id) REFERENCES agents (tenant_id, id)'),
                 ('print_jobs', 'FOREIGN KEY (tenant_id, printer_id) REFERENCES printers (tenant_id, id)'),
                 ('print_jobs', 'FOREIGN KEY (tenant_id, api_key_id) REFERENCES api_keys (tenant_id, id)'),
-                ('job_events', 'FOREIGN KEY (tenant_id, job_id) REFERENCES print_jobs (tenant_id, id)')
+                ('job_events', 'FOREIGN KEY (tenant_id, job_id) REFERENCES print_jobs (tenant_id, id) ON DELETE CASCADE')
               ) AS v(child_table, expected_definition)
             LOOP
               IF NOT EXISTS (
