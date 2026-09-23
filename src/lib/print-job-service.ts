@@ -124,7 +124,9 @@ async function insertQueuedJobAtomically({
     const rawNow = clockRows[0]?.now;
     const dbNow = rawNow instanceof Date
       ? rawNow
-      : new Date(typeof rawNow === "string" ? rawNow.replace(" ", "T") + (/z$/i.test(rawNow) ? "" : "Z") : "");
+      : new Date(typeof rawNow === "string"
+        ? rawNow.trim().replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00")
+        : "");
     if (Number.isNaN(dbNow.getTime())) {
       throw new PrintJobInputError("Database clock is unavailable", "INTERNAL_ERROR", 500);
     }
