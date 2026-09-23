@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       // Revoke all platform owner sessions for this user
       await tx
         .update(platformSessions)
-        .set({ revokedAt: now })
+        .set({ revokedAt: sql`now()` })
         .where(and(eq(platformSessions.userId, row.userId), isNull(platformSessions.revokedAt)));
 
       const membership = await tx.query.tenantUsers.findFirst({
