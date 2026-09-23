@@ -280,7 +280,10 @@ class TestBranchRuntimeBinding(TransactionCase):
         from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
         controller = PrintGatewayRuntimePrinterController()
 
-        with patch.object(controller, "_require_runtime_admin"),              patch.object(controller, "_get_config", return_value=(self.config, self.company)),              patch("odoo.addons.print_gateway.controllers.runtime_printers.requests.get", return_value=Response({"agents": self.agents})):
+        with patch.object(controller, "_require_runtime_admin"), \
+             patch.object(controller, "_get_config", return_value=(self.config, self.company)), \
+             patch("odoo.addons.print_gateway.controllers.runtime_printers.request", type("RequestStub", (), {"env": self.env})()), \
+             patch("odoo.addons.print_gateway.controllers.runtime_printers.requests.get", return_value=Response({"agents": self.agents})):
             with patch.object(controller, "_scope", return_value=(self.company, self.branch)):
                 result = controller.runtime_agents(
                     company_id=self.company.id,
