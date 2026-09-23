@@ -168,7 +168,7 @@ jobs:
       - name: Go formatting gate
         working-directory: agent
         run: |
-          test -z "$(gofmt -l .)" || { echo 'gofmt required on:'; gofmt -l .; exit 1; }
+          test -z "$(gofmt -l .)" || { echo 'gofmt required on:'; gofmt -l .; gofmt -d internal/agent/agent.go internal/agent/agent_test.go internal/agent/dispatch_test.go internal/agent/ws_delivery_test.go; exit 1; }
       - name: Go vet
         working-directory: agent
         run: go vet ./...
