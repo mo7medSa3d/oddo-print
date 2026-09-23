@@ -19,21 +19,21 @@ describe("deep production review contracts", () => {
     expect(source).not.toMatch(/function reserveAuthAttempt[\s\S]{0,900}const now = new Date\(\)/);
   });
 
-  it("uses the calibrated Gateway clock for Odoo API-key rotation grace", () => {
+  it("uses PostgreSQL time directly for Odoo API-key rotation grace", () => {
     const source = read("src/lib/odoo-auth.ts");
-    expect(source).toContain('import { gatewayNow, refreshClockSkew } from "./database-clock";');
-    expect(source).toContain("await refreshClockSkew()");
-    expect(source).toContain("const now = gatewayNow()");
-    expect(source).not.toContain("const now = new Date()");
+    expect(source).toContain("clock_timestamp()");
+    expect(source).not.toContain("gatewayNow()");
+    expect(source).not.toContain("Date.now()");
   });
 
   it("keeps Odoo API-key lifecycle timestamps on the database clock", () => {
     const keys = read("src/app/api/odoo/keys/route.ts");
     const rotate = read("src/app/api/odoo/keys/[id]/rotate/route.ts");
-    expect(keys).toContain("gatewayNowMs()");
-    expect(keys).toContain("await refreshClockSkew()");
+    expect(keys).toContain("rotationState: sql<");
+    expect(keys).toContain("clock_timestamp()");
     expect(keys).toContain("lte(apiKeys.readOnlyUntil, sql`clock_timestamp()`)");
     expect(keys).toContain("revokedAt: sql`clock_timestamp()`");
+    expect(keys).not.toContain("const now = gatewayNowMs()");
     expect(keys).not.toContain("revokedAt: new Date()");
     expect(rotate).toContain("SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms");
     expect(rotate).not.toContain("const rotatedAt = new Date();");
@@ -70,15 +70,15 @@ describe("deep production review contracts", () => {
     expect(source).toContain("uncountAgentSocket(ws);");
   });
 
-  it("keeps Manager session lifetime on the database/Gateway clock", () => {
+  it("keeps Manager session lifetime on PostgreSQL time", () => {
     const manager = read("src/lib/manager-auth.ts");
     const tx = read("src/lib/manager-session-tx.ts");
     expect(manager).toContain("databaseNowMs");
-    expect(manager).toContain("gatewayNowMs()");
-    expect(manager).toContain("await refreshClockSkew()");
-    expect(manager).toContain("expires_at <= clock_timestamp()");
+    expect(manager).toContain("clock_timestamp()");
+    expect(manager).toContain("EXTRACT(EPOCH FROM clock_timestamp())");
+    expect(manager).not.toContain("gatewayNowMs()");
+    expect(manager).not.toContain("refreshClockSkew()");
     expect(tx).toContain("SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms");
-    expect(tx).toContain("Database clock is unavailable");
   });
 
   it("redacts explicit claim correlation fields in the logger", () => {
