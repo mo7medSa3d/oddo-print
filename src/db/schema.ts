@@ -300,6 +300,7 @@ export const discoveredDevices = pgTable("discovered_devices", {
   agentIdIdx: index("discovered_devices_agent_id_idx").on(table.agentId),
   candidateStatusIdx: index("discovered_devices_candidate_status_idx").on(table.candidateStatus),
   confidenceIdx: index("discovered_devices_confidence_idx").on(table.confidence),
+  tenantAgentIdentityUnique: uniqueIndex("discovered_devices_tenant_agent_identity_unique").on(table.tenantId, table.agentId, table.identityKey),
 }));
 
 export const printJobs = pgTable("print_jobs", {
