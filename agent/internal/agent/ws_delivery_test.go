@@ -676,6 +676,26 @@ func TestStalePrintingFenceHaltsBeforeHardware(t *testing.T) {
 	}
 }
 
+func TestExpiredTimestampDoesNotAuthorizeLocalExpiryDecision(t *testing.T) {
+	// Expiry is owned by the Gateway database. The Agent must not make a
+	// separate wall-clock expiry decision before reporting "printing".
+	gw := newRecordingGateway(t)
+	p := &fakePrinter{}
+	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
+	job := map[string]interface{}{
+		"id":         "job_local_expiry_defense",
+		"printerId":  "p1",
+		"payload":    makeJobPayload("job_local_expiry_defense"),
+		"expiresAt":  "2000-01-01T00:00:00Z",
+		"claimToken": "claim-local-expiry",
+	}
+	ag.processJob(context.Background(), job)
+	ag.waitForJobs()
+	if p.calls == 0 {
+		t.Fatalf("agent must not independently reject a job from its local wall clock; Gateway owns TTL")
+	}
+}
+
 func TestUpdateJobStatusDetectsFenceRejection(t *testing.T) {
 	gw := newRecordingGateway(t)
 	gw.rejectPrinting = true
