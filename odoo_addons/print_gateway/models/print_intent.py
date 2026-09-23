@@ -329,13 +329,25 @@ class PrintGatewayIntent(models.Model):
         now = db_now_utc(self.env.cr)
         stale_threshold = now - datetime.timedelta(minutes=5)
 
-        candidates = self.search([
-            "|",
-            "&", ("status", "=", "pending"), "|", ("next_retry_at", "=", False), ("next_retry_at", "<=", now),
-            "|",
-            "&", ("status", "=", "claimed"), "|", ("claimed_at", "=", False), ("claimed_at", "<=", stale_threshold),
-            "&", ("status", "=", "failed"), "|", ("next_retry_at", "=", False), ("next_retry_at", "<=", now),
-        ], order="id asc", limit=50)
+        # Select exactly the retryable states at the SQL boundary. A domain
+        # cannot compare attempts to max_attempts, so a plain search can fill
+        # the 50-row batch with permanently failed intents and starve newer
+        # retryable work forever. Exclude exhausted failures in SQL itself.
+        self.env.cr.execute("""
+            SELECT id
+            FROM print_gateway_intent
+            WHERE
+                (status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= %s))
+                OR
+                (status = 'claimed' AND (claimed_at IS NULL OR claimed_at <= %s))
+                OR
+                (status = 'failed' AND attempts < max_attempts
+                    AND (next_retry_at IS NULL OR next_retry_at <= %s))
+            ORDER BY id ASC
+            LIMIT 50
+        """, (now, stale_threshold, now))
+        candidate_ids = [row[0] for row in self.env.cr.fetchall()]
+        candidates = self.browse(candidate_ids)
 
         cron = self.env["ir.cron"]
         remaining_time = cron._commit_progress(remaining=len(candidates))

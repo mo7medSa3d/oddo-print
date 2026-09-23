@@ -6,6 +6,70 @@ from odoo.tests.common import TransactionCase
 
 
 class TestPrintGatewayIntentRecovery(TransactionCase):
+    def test_permanently_failed_intents_cannot_starve_retryable_intents(self):
+        """Exhausted failures must not consume the cron's bounded recovery batch."""
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, self.uid, dict(self.env.context))
+            company = env.company
+            stock_model = env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
+            self.assertTrue(stock_model)
+            policy = env["print_gateway.policy"].create({
+                "name": "Recovery Batch Starvation %s" % uuid.uuid4().hex,
+                "company_id": company.id,
+                "model_id": stock_model.id,
+                "event_type": "picking_validated",
+                "action_type": "raw_template",
+                "raw_protocol": "zpl",
+                "raw_template": "^XA^FD{id}^FS^XZ",
+            })
+            exhausted_vals = [{
+                "company_id": company.id,
+                "intent_key": "exhausted-%s-%s" % (uuid.uuid4().hex, index),
+                "policy_id": policy.id,
+                "res_model": "stock.picking",
+                "res_id": 0,
+                "event_type": "picking_validated",
+                "status": "failed",
+                "attempts": 3,
+                "max_attempts": 3,
+                "last_error": "permanently failed",
+            } for index in range(50)]
+            env["print_gateway.intent"].create(exhausted_vals)
+            retryable = env["print_gateway.intent"].create({
+                "company_id": company.id,
+                "intent_key": "retryable-%s" % uuid.uuid4().hex,
+                "policy_id": policy.id,
+                "res_model": "stock.picking",
+                "res_id": 0,
+                "event_type": "picking_validated",
+                "status": "pending",
+                "attempts": 0,
+                "max_attempts": 3,
+            })
+            retryable_id = retryable.id
+            cr.commit()
+        finally:
+            cr.close()
+
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, self.uid, dict(self.env.context))
+            recovered = env["print_gateway.intent"].cron_recover_pending_intents()
+        finally:
+            cr.close()
+
+        verify = self.env.registry.cursor()
+        try:
+            env = api.Environment(verify, self.uid, dict(self.env.context))
+            row = env["print_gateway.intent"].browse(retryable_id).exists()
+            self.assertTrue(row)
+            self.assertEqual(row.status, "skipped")
+            self.assertGreaterEqual(recovered, 1)
+        finally:
+            verify.rollback()
+            verify.close()
+
     def test_stale_final_claim_is_terminalized_instead_of_staying_claimed(self):
         """A crashed final dispatch attempt must become terminally failed."""
         cr = self.env.registry.cursor()
