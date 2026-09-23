@@ -150,7 +150,13 @@ export async function POST(req: Request) {
 
     for (let i = 0; i < rows.length; i += DISCOVERY_INSERT_BATCH) {
       const batch = rows.slice(i, i + DISCOVERY_INSERT_BATCH);
-      const identityRows = batch.filter((row) => row.identityKey);
+      // A single INSERT ... ON CONFLICT cannot update the same target row twice.
+      // Collapse duplicate identities inside one report before the database upsert.
+      const identityRows = Array.from(
+        new Map(
+          batch.filter((row) => row.identityKey).map((row) => [row.identityKey, row]),
+        ).values(),
+      );
       const anonymousRows = batch.filter((row) => !row.identityKey);
 
       if (anonymousRows.length > 0) {
