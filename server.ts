@@ -71,8 +71,10 @@ if (process.env.NODE_ENV === "production") {
     throw new Error("Refusing production startup: PLATFORM_TENANT_ID must be configured with the real platform workspace ID so the platform tenant cannot be suspended or deleted.");
   }
   assertRealSecret("GATEWAY_JWT_SECRET", runtimeSecret("GATEWAY_JWT_SECRET"), 32);
-  if (!httpTestMode && !trustProxyEnabled() && !isLoopbackBinding(hostname)) {
-    throw new Error("Refusing production startup: TRUST_PROXY=1 is required when the Gateway binds a non-loopback interface. Do not expose the Gateway application port directly.");
+  if (!trustProxyEnabled() && !isLoopbackBinding(hostname)) {
+    if (!httpTestMode) {
+      throw new Error("Refusing production startup: TRUST_PROXY=1 is required when the Gateway binds a non-loopback interface. Do not expose the Gateway application port directly.");
+    }
   }
   if (trustProxyEnabled()) {
     const proxySecret = assertRealSecret("TRUST_PROXY_SECRET", runtimeSecret("TRUST_PROXY_SECRET"), 32);
