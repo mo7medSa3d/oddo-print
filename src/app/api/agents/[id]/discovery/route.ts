@@ -59,7 +59,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         status: "running",
         config: v.data,
         stats: {},
-        startedAt: new Date(),
+        startedAt: sql`now()`,
       });
       // Push discovery instantly via Postgres NOTIFY -> WebSocket (10-50ms)
       // instead of waiting for agent's 10s poll fallback. Matches job delivery path.
