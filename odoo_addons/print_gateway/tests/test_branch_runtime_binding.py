@@ -301,6 +301,7 @@ class TestBranchRuntimeBinding(TransactionCase):
                 self.assertEqual([agent["id"] for agent in result["agents"]], ["agent-b"])
 
             # Company-wide assignments are inherited by every child branch.
+            self.agents.append({"id": "agent-company-wide", "name": "Company Wide Agent", "status": "online", "lifecycle": "active"})
             assignment_model.create({
                 "company_id": self.company.id,
                 "branch_id": False,
@@ -326,7 +327,7 @@ class TestBranchRuntimeBinding(TransactionCase):
                 )
                 self.assertEqual(
                     [agent["id"] for agent in result["agents"]],
-                    ["agent-a", "agent-b"],
+                    ["agent-a", "agent-b", "agent-company-wide"],
                 )
 
     def test_runtime_agent_assignment_scope_is_exact_to_selected_branch(self):
