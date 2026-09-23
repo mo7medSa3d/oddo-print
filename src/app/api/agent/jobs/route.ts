@@ -13,6 +13,7 @@ import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { agentStaleThresholdSeconds } from "../../../../lib/agent-availability";
 import { recordJobEvent } from "../../../../lib/job-timeline";
 import { getCorrelationContext, generateAttemptId } from "../../../../server/correlation";
+import { databaseNowMs } from "../../../../lib/database-clock";
 
 export const dynamic = "force-dynamic";
 const MAX_CLAIM_BATCH = 20;
