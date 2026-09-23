@@ -1,11 +1,29 @@
 import { gatewayNow } from "./database-clock";
 
 export const DEFAULT_AGENT_STALE_THRESHOLD_SECONDS = 90;
+export const DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS = 90;
 
 export function agentStaleThresholdSeconds(): number {
   const raw = Number(process.env.STALE_AGENT_THRESHOLD_SECONDS ?? DEFAULT_AGENT_STALE_THRESHOLD_SECONDS);
   if (!Number.isFinite(raw) || raw < 10 || raw > 3600) return DEFAULT_AGENT_STALE_THRESHOLD_SECONDS;
   return Math.floor(raw);
+}
+
+export function printerStaleThresholdSeconds(): number {
+  const raw = Number(process.env.STALE_PRINTER_THRESHOLD_SECONDS ?? DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS);
+  if (!Number.isFinite(raw) || raw < 10 || raw > 3600) return DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS;
+  return Math.floor(raw);
+}
+
+export function isPrinterObservationFresh(
+  lastSeenAt: Date | string | null | undefined,
+  now = gatewayNow(),
+): boolean {
+  if (!lastSeenAt) return false;
+  const lastSeen = new Date(lastSeenAt).getTime();
+  if (!Number.isFinite(lastSeen)) return false;
+  const ageSeconds = (now.getTime() - lastSeen) / 1000;
+  return ageSeconds >= 0 && ageSeconds <= printerStaleThresholdSeconds();
 }
 
 export type AgentAvailability = {
@@ -39,7 +57,7 @@ export function isAgentAvailableForJob(
 }
 
 export function getEffectivePrinterStatus(
-  printer: { lifecycle?: string | null; status?: string | null },
+  printer: { lifecycle?: string | null; status?: string | null; lastSeenAt?: Date | string | null },
   agent?: { lifecycle?: string | null; status?: string | null; lastSeenAt?: Date | string | null } | null,
   now = gatewayNow(),
 ): "online" | "offline" | "disabled" | "retired" | "unknown" {
@@ -50,6 +68,9 @@ export function getEffectivePrinterStatus(
   // If the parent agent is missing or unavailable (stale heartbeat, offline, disabled),
   // the printer cannot be reached physically. It is effectively offline.
   if (!agent || !isAgentAvailableForJob(agent, now)) {
+    return "offline";
+  }
+  if (!isPrinterObservationFresh(printer.lastSeenAt, now)) {
     return "offline";
   }
 
