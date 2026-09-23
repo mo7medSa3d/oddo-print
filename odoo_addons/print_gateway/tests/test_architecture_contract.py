@@ -177,6 +177,8 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("_assigned_runtime_agent_ids", source)
         self.assertIn("assignment_only=False", source)
         self.assertIn('if assignment_only:', source)
+        self.assertIn("if branch:", source)
+        self.assertIn("The selected Gateway Agent is not assigned to this Odoo Branch.", source)
         self.assertNotIn("Access Denied: The selected Agent is not assigned to this Odoo Branch.", source)
 
         # Binding pickers must be assignment-scoped to the selected Branch,
