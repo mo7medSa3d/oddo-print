@@ -767,7 +767,7 @@ class PrintGatewayJob(models.Model):
         next_attempt = job.attempts + 1
         terminal = next_attempt >= 5
         retry_delay = min(300, 10 * (2 ** min(next_attempt - 1, 5)))
-        next_retry = False if terminal else fields.Datetime.now() + datetime.timedelta(seconds=retry_delay)
+        next_retry = False if terminal else db_now_utc(self.env.cr) + datetime.timedelta(seconds=retry_delay)
         values = {
             "status": "failed" if terminal else "queued",
             "attempts": next_attempt,
@@ -888,7 +888,7 @@ class PrintGatewayJob(models.Model):
                             # Never compare Gateway periodEnd against the Odoo
                             # host clock: the two systems can legitimately have
                             # different wall clocks/timezones.
-                            next_retry = fields.Datetime.now() + datetime.timedelta(seconds=retry_after)
+                            next_retry = db_now_utc(self.env.cr) + datetime.timedelta(seconds=retry_after)
 
                             values = {
                                 "status": "queued",
