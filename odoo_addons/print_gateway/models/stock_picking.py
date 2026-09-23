@@ -21,8 +21,15 @@ class StockPickingPrintGateway(models.Model):
             if picking.state != "done":
                 continue
             try:
-                policy_model.dispatch_for_record(picking, "picking_validated")
+                result = policy_model.dispatch_for_record(picking, "picking_validated")
+                if result.get("failed"):
+                    _logger.error(
+                        "Automated print scheduling completed with %s policy failure(s) for picking %s",
+                        result["failed"],
+                        picking.id,
+                    )
             except Exception as exc:
-                _logger.error("Failed to schedule print policies for picking %s: %s", picking.id, exc)
+                # Scheduling must never break the stock validation itself.
+                _logger.error("Failed to schedule automated print intents for picking %s: %s", picking.id, exc)
 
         return res
