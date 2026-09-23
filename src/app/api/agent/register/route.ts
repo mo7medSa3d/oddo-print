@@ -101,13 +101,15 @@ export async function POST(req: Request) {
 
     const agent = await db.query.agents.findFirst({ where: and(...conditions) });
     if (!agent) {    const billingResult = await db.execute(sql`
-      SELECT status, current_period_end AS "currentPeriodEnd", entitlement_blocked AS "entitlementBlocked"
+      SELECT 1
       FROM tenant_subscriptions
       WHERE tenant_id = ${agent.tenantId}
+        AND status IN ('trialing', 'active', 'past_due')
+        AND (status = 'past_due' OR current_period_end IS NULL OR current_period_end > clock_timestamp())
+        AND COALESCE(entitlement_blocked, false) = false
       LIMIT 1
     `);
-    const billing = billingResult.rows[0] as { status?: string | null; currentPeriodEnd?: Date | string | null; entitlementBlocked?: boolean } | undefined;
-    if (!billing || !["trialing", "active", "past_due"].includes(String(billing.status ?? "")) || billing.entitlementBlocked === true) {
+    if (billingResult.rows.length === 0) {
       return NextResponse.json({ error: "An active subscription is required before pairing agents.", code: "SUBSCRIPTION_REQUIRED" }, { status: 403 });
     }
 

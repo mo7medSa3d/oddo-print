@@ -231,6 +231,8 @@ describe("deep production review contracts", () => {
     expect(register).toContain("entitlement_blocked");
     expect(lifecycle).toContain("requireTenantBillingAccess(tx, tenantId)");
     expect(entitlements).toContain("requireTenantBillingAccess");
-    expect(entitlements).toContain("isBillingAccessStatus(row.status)");
-    expect(entitlements).toContain("row.entitlementBlocked === true");
+    expect(entitlements).toContain("status IN ('trialing', 'active', 'past_due')");
+    expect(entitlements).toContain("current_period_end > clock_timestamp()");
+    expect(entitlements).toContain("COALESCE(entitlement_blocked, false) = false");
+    expect(entitlements).toContain("TenantSubscriptionRequiredError");
   });
