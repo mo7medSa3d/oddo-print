@@ -8,6 +8,7 @@ import { nanoid } from "../../../../lib/nanoid";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { clientIpFrom, reserveAuthAttempt } from "../../../../lib/auth-rate-limit";
+import { sql } from "drizzle-orm";
 
 const GENERIC = { ok: true, message: "If the account can be created, a verification email will be sent." };
 
@@ -26,8 +27,7 @@ export async function POST(req: Request) {
   if (existing) return NextResponse.json({ error: "An account with this email already exists. You can sign in instead.", code: "ACCOUNT_EXISTS" }, { status: 409 });
   const userId = `usr_${nanoid(18)}`;
   const rawToken = generateOpaqueToken();
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 30 * 60_000);
+  const expiresAt = sql`clock_timestamp() + interval '30 minutes'`;
   let passwordHash: string;
   try {
     passwordHash = await hashPassword(password);
