@@ -76,7 +76,6 @@ export async function GET(req: Request) {
       SELECT COUNT(*)::int AS count
       FROM print_jobs p
       JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
-      JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
       JOIN tenants t ON t.id = p.tenant_id
       WHERE p.agent_id = ${agent.id}
         AND p.status IN ('claimed', 'printing')
