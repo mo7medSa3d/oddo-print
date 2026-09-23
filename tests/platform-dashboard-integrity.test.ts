@@ -30,7 +30,6 @@ describe("platform dashboard visual/data integrity", () => {
   });
 
   it("uses the same Gateway theme and BrandMark on the Platform Login page", () => {
-    expect(platformLogin).toContain('import { AuthShell } from "../../../components/AuthShell";');
     expect(platformLogin).toContain('AuthShell } from "../../../components/AuthShell";');
     expect(platformLogin).toContain('Button');
     expect(platformLogin).toContain('Field');
