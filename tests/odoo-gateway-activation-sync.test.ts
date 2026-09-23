@@ -4,7 +4,7 @@ import path from "node:path";
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
 import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, closePool, pool, type Fixture } from "./helpers/pg";
 import { PATCH as configurationPATCH } from "../src/app/api/odoo/configuration/route";
-import { POST as printJobsPOST } from "../src/app/api/print/jobs/route";
+import { GET as printJobsGET, POST as printJobsPOST } from "../src/app/api/print/jobs/route";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file: string) => readFileSync(path.join(ROOT, file), "utf8");
@@ -94,6 +94,70 @@ describe("Odoo Gateway activation synchronization", () => {
       }));
       expect(response.status).toBe(201);
       expect(await response.json()).toMatchObject({ documentType: "custom-document-type" });
+    });
+
+    it("keeps rotated Odoo keys read-only during the grace window and rejects writes", async () => {
+      const beforeRotation = await printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          printerId: f.printerId,
+          documentType: "receipt",
+          destination: f.destination,
+          payload: { type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=" },
+          idempotencyKey: "rotation-read-test",
+        }),
+      }));
+      expect(beforeRotation.status).toBe(201);
+      const jobId = (await beforeRotation.json()).jobId as string;
+
+      const rotatedAt = new Date();
+      const readOnlyUntil = new Date(rotatedAt.getTime() + 60 * 60 * 1000);
+      await pool().query(
+        "UPDATE api_keys SET revoked_at = $1, read_only_until = $2 WHERE id = (SELECT api_key_id FROM print_jobs WHERE id = $3)",
+        [rotatedAt, readOnlyUntil, jobId],
+      );
+
+      const status = await printJobsGET(
+        new Request(`http://gateway.test/api/print/jobs?id=${encodeURIComponent(jobId)}`, {
+          headers: { Authorization: `Bearer ${f.odooKey}` },
+        }),
+      );
+      expect(status.status).toBe(200);
+      expect((await status.json()).jobId).toBe(jobId);
+
+      const blockedPrint = await printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          printerId: f.printerId,
+          documentType: "receipt",
+          destination: f.destination,
+          payload: { type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=" },
+          idempotencyKey: "rotation-write-blocked",
+        }),
+      }));
+      expect(blockedPrint.status).toBe(409);
+      expect(await blockedPrint.json()).toMatchObject({ code: "API_KEY_READ_ONLY" });
+
+      const blockedConfig = await configurationPATCH(new Request("http://gateway.test/api/odoo/configuration", {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
+        body: JSON.stringify({ enabled: true, revision: 2 }),
+      }));
+      expect(blockedConfig.status).toBe(409);
+      expect(await blockedConfig.json()).toMatchObject({ code: "API_KEY_READ_ONLY" });
+
+      await pool().query(
+        "UPDATE api_keys SET read_only_until = $1 WHERE id = (SELECT api_key_id FROM print_jobs WHERE id = $2)",
+        [new Date(Date.now() - 1000), jobId],
+      );
+      const expired = await printJobsGET(
+        new Request(`http://gateway.test/api/print/jobs?id=${encodeURIComponent(jobId)}`, {
+          headers: { Authorization: `Bearer ${f.odooKey}` },
+        }),
+      );
+      expect(expired.status).toBe(401);
     });
 
     it("renders Gateway Configuration status from the Odoo-sourced state and refreshes it", () => {
