@@ -24,11 +24,10 @@ const bodySchema = z.object({
 }).strict();
 
 function parseExpiresAt(value?: string) {
-  const now = Date.now();
-  if (!value) return new Date(now + 60 * 60 * 1000);
+  if (!value) return undefined;
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= now) throw new Error("expiresAt must be in the future");
-  if (parsed.getTime() - now > 24 * 60 * 60 * 1000) throw new Error("expiresAt exceeds the 24 hour maximum");
+  if (Number.isNaN(parsed.getTime())) throw new Error("expiresAt must be a valid ISO-8601 timestamp");
+  // Future and maximum-lifetime checks are performed inside the Gateway DB transaction.
   return parsed;
 }
 
@@ -154,7 +153,12 @@ export async function POST(req: Request) {
       };
       const headers = new Headers({ "Cache-Control": "no-store" });
       if (error.periodEnd) {
-        headers.set("Retry-After", String(Math.max(1, Math.ceil((error.periodEnd.getTime() - Date.now()) / 1000))));
+        try {
+          const dbNowMs = await databaseNowMs();
+          headers.set("Retry-After", String(Math.max(1, Math.ceil((error.periodEnd.getTime() - dbNowMs) / 1000))));
+        } catch {
+          headers.set("Retry-After", "60");
+        }
       }
       return NextResponse.json(response, { status: 429, headers });
     }
