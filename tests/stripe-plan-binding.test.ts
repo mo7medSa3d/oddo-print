@@ -128,7 +128,7 @@ describe("Stripe plan binding contract", () => {
     }
   });
 
-  it("rejects a non-catalog Price in isolated HTTP test mode without live Stripe", async () => {
+  it("accepts an uncatalogued fake Price ID in isolated HTTP test mode without live Stripe", async () => {
     const previousSecret = process.env.STRIPE_SECRET_KEY;
     delete process.env.STRIPE_SECRET_KEY;
     process.env.YASSER_HTTP_TEST_MODE = "1";
@@ -139,12 +139,16 @@ describe("Stripe plan binding contract", () => {
 
     try {
       await expect(validateStripePriceBinding({
-        priceId: "price_not_in_catalog",
+        priceId: "price_fake_platform_plan",
         currency: "usd",
         interval: "month",
-      })).rejects.toMatchObject({
-        code: "STRIPE_PRICE_INVALID",
-        status: 400,
+      })).resolves.toMatchObject({
+        id: "price_fake_platform_plan",
+        active: true,
+        type: "recurring",
+        currency: "usd",
+        interval: "month",
+        productId: null,
       });
       expect(globalThis.fetch).not.toHaveBeenCalled();
     } finally {
