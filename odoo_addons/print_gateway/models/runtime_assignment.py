@@ -40,6 +40,48 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
                 record.runtime_agent_id or "Agent",
             )
 
+    @api.model
+    @api.private
+    def assigned_agent_ids(self, company, branch=False):
+        """Return enabled Gateway Agent IDs assigned to an Odoo scope.
+
+        Branch scope inherits company-wide assignments (branch_id=False), while
+        a root company scope accepts only company-wide assignments. This is the
+        single source of truth consumed by the controller, binding validation,
+        and print router.
+        """
+        company = company.exists() if company else company
+        if not company or len(company) != 1:
+            return set()
+        domain = [
+            ("company_id", "=", company.id),
+            ("enabled", "=", True),
+        ]
+        if branch:
+            branch = branch.exists()
+            if not branch or len(branch) != 1:
+                return set()
+            domain = [
+                "|",
+                ("branch_id", "=", branch.id),
+                ("branch_id", "=", False),
+                *domain,
+            ]
+        else:
+            domain.append(("branch_id", "=", False))
+        return {
+            record.runtime_agent_id.strip()
+            for record in self.sudo().search(domain)
+            if isinstance(record.runtime_agent_id, str) and record.runtime_agent_id.strip()
+        }
+
+    @api.model
+    @api.private
+    def is_agent_assigned(self, company, branch, runtime_agent_id):
+        if not branch or not isinstance(runtime_agent_id, str) or not runtime_agent_id.strip():
+            return True
+        return runtime_agent_id.strip() in self.assigned_agent_ids(company, branch)
+
     def _check_admin(self):
         if not (self.env.is_superuser or self.env.user.has_group("base.group_system")):
             raise AccessError(_("Only Odoo system administrators can change runtime agent assignments."))
