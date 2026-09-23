@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Lock, Loader2, ShieldCheck } from "lucide-react";
+import { Lock, Loader2, ShieldCheck } from "lucide-react";
 import { AuthShell } from "../../../components/AuthShell";
 import { Button, ErrorState, Field, Input } from "../../../components/ui";
 
