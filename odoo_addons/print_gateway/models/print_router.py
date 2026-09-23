@@ -174,7 +174,7 @@ class PrintGatewayRouter(models.AbstractModel):
                 _("Gateway printing is enabled, but no Print Binding exists for %s (%s) in %s.")
                 % (destination.display_name, dtype, branch.display_name if branch else gateway_company.display_name)
             )
-        self._assert_branch_agent_assignment(gateway_company, branch, binding.runtime_agent_id)
+        self._assert_branch_agent_assignment(gateway_company, binding.branch_id or False, binding.runtime_agent_id)
         return {
             "gateway_enabled": True,
             "native": False,
