@@ -456,6 +456,13 @@
       "when": 1790141866457,
       "tag": "0064_odoo_key_rotation_grace",
       "breakpoints": false
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1790142193119,
+      "tag": "0065_api_key_rotation_state_check",
+      "breakpoints": false
     }
   ]
 }
