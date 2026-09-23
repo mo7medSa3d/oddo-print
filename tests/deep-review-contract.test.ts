@@ -45,6 +45,23 @@ describe("deep production review contracts", () => {
     expect(source).toContain("uncountAgentSocket(ws);");
   });
 
+  it("keeps Manager session lifetime on the database/Gateway clock", () => {
+    const manager = read("src/lib/manager-auth.ts");
+    const tx = read("src/lib/manager-session-tx.ts");
+    expect(manager).toContain("databaseNowMs");
+    expect(manager).toContain("gatewayNowMs()");
+    expect(manager).toContain("await refreshClockSkew()");
+    expect(manager).toContain("expires_at <= clock_timestamp()");
+    expect(tx).toContain("SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms");
+    expect(tx).toContain("Database clock is unavailable");
+  });
+
+  it("redacts explicit claim correlation fields in the logger", () => {
+    const source = read("src/lib/log.ts");
+    expect(source).toContain('if (key === "claimId" || key === "claim_id")');
+    expect(source).toContain("redactClaimId(value)");
+  });
+
   it("scrubs legacy raw UUID claim ids from the timeline during migration", () => {
     const source = read("drizzle/0069_redact_legacy_claim_ids.sql");
     expect(source).toContain("UPDATE job_events");

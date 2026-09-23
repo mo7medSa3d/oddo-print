@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from "crypto";
 import { db } from "../db";
 import { managerSessions } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { managerCookieHeader, type ManagerClaims, type ManagerRole } from "./manager-auth";
 
@@ -29,7 +29,10 @@ export async function createManagerSessionInTransaction(
   identity: { userId?: string; role: ManagerRole },
 ): Promise<{ token: string; jti: string; exp: Date }> {
   const jti = randomBytes(16).toString("hex");
-  const now = Math.floor(Date.now() / 1000);
+  const clock = await tx.execute(sql`SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms`);
+  const nowMs = Number(clock.rows[0]?.now_ms);
+  if (!Number.isFinite(nowMs)) throw new Error("Database clock is unavailable");
+  const now = Math.floor(nowMs / 1000);
   const exp = new Date((now + MAX_AGE_SECONDS) * 1000);
   const claims: ManagerClaims = {
     jti,

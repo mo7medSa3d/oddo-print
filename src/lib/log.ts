@@ -28,6 +28,10 @@ export function requestIdFrom(req: Request): string {
 function sanitize(fields: LogFields): LogFields {
   const out: LogFields = {};
   for (const [key, value] of Object.entries(fields)) {
+    if (key === "claimId" || key === "claim_id") {
+      out[key] = redactClaimId(value);
+      continue;
+    }
     if (SENSITIVE.test(key)) {
       out[key] = "[redacted]";
       continue;

@@ -3,6 +3,7 @@ import { managerSessions, tenants, tenantDomains, tenantUsers, users } from "../
 import { and, eq, sql } from "drizzle-orm";
 import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
+import { databaseNowMs, gatewayNowMs, refreshClockSkew } from "./database-clock";
 import { hashPassword, verifyPassword, normalizeEmail } from "./password";
 import { requireActiveTenantOrNull } from "./tenant-guard";
 
@@ -37,7 +38,7 @@ function sign(claims: ManagerClaims): string {
   return `${data}.${sig}`;
 }
 
-function verify(token: string): ManagerClaims | null {
+function verify(token: string, nowMs = Date.now()): ManagerClaims | null {
   if (typeof token !== "string" || token.length < 40 || token.length > 4096) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
@@ -74,8 +75,8 @@ function verify(token: string): ManagerClaims | null {
       !(["owner", "admin", "operator", "viewer", "integration_admin", "billing_admin"] as string[]).includes(claims.role) ||
       (claims.userId !== undefined && (typeof claims.userId !== "string" || claims.userId.length < 1 || claims.userId.length > 128))
     ) return null;
-    if (claims.exp * 1000 <= Date.now()) return null;
-    if (claims.iat * 1000 > Date.now() + 60_000) return null;
+    if (claims.exp * 1000 <= nowMs) return null;
+    if (claims.iat * 1000 > nowMs + 60_000) return null;
     return claims as ManagerClaims;
   } catch {
     return null;
@@ -92,9 +93,10 @@ export function verifyManagerToken(token: string): ManagerClaims | null {
 
 export async function validateManagerClaims(claims: ManagerClaims | null): Promise<ManagerClaims | null> {
   if (!claims) return null;
+  await refreshClockSkew();
   const row = await db.query.managerSessions.findFirst({ where: eq(managerSessions.jti, claims.jti) });
   if (!row || row.revokedAt) return null;
-  if (row.expiresAt.getTime() <= Date.now()) return null;
+  if (row.expiresAt.getTime() <= gatewayNowMs()) return null;
   if (row.tenantId !== claims.tenantId || row.role !== claims.role || (row.userId ?? undefined) !== claims.userId) return null;
   if (row.userId) {
     const membership = await db.query.tenantUsers.findFirst({
@@ -146,7 +148,8 @@ export async function resolveManagerTenantId(req: Request): Promise<string | nul
 
 export async function createManagerSession(tenantId: string, identity?: { userId?: string; role?: ManagerRole }): Promise<{ token: string; jti: string; exp: Date }> {
   const jti = randomBytes(16).toString("hex");
-  const now = Math.floor(Date.now() / 1000);
+  const nowMs = await databaseNowMs();
+  const now = Math.floor(nowMs / 1000);
   const exp = now + MAX_AGE_SECONDS;
   const role = identity?.role ?? "owner";
   const claims: ManagerClaims = { jti, iat: now, exp, sub: "manager", tenantId, role, ...(identity?.userId ? { userId: identity.userId } : {}) };
@@ -171,7 +174,8 @@ export async function validateManager(req: Request): Promise<ManagerClaims | nul
     if (auth?.startsWith("Bearer ")) token = auth.slice(7).trim();
   }
   if (!token) return null;
-  const claims = verify(token);
+  await refreshClockSkew();
+  const claims = verify(token, gatewayNowMs());
   return claims ? validateManagerClaims(claims) : null;
 }
 
@@ -179,12 +183,18 @@ export async function revokeManagerSession(jti: string) {
   await db.update(managerSessions).set({ revokedAt: new Date() }).where(eq(managerSessions.jti, jti));
 }
 
-export async function cleanupExpiredManagerSessions(now = new Date()): Promise<number> {
-  const result = await db.execute(sql`
-    DELETE FROM manager_sessions
-    WHERE expires_at <= ${now}
-    RETURNING jti
-  `);
+export async function cleanupExpiredManagerSessions(now?: Date): Promise<number> {
+  const result = now
+    ? await db.execute(sql`
+        DELETE FROM manager_sessions
+        WHERE expires_at <= ${now}
+        RETURNING jti
+      `)
+    : await db.execute(sql`
+        DELETE FROM manager_sessions
+        WHERE expires_at <= clock_timestamp()
+        RETURNING jti
+      `);
   return result.rows.length;
 }
 
