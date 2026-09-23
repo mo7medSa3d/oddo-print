@@ -35,15 +35,6 @@ class TestBranchRuntimeBinding(TransactionCase):
             {"id": "printer-a", "name": "Printer A", "status": "online", "lifecycle": "active", "agent": {"id": "agent-a", "name": "Agent A"}},
             {"id": "printer-b", "name": "Printer B", "status": "online", "lifecycle": "active", "agent": {"id": "agent-b", "name": "Agent B"}},
         ]
-        # Bindings consume explicit Branch → Agent assignments. Seed the
-        # default test agent independently so binding tests do not rely on the
-        # binding model creating assignments implicitly.
-        self.env["print_gateway.runtime_agent_assignment"].create({
-            "company_id": self.company.id,
-            "branch_id": self.branch.id,
-            "runtime_agent_id": "agent-a",
-            "enabled": True,
-        })
         with patch("odoo.addons.print_gateway.models.gateway_config.PrintGatewayConfig._validate_gateway_host", return_value=None):
             config_model = self.env["print_gateway.gateway_config"]
             self.config = config_model.search([("company_id", "=", self.company.id)], limit=1)
@@ -60,6 +51,21 @@ class TestBranchRuntimeBinding(TransactionCase):
         self.assertTrue(report)
         return report
 
+    def _ensure_assignment(self, agent_id, branch=None, enabled=True):
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        branch_id = branch.id if branch else False
+        existing = assignment_model.search([
+            ("company_id", "=", self.company.id),
+            ("branch_id", "=", branch_id),
+            ("runtime_agent_id", "=", agent_id),
+        ], limit=1)
+        return existing or assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": branch_id,
+            "runtime_agent_id": agent_id,
+            "enabled": enabled,
+        })
+
     def _values(self, **extra):
         report = self._report()
         vals = {
@@ -69,6 +75,9 @@ class TestBranchRuntimeBinding(TransactionCase):
             "runtime_agent_id": "agent-a", "printer_id": "printer-a", "enabled": True, "priority": 10,
         }
         vals.update(extra)
+        if vals.get("runtime_agent_id"):
+            branch = self.env["res.company"].browse(vals["branch_id"]).exists() if vals.get("branch_id") else False
+            self._ensure_assignment(vals["runtime_agent_id"], branch=branch)
         return vals
 
     def test_non_root_company_is_rejected(self):
