@@ -40,13 +40,13 @@ describe("Tenant Selection Token Contract", () => {
   });
 
   it("rejects token with modified payload", async () => {
-    const token = createTenantSelectionToken("usr_123456789012345678", "user@example.com");
+    const token = await createTenantSelectionToken("usr_123456789012345678", "user@example.com");
     const [h, , s] = token.split(".");
     const forgedPayload = Buffer.from(
       JSON.stringify({ sub: "tenant_selection", userId: "usr_attacker", email: "hacker@example.com", jti: "tsel_123", iat: Date.now() / 1000, exp: Date.now() / 1000 + 300 })
     ).toString("base64url");
     const tampered = `${h}.${forgedPayload}.${s}`;
-    const claims = verifyTenantSelectionToken(tampered);
+    const claims = await verifyTenantSelectionToken(tampered);
     expect(claims).toBeNull();
   });
 
