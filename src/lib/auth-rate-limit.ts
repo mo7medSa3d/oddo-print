@@ -113,9 +113,12 @@ async function reserveBucketAttempt(
   windowMs: number,
   lockFn: (attempts: number) => number,
 ): Promise<RateLimitDecision> {
-  const now = new Date();
-  const windowStartCutoff = new Date(now.getTime() - windowMs);
   return db.transaction(async (tx) => {
+    const clock = await tx.execute(sql`SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms`);
+    const nowMs = Number(clock.rows[0]?.now_ms);
+    if (!Number.isFinite(nowMs)) throw new Error("Database clock is unavailable");
+    const now = new Date(nowMs);
+    const windowStartCutoff = new Date(now.getTime() - windowMs);
     await tx.execute(sql`
       INSERT INTO auth_rate_limits (key, failures, window_started_at, locked_until, updated_at)
       VALUES (${key}, 0, ${now}, NULL, ${now})
@@ -169,9 +172,12 @@ export async function reserveAuthAttempt(ip: string, username: string): Promise<
   if (trustProxyEnabled() && ip !== "unknown") keys.push(ipKey(ip));
   keys.sort();
 
-  const now = new Date();
-  const windowStartCutoff = new Date(now.getTime() - AUTH_RATE_WINDOW_MS);
   return db.transaction(async (tx) => {
+    const clock = await tx.execute(sql`SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms`);
+    const nowMs = Number(clock.rows[0]?.now_ms);
+    if (!Number.isFinite(nowMs)) throw new Error("Database clock is unavailable");
+    const now = new Date(nowMs);
+    const windowStartCutoff = new Date(now.getTime() - AUTH_RATE_WINDOW_MS);
     for (const key of keys) {
       await tx.execute(sql`
         INSERT INTO auth_rate_limits (key, failures, window_started_at, locked_until, updated_at)
@@ -219,11 +225,12 @@ export async function reserveAuthAttempt(ip: string, username: string): Promise<
   });
 }
 
-export async function cleanupAuthRateLimits(now = new Date()): Promise<number> {
-  const cutoff = new Date(now.getTime() - AUTH_RATE_RETENTION_MS);
+export async function cleanupAuthRateLimits(): Promise<number> {
+  // Production cleanup uses PostgreSQL's wall clock because the retained
+  // security state is persisted in the same database as the reservation logic.
   const result = await db.execute(sql`
     DELETE FROM auth_rate_limits
-    WHERE updated_at < ${cutoff}
+    WHERE updated_at < clock_timestamp() - interval '24 hours'
     RETURNING key
   `);
   return result.rows.length;

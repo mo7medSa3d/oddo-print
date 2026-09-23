@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { db } from "../../../../db";
 import { apiKeys, tenantSubscriptions } from "../../../../db/schema";
 import { validateManager } from "../../../../lib/manager-auth";
@@ -97,13 +97,12 @@ export async function PATCH(req: Request) {
     }
   }
 
-  const now = new Date();
   const updated = await db.transaction(async (tx) => {
     const result = await tx.update(apiKeys)
       .set({
         odooEnabled: enabled,
         odooEnabledRevision: Number(revision),
-        odooEnabledUpdatedAt: now,
+        odooEnabledUpdatedAt: sql`clock_timestamp()`,
       })
       .where(and(
         eq(apiKeys.id, apiKey.id),

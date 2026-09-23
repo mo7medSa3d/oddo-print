@@ -12,6 +12,7 @@ import {
   TenantEntitlementConfigError,
 } from "../../../../../lib/entitlements";
 import { and, eq } from "drizzle-orm";
+import { databaseNowMs } from "../../../../../lib/database-clock";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +49,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   } catch (error) {
     if (error instanceof TenantPrintQuotaExceededError) {
       const headers = new Headers({ "Cache-Control": "no-store" });
-      if (error.periodEnd) headers.set("Retry-After", String(Math.max(1, Math.ceil((error.periodEnd.getTime() - Date.now()) / 1000))));
+      if (error.periodEnd) {
+        try {
+          const dbNowMs = await databaseNowMs();
+          headers.set("Retry-After", String(Math.max(1, Math.ceil((error.periodEnd.getTime() - dbNowMs) / 1000))));
+        } catch {
+          // The quota decision itself already succeeded inside PostgreSQL. If
+          // the follow-up clock probe fails, keep the response usable with a
+          // conservative retry delay instead of falling back to the host clock.
+          headers.set("Retry-After", "60");
+        }
+      }
       return NextResponse.json({
         error: error.message,
         code: error.code,
