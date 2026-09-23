@@ -86,7 +86,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }, { status: 429, headers });
     }
     if (e instanceof TenantEntitlementError) {
-      return NextResponse.json({ error: e.message, code: e.code }, { status: 429, headers: { "Retry-After": "60" } });
+      return NextResponse.json({
+        error: e.message,
+        code: e.code,
+        entitlement: e.entitlement,
+        limit: e.limit,
+        used: e.used,
+        upgradeRequired: true,
+        retryable: true,
+      }, { status: 429, headers: { "Retry-After": "60", "Cache-Control": "no-store" } });
     }
     if (e instanceof TenantSubscriptionRequiredError || e instanceof TenantEntitlementConfigError) {
       return NextResponse.json({ error: e.message, code: e.code }, { status: 403 });
