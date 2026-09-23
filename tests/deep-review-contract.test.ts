@@ -81,6 +81,62 @@ describe("deep production review contracts", () => {
     expect(tx).toContain("SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms");
   });
 
+  it("requires printer freshness and active billing entitlement at every delivery boundary", async () => {
+    const availability = await import("../src/lib/agent-availability");
+    const now = new Date("2026-09-24T00:00:00.000Z");
+    const fresh = new Date(now.getTime() - 30_000);
+    const stale = new Date(now.getTime() - 120_000);
+
+    expect(availability.isPrinterObservationFresh(fresh, now)).toBe(true);
+    expect(availability.isPrinterObservationFresh(stale, now)).toBe(false);
+    expect(
+      availability.getEffectivePrinterStatus(
+        { lifecycle: "active", status: "online", lastSeenAt: fresh },
+        { lifecycle: "active", status: "online", lastSeenAt: fresh },
+        now,
+      ),
+    ).toBe("online");
+    expect(
+      availability.getEffectivePrinterStatus(
+        { lifecycle: "active", status: "online", lastSeenAt: stale },
+        { lifecycle: "active", status: "online", lastSeenAt: fresh },
+        now,
+      ),
+    ).toBe("offline");
+    expect(
+      availability.getEffectivePrinterStatus(
+        { lifecycle: "active", status: "online" },
+        { lifecycle: "active", status: "online", lastSeenAt: fresh },
+        now,
+      ),
+    ).toBe("offline");
+
+    const wsClaim = read("src/lib/job-delivery.ts");
+    const pollClaim = read("src/app/api/agent/jobs/route.ts");
+    for (const source of [wsClaim, pollClaim]) {
+      expect(source).toContain("printerStaleThresholdSeconds");
+      expect(source).toContain("pr.last_seen_at IS NOT NULL");
+      expect(source).toContain("pr.last_seen_at > now() - make_interval");
+      expect(source).toContain("FROM tenant_subscriptions ts");
+      expect(source).toContain("ts.status IN ('trialing', 'active', 'past_due')");
+      expect(source).toContain("ts.status = 'past_due'");
+      expect(source).toContain("COALESCE(ts.entitlement_blocked, false) = false");
+      expect(source).toContain("ts.current_period_end > now()");
+    }
+
+    // The poll candidate CTEs must filter invalid rows before LIMIT is applied;
+    // otherwise a page full of stale/revoked candidates can starve healthy work.
+    expect((pollClaim.match(/WITH stale_candidates|queued_candidates|claimable/g) ?? []).length).toBe(3);
+    expect((pollClaim.match(/pr\.last_seen_at > now\(\) - make_interval/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("keeps the Odoo printer inventory status tied to its observed freshness", () => {
+    const source = read("src/app/api/odoo/printers/route.ts");
+    expect(source).toContain("lastSeenAt: printers.lastSeenAt");
+    expect(source).toContain("lastSeenAt: row.lastSeenAt");
+    expect(source).toContain("getEffectivePrinterStatus(");
+  });
+
   it("redacts explicit claim correlation fields in the logger", () => {
     const source = read("src/lib/log.ts");
     expect(source).toContain('if (key === "claimId" || key === "claim_id")');
@@ -121,6 +177,16 @@ describe("deep production review contracts", () => {
     expect(upgradeSource).toContain("now = performance.now()");
     expect(upgradeSource).toContain("SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms");
     expect(upgradeSource).not.toMatch(/reserveWsUpgradeAttempt[\s\S]{0,700}const now = new Date\(\)/);
+  });
+
+  it("keeps Odoo Company/Branch agent scope fail-closed at the model boundary", () => {
+    const source = read("odoo_addons/print_gateway/models/runtime_assignment.py");
+    expect(source).toContain('("branch_id", "=", branch.id)');
+    expect(source).toContain('("branch_id", "=", False)');
+    expect(source).toContain('record.branch_id.parent_id != record.company_id');
+    expect(source).toContain('record.branch_id.parent_id != record.company_id');
+    expect(source).toContain('record.company_id.parent_id');
+    expect(source).toContain("self.assigned_agent_ids(company, branch)");
   });
 
   it("submits explicit Odoo retries only after their durable row commits", () => {
