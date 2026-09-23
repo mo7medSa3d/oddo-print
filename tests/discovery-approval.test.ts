@@ -228,6 +228,7 @@ suite("discovery trust and approval flow", () => {
       ipAddress: "192.168.10.60", port: 9100, deviceName: "Receipt A",
     }]);
     expect(first.status).toBe(200);
+    expect((await first.json()).inserted).toBe(1);
 
     const secondDiscovery = await createDiscoverySession("disc-sync-second");
     const second = await agentRequest(secondDiscovery, [{
