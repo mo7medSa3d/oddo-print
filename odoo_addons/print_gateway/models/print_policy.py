@@ -210,6 +210,22 @@ class PrintGatewayPolicy(models.Model):
 
 
 
+    @api.constrains("company_id", "branch_id", "binding_id")
+    def _check_binding_scope(self):
+        for policy in self:
+            binding = policy.binding_id
+            if not binding:
+                continue
+            if policy.company_id.parent_id:
+                raise ValidationError(_("Odoo Company must be a root company, not a branch."))
+            if binding.company_id != policy.company_id:
+                raise ValidationError(_("Target Binding must belong to the same Odoo Company as the Policy."))
+            if policy.branch_id:
+                if binding.branch_id != policy.branch_id:
+                    raise ValidationError(_("A Branch Policy must use a Binding for that exact Branch."))
+            elif binding.branch_id:
+                raise ValidationError(_("A Company Policy must use a company-wide Binding, not a Branch Binding."))
+
     @api.constrains("action_type", "report_id", "raw_template", "raw_protocol", "domain_filter", "model_id", "event_type", "binding_id")
     def _check_action_configuration(self):
         for policy in self:
