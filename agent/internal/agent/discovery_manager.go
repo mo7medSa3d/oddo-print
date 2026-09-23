@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"crypto/sha256"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -149,6 +150,11 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string)
 			uri = di.Endpoint
 		}
 		dev := map[string]interface{}{
+			// Keep the discovery row identity stable across repeated scans, while
+			// scoping it to this Agent so two Agents observing similar hardware
+			// cannot collide on the Gateway's global discovery-device ID.
+			"id":          discoveryDeviceID(a.cfg.Agent.ID, di.ID),
+			"stableId":    di.ID,
 			"source":      sources,
 			"protocol":    di.Protocol,
 			"ipAddress":   di.NetworkAddress,
@@ -208,6 +214,12 @@ func discoveryVerification(di printer.DeviceInfo) string {
 	return verification
 }
 
+func discoveryDeviceID(agentID, stableID string) string {
+	key := "agent-discovery:" + agentID + ":" + stableID
+	h := sha256.Sum256([]byte(key))
+	return fmt.Sprintf("dev_%x", h[:16])
+}
+
 func (a *Agent) reportDiscoveryResult(ctx context.Context, discoveryID, status string, devices []map[string]interface{}) {
 	payload := map[string]interface{}{
 		"discoveryId": discoveryID,
@@ -221,23 +233,49 @@ func (a *Agent) reportDiscoveryResult(ctx context.Context, discoveryID, status s
 		return
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewReader(body))
-	if err != nil {
-		log.Printf("[discovery] failed to build report request for %s: %v", discoveryID, err)
-		return
-	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s:%s", a.cfg.Agent.ID, a.cfg.Agent.Secret))
-	req.Header.Set("Content-Type", "application/json")
+	backoff := 250 * time.Millisecond
+	const maxAttempts = 5
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewReader(body))
+		if err != nil {
+			log.Printf("[discovery] failed to build report request for %s: %v", discoveryID, err)
+			return
+		}
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s:%s", a.cfg.Agent.ID, a.cfg.Agent.Secret))
+		req.Header.Set("Content-Type", "application/json")
 
-	resp, err := a.client.Do(req)
-	if err != nil {
-		log.Printf("[discovery] failed to report results for %s: %v", discoveryID, err)
-		return
+		resp, err := a.client.Do(req)
+		if err == nil {
+			statusCode := resp.StatusCode
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8<<10))
+			_ = resp.Body.Close()
+			if statusCode >= 200 && statusCode < 300 {
+				log.Printf("[discovery] session %s completed: %d devices, status %s", discoveryID, len(devices), status)
+				return
+			}
+			// 4xx responses are authoritative state/auth/input failures and
+			// retrying them only amplifies load. 429/5xx remain recoverable.
+			if statusCode < 500 && statusCode != http.StatusTooManyRequests {
+				log.Printf("[discovery] gateway rejected results for %s: HTTP %d", discoveryID, statusCode)
+				return
+			}
+			log.Printf("[discovery] transient gateway response for %s: HTTP %d (attempt %d/%d)", discoveryID, statusCode, attempt, maxAttempts)
+		} else {
+			log.Printf("[discovery] failed to report results for %s (attempt %d/%d): %v", discoveryID, attempt, maxAttempts, err)
+		}
+		if attempt == maxAttempts {
+			return
+		}
+		wait := backoff
+		if next := backoff * 2; next <= 4*time.Second {
+			backoff = next
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("[discovery] gateway rejected results for %s: HTTP %d", discoveryID, resp.StatusCode)
-		return
-	}
-	log.Printf("[discovery] session %s completed: %d devices, status %s", discoveryID, len(devices), status)
 }
