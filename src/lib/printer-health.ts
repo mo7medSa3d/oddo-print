@@ -57,7 +57,9 @@ const FRESHNESS_THRESHOLD_MS = 90_000;
 function isFresh(lastSeenAt?: Date | null, now = gatewayNow()): { fresh: boolean; ageMs?: number } {
   if (!lastSeenAt) return { fresh: false };
   const ageMs = now.getTime() - new Date(lastSeenAt).getTime();
-  return { fresh: ageMs <= FRESHNESS_THRESHOLD_MS, ageMs };
+  // Future-dated observations are clock-invalid and must never be treated as
+  // fresh. Execution gates use the same rule, so health and delivery converge.
+  return { fresh: ageMs >= 0 && ageMs <= FRESHNESS_THRESHOLD_MS, ageMs };
 }
 
 /**
