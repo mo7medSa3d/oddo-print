@@ -116,7 +116,7 @@ Multi-destination fan-out is supported (same order → receipt printer AND kitch
 
 Each root company needs one `gateway_config` record with:
 - `gateway_url`: The Gateway's public URL
-- `api_key`: An API key created in the Gateway dashboard
+- `gateway_api_key`: The installation API key created in the Gateway dashboard
 - `enabled`: Boolean flag
 
 The config is tested via the Gateway's `/api/odoo/health` endpoint during setup.
