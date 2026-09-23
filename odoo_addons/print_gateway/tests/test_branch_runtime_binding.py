@@ -5,6 +5,7 @@ from unittest.mock import patch
 # Hard imports: this module only runs under the Odoo test runner; a fallback
 # previously degraded the whole file into silent skips with a green exit.
 from odoo.exceptions import ValidationError
+from werkzeug.exceptions import Forbidden
 from odoo.tests.common import TransactionCase
 
 
@@ -179,6 +180,36 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding_root._compute_effective_company_id()
         self.assertEqual(binding_root.effective_company_id, self.company)
 
+
+    def test_runtime_printer_discovery_rejects_agent_assigned_to_another_branch(self):
+        second_branch = self.env["res.company"].create({"name": "Gateway Branch 2", "parent_id": self.company.id})
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": "agent-a",
+            "enabled": True,
+        })
+        assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": second_branch.id,
+            "runtime_agent_id": "agent-b",
+            "enabled": True,
+        })
+
+        from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
+        controller = PrintGatewayRuntimePrinterController()
+        with patch.object(controller, "_require_runtime_admin"), \
+             patch.object(controller, "_scope", return_value=(self.company, self.branch)), \
+             patch.object(controller, "_get_config", return_value=(self.config, self.company)), \
+             patch("odoo.addons.print_gateway.controllers.runtime_printers.requests.get") as remote_get:
+            with self.assertRaises(Forbidden):
+                controller.runtime_printers(
+                    company_id=self.company.id,
+                    branch_id=self.branch.id,
+                    agent_id="agent-b",
+                )
+            remote_get.assert_not_called()
 
     def test_runtime_agent_assignment_scope_is_exact_to_selected_branch(self):
         assignment_model = self.env["print_gateway.runtime_agent_assignment"]
