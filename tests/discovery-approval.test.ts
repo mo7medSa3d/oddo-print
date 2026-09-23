@@ -221,6 +221,56 @@ suite("discovery trust and approval flow", () => {
   });
 
 
+  it("converges repeated discovery scans on one stable device identity", async () => {
+    const firstDiscovery = await createDiscoverySession("disc-sync-first");
+    const first = await agentRequest(firstDiscovery, [{
+      id: "dev_agent_scoped_1", stableId: "printer_net_abcdef", source: ["raw"], protocol: "raw",
+      ipAddress: "192.168.10.60", port: 9100, deviceName: "Receipt A",
+    }]);
+    expect(first.status).toBe(200);
+
+    const secondDiscovery = await createDiscoverySession("disc-sync-second");
+    const second = await agentRequest(secondDiscovery, [{
+      id: "dev_agent_scoped_1", stableId: "printer_net_abcdef", source: ["raw", "snmp"], protocol: "raw",
+      ipAddress: "192.168.10.60", port: 9100, deviceName: "Receipt Renamed",
+    }]);
+    expect(second.status).toBe(200);
+    expect((await second.json()).inserted).toBe(0);
+    expect((await second.json()).updated).toBe(1);
+
+    const rows = await pool().query(
+      `SELECT id, discovery_id, identity_key, device_name FROM discovered_devices
+       WHERE tenant_id = $1 AND agent_id = $2`,
+      [f.tenantId, f.agentId],
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toMatchObject({
+      id: "dev_agent_scoped_1",
+      discovery_id: "disc-sync-second",
+      identity_key: "printer_net_abcdef",
+      device_name: "Receipt Renamed",
+    });
+  });
+
+  it("accepts valid discovery devices when another candidate in the same report is invalid", async () => {
+    const discoveryId = await createDiscoverySession("disc-partial-report");
+    const res = await agentRequest(discoveryId, [
+      { id: "device-valid-1", stableId: "printer_net_valid", protocol: "raw", ipAddress: "192.168.10.61", port: 9100, deviceName: "Valid Printer" },
+      { id: "device-invalid-1", protocol: "raw", ipAddress: "8.8.8.8", port: 9100, deviceName: "Rejected Printer" },
+    ]);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.skipped).toHaveLength(1);
+    expect(body.skipped[0]).toMatchObject({ id: "device-invalid-1" });
+
+    const session = await pool().query(`SELECT status, stats FROM discovery_sessions WHERE id = $1`, [discoveryId]);
+    expect(session.rows[0].status).toBe("partial");
+    expect(session.rows[0].stats).toMatchObject({ candidates: 2, inserted: 1, skipped: 1 });
+
+    const devices = await pool().query(`SELECT id FROM discovered_devices WHERE discovery_id = $1`, [discoveryId]);
+    expect(devices.rows).toEqual([{ id: "device-valid-1" }]);
+  });
   it("serializes concurrent provisioning so one candidate cannot create two printers", async () => {
     const discoveryId = await createDiscoverySession();
     await agentRequest(discoveryId, [{
