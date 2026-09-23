@@ -304,6 +304,8 @@ jobs:
               -e ODOO_PRINT_GATEWAY_CREDENTIAL_ACTIVE_VERSION=1 \
               -e ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64="$credential_key" \
               -v "$GITHUB_WORKSPACE/odoo_addons:/mnt/extra-addons:ro" \
+              -v "$GITHUB_WORKSPACE/agent:/mnt/agent:ro" \
+              -v "$GITHUB_WORKSPACE/src:/mnt/src:ro" \
               odoo:19.0 \
               odoo \
                 --database=odoo19_test \
