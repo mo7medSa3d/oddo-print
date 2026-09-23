@@ -34,7 +34,8 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(route).not.toContain("tenants.lifecycle");
 
     const auth = read("src/lib/odoo-auth.ts");
-    expect(auth).toContain("requireActiveTenant?: boolean");    expect(auth).toContain("readOnlyUntil");
+    expect(auth).toContain("requireActiveTenant?: boolean");
+    expect(auth).toContain("readOnlyUntil");
     expect(auth).toContain("readOnly");
     expect(auth).toContain("row.revokedAt");
 
