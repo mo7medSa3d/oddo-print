@@ -197,6 +197,23 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn('widget="gateway_runtime_agent_binding"', view_source)
         self.assertNotIn("assignment_only", view_source)
 
+    def test_automated_hooks_delegate_to_one_policy_dispatcher(self):
+        for filename, trigger in (
+            ("account_move.py", "invoice_posted"),
+            ("stock_picking.py", "picking_validated"),
+            ("pos_order.py", "pos_order_paid"),
+        ):
+            source = (MODELS / filename).read_text(encoding="utf-8")
+            self.assertIn("dispatch_for_record", source)
+            self.assertNotIn("resolve_for_record(", source)
+            self.assertNotIn("effective_target_key(", source)
+            self.assertNotIn("create_and_route(", source)
+            self.assertIn(trigger, source)
+
+        policy_source = (MODELS / "print_policy.py").read_text(encoding="utf-8")
+        self.assertIn("def dispatch_for_record", policy_source)
+        self.assertIn("_logger = logging.getLogger(__name__)", policy_source)
+
     def test_agent_widget_clears_previous_printer_on_agent_change(self):
         source = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
         self.assertIn('updateData.printer_id = false', source)
