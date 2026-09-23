@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { printJobs } from "../../../../../db/schema";
-import { isOdooKeyAllowedForDocumentType, validateOdooKey } from "../../../../../lib/odoo-auth";
+import { validateOdooKey } from "../../../../../lib/odoo-auth";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
 import { and, inArray, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -55,8 +55,7 @@ export async function POST(req: Request) {
     ),
   });
 
-  const allowedRows = rows.filter((row) => isOdooKeyAllowedForDocumentType(odoo, row.documentType, "read"));
-  const jobs = allowedRows.map(responseForRow);
+  const jobs = rows.map(responseForRow);
 
   return NextResponse.json({ jobs }, { status: 200 });
 }

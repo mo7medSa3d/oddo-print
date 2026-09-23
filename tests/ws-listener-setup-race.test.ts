@@ -29,6 +29,11 @@ suite("PostgreSQL notification listener setup race", () => {
   });
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    const begin = Date.now();
+    while (__getNotificationListenerPidForTests() !== null && Date.now() - begin < 2_000) {
+      await sleep(25);
+    }
+    expect(__getNotificationListenerPidForTests()).toBeNull();
     await closePool();
   });
 

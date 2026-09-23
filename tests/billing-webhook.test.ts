@@ -46,7 +46,7 @@ async function createPlan(id: string, name: string, stripePriceId: string) {
     stripePriceId,
     currency: "usd",
     interval: "month",
-    entitlements: { maxPrinters: 5, maxAgents: 2 },
+    entitlements: { max_agents: 2, max_printers: 5, max_jobs_per_minute: 300, max_concurrent_jobs: 32, max_prints_per_period: 20 },
   });
 }
 
@@ -119,6 +119,7 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
           id: subscriptionId,
           customer: customerId,
           status: "active",
+          current_period_start: eventCreatedTs - 30 * 86400,
           current_period_end: eventCreatedTs + 30 * 86400,
           cancel_at_period_end: false,
           items: { data: [{ price: { id: stripePriceId } }] },
@@ -150,6 +151,8 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     expect(storedSub).toBeDefined();
     expect(storedSub?.status).toBe("active");
     expect(storedSub?.stripeLastEventCreatedAt?.getTime()).toBe(eventCreatedTs * 1000);
+    expect(storedSub?.currentPeriodStart?.getTime()).toBe((eventCreatedTs - 30 * 86400) * 1000);
+    expect(storedSub?.currentPeriodEnd?.getTime()).toBe((eventCreatedTs + 30 * 86400) * 1000);
 
     // Assert audit event recorded
     const auditLogs = await db.query.auditEvents.findMany({
@@ -158,6 +161,51 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     expect(auditLogs.some((a) => a.action === "billing.customer.subscription.updated" && a.resourceId === eventId)).toBe(true);
   });
 
+
+  it("1b. preserves the stored period start when Stripe omits current_period_start", async () => {
+    const tenantId = `tenant_${nanoid(8)}`;
+    const planId = `plan_${nanoid(8)}`;
+    const stripePriceId = `price_${nanoid(8)}`;
+    const customerId = `cus_${nanoid(8)}`;
+    const subscriptionId = `sub_${nanoid(8)}`;
+    const eventId = `evt_${nanoid(8)}`;
+
+    await createTenant(tenantId);
+    await createPlan(planId, "Fallback Period Plan", stripePriceId);
+    await createSubscription(tenantId, planId, customerId, subscriptionId, "active");
+
+    const before = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, tenantId),
+    });
+    expect(before?.currentPeriodStart).toBeInstanceOf(Date);
+
+    const eventCreatedTs = Math.floor(Date.now() / 1000);
+    const payload = JSON.stringify({
+      id: eventId,
+      type: "customer.subscription.updated",
+      created: eventCreatedTs,
+      data: {
+        object: {
+          id: subscriptionId,
+          customer: customerId,
+          status: "active",
+          current_period_end: eventCreatedTs + 30 * 86400,
+          cancel_at_period_end: false,
+          items: { data: [{ price: { id: stripePriceId } }] },
+          metadata: { tenant_id: tenantId },
+        },
+      },
+    });
+
+    const res = await postWebhook(payload);
+    expect(res.status).toBe(200);
+
+    const after = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, tenantId),
+    });
+    expect(after?.currentPeriodStart?.getTime()).toBe(before?.currentPeriodStart?.getTime());
+    expect(after?.currentPeriodEnd?.getTime()).toBe((eventCreatedTs + 30 * 86400) * 1000);
+  });
   it("repeated processed subscription events are acknowledged without another Stripe retrieval", async () => {
     const tenantId = `tenant_${nanoid(8)}`;
     const planId = `plan_${nanoid(8)}`;
@@ -392,13 +440,14 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     await createPlan(planId, "Starter Plan", stripePriceId);
     await createSubscription(tenantId, planId, customerId, subscriptionId, "trialing");
 
-    const statusMappings: Array<{ stripeStatus: string; expectedDbStatus: "trialing" | "active" | "past_due" | "paused" | "cancelled" }> = [
+    const statusMappings: Array<{ stripeStatus: string; expectedDbStatus: "trialing" | "active" | "past_due" | "incomplete" | "incomplete_expired" | "unpaid" | "paused" | "cancelled" }> = [
       { stripeStatus: "trialing", expectedDbStatus: "trialing" },
       { stripeStatus: "active", expectedDbStatus: "active" },
       { stripeStatus: "past_due", expectedDbStatus: "past_due" },
-      { stripeStatus: "unpaid", expectedDbStatus: "paused" },
+      { stripeStatus: "unpaid", expectedDbStatus: "unpaid" },
       { stripeStatus: "paused", expectedDbStatus: "paused" },
-      { stripeStatus: "incomplete", expectedDbStatus: "paused" },
+      { stripeStatus: "incomplete", expectedDbStatus: "incomplete" },
+      { stripeStatus: "incomplete_expired", expectedDbStatus: "incomplete_expired" },
       { stripeStatus: "canceled", expectedDbStatus: "cancelled" },
       { stripeStatus: "cancelled", expectedDbStatus: "cancelled" },
     ];

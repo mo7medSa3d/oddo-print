@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     return NextResponse.json(await createAgent(parsed.data.name), { status: 201 });
   } catch (error) {
     if (error instanceof ActionError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+      return NextResponse.json({ error: error.message, code: error.code ?? "ACTION_ERROR", ...(error.details ?? {}) }, { status: error.status });
     }
     logError("agent.create_failed", { error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

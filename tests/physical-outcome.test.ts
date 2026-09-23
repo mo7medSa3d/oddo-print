@@ -4,14 +4,17 @@ import {
   isLateSuccessAllowed,
   PHYSICAL_OUTCOMES,
 } from "../src/lib/job-status";
+import { jobLabel, jobGuidance } from "../src/shared/job-vocabulary";
 
 describe("physical print outcome semantics", () => {
   it("defines the three physical outcome values", () => {
     expect(PHYSICAL_OUTCOMES).toEqual(["not_printed", "printed", "unknown"]);
   });
 
-  it("classifies a successful logical job as physically printed", () => {
-    expect(derivePhysicalOutcome("success", null)).toBe("printed");
+  it("does not treat transport success as proof of physical paper output", () => {
+    expect(derivePhysicalOutcome("success", null)).toBe("unknown");
+    expect(jobLabel("success", "unknown")).toBe("Delivered to printer");
+    expect(jobGuidance("success", "unknown")).toContain("Physical paper output is not independently verified");
   });
 
   it("does not confuse an ordinary failed job with an unknown physical result", () => {

@@ -61,6 +61,10 @@ if (process.env.NODE_ENV === "production" && httpTestMode && (process.env.COOKIE
 }
 
 if (process.env.NODE_ENV === "production") {
+  const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID")?.trim();
+  if (!platformTenantId || platformTenantId === "<required-platform-tenant-id>") {
+    throw new Error("Refusing production startup: PLATFORM_TENANT_ID must be configured with the real platform workspace ID so the platform tenant cannot be suspended or deleted.");
+  }
   assertRealSecret("GATEWAY_JWT_SECRET", runtimeSecret("GATEWAY_JWT_SECRET"), 32);
   if (trustProxyEnabled()) {
     const proxySecret = assertRealSecret("TRUST_PROXY_SECRET", runtimeSecret("TRUST_PROXY_SECRET"), 32);

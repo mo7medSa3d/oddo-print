@@ -414,6 +414,34 @@
       "when": 1790000000058,
       "tag": "0058_scope_odoo_activation_to_api_key",
       "breakpoints": false
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1790000000059,
+      "tag": "0059_remove_api_key_restrictions",
+      "breakpoints": false
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1790100000060,
+      "tag": "0060_preserve_stripe_subscription_states",
+      "breakpoints": false
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1790100000061,
+      "tag": "0061_print_usage_quota",
+      "breakpoints": false
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1790100000062,
+      "tag": "0062_subscription_period_start_default",
+      "breakpoints": false
     }
   ]
 }

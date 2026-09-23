@@ -6,9 +6,10 @@
 //   failed, expired. Nothing else is ever persisted (PostgreSQL CHECK) and
 //   nothing else is accepted on the agent API (isJobStatus).
 // - Physical outcome metadata is CLOSED: printed, not_printed, unknown.
-//   success => printed; any UNKNOWN marker prefix => unknown; else
-//   not_printed (derivePhysicalOutcome). There is no "maybe printed" or
-//   "partially printed" outcome: ambiguity is always exactly `unknown`.
+//   Transport-level `success` does NOT prove paper physically printed; it
+//   remains `unknown` until a transport supplies explicit physical proof.
+//   Any UNKNOWN marker prefix is also `unknown`; ordinary pre-dispatch
+//   failures are `not_printed`.
 // - Odoo maps a Gateway `failed` whose error starts with any
 //   _GATEWAY_UNKNOWN_MARKERS prefix to outbox status 'unknown' (never
 //   'failed', which would read as "definitely not printed").
@@ -60,7 +61,9 @@ export const PHYSICAL_OUTCOME_UNKNOWN_MARKERS = [
 ] as const;
 
 export function derivePhysicalOutcome(status: JobStatus | string, error: string | null | undefined): PhysicalOutcome {
-  if (status === "success") return "printed";
+  // Current transports prove successful submission/execution, not paper
+  // output. Never infer physical output from an ACK/WritePrinter result.
+  if (status === "success") return "unknown";
   if (PHYSICAL_OUTCOME_UNKNOWN_MARKERS.some((marker) => (error ?? "").startsWith(marker))) return "unknown";
   return "not_printed";
 }
@@ -146,12 +149,12 @@ export const LATE_SUCCESS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Physical grace window for prints that completed right at the TTL
- * boundary. An agent reporting success on a recently expired job (expiry
- * within this window) is recorded as success with physical outcome
- * PRINTED_POST_EXPIRATION instead of a blind 409 Conflict.
+ * boundary. An agent reporting successful execution on a recently expired
+ * job (expiry within this window) is recorded as success with physical output
+ * still unverified instead of a blind 409 Conflict.
  */
 export const EXPIRED_LATE_SUCCESS_GRACE_MS = 5 * 60 * 1000;
-export const PRINTED_POST_EXPIRATION_MARKER = "PRINTED_POST_EXPIRATION";
+export const LATE_SUCCESS_POST_EXPIRATION_MARKER = "LATE_SUCCESS_POST_EXPIRATION";
 
 /**
  * Raw `db.execute()` rows surface naive UTC timestamp strings while typed
@@ -193,8 +196,9 @@ export interface ExpiredLateSuccessCandidate {
 }
 
 /**
- * An expired job may still be flipped to success when the agent proves the
- * physical print completed within the grace window after TTL expiry.
+ * An expired job may still be flipped to success when the agent reports the
+ * job execution completed within the grace window after TTL expiry. Physical
+ * paper output remains unverified unless a future transport supplies proof.
  * The window is measured from the database TTL (expiresAt), not from when
  * the sweeper happened to terminalize the row.
  */

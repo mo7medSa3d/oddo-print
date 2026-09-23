@@ -19,7 +19,7 @@ The raw Odoo key is returned only when generated. Gateway persists only its cryp
 
 ## `GET /api/odoo/health`
 
-Authenticated with the Odoo installation key. Returns `{ "ok": true }` only for a valid, non-revoked key. This endpoint is used by the Odoo **Test Connection** button.
+Authenticated with the Odoo installation key. Returns the authenticated integration health, including its replicated Odoo activation state (`enabled`). This endpoint is used by the Odoo **Test Connection** button.
 
 ## `GET /api/odoo/printers`
 
@@ -46,7 +46,7 @@ Request:
 
 No Gateway branch ID, Gateway destination ID, Gateway document-type ID, agent provisioning data, or printer-creation data is accepted.
 
-The Gateway validates the Odoo key, payload, expiration and idempotency before queueing the runtime job. A created Odoo-originated job is stamped with the authenticated API-key identity. Status lookup is scoped to that API key; idempotency remains tenant-scoped so credential rotation can safely replay an existing logical operation. Internal Manager-created jobs may omit that identity and are not exposed through this Odoo status endpoint.
+The Gateway validates the Odoo key, payload, expiration and idempotency before queueing the runtime job. The Odoo installation key is a full read/write credential for the tenant and is not restricted by document type. A created Odoo-originated job is stamped with the authenticated API-key identity. Status lookup is scoped to that API key; idempotency remains tenant-scoped so credential rotation can safely replay an existing logical operation. Internal Manager-created jobs may omit that identity and are not exposed through this Odoo status endpoint.
 
 `201` means a new job was accepted. `200` means an idempotent retry matched an existing job and returns that job identity. A reused key with different routing/payload data returns `409 IDEMPOTENCY_CONFLICT`.
 
@@ -93,7 +93,7 @@ Response:
   "jobs": [
     {
       "jobId": "job-1",
-      "status": "completed",
+      "status": "success",
       "printerId": "runtime-printer-id",
       "agentId": "agent-id",
       "destination": "Main POS",
@@ -106,4 +106,4 @@ Response:
   ]
 }
 ```
-Only jobs matching the authenticated installation key and authorized document types are returned.
+Only jobs matching the authenticated installation key are returned.

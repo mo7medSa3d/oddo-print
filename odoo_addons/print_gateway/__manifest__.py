@@ -2,17 +2,17 @@
 {
     'name': 'Yasser Print Gateway',
     'version': '19.0.2.6.0',
-    'summary': 'Silent enterprise printing for Odoo ERP through Yasser Gateway',
+    'summary': 'Reliable silent printing for Odoo through Yasser Print Gateway',
     'description': """
-Yasser Print Gateway — Integration Only
+Yasser Print Gateway connects Odoo with the printers used by your business.
 
-Odoo owns business records and print intent. This module stores the Yasser Gateway
-connection, Odoo-owned print bindings, branch-to-runtime-agent assignments,
-and a durable print outbox. The Gateway owns agents, runtime printers,
-heartbeats, and execution state.
+Manage your printing connection, branch devices, print rules, automated printing,
+and print activity from Odoo. Documents are sent to the configured printer for
+the correct company and branch, while the printing service tracks delivery and
+reports the result back to Odoo.
 
-Gateway-enabled printing is silent: there is no browser print fallback. Native
-Odoo printing occurs only when Gateway printing is explicitly disabled.
+Gateway printing is silent: when a print rule is active, Odoo sends the document
+to the printing service without opening the browser print dialog.
     """,
     'author': 'Yasser',
     'website': 'https://github.com/mo7medSa3d/printer-repo',

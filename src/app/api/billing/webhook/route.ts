@@ -6,13 +6,16 @@ import { eq, sql } from "drizzle-orm";
 import { runtimeSecret } from "../../../../lib/runtime-secret";
 import { stripeRetrieve, verifyStripeSignature } from "../../../../lib/stripe";
 import { writeAuditEvent } from "../../../../lib/audit";
+import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
-function statusOf(status: string): "trialing" | "active" | "past_due" | "paused" | "cancelled" {
+function statusOf(status: string): "trialing" | "active" | "past_due" | "incomplete" | "incomplete_expired" | "unpaid" | "paused" | "cancelled" {
   if (status === "trialing") return "trialing";
   if (status === "active") return "active";
   if (status === "past_due") return "past_due";
-  if (status === "unpaid") return "paused";
-  if (status === "paused" || status === "incomplete") return "paused";
+  if (status === "incomplete") return "incomplete";
+  if (status === "incomplete_expired") return "incomplete_expired";
+  if (status === "unpaid") return "unpaid";
+  if (status === "paused") return "paused";
   return "cancelled";
 }
 
@@ -55,6 +58,9 @@ function subscriptionIdForEvent(eventType: string, object: Record<string, unknow
 }
 
 export async function POST(req: Request) {
+  if (hasBodyOverLimit(req, 2 * 1024 * 1024)) {
+    return NextResponse.json({ error: "Webhook payload too large" }, { status: 413 });
+  }
   const raw = await req.text();
   const sig = req.headers.get("stripe-signature") ?? "";
   const secret = runtimeSecret("STRIPE_WEBHOOK_SECRET");
@@ -211,7 +217,7 @@ export async function POST(req: Request) {
           const current = currentResult.rows[0] as {
             stripeSubscriptionId?: string | null;
             stripeCustomerId?: string | null;
-            status?: "trialing" | "active" | "past_due" | "paused" | "cancelled";
+            status?: "trialing" | "active" | "past_due" | "incomplete" | "incomplete_expired" | "unpaid" | "paused" | "cancelled";
             stripeLastEventCreatedAt?: Date | string | null;
           } | undefined;
           const differentSubscription = Boolean(current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId);
@@ -281,6 +287,12 @@ export async function POST(req: Request) {
             stripeCustomerId: current?.stripeCustomerId ?? (customerId ?? null),
             checkoutStatus: "completed",
             checkoutSessionId: checkoutSessionId ?? null,
+            currentPeriodStart: typeof checkoutSubscription?.current_period_start === "number"
+              ? new Date(checkoutSubscription.current_period_start * 1000)
+              : undefined,
+            currentPeriodEnd: typeof checkoutSubscription?.current_period_end === "number"
+              ? new Date(checkoutSubscription.current_period_end * 1000)
+              : undefined,
             updatedAt: new Date(),
           }).where(eq(tenantSubscriptions.tenantId, tenantId));
         }
@@ -296,6 +308,7 @@ export async function POST(req: Request) {
                  checkout_status AS "checkoutStatus",
                  checkout_plan_id AS "checkoutPlanId",
                  checkout_idempotency_key AS "checkoutIdempotencyKey",
+                 current_period_start AS "currentPeriodStart",
                  current_period_end AS "currentPeriodEnd",
                  cancel_at_period_end AS "cancelAtPeriodEnd",
                  plan_id AS "planId",
@@ -308,10 +321,11 @@ export async function POST(req: Request) {
           tenantId?: string;
           stripeSubscriptionId?: string | null;
           stripeCustomerId?: string | null;
-          status?: "trialing" | "active" | "past_due" | "paused" | "cancelled";
+          status?: "trialing" | "active" | "past_due" | "incomplete" | "incomplete_expired" | "unpaid" | "paused" | "cancelled";
           checkoutStatus?: "none" | "creating" | "open" | "completed";
           checkoutPlanId?: string | null;
           checkoutIdempotencyKey?: string | null;
+          currentPeriodStart?: Date | string | null;
           currentPeriodEnd?: Date | string | null;
           cancelAtPeriodEnd?: boolean;
           planId?: string;
@@ -339,14 +353,19 @@ export async function POST(req: Request) {
             eventCreatedAt.getTime() > storedStripeEventCreatedAtMs;
           if (sameOrUnboundSubscription || newerReplacementSubscription) {
             const nextStatus = typeof stateObj.status === "string" ? statusOf(stateObj.status) : tenantRow.status;
+            const currentPeriodStart = typeof stateObj.current_period_start === "number"
+              ? new Date(stateObj.current_period_start * 1000)
+              : parseDbTime(tenantRow.currentPeriodStart);
+            if (!currentPeriodStart) throw new Error("subscription current_period_start is missing or invalid");
             await tx.update(tenantSubscriptions).set({
               stripeCustomerId: typeof stateObj.customer === "string" ? stateObj.customer : tenantRow.stripeCustomerId,
               stripeSubscriptionId: subId || tenantRow.stripeSubscriptionId,
               status: nextStatus,
+              currentPeriodStart,
               currentPeriodEnd: typeof stateObj.current_period_end === "number" ? new Date(stateObj.current_period_end * 1000) : parseDbTime(tenantRow.currentPeriodEnd),
               cancelAtPeriodEnd: stateObj.cancel_at_period_end === true,
               planId: plan?.id ?? tenantRow.planId,
-              ...(nextStatus === "cancelled"
+              ...(nextStatus === "cancelled" || nextStatus === "incomplete_expired"
                 ? {
                     checkoutStatus: "none" as const,
                     checkoutPlanId: null,

@@ -67,6 +67,65 @@ export async function stripeRetrieve(path:string): Promise<Record<string, unknow
   return object;
 }
 
+export type StripePriceBinding = {
+  id: string;
+  active: boolean;
+  type: string | null;
+  currency: string | null;
+  interval: string | null;
+  productId: string | null;
+};
+
+export class StripePriceBindingError extends Error {
+  constructor(
+    message: string,
+    public readonly code: "STRIPE_PRICE_INVALID" | "STRIPE_NOT_CONFIGURED" | "STRIPE_UNAVAILABLE",
+    public readonly status: 400 | 502 | 503,
+  ) {
+    super(message);
+  }
+}
+
+export async function validateStripePriceBinding(input: {
+  priceId: string;
+  currency: string;
+  interval: string;
+  productId?: string | null;
+  requireActive?: boolean;
+}): Promise<StripePriceBinding> {
+  let price: Record<string, unknown>;
+  try {
+    price = await stripeRetrieve(`prices/${encodeURIComponent(input.priceId)}`);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Stripe is not configured") {
+      throw new StripePriceBindingError("Stripe billing is not configured on this Gateway.", "STRIPE_NOT_CONFIGURED", 503);
+    }
+    throw new StripePriceBindingError("Stripe Price could not be verified right now.", "STRIPE_UNAVAILABLE", 502);
+  }
+  const recurring =
+    price.recurring && typeof price.recurring === "object" && !Array.isArray(price.recurring)
+      ? price.recurring as Record<string, unknown>
+      : null;
+  const productId = typeof price.product === "string" ? price.product : null;
+  const binding: StripePriceBinding = {
+    id: String(price.id),
+    active: price.active === true,
+    type: typeof price.type === "string" ? price.type : null,
+    currency: typeof price.currency === "string" ? price.currency.toLowerCase() : null,
+    interval: recurring && typeof recurring.interval === "string" ? recurring.interval : null,
+    productId,
+  };
+
+  if (binding.id !== input.priceId) throw new StripePriceBindingError("Stripe Price ID did not match the requested price.", "STRIPE_PRICE_INVALID", 400);
+  if (binding.type !== "recurring") throw new StripePriceBindingError("Stripe Price must be a recurring subscription price.", "STRIPE_PRICE_INVALID", 400);
+  if (input.requireActive !== false && !binding.active) throw new StripePriceBindingError("Stripe Price is inactive.", "STRIPE_PRICE_INVALID", 400);
+  if (binding.currency !== input.currency.toLowerCase()) throw new StripePriceBindingError("Plan currency does not match the Stripe Price.", "STRIPE_PRICE_INVALID", 400);
+  if (binding.interval !== input.interval) throw new StripePriceBindingError("Plan billing interval does not match the Stripe Price.", "STRIPE_PRICE_INVALID", 400);
+  if (input.productId && binding.productId !== input.productId) throw new StripePriceBindingError("Stripe Product ID does not match the Stripe Price.", "STRIPE_PRICE_INVALID", 400);
+
+  return binding;
+}
+
 export function verifyStripeSignature(payload:string, header:string, secret:string, toleranceSec=300): boolean {
   const parts=header.split(",").map(p=>p.split("=",2)); const ts=Number(parts.find(([k])=>k==="t")?.[1]); if(!Number.isFinite(ts)||Math.abs(Date.now()/1000-ts)>toleranceSec)return false;
   const provided=parts.filter(([k])=>k==="v1").map(([,v])=>v).filter(Boolean); if(provided.length===0)return false;

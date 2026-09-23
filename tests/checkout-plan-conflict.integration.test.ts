@@ -55,8 +55,8 @@ suite("billing checkout plan-conflict fence", () => {
     const planA = `plan_a_${nanoid(6)}`;
     const planB = `plan_b_${nanoid(6)}`;
     await db.insert(plans).values([
-      { id: planA, name: "Starter Monthly", stripePriceId: `price_a_${nanoid(6)}`, entitlements: { max_agents: 1 }, currency: "usd", interval: "month" },
-      { id: planB, name: "Scale Monthly", stripePriceId: `price_b_${nanoid(6)}`, entitlements: { max_agents: 10 }, currency: "usd", interval: "month" },
+      { id: planA, name: "Starter Monthly", stripePriceId: `price_a_${nanoid(6)}`, entitlements: { max_agents: 1, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 4, max_prints_per_period: 100 }, currency: "usd", interval: "month" },
+      { id: planB, name: "Scale Monthly", stripePriceId: `price_b_${nanoid(6)}`, entitlements: { max_agents: 10, max_printers: 25, max_jobs_per_minute: 300, max_concurrent_jobs: 16, max_prints_per_period: 1000 }, currency: "usd", interval: "month" },
     ]);
 
     const first = await checkout(checkoutRequest(planA));
@@ -87,7 +87,7 @@ suite("billing checkout plan-conflict fence", () => {
     const planA = `plan_a_${nanoid(6)}`;
     await db.insert(plans).values({
       id: planA, name: "Starter Monthly", stripePriceId: `price_a_${nanoid(6)}`,
-      entitlements: { max_agents: 1 }, currency: "usd", interval: "month",
+      entitlements: { max_agents: 1, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 4, max_prints_per_period: 100 }, currency: "usd", interval: "month",
     });
 
     const first = await checkout(checkoutRequest(planA));
@@ -105,8 +105,8 @@ suite("billing checkout plan-conflict fence", () => {
     const planA = `plan_a_${nanoid(6)}`;
     const planB = `plan_b_${nanoid(6)}`;
     await db.insert(plans).values([
-      { id: planA, name: "Starter Monthly", stripePriceId: `price_a_${nanoid(6)}`, entitlements: { max_agents: 1 }, currency: "usd", interval: "month" },
-      { id: planB, name: "Scale Monthly", stripePriceId: `price_b_${nanoid(6)}`, entitlements: { max_agents: 10 }, currency: "usd", interval: "month" },
+      { id: planA, name: "Starter Monthly", stripePriceId: `price_a_${nanoid(6)}`, entitlements: { max_agents: 1, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 4, max_prints_per_period: 100 }, currency: "usd", interval: "month" },
+      { id: planB, name: "Scale Monthly", stripePriceId: `price_b_${nanoid(6)}`, entitlements: { max_agents: 10, max_printers: 25, max_jobs_per_minute: 300, max_concurrent_jobs: 16, max_prints_per_period: 1000 }, currency: "usd", interval: "month" },
     ]);
 
     await checkout(checkoutRequest(planA));
@@ -131,8 +131,8 @@ suite("billing checkout plan-conflict fence", () => {
     const planA = `plan_a_${nanoid(6)}`;
     const planB = `plan_b_${nanoid(6)}`;
     await db.insert(plans).values([
-      { id: planA, name: "Starter Monthly", stripePriceId: `price_a_${nanoid(6)}`, entitlements: { max_agents: 1 }, currency: "usd", interval: "month" },
-      { id: planB, name: "Scale Monthly", stripePriceId: `price_b_${nanoid(6)}`, entitlements: { max_agents: 10 }, currency: "usd", interval: "month" },
+      { id: planA, name: "Starter Monthly", stripePriceId: `price_a_${nanoid(6)}`, entitlements: { max_agents: 1, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 4, max_prints_per_period: 100 }, currency: "usd", interval: "month" },
+      { id: planB, name: "Scale Monthly", stripePriceId: `price_b_${nanoid(6)}`, entitlements: { max_agents: 10, max_printers: 25, max_jobs_per_minute: 300, max_concurrent_jobs: 16, max_prints_per_period: 1000 }, currency: "usd", interval: "month" },
     ]);
 
     // Simulate an intent whose Stripe call never finalized (still 'creating').

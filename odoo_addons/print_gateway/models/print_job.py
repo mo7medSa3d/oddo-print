@@ -36,10 +36,11 @@ class PrintGatewayJob(models.Model):
     # terminal state). Terminal: success/failed/partial/unknown - enforced
     # by _VALID_TRANSITIONS and write(). Physical outcome metadata is
     # exactly printed/not_printed/unknown (_compute_physical_outcome):
-    # 'success' => printed; 'unknown'/'partial' => unknown; anything else
-    # carrying a _GATEWAY_UNKNOWN_MARKERS prefix => unknown; otherwise
-    # not_printed. action_sync_status maps a Gateway 'failed' whose error
-    # starts with any _GATEWAY_UNKNOWN_MARKERS prefix to 'unknown'.
+    # a transport-level 'success' is NOT physical proof, so it remains
+    # 'unknown'; 'unknown'/'partial' => unknown; anything else carrying a
+    # _GATEWAY_UNKNOWN_MARKERS prefix => unknown; otherwise not_printed.
+    # action_sync_status maps a Gateway 'failed' whose error starts with any
+    # _GATEWAY_UNKNOWN_MARKERS prefix to 'unknown'.
     status = fields.Selection([
         ("queued", "Queued"), ("submitted", "Submitted"), ("claimed", "Claimed"),
         ("printing", "Printing"), ("success", "Success"), ("failed", "Failed"),
@@ -47,9 +48,9 @@ class PrintGatewayJob(models.Model):
         ("partial", "Attention / Partial Delivery"),
     ], default="queued", required=True, index=True)
     physical_outcome = fields.Selection([
-        ("not_printed", "Definitely not printed"),
-        ("printed", "Definitely printed"),
-        ("unknown", "Possibly printed / unknown"),
+        ("not_printed", "Not printed"),
+        ("printed", "Physically verified printed"),
+        ("unknown", "Physical output not verified"),
     ], compute="_compute_physical_outcome")
     # Full document bytes (rendered PDF/JPEG, native command streams).
     # Restricted to system administrators: the job list/form never displays
@@ -313,7 +314,9 @@ class PrintGatewayJob(models.Model):
     def _compute_physical_outcome(self):
         for job in self:
             if job.status == "success":
-                job.physical_outcome = "printed"
+                # Gateway success means the agent completed transport/execution.
+                # Current transports do not provide a physical-paper proof.
+                job.physical_outcome = "unknown"
             elif job.status in ("unknown", "partial"):
                 job.physical_outcome = "unknown"
             elif any(str(job.last_error or "").startswith(marker) for marker in self._GATEWAY_UNKNOWN_MARKERS):
@@ -1217,7 +1220,7 @@ class PrintGatewayJob(models.Model):
         This requires conscious operator action, preventing automated double printing of receipts/invoices.
         Generates a deterministic derived idempotency key: ${original_key}-reprint-${reprint_attempt_count}.
         """
-        reprint_candidates = self.filtered(lambda row: row.status in ("partial", "unknown") or row.physical_outcome == "unknown")
+        reprint_candidates = self.filtered(lambda row: row.status in ("partial", "unknown"))
         if not reprint_candidates:
             return {
                 "type": "ir.actions.client",

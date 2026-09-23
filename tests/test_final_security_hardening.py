@@ -104,6 +104,19 @@ def test_gateway_model_protects_values_on_create_and_write():
     assert "decrypt_gateway_api_key(self.gateway_api_key)" in source
 
 
+def test_gateway_connection_test_result_uses_independent_cursor():
+    source = (ADDON / "models" / "gateway_config.py").read_text(encoding="utf-8")
+    start = source.index("def _write_test_result_if_current")
+    end = source.index("def action_test_connection", start)
+    body = source[start:end]
+    assert "self.env.registry.cursor()" in body
+    assert "config.with_context(skip_enabled_sync=True).write(values)" in body
+    assert "cr.commit()" in body
+    assert "FOR UPDATE NOWAIT" in body
+    assert "self.env.cr.execute(" not in body
+    assert "serialization conflict cannot abort the whole Odoo request" in body
+
+
 def test_tauri_renderer_cannot_supply_authorization_headers():
     rust = (ROOT / "src-tauri" / "src" / "commands.rs").read_text(encoding="utf-8")
     assert 'name.eq_ignore_ascii_case("authorization")' in rust

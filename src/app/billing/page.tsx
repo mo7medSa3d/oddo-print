@@ -6,9 +6,10 @@ import { and, asc, eq } from "drizzle-orm";
 import { getManagerCookieName, validateManagerClaims, verifyManagerToken } from "../../lib/manager-auth";
 import { hasManagerPermission } from "../../lib/authorization";
 import { BillingActions } from "../../components/BillingActions";
-import { ArrowRight, AlertTriangle, CalendarDays, Check, CheckCircle2, CreditCard, Sparkles } from "lucide-react";
+import { ArrowRight, AlertTriangle, CalendarDays, Check, CheckCircle2, CreditCard } from "lucide-react";
 import Link from "next/link";
 import { StatusBadge } from "../../components/ui";
+import { getTenantPrintUsage } from "../../lib/entitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,7 @@ function formatStatus(status: string) {
 }
 
 function entitlementLabel(value: string) {
+  if (value === "max_prints_per_period") return "Print jobs / period";
   return value.replace(/^max_/, "").replace(/_/g, " ");
 }
 
@@ -55,10 +57,23 @@ function planStatus(sub: SubscriptionRow) {
     };
   }
   if (sub.status === "past_due") {
-    return { tone: "bad" as const, label: "Payment needed", message: "A payment failed. Open the Customer Portal to update your payment method." };
+    return {
+      tone: "warn" as const,
+      label: "Payment attention",
+      message: "Stripe is retrying the latest payment. Printing remains available while the subscription is past due; update your payment method to avoid service interruption.",
+    };
+  }
+  if (sub.status === "unpaid") {
+    return { tone: "bad" as const, label: "Payment required", message: "Stripe has marked the subscription unpaid. Printing is paused until the outstanding payment is resolved in the Customer Portal." };
   }
   if (sub.status === "paused") {
-    return { tone: "warn" as const, label: "Paused", message: "Printing is paused. Resume from the Customer Portal to restore service." };
+    return { tone: "warn" as const, label: "Paused", message: "Stripe has paused the subscription. Add a valid payment method and resume the existing subscription." };
+  }
+  if (sub.status === "incomplete") {
+    return { tone: "warn" as const, label: "Payment required", message: "The initial Stripe payment is incomplete. Complete the existing checkout or resolve the payment action before printing can start." };
+  }
+  if (sub.status === "incomplete_expired") {
+    return { tone: "bad" as const, label: "Checkout expired", message: "The initial Stripe subscription payment expired before activation. Choose a plan to start a new checkout." };
   }
   return { tone: "neutral" as const, label: "Canceled", message: "Your subscription is canceled. Choose a plan to restart it." };
 }
@@ -84,6 +99,10 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
       })
     : null;
 
+  const printUsage = sub
+    ? await getTenantPrintUsage(db, claims.tenantId).catch(() => null)
+    : null;
+
   const availablePlans = await db
     .select({
       id: plans.id,
@@ -99,10 +118,10 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
     .orderBy(asc(plans.displayOrder), asc(plans.name));
 
   const selectedPlan = selectedPlanId ? availablePlans.find((item) => item.id === selectedPlanId) ?? null : null;
-  const activeStatuses = new Set(["trialing", "active", "past_due", "paused"]);
+  const activeStatuses = new Set(["trialing", "active", "past_due"]);
   const hasActivePlan = !!sub && activeStatuses.has(sub.status);
   const hasStripeSubscription = !!sub?.stripeCustomerId && !!sub?.stripeSubscriptionId;
-  const status = sub && hasActivePlan ? planStatus(sub) : null;
+  const status = sub ? planStatus(sub) : null;
   const entitlements = currentPlan?.entitlements
     ? Object.entries(currentPlan.entitlements)
         .filter(([, value]) => value !== false)
@@ -110,11 +129,17 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
         .map(([key, value]) => ({ label: entitlementLabel(key), value: entitlementValue(value) }))
     : [];
 
-  const renewalLabel = sub?.currentPeriodEnd
-    ? sub.cancelAtPeriodEnd
-      ? `Ends ${formatDate(sub.currentPeriodEnd)}`
-      : `Renews ${formatDate(sub.currentPeriodEnd)}`
-    : "No renewal date";
+  const renewalLabel = !sub
+    ? "No renewal date"
+    : sub.status === "cancelled"
+      ? sub.currentPeriodEnd
+        ? `Ended ${formatDate(sub.currentPeriodEnd)}`
+        : "Ended"
+      : sub.cancelAtPeriodEnd && sub.currentPeriodEnd
+        ? `Ends ${formatDate(sub.currentPeriodEnd)}`
+        : sub.currentPeriodEnd
+          ? `Renews ${formatDate(sub.currentPeriodEnd)}`
+          : "No renewal date";
 
   return (
     <div className="mx-auto w-full max-w-[1280px] px-5 py-8 sm:px-7 lg:px-8 lg:py-10">
@@ -125,7 +150,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
           </div>
           <h1 className="mt-2.5 text-[28px] font-bold leading-tight tracking-[-0.04em] text-ink">Billing</h1>
           <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-3">
-            Your subscription, entitlements, and billing controls in one place.
+            Manage your plan, billing cycle, and included capacity.
           </p>
         </div>
         <Link
@@ -150,6 +175,9 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
           <BillingActions
             hasSubscription={hasActivePlan && hasStripeSubscription}
             cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd}
+            subscriptionStatus={sub?.status}
+            canOpenPortal={hasStripeSubscription}
+            checkoutUrl={sub?.checkoutSessionUrl}
             selectedPlan={selectedPlan}
           />
         </div>
@@ -160,7 +188,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
           <div className="border-b border-dashed border-edge-subtle bg-surface px-6 py-6 sm:px-7 sm:py-7">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
-                <Sparkles className="h-3.5 w-3.5 text-brand" /> Current plan
+                Current plan
               </div>
               {status && <StatusBadge tone={status.tone} label={status.label} />}
             </div>
@@ -204,8 +232,8 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
           <div className="px-6 py-6 sm:px-7 sm:py-7">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Included capacity</div>
-                <h3 className="mt-1.5 text-[18px] font-semibold tracking-[-0.02em] text-ink">What your plan includes</h3>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Plan details</div>
+                <h3 className="mt-1.5 text-[18px] font-semibold tracking-[-0.02em] text-ink">What’s included</h3>
               </div>
               <Link href="/pricing" className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-brand hover:text-brand-hover">
                 Compare plans <ArrowRight className="h-3.5 w-3.5" />
@@ -235,9 +263,46 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
             )}
           </div>
 
-          {sub && (sub.status === "past_due" || (sub.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd)) && (
+          {printUsage && (
+            <div className="px-6 py-6 sm:px-7 sm:py-7">
+              <div className="rounded-[12px] border border-edge bg-surface-2 p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">Print usage</div>
+                    <h3 className="mt-1.5 text-[18px] font-semibold tracking-[-0.02em] text-ink">
+                      {printUsage.limit === "unlimited"
+                        ? `${printUsage.used.toLocaleString()} print jobs this period`
+                        : `${printUsage.used.toLocaleString()} of ${printUsage.limit.toLocaleString()} print jobs used`}
+                    </h3>
+                    <p className="mt-1 text-[12px] text-ink-3">
+                      1 admitted Gateway job = 1 print credit.
+                      {printUsage.periodEnd ? ` Current period ends ${formatDate(printUsage.periodEnd)}.` : ""}
+                    </p>
+                  </div>
+                  {printUsage.limit !== "unlimited" && (
+                    <div className="w-full sm:w-[240px]">
+                      <div className="h-2 overflow-hidden rounded-full bg-surface-3">
+                        <div
+                          className={`h-full rounded-full ${printUsage.remaining === 0 ? "bg-bad-solid" : "bg-brand"}`}
+                          style={{ width: `${Math.min(100, Math.max(0, (printUsage.used / Math.max(1, printUsage.limit)) * 100))}%` }}
+                        />
+                      </div>
+                      <div className="mt-1.5 text-right text-[11px] font-medium tabular-nums text-ink-3">
+                        {printUsage.remaining === 0 ? "Limit reached" : `${printUsage.remaining.toLocaleString()} remaining`}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {sub && (["unpaid", "paused", "incomplete"].includes(sub.status) || sub.status === "past_due" || (sub.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd)) && (
             <div className="border-t border-dashed border-edge-subtle px-6 py-5 sm:px-7">
-              {sub.status === "past_due" && <WarnLine text="Printing is blocked until the failed payment is resolved. Use the Customer Portal to update the payment method." />}
+              {sub.status === "past_due" && <WarnLine text="The latest payment is past due. Printing remains active during Stripe recovery, but service can be interrupted if the subscription becomes unpaid or canceled. Update the payment method in the Customer Portal." />}
+              {sub.status === "unpaid" && <WarnLine text="Stripe has marked the subscription unpaid. Printing is paused until the outstanding payment is resolved in the Customer Portal." />}
+              {sub.status === "paused" && <WarnLine text="Stripe has paused the subscription. Add a valid payment method, then resume the subscription." />}
+              {sub.status === "incomplete" && <WarnLine text="The initial subscription payment is incomplete. Continue the existing Checkout session or resolve the payment action before printing can start." />}
               {sub.cancelAtPeriodEnd && sub.status === "active" && sub.currentPeriodEnd && <WarnLine text={`Cancellation is scheduled for ${formatDate(sub.currentPeriodEnd)}. Resume below to keep the plan.`} />}
             </div>
           )}
@@ -250,6 +315,9 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
               <BillingActions
                 hasSubscription={hasActivePlan && hasStripeSubscription}
                 cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd}
+                subscriptionStatus={sub?.status}
+                canOpenPortal={hasStripeSubscription}
+                checkoutUrl={sub?.checkoutSessionUrl}
               />
             </div>
           </section>

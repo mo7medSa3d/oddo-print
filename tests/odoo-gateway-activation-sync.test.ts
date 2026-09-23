@@ -2,10 +2,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
-import { createHash } from "node:crypto";
 import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, closePool, pool, type Fixture } from "./helpers/pg";
 import { PATCH as configurationPATCH } from "../src/app/api/odoo/configuration/route";
-import { GET as healthGET } from "../src/app/api/odoo/health/route";
 import { POST as printJobsPOST } from "../src/app/api/print/jobs/route";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -14,10 +12,20 @@ const read = (file: string) => readFileSync(path.join(ROOT, file), "utf8");
 describe("Odoo Gateway activation synchronization", () => {
   it("keeps Odoo activation separate from tenant lifecycle and fences updates by revision", () => {
     const route = read("src/app/api/odoo/configuration/route.ts");
+    const keyRoute = read("src/app/api/odoo/keys/route.ts");
+    const rotateRoute = read("src/app/api/odoo/keys/[id]/rotate/route.ts");
     const schema = read("src/db/schema.ts");
     const migration = read("drizzle/0058_scope_odoo_activation_to_api_key.sql");
+    const cleanupMigration = read("drizzle/0059_remove_api_key_restrictions.sql");
 
     expect(route).toContain("validateOdooKey");
+    expect(keyRoute).toContain("generateOdooApiKey");
+    expect(keyRoute).not.toMatch(/(?:["\']scope["\']\s*:|\bscope\s*:)/);
+    expect(keyRoute).not.toMatch(/(?:["\']allowedDocumentTypes["\']\s*:|\ballowedDocumentTypes\s*:)/);
+    expect(keyRoute).not.toMatch(/(?:["\']allowed_document_types["\']\s*:|\ballowed_document_types\s*:)/);
+    expect(rotateRoute).not.toMatch(/(?:["']scope["']|\bscope\s*:)\s*:/);
+    expect(rotateRoute).not.toMatch(/(?:["']allowedDocumentTypes["']|\ballowedDocumentTypes\s*:)\s*:/);
+    expect(rotateRoute).not.toMatch(/(?:["']allowed_document_types["']|\ballowed_document_types\s*:)\s*:/);
     expect(route).toContain("odooEnabledRevision");
     expect(route).toContain("lt(apiKeys.odooEnabledRevision");
     expect(route).toContain("stale_revision");
@@ -35,77 +43,67 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(schema).toContain("api_keys_odoo_enabled_revision_check");
     expect(route).not.toContain("tenants.odooEnabled");
     expect(auth).not.toContain("tenants.odooEnabled");
+    expect(schema).not.toContain('scope: text("scope")');
+    expect(schema).not.toContain('allowed_document_types');
 
     expect(migration).toContain('ALTER TABLE "api_keys"');
     expect(migration).toContain('UPDATE "api_keys" AS k');
     expect(migration).toContain('Every existing key in a tenant inherits the former tenant-wide activation');
     expect(migration).toContain('DROP COLUMN IF EXISTS "odoo_enabled"');
+    expect(cleanupMigration).toContain('DROP COLUMN IF EXISTS "scope"');
+    expect(cleanupMigration).toContain('DROP COLUMN IF EXISTS "allowed_document_types"');
   });
 
-  describe.skipIf(!hasTestDatabase)("runtime isolation", () => {
+  describe.skipIf(!hasTestDatabase)("runtime behavior", () => {
     let f: Fixture;
-    const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
     beforeAll(async () => { await applyMigrations(); });
     beforeEach(async () => { await truncateAll(); f = await seedFixture(); });
     afterAll(async () => { await closePool(); });
 
-    it("changes one integration without changing another integration in the same tenant", async () => {
-      const keyB = "odoo_company_b_activation";
-      await pool().query(
-        `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key, odoo_enabled, odoo_enabled_revision)
-         VALUES ($1, $2, 'standard', 'Company B', $3, true, 0)`,
-        ["key_company_b", f.tenantId, sha256(keyB)],
-      );
-
-      const disableA = await configurationPATCH(new Request("http://gateway.test/api/odoo/configuration", {
+    it("allows the full-access Odoo key to change Gateway activation", async () => {
+      const response = await configurationPATCH(new Request("http://gateway.test/api/odoo/configuration", {
         method: "PATCH",
         headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
-        body: JSON.stringify({ enabled: false, revision: 1 }),
+        body: JSON.stringify({ enabled: true, revision: 1 }),
       }));
-      expect(disableA.status).toBe(200);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        ok: true,
+        applied: true,
+        enabled: true,
+        revision: 1,
+      });
+    });
 
-      const healthA = await healthGET(new Request("http://gateway.test/api/odoo/health", {
-        headers: { Authorization: `Bearer ${f.odooKey}` },
-      }));
-      const healthB = await healthGET(new Request("http://gateway.test/api/odoo/health", {
-        headers: { Authorization: `Bearer ${keyB}` },
-      }));
-      expect((await healthA.json()).enabled).toBe(false);
-      expect((await healthB.json()).enabled).toBe(true);
-
-      const printBody = {
-        printerId: f.printerId,
-        documentType: "receipt",
-        destination: "POS",
-        payload: { type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=" },
-      };
-      const printA = await printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
+    it("allows the full-access Odoo key to print any document type", async () => {
+      const response = await printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
         method: "POST",
         headers: { Authorization: `Bearer ${f.odooKey}`, "content-type": "application/json" },
-        body: JSON.stringify({ ...printBody, idempotencyKey: "company-a-disabled" }),
+        body: JSON.stringify({
+          printerId: f.printerId,
+          documentType: "custom-document-type",
+          destination: "custom-destination",
+          payload: { type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=" },
+          idempotencyKey: "any-document-type",
+        }),
       }));
-      const printB = await printJobsPOST(new Request("http://gateway.test/api/print/jobs", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${keyB}`, "content-type": "application/json" },
-        body: JSON.stringify({ ...printBody, idempotencyKey: "company-b-still-enabled" }),
-      }));
-      expect(printA.status).toBe(401);
-      expect(printB.status).toBe(201);
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({ documentType: "custom-document-type" });
     });
-  });
 
-  it("renders Gateway Configuration status from the Odoo-sourced state and refreshes it", () => {
-    const page = read("src/app/api-keys/page.tsx");
-    expect(page).toContain('fetch("/api/odoo/keys"');
-    expect(page).toContain("setInterval");
-    // Professional concise labels — verifies Odoo-sourced state still shown
-    expect(page).toContain("Credential");
-    expect(page).toContain("Odoo");
-    expect(page).toContain("Gateway");
-    expect(page).toContain("API Keys");
-    expect(page).toContain("odooEnabledRevision");
-    expect(page).toContain("Activation is tracked independently for each Odoo API key.");
+    it("renders Gateway Configuration status from the Odoo-sourced state and refreshes it", () => {
+      const page = read("src/app/api-keys/page.tsx");
+      expect(page).toContain('fetch("/api/odoo/keys"');
+      expect(page).toContain("setInterval");
+      expect(page).toContain("Odoo integration");
+      expect(page).toContain("Connect Odoo");
+      expect(page).toContain("odooEnabledRevision");
+      expect(page).toContain("Read / write · All documents");
+      expect(page).not.toContain("Document types");
+      expect(page).not.toContain("Read only");
+      expect(page).toContain("Odoo access:");
+    });
   });
 
   it("fences stale sync outcomes so an older worker cannot create Action needed", () => {
@@ -151,12 +149,12 @@ describe("Odoo Gateway activation synchronization", () => {
 
     expect(cron).toContain('id="cron_sync_gateway_enabled_state"');
     expect(cron).toContain("model.cron_sync_enabled_state()");
-    expect(view).toContain('string="Gateway Status"');
-    expect(view).toContain('field name="gateway_sync_message"');
+    expect(view).toContain('string="Connection"');
+    expect(view).toContain('field name="last_test_status"');
     expect(view).toContain('id="view_print_gateway_config_search"');
     expect(view).toContain('field name="search_view_id" ref="view_print_gateway_config_search"');
     expect(view).toContain('name="filter_enabled"');
-    expect(view).toContain('name="filter_attention"');
+    expect(view).not.toContain('name="filter_attention"');
     expect(view).not.toContain('name="last_enabled_sync_revision"');
     expect(view).not.toContain('name="last_enabled_sync_error"');
 

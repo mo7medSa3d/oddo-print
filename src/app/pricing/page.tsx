@@ -4,11 +4,12 @@ import { db } from "../../db";
 import { plans, tenantSubscriptions } from "../../db/schema";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { getManagerCookieName, validateManagerClaims, verifyManagerToken } from "../../lib/manager-auth";
-import { ArrowRight, Check, CreditCard, Sparkles } from "lucide-react";
+import { ArrowRight, Check, CreditCard } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 function entitlementLabel(value: string) {
+  if (value === "max_prints_per_period") return "Print jobs / period";
   return value.replace(/^max_/, "").replace(/_/g, " ");
 }
 
@@ -48,18 +49,18 @@ export default async function Pricing() {
     }
   }
 
-  const destination = (planId: string) => claims ? `/billing?plan=${encodeURIComponent(planId)}` : "/signup";
+  const destination = (planId: string) => claims ? `/billing?plan=${encodeURIComponent(planId)}` : `/signup?plan=${encodeURIComponent(planId)}`;
 
   return (
     <div className="mx-auto w-full max-w-[1440px] px-5 py-8 sm:px-7 lg:px-8 lg:py-12">
       <header className="mx-auto max-w-3xl text-center">
         <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
-          <CreditCard className="h-3.5 w-3.5 text-brand" /> Plans & capacity
+          <CreditCard className="h-3.5 w-3.5 text-brand" /> Plans
         </div>
         <h1 className="mt-4 text-[36px] font-bold leading-[1.06] tracking-[-0.045em] text-ink sm:text-[48px]">
-          Choose the capacity your workspace needs
+          Choose the plan that fits your operation
         </h1>
-        <p className="mx-auto mt-4 max-w-xl text-[14px] leading-6 text-ink-3">Compare plans and choose the right capacity.</p>
+        <p className="mx-auto mt-4 max-w-xl text-[14px] leading-6 text-ink-3">Compare plans by branches, printers, and print capacity.</p>
       </header>
 
       {rows.length === 0 ? (
@@ -85,7 +86,7 @@ export default async function Pricing() {
                       label: "Popular",
                       badgeClass:
                         "rounded-full border border-brand-subtle-border bg-brand-subtle text-brand-subtle-text",
-                      icon: "sparkles" as const,
+                      icon: "none" as const,
                     }
                   : rows.length >= 3 && index === 2
                     ? {
@@ -106,7 +107,7 @@ export default async function Pricing() {
                             label: "Popular",
                             badgeClass:
                               "rounded-full border border-brand-subtle-border bg-brand-subtle text-brand-subtle-text",
-                            icon: "sparkles" as const,
+                            icon: "none" as const,
                           }
                         : rows.length === 1
                           ? {
@@ -134,9 +135,7 @@ export default async function Pricing() {
                     <span
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${spotlight.badgeClass}`}
                     >
-                      {spotlight.icon === "sparkles" ? (
-                        <Sparkles className="h-3 w-3 text-brand" aria-hidden />
-                      ) : spotlight.icon === "dot" ? (
+                      {spotlight.icon === "dot" ? (
                         <span className="h-1.5 w-1.5 rounded-full bg-info-solid" aria-hidden />
                       ) : null}
                       {spotlight.label}
@@ -172,7 +171,7 @@ export default async function Pricing() {
                 </div>
 
                 <div className="flex-1 px-6 py-7">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Included capacity</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Included</div>
                   <dl className="mt-3">
                     {entries.length > 0 ? entries.map(([key, value]) => (
                       <div key={key} className="flex items-center justify-between gap-4 border-t border-dashed border-edge-subtle py-3 first:border-t-0">
@@ -205,7 +204,7 @@ export default async function Pricing() {
                     </Link>
                   )}
                   <p className="mt-2.5 text-center text-[11px] text-ink-4">
-                    {isCurrent ? "No change is required." : claims ? "Continue through secure billing." : "Checkout opens securely through Stripe."}
+                    {isCurrent ? "No change is required." : claims ? "Continue through secure billing." : "Checkout is handled securely through Stripe."}
                   </p>
                 </div>
               </article>

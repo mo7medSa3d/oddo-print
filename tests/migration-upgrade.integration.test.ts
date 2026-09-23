@@ -100,6 +100,15 @@ suite("production-like PostgreSQL migration upgrade", () => {
       `);
       expect(legacyColumns.rows).toEqual([]);
 
+      const apiKeyColumns = await pool.query(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='api_keys'
+          AND column_name IN ('scope', 'allowed_document_types')
+        ORDER BY column_name
+      `);
+      expect(apiKeyColumns.rows).toEqual([]);
+
       const job = await pool.query(`SELECT id, agent_id, printer_id, destination, idempotency_key FROM print_jobs WHERE id=$1`, [jobId]);
       expect(job.rows).toEqual([{
         id: jobId,

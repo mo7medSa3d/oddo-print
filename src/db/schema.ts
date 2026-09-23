@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, integer, bigint, boolean, index, uniqueIndex, check, foreignKey, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, bigint, boolean, index, uniqueIndex, check, foreignKey, unique, primaryKey } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const tenants = pgTable("tenants", {
@@ -142,11 +142,9 @@ export const printers = pgTable("printers", {
 export const apiKeys = pgTable("api_keys", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id).notNull(),
-  scope: text("scope").notNull().default("standard"),
   name: text("name").notNull(),
   description: text("description"),
   hashedKey: text("hashed_key").notNull().unique(),
-  allowedDocumentTypes: jsonb("allowed_document_types").$type<string[]>(),
   // Odoo activation is an integration-credential state, not a tenant-wide switch.
   odooEnabled: boolean("odoo_enabled").notNull().default(false),
   odooEnabledRevision: integer("odoo_enabled_revision").notNull().default(-1),
@@ -445,6 +443,7 @@ export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   stripeCustomerId: text("stripe_customer_id").unique(),
   stripeSubscriptionId: text("stripe_subscription_id").unique(),
   status: text("status").notNull().default("active"),
+  currentPeriodStart: timestamp("current_period_start").notNull().defaultNow(),
   currentPeriodEnd: timestamp("current_period_end"),
   trialStartedAt: timestamp("trial_started_at"),
   stripeLastEventCreatedAt: timestamp("stripe_last_event_created_at"),
@@ -462,7 +461,7 @@ export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
-  statusCheck: check("tenant_subscriptions_status_check", sql`${table.status} in ('trialing','active','past_due','paused','cancelled')`),
+  statusCheck: check("tenant_subscriptions_status_check", sql`${table.status} in ('trialing','active','past_due','incomplete','incomplete_expired','unpaid','paused','cancelled')`),
   checkoutStatusCheck: check("tenant_subscriptions_checkout_status_check", sql`${table.checkoutStatus} in ('none','creating','open','completed')`),
   billingOperationTypeCheck: check("tenant_subscriptions_billing_operation_type_check", sql`${table.billingOperationType} IS NULL OR ${table.billingOperationType} in ('cancel','resume')`),
   checkoutIdempotencyUnique: uniqueIndex("tenant_subscriptions_checkout_idempotency_unique").on(table.checkoutIdempotencyKey).where(sql`${table.checkoutIdempotencyKey} IS NOT NULL`),
@@ -471,6 +470,20 @@ export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   billingOperationKeyUnique: uniqueIndex("tenant_subscriptions_billing_operation_key_unique").on(table.billingOperationIdempotencyKey).where(sql`${table.billingOperationIdempotencyKey} IS NOT NULL`),
 }));
 
+
+export const printUsagePeriods = pgTable("print_usage_periods", {
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end"),
+  usedPrints: integer("used_prints").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.tenantId, table.periodStart], name: "print_usage_periods_pk" }),
+  tenantPeriodEndIdx: index("print_usage_periods_tenant_period_end_idx").on(table.tenantId, table.periodEnd),
+  usedCheck: check("print_usage_periods_used_check", sql`${table.usedPrints} >= 0`),
+  periodCheck: check("print_usage_periods_period_check", sql`${table.periodEnd} IS NULL OR ${table.periodEnd} > ${table.periodStart}`),
+}));
 
 export const printJobRateLimits = pgTable("print_job_rate_limits", {
   apiKeyId: text("api_key_id").references(() => apiKeys.id).primaryKey(),

@@ -66,14 +66,37 @@ suite("real PostgreSQL runtime architecture gate", () => {
     expect(job.rows[0]).toMatchObject({ id:'job_pg',agent_id:'agt_pg',printer_id:'prn_pg',destination:'POS' });
   });
 
+  it("preserves Stripe subscription lifecycle states", async () => {
+    const result = await pool().query(`
+      SELECT pg_get_constraintdef(oid) AS definition
+      FROM pg_constraint
+      WHERE conrelid = 'tenant_subscriptions'::regclass
+        AND conname = 'tenant_subscriptions_status_check'
+    `);
+    expect(result.rows).toHaveLength(1);
+    const definition = String(result.rows[0].definition);
+    for (const state of ["trialing", "active", "past_due", "incomplete", "incomplete_expired", "unpaid", "paused", "cancelled"]) {
+      expect(definition).toContain(state);
+    }
+    const column = await pool().query(`
+      SELECT is_nullable, column_default
+      FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = 'tenant_subscriptions'
+        AND column_name = 'current_period_start'
+    `);
+    expect(column.rows).toEqual([
+      { is_nullable: "NO", column_default: "CURRENT_TIMESTAMP" },
+    ]);
+  });
   it("enforces tenant-scoped idempotency keys", async () => {
     await pool().query(`INSERT INTO tenants (id, name) VALUES ('tenant_arch', 'Arch Test Tenant') ON CONFLICT (id) DO NOTHING`);
     await pool().query(`INSERT INTO agents (id,tenant_id,name,lifecycle,status) VALUES ('agt_unique','tenant_arch','Agent','active','online')`);
     await pool().query(`INSERT INTO printers (id,tenant_id,agent_id,name,printer_type,device_class,connection_type,protocol,status,lifecycle,config,capabilities)
       VALUES ('prn_unique','tenant_arch','agt_unique','Printer','physical','other','spooler','spooler','online','active','{}'::jsonb,'{}'::jsonb)`);
-    await pool().query(`INSERT INTO api_keys (id,tenant_id,scope,name,hashed_key) VALUES
-      ('key_unique_a','tenant_arch','standard','A','hash_unique_a'),
-      ('key_unique_b','tenant_arch','standard','B','hash_unique_b')`);
+    await pool().query(`INSERT INTO api_keys (id,tenant_id,name,hashed_key) VALUES
+      ('key_unique_a','tenant_arch','A','hash_unique_a'),
+      ('key_unique_b','tenant_arch','B','hash_unique_b')`);
     const payload = JSON.stringify({ type: "raw", protocol: "raw", encoding: "base64", data: "aA==" });
     await pool().query(`INSERT INTO print_jobs (id,tenant_id,api_key_id,destination,document_type,agent_id,printer_id,status,payload,expires_at,idempotency_key)
       VALUES ('job_unique_1','tenant_arch','key_unique_a','POS','receipt','agt_unique','prn_unique','queued',$1::jsonb,now()+interval '1 hour','same-key')`, [payload]);

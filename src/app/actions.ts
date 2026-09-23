@@ -22,7 +22,7 @@ import { transitionAgentLifecycle, LifecycleConflict } from "../lib/agent-lifecy
 import { ActionError } from "../lib/action-error";
 import { writeAuditEvent } from "../lib/audit";
 import { requireManagerPermission } from "../lib/authorization";
-import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../lib/entitlements";
+import { enforceTenantResourceEntitlement, TenantEntitlementError, TenantPrintQuotaExceededError, isTenantBillingError } from "../lib/entitlements";
 import { isAgentAvailableForJob } from "../lib/agent-availability";
 
 async function requireManager() {
@@ -72,8 +72,16 @@ export async function createAgent(name: string) {
       });
     });
   } catch (error) {
-    if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
-    if (isTenantBillingError(error)) throw new ActionError(error.message, 403);
+    if (error instanceof TenantEntitlementError) {
+      const code = error.entitlement === "max_agents" ? "MAX_AGENTS_EXCEEDED" : "TENANT_ENTITLEMENT_EXCEEDED";
+      throw new ActionError(error.message, 429, code, {
+        entitlement: error.entitlement,
+        limit: error.limit,
+        used: error.used,
+        upgradeRequired: error.entitlement === "max_agents",
+      });
+    }
+    if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
     throw error;
   }
   void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.paired", resourceType: "agent", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
@@ -147,6 +155,16 @@ export async function createPrintJob(printerId: string, payload: unknown) {
     revalidatePath("/dashboard");
     return { id: result.id };
   } catch (error) {
+    if (error instanceof TenantPrintQuotaExceededError) throw new ActionError(error.message, 429, error.code, {
+      entitlement: error.entitlement,
+      limit: error.limit,
+      used: error.used,
+      remaining: 0,
+      periodStart: error.periodStart.toISOString(),
+      periodEnd: error.periodEnd?.toISOString() ?? null,
+      upgradeRequired: true,
+      retryable: false,
+    });
     if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
     if (isTenantBillingError(error)) throw new ActionError(error.message, 403);
     throw error;
@@ -185,6 +203,16 @@ export async function reprintJob(jobId: string) {
     revalidatePath("/dashboard");
     return { id: result.id, reused: result.isReused === true };
   } catch (error) {
+    if (error instanceof TenantPrintQuotaExceededError) throw new ActionError(error.message, 429, error.code, {
+      entitlement: error.entitlement,
+      limit: error.limit,
+      used: error.used,
+      remaining: 0,
+      periodStart: error.periodStart.toISOString(),
+      periodEnd: error.periodEnd?.toISOString() ?? null,
+      upgradeRequired: true,
+      retryable: false,
+    });
     if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
     if (isTenantBillingError(error)) throw new ActionError(error.message, 403);
     throw error;

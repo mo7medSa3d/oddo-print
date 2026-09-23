@@ -40,8 +40,13 @@ export default function Onboarding() {
     setPlansError("");
     try {
       const nextPlans = await fetchPlans();
+      const requestedPlanId = new URLSearchParams(window.location.search).get("plan") ?? "";
       setPlans(nextPlans);
-      setPlanId((current) => current && nextPlans.some((plan) => plan.id === current) ? current : nextPlans[0]?.id ?? "");
+      setPlanId((current) => {
+        if (current && nextPlans.some((plan) => plan.id === current)) return current;
+        if (requestedPlanId && nextPlans.some((plan) => plan.id === requestedPlanId)) return requestedPlanId;
+        return nextPlans[0]?.id ?? "";
+      });
     } catch (error) {
       setPlans([]);
       setPlanId("");
@@ -53,11 +58,16 @@ export default function Onboarding() {
 
   useEffect(() => {
     let cancelled = false;
+    const requestedPlanId = new URLSearchParams(window.location.search).get("plan") ?? "";
     void fetchPlans()
       .then((nextPlans) => {
         if (cancelled) return;
         setPlans(nextPlans);
-        setPlanId((current) => current && nextPlans.some((plan) => plan.id === current) ? current : nextPlans[0]?.id ?? "");
+        setPlanId((current) => {
+          if (current && nextPlans.some((plan) => plan.id === current)) return current;
+          if (requestedPlanId && nextPlans.some((plan) => plan.id === requestedPlanId)) return requestedPlanId;
+          return nextPlans[0]?.id ?? "";
+        });
       })
       .catch((error) => {
         if (cancelled) return;
@@ -121,10 +131,10 @@ export default function Onboarding() {
         <div className="mx-auto max-w-2xl text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-edge-accent bg-brand-subtle px-3 py-1.5 text-xs font-semibold text-brand-subtle-text">
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
-            Workspace setup
+            Get started
           </div>
-          <h1 className="mt-4 text-[34px] font-bold tracking-[-0.04em] text-ink sm:text-[42px]">Set up your print workspace</h1>
-          <p className="mx-auto mt-2 text-sm leading-6 text-ink-3 sm:text-base">Name your workspace and choose a plan.</p>
+          <h1 className="mt-4 text-[34px] font-bold tracking-[-0.04em] text-ink sm:text-[42px]">Set up your workspace</h1>
+          <p className="mx-auto mt-2 text-sm leading-6 text-ink-3 sm:text-base">Create your workspace and choose a plan.</p>
         </div>
 
         <Card className="mt-8 p-6 sm:p-8">

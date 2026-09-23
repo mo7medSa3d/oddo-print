@@ -63,14 +63,66 @@ describe("production fixes contracts (2026-09)", () => {
     expect(doc).toContain("if _, hasDeadline := parent.Deadline(); hasDeadline {");
     // executor saturation / shutdown reject the job FENCED with the claim
     // token instead of silently dropping delivered work.
-    expect(agent).toContain('a.rejectJob(ctx, jobID, jobClaimToken(job), "pending_full")');
-    expect(agent).toContain('a.rejectJob(ctx, jobID, jobClaimToken(job), "agent_shutting_down")');
+    expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "pending_full")');
+    expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "agent_shutting_down")');
+    expect(agent).toContain("func (a *Agent) runRejectWorker(ctx context.Context)");
+    expect(agent).toContain("maxRejectQueue = 32");
+    expect(agent).toContain("func (a *Agent) rejectJobExact(ctx context.Context, jobID, token, reason string) error");
     expect(agent).toMatch(/discoverySem:\s*make\(chan struct\{\}, 1\)/);
     const net = read("agent/internal/printer/network.go");
     // 2025-09-21: reduced from 10s to 5s for faster offline feedback (POS best practice)
     expect(net).toMatch(/dialTimeout\s*=\s*5\s*\*\s*time\.Second/);
     expect(net).toMatch(/writeStallTimeout\s*=\s*60\s*\*\s*time\.Second/);
     expect(net).toContain("_ = conn.SetWriteDeadline(time.Now().Add(writeStallTimeout))");
+  });
+
+  it("print quota applies at logical job admission and does not make Agent discovery the enforcement point", () => {
+    const service = read("src/lib/print-job-service.ts");
+    const agentJobs = read("src/app/api/agent/jobs/route.ts");
+    expect(service.indexOf("reserveTenantPrintCredit(tx, tenantId)")).toBeGreaterThan(service.indexOf("if (effectiveIdempotencyKey)"));
+    expect(service.indexOf("await tx.insert(printJobs).values")).toBeGreaterThan(service.indexOf("reserveTenantPrintCredit(tx, tenantId)"));
+    expect(agentJobs).not.toContain("max_prints_per_period");
+    expect(service).toContain("MAX_AGENT_IN_FLIGHT_JOBS");
+    expect(service).toContain("MAX_AGENT_QUEUED_JOBS");
+  });
+
+  it("quota UX remains machine-readable and upgradeable across dashboard surfaces", () => {
+    const dialog = read("src/components/UpgradeLimitDialog.tsx");
+    const dashboard = read("src/app/dashboard/dashboard-client.tsx");
+    const agentRoute = read("src/app/api/agents/route.ts");
+    expect(dialog).toContain('href="/billing"');
+    expect(dialog).toContain("Upgrade plan");
+    expect(dialog).toContain("Metering unit: 1 admitted Gateway print job = 1 print credit.");
+    expect(dashboard).toContain('error.code === "MAX_AGENTS_EXCEEDED"');
+    expect(dashboard).toContain('error.code === "PRINT_QUOTA_EXCEEDED"');
+    expect(dashboard).toContain("<UpgradeLimitDialog");
+    expect(agentRoute).toContain("ActionError");
+    expect(agentRoute).toContain("error.details");
+  });
+
+  it("print quota is a billing-period entitlement and is charged once per logical job", () => {
+    const entitlements = read("src/lib/entitlements.ts");
+    const service = read("src/lib/print-job-service.ts");
+    const route = read("src/app/api/print/jobs/route.ts");
+    const testPrint = read("src/app/api/printers/[id]/test-print/route.ts");
+    const schema = read("src/db/schema.ts");
+    const migration = read("drizzle/0061_print_usage_quota.sql");
+    expect(entitlements).toContain('"max_prints_per_period"');
+    expect(entitlements).toContain("reserveTenantPrintCredit");
+    expect(service).toContain("reserveTenantPrintCredit(tx, tenantId)");
+    expect(route).toContain("TenantPrintQuotaExceededError");
+    expect(testPrint).toContain("TenantPrintQuotaExceededError");
+    expect(testPrint).toContain("upgradeRequired: true");
+    expect(schema).toContain('printUsagePeriods = pgTable("print_usage_periods"');
+    expect(migration).toContain("print_usage_periods");
+    expect(migration).toContain("current_period_start");
+  });
+
+  it("printer provisioning serializes max_printers with the direct printer admission path", () => {
+    const source = read("src/app/api/agents/[id]/discovered-printers/[deviceId]/provision/route.ts");
+    expect(source).toContain("pg_advisory_xact_lock(hashtext('printers:' ||");
+    expect(source).toContain('enforceTenantResourceEntitlement');
+    expect(source).toContain('"max_printers"');
   });
 
   it("Go agent: interrupted jobs are reprinted, not skipped as processed", () => {

@@ -427,7 +427,7 @@ class TestControlPlane(TransactionCase):
             self.assertTrue(route_res.get("gateway_enabled"))
             job = self.env["print_gateway.print_job"].browse(route_res.get("job_id"))
             self.assertEqual(job.protocol, "escpos")
-            self.assertIn("YASSER PRINT GATEWAY DIAGNOSTIC", job.raw_payload)
+            self.assertIn("YASSER PRINT GATEWAY", job.raw_payload)
 
     def test_06b_stale_claimed_intent_cannot_exceed_max_attempts(self):
         """A stale claimed intent at its retry ceiling must not be re-claimed.
@@ -833,7 +833,7 @@ class TestControlPlane(TransactionCase):
             res = router.route_test_page(raw_binding)
             job = self.env["print_gateway.print_job"].browse(res["job_id"])
             self.assertEqual(job.protocol, "raw")
-            self.assertIn("Protocol: RAW", job.raw_payload)
+            self.assertIn("PRINTER TEST", job.raw_payload)
             self.assertNotIn("\x1b@", job.raw_payload)
 
     def test_13_action_rearm_intent(self):
@@ -1088,7 +1088,7 @@ class TestControlPlane(TransactionCase):
             job_pdf_active._submission_body()
 
     def test_20_gateway_late_success_reconciles_unknown_failure(self):
-        """A Gateway-authorized late physical success must converge Odoo too."""
+        """A Gateway-authorized late execution completion must converge Odoo too."""
         job = self.env["print_gateway.print_job"].create({
             "company_id": self.company.id,
             "gateway_config_id": self.gateway_config.id,
@@ -1118,7 +1118,7 @@ class TestControlPlane(TransactionCase):
             "error": "LATE_SUCCESS: agent completed after Gateway timeout",
         })
         self.assertEqual(job.status, "success")
-        self.assertEqual(job.physical_outcome, "printed")
+        self.assertEqual(job.physical_outcome, "unknown")
         self.assertIn("LATE_SUCCESS:", job.last_error or "")
 
     def test_20b_gateway_late_success_is_not_a_general_failed_to_success_write(self):
@@ -1174,7 +1174,7 @@ class TestControlPlane(TransactionCase):
              patch("requests.post", return_value=mock_resp):
             job.action_submit()
             self.assertEqual(job.status, "success")
-            self.assertEqual(job.physical_outcome, "printed")
+            self.assertEqual(job.physical_outcome, "unknown")
             self.assertEqual(job.gateway_job_id, "gw_replayed_123")
 
 

@@ -114,7 +114,7 @@ suite("control-plane concurrency invariants", () => {
     const planId = `plan_trial_${nanoid(8)}`;
     await db.insert(plans).values({
       id: planId, name: `Trial ${nanoid(6)}`, stripePriceId: `price_${nanoid(8)}`,
-      entitlements: { maxPrinters: 5 }, currency: "usd", interval: "month",
+      entitlements: { max_agents: 5, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: 100 }, currency: "usd", interval: "month",
     });
     const request = () => onboarding(new Request("http://localhost/api/onboarding", {
       method: "POST", headers: { "content-type": "application/json" },
@@ -131,7 +131,7 @@ suite("control-plane concurrency invariants", () => {
     const planId = `plan_checkout_${nanoid(8)}`;
     await db.insert(plans).values({
       id: planId, name: `Checkout ${nanoid(6)}`, stripePriceId: `price_${nanoid(8)}`,
-      entitlements: {}, currency: "usd", interval: "month",
+      entitlements: { max_agents: 5, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: 100 }, currency: "usd", interval: "month",
     });
     const request = () => checkout(new Request("http://localhost/api/billing/checkout", {
       method: "POST", headers: { "content-type": "application/json" },

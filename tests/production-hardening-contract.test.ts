@@ -58,6 +58,14 @@ describe("production hardening contracts", () => {
     expect(caddy).toContain("max_size 8MiB");
   });
 
+  it("fails closed in production when the platform tenant identity is not configured", () => {
+    const server = read("server.ts");
+    expect(server).toContain('runtimeSecret("PLATFORM_TENANT_ID")?.trim()');
+    expect(server).toContain("<required-platform-tenant-id>");
+    expect(server).toContain("PLATFORM_TENANT_ID must be configured with the real platform workspace ID");
+    expect(server).toContain("Refusing production startup");
+  });
+
   it("keeps Docker migration out of runtime startup and orders Compose migration before gateway", () => {
     const dockerfile = read("Dockerfile");
     const compose = read("docker-compose.yml");

@@ -16,6 +16,8 @@ describe("Odoo addon static contracts", () => {
   it("routes backend reports through the central router and stays native only when Gateway is disabled", () => {
     const src = read("models/ir_actions_report.py");
     expect(src).toContain("def report_action");
+    expect(src).toContain('if self.report_type != "qweb-pdf"');
+    expect(src).toContain("return super().report_action");
     expect(src).toContain("router = self.env[\"print_gateway.print_router\"]");
     expect(src).toContain("route = router.route_report");
     expect(src).toContain('if not route.get("native")');
@@ -44,6 +46,17 @@ describe("Odoo addon static contracts", () => {
     expect(jobs).toContain('status": "unknown"');
     expect(jobs).toContain("def action_submit");
     expect(jobs).toContain("def action_sync_status");
+  });
+
+  it("does not equate Gateway transport success with physical print proof", () => {
+    const jobs = read("models/print_job.py");
+    const views = read("views/print_job_views.xml");
+    expect(jobs).toContain('job.physical_outcome = "unknown"');
+    expect(jobs).toContain('("printed", "Physically verified printed")');
+    expect(jobs).toContain('reprint_candidates = self.filtered(lambda row: row.status in ("partial", "unknown"))');
+    expect(views).toContain('invisible="status not in (\'partial\', \'unknown\')"');
+    expect(views).toContain("Print status is unknown - the printer may have received part or all of the document");
+    expect(views).toContain("Automatic retry is paused to prevent duplicate printing.");
   });
 
   it("keeps bindings Odoo-native and resolves runtime printers without Gateway business ownership", () => {

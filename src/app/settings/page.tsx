@@ -5,8 +5,8 @@ import { Building2, User, Shield, Save, AlertCircle, CheckCircle2, Settings as S
 import { Button, Input, Field, Card, CardHeader } from "../../components/ui";
 
 const SETTINGS_NAV = [
-  { id: "general", label: "General", icon: SettingsIcon, desc: "Workspace identity" },
-  { id: "security", label: "Security", icon: Shield, desc: "Sessions & transport" },
+  { id: "general", label: "General", icon: SettingsIcon, desc: "Workspace details" },
+  { id: "security", label: "Security", icon: Shield, desc: "Account security" },
 ];
 
 export default function SettingsPage() {
@@ -71,10 +71,10 @@ export default function SettingsPage() {
     <div className="mx-auto max-w-[1200px] px-5 py-8 sm:px-7 lg:px-8">
       <header className="mb-7 border-b border-edge/80 pb-6">
         <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4">
-          <SettingsIcon className="h-3.5 w-3.5" /> Workspace control center
+          <SettingsIcon className="h-3.5 w-3.5" /> Workspace
         </div>
         <h1 className="mt-2.5 text-[28px] font-bold tracking-[-0.04em] text-ink">Settings</h1>
-        <p className="mt-2 text-[14px] leading-relaxed text-ink-3">Workspace identity and security.</p>
+        <p className="mt-2 text-[14px] leading-relaxed text-ink-3">Workspace details and account security.</p>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
@@ -111,7 +111,7 @@ export default function SettingsPage() {
           {activeTab === "general" && (
             <>
               <Card>
-                <CardHeader title="Workspace identity" subtitle="Visible to your team and in audit logs" icon={<Building2 className="h-4 w-4 text-brand" />} />
+                <CardHeader title="Workspace identity" subtitle="Shown to your team and in audit history." icon={<Building2 className="h-4 w-4 text-brand" />} />
                 <form onSubmit={save} className="space-y-6 px-6 pb-6">
                   <Field label="Workspace name" hint="2–120 characters. Used in billing, audit, and Odoo sync.">
                     <Input value={name} onChange={(e) => setName(e.target.value)} minLength={2} maxLength={120} required placeholder="Acme Inc." />
@@ -123,7 +123,7 @@ export default function SettingsPage() {
                         <User className="h-3.5 w-3.5" /> Your role
                       </div>
                       <div className="mt-2 text-[14px] font-semibold text-ink">{role || "—"}</div>
-                      <div className="mt-1 text-[11px] text-ink-3">Determines what you can change here.</div>
+                      <div className="mt-1 text-[11px] text-ink-3">Controls what you can manage.</div>
                     </div>
                     <div className="rounded-[10px] border border-edge bg-surface-2 p-4">
                       <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
@@ -149,7 +149,7 @@ export default function SettingsPage() {
               </Card>
 
               <Card>
-                <CardHeader title="Danger zone" subtitle="Irreversible workspace actions" icon={<AlertCircle className="h-4 w-4 text-bad" />} />
+                <CardHeader title="Danger zone" subtitle="Permanent actions" icon={<AlertCircle className="h-4 w-4 text-bad" />} />
                 <div className="px-6 pb-6">
                   <div className="rounded-[10px] border border-bad-edge bg-bad-bg/40 p-4 text-[13px] text-ink-2">
                     <div className="font-semibold text-bad">Workspace deletion is controlled by Platform Admin.</div>
@@ -162,7 +162,7 @@ export default function SettingsPage() {
 
           {activeTab === "security" && (
             <Card>
-              <CardHeader title="Security" subtitle="Sessions and transport" icon={<Shield className="h-4 w-4 text-brand" />} />
+              <CardHeader title="Security" subtitle="Session and connection security" icon={<Shield className="h-4 w-4 text-brand" />} />
               <div className="space-y-4 px-6 pb-6">
                 <div className="rounded-[10px] border border-edge bg-surface-2 p-4 text-[13px]">
                   <div className="font-medium text-ink">Session persistence</div>

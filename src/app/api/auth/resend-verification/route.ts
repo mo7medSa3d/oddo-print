@@ -15,7 +15,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   }
 
-  let body: { email?: unknown };
+  let body: { email?: unknown; planId?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -23,6 +23,7 @@ export async function POST(req: Request) {
   }
 
   const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
+  const planId = typeof body.planId === "string" && body.planId.length <= 128 ? body.planId : "";
   if (!validEmail(email)) {
     return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
   }
@@ -86,7 +87,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    const url = `${appBaseUrl(req)}/verify-email?token=${encodeURIComponent(rawToken)}`;
+    const planQuery = planId ? `&plan=${encodeURIComponent(planId)}` : "";
+    const url = `${appBaseUrl(req)}/verify-email?token=${encodeURIComponent(rawToken)}${planQuery}`;
     await sendTransactionalEmail({
       to: email,
       subject: "Verify your Yasser account",

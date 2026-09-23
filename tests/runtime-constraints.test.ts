@@ -56,8 +56,8 @@ suite("database runtime state constraints", () => {
   it("enforces tenant-scoped print-job idempotency uniqueness", async () => {
     const key = `idempotent_${Date.now()}`;
     const apiKeyId = `key_${Date.now()}`;
-    await pool().query(`INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key)
-      VALUES ($1, $2, 'standard', 'constraint key', $3)`, [apiKeyId, f.tenantId, apiKeyId]);
+    await pool().query(`INSERT INTO api_keys (id, tenant_id, name, hashed_key)
+      VALUES ($1, $2, 'constraint key', $3)`, [apiKeyId, f.tenantId, apiKeyId]);
 
     await pool().query(`INSERT INTO print_jobs (id, tenant_id, api_key_id, destination, document_type, agent_id, printer_id, status, payload, expires_at, idempotency_key)
       VALUES ($1, $2, $3, $4, 'invoice', $5, $6, 'queued', '{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb, now() + interval '1 hour', $7)`,
@@ -68,8 +68,8 @@ suite("database runtime state constraints", () => {
       [`job_constraint_${Date.now()}_4`, f.tenantId, apiKeyId, f.destination, f.agentId, f.printerId, key])).rejects.toMatchObject({ code: "23505" });
 
     const otherApiKeyId = `key_other_${Date.now()}`;
-    await pool().query(`INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key)
-      VALUES ($1, $2, 'standard', 'other constraint key', $3)`, [otherApiKeyId, f.tenantId, otherApiKeyId]);
+    await pool().query(`INSERT INTO api_keys (id, tenant_id, name, hashed_key)
+      VALUES ($1, $2, 'other constraint key', $3)`, [otherApiKeyId, f.tenantId, otherApiKeyId]);
     await expect(pool().query(`INSERT INTO print_jobs (id, tenant_id, api_key_id, destination, document_type, agent_id, printer_id, status, payload, expires_at, idempotency_key)
       VALUES ($1, $2, $3, $4, 'invoice', $5, $6, 'queued', '{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb, now() + interval '1 hour', $7)`,
       [`job_constraint_${Date.now()}_5`, f.tenantId, otherApiKeyId, f.destination, f.agentId, f.printerId, key])).rejects.toMatchObject({ code: "23505" });

@@ -3,11 +3,9 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
-  createAgent,
   deleteAgent,
   getDashboardJobs,
   getDashboardState,
-  reprintJob,
   setAgentLifecycle,
   setPrinterLifecycle,
 } from "../actions";
@@ -28,20 +26,17 @@ import {
   Wifi,
   Usb,
   Layers,
-  Clock,
   AlertTriangle,
   RotateCcw,
   Eye,
   Trash2,
   Cpu,
-  Zap,
   ShieldCheck,
 } from "lucide-react";
 import {
   Button,
   Card,
   CardHeader,
-  StatCard,
   Input,
   Select,
   StatusBadge,
@@ -65,6 +60,7 @@ import { generateIdempotencyKey } from "../../lib/idempotency";
 import { getPrinterLanguageBadges } from "../../lib/printer-capability";
 import PrintCertificationWizard from "../../components/PrintCertificationWizard";
 import JobTimeline from "../../components/JobTimeline";
+import UpgradeLimitDialog, { type UpgradeLimitResource } from "../../components/UpgradeLimitDialog";
 
 export type Agent = {
   id: string;
@@ -128,6 +124,32 @@ function formatRelativeTime(dateInput: Date | string | null | undefined): string
   return `${diffDays}d ago`;
 }
 
+class DashboardApiError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+    public readonly details: Record<string, unknown> = {},
+  ) {
+    super(message);
+  }
+}
+
+type BillingUsage = {
+  plan: { id: string; name: string };
+  resources: {
+    agents: { used: number; limit: number | "unlimited" | null };
+    printers: { used: number; limit: number | "unlimited" | null };
+    prints: {
+      unit: "job";
+      used: number;
+      limit: number | "unlimited";
+      remaining: number | "unlimited";
+      periodStart: string;
+      periodEnd: string | null;
+    };
+  };
+};
+
 const MAX_DIAGNOSTIC_PREVIEW_CHARS = 64 * 1024;
 
 function stringifyDiagnosticPayload(payload: unknown): string {
@@ -160,6 +182,21 @@ function formatCountdown(expiresAt: Date | string | null | undefined): { text: s
   };
 }
 
+async function sendGatewayReprint(jobId: string): Promise<{ jobId?: string }> {
+  const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/reprint`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+  });
+  const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+  if (!response.ok) {
+    const code = typeof body?.code === "string" ? body.code : "HTTP_ERROR";
+    const message = typeof body?.error === "string" ? body.error : `Reprint request failed (HTTP ${response.status}).`;
+    throw new DashboardApiError(message, code, body ?? {});
+  }
+  return { jobId: typeof body?.jobId === "string" ? body.jobId : undefined };
+}
+
 async function sendGatewayTestPage(printerId: string): Promise<{ jobId?: string; status?: string }> {
   const response = await fetch(`/api/printers/${encodeURIComponent(printerId)}/test-print`, {
     method: "POST",
@@ -173,9 +210,9 @@ async function sendGatewayTestPage(printerId: string): Promise<{ jobId?: string;
   try { body = await response.json(); } catch { body = null; }
   if (!response.ok) {
     const obj = body && typeof body === "object" ? body as Record<string, unknown> : {};
-    const code = typeof obj.code === "string" ? obj.code : "";
+    const code = typeof obj.code === "string" ? obj.code : "HTTP_ERROR";
     const message = typeof obj.error === "string" ? obj.error : `Test page request failed (HTTP ${response.status}).`;
-    throw new Error(code ? `${code}: ${message}` : message);
+    throw new DashboardApiError(message, code, obj);
   }
   const obj = body && typeof body === "object" ? body as Record<string, unknown> : {};
   return {
@@ -232,6 +269,13 @@ export default function DashboardClient({
   const [agentToDelete, setAgentToDelete] = useState<Agent | null>(null);
   const [pendingAgentAction, setPendingAgentAction] = useState<{ agent: Agent; next: "disabled" | "retired" } | null>(null);
   const [reprintCandidate, setReprintCandidate] = useState<Job | null>(null);
+  const [upgradeLimit, setUpgradeLimit] = useState<{
+    resource: UpgradeLimitResource;
+    used?: number | null;
+    limit?: number | "unlimited" | null;
+    periodEnd?: string | null;
+  } | null>(null);
+  const [billingUsage, setBillingUsage] = useState<BillingUsage | null>(null);
 
   const [printerViewMode, setPrinterViewMode] = useState<"grid" | "table">("grid");
   const [printerSearch, setPrinterSearch] = useState("");
@@ -310,6 +354,15 @@ export default function DashboardClient({
     return () => clearInterval(timer);
   }, []);
 
+  const refreshBillingUsage = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/billing/usage", { credentials: "same-origin", cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (data && typeof data === "object") setBillingUsage(data as BillingUsage);
+    } catch {}
+  }, []);
+
   const refreshData = React.useCallback(async () => {
     try {
       const data = await getDashboardState();
@@ -353,12 +406,13 @@ export default function DashboardClient({
           return currentPairing;
         });
       }
+      void refreshBillingUsage();
     } catch (error) {
       if (error instanceof Error && error.message.includes("session has expired")) {
         router.push("/login");
       }
     }
-  }, [router]);
+  }, [refreshBillingUsage, router]);
 
   useEffect(() => {
     const intervalMs = activePairing ? 3000 : 6000;
@@ -404,8 +458,9 @@ export default function DashboardClient({
     ).length;
     const failedJobs = kpiJobs.filter((j) => j.status.toLowerCase() === "failed" && deriveOutcome(j.status, j.error) === "not_printed").length;
     const expiredJobs = kpiJobs.filter((j) => j.status.toLowerCase() === "expired").length;
+    const resolvedJobs = completedJobs + failedJobs + attentionJobs + expiredJobs;
     const successRate =
-      kpiJobs.length > 0 ? Math.round((completedJobs / kpiJobs.length) * 100) : null;
+      resolvedJobs > 0 ? Math.round((completedJobs / resolvedJobs) * 100) : null;
 
     return {
       totalAgents,
@@ -451,10 +506,19 @@ export default function DashboardClient({
       });
       void refreshData();
     } catch (error) {
-      setMessage({
-        text: error instanceof Error ? error.message : "Test page failed. Check the agent and printer status.",
-        type: "err",
-      });
+      if (error instanceof DashboardApiError && error.code === "PRINT_QUOTA_EXCEEDED") {
+        setUpgradeLimit({
+          resource: "prints",
+          used: typeof error.details.used === "number" ? error.details.used : null,
+          limit: typeof error.details.limit === "number" || error.details.limit === "unlimited" ? error.details.limit : null,
+          periodEnd: typeof error.details.periodEnd === "string" ? error.details.periodEnd : null,
+        });
+      } else {
+        setMessage({
+          text: error instanceof Error ? error.message : "Test page failed. Check the agent and printer status.",
+          type: "err",
+        });
+      }
     } finally {
       setTestingPrinterId(null);
     }
@@ -480,20 +544,46 @@ export default function DashboardClient({
     setBusy(true);
     setMessage(null);
     try {
-      const result = await createAgent(name);
-      const expiresAt = result.expiresAt ? new Date(result.expiresAt) : (result.expires_at ? new Date(result.expires_at) : new Date(Date.now() + 1000 * 60 * 10));
-      setActivePairing({ id: result.id, code: result.pairingCode, expiresAt });
+      const response = await fetch("/api/agents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ name }),
+      });
+      const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+      if (!response.ok) {
+        const code = typeof body?.code === "string" ? body.code : "AGENT_CREATE_FAILED";
+        const message = typeof body?.error === "string" ? body.error : "Agent registration failed";
+        throw new DashboardApiError(message, code, body ?? {});
+      }
+
+      const expiresAt = typeof body?.expiresAt === "string"
+        ? new Date(body.expiresAt)
+        : typeof body?.expires_at === "string"
+          ? new Date(body.expires_at)
+          : new Date(Date.now() + 1000 * 60 * 10);
+      const pairingCode = typeof body?.pairingCode === "string" ? body.pairingCode : "";
+      const id = typeof body?.id === "string" ? body.id : undefined;
+      setActivePairing({ id, code: pairingCode, expiresAt });
       setAgentName("");
       setMessage({
-        text: `Agent registered! Use pairing code ${result.pairingCode} before expiration.`,
+        text: `Agent registered! Use pairing code ${pairingCode} before expiration.`,
         type: "ok",
       });
       void refreshData();
     } catch (error) {
-      setMessage({
-        text: error instanceof Error ? error.message : "Agent registration failed",
-        type: "err",
-      });
+      if (error instanceof DashboardApiError && error.code === "MAX_AGENTS_EXCEEDED") {
+        setUpgradeLimit({
+          resource: "agents",
+          used: typeof error.details.used === "number" ? error.details.used : null,
+          limit: typeof error.details.limit === "number" ? error.details.limit : null,
+        });
+      } else {
+        setMessage({
+          text: error instanceof Error ? error.message : "Agent registration failed",
+          type: "err",
+        });
+      }
     } finally {
       setBusy(false);
     }
@@ -563,7 +653,7 @@ export default function DashboardClient({
     <div className="mx-auto w-full max-w-[1800px] space-y-6 px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
       <header className="flex flex-col gap-3 border-b border-edge/80 pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex items-center gap-3">
-          <div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Workspace</div><h1 className="mt-1.5 text-[30px] font-bold tracking-[-0.035em] text-ink">Print console</h1><p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-ink-3">A live operational view of agents, printers and the print queue.</p></div>
+          <div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Workspace</div><h1 className="mt-1.5 text-[30px] font-bold tracking-[-0.035em] text-ink">Print console</h1><p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-ink-3">See what’s connected, what’s printing, and what needs attention.</p></div>
           <span
             className={`inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
               databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-ok-edge bg-ok-bg text-ok"
@@ -593,7 +683,7 @@ export default function DashboardClient({
           <div className="mt-1 text-[20px] font-bold tracking-tight text-ink">{kpis.inFlightJobs}</div>
         </div>
         <div className="rounded-xl border border-edge bg-surface px-4 py-3.5">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Success</div>
+          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Delivered</div>
           <div className="mt-1 text-[20px] font-bold tracking-tight text-ink">{kpis.successRate === null ? "—" : `${kpis.successRate}%`}</div>
         </div>
       </section>
@@ -612,6 +702,34 @@ export default function DashboardClient({
             Dismiss
           </button>
         </div>
+      )}
+
+      {billingUsage?.resources.prints && (
+        <section className="rounded-[12px] border border-edge bg-surface px-4 py-3.5 shadow-card" aria-label="Print usage">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-4">Print credits</div>
+              <div className="mt-1 text-[13px] font-semibold text-ink">
+                {billingUsage.resources.prints.limit === "unlimited"
+                  ? `${billingUsage.resources.prints.used.toLocaleString()} jobs this period`
+                  : `${billingUsage.resources.prints.used.toLocaleString()} / ${billingUsage.resources.prints.limit.toLocaleString()} jobs`}
+              </div>
+            </div>
+            {billingUsage.resources.prints.limit !== "unlimited" && (
+              <div className="min-w-[220px]">
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
+                  <div
+                    className={`h-full rounded-full transition-all ${billingUsage.resources.prints.remaining === 0 ? "bg-bad-solid" : "bg-brand"}`}
+                    style={{ width: `${Math.min(100, Math.max(0, (billingUsage.resources.prints.used / Math.max(1, billingUsage.resources.prints.limit)) * 100))}%` }}
+                  />
+                </div>
+                <div className="mt-1.5 text-right text-[10px] text-ink-4">
+                  {billingUsage.resources.prints.remaining === 0 ? "Limit reached" : `${billingUsage.resources.prints.remaining.toLocaleString()} remaining`}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
       {activePairing && (
@@ -879,7 +997,7 @@ export default function DashboardClient({
       <Card className="overflow-hidden">
         <CardHeader
           title="Recent Print Jobs"
-          subtitle="Queue snapshot, execution tracking, diagnostics"
+          subtitle="Queue, delivery status, and job history"
           icon={<Server className="h-4 w-4 text-brand" />}
           actions={<Button variant="secondary" size="sm" onClick={() => void refreshData()} icon={<RefreshCw className="h-3.5 w-3.5" />}>Refresh</Button>}
         />
@@ -894,7 +1012,7 @@ export default function DashboardClient({
                 { id: "all", label: "All" },
                 { id: "active", label: "In Flight" },
                 { id: "queued", label: "Queued" },
-                { id: "success", label: "Printed" },
+                { id: "success", label: "Delivered" },
                 { id: "failed", label: "Failed" },
                 { id: "unknown", label: "Unknown" },
                 { id: "expired", label: "Expired" },
@@ -958,7 +1076,7 @@ export default function DashboardClient({
         </div>
       </Card>
 
-      <Drawer open={selectedJob !== null} onClose={() => setSelectedJob(null)} title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : "Job Details"} description="Runtime execution & diagnostics">
+      <Drawer open={selectedJob !== null} onClose={() => setSelectedJob(null)} title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : "Job Details"} description="Delivery details">
         {selectedJob && (() => {
           const outcome = deriveOutcome(selectedJob.status, selectedJob.error);
           const isTerminal = ["success", "failed", "expired"].includes(selectedJob.status.toLowerCase());
@@ -1032,13 +1150,22 @@ export default function DashboardClient({
         open={certifyPrinter !== null}
         onClose={() => setCertifyPrinter(null)}
         title={certifyPrinter ? `Certify ${certifyPrinter.name}` : "Printer Certification"}
-        description="Real print certification with evidence steps"
+        description="Verify this printer with a real print test"
       >
         <h3 className="sr-only">Certification</h3>
         {certifyPrinter && (
           <PrintCertificationWizard key={certifyPrinter.id} printerId={certifyPrinter.id} />
         )}
       </Drawer>
+
+      <UpgradeLimitDialog
+        open={upgradeLimit !== null}
+        onClose={() => setUpgradeLimit(null)}
+        resource={upgradeLimit?.resource ?? "prints"}
+        used={upgradeLimit?.used}
+        limit={upgradeLimit?.limit}
+        periodEnd={upgradeLimit?.periodEnd}
+      />
 
       <Modal open={Boolean(reprintCandidate)} onClose={() => { if (!busy) setReprintCandidate(null); }} title="Reprint this document?" description="Sends ORIGINAL document again.">
         <div className="space-y-3 text-[13px] text-ink-2">
@@ -1049,7 +1176,22 @@ export default function DashboardClient({
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setReprintCandidate(null)} disabled={busy}>Cancel</Button>
-          <Button variant="danger" disabled={busy} loading={busy} onClick={async () => { const job = reprintCandidate; setReprintCandidate(null); if (!job) return; await runAction(() => reprintJob(job.id), `Reprint queued for ${job.printerId}`); }} icon={<RotateCcw className="h-4 w-4" />}>Reprint</Button>
+          <Button variant="danger" disabled={busy} loading={busy} onClick={async () => { const job = reprintCandidate; setReprintCandidate(null); if (!job) return; try {
+          await sendGatewayReprint(job.id);
+          setMessage({ text: `Reprint queued for ${job.printerId}`, type: "ok" });
+          void refreshData();
+        } catch (error) {
+          if (error instanceof DashboardApiError && error.code === "PRINT_QUOTA_EXCEEDED") {
+            setUpgradeLimit({
+              resource: "prints",
+              used: typeof error.details.used === "number" ? error.details.used : null,
+              limit: typeof error.details.limit === "number" || error.details.limit === "unlimited" ? error.details.limit : null,
+              periodEnd: typeof error.details.periodEnd === "string" ? error.details.periodEnd : null,
+            });
+          } else {
+            setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
+          }
+        } }} icon={<RotateCcw className="h-4 w-4" />}>Reprint</Button>
         </div>
       </Modal>
 

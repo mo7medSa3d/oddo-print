@@ -96,7 +96,7 @@ class PrintGatewayConfig(models.Model):
         default=lambda self: (self.env.company.parent_id or self.env.company),
         ondelete="restrict", index=True,
     )
-    enabled = fields.Boolean(string="Gateway Printing Enabled", default=False)
+    enabled = fields.Boolean(string="Printing Service Enabled", default=False)
     enabled_sync_revision = fields.Integer(
         string="Activation Sync Revision", default=0, readonly=True, copy=False,
     )
@@ -140,7 +140,7 @@ class PrintGatewayConfig(models.Model):
         copy=False,
         exportable=False,
         groups="base.group_system",
-        help="Gateway installation credential. Restricted to system administrators and excluded from exports; database-at-rest encryption requires the deployment's secret-management boundary.",
+        help="Installation key from your Yasser Print Gateway account. Stored securely and excluded from exports.",
     )
     runtime_agent_id = fields.Char(
         string="Legacy Runtime Agent Reference",
@@ -150,21 +150,28 @@ class PrintGatewayConfig(models.Model):
     )
     last_test_at = fields.Datetime(readonly=True)
     last_test_status = fields.Selection(
-        [("draft", "Untested"), ("success", "Success"), ("failed", "Failed"),
-         ("revoked", "Revoked / Deleted on Gateway")],
-        readonly=True, default="draft",
+        [
+            ("draft", "Not configured"),
+            ("success", "Connected"),
+            ("failed", "Not connected"),
+            ("revoked", "API key revoked"),
+        ],
+        string="Connection",
+        readonly=True,
+        default="draft",
     )
     last_test_error = fields.Text(readonly=True)
     gateway_sync_state = fields.Selection(
         [
-            ("active", "Enabled"),
+            ("active", "Connected"),
             ("disabled", "Disabled"),
-            ("syncing", "Syncing"),
+            ("syncing", "Checking"),
             ("attention", "Action needed"),
             ("not_configured", "Setup required"),
         ],
         string="Gateway Status",
         compute="_compute_gateway_sync_state",
+        compute_sudo=False,
         store=True,
         index=True,
         readonly=True,
@@ -172,6 +179,8 @@ class PrintGatewayConfig(models.Model):
     gateway_sync_message = fields.Char(
         string="Status details",
         compute="_compute_gateway_sync_state",
+        compute_sudo=False,
+        store=True,
         readonly=True,
     )
 
@@ -183,7 +192,8 @@ class PrintGatewayConfig(models.Model):
 
     def _pending_stale_message(self):
         return _(
-            "Sync did not receive confirmation within %d minutes. Retry Sync or verify Gateway connectivity (URL host and port)."
+            "Gateway synchronization has not completed within %d minutes. "
+            "The next automatic check will retry it."
         ) % (self._SYNC_PENDING_STALE_AFTER_SECONDS // 60)
 
     _company_unique = models.Constraint(
@@ -221,6 +231,7 @@ class PrintGatewayConfig(models.Model):
         "enabled",
         "gateway_api_key",
         "last_test_status",
+        "last_test_error",
         "last_enabled_sync_error",
         "enabled_sync_revision",
         "last_enabled_sync_revision",
@@ -233,19 +244,26 @@ class PrintGatewayConfig(models.Model):
             if not record.gateway_api_key:
                 record.gateway_sync_state = "not_configured"
                 record.gateway_sync_message = _(
-                    "Add an installation API key to connect this Odoo company to the Gateway."
+                    "Enter the installation API key from your Yasser Print Gateway account to connect this company."
                 )
                 continue
             if record.last_test_status == "revoked":
                 record.gateway_sync_state = "attention"
                 record.gateway_sync_message = _(
-                    "The Gateway API key is no longer valid. Replace the key, then test the connection."
+                    "The installation key is no longer active. Create or select a new key in Yasser Print Gateway, then save it here."
+                )
+                continue
+            if record.last_test_status == "failed":
+                record.gateway_sync_state = "attention"
+                record.gateway_sync_message = (
+                    record.last_test_error
+                    or _("The Gateway could not be reached. Check the Gateway URL and network connection.")
                 )
                 continue
             if record.last_enabled_sync_error:
                 record.gateway_sync_state = "attention"
                 record.gateway_sync_message = _(
-                    "Odoo is set to %s, but the Gateway has not confirmed that state yet."
+                    "Your printing settings are being updated in the printing service."
                 ) % (_("enabled") if record.enabled else _("disabled"))
                 continue
             if record.pending_disable_gateway_url and record.last_gateway_migration_sync_error:
@@ -257,7 +275,7 @@ class PrintGatewayConfig(models.Model):
                 record.gateway_sync_state = "attention"
                 record.gateway_sync_message = _(
                     "The previous Gateway endpoint (%(url)s) could not be disabled: %(error)s "
-                    "Fix the previous endpoint or use Reset Stale Sync, then Retry Sync."
+                    "Fix the previous endpoint or replace the Gateway key, then save again."
                 ) % {
                     "url": record.pending_disable_gateway_url,
                     "error": (record.last_gateway_migration_sync_error or "")[:500],
@@ -285,18 +303,18 @@ class PrintGatewayConfig(models.Model):
                     continue
                 record.gateway_sync_state = "syncing"
                 record.gateway_sync_message = _(
-                    "Sending the current Odoo activation state to the Gateway."
+                    "Saving your current printing settings."
                 )
                 continue
             if record.enabled:
                 record.gateway_sync_state = "active"
                 record.gateway_sync_message = _(
-                    "Printing is enabled in Odoo and the Gateway has confirmed the current state."
+                    "Printing is enabled and the service is connected."
                 )
             else:
                 record.gateway_sync_state = "disabled"
                 record.gateway_sync_message = _(
-                    "Printing is disabled in Odoo and the Gateway has confirmed the current state."
+                    "Printing is disabled and the service is connected."
                 )
 
     @api.constrains("company_id")
@@ -370,6 +388,79 @@ class PrintGatewayConfig(models.Model):
             "Cache-Control": "no-store",
             "X-Odoo-Database": self.env.cr.dbname,
         }
+
+    def _probe_gateway_connection(self):
+        """Check the current Gateway credential and persist its health state."""
+        self.ensure_one()
+        self.invalidate_recordset(["gateway_url", "gateway_api_key", "enabled_sync_revision"])
+        expected_revision = int(self.enabled_sync_revision or 0)
+        try:
+            gateway_url = self._gateway_base(for_request=True)
+            api_key = self._gateway_api_key_plaintext()
+            response = requests.get(
+                "%s/api/odoo/health" % gateway_url,
+                headers={
+                    "Authorization": "Bearer %s" % api_key,
+                    "Accept": "application/json",
+                    "Cache-Control": "no-store",
+                    "X-Odoo-Database": self.env.cr.dbname,
+                },
+                timeout=10,
+                allow_redirects=False,
+            )
+            redirect_message = _gateway_redirect_message(response, gateway_url)
+            if redirect_message:
+                self._write_test_result_if_current(expected_revision, {
+                    "last_test_at": fields.Datetime.now(),
+                    "last_test_status": "failed",
+                    "last_test_error": redirect_message,
+                })
+                return False
+            if response.status_code == 401:
+                self._write_test_result_if_current(expected_revision, {
+                    "last_test_at": fields.Datetime.now(),
+                    "last_test_status": "revoked",
+                    "last_test_error": _("The installation key is no longer active. Create or select a new key in Yasser Print Gateway, then save it here."),
+                    "enabled": False,
+                })
+                return False
+            if response.status_code == 403:
+                body = response.json() if response.content else {}
+                message = body.get("error") if isinstance(body, dict) and body.get("error") else _("The Gateway workspace is not available for printing.")
+                self._write_test_result_if_current(expected_revision, {
+                    "last_test_at": fields.Datetime.now(),
+                    "last_test_status": "failed",
+                    "last_test_error": message,
+                })
+                return False
+            body = response.json() if response.content else {}
+            if response.status_code != 200 or not isinstance(body, dict) or body.get("ok") is not True:
+                message = body.get("error") if isinstance(body, dict) and isinstance(body.get("error"), str) else _("Gateway health check failed (HTTP %s).") % response.status_code
+                self._write_test_result_if_current(expected_revision, {
+                    "last_test_at": fields.Datetime.now(),
+                    "last_test_status": "failed",
+                    "last_test_error": message,
+                })
+                return False
+            return self._write_test_result_if_current(expected_revision, {
+                "last_test_at": fields.Datetime.now(),
+                "last_test_status": "success",
+                "last_test_error": False,
+            })
+        except requests.RequestException as exc:
+            self._write_test_result_if_current(expected_revision, {
+                "last_test_at": fields.Datetime.now(),
+                "last_test_status": "failed",
+                "last_test_error": _friendly_gateway_request_error(exc, self.gateway_url)[:4000],
+            })
+            return False
+        except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError) as exc:
+            self._write_test_result_if_current(expected_revision, {
+                "last_test_at": fields.Datetime.now(),
+                "last_test_status": "failed",
+                "last_test_error": str(exc)[:4000],
+            })
+            return False
 
     def _persist_gateway_migration_result(self, *, success, error):
         """Persist old-endpoint migration bookkeeping with an independent cursor."""
@@ -1399,6 +1490,13 @@ class PrintGatewayConfig(models.Model):
                     )
                     continue
 
+            # Probe the current credential only after any pending old-endpoint
+            # shutdown. URL migration therefore keeps its existing old-first
+            # safety ordering while ordinary key revocation is detected here.
+            if config.gateway_url and config.gateway_api_key:
+                if not config._probe_gateway_connection():
+                    continue
+
             if (
                 config.gateway_url
                 and config.gateway_api_key
@@ -1510,23 +1608,55 @@ class PrintGatewayConfig(models.Model):
         return {"type": "ir.actions.client", "tag": "reload"}
 
     def _write_test_result_if_current(self, expected_revision, values):
-        """Persist a connection-test result only if no newer sync revision won."""
+        """Persist a connection-test result on an independent cursor.
+
+        Test Connection can overlap a concurrent configuration save or another
+        test. Keep the RPC transaction out of this write path so a PostgreSQL
+        serialization conflict cannot abort the whole Odoo request and surface
+        as RPC_ERROR. The same revision fence still decides whether the result
+        is authoritative.
+        """
         self.ensure_one()
-        self.env.cr.execute(
-            "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE" % self._table,
-            [self.id],
-        )
-        row = self.env.cr.fetchone()
-        if not row or int(row[0] or 0) != int(expected_revision):
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, api.SUPERUSER_ID, {})
+            config = env["print_gateway.gateway_config"].browse(self.id).exists()
+            if not config:
+                cr.rollback()
+                return False
+
+            cr.execute(
+                "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE NOWAIT" % self._table,
+                [self.id],
+            )
+            row = cr.fetchone()
+            if not row or int(row[0] or 0) != int(expected_revision):
+                cr.rollback()
+                return False
+
+            config.with_context(skip_enabled_sync=True).write(values)
+            cr.commit()
+            self.invalidate_recordset([
+                "enabled",
+                "enabled_sync_revision",
+                "last_enabled_sync_revision",
+                "last_enabled_sync_error",
+                "last_test_at",
+                "last_test_status",
+                "last_test_error",
+            ])
+            return True
+        except Exception:
+            cr.rollback()
+            _logger.warning(
+                "Could not persist Gateway connection-test result for config %s; "
+                "the result may have been superseded by a concurrent update",
+                self.id,
+                exc_info=True,
+            )
             return False
-        self.invalidate_recordset([
-            "enabled",
-            "enabled_sync_revision",
-            "last_enabled_sync_revision",
-            "last_enabled_sync_error",
-        ])
-        self.write(values)
-        return True
+        finally:
+            cr.close()
 
     def action_test_connection(self):
         self.ensure_one()

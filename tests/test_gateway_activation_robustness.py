@@ -14,9 +14,9 @@ unhandled exception class). The contract now requires, at the source level:
 2. No silent death: the post-commit runner and both cron reconciliation legs
    catch unexpected exceptions, log the traceback via _logger.exception, and
    persist a POSTCOMMIT_ERROR / CRON_ERROR sync result through a fresh cursor.
-3. A synchronous operator recovery path: action_retry_enabled_sync, wired as
-   a form button visible exactly when the state is syncing or attention, that
-   reads the fenced revision fresh at trigger time (same fence as the cron).
+3. Automatic credential health monitoring: the cron probes the current Gateway
+   health endpoint independently of the activation revision, so a key revoked
+   or deleted remotely becomes visible in Odoo without a manual action.
 """
 
 from pathlib import Path
@@ -47,11 +47,9 @@ def test_syncing_state_is_time_bounded_by_a_revision_bound_timestamp():
     assert "pending_sync_started_at" in compute_body
     assert "self._SYNC_PENDING_STALE_AFTER_SECONDS" in compute_body
     assert "self._pending_stale_message()" in compute_body
-    # The escalation message names the timeout and the recovery actions.
     helper_idx = source.index("def _pending_stale_message")
     helper = source[helper_idx:helper_idx + 400]
-    assert "Retry Sync" in helper
-    assert "verify Gateway connectivity" in helper
+    assert "next automatic check" in helper
 
 
 def test_pending_bookkeeping_is_stamped_on_every_revision_bump_and_cleared_on_success():
@@ -105,20 +103,20 @@ def test_pending_disable_credentials_is_the_single_source_for_pending_state():
     assert source.count('"Gateway endpoint shutdown/migration state is incomplete') == 1
 
 
-def test_manual_retry_reads_the_fenced_revision_fresh_and_reuses_the_hardened_runner():
+def test_automatic_gateway_health_probe_detects_revoked_keys_and_network_failures():
     source = read("models/gateway_config.py")
-    action_idx = source.index("def action_retry_enabled_sync")
-    action_body = source[action_idx:source.index("def action_test_connection", action_idx)]
-    assert "_check_admin" in action_body
-    # Fence discipline: invalidate the cached revision, read it at trigger
-    # time, and let the shared reconciliation cursor arbitrate races with a
-    # concurrent cron/post-commit sync. No manual cr.commit() inside the RPC.
-    assert 'invalidate_recordset(["enabled_sync_revision", "enabled"])' in action_body
-    assert "revision = int(self.enabled_sync_revision or 0)" in action_body
-    assert "_run_postcommit_enabled_sync(" in action_body
-    assert ".commit(" not in action_body
-
-    view = read("views/gateway_config_views.xml")
-    button_idx = view.index('name="action_retry_enabled_sync"')
-    button_tail = view[button_idx:min(len(view), button_idx + 200)]
-    assert 'invisible="gateway_sync_state not in (\'syncing\', \'attention\')"' in button_tail
+    probe_idx = source.index("def _probe_gateway_connection")
+    probe_end = source.index("def _persist_gateway_migration_result", probe_idx)
+    probe = source[probe_idx:probe_end]
+    assert '"/api/odoo/health" % gateway_url' in probe
+    assert 'response.status_code == 401' in probe
+    assert '"last_test_status": "revoked"' in probe
+    assert '"last_test_status": "failed"' in probe
+    assert "_friendly_gateway_request_error" in probe
+    assert "def cron_sync_enabled_state(self):" in source
+    cron_idx = source.index("def cron_sync_enabled_state(self):")
+    cron_end = source.index("def action_retry_enabled_sync", cron_idx)
+    cron = source[cron_idx:cron_end]
+    assert "_probe_gateway_connection()" in cron
+    assert "if not config._probe_gateway_connection()" in cron
+    assert "pending old-endpoint" in cron or "old-endpoint" in cron

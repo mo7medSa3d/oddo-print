@@ -4,6 +4,7 @@ import { db } from "../../../../db";
 import { queryWithTimeout } from "../../../../db/client";
 import { tenants, tenantSubscriptions, users, agents, printers, printJobs } from "../../../../db/schema";
 import { sql, gte, eq } from "drizzle-orm";
+import { agentStaleThresholdSeconds } from "../../../../lib/agent-availability";
 
 export async function GET(req: Request) {
   try {
@@ -43,21 +44,53 @@ export async function GET(req: Request) {
 
       db.select({
         total: sql<number>`count(*)::int`,
-        online: sql<number>`count(*) filter (where ${agents.status} = 'online')::int`,
-        offline: sql<number>`count(*) filter (where ${agents.status} = 'offline')::int`,
+        online: sql<number>`count(*) filter (
+          where ${agents.lifecycle} = 'active'
+            and ${agents.status} = 'online'
+            and ${agents.lastSeenAt} is not null
+            and ${agents.lastSeenAt} > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+        )::int`,
+        offline: sql<number>`count(*) filter (
+          where not (
+            ${agents.lifecycle} = 'active'
+            and ${agents.status} = 'online'
+            and ${agents.lastSeenAt} is not null
+            and ${agents.lastSeenAt} > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+          )
+        )::int`,
       }).from(agents),
 
       db.select({
         total: sql<number>`count(*)::int`,
-        online: sql<number>`count(*) filter (where ${printers.status} = 'online')::int`,
-        offline: sql<number>`count(*) filter (where ${printers.status} = 'offline')::int`,
-      }).from(printers),
+        online: sql<number>`count(*) filter (
+          where ${printers.lifecycle} = 'active'
+            and ${printers.status} = 'online'
+            and ${agents.lifecycle} = 'active'
+            and ${agents.status} = 'online'
+            and ${agents.lastSeenAt} is not null
+            and ${agents.lastSeenAt} > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+        )::int`,
+        offline: sql<number>`count(*) filter (
+          where not (
+            ${printers.lifecycle} = 'active'
+            and ${printers.status} = 'online'
+            and ${agents.lifecycle} = 'active'
+            and ${agents.status} = 'online'
+            and ${agents.lastSeenAt} is not null
+            and ${agents.lastSeenAt} > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+          )
+        )::int`,
+      })
+        .from(printers)
+        .leftJoin(agents, eq(printers.agentId, agents.id)),
 
       db.select({
         total: sql<number>`count(*)::int`,
         success: sql<number>`count(*) filter (where ${printJobs.status} = 'success')::int`,
         failed: sql<number>`count(*) filter (where ${printJobs.status} = 'failed')::int`,
         queued: sql<number>`count(*) filter (where ${printJobs.status} = 'queued')::int`,
+        inFlight: sql<number>`count(*) filter (where ${printJobs.status} in ('claimed','printing'))::int`,
+        expired: sql<number>`count(*) filter (where ${printJobs.status} = 'expired')::int`,
       }).from(printJobs).where(gte(printJobs.createdAt, new Date(Date.now() - 24 * 60 * 60 * 1000))),
     ]),
     8_000,
@@ -70,6 +103,6 @@ export async function GET(req: Request) {
     users: userStats[0] ?? { total: 0, verified: 0 },
     agents: agentStats[0] ?? { total: 0, online: 0, offline: 0 },
     printers: printerStats[0] ?? { total: 0, online: 0, offline: 0 },
-    jobs24h: jobStats24h[0] ?? { total: 0, success: 0, failed: 0, queued: 0 },
+    jobs24h: jobStats24h[0] ?? { total: 0, success: 0, failed: 0, queued: 0, inFlight: 0, expired: 0 },
   });
 }

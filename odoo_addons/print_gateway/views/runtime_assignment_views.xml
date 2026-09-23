@@ -8,10 +8,10 @@
         <field name="name">print_gateway.runtime_agent_assignment.list</field>
         <field name="model">print_gateway.runtime_agent_assignment</field>
         <field name="arch" type="xml">
-            <list string="Branch Agent Assignments" class="o_pg_list">
-                <field name="company_id" string="Odoo Company"/>
-                <field name="branch_id" string="Odoo Branch"/>
-                <field name="runtime_agent_id" string="Gateway Runtime Agent"/>
+            <list string="Branch Devices" class="o_pg_list">
+                <field name="company_id" string="Company"/>
+                <field name="branch_id" string="Branch"/>
+                <field name="runtime_agent_id" string="Print Agent"/>
                 <field name="enabled" widget="boolean_toggle"/>
             </list>
         </field>
@@ -21,16 +21,16 @@
         <field name="name">print_gateway.runtime_agent_assignment.form</field>
         <field name="model">print_gateway.runtime_agent_assignment</field>
         <field name="arch" type="xml">
-            <form string="Branch Agent Assignment" class="o_pg_view o_pg_form">
+            <form string="Branch Device" class="o_pg_view o_pg_form">
                 <sheet>
-                    <div class="alert alert-info" role="alert">Each row is one explicit Branch → Gateway Agent assignment. A branch may have multiple Agents; Agent and printer runtime state remains authoritative in the Gateway.</div>
+                    <div class="alert alert-info" role="alert">Choose which Print Agent serves this branch. A branch can use more than one agent.</div>
                     <group>
-                        <field name="company_id" string="Odoo Company" options="{'no_create': True}"/>
-                        <field name="branch_id" string="Odoo Branch" options="{'no_create': True}" help="Empty means this assignment applies to the whole company."/>
-                        <field name="runtime_agent_id" string="Gateway Runtime Agent" widget="gateway_runtime_agent" help="Select an active Agent registered in the same Gateway tenant."/>
+                        <field name="company_id" string="Company" options="{'no_create': True}"/>
+                        <field name="branch_id" string="Branch" options="{'no_create': True}" help="Empty means this assignment applies to the whole company."/>
+                        <field name="runtime_agent_id" string="Print Agent" widget="gateway_runtime_agent" help="Choose an active Print Agent connected to this account."/>
                         <field name="enabled" widget="boolean_toggle"/>
                     </group>
-                    <group string="Record">
+                    <group string="Details">
                         <field name="name" readonly="1" string="Summary"/>
                     </group>
                 </sheet>

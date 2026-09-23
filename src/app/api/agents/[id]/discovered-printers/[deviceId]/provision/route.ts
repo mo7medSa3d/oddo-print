@@ -6,8 +6,20 @@ import { requireManagerPermission } from "../../../../../../../lib/authorization
 import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "../../../../../../../lib/nanoid";
 import { validateConnectionConfig } from "../../../../../../../lib/printer-model";
+import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../../../../../lib/entitlements";
 
 export const dynamic = "force-dynamic";
+
+type ProvisionResult =
+  | { kind: "agent_not_found" }
+  | { kind: "agent_not_active" }
+  | { kind: "not_found" }
+  | { kind: "not_approved" }
+  | { kind: "unsupported_transport"; protocol: string }
+  | { kind: "missing_endpoint" }
+  | { kind: "invalid_endpoint"; error: string }
+  | { kind: "already"; printerId: string }
+  | { kind: "created"; printerId: string };
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string; deviceId: string }> }) {
   const claims = await validateManager(req);
@@ -19,7 +31,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!agent) return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   if (agent.lifecycle !== "active") return NextResponse.json({ error: `Agent is ${agent.lifecycle}` }, { status: 409 });
 
-  const result = await db.transaction(async (tx) => {
+  let result: ProvisionResult;
+  try {
+    result = await db.transaction(async (tx): Promise<ProvisionResult> => {
+    // Tenant resource admission must serialize with direct printer creation;
+    // otherwise two different Agents could both observe capacity and insert
+    // simultaneously past max_printers.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printers:' || ${claims.tenantId}))`);
+
     // Lifecycle changes serialize on the same Agent row. Lock it before
     // reading the discovery candidate so an Agent cannot be retired/disabled
     // between the outer pre-check and printer creation.
@@ -90,6 +109,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
     }
 
+    await enforceTenantResourceEntitlement(
+      tx,
+      claims.tenantId,
+      "max_printers",
+      sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId} AND lifecycle <> 'retired'`,
+    );
+
     const ippAddress = device.uri
       ?? (device.ipAddress && device.port
         ? transport.protocol + "://" + device.ipAddress + ":" + String(device.port) + "/ipp/print"
@@ -124,7 +150,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .where(and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.tenantId, claims.tenantId), eq(discoveredDevices.candidateStatus, "verified")));
 
     return { kind: "created" as const, printerId };
-  });
+    });
+  } catch (error) {
+    if (error instanceof TenantEntitlementError) {
+      const headers = new Headers({ "Retry-After": "60", "Cache-Control": "no-store" });
+      return NextResponse.json({
+        error: `Tenant entitlement ${error.entitlement} exceeded (limit ${error.limit})`,
+        code: "MAX_PRINTERS_EXCEEDED",
+        entitlement: error.entitlement,
+        limit: error.limit,
+        upgradeRequired: true,
+      }, { status: 429, headers });
+    }
+    if (isTenantBillingError(error)) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
+    }
+    throw error;
+  }
 
   if (result.kind === "agent_not_found") return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   if (result.kind === "agent_not_active") return NextResponse.json({ error: "Agent is no longer active" }, { status: 409 });

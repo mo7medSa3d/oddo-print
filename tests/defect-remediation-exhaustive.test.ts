@@ -148,7 +148,7 @@ describe("DEFECT #4 — Odoo Agent Selection & Runtime Printer Field", () => {
     const widgetSource = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/static/src/components/runtime_printer_field.js"), "utf-8");
     expect(widgetSource).toContain('t-att-value="props.record.data[props.name] || \'\'"');
     expect(widgetSource).toContain("configuredPrinterMissing");
-    expect(widgetSource).toContain("configured / currently unreachable");
+    expect(widgetSource).toContain("(saved / currently unavailable)");
     expect(widgetSource).toContain("updateData.printer_protocol = found.protocol");
   });
 });

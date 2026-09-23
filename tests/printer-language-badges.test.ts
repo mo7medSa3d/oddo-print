@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { getPrinterLanguageBadges } from "../src/lib/printer-capability";
+import { getPrinterLanguageBadges, getSupportedDocumentTypes } from "../src/lib/printer-capability";
 import ApiKeysPage from "../src/app/api-keys/page";
 
 /**
@@ -76,12 +76,12 @@ describe("ApiKeysPage resilience", () => {
     });
 
     // No render crash; the page shows its error banner for the keys load.
-    expect(host.textContent ?? "").toMatch(/Failed to load API keys|Unauthorized/i);
+    expect(host.textContent ?? "").toMatch(/Failed to load keys|Unauthorized/i);
     expect(fetchMock).toHaveBeenCalled();
   });
 });
 
-describe("ApiKeysPage scope and document-type authoring", () => {
+describe("ApiKeysPage API-key authoring", () => {
   let root: Root | undefined;
   let host: HTMLDivElement | undefined;
 
@@ -104,74 +104,32 @@ describe("ApiKeysPage scope and document-type authoring", () => {
     });
   }
 
-  it("shows scope and document-type allowance badges for a read-only key", async () => {
-    const fetchMock = vi.fn(async (input: unknown) => {
-      const url = String(input);
-      if (url === "/api/odoo/configuration") {
-        return new Response(JSON.stringify({ enabled: true, revision: 1, updatedAt: null }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
-      if (url === "/api/odoo/keys") {
-        return new Response(
-          JSON.stringify([
-            {
-              id: "k1",
-              name: "Kitchen POS",
-              scope: "read_only",
-              allowedDocumentTypes: ["receipt", "kitchen"],
-              createdAt: new Date().toISOString(),
-              lastUsedAt: null,
-              revokedAt: null,
-            },
-          ]),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      return new Response(JSON.stringify({ error: "not found" }), {
-        status: 404,
-        headers: { "content-type": "application/json" },
-      });
-    });
-
-    await mountWith(fetchMock);
-
-    // The row must disclose "Read only" and the restricted type count, not
-    // render a full-scope key as indistinguishable from standard.
-    expect(host!.textContent ?? "").toMatch(/Read only/);
-    expect(host!.textContent ?? "").toMatch(/2 types/);
-  });
-
-  it("posts scope and normalized document types when generating a key", async () => {
+  it("uses one full read/write credential model without scope or document-type controls", async () => {
     const posted: Record<string, unknown>[] = [];
     let list: Record<string, unknown>[] = [];
     const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
       const url = String(input);
-      if (url === "/api/odoo/configuration") {
-        return new Response(JSON.stringify({ enabled: true, revision: 1, updatedAt: null }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
       if (url === "/api/odoo/keys" && (!init?.method || init.method === "GET")) {
         return new Response(JSON.stringify(list), { status: 200, headers: { "content-type": "application/json" } });
       }
+      if (url === "/api/billing/status") {
+        return new Response(JSON.stringify({ hasSubscription: true }), { status: 200, headers: { "content-type": "application/json" } });
+      }
       if (url === "/api/odoo/keys" && init?.method === "POST") {
-        posted.push(JSON.parse(String(init.body)));
-        list = [
-          {
-            id: "k2",
-            name: "Receipt Kitchen",
-            scope: "read_only",
-            allowedDocumentTypes: ["receipt", "kitchen"],
-            createdAt: new Date().toISOString(),
-            lastUsedAt: null,
-            revokedAt: null,
-          },
-        ];
+        const body = JSON.parse(String(init.body));
+        posted.push(body);
+        list = [{
+          id: "k2",
+          name: "Receipt Kitchen",
+          createdAt: new Date().toISOString(),
+          lastUsedAt: null,
+          revokedAt: null,
+          odooEnabled: true,
+          odooEnabledRevision: 1,
+          odooEnabledUpdatedAt: new Date().toISOString(),
+        }];
         return new Response(JSON.stringify({ apiKey: "sk_live_secret" }), {
-          status: 200,
+          status: 201,
           headers: { "content-type": "application/json" },
         });
       }
@@ -182,30 +140,28 @@ describe("ApiKeysPage scope and document-type authoring", () => {
     });
 
     await mountWith(fetchMock);
-
-    act(() => {
-      const select = host!.querySelector<HTMLSelectElement>("#key-scope");
-      const types = host!.querySelector<HTMLInputElement>("#key-types");
-      const selectSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!;
-      selectSetter.call(select!, "read_only");
-      select!.dispatchEvent(new Event("change", { bubbles: true }));
-
-      const inputSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
-      inputSetter.call(types!, " receipt, KITCHEN ");
-      types!.dispatchEvent(new Event("input", { bubbles: true }));
-    });
 
     await act(async () => {
       host!.querySelector<HTMLButtonElement>('form button[type="submit"]')!.click();
       await vi.waitFor(() => expect(posted.length).toBe(1));
     });
-    expect(posted[0].scope).toBe("read_only");
-    // Comma list is trimmed + lowercased, empty entries dropped.
-    expect(posted[0].allowedDocumentTypes).toEqual(["receipt", "kitchen"]);
 
-    // The refreshed list reflects the new key's scope.
-    await act(async () => {
-      await vi.waitFor(() => expect(host!.textContent ?? "").toMatch(/Read only/));
-    });
+    expect(posted[0]).toEqual({ name: "Odoo Production" });
+    expect(host!.textContent ?? "").toContain("Read / write · All documents");
+    expect(host!.textContent ?? "").not.toContain("Read only");
+    expect(host!.textContent ?? "").not.toContain("Document types");
+  });
+});
+
+
+describe("getSupportedDocumentTypes", () => {
+  it("matches the real routing contract for document transports and byte protocols", () => {
+    expect(getSupportedDocumentTypes("ipp", "ipp")).toEqual(["pdf"]);
+    expect(getSupportedDocumentTypes("ipps", "ipps")).toEqual(["pdf"]);
+    expect(getSupportedDocumentTypes("spooler", "spooler")).toEqual(["pdf", "image", "raw", "escpos"]);
+    expect(getSupportedDocumentTypes("raw", "network")).toEqual(["raw"]);
+    expect(getSupportedDocumentTypes("zpl", "network")).toEqual(["zpl", "raw"]);
+    expect(getSupportedDocumentTypes("tspl", "network")).toEqual(["tspl", "raw"]);
+    expect(getSupportedDocumentTypes("unknown", "network")).toEqual([]);
   });
 });

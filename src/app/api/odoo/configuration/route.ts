@@ -49,7 +49,6 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   const apiKey = await validateOdooKey(req, { requireIntegrationEnabled: false });
   if (!apiKey) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   let body: unknown;
   try {
     body = await req.json();

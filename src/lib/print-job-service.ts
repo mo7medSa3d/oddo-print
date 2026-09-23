@@ -8,7 +8,7 @@ import { nanoid } from "./nanoid";
 import { canonicalize } from "./canonicalize";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "./job-delivery";
 
-import { enforceTenantJobEntitlements } from "./entitlements";
+import { enforceTenantJobEntitlements, reserveTenantPrintCredit } from "./entitlements";
 import { logInfo } from "./log";
 import { recordJobEvent } from "./job-timeline";
 
@@ -309,6 +309,11 @@ async function insertQueuedJobAtomically({
     }
 
     await enforceTenantJobEntitlements(tx, tenantId);
+
+    // One newly-created logical print job consumes one plan print credit.
+    // Existing idempotent jobs return before this point, so retries never
+    // double-charge the same logical print.
+    await reserveTenantPrintCredit(tx, tenantId);
 
     const counts = await tx.execute(sql`
       SELECT

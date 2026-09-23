@@ -5,7 +5,12 @@
  * echoing arbitrary internal error text.
  */
 export class ActionError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+    readonly details?: Record<string, unknown>,
+  ) {
     super(message);
   }
 }

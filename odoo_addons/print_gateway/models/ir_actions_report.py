@@ -9,6 +9,11 @@ class IrActionsReportGateway(models.Model):
 
     def report_action(self, docids, data=None, config=True):
         self.ensure_one()
+        # Odoo 19 distinguishes qweb-pdf from qweb-html. The Gateway is a
+        # physical-print transport, so only PDF report actions are intercepted;
+        # HTML actions must preserve Odoo's native preview/render semantics.
+        if self.report_type != "qweb-pdf":
+            return super().report_action(docids, data=data, config=config)
         if getattr(docids, "_name", None) == self.model:
             records = docids.exists()
         else:

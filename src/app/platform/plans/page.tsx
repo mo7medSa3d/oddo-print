@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Archive, CheckCircle2, CircleAlert, CreditCard, Eye, EyeOff, Loader2, Pencil, Plus, RefreshCw, Search, ShieldAlert, X } from "lucide-react";
 
-type EntitlementKey = "max_agents" | "max_printers" | "max_jobs_per_minute" | "max_concurrent_jobs";
+type EntitlementKey = "max_agents" | "max_printers" | "max_jobs_per_minute" | "max_concurrent_jobs" | "max_prints_per_period";
 type Entitlements = Record<EntitlementKey, number | "unlimited">;
 
 type Plan = {
@@ -24,8 +24,8 @@ type Plan = {
   activeSubscriberCount: number;
 };
 
-const EMPTY_ENTITLEMENTS: Entitlements = { max_agents: 1, max_printers: 1, max_jobs_per_minute: 60, max_concurrent_jobs: 8 };
-const ENTITLEMENT_LABELS: Record<EntitlementKey, string> = { max_agents: "Agents", max_printers: "Printers", max_jobs_per_minute: "Jobs / min", max_concurrent_jobs: "Concurrent" };
+const EMPTY_ENTITLEMENTS: Entitlements = { max_agents: 1, max_printers: 1, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: "unlimited" };
+const ENTITLEMENT_LABELS: Record<EntitlementKey, string> = { max_agents: "Agents", max_printers: "Printers", max_jobs_per_minute: "Jobs / min", max_concurrent_jobs: "Concurrent", max_prints_per_period: "Print jobs / period" };
 
 function emptyForm() {
   return { id: "", name: "", description: "", stripePriceId: "", stripeProductId: "", currency: "usd", interval: "month", displayOrder: 0, isActive: true, isPublic: true, entitlements: { ...EMPTY_ENTITLEMENTS } };
@@ -189,7 +189,7 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
           <Field label="Description" full><textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} placeholder="Short description shown in public catalog." className={`${INPUT} resize-none`} /></Field>
           <div className="sm:col-span-2 rounded-[12px] border border-edge bg-surface-2 p-4">
             <div className="mb-3"><div className="text-[13px] font-semibold text-ink">Runtime entitlements</div></div>
-            <div className="grid gap-4 sm:grid-cols-2">{(Object.keys(ENTITLEMENT_LABELS) as EntitlementKey[]).map((key) => (<Field key={key} label={ENTITLEMENT_LABELS[key]}><input value={String(form.entitlements[key])} onChange={(e) => updateEntitlement(key, e.target.value)} placeholder="Unlimited or number" className={INPUT} /></Field>))}</div>
+            <div className="grid gap-4 sm:grid-cols-2">{(Object.keys(ENTITLEMENT_LABELS) as EntitlementKey[]).map((key) => (<Field key={key} label={ENTITLEMENT_LABELS[key]} hint={key === "max_prints_per_period" ? "1 admitted Gateway print job = 1 print credit. Same idempotent retry does not consume another credit." : undefined}><input value={String(form.entitlements[key])} onChange={(e) => updateEntitlement(key, e.target.value)} placeholder="Unlimited or number" className={INPUT} /></Field>))}</div>
           </div>
           <label className="flex items-center justify-between gap-4 rounded-[12px] border border-edge bg-surface-2 px-4 py-3"><span><span className="block text-[13px] font-medium text-ink">Active for new sales</span><span className="mt-0.5 block text-[11px] text-ink-4">Archived stays valid for existing subscribers.</span></span><input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="h-4 w-4 accent-brand" /></label>
           <label className="flex items-center justify-between gap-4 rounded-[12px] border border-edge bg-surface-2 px-4 py-3"><span><span className="block text-[13px] font-medium text-ink">Public in pricing</span><span className="mt-0.5 block text-[11px] text-ink-4">Hide private plans from public catalog.</span></span><input type="checkbox" checked={form.isPublic} onChange={(e) => setForm({ ...form, isPublic: e.target.checked })} className="h-4 w-4 accent-brand" /></label>
@@ -206,6 +206,6 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
 
 const INPUT = "w-full rounded-xl border border-edge-strong bg-surface-2 px-3.5 py-2.5 text-[13px] text-ink placeholder:text-ink-4 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
 
-function Field({ label, full, children }: { label: string; full?: boolean; children: React.ReactNode }) {
-  return <label className={full ? "sm:col-span-2 space-y-2" : "space-y-2"}><span className="block text-[12px] font-medium text-ink-2">{label}</span>{children}</label>;
+function Field({ label, full, hint, children }: { label: string; full?: boolean; hint?: string; children: React.ReactNode }) {
+  return <label className={full ? "sm:col-span-2 space-y-2" : "space-y-2"}><span className="block text-[12px] font-medium text-ink-2">{label}</span>{children}{hint ? <span className="block text-[10px] leading-relaxed text-ink-4">{hint}</span> : null}</label>;
 }

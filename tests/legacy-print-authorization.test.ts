@@ -52,7 +52,7 @@ suite("installation API-key print authorization", () => {
     const keyId = `key_revoked_${Date.now()}`;
     const rawKey = `odoo_revoked_${Date.now()}`;
     await pool().query(
-      `INSERT INTO api_keys (id, tenant_id, scope, name, hashed_key) VALUES ($1, $2, 'standard', 'revoked', $3)`,
+      `INSERT INTO api_keys (id, tenant_id, name, hashed_key) VALUES ($1, $2, 'revoked', $3)`,
       [keyId, f.tenantId, sha256(rawKey)],
     );
     await pool().query(`UPDATE api_keys SET revoked_at = now() WHERE id = $1`, [keyId]);

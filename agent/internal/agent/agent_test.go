@@ -1010,3 +1010,132 @@ func TestPollJobsDispatchesBoundedBatch(t *testing.T) {
 		t.Fatal("a valid in-limit batch must be dispatched")
 	}
 }
+
+func TestProcessJobCancellationBeforePrintingRefusesHardware(t *testing.T) {
+	printingStarted := make(chan struct{})
+	var printingOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agent/jobs" || r.Method != http.MethodPatch {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["status"] == "printing" {
+			printingOnce.Do(func() { close(printingStarted) })
+			<-r.Context().Done()
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_test"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = server.URL
+	ag, err := New(cfg, filepath.Join(t.TempDir(), "config.yaml"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer ag.Close()
+
+	p := &fakePrinter{}
+	ag.printers = map[string]printer.Printer{"p1": p}
+	ag.printerConfigs = map[string]config.PrinterConfig{
+		"p1": {ID: "p1", Name: "Test", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		ag.processJob(ctx, map[string]interface{}{
+			"id":         "job_cancel_before_print",
+			"printerId":  "p1",
+			"payload":    makeJobPayload("job_cancel_before_print"),
+			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+			"claimToken": "claim-cancel-1",
+		})
+		close(done)
+	}()
+
+	select {
+	case <-printingStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("processJob never reached the claimed->printing report")
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("processJob did not terminate promptly after context cancellation")
+	}
+
+	if p.calls != 0 {
+		t.Fatalf("cancelled claimed job must not reach hardware, got %d print calls", p.calls)
+	}
+	_, status, found, err := ag.queue.Get("job_cancel_before_print")
+	if err != nil || !found {
+		t.Fatalf("expected local ledger row after cancellation, found=%v err=%v", found, err)
+	}
+	if status == "printing" {
+		t.Fatal("cancelled pre-dispatch attempt must be rolled back from local printing state")
+	}
+}
+
+func TestHeartbeatStopsWhenAgentContextIsCancelled(t *testing.T) {
+	heartbeatStarted := make(chan struct{})
+	handlerRelease := make(chan struct{})
+	handlerDone := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agent/heartbeat" || r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		close(heartbeatStarted)
+		<-handlerRelease
+		close(handlerDone)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_heartbeat_cancel"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = server.URL
+	ag, err := New(cfg, filepath.Join(t.TempDir(), "config.yaml"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer ag.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		ag.sendHeartbeatGuardedContext(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-heartbeatStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("heartbeat request never started")
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("heartbeat did not stop promptly after agent context cancellation")
+	}
+
+	close(handlerRelease)
+	select {
+	case <-handlerDone:
+	case <-time.After(1 * time.Second):
+		t.Fatal("heartbeat HTTP test handler did not release cleanly")
+	}
+}

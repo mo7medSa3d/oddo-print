@@ -724,21 +724,19 @@ class PrintGatewayRouter(models.AbstractModel):
         sanitize = {"zpl": _zpl_text, "tspl": _tspl_text}.get(proto, _escpos_text)
         company_name = sanitize(binding.company_id.name)
         branch_name = sanitize(binding.branch_id.name) if binding.branch_id else "Default / Root"
-        agent_id = sanitize(binding.runtime_agent_id or "None")
         printer_name = sanitize(binding.printer_id)
 
         if proto == "zpl":
             ticket_raw = (
                 "^XA\n"
-                "^FO50,50^A0N,36,36^FDYASSER PRINT GATEWAY DIAGNOSTIC^FS\n"
-                "^FO50,100^GB700,2,2^FS\n"
-                f"^FO50,120^A0N,28,28^FDCompany : {company_name}^FS\n"
-                f"^FO50,160^A0N,28,28^FDBranch  : {branch_name}^FS\n"
-                f"^FO50,200^A0N,28,28^FDAgent ID: {agent_id}^FS\n"
-                f"^FO50,240^A0N,28,28^FDPrinter : {printer_name}^FS\n"
-                f"^FO50,280^A0N,28,28^FDProtocol: ZPL-II^FS\n"
-                "^FO50,320^GB700,2,2^FS\n"
-                f"^FO50,340^A0N,24,24^FDStatus: OK | {now_str}^FS\n"
+                "^FO50,40^A0N,36,36^FDYASSER PRINT GATEWAY^FS\n"
+                "^FO50,85^A0N,30,30^FDPRINTER TEST^FS\n"
+                "^FO50,125^GB700,2,2^FS\n"
+                f"^FO50,145^A0N,26,26^FDCompany : {company_name}^FS\n"
+                f"^FO50,180^A0N,26,26^FDLocation: {branch_name}^FS\n"
+                f"^FO50,215^A0N,26,26^FDPrinter : {printer_name}^FS\n"
+                "^FO50,250^A0N,26,26^FDStatus  : READY^FS\n"
+                f"^FO50,285^A0N,22,22^FDTime    : {now_str}^FS\n"
                 "^XZ\n"
             )
         elif proto == "tspl":
@@ -747,29 +745,26 @@ class PrintGatewayRouter(models.AbstractModel):
                 "GAP 2 mm, 0 mm\n"
                 "DIRECTION 1\n"
                 "CLS\n"
-                'TEXT 50,40,"3",0,1,1,"YASSER PRINT GATEWAY DIAGNOSTIC"\n'
-                f'TEXT 50,80,"2",0,1,1,"Company : {company_name}"\n'
-                f'TEXT 50,110,"2",0,1,1,"Branch  : {branch_name}"\n'
-                f'TEXT 50,140,"2",0,1,1,"Agent ID: {agent_id}"\n'
-                f'TEXT 50,170,"2",0,1,1,"Printer : {printer_name}"\n'
-                f'TEXT 50,200,"2",0,1,1,"Protocol: TSPL"\n'
-                f'TEXT 50,230,"1",0,1,1,"Status: OK | {now_str}"\n'
+                'TEXT 50,35,"3",0,1,1,"YASSER PRINT GATEWAY"\n'
+                'TEXT 50,70,"2",0,1,1,"PRINTER TEST"\n'
+                f'TEXT 50,105,"2",0,1,1,"Company : {company_name}"\n'
+                f'TEXT 50,135,"2",0,1,1,"Location: {branch_name}"\n'
+                f'TEXT 50,165,"2",0,1,1,"Printer : {printer_name}"\n'
+                'TEXT 50,195,"2",0,1,1,"Status  : READY"\n'
+                f'TEXT 50,220,"1",0,1,1,"Time    : {now_str}"\n'
                 "PRINT 1,1\n"
             )
         elif proto == "raw":
             ticket_raw = (
                 "================================\n"
-                "  YASSER PRINT GATEWAY DIAGNOSTIC  \n"
+                "     YASSER PRINT GATEWAY\n"
+                "          PRINTER TEST\n"
                 "================================\n"
                 f"Company : {company_name}\n"
-                f"Branch  : {branch_name}\n"
-                f"Agent ID: {agent_id}\n"
+                f"Location: {branch_name}\n"
                 f"Printer : {printer_name}\n"
-                f"Area    : {binding.destination_type.upper()}\n"
-                "Protocol: RAW\n"
-                "--------------------------------\n"
-                "Hardware Test Status: OK\n"
-                f"Timestamp: {now_str}\n"
+                "Status  : READY\n"
+                f"Time    : {now_str}\n"
                 "================================\n\n\n"
             )
         elif proto == "escpos":
@@ -777,21 +772,15 @@ class PrintGatewayRouter(models.AbstractModel):
                 "\x1b\x40",  # Initialize printer
                 "\x1b\x61\x01",  # Centered
                 "================================\n",
-                "  YASSER PRINT GATEWAY DIAGNOSTIC  \n",
+                "     YASSER PRINT GATEWAY\n",
+                "          PRINTER TEST\n",
                 "================================\n",
                 "\x1b\x61\x00",  # Left align
                 f"Company : {company_name}\n",
-                f"Branch  : {branch_name}\n",
-                f"Agent ID: {agent_id}\n",
+                f"Location: {branch_name}\n",
                 f"Printer : {printer_name}\n",
-                f"Area    : {binding.destination_type.upper()}\n",
-                f"Protocol: {proto.upper()}\n",
-                f"Drawer  : {binding.drawer_kick_mode}\n",
-                f"Cutter  : {binding.cutter_mode}\n",
-                f"Chime   : {binding.buzzer_mode}\n",
-                "--------------------------------\n",
-                "Hardware Test Status: OK\n",
-                f"Timestamp: {now_str}\n",
+                "Status  : READY\n",
+                f"Time    : {now_str}\n",
                 "================================\n\n\n",
             ]
             ticket_raw = "".join(ticket_lines)

@@ -677,12 +677,12 @@ suite("WS claim-before-delivery", () => {
     expect(row.delivered_at).not.toBeNull(); // justified: fenced report proved the hold
   });
 
-  it("agent success within the post-expiry grace window records PRINTED_POST_EXPIRATION", async () => {
-    // A print physically completed right at the TTL boundary: the row was
-    // already terminalized to expired by the sweep (expiry 1s ago, inside
-    // EXPIRED_LATE_SUCCESS_GRACE_MS), then the claim holder reports the
-    // completed print. Recorded as success with PRINTED_POST_EXPIRATION
-    // rather than a blind 409.
+  it("agent success within the post-expiry grace window records LATE_SUCCESS_POST_EXPIRATION", async () => {
+    // Execution completed right at the TTL boundary: the row was already
+    // terminalized to expired by the sweep (expiry 1s ago, inside
+    // EXPIRED_LATE_SUCCESS_GRACE_MS), then the claim holder reports completion.
+    // Recorded as success with LATE_SUCCESS_POST_EXPIRATION; physical paper
+    // output remains unverified rather than being inferred from transport success.
     await insertQueuedJob(f, "job_exp_late_success");
     const claim = await claimJobForDelivery("job_exp_late_success", f.agentId);
     const printing = await agentJobsPATCH(agentRequest(f, "PATCH", {
@@ -699,11 +699,11 @@ suite("WS claim-before-delivery", () => {
     expect(late.status).toBe(200);
     const body = await late.json();
     expect(body.status).toBe("success");
-    expect(body.physicalOutcome).toBe("printed");
-    expect(body.physicalDetail).toBe("PRINTED_POST_EXPIRATION");
+    expect(body.physicalOutcome).toBe("unknown");
+    expect(body.physicalDetail).toBe("LATE_SUCCESS_POST_EXPIRATION");
     const row = await jobRow("job_exp_late_success");
     expect(row.status).toBe("success");
-    expect(row.error).toMatch(/^PRINTED_POST_EXPIRATION/);
+    expect(row.error).toMatch(/^LATE_SUCCESS_POST_EXPIRATION/);
     expect(row.delivered_at).not.toBeNull();
   });
 

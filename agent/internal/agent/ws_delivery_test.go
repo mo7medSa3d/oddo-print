@@ -36,8 +36,13 @@ type recordingGateway struct {
 	// exact fence rejection a real gateway emits for a superseded claim.
 	// Tests the agent-side hard stop: zero bytes may follow such a response.
 	rejectPrinting bool
-	server         *httptest.Server
-	sendCh         chan interface{}
+	// blockQueuedReject makes the first pre-execution hand-back PATCH wait
+	// until releaseQueuedReject. This is used to prove the WS reader can
+	// continue consuming frames while rejection I/O is slow.
+	blockQueuedReject   chan struct{}
+	queuedRejectStarted chan struct{}
+	server              *httptest.Server
+	sendCh              chan interface{}
 }
 
 func (g *recordingGateway) Updates() []statusUpdate {
@@ -82,7 +87,18 @@ func newRecordingGateway(t *testing.T) *recordingGateway {
 			g.mu.Lock()
 			g.updates = append(g.updates, body)
 			reject := g.rejectPrinting && body.Status == "printing"
+			blockQueued := g.blockQueuedReject != nil && body.Status == "queued"
+			if blockQueued && g.queuedRejectStarted != nil && len(g.updates) >= 1 {
+				select {
+				case <-g.queuedRejectStarted:
+				default:
+					close(g.queuedRejectStarted)
+				}
+			}
 			g.mu.Unlock()
+			if blockQueued {
+				<-g.blockQueuedReject
+			}
 			if reject {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusConflict)
@@ -244,12 +260,109 @@ func TestDuplicateWSDeliveryPrintsOnceAndAcksAcceptedDeliveries(t *testing.T) {
 	}
 }
 
+func TestWSReaderRemainsResponsiveWhileRejectionHTTPIsBlocked(t *testing.T) {
+	gw := newRecordingGateway(t)
+	gw.blockQueuedReject = make(chan struct{})
+	gw.queuedRejectStarted = make(chan struct{})
+	p := &fakePrinter{}
+	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Keep both deliveries above the local admission ceiling. The WS reader
+	// should enqueue their fenced hand-backs and immediately return to
+	// ReadMessage; the first HTTP PATCH is intentionally blocked.
+	for i := 0; i < maxPendingJobs; i++ {
+		ag.pendingSlots <- struct{}{}
+	}
+	defer func() {
+		for i := 0; i < maxPendingJobs; i++ {
+			<-ag.pendingSlots
+		}
+	}()
+
+	ag.launchTracked(func() { ag.runRejectWorker(ctx) })
+	go ag.connectWebSocket(ctx)
+	waitFor(t, 5*time.Second, func() bool { return ag.getWSConn() != nil })
+
+	gw.sendCh <- claimedEnvelope("job_ws_reject_block_1", "p1")
+	gw.sendCh <- claimedEnvelope("job_ws_reject_block_2", "p1")
+
+	select {
+	case <-gw.queuedRejectStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first rejection PATCH never started")
+	}
+
+	waitFor(t, 2*time.Second, func() bool {
+		ag.rejectMu.Lock()
+		defer ag.rejectMu.Unlock()
+		return len(ag.rejectPending) == 2
+	})
+
+	// With the old synchronous design the reader would still be blocked in
+	// rejectJob for the first PATCH, so the second frame could not have been
+	// consumed. Seeing both keys queued proves the reader stayed responsive.
+	close(gw.blockQueuedReject)
+	cancel()
+	ag.runtimeWG.Wait()
+}
+
+func TestWSDisconnectDoesNotCancelAdmittedJob(t *testing.T) {
+	gw := newRecordingGateway(t)
+	p := &fakePrinter{blocked: make(chan struct{}), startedCh: make(chan string, 1)}
+	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
+	ctx, cancel := context.WithCancel(context.Background())
+	go ag.connectWebSocket(ctx)
+	waitFor(t, 5*time.Second, func() bool { return ag.getWSConn() != nil })
+
+	gw.sendCh <- claimedEnvelope("job_survives_ws_reconnect", "p1")
+	select {
+	case <-p.startedCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("job never started")
+	}
+
+	// Close only the WebSocket session. The Agent lifecycle context remains
+	// active, so an already-admitted physical job must continue independently
+	// of reconnect activity.
+	oldConn := ag.getWSConn()
+	if oldConn == nil {
+		t.Fatal("expected active WebSocket before forced disconnect")
+	}
+	if err := oldConn.Close(); err != nil {
+		t.Fatalf("close WebSocket: %v", err)
+	}
+
+	close(p.blocked)
+	ag.waitForJobs()
+
+	if p.calls != 1 {
+		t.Fatalf("WS disconnect must not cancel an admitted job, got %d printer calls", p.calls)
+	}
+	var success bool
+	for _, update := range gw.Updates() {
+		if update.JobID == "job_survives_ws_reconnect" && update.Status == "success" {
+			success = true
+			break
+		}
+	}
+	if !success {
+		t.Fatalf("admitted job must report terminal success after WS reconnect; updates=%+v", gw.Updates())
+	}
+
+	cancel()
+	waitFor(t, 2*time.Second, func() bool { return ag.getWSConn() == nil })
+	ag.runtimeWG.Wait()
+}
+
 func TestWSDeliveryDoesNotAckWhenLocalExecutorIsFull(t *testing.T) {
 	gw := newRecordingGateway(t)
 	p := &fakePrinter{}
 	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	ag.launchTracked(func() { ag.runRejectWorker(ctx) })
 	go ag.connectWebSocket(ctx)
 	waitFor(t, 5*time.Second, func() bool { return ag.getWSConn() != nil })
 

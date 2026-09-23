@@ -1,6 +1,6 @@
 import { db, queryWithTimeout } from "../db/client";
-import { jobEvents, printJobs } from "../db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { jobEvents } from "../db/schema";
+import { eq, and } from "drizzle-orm";
 import { nanoid } from "./nanoid";
 import { getCorrelationContext } from "../server/correlation";
 import { logInfo } from "./log";
@@ -96,7 +96,7 @@ export function buildTimelineFromJobRow(job: any): { stage: JobTimelineStage; st
   }
   if (job.status === "success") {
     timeline.push({ stage: "delivery", status: "ok", at: job.ackedAt, message: "Delivered to printer transport" });
-    timeline.push({ stage: "success", status: "ok", at: job.ackedAt, message: "Printer acknowledged success" });
+    timeline.push({ stage: "success", status: "ok", at: job.ackedAt, message: "Gateway delivery completed; physical paper output is not independently verified" });
   }
   if (job.status === "failed") {
     timeline.push({ stage: "failed", status: "error", at: job.updatedAt, message: job.error ?? "Failed" });

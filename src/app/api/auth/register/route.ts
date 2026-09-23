@@ -13,10 +13,11 @@ const GENERIC = { ok: true, message: "If the account can be created, a verificat
 
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 64 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
-  let body: { email?: unknown; password?: unknown };
+  let body: { email?: unknown; password?: unknown; planId?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
   const password = typeof body.password === "string" ? body.password : "";
+  const planId = typeof body.planId === "string" && body.planId.length <= 128 ? body.planId : "";
   if (!validEmail(email) || password.length < 12 || password.length > 4096) return NextResponse.json({ error: "Enter a valid email and a password of at least 12 characters." }, { status: 400 });
   const ip = clientIpFrom(req);
   const rate = await reserveAuthAttempt(ip, email);
@@ -44,7 +45,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    const url = `${appBaseUrl(req)}/verify-email?token=${encodeURIComponent(rawToken)}`;
+    const planQuery = planId ? `&plan=${encodeURIComponent(planId)}` : "";
+    const url = `${appBaseUrl(req)}/verify-email?token=${encodeURIComponent(rawToken)}${planQuery}`;
     await sendTransactionalEmail({
       to: email,
       subject: "Verify your Yasser account",

@@ -5,6 +5,7 @@ import { plans, tenantSubscriptions } from "../../../../db/schema";
 import { asc, eq, sql } from "drizzle-orm";
 import { requirePlatformOwner } from "../../../../lib/platform-auth";
 import { normalizePlanEntitlements } from "../../../../lib/entitlements";
+import { validateStripePriceBinding, StripePriceBindingError } from "../../../../lib/stripe";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { writeAuditEvent } from "../../../../lib/audit";
 
@@ -69,7 +70,7 @@ export async function GET(req: Request) {
         createdAt: plans.createdAt,
         updatedAt: plans.updatedAt,
         subscriberCount: sql<number>`(SELECT count(*)::int FROM ${tenantSubscriptions} WHERE ${tenantSubscriptions.planId} = ${plans.id})`,
-        activeSubscriberCount: sql<number>`(SELECT count(*)::int FROM ${tenantSubscriptions} WHERE ${tenantSubscriptions.planId} = ${plans.id} AND ${tenantSubscriptions.status} IN ('trialing','active','past_due','paused'))`,
+        activeSubscriberCount: sql<number>`(SELECT count(*)::int FROM ${tenantSubscriptions} WHERE ${tenantSubscriptions.planId} = ${plans.id} AND ${tenantSubscriptions.status} IN ('trialing','active','past_due'))`,
       })
       .from(plans)
       .orderBy(asc(plans.displayOrder), asc(plans.name))
@@ -95,6 +96,24 @@ export async function POST(req: Request) {
     parsed = parsePlanPayload(await req.json());
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid plan payload." }, { status: 400 });
+  }
+
+  try {
+    const stripePrice = await validateStripePriceBinding({
+      priceId: parsed.stripePriceId,
+      currency: parsed.currency,
+      interval: parsed.interval,
+      productId: parsed.stripeProductId,
+      requireActive: parsed.isActive,
+    });
+    // The Stripe Price is the source of truth for the linked Product. Keep
+    // the optional catalog field synchronized without accepting mismatches.
+    if (!parsed.stripeProductId && stripePrice.productId) parsed.stripeProductId = stripePrice.productId;
+  } catch (error) {
+    if (error instanceof StripePriceBindingError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
+    return NextResponse.json({ error: "Stripe Price could not be verified.", code: "STRIPE_PRICE_INVALID" }, { status: 400 });
   }
 
   try {

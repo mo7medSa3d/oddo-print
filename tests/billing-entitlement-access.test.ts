@@ -1,0 +1,82 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { db } from "../src/db";
+import { plans, tenantSubscriptions, tenants } from "../src/db/schema";
+import { TenantSubscriptionRequiredError, getTenantEntitlementLimit } from "../src/lib/entitlements";
+import { applyMigrations, closePool, hasTestDatabase, truncateAll } from "./helpers/pg";
+import { nanoid } from "../src/lib/nanoid";
+
+const suite = describe.skipIf(!hasTestDatabase);
+
+suite("billing entitlement access policy", () => {
+  beforeAll(async () => { await applyMigrations(); });
+  beforeEach(async () => { await truncateAll(); });
+  afterAll(async () => { await closePool(); });
+
+  it("keeps entitlements available during past_due recovery even after the nominal period end", async () => {
+    const tenantId = `tenant_${nanoid(8)}`;
+    const planId = `plan_${nanoid(8)}`;
+    await db.insert(tenants).values({ id: tenantId, name: "Past Due Tenant" });
+    await db.insert(plans).values({
+      id: planId,
+      name: "Past Due Plan",
+      entitlements: { max_agents: 2, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: 20 },
+      stripePriceId: `price_${nanoid(8)}`,
+      currency: "usd",
+      interval: "month",
+    });
+    await db.insert(tenantSubscriptions).values({
+      tenantId,
+      planId,
+      status: "past_due",
+      currentPeriodEnd: new Date(Date.now() - 60_000),
+    });
+
+    await expect(getTenantEntitlementLimit(db, tenantId, "max_printers")).resolves.toBe(5);
+  });
+
+  it("fails closed for unpaid subscriptions", async () => {
+    const tenantId = `tenant_${nanoid(8)}`;
+    const planId = `plan_${nanoid(8)}`;
+    await db.insert(tenants).values({ id: tenantId, name: "Unpaid Tenant" });
+    await db.insert(plans).values({
+      id: planId,
+      name: "Unpaid Plan",
+      entitlements: { max_agents: 2, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: 20 },
+      stripePriceId: `price_${nanoid(8)}`,
+      currency: "usd",
+      interval: "month",
+    });
+    await db.insert(tenantSubscriptions).values({
+      tenantId,
+      planId,
+      status: "unpaid",
+      currentPeriodEnd: new Date(Date.now() + 86_400_000),
+    });
+
+    await expect(getTenantEntitlementLimit(db, tenantId, "max_printers"))
+      .rejects.toBeInstanceOf(TenantSubscriptionRequiredError);
+  });
+
+  it("fails closed for paused subscriptions", async () => {
+    const tenantId = `tenant_${nanoid(8)}`;
+    const planId = `plan_${nanoid(8)}`;
+    await db.insert(tenants).values({ id: tenantId, name: "Paused Tenant" });
+    await db.insert(plans).values({
+      id: planId,
+      name: "Paused Plan",
+      entitlements: { max_agents: 2, max_printers: 5, max_jobs_per_minute: 60, max_concurrent_jobs: 8, max_prints_per_period: 20 },
+      stripePriceId: `price_${nanoid(8)}`,
+      currency: "usd",
+      interval: "month",
+    });
+    await db.insert(tenantSubscriptions).values({
+      tenantId,
+      planId,
+      status: "paused",
+      currentPeriodEnd: new Date(Date.now() + 86_400_000),
+    });
+
+    await expect(getTenantEntitlementLimit(db, tenantId, "max_printers"))
+      .rejects.toBeInstanceOf(TenantSubscriptionRequiredError);
+  });
+});

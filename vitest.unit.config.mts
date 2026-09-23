@@ -8,6 +8,7 @@ const rootDir = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   resolve: { alias: { "@": resolve(rootDir, "src") } },
   test: {
+    clearMocks: false,
     include: ["tests/**/*.test.ts"],
     exclude: [...integrationVitestTestFiles],
     testTimeout: 30000,

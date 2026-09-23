@@ -30,7 +30,7 @@ export function getSupportedDocumentTypes(protocol: ProtocolType, transport: Tra
     return ["pdf", "image", "raw", "escpos"];
   }
   if (protocol === "ipp" || protocol === "ipps" || transport === "ipp" || transport === "ipps") {
-    return ["pdf", "image", "raw"];
+    return ["pdf"];
   }
   switch (protocol) {
     case "escpos":
@@ -40,9 +40,9 @@ export function getSupportedDocumentTypes(protocol: ProtocolType, transport: Tra
     case "tspl":
       return ["tspl", "raw"];
     case "raw":
-      return ["raw", "escpos", "zpl", "tspl"];
-    default:
       return ["raw"];
+    default:
+      return [];
   }
 }
 

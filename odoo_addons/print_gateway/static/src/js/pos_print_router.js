@@ -95,7 +95,7 @@ patch(PosStore.prototype, {
             const orderId = currentOrder.id;
             if (!orderId) {
                 console.warn("POS order has no server identifier; cannot print via Gateway without synced record:", currentOrder.uuid || currentOrder.name);
-                this.notification.add("Order must be synchronized to the backend before Gateway receipt printing.", { type: "warning" });
+                this.notification.add("Sync the POS order before sending the receipt to the printing service.", { type: "warning" });
                 return false;
             }
 
@@ -112,17 +112,17 @@ patch(PosStore.prototype, {
             // printed; "unknown" means the outcome cannot be trusted.
             if (["unknown", "partial"].includes(result?.status)) {
                 this.notification.add(
-                    "Print outcome unknown - the receipt may or may not have printed. Check the printer before reprinting.",
+                    "Print status is unknown. Check the printer before trying again.",
                     { type: "warning", sticky: true }
                 );
             } else if (result?.status === "failed") {
                 this.notification.add(
-                    result?.message || "The Gateway could not accept this receipt. Check the Print Jobs list for the reason.",
+                    result?.message || "The receipt could not be accepted for printing. Check Print Activity for details.",
                     { type: "danger" }
                 );
             } else {
                 this.notification.add(
-                    result?.message || "Receipt sent to the Gateway queue - watch the Print Jobs list for the final result.",
+                    result?.message || "Receipt sent to the printing service. Check Print Activity for the final status.",
                     { type: "success" }
                 );
             }
@@ -142,7 +142,7 @@ patch(PosStore.prototype, {
             return result;
         } catch (error) {
             // Fail-safe: display user notification and return false, NEVER re-throw to avoid freezing POS UI
-            this.notification.add(error?.message || "Print Gateway printing failed.", { type: "danger" });
+            this.notification.add(error?.message || "Receipt printing failed.", { type: "danger" });
             return false;
         }
     },
@@ -208,7 +208,7 @@ patch(PosStore.prototype, {
                     if (result?.gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial") {
                         this.notification.add(
                             result.message?.body ||
-                                "Kitchen print outcome is unknown. Verify the printer before any manual reprint.",
+                                "Kitchen print status is unknown. Check the printer before trying again.",
                             { type: "warning", sticky: true }
                         );
                         continue;
@@ -262,12 +262,12 @@ patch(PosStore.prototype, {
             return super.printOrderChanges(data, printer);
         }
         if (!orderId) {
-            const message = "POS order has no server identifier; Gateway kitchen printing cannot continue.";
+            const message = "The POS order is not synchronized yet, so kitchen printing cannot continue.";
             this.notification.add(message, { type: "danger" });
             return {
                 successful: false,
                 canRetry: true,
-                message: { title: "Print Gateway", body: message },
+                message: { title: "Printing Service", body: message },
             };
         }
 
@@ -288,10 +288,10 @@ patch(PosStore.prototype, {
                     gatewayOutcome: status,
                     warningCode: undefined,
                     message: {
-                        title: "Print Gateway",
+                        title: "Printing Service",
                         body: status === "unknown"
                             ? "Kitchen print outcome is unknown. The ticket may already have printed; automatic retry is disabled."
-                            : "Kitchen print has an ambiguous/partial outcome. Automatic retry is disabled.",
+                            : "Kitchen print status is unclear. Automatic retry is paused to prevent duplicate tickets.",
                     },
                 };
             }
@@ -305,7 +305,7 @@ patch(PosStore.prototype, {
             return {
                 successful: false,
                 canRetry: true,
-                message: { title: "Print Gateway", body: error?.message || "Kitchen / Preparation printing failed." },
+                message: { title: "Printing Service", body: error?.message || "Kitchen / Preparation printing failed." },
             };
         }
     },

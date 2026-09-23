@@ -4,16 +4,15 @@
         <field name="name">print_gateway.gateway_config.list</field>
         <field name="model">print_gateway.gateway_config</field>
         <field name="arch" type="xml">
-            <list string="Gateway Configuration" create="1" class="o_pg_list">
-                <field name="company_id" string="Odoo Company"/>
-                <field name="gateway_sync_state"
-                       string="Gateway Status"
+            <list string="Connection &amp; Printing" create="1" class="o_pg_list">
+                <field name="company_id" string="Company"/>
+                <field name="last_test_status"
+                       string="Connection"
                        widget="badge"
-                       decoration-success="gateway_sync_state == 'active'"
-                       decoration-warning="gateway_sync_state == 'syncing'"
-                       decoration-danger="gateway_sync_state == 'attention'"
-                       decoration-muted="gateway_sync_state in ('disabled', 'not_configured')"/>
-                <field name="enabled" widget="boolean_toggle" string="Active"/>
+                       decoration-success="last_test_status == 'success'"
+                       decoration-danger="last_test_status in ('failed', 'revoked')"
+                       decoration-muted="last_test_status == 'draft'"/>
+                <field name="enabled" widget="boolean_toggle" string="Printing"/>
                 <field name="gateway_url"/>
             </list>
         </field>
@@ -23,122 +22,21 @@
         <field name="name">print_gateway.gateway_config.form</field>
         <field name="model">print_gateway.gateway_config</field>
         <field name="arch" type="xml">
-            <form string="Gateway Configuration" create="1" class="o_pg_view o_pg_form">
-                <header>
-                    <button name="action_test_connection" type="object" string="Test Connection" class="oe_highlight"/>
-                    <button name="action_retry_enabled_sync" type="object" string="Retry Sync" icon="fa-refresh" invisible="gateway_sync_state not in ('syncing', 'attention')"/>
-                    <button name="action_reset_stale_sync_state" type="object" string="Reset Stale Sync" icon="fa-eraser" invisible="gateway_sync_state not in ('syncing', 'attention')" confirm="Clear the stuck Gateway shutdown fence and retry synchronization from the current URL and API key?"/>
-                    <button name="action_open_pairing_wizard" type="object" string="Pair New Agent" class="btn-primary" icon="fa-link"/>
-                    <button name="action_open_runtime_assignments" type="object" string="Branch Assignments" icon="fa-sitemap"/>
-                </header>
+            <form string="Connection &amp; Printing" create="1" class="o_pg_view o_pg_form">
+                <header/>
                 <sheet>
-                    <div class="o_pg_record_header">
-                        <span class="o_pg_record_icon"><i class="fa fa-plug" role="img" aria-label="Gateway"/></span>
-                        <div>
-                            <h1>Print Gateway</h1>
-                            <p class="text-muted mb-0">Odoo owns business context and print intent. Gateway owns runtime Agents, runtime Printers, queueing and execution.</p>
-                        </div>
-                    </div>
-
-                    <!-- Distinct State Row: Credential / Activation / Connection — Odoo 19 form view uses invisible (Python expression), not QWeb t-if/t-att -->
-                    <div class="d-flex flex-wrap gap-3 mb-4">
-                        <!-- Credential: present -->
-                        <div class="o_pg_cred_card flex-fill has-key" invisible="not gateway_api_key">
-                            <span class="o_pg_cred_icon"><i class="fa fa-key" role="img" aria-label="Credential"/></span>
-                            <div class="flex-grow-1">
-                                <div class="fw-semibold small">Credential</div>
-                                <div class="small text-muted">API key configured • Encrypted at rest</div>
-                            </div>
-                            <span class="badge text-bg-success">Present</span>
-                        </div>
-                        <!-- Credential: missing -->
-                        <div class="o_pg_cred_card flex-fill no-key" invisible="gateway_api_key">
-                            <span class="o_pg_cred_icon"><i class="fa fa-key" role="img" aria-label="Credential"/></span>
-                            <div class="flex-grow-1">
-                                <div class="fw-semibold small">Credential</div>
-                                <div class="small text-muted">No API key • Setup required</div>
-                            </div>
-                            <span class="badge text-bg-danger">Missing</span>
-                        </div>
-                        <!-- Activation: enabled -->
-                        <div class="o_pg_cred_card flex-fill has-key" invisible="not enabled">
-                            <span class="o_pg_cred_icon"><i class="fa fa-power-off" role="img" aria-label="Activation"/></span>
-                            <div class="flex-grow-1">
-                                <div class="fw-semibold small">Activation</div>
-                                <div class="small text-muted">Printing enabled in Odoo</div>
-                            </div>
-                            <span class="o_pg_activation_state enabled">Enabled</span>
-                        </div>
-                        <!-- Activation: disabled -->
-                        <div class="o_pg_cred_card flex-fill" invisible="enabled">
-                            <span class="o_pg_cred_icon"><i class="fa fa-power-off" role="img" aria-label="Activation"/></span>
-                            <div class="flex-grow-1">
-                                <div class="fw-semibold small">Activation</div>
-                                <div class="small text-muted">Printing disabled in Odoo</div>
-                            </div>
-                            <span class="o_pg_activation_state disabled">Disabled</span>
-                        </div>
-                        <!-- Connection: active -->
-                        <div class="o_pg_connection_banner flex-fill mb-0 is-active" invisible="gateway_sync_state != 'active'">
-                            <span class="o_pg_conn_icon"><i class="fa fa-check" role="img" aria-label="Active"/></span>
-                            <div class="flex-grow-1">
-                                <div class="fw-semibold small"><field name="gateway_sync_state" readonly="1" nolabel="1" class="d-inline"/></div>
-                                <div class="small"><field name="gateway_sync_message" readonly="1" nolabel="1"/></div>
-                            </div>
-                        </div>
-                        <!-- Connection: syncing -->
-                        <div class="o_pg_connection_banner flex-fill mb-0 is-syncing" invisible="gateway_sync_state != 'syncing'">
-                            <span class="o_pg_conn_icon"><i class="fa fa-refresh fa-spin" role="img" aria-label="Syncing"/></span>
-                            <div class="flex-grow-1">
-                                <div class="fw-semibold small"><field name="gateway_sync_state" readonly="1" nolabel="1" class="d-inline"/></div>
-                                <div class="small"><field name="gateway_sync_message" readonly="1" nolabel="1"/></div>
-                            </div>
-                        </div>
-                        <!-- Connection: attention -->
-                        <div class="o_pg_connection_banner flex-fill mb-0 is-attention" invisible="gateway_sync_state != 'attention'">
-                            <span class="o_pg_conn_icon"><i class="fa fa-exclamation-triangle" role="img" aria-label="Attention"/></span>
-                            <div class="flex-grow-1">
-                                <div class="fw-semibold small"><field name="gateway_sync_state" readonly="1" nolabel="1" class="d-inline"/></div>
-                                <div class="small"><field name="gateway_sync_message" readonly="1" nolabel="1"/></div>
-                            </div>
-                        </div>
-                        <!-- Connection: disabled / not_configured -->
-                        <div class="o_pg_connection_banner flex-fill mb-0 is-disabled" invisible="gateway_sync_state not in ('disabled','not_configured')">
-                            <span class="o_pg_conn_icon"><i class="fa fa-pause" role="img" aria-label="Inactive"/></span>
-                            <div class="flex-grow-1">
-                                <div class="fw-semibold small"><field name="gateway_sync_state" readonly="1" nolabel="1" class="d-inline"/></div>
-                                <div class="small"><field name="gateway_sync_message" readonly="1" nolabel="1"/></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="alert alert-warning" role="alert" invisible="gateway_sync_state != 'attention'">
-                        <field name="gateway_sync_message" readonly="1" nolabel="1" class="fw-semibold"/>
-                    </div>
-
                     <group>
-                        <field name="company_id" string="Odoo Company"/>
-                        <field name="enabled" widget="boolean_toggle" string="Enable Gateway Printing"/>
-                        <field name="gateway_sync_state"
-                               string="Connection Status"
-                               widget="badge"
-                               decoration-success="gateway_sync_state == 'active'"
-                               decoration-warning="gateway_sync_state == 'syncing'"
-                               decoration-danger="gateway_sync_state == 'attention'"
-                               decoration-muted="gateway_sync_state in ('disabled', 'not_configured')"/>
-                    </group>
-                    <div class="oe_inline text-muted mb-3">
-                        <field name="gateway_sync_message" readonly="1" nolabel="1"/>
-                    </div>
-                    <group string="Connection">
+                        <field name="company_id" string="Company"/>
+                        <field name="enabled" widget="boolean_toggle" string="Enable Printing Service"/>
                         <field name="gateway_url" placeholder="https://print.example.com"/>
-                        <field name="gateway_api_key" password="True" placeholder="Paste the installation API key"/>
-                        <button name="action_clear_api_key"
-                                type="object"
-                                string="Remove API Key"
-                                class="btn btn-outline-danger btn-sm"
-                                groups="base.group_system"
-                                invisible="not gateway_api_key"/>
+                        <field name="gateway_api_key" password="True" placeholder="Enter the installation API key"/>
+                        <field name="last_test_status"
+                               string="Connection"
+                               widget="badge"
+                               decoration-success="last_test_status == 'success'"
+                               decoration-danger="last_test_status in ('failed', 'revoked')"
+                               decoration-muted="last_test_status == 'draft'"
+                               readonly="1"/>
                     </group>
                 </sheet>
             </form>
@@ -149,22 +47,20 @@
         <field name="name">print_gateway.gateway_config.search</field>
         <field name="model">print_gateway.gateway_config</field>
         <field name="arch" type="xml">
-            <search string="Gateway Configuration">
+            <search string="Connection &amp; Printing">
                 <field name="company_id"/>
                 <field name="gateway_url"/>
-                <field name="gateway_sync_state"/>
+                <field name="last_test_status"/>
                 <field name="enabled"/>
-                <filter string="Enabled" name="filter_enabled" domain="[('enabled','=',True)]"/>
-                <filter string="Disabled" name="filter_disabled" domain="[('enabled','=',False)]"/>
+                <filter string="Connected" name="filter_connected" domain="[('last_test_status','=','success')]"/>
+                <filter string="Not connected" name="filter_not_connected" domain="[('last_test_status','=','failed')]"/>
+                <filter string="API key revoked" name="filter_revoked" domain="[('last_test_status','=','revoked')]"/>
+                <filter string="Not checked" name="filter_not_checked" domain="[('last_test_status','=','draft')]"/>
                 <separator/>
-                <filter string="Active" name="filter_active" domain="[('gateway_sync_state','=','active')]"/>
-                <filter string="Attention" name="filter_attention" domain="[('gateway_sync_state','=','attention')]"/>
-                <filter string="Syncing" name="filter_syncing" domain="[('gateway_sync_state','=','syncing')]"/>
-                <filter string="Not Configured" name="filter_not_configured" domain="[('gateway_sync_state','=','not_configured')]"/>
-                <filter string="Gw Disabled" name="filter_gw_disabled" domain="[('gateway_sync_state','=','disabled')]"/>
+                <filter string="Printing enabled" name="filter_enabled" domain="[('enabled','=',True)]"/>
+                <filter string="Printing disabled" name="filter_disabled" domain="[('enabled','=',False)]"/>
                 <separator/>
                 <filter string="Company" name="group_company" context="{'group_by':'company_id'}"/>
-                <filter string="Gateway Status" name="group_sync_state" context="{'group_by':'gateway_sync_state'}"/>
             </search>
         </field>
     </record>
@@ -180,22 +76,22 @@
         <field name="name">print_gateway.pair_agent_wizard.form</field>
         <field name="model">print_gateway.pair_agent_wizard</field>
         <field name="arch" type="xml">
-            <form string="Assign Runtime Agent" class="o_pg_view o_pg_pairing_wizard">
+            <form string="Connect Print Agent" class="o_pg_view o_pg_pairing_wizard">
                 <sheet>
                     <div class="o_pg_wizard_header text-center mb-4">
-                        <i class="fa fa-plug fa-3x text-primary mb-2" title="Assign Agent" role="img" aria-label="Assign Agent"/>
-                        <h3 class="fw-bold">Assign Runtime Agent</h3>
-                        <p class="text-muted">Select the target Branch, then enter the ID of an active Gateway Agent. Multiple Agents can be assigned to the same Branch.</p>
+                        <i class="fa fa-plug fa-3x text-primary mb-2" title="Connect Agent" role="img" aria-label="Connect Agent"/>
+                        <h3 class="fw-bold">Connect Print Agent</h3>
+                        <p class="text-muted">Select the branch and choose an available Print Agent. A branch can use more than one agent.</p>
                     </div>
                     <group>
                         <field name="config_id" invisible="1"/>
                         <field name="company_id" invisible="1"/>
-                        <field name="branch_id" string="Target Branch" options="{'no_create': True, 'no_open': True}"/>
-                        <field name="agent_id" string="Runtime Agent" widget="gateway_runtime_agent_picker" placeholder="Select an active Gateway agent" class="o_pg_pairing_code_input" required="1" help="Select an active agent registered with the Central Gateway."/>
+                        <field name="branch_id" string="Branch" options="{'no_create': True, 'no_open': True}"/>
+                        <field name="agent_id" string="Print Agent" widget="gateway_runtime_agent_picker" placeholder="Select a connected Print Agent" class="o_pg_pairing_code_input" required="1" help="Choose a connected Print Agent for this branch."/>
                     </group>
                 </sheet>
                 <footer>
-                    <button name="action_confirm_pairing" string="Assign Agent" type="object" class="btn-primary"/>
+                    <button name="action_confirm_pairing" string="Connect Agent" type="object" class="btn-primary"/>
                     <button string="Cancel" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>

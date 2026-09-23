@@ -6,7 +6,9 @@ import * as fs from "fs";
 describe("printer-capability-matrix", () => {
   it("IPP transport supports pdf/image/raw", () => {
     expect(getSupportedDocumentTypes("ipp", "ipp")).toContain("pdf");
-    expect(getSupportedDocumentTypes("ipps", "ipps")).toContain("image");
+    expect(getSupportedDocumentTypes("ipps", "ipps")).toEqual(["pdf"]);
+    expect(getSupportedDocumentTypes("ipp", "ipp")).not.toContain("image");
+    expect(getSupportedDocumentTypes("ipp", "ipp")).not.toContain("raw");
     expect(isIppTransport("ipp", "ipp")).toBe(true);
     expect(isIppTransport("network", "ipp")).toBe(true);
   });

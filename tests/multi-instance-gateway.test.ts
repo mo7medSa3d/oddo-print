@@ -11,6 +11,7 @@ function startGateway(workerSchema: string | null): GatewayProcess {
   const env: NodeJS.ProcessEnv = {
     ...process.env, NODE_ENV: "production", PORT: "0", HOSTNAME: "127.0.0.1", TRUST_PROXY: "0",
     GATEWAY_JWT_SECRET: "test-secret-that-is-at-least-32-characters-long",
+    PLATFORM_TENANT_ID: "tenant_multi_instance_platform_test",
     MANAGER_USERNAME: "test-manager", MANAGER_PASSWORD_HASH: "",
   };
   delete env.VITEST; delete env.VITEST_WORKER_ID; delete env.VITEST_POOL_ID;

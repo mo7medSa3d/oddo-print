@@ -39,8 +39,10 @@ This runs `scripts/db-migrate.ts` which applies all pending migrations from `dri
 | 0055 | 1 | Job events and spooler job id |
 | 0056 | 1 | Discovered device class NOT NULL |
 | 0057 | 1 | API key composite index |
+| 0058 | 1 | Scope Odoo activation to the installation API key |
+| 0059 | 1 | Remove API key scope and document-type restrictions |
 
-**Total**: 58 migrations (0000–0057)
+**Total**: 60 migrations (0000–0059)
 
 ## Migration Policy
 
