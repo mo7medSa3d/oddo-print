@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 
-const apiKeyFindFirst = vi.fn();
-const apiKeyUpdate = vi.fn();
+const { apiKeyFindFirst, apiKeyUpdate, requireActiveTenantOrNull } = vi.hoisted(() => ({
+  apiKeyFindFirst: vi.fn(),
+  apiKeyUpdate: vi.fn(),
+  requireActiveTenantOrNull: vi.fn().mockResolvedValue("active"),
+}));
 
 vi.mock("../src/db", () => ({
   db: {
@@ -12,8 +15,6 @@ vi.mock("../src/db", () => ({
     update: () => ({ set: () => ({ where: (...args: unknown[]) => apiKeyUpdate(...args) }) }),
   },
 }));
-
-const requireActiveTenantOrNull = vi.fn().mockResolvedValue("active");
 
 vi.mock("../src/lib/tenant-guard", () => ({
   requireActiveTenantOrNull,
