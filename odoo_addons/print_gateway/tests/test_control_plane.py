@@ -972,6 +972,60 @@ class TestControlPlane(TransactionCase):
         self.assertIn("'unassigned'", insert_sql, "Migration must use 'unassigned' placeholder rather than fake routable printer")
         self.assertIn("FALSE", insert_sql, "Migration placeholder binding must be explicitly disabled")
 
+    def test_raw_automation_root_binding_requires_company_wide_assignment(self):
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        assignment = assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "runtime_agent_id": "agent-root-automation",
+            "enabled": True,
+        })
+        report = self.primary_binding.report_id
+        root_binding = self.env["print_gateway.binding"].create({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "destination_type": "report",
+            "destination_report_id": report.id,
+            "report_id": report.id,
+            "runtime_agent_id": "agent-root-automation",
+            "printer_id": "printer-root-automation",
+            "printer_protocol": "zpl",
+            "enabled": True,
+            "priority": 77,
+        })
+        assignment.write({"enabled": False})
+
+        router = self.env["print_gateway.print_router"]
+        with self.assertRaises(ValidationError):
+            router.route_raw_command(
+                "^XA^XZ",
+                protocol="zpl",
+                binding=root_binding,
+                record=False,
+                company=self.company,
+                document_type="label",
+            )
+
+    def test_automation_policy_binding_scope_is_validated_at_write_time(self):
+        second_branch = self.env["res.company"].create({
+            "name": "Control Plane Branch 2",
+            "parent_id": self.company.id,
+        })
+        policy_model = self.env["print_gateway.policy"]
+        model = self.env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
+        report = self.primary_binding.report_id
+        with self.assertRaises(ValidationError):
+            policy_model.create({
+                "name": "Invalid sibling binding policy",
+                "company_id": self.company.id,
+                "branch_id": second_branch.id,
+                "model_id": model.id,
+                "event_type": "picking_validated",
+                "action_type": "report",
+                "report_id": report.id,
+                "binding_id": self.primary_binding.id,
+            })
+
     def test_17_policy_validation_constraints(self):
         """Verify strict policy validation for event/model pairs, mutual exclusivity, and domain fields."""
         model_picking = self.env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
