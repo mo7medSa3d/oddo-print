@@ -110,20 +110,11 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     def _assert_branch_agent_assignment(self, gateway_company, branch, runtime_agent_id):
-        """Fail closed if a branch-scoped print target is not explicitly assigned.
-
-        Gateway Agent records are authoritative runtime identities; this Odoo mapping
-        only decides whether the current branch is allowed to route to that identity.
-        """
+        """Fail closed unless the Agent is assigned to the current Odoo scope."""
         if not branch or not runtime_agent_id:
             return
-        assigned = self.env["print_gateway.runtime_agent_assignment"].sudo().search_count([
-            ("company_id", "=", gateway_company.id),
-            ("branch_id", "=", branch.id),
-            ("runtime_agent_id", "=", runtime_agent_id),
-            ("enabled", "=", True),
-        ])
-        if not assigned:
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        if not assignment_model.is_agent_assigned(gateway_company, branch, runtime_agent_id):
             raise ValidationError(
                 _("Gateway Runtime Agent '%s' is not assigned to the current Odoo Branch.") % runtime_agent_id
             )
