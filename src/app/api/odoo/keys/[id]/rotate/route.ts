@@ -54,7 +54,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         hashedKey: hashed,
         odooEnabled: old.odoo_enabled === true,
         odooEnabledRevision: Number(old.odoo_enabled_revision ?? -1),
-        odooEnabledUpdatedAt: old.odoo_enabled_updated_at ?? null,
+        odooEnabledUpdatedAt: old.odoo_enabled_updated_at ? new Date(old.odoo_enabled_updated_at) : null,
       });
       const rotatedAt = new Date();
       const readOnlyUntil = new Date(rotatedAt.getTime() + ODOO_KEY_ROTATION_GRACE_MS);
