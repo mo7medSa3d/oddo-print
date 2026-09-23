@@ -485,16 +485,31 @@ class PrintGatewayJob(models.Model):
                 """,
                 (token, now, job.id, stale_before),
             )
-            claimed = bool(cr.fetchone())
+            row = cr.fetchone()
+            claimed = bool(row)
             if claimed:
                 cr.commit()
             else:
+                # A freshly-created job can be visible only to the caller's
+                # transaction. The dedicated lease cursor cannot see it
+                # without committing the caller's business transaction, so
+                # fall back to the original same-transaction submit path.
                 cr.rollback()
         finally:
             cr.close()
         if claimed:
             job.invalidate_recordset(["submit_claim_token", "submit_claimed_at"])
             return token
+
+        # Distinguish an uncommitted insert from a committed row leased by
+        # another worker. The dedicated cursor has already closed, so no DB
+        # lock is held across the outbound HTTP request.
+        self.env.cr.execute(
+            "SELECT id FROM print_gateway_print_job WHERE id = %s",
+            (job.id,),
+        )
+        if self.env.cr.fetchone():
+            return "__precommit__"
         return False
 
     def _persist_state(self, values, *, claim_token=None, release_claim=True):
@@ -962,10 +977,14 @@ class PrintGatewayJob(models.Model):
 
             claim_token = False
             if not self.env.context.get("_print_gateway_submission_precommit"):
-                claim_token = self._claim_submission_lease(job)
-                if not claim_token:
+                lease_result = self._claim_submission_lease(job)
+                if lease_result == "__precommit__":
+                    lease_result = False
+                elif not lease_result:
                     _logger.info("Skipping Odoo print job %s; another worker owns its submission lease.", job.id)
                     continue
+                else:
+                    claim_token = lease_result
 
             def persist_submit_state(values):
                 if claim_token:
