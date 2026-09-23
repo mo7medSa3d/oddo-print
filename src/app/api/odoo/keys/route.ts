@@ -51,7 +51,17 @@ export async function GET(req: Request) {
     .from(apiKeys)
     .where(eq(apiKeys.tenantId, manager.tenantId))
     .orderBy(desc(apiKeys.createdAt));
-  return NextResponse.json(rows);
+
+  const now = Date.now();
+  return NextResponse.json(rows.map((row) => ({
+    ...row,
+    rotationState:
+      row.revokedAt && row.readOnlyUntil && new Date(row.readOnlyUntil).getTime() > now
+        ? "retiring" as const
+        : row.revokedAt
+          ? "revoked" as const
+          : "active" as const,
+  })));
 }
 
 export async function POST(req: Request) {
