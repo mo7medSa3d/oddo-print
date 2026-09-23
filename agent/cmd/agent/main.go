@@ -196,12 +196,17 @@ func configureServiceRecovery(serviceName string) {
 	if runtime.GOOS != "windows" {
 		return
 	}
-	sc, err := exec.LookPath("sc.exe")
-	if err != nil {
-		log.Printf("WARNING: sc.exe not found; service recovery actions not configured")
+	systemRoot := os.Getenv("SystemRoot")
+	if systemRoot == "" {
+		log.Printf("WARNING: SystemRoot is not configured; service recovery actions not configured")
 		return
 	}
-	// Arguments require mandatory space after '=': "reset= 86400" and "actions= restart/..." to prevent Windows Error 87
+	sc := filepath.Join(systemRoot, "System32", "sc.exe")
+	if info, err := os.Stat(sc); err != nil || info.IsDir() {
+		log.Printf("WARNING: Windows Service Control executable not found at System32; service recovery actions not configured")
+		return
+	}
+	// Arguments require mandatory space after '=': "reset= 86400" and "actions= restart/..." to prevent Windows Error 87.
 	out, err := exec.Command(sc, "failure", serviceName, "reset= 86400",
 		"actions= restart/60000/restart/60000/restart/60000").CombinedOutput()
 	if err != nil {
