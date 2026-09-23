@@ -19,15 +19,15 @@ export function AdminPrivilegeDialog({
   const handleCloseAndReopen = async () => {
     setClosing(true);
     try {
-      if (onRelaunch) {
-        onRelaunch();
-      } else {
+      // Start any relaunch action first, then always close this unelevated
+      // process so the current window cannot remain open in read-only mode.
+      onRelaunch?.();
+    } finally {
+      try {
         await closeApp();
-      }
-    } catch {
-      // Best-effort window close
-      if (typeof window !== "undefined") {
-        window.close();
+      } catch {
+        // Best-effort window close if the native close command is unavailable.
+        if (typeof window !== "undefined") window.close();
       }
     }
   };
