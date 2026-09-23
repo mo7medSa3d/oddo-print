@@ -155,7 +155,12 @@ export async function POST(req: Request) {
       };
       const headers = new Headers({ "Cache-Control": "no-store" });
       if (error.periodEnd) {
-        headers.set("Retry-After", String(Math.max(1, Math.ceil((error.periodEnd.getTime() - Date.now()) / 1000))));
+        try {
+          const dbNowMs = await databaseNowMs();
+          headers.set("Retry-After", String(Math.max(1, Math.ceil((error.periodEnd.getTime() - dbNowMs) / 1000))));
+        } catch {
+          headers.set("Retry-After", "60");
+        }
       }
       return NextResponse.json(response, { status: 429, headers });
     }
