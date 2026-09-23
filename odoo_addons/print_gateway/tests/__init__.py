@@ -5,3 +5,4 @@ from . import test_routing_contract
 from . import test_branch_runtime_binding
 from . import test_migration_upgrade
 from . import test_control_plane
+from . import test_intent_recovery

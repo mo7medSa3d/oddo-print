@@ -343,6 +343,27 @@ class PrintGatewayIntent(models.Model):
         for candidate in candidates:
             if remaining_time <= 0:
                 break
+
+            # A crash after the final dispatch claim otherwise leaves the
+            # intent permanently in 'claimed': _claim_intent() rejects it once
+            # attempts reaches max_attempts, so no future worker can recover it.
+            # The candidate is already outside the five-minute lease window;
+            # once the attempt ceiling is exhausted, terminalize it explicitly
+            # and require manual operator re-arm rather than leaving an
+            # automation event wedged forever.
+            if candidate.status == "claimed" and candidate.attempts >= candidate.max_attempts:
+                recovered = candidate.with_context(allow_lease_recovery=True).write({
+                    "status": "failed",
+                    "claimed_at": False,
+                    "claim_token": False,
+                    "next_retry_at": False,
+                    "last_error": "Dispatch lease expired after the final attempt; manual operator re-arm required.",
+                })
+                if recovered:
+                    recovered_count += 1
+                remaining_time = cron._commit_progress(1)
+                continue
+
             if candidate.attempts < candidate.max_attempts:
                 claim_token = self._claim_intent(self.env, candidate.id)
                 if claim_token:
