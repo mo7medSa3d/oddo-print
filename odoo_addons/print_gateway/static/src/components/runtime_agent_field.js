@@ -139,12 +139,25 @@ const runtimeAgentField = {
     }),
 };
 
-// The binding field keeps its original technical name. The picker alias is
-// used by the Pair New Agent wizard so the wizard can evolve independently
-// from the binding widget and remains explicit about being a selection UI.
+// Binding uses a dedicated descriptor that ALWAYS enables assignment filtering.
+// This removes a correctness dependency on view-option parsing: a binding can
+// never accidentally render the tenant-wide active-agent inventory. The
+// generic field remains intentionally unfiltered for Branch Device / pairing,
+// where the admin must be able to discover a new Agent before assigning it.
+const runtimeAgentBindingField = {
+    ...runtimeAgentField,
+    supportedOptions: [],
+    extractProps: () => ({
+        assignmentOnly: true,
+    }),
+};
+
 if (!registry.category("fields").contains("gateway_runtime_agent")) {
     registry.category("fields").add("gateway_runtime_agent", runtimeAgentField);
 }
 if (!registry.category("fields").contains("gateway_runtime_agent_picker")) {
     registry.category("fields").add("gateway_runtime_agent_picker", runtimeAgentField);
+}
+if (!registry.category("fields").contains("gateway_runtime_agent_binding")) {
+    registry.category("fields").add("gateway_runtime_agent_binding", runtimeAgentBindingField);
 }
