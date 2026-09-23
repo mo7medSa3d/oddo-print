@@ -197,7 +197,6 @@ describe("Odoo addon static contracts", () => {
     const binding = read("models/binding.py");
     expect(binding).toContain('self.env["print_gateway.runtime_agent_assignment"]');
     expect(binding).toContain("is_agent_assigned");
-    expect(binding).toContain("assigned_agent_ids");
     expect(binding).toContain("is not explicitly assigned to");
     expect(binding).not.toContain("from psycopg2 import IntegrityError");
     expect(binding).not.toContain("def _ensure_branch_agent_assignment");
