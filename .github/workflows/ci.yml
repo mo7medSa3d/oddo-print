@@ -100,6 +100,7 @@ jobs:
             legacy_columns text[] := ARRAY['branch_id','destination_id','local_network_id'];
             table_name_value text;
             column_name_value text;
+            expected record;
           BEGIN
             FOREACH table_name_value IN ARRAY legacy_tables LOOP
               IF to_regclass('public.' || table_name_value) IS NOT NULL THEN
