@@ -118,6 +118,80 @@ suite("tenant print quota", () => {
     expect(usage.used).toBe(5);
   });
 
+  it("does not overshoot the per-minute job-rate entitlement under concurrent admissions", async () => {
+    const f = await seedFixture();
+    await pool().query(
+      `UPDATE plans
+       SET entitlements = jsonb_build_object(
+         'max_agents', 'unlimited',
+         'max_printers', 'unlimited',
+         'max_jobs_per_minute', 5,
+         'max_concurrent_jobs', 'unlimited',
+         'max_prints_per_period', 'unlimited'
+       )
+       WHERE id = (SELECT plan_id FROM tenant_subscriptions WHERE tenant_id = $1)`,
+      [f.tenantId],
+    );
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 20 }, (_, i) =>
+        createPrintJobForPrinter(f.printerId, payload(`rate-${i}`), {
+          tenantId: f.tenantId,
+          requestedBy: "rate-limit-test",
+          documentType: "receipt",
+          destination: f.destination,
+          idempotencyKey: `rate-${i}`,
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      ),
+    );
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(5);
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(rejected).toHaveLength(15);
+    expect(rejected.every((r) => r.reason instanceof Error && (r.reason as { entitlement?: string }).entitlement === "max_jobs_per_minute")).toBe(true);
+    expect(Number((await pool().query(
+      "SELECT count(*)::int AS n FROM print_jobs WHERE tenant_id = $1 AND created_at >= now() - interval '1 minute'",
+      [f.tenantId],
+    )).rows[0].n)).toBe(5);
+  });
+
+  it("does not overshoot the concurrent-job entitlement under concurrent admissions", async () => {
+    const f = await seedFixture();
+    await pool().query(
+      `UPDATE plans
+       SET entitlements = jsonb_build_object(
+         'max_agents', 'unlimited',
+         'max_printers', 'unlimited',
+         'max_jobs_per_minute', 'unlimited',
+         'max_concurrent_jobs', 3,
+         'max_prints_per_period', 'unlimited'
+       )
+       WHERE id = (SELECT plan_id FROM tenant_subscriptions WHERE tenant_id = $1)`,
+      [f.tenantId],
+    );
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 20 }, (_, i) =>
+        createPrintJobForPrinter(f.printerId, payload(`concurrent-${i}`), {
+          tenantId: f.tenantId,
+          requestedBy: "concurrency-limit-test",
+          documentType: "receipt",
+          destination: f.destination,
+          idempotencyKey: `concurrent-${i}`,
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      ),
+    );
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(3);
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(rejected).toHaveLength(17);
+    expect(rejected.every((r) => r.reason instanceof Error && (r.reason as { entitlement?: string }).entitlement === "max_concurrent_jobs")).toBe(true);
+    expect(Number((await pool().query(
+      "SELECT count(*)::int AS n FROM print_jobs WHERE tenant_id = $1 AND status IN ('queued','claimed','printing') AND expires_at > now()",
+      [f.tenantId],
+    )).rows[0].n)).toBe(3);
+  });
+
   it("starts a new quota bucket when Stripe advances the subscription period", async () => {
     const f = await seedFixture();
     await setPlanLimit(f.tenantId, 2);
