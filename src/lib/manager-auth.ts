@@ -4,7 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
 import { hashPassword, verifyPassword, normalizeEmail } from "./password";
-import { requireActiveTenantOrNull } from "./tenant-guard";
+import { requireActiveTenant, TenantSuspendedError, TenantDeletedError } from "./tenant-guard";
 
 const COOKIE_NAME = "mgr_session";
 const MAX_AGE_SECONDS = 8 * 60 * 60;
@@ -103,11 +103,15 @@ export async function validateManagerClaims(claims: ManagerClaims | null): Promi
     });
     if (!membership || membership.role !== row.role) return null;
   }
-  // Tenant lifecycle denials are an expected authentication outcome. Unexpected
-  // database/transport failures must propagate as operational errors rather than
-  // being misclassified as invalid credentials.
-  const tenantLifecycle = await requireActiveTenantOrNull(claims.tenantId);
-  if (!tenantLifecycle) return null;
+  // Tenant lifecycle gate: suspended/deleted tenants cannot perform
+  // manager operations. Throws TenantSuspendedError or TenantDeletedError
+  // which callers (API routes) must map to 403.
+  try {
+    await requireActiveTenant(claims.tenantId);
+  } catch (e) {
+    if (e instanceof TenantSuspendedError || e instanceof TenantDeletedError) return null;
+    throw e;
+  }
   return claims;
 }
 
@@ -121,7 +125,7 @@ function normalizeHost(host: string | null): string | null {
 }
 
 /** Resolve the manager tenant from the trusted request host. A static env mapping is only a bootstrap fallback. */
-export async function resolveManagerTenantId(req: Request): Promise<string | null> {
+export async function resolveManagerTenantId(req: Request, username?: string): Promise<string | null> {
   const host = normalizeHost(req.headers.get("host"));
   if (host) {
     const domain = await db.query.tenantDomains.findFirst({
@@ -137,10 +141,34 @@ export async function resolveManagerTenantId(req: Request): Promise<string | nul
     if (tenant) return tenant.id;
   }
 
-  // Never infer the login tenant from the number of rows in the database.
-  // A global bootstrap credential must be explicitly pinned to one tenant;
-  // otherwise an attacker who controls Host could turn the legacy credential
-  // into a cross-tenant owner login.
+  // The IP-only HTTP test deployment has no verified tenant domain. Its
+  // manager login is deliberately scoped to an explicitly enabled test mode
+  // and resolves the tenant from the named user's existing membership.
+  if (process.env.YASSER_HTTP_TEST_MODE === "1" && username) {
+    const normalized = normalizeEmail(username);
+    if (normalized) {
+      const user = await db.query.users.findFirst({
+        where: eq(users.email, normalized),
+        columns: { id: true },
+      });
+      if (user) {
+        const membership = await db.query.tenantUsers.findFirst({
+          where: eq(tenantUsers.userId, user.id),
+          columns: { tenantId: true },
+        });
+        if (membership) {
+          const tenant = await db.query.tenants.findFirst({
+            where: eq(tenants.id, membership.tenantId),
+            columns: { id: true },
+          });
+          if (tenant) return tenant.id;
+        }
+      }
+    }
+  }
+
+  // Never infer the login tenant in production from row counts or arbitrary
+  // Host input; a global bootstrap credential must be explicitly pinned.
   return null;
 }
 
