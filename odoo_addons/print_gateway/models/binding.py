@@ -319,7 +319,70 @@ class PrintGatewayBinding(models.Model):
 
     @api.constrains("company_id", "branch_id", "runtime_agent_id", "printer_id")
     def _check_runtime_scope(self):
-        assignment_model = self.env["print_gateway.runtime_agent_assignment"].sudo()
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        if not assignment_model.is_agent_assigned(config.company_id, self.branch_id, self.runtime_agent_id):
+            raise ValidationError(
+                _("The selected Gateway Runtime Agent is not assigned to the current Odoo Branch.")
+            )
+
+        try:
+            response = requests.get("%s/api/odoo/agents" % config._gateway_base(for_request=True), headers=config._gateway_headers(), timeout=10, allow_redirects=False)
+            if response.status_code != 200:
+                raise ValidationError(_("Gateway agent discovery failed (HTTP %s).") % response.status_code)
+            body = response.json()
+        except ValidationError:
+            raise
+        except (requests.RequestException, ValueError) as exc:
+            raise ValidationError(_("Gateway runtime agent discovery is unavailable.")) from exc
+        agents = body.get("agents") if isinstance(body, dict) else None
+        agent_match = next((agent for agent in agents or [] if isinstance(agent, dict) and agent.get("id") == self.runtime_agent_id), None)
+        if not isinstance(agents, list) or not agent_match:
+            raise ValidationError(_("The selected Gateway Runtime Agent is not found."))
+        if agent_match.get("lifecycle") != "active":
+            raise ValidationError(
+                _("Agent '%s' cannot be assigned because its lifecycle is '%s'. Only agents with lifecycle 'active' may receive print jobs.")
+                % (agent_match.get("name") or self.runtime_agent_id, agent_match.get("lifecycle"))
+            )
+        try:
+            response = requests.get("%s/api/odoo/printers" % config._gateway_base(for_request=True), headers=config._gateway_headers(), timeout=10, allow_redirects=False)
+            if response.status_code != 200:
+                raise ValidationError(_("Gateway printer discovery failed (HTTP %s).") % response.status_code)
+            body = response.json()
+        except ValidationError:
+            raise
+        except (requests.RequestException, ValueError) as exc:
+            raise ValidationError(_("Gateway runtime printer discovery is unavailable.")) from exc
+        printers = body.get("printers") if isinstance(body, dict) else None
+        printer_match = next((printer for printer in printers or [] if isinstance(printer, dict) and printer.get("id") == self.printer_id), None)
+        if not isinstance(printers, list) or not printer_match:
+            raise ValidationError(_("The selected Gateway Runtime Printer is not found."))
+        if printer_match.get("lifecycle") != "active":
+            raise ValidationError(
+                _("Printer '%s' cannot be assigned because its lifecycle is '%s'. Only printers with lifecycle 'active' may receive print jobs.")
+                % (printer_match.get("name") or self.printer_id, printer_match.get("lifecycle"))
+            )
+        selected_printer = printer_match
+        agent = selected_printer.get("agent") if isinstance(selected_printer.get("agent"), dict) else {}
+        if agent.get("id") != self.runtime_agent_id:
+            raise ValidationError(_("Gateway Runtime Printer does not belong to the selected Runtime Agent."))
+        device_class = str(selected_printer.get("deviceClass") or "").strip().lower()
+        if self.destination_type in ("pos", "pos_printer") and device_class in ("laser", "inkjet"):
+            raise ValidationError(_("Point of Sale receipts require a thermal receipt printer, not a document/laser printer."))
+        if self.destination_type == "picking_type" and device_class in ("laser", "inkjet") and not self.report_id:
+            raise ValidationError(_("Direct inventory/warehouse operations require a label or thermal printer."))
+
+
+    @api.constrains("company_id", "branch_id")
+    def _check_company_hierarchy(self):
+        for record in self:
+            if record.company_id.parent_id:
+                raise ValidationError(_("Odoo Company must be a root Company, not a Branch."))
+            if record.branch_id and record.branch_id.parent_id != record.company_id:
+                raise ValidationError(_("Odoo Branch must belong directly to the selected Odoo Company."))
+
+    @api.constrains("company_id", "branch_id", "runtime_agent_id", "printer_id")
+    def _check_runtime_scope(self):
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
         for record in self:
             if record.company_id not in self.env.companies:
                 raise ValidationError(_("The selected Odoo Company is not available to the current user."))
@@ -329,28 +392,15 @@ class PrintGatewayBinding(models.Model):
                 if not isinstance(record.runtime_agent_id, str) or not record.runtime_agent_id.strip():
                     raise ValidationError(_("A Gateway Runtime Agent is required for a branch binding."))
 
-            if record.runtime_agent_id:
-                assignment_scope = [
-                    ("company_id", "=", record.company_id.id),
-                    ("runtime_agent_id", "=", record.runtime_agent_id.strip()),
-                    ("enabled", "=", True),
-                ]
-                if record.branch_id:
-                    assignment_scope = [
-                        "|",
-                        ("branch_id", "=", record.branch_id.id),
-                        ("branch_id", "=", False),
-                        *assignment_scope,
-                    ]
-                else:
-                    assignment_scope.append(("branch_id", "=", False))
-                if not assignment_model.search_count(assignment_scope):
-                    scope_label = record.branch_id.display_name if record.branch_id else record.company_id.display_name
-                    raise ValidationError(
-                        _("Gateway Runtime Agent '%s' is not explicitly assigned to '%s'. "
-                          "Assign the Agent to this exact Odoo scope before creating the binding.")
-                        % (record.runtime_agent_id.strip(), scope_label)
-                    )
+            if record.runtime_agent_id and not assignment_model.is_agent_assigned(
+                record.company_id, record.branch_id, record.runtime_agent_id
+            ):
+                scope_label = record.branch_id.display_name if record.branch_id else record.company_id.display_name
+                raise ValidationError(
+                    _("Gateway Runtime Agent '%s' is not explicitly assigned to '%s'. "
+                      "Assign the Agent to this exact Odoo scope before creating the binding.")
+                    % (record.runtime_agent_id.strip(), scope_label)
+                )
 
     @api.constrains("destination_type", "destination_pos_config_id", "destination_pos_printer_id", "destination_picking_type_id", "destination_report_id", "report_id", "printer_id", "company_id", "branch_id", "effective_company_id")
     def _check_binding(self):
@@ -430,10 +480,6 @@ class PrintGatewayBinding(models.Model):
         return super().create(vals_list)
 
     def write(self, vals):
-        trigger_fields = {"company_id", "branch_id", "runtime_agent_id", "enabled"}
-        if trigger_fields.intersection(vals):
-            for record in self:
-                record._check_runtime_scope()
         return super().write(vals)
 
     def unlink(self):
