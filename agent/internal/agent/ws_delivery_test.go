@@ -362,6 +362,7 @@ func TestWSDeliveryDoesNotAckWhenLocalExecutorIsFull(t *testing.T) {
 	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	ag.launchTracked(func() { ag.runRejectWorker(ctx) })
 	go ag.connectWebSocket(ctx)
 	waitFor(t, 5*time.Second, func() bool { return ag.getWSConn() != nil })
 
