@@ -10,9 +10,11 @@ export function agentStaleThresholdSeconds(): number {
 }
 
 export function printerStaleThresholdSeconds(): number {
-  const raw = Number(process.env.STALE_PRINTER_THRESHOLD_SECONDS ?? DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS);
-  if (!Number.isFinite(raw) || raw < 10 || raw > 3600) return DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS;
-  return Math.floor(raw);
+  // Keep printer execution freshness aligned with printer-health.ts's
+  // evidence policy. There is intentionally no separate env override: a
+  // mismatch here could make the UI say UNKNOWN while the claim gate still
+  // executes the printer (or vice versa).
+  return DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS;
 }
 
 export function isPrinterObservationFresh(
