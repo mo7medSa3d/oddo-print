@@ -106,7 +106,7 @@ async function insertQueuedJobAtomically({
   agentId: string;
   tenantId: string;
   validatedPayload: ReturnType<typeof validatePrintJobPayload>;
-  expiresAt: Date;
+  expiresAt?: Date;
   requestedBy: string;
   idempotencyKey?: string | null;
   destination?: string | null;
@@ -203,6 +203,27 @@ async function insertQueuedJobAtomically({
         const conflictErr = new Error("IDEMPOTENCY_CONFLICT");
         Object.assign(conflictErr, { code: "IDEMPOTENCY_CONFLICT" });
         throw conflictErr;
+      }
+    }
+
+    // The Gateway database is the authoritative clock for job TTL.
+    // Never accept an expiry based only on the app-server wall clock: a host
+    // clock drift could otherwise create an already-expired job or extend a TTL.
+    let effectiveExpiresAt = expiresAt;
+    if (effectiveExpiresAt) {
+      if (!(effectiveExpiresAt instanceof Date) || Number.isNaN(effectiveExpiresAt.getTime())) {
+        throw new PrintJobInputError("expiresAt must be a valid timestamp", "INVALID_REQUEST", 400);
+      }
+      const clockResult = await tx.execute(sql`
+        SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms
+      `);
+      const dbNowMs = Number((clockResult.rows[0] as { now_ms?: number | string } | undefined)?.now_ms ?? NaN);
+      const expiresMs = effectiveExpiresAt.getTime();
+      if (!Number.isFinite(dbNowMs) || expiresMs <= dbNowMs) {
+        throw new PrintJobInputError("expiresAt must be in the future according to the Gateway database clock", "INVALID_REQUEST", 400);
+      }
+      if (expiresMs - dbNowMs > 24 * 60 * 60 * 1000) {
+        throw new PrintJobInputError("expiresAt exceeds the 24 hour maximum", "INVALID_REQUEST", 400);
       }
     }
 
@@ -348,7 +369,7 @@ async function insertQueuedJobAtomically({
       requestedBy,
       requestId: requestId ?? null,
       idempotencyKey: effectiveIdempotencyKey,
-      expiresAt,
+      expiresAt: effectiveExpiresAt ?? sql`clock_timestamp() + interval '1 hour'`,
     });
 
     await tx.execute(sql`SELECT pg_notify('print_gateway_agent_jobs', ${JSON.stringify({ jobId, agentId, requestId: requestId ?? null })})`);
@@ -390,9 +411,9 @@ export async function createPrintJobForPrinter(
   if (typeof options.tenantId !== "string" || !options.tenantId.trim()) throw new PrintJobInputError("tenant context is required", "TENANT_CONTEXT_REQUIRED", 500);
 
   const id = `job_${nanoid(12)}`;
-  const expiresAt = options.expiresAt ?? new Date(Date.now() + 60 * 60 * 1000);
-  if (!(expiresAt instanceof Date) || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
-    throw new PrintJobInputError("expiresAt must be in the future", "INVALID_REQUEST", 400);
+  const expiresAt = options.expiresAt;
+  if (expiresAt !== undefined && (!(expiresAt instanceof Date) || Number.isNaN(expiresAt.getTime()))) {
+    throw new PrintJobInputError("expiresAt must be a valid timestamp", "INVALID_REQUEST", 400);
   }
 
   const enqueueStartedAt = Date.now();
