@@ -58,6 +58,18 @@ class TestPrintGatewayMigrationUpgrade(TransactionCase):
             "Migration must not issue DROP COLUMN on runtime_agent_id",
         )
 
+    def test_company_wide_assignment_migration_deduplicates_nullable_branch_rows(self):
+        from pathlib import Path
+        migration_path = (
+            Path(__file__).resolve().parents[1]
+            / "migrations" / "19.0.2.8.0" / "post-migrate.py"
+        )
+        self.assertTrue(migration_path.exists())
+        source = migration_path.read_text(encoding="utf-8")
+        self.assertIn("branch_id IS NULL", source)
+        self.assertIn("enabled DESC, id ASC", source)
+        self.assertIn("DELETE FROM print_gateway_runtime_agent_assignment", source)
+
     def test_orm_gateway_config_runtime_agent_id_field_access(self):
         """Verify ORM model can access runtime_agent_id without UndefinedColumn errors."""
         config_model = self.env["print_gateway.gateway_config"]
