@@ -539,6 +539,153 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     expect(storedEvent?.processedAt).toBeInstanceOf(Date);
   });
 
+  it("5c. reconciles paused/resumed lifecycle events from the current Stripe resource when timestamps tie", async () => {
+    const tenantId = `tenant_${nanoid(8)}`;
+    const planId = `plan_${nanoid(8)}`;
+    const stripePriceId = `price_${nanoid(8)}`;
+    const customerId = `cus_${nanoid(8)}`;
+    const subscriptionId = `sub_${nanoid(8)}`;
+    const created = Math.floor(Date.now() / 1000);
+
+    await createTenant(tenantId);
+    await createPlan(planId, "Starter Plan", stripePriceId);
+    await createSubscription(tenantId, planId, customerId, subscriptionId, "active");
+
+    const pausedPayload = JSON.stringify({
+      id: `evt_paused_${nanoid(8)}`,
+      type: "customer.subscription.paused",
+      created,
+      data: { object: {
+        id: subscriptionId,
+        customer: customerId,
+        status: "paused",
+        items: { data: [{ price: { id: stripePriceId } }] },
+        metadata: { tenant_id: tenantId },
+      } },
+    });
+    stripeRetrieveMock.mockResolvedValueOnce({
+      id: subscriptionId,
+      object: "subscription",
+      customer: customerId,
+      status: "paused",
+      items: { data: [{ price: { id: stripePriceId } }] },
+      metadata: { tenant_id: tenantId },
+      current_period_start: created,
+      current_period_end: created + 3600,
+      cancel_at_period_end: false,
+    });
+    const pausedResponse = await POST(createWebhookRequest(pausedPayload, signPayload(pausedPayload)));
+    expect(pausedResponse.status).toBe(200);
+
+    const resumedPayload = JSON.stringify({
+      id: `evt_resumed_${nanoid(8)}`,
+      type: "customer.subscription.resumed",
+      created,
+      data: { object: {
+        id: subscriptionId,
+        customer: customerId,
+        status: "active",
+        items: { data: [{ price: { id: stripePriceId } }] },
+        metadata: { tenant_id: tenantId },
+      } },
+    });
+    stripeRetrieveMock.mockResolvedValueOnce({
+      id: subscriptionId,
+      object: "subscription",
+      customer: customerId,
+      status: "active",
+      items: { data: [{ price: { id: stripePriceId } }] },
+      metadata: { tenant_id: tenantId },
+      current_period_start: created,
+      current_period_end: created + 3600,
+      cancel_at_period_end: false,
+    });
+    const resumedResponse = await POST(createWebhookRequest(resumedPayload, signPayload(resumedPayload)));
+    expect(resumedResponse.status).toBe(200);
+
+    const sub = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, tenantId),
+    });
+    expect(sub?.status).toBe("active");
+    expect(stripeRetrieveMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("5d. applies a same-second subscription deletion as a terminal lifecycle fence", async () => {
+    const tenantId = `tenant_${nanoid(8)}`;
+    const planId = `plan_${nanoid(8)}`;
+    const stripePriceId = `price_${nanoid(8)}`;
+    const customerId = `cus_${nanoid(8)}`;
+    const subscriptionId = `sub_${nanoid(8)}`;
+    const created = Math.floor(Date.now() / 1000);
+
+    await createTenant(tenantId);
+    await createPlan(planId, "Starter Plan", stripePriceId);
+    await createSubscription(
+      tenantId,
+      planId,
+      customerId,
+      subscriptionId,
+      "active",
+      new Date(created * 1000),
+    );
+
+    const payload = JSON.stringify({
+      id: `evt_deleted_${nanoid(8)}`,
+      type: "customer.subscription.deleted",
+      created,
+      data: { object: {
+        id: subscriptionId,
+        customer: customerId,
+        status: "canceled",
+        items: { data: [{ price: { id: stripePriceId } }] },
+        metadata: { tenant_id: tenantId },
+      } },
+    });
+    const response = await POST(createWebhookRequest(payload, signPayload(payload)));
+    expect(response.status).toBe(200);
+    expect(stripeRetrieveMock).not.toHaveBeenCalled();
+
+    const sub = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, tenantId),
+    });
+    expect(sub?.status).toBe("cancelled");
+    expect(sub?.stripeLastEventCreatedAt?.getTime()).toBe(created * 1000);
+  });
+
+  it("5e. ignores trial_will_end instead of changing subscription lifecycle state", async () => {
+    const tenantId = `tenant_${nanoid(8)}`;
+    const planId = `plan_${nanoid(8)}`;
+    const stripePriceId = `price_${nanoid(8)}`;
+    const customerId = `cus_${nanoid(8)}`;
+    const subscriptionId = `sub_${nanoid(8)}`;
+    const created = Math.floor(Date.now() / 1000);
+
+    await createTenant(tenantId);
+    await createPlan(planId, "Starter Plan", stripePriceId);
+    await createSubscription(tenantId, planId, customerId, subscriptionId, "trialing");
+
+    const payload = JSON.stringify({
+      id: `evt_trial_will_end_${nanoid(8)}`,
+      type: "customer.subscription.trial_will_end",
+      created,
+      data: { object: {
+        id: subscriptionId,
+        customer: customerId,
+        status: "active",
+        items: { data: [{ price: { id: stripePriceId } }] },
+        metadata: { tenant_id: tenantId },
+      } },
+    });
+    const response = await POST(createWebhookRequest(payload, signPayload(payload)));
+    expect(response.status).toBe(200);
+    expect(stripeRetrieveMock).not.toHaveBeenCalled();
+
+    const sub = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, tenantId),
+    });
+    expect(sub?.status).toBe("trialing");
+  });
+
   it("6. status mapping: correctly maps Stripe subscription statuses", async () => {
     const tenantId = `tenant_${nanoid(8)}`;
     const planId = `plan_${nanoid(8)}`;
