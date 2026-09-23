@@ -32,7 +32,7 @@ describe("Tenant Selection Token Contract", () => {
   });
 
   it("rejects tampered selection token", async () => {
-    const token = createTenantSelectionToken("usr_123456789012345678", "user@example.com");
+    const token = await createTenantSelectionToken("usr_123456789012345678", "user@example.com");
     const [h, p] = token.split(".");
     const tampered = `${h}.${p}.invalid_signature`;
     const claims = await verifyTenantSelectionToken(tampered);
