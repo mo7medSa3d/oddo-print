@@ -230,11 +230,11 @@ class TestControlPlane(TransactionCase):
 
         PolicyClass = type(first)
         IntentClass = type(self.env["print_gateway.intent"])
-        with patch.object(PolicyClass, "matches_record", return_value=True),              patch.object(PolicyClass, "effective_target_key", side_effect=[ValidationError("broken target"), ("valid-binding", "raw_template", False, "zpl", "template")]),              patch.object(IntentClass, "create_and_route", return_value=second):
+        with patch.object(PolicyClass, "matches_record", return_value=True),              patch.object(PolicyClass, "effective_target_key", side_effect=[ValidationError("broken target"), ("valid-binding", "raw_template", False, "zpl", "template")]),              patch.object(IntentClass, "create_and_route", return_value=second) as create_and_route:
             result = policy_model.dispatch_for_record(mock_picking, "picking_validated")
 
         self.assertEqual(result, {"scheduled": 1, "failed": 1})
-        IntentClass.create_and_route.assert_called_once_with(second, mock_picking, "picking_validated")
+        create_and_route.assert_called_once_with(second, mock_picking, "picking_validated")
 
     def test_01b_raw_policy_dedup_identity_includes_resolved_binding_and_protocol(self):
         """Raw fan-out dedup must include the resolved target and language."""
