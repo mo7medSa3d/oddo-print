@@ -167,6 +167,15 @@ class PrintGatewayPolicy(models.Model):
                 raise ValidationError(_("Odoo Company must be a root company, not a branch."))
             if policy.branch_id and policy.branch_id.parent_id != policy.company_id:
                 raise ValidationError(_("Odoo Branch must belong directly to the selected Odoo Company."))
+            if policy.binding_id:
+                binding = policy.binding_id
+                if binding.company_id != policy.company_id:
+                    raise ValidationError(_("Target Binding must belong to the same Odoo Company as this Automation Rule."))
+                if policy.branch_id:
+                    if binding.branch_id and binding.branch_id != policy.branch_id:
+                        raise ValidationError(_("Target Binding must belong to this Odoo Branch or be a company-wide fallback."))
+                elif binding.branch_id:
+                    raise ValidationError(_("A root-company Automation Rule cannot target a branch-specific Binding."))
 
     VALID_MODEL_EVENTS = {
         "stock.picking": {"picking_validated"},
