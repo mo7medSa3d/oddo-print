@@ -146,7 +146,17 @@ export async function POST(req: Request) {
       }
       return NextResponse.json(response, { status: 429, headers });
     }
-    if (error instanceof TenantEntitlementError) return NextResponse.json({ error: error.message, code: error.code }, { status: 429, headers: { "Retry-After": "60" } });
+    if (error instanceof TenantEntitlementError) {
+      return NextResponse.json({
+        error: error.message,
+        code: error.code,
+        entitlement: error.entitlement,
+        limit: error.limit,
+        used: error.used,
+        upgradeRequired: true,
+        retryable: true,
+      }, { status: 429, headers: { "Retry-After": "60", "Cache-Control": "no-store" } });
+    }
     if (isTenantBillingError(error)) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
     if (error instanceof AgentQueueFullError || error instanceof AgentQueuedJobsFullError) {
       return NextResponse.json({ error: error.code, code: error.code, retryable: true }, { status: 503 });
