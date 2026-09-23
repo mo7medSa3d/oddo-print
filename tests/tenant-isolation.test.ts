@@ -134,6 +134,28 @@ suite("Tenant Isolation Invariants (Negative Tests)", () => {
     )).rejects.toBeDefined();
   });
 
+  it("Test 8: Composite ownership FK rejects a cross-tenant job event", async () => {
+    await truncateAll();
+    const a = await seedFixture();
+    const b = await seedFixture();
+    const jobId = `job_event_fk_${a.tenantId}`;
+    await insertQueuedJob(a, jobId);
+
+    await expect(
+      pool().query(
+        `INSERT INTO job_events (id, tenant_id, job_id, stage, status)
+         VALUES ($1, $2, $3, 'queued', 'ok')`,
+        [`evt_cross_${a.tenantId}`, b.tenantId, jobId],
+      ),
+    ).rejects.toBeDefined();
+
+    const exists = await pool().query(
+      "SELECT count(*)::int AS count FROM job_events WHERE id = $1",
+      [`evt_cross_${a.tenantId}`],
+    );
+    expect(exists.rows[0].count).toBe(0);
+  });
+
   it("Test 6: Composite ownership FK rejects a cross-tenant job", async () => {
     await truncateAll();
     const a = await seedFixture();
