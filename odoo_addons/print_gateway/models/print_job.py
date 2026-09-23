@@ -433,7 +433,7 @@ class PrintGatewayJob(models.Model):
             "printer_profile": printer_profile or False,
             "fallback_binding_id": fallback_binding.id if fallback_binding else False,
             "idempotency_key": key,
-            "next_retry_at": fields.Datetime.now(),
+            "next_retry_at": db_now_utc(self.env.cr),
             "source_model": source_model or False,
             "source_record_id": source_record_id or False,
             "report_id": report.id if report else False,
@@ -924,7 +924,7 @@ class PrintGatewayJob(models.Model):
                             "status": "queued",
                             "attempts": job.attempts + 1,
                             "last_error": "GATEWAY_RATE_LIMITED: Gateway returned HTTP 429",
-                            "next_retry_at": fields.Datetime.now() + datetime.timedelta(seconds=retry_after),
+                            "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=retry_after),
                         }
                         if raise_on_failure:
                             job._persist_state(values)
