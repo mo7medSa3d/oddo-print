@@ -143,6 +143,17 @@ describe("production hardening contracts", () => {
     expect(stock).not.toContain("create_and_route(policy, picking");
   });
 
+  it("keeps Gateway job expiry validation on PostgreSQL clock", () => {
+    const service = read("src/lib/print-job-service.ts");
+    const route = read("src/app/api/print/jobs/route.ts");
+    expect(service).toContain("clock_timestamp()");
+    expect(service).toContain("expiresAt must be in the future");
+    expect(service).not.toContain("new Date(Date.now() + 60 * 60 * 1000)");
+    expect(service).not.toContain("expiresAt.getTime() <= Date.now()");
+    expect(route).not.toContain("const now = Date.now()");
+    expect(route).not.toContain("parsed.getTime() <= now");
+  });
+
   it("keeps direct print submission printer-scoped and payload-validated", () => {
     const route = read("src/app/api/print/jobs/route.ts");
     expect(route).toContain("validatePrintJobPayload(parsed.data.payload)");
