@@ -156,6 +156,7 @@ export const apiKeys = pgTable("api_keys", {
 }, (table) => ({
   tenantIdUnique: unique("api_keys_tenant_id_unique").on(table.tenantId, table.id),
   odooEnabledRevisionCheck: check("api_keys_odoo_enabled_revision_check", sql`${table.odooEnabledRevision} >= -1`),
+  readOnlyUntilCheck: check("api_keys_read_only_until_check", sql`${table.readOnlyUntil} IS NULL OR ${table.revokedAt} IS NOT NULL`),
 }));
 
 export const managerSessions = pgTable("manager_sessions", {
