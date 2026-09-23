@@ -70,6 +70,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         limit: error.limit,
         used: error.used,
         upgradeRequired: true,
+        retryable: true,
       }, { status: 429, headers: { "Retry-After": "60", "Cache-Control": "no-store" } });
     }
     if (error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError) {
