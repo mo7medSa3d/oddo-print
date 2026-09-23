@@ -92,8 +92,26 @@ export async function POST(req: Request) {
   const eventCreatedAt = typeof event.created === "number" ? new Date(event.created * 1000) : new Date();
   const eventCreatedUnix = Math.floor(eventCreatedAt.getTime() / 1000);
 
+  // Subscription lifecycle events are authoritative for access state. For all
+  // lifecycle events whose subscription still exists, retrieve the current
+  // Stripe resource instead of trusting the event snapshot: Stripe timestamps
+  // are second-resolution and webhook delivery order is not guaranteed.
+  // A deleted subscription cannot be retrieved after termination, so its
+  // signed event snapshot is the terminal source of truth and gets a special
+  // same-second fence below.
+  const currentSnapshotSubscriptionEvents = new Set([
+    "customer.subscription.created",
+    "customer.subscription.updated",
+    "customer.subscription.paused",
+    "customer.subscription.resumed",
+    "customer.subscription.pending_update_applied",
+    "customer.subscription.pending_update_expired",
+  ]);
+  const subscriptionStateEvent =
+    eventType === "customer.subscription.deleted" || currentSnapshotSubscriptionEvents.has(eventType);
+
   let stateObj: Record<string, unknown> = obj;
-  if (eventType === "customer.subscription.created" || eventType === "customer.subscription.updated") {
+  if (currentSnapshotSubscriptionEvents.has(eventType)) {
     const subscriptionId = typeof obj.id === "string" ? obj.id : "";
     if (!subscriptionId) return NextResponse.json({ error: "Subscription event missing subscription id" }, { status: 400 });
     try {
@@ -103,8 +121,6 @@ export async function POST(req: Request) {
         eventId,
         error: error instanceof Error ? error.message : "unknown",
       });
-      // Do not mark the event processed when the current Stripe object could
-      // not be read. Stripe will retry, and the event remains recoverable.
       return NextResponse.json({ error: "Unable to verify current Stripe subscription state" }, { status: 502 });
     }
   }
@@ -296,7 +312,7 @@ export async function POST(req: Request) {
             updatedAt: sql`clock_timestamp()`,
           }).where(eq(tenantSubscriptions.tenantId, tenantId));
         }
-      } else if (eventType.startsWith("customer.subscription.")) {
+      } else if (subscriptionStateEvent) {
         const subId = typeof stateObj.id === "string" ? stateObj.id : "";
         const items = stateObj.items as { data?: Array<{ price?: { id?: string } }> } | undefined;
         const priceId = items?.data?.[0]?.price?.id;
@@ -358,13 +374,20 @@ export async function POST(req: Request) {
             differentSubscription &&
             tenantRow.status === "cancelled" &&
             isNewerThanStoredEvent;
-          // Stripe does not guarantee webhook delivery order. Snapshot-only lifecycle
-          // events (paused/resumed/deleted) cannot be refreshed from the API and must
-          // therefore be fenced by the last processed event timestamp too. For
-          // created/updated events we retrieve Stripe's current object, but still use
-          // the event timestamp to prevent a stale snapshot-only event from regressing
-          // the tenant state after a newer lifecycle event has already been applied.
-          if (isNewerThanStoredEvent && (sameOrUnboundSubscription || newerReplacementSubscription)) {
+          // A live Stripe resource is authoritative even when the triggering
+          // event shares a second with another event or arrived much later.
+          // Re-evaluating the resource makes paused/resumed and other lifecycle
+          // events converge on Stripe's current state. Deleted is the exception:
+          // Stripe's terminated resource is no longer retrievable, so the signed
+          // deletion event is a terminal fence and can advance on an equal timestamp.
+          const currentSnapshotAuthoritative =
+            currentSnapshotSubscriptionEvents.has(eventType);
+          const terminalDelete =
+            eventType === "customer.subscription.deleted";
+          const sameSubscriptionCanUpdate =
+            sameOrUnboundSubscription &&
+            (currentSnapshotAuthoritative || terminalDelete || isNewerThanStoredEvent);
+          if (sameSubscriptionCanUpdate || newerReplacementSubscription) {
             const nextStatus = typeof stateObj.status === "string" ? statusOf(stateObj.status) : tenantRow.status;
             const currentPeriodStart = typeof stateObj.current_period_start === "number"
               ? new Date(stateObj.current_period_start * 1000)
