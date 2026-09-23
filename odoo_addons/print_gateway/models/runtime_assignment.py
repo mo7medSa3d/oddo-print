@@ -78,8 +78,8 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
     @api.model
     @api.private
     def is_agent_assigned(self, company, branch, runtime_agent_id):
-        if not branch or not isinstance(runtime_agent_id, str) or not runtime_agent_id.strip():
-            return True
+        if not isinstance(runtime_agent_id, str) or not runtime_agent_id.strip():
+            return False
         return runtime_agent_id.strip() in self.assigned_agent_ids(company, branch)
 
     def _check_admin(self):
