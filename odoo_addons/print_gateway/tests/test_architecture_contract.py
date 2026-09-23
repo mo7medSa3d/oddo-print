@@ -216,6 +216,13 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn('widget="gateway_runtime_agent_binding"', view_source)
         self.assertNotIn("assignment_only", view_source)
 
+    def test_automation_binding_picker_is_scope_filtered(self):
+        source = (VIEWS / "print_policy_views.xml").read_text(encoding="utf-8")
+        self.assertIn("('company_id', '=', company_id)", source)
+        self.assertIn("('branch_id', '=', branch_id)", source)
+        policy_source = (MODELS / "print_policy.py").read_text(encoding="utf-8")
+        self.assertIn("def _check_binding_scope", policy_source)
+
     def test_gateway_time_authority_has_no_local_agent_expiry_gate(self):
         agent_source = (Path(__file__).resolve().parents[3] / "agent" / "internal" / "agent" / "agent.go").read_text(encoding="utf-8")
         self.assertNotIn("Job %s expired before agent processing. Skipping.", agent_source)
