@@ -330,6 +330,17 @@ class TestBranchRuntimeBinding(TransactionCase):
                     ["agent-a", "agent-b", "agent-company-wide"],
                 )
 
+    def test_runtime_assignment_defaults_to_root_company_from_branch_context(self):
+        assignment = self.env["print_gateway.runtime_agent_assignment"].new({
+            "runtime_agent_id": "agent-default",
+        })
+        branch_env = self.env["print_gateway.runtime_agent_assignment"].with_context(
+            allowed_company_ids=[self.branch.id],
+        )
+        # The default must be derived from the active branch's parent company.
+        default_company = branch_env._fields["company_id"].default(branch_env)
+        self.assertEqual(default_company, self.company)
+
     def test_assignment_model_is_single_source_of_truth_for_branch_and_company_wide_scope(self):
         model = self.env["print_gateway.runtime_agent_assignment"]
         model.create({
