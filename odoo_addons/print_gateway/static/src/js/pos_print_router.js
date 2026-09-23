@@ -1,6 +1,7 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
+import { showGatewayBillingLimitDialog } from "./gateway_limit_dialog";
 import { PosStore } from "@point_of_sale/app/services/pos_store";
 import { renderToElement } from "@web/core/utils/render";
 import { htmlToCanvas } from "@point_of_sale/app/services/render_service";
@@ -141,6 +142,9 @@ patch(PosStore.prototype, {
             }
             return result;
         } catch (error) {
+            if (showGatewayBillingLimitDialog(this.env, error)) {
+                return false;
+            }
             // Fail-safe: display user notification and return false, NEVER re-throw to avoid freezing POS UI
             this.notification.add(error?.message || "Receipt printing failed.", { type: "danger" });
             return false;
@@ -301,6 +305,13 @@ patch(PosStore.prototype, {
                 gatewayOutcome: status,
             };
         } catch (error) {
+            if (showGatewayBillingLimitDialog(this.env, error)) {
+                return {
+                    successful: false,
+                    canRetry: false,
+                    message: { title: "Printing Service", body: "The Gateway plan limit has been reached." },
+                };
+            }
             this.notification.add(error?.message || "Kitchen / Preparation printing failed.", { type: "danger" });
             return {
                 successful: false,
