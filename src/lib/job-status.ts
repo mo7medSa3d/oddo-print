@@ -29,7 +29,7 @@
 // accepted once a job reaches one of them. The late physical-outcome
 // override (failed -> success) is NOT part of the general table; it exists
 // only as an explicitly authorized code path via canTransition's
-// allowLateSuccess option, gated by isLateSuccessAllowed (marker + TTL).
+// allowLateSuccess option; the HTTP route fences its age atomically against PostgreSQL time.
 export const JOB_STATUSES = [
   "queued",
   "claimed",
