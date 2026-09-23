@@ -5,7 +5,7 @@ import { join } from "node:path";
 describe("Gateway TopNavbar responsive contract", () => {
   it("keeps the primary navigation visible at desktop breakpoints", () => {
     const source = readFileSync(join(process.cwd(), "src/components/TopNavbar.tsx"), "utf8");
-    const navClassBlock = source.match(/<nav\s+aria-label="Main"\s+className=\{\[([\s\S]*?)\]\}/)?.[1] ?? "";
+    const navClassBlock = source.match(/<nav\b(?=[^>]*aria-label="Main")[^>]*className=\{\[([\s\S]*?)\]\}/)?.[1] ?? "";
 
     expect(navClassBlock).toContain("lg:flex");
     expect(navClassBlock).not.toContain("lg:hidden");
