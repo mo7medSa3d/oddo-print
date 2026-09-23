@@ -4,7 +4,7 @@ import { ArrowUpRight, CircleAlert } from "lucide-react";
 import Link from "next/link";
 import { Modal } from "./ui";
 
-export type UpgradeLimitResource = "agents" | "printers" | "prints";
+export type UpgradeLimitResource = "agents" | "printers" | "prints" | "rate" | "concurrency";
 
 const COPY: Record<UpgradeLimitResource, { title: string; unit: string; description: string }> = {
   agents: {
@@ -22,6 +22,16 @@ const COPY: Record<UpgradeLimitResource, { title: string; unit: string; descript
     unit: "print jobs",
     description: "Your current plan has used its included print jobs for this billing period. Upgrade the plan to continue creating new print jobs.",
   },
+  rate: {
+    title: "Print rate limit reached",
+    unit: "jobs per minute",
+    description: "Your current plan has reached its print throughput limit. New jobs will be accepted again when the rolling limit clears.",
+  },
+  concurrency: {
+    title: "Concurrent print limit reached",
+    unit: "active print jobs",
+    description: "Your current plan has reached its active print-job capacity. Wait for in-flight jobs to finish or upgrade the plan.",
+  },
 };
 
 export default function UpgradeLimitDialog({
@@ -31,6 +41,7 @@ export default function UpgradeLimitDialog({
   used,
   limit,
   periodEnd,
+  retryAfterSeconds,
 }: {
   open: boolean;
   onClose: () => void;
@@ -74,8 +85,15 @@ export default function UpgradeLimitDialog({
         <p className="text-[12px] leading-relaxed text-ink-3">
           {resource === "prints"
             ? "Metering unit: 1 admitted Gateway print job = 1 print credit."
-            : `Current capacity: ${limitText} ${copy.unit}.`}
+            : resource === "rate"
+              ? "This is a rolling 60-second limit, not a calendar-minute allowance."
+              : resource === "concurrency"
+                ? "This limit counts queued, claimed, and actively printing jobs."
+                : `Current capacity: ${limitText} ${copy.unit}.`}
           {periodText ? ` The current billing period ends ${periodText}.` : ""}
+          {typeof retryAfterSeconds === "number" && retryAfterSeconds > 0
+            ? ` Try again in about ${Math.ceil(retryAfterSeconds / 60)} minute${Math.ceil(retryAfterSeconds / 60) === 1 ? "" : "s"}.`
+            : ""}
         </p>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
