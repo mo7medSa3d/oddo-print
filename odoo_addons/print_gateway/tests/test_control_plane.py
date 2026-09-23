@@ -1540,6 +1540,31 @@ class TestControlPlane(TransactionCase):
         test_companies = [self.company.id, self.branch.id, sibling_branch.id, other_company.id]
         self.env = self.env(context=dict(self.env.context, allowed_company_ids=test_companies))
 
+        # Direct Binding creation is intentionally allowed only for an Agent
+        # that is already assigned to the exact Odoo runtime scope. Provision
+        # the non-primary scopes used by this parity test explicitly; the
+        # Binding model must never create or widen these assignments itself.
+        self.env["print_gateway.runtime_agent_assignment"].create([
+            {
+                "company_id": self.company.id,
+                "branch_id": sibling_branch.id,
+                "runtime_agent_id": "agent-scope-printer-scope-sibling",
+                "enabled": True,
+            },
+            {
+                "company_id": self.company.id,
+                "branch_id": False,
+                "runtime_agent_id": "agent-scope-printer-scope-root",
+                "enabled": True,
+            },
+            {
+                "company_id": other_company.id,
+                "branch_id": False,
+                "runtime_agent_id": "agent-scope-printer-scope-other",
+                "enabled": True,
+            },
+        ])
+
         pri_counter = [50]
 
         def _binding(company, branch, printer, protocol="escpos"):
