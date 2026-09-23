@@ -625,7 +625,7 @@ func TestAuthorizeDispatchAfterReportFailure(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, reason := authorizeDispatchAfterReportFailure(tc.received, tc.expires, tc.hasExpiry, now, tc.err)
+			got, reason := authorizeDispatchAfterReportFailure(tc.received, now, tc.err)
 			if got != tc.want {
 				t.Fatalf("proceed = %v, want %v (reason: %s)", got, tc.want, reason)
 			}
