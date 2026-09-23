@@ -26,6 +26,7 @@ export async function GET(req: Request) {
       name: printers.name,
       status: printers.status,
       lifecycle: printers.lifecycle,
+      lastSeenAt: printers.lastSeenAt,
       printerType: printers.printerType,
       deviceClass: printers.deviceClass,
       connectionType: printers.connectionType,
@@ -48,7 +49,7 @@ export async function GET(req: Request) {
       id: row.id,
       name: row.name,
       status: getEffectivePrinterStatus(
-        { lifecycle: row.lifecycle, status: row.status },
+        { lifecycle: row.lifecycle, status: row.status, lastSeenAt: row.lastSeenAt },
         { lifecycle: row.agentLifecycle, status: row.agentStatus, lastSeenAt: row.agentLastSeenAt },
         now,
       ),
