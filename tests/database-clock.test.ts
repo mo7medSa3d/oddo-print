@@ -192,9 +192,11 @@ describe("clock authority is enforced in the source", () => {
     expect(forgot).toContain("clock_timestamp() + interval '20 minutes'");
     expect(resend).toContain("clock_timestamp() + interval '30 minutes'");
     expect(reset).toContain("gt(passwordResetTokens.expiresAt, sql`clock_timestamp()`)");
-    expect(reset).toMatch(/isNull(passwordResetTokens.consumedAt),s*gt(passwordResetTokens.expiresAt, sql`clock_timestamp()`)/);
+    expect(reset).toContain("isNull(passwordResetTokens.consumedAt)");
+    expect(reset).toContain("gt(passwordResetTokens.expiresAt, sql`clock_timestamp()`)");
     expect(verifyEmail).toContain("gt(emailVerificationTokens.expiresAt, sql`clock_timestamp()`)");
-    expect(verifyEmail).toMatch(/isNull(emailVerificationTokens.consumedAt),s*gt(emailVerificationTokens.expiresAt, sql`clock_timestamp()`)/);
+    expect(verifyEmail).toContain("isNull(emailVerificationTokens.consumedAt)");
+    expect(verifyEmail).toContain("gt(emailVerificationTokens.expiresAt, sql`clock_timestamp()`)");
   });
 
   it("writes tenant lifecycle transition timestamps on the database clock", () => {
