@@ -92,6 +92,16 @@ describe("job-status", () => {
     expect(isJobStatus("bogus")).toBe(false);
   });
 
+  it("DB timestamp parsing treats naive values as UTC", () => {
+    const now = Date.parse("2026-09-06T12:00:00.000Z");
+    expect(
+      isLateSuccessAllowed(
+        { status: "failed", error: "AGENT_EXECUTION_TIMEOUT", updatedAt: new Date("2026-09-06T11:30:00.000Z") },
+        now,
+      ),
+    ).toBe(true);
+  });
+
   describe("isLateSuccessAllowed", () => {
     const now = Date.parse("2026-09-06T12:00:00.000Z");
     const at = (iso: string) => new Date(iso);
