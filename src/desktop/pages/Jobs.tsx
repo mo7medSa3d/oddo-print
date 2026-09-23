@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, Eye, Inbox, Printer as PrinterIcon, Refres
 import { Button, Card, EmptyState, ErrorState, Field, Input, LoadingState, Modal, Mono, StatusBadge, Tabs } from "../../components/ui";
 import type { DesktopState } from "../types";
 import { cleanupLocalJobs } from "../lib/ipc";
-import { friendlyPrinterError, jobDestination, jobDocType, jobId, jobPrinterId, jobStatus, labelJob, toneJob } from "../lib/printers";
+import { friendlyAgentError, friendlyPrinterError, jobDestination, jobDocType, jobId, jobPrinterId, jobStatus, labelJob, toneJob } from "../lib/printers";
 
 const TABS = ["all", "in_flight", "queued", "unassigned", "delivered", "failed", "unknown", "expired"] as const;
 
@@ -18,7 +18,7 @@ export function JobsPage({ s }: { s: DesktopState }) {
       const deleted = await cleanupLocalJobs();
       setCleanupOpen(false);
       s.setMsg({ text: deleted === 0 ? "No completed or failed local jobs to remove." : `Removed ${deleted} terminal job${deleted === 1 ? "" : "s"}.`, type: "success" });
-    } catch (error) { s.setMsg({ text: error instanceof Error ? error.message : "Failed to clean local jobs", type: "error" }); }
+    } catch (error) { s.setMsg({ text: friendlyAgentError(error instanceof Error ? error.message : "Failed to clean local jobs"), type: "error" }); }
     finally { setCleanupBusy(false); }
   };
 
