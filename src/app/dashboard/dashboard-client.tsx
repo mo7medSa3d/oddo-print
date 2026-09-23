@@ -305,6 +305,7 @@ export default function DashboardClient({
     used?: number | null;
     limit?: number | "unlimited" | null;
     periodEnd?: string | null;
+    retryAfterSeconds?: number | null;
   } | null>(null);
   const [billingUsage, setBillingUsage] = useState<BillingUsage | null>(null);
 
