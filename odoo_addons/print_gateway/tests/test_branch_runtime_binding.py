@@ -384,6 +384,30 @@ class TestBranchRuntimeBinding(TransactionCase):
         self.assertTrue(model.is_agent_assigned(self.company, False, "agent-company-wide"))
         self.assertFalse(model.is_agent_assigned(self.company, False, "agent-branch"))
 
+    def test_company_wide_binding_validates_remote_target(self):
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "runtime_agent_id": "agent-company-wide-verify",
+            "enabled": True,
+        })
+        with patch(
+            "odoo.addons.print_gateway.models.binding.requests.get",
+            side_effect=self._gets(),
+        ), patch(
+            "odoo.addons.print_gateway.models.gateway_config.PrintGatewayConfig._validate_gateway_host",
+            return_value=None,
+        ):
+            binding = self.env["print_gateway.binding"].create(self._values(
+                branch_id=False,
+                runtime_agent_id="agent-company-wide-verify",
+                printer_id="printer-a",
+                priority=99,
+            ))
+            result = binding.action_verify_remote_hardware()
+        self.assertEqual(result.get("params", {}).get("type"), "success")
+
     def test_root_binding_requires_company_wide_agent_assignment(self):
         binding_model = self.env["print_gateway.binding"]
         with self.assertRaises(ValidationError):
