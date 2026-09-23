@@ -63,7 +63,7 @@ export default function UpgradeLimitDialog({
       open={open}
       onClose={onClose}
       title={copy.title}
-      description="The Gateway enforces plan limits server-side, so no additional resource is created until the plan allows it."
+      description="The Gateway enforces plan limits server-side, so no new print operation or resource is admitted beyond the plan allowance."
     >
       <div className="space-y-5">
         <div className="flex items-start gap-3 rounded-[12px] border border-warn-edge bg-warn-bg px-4 py-3.5 text-[13px] text-warn">
