@@ -3,7 +3,7 @@ import { printJobs } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
 import { and, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { isJobStatus, canTransition, isTerminal, isLateSuccessAllowed, isExpiredLateSuccessAllowed, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, LATE_SUCCESS_POST_EXPIRATION_MARKER, type JobStatus } from "../../../../lib/job-status";
+import { isJobStatus, canTransition, isTerminal, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, LATE_SUCCESS_POST_EXPIRATION_MARKER, type JobStatus } from "../../../../lib/job-status";
 import { logInfo, logWarn, requestIdFrom } from "../../../../lib/log";
 import { incrementMetric } from "../../../../lib/metrics";
 import { STALE_CLAIM_SECONDS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "../../../../lib/job-maintenance";
@@ -308,7 +308,10 @@ export async function PATCH(req: Request) {
         deliveryAttempts: sql`GREATEST(${printJobs.deliveryAttempts} - 1, 0)`,
         retries: sql`${printJobs.retries} + 1`,
       })
-      .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
+      .where(and(
+        fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
+        lateSuccess ? sql`\${printJobs.updatedAt} >= now() - interval '24 hours' AND \${printJobs.updatedAt} <= now()` : sql`TRUE`,
+      ))
       .returning({ status: printJobs.status, error: printJobs.error });
     if (updated.length !== 1) {
       const winner = await db.query.printJobs.findFirst({ where: whereClause });
@@ -337,16 +340,18 @@ export async function PATCH(req: Request) {
 
   let lateSuccess = false;
   if (currentStatus === "failed" && requestedStatus === "success") {
-    if (!isLateSuccessAllowed({ status: currentStatus, error: job.error, updatedAt: job.updatedAt }, Date.now())) {
+    const lateSuccessMarker = job.error?.startsWith("AGENT_EXECUTION_TIMEOUT")
+      || job.error?.startsWith("AGENT_RESTART_DURING_PRINT");
+    if (!lateSuccessMarker) {
       return NextResponse.json({ error: "Invalid status transition: failed -> success (late success not allowed for this job)" }, { status: 409 });
     }
+    // The age window is enforced atomically by PostgreSQL below, so the Gateway
+    // database clock is authoritative even when the app host clock drifts.
     lateSuccess = true;
   }
 
   if (currentStatus === "expired" && requestedStatus === "success") {
-    if (!isExpiredLateSuccessAllowed({ status: currentStatus, expiresAt: job.expiresAt, updatedAt: job.updatedAt }, Date.now())) {
-      return NextResponse.json({ error: "Invalid status transition: expired -> success (outside physical grace window)", status: currentStatus }, { status: 409 });
-    }
+    // The five-minute grace window is enforced atomically by PostgreSQL below.
     const postExpiryError = `${LATE_SUCCESS_POST_EXPIRATION_MARKER}: print execution completed after TTL expiry${errorMessage ? ` (${errorMessage})` : ""}`.slice(0, MAX_ERROR_LENGTH);
     const postExpired = await db.update(printJobs)
       .set({
@@ -359,7 +364,11 @@ export async function PATCH(req: Request) {
         updatedAt: sql`now()`,
         deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
       })
-      .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
+      .where(and(
+        fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
+        sql`\${printJobs.expiresAt} <= now()`,
+        sql`\${printJobs.expiresAt} > now() - interval '5 minutes'`,
+      ))
       .returning({ status: printJobs.status, error: printJobs.error });
     if (postExpired.length !== 1) {
       const winner = await db.query.printJobs.findFirst({ where: whereClause });
