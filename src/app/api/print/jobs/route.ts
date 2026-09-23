@@ -27,7 +27,9 @@ function parseExpiresAt(value?: string) {
   if (!value) return undefined;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) throw new Error("expiresAt must be a valid ISO-8601 timestamp");
-  // Future and maximum-lifetime checks are performed inside the Gateway DB transaction.
+  // Relative TTL/future validation belongs to the Gateway database clock in
+  // createPrintJobForPrinter. This parser only validates syntax so an app-host
+  // clock drift can never reject/accept a job inconsistently with the DB.
   return parsed;
 }
 

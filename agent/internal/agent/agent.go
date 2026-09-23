@@ -1196,7 +1196,7 @@ const staleClaimSafetyWindow = 90 * time.Second
 //   - Unknown receipt time (zero): freshness cannot be proven. HARD STOP.
 //
 // The returned reason is recorded in the aborted ledger row for forensics.
-func authorizeDispatchAfterReportFailure(receivedAt time.Time, expiresAt time.Time, hasExpiry bool, now time.Time, reportErr error) (bool, string) {
+func authorizeDispatchAfterReportFailure(receivedAt time.Time, now time.Time, reportErr error) (bool, string) {
 	if errors.Is(reportErr, ErrStaleClaim) {
 		return false, "claim fence rejected by gateway"
 	}
@@ -1206,9 +1206,10 @@ func authorizeDispatchAfterReportFailure(receivedAt time.Time, expiresAt time.Ti
 	if receivedAt.IsZero() {
 		return false, "delivery receipt time unknown; ownership freshness unprovable"
 	}
-	if hasExpiry && !now.Before(expiresAt) {
-		return false, "job TTL elapsed while held locally"
-	}
+	// TTL is authoritative in the Gateway database. The Agent deliberately
+	// does NOT compare expiresAt against its Windows wall clock because that
+	// clock can be skewed from the Gateway. Ownership freshness is measured
+	// only with the local monotonic component of time.Time.
 	if now.Sub(receivedAt) >= staleClaimSafetyWindow {
 		return false, "delivery older than the claim-lease window; a reclaim may have completed"
 	}
@@ -1217,15 +1218,8 @@ func authorizeDispatchAfterReportFailure(receivedAt time.Time, expiresAt time.Ti
 
 // authorizeDispatchAfterReportFailure is the processJob-facing wrapper that
 // reads the delivery receipt time tracked at dispatch acceptance.
-func (a *Agent) authorizeDispatchAfterReportFailure(jobID, expiresAtStr string, reportErr error) (bool, string) {
-	var expiresAt time.Time
-	hasExpiry := false
-	if expiresAtStr != "" {
-		if parsed, err := time.Parse(time.RFC3339, expiresAtStr); err == nil {
-			expiresAt, hasExpiry = parsed, true
-		}
-	}
-	return authorizeDispatchAfterReportFailure(a.deliveryReceivedAt(jobID), expiresAt, hasExpiry, time.Now(), reportErr)
+func (a *Agent) authorizeDispatchAfterReportFailure(jobID string, reportErr error) (bool, string) {
+	return authorizeDispatchAfterReportFailure(a.deliveryReceivedAt(jobID), time.Now(), reportErr)
 }
 
 func jobClaimToken(job map[string]interface{}) string {
@@ -2058,7 +2052,6 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		receivedAt = time.Now()
 	}
 	log.Printf("print.trace agent_receive request_id=%s job_id=%s printer_id=%s queue_wait_ms=%d received_unix_ms=%d", requestID, jobID, printerID, time.Since(receivedAt).Milliseconds(), receivedAt.UnixMilli())
-	expiresAtStr, _ := job["expiresAt"].(string)
 	claimToken := jobClaimToken(job)
 
 	if jobID == "" || printerID == "" {
@@ -2070,16 +2063,6 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		}
 		log.Printf("Received malformed job (missing %s, job present: %v); ignoring", missing, job != nil)
 		return
-	}
-
-	if expiresAtStr != "" {
-		if expiresAt, err := time.Parse(time.RFC3339, expiresAtStr); err == nil {
-			if time.Now().UTC().After(expiresAt.UTC()) {
-				log.Printf("Job %s expired before agent processing. Skipping.", jobID)
-				a.updateJobStatus(ctx, jobID, "expired", "TTL exceeded before agent processing", claimToken)
-				return
-			}
-		}
 	}
 
 	// Local idempotency: a job that already printed successfully on THIS
@@ -2175,7 +2158,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 			}
 			return
 		}
-		if proceed, reason := a.authorizeDispatchAfterReportFailure(jobID, expiresAtStr, err); !proceed {
+		if proceed, reason := a.authorizeDispatchAfterReportFailure(jobID, err); !proceed {
 			log.Printf("Job %s: physical dispatch refused (%s); aborting before any byte is sent", jobID, reason)
 			if aberr := a.queue.AbortPrint(jobID, "dispatch_refused: "+reason+"; zero bytes transmitted"); aberr != nil {
 				log.Printf("Job %s: failed to abort local ledger row: %v", jobID, aberr)

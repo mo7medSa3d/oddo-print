@@ -307,10 +307,10 @@ class PrintGatewayPolicy(models.Model):
     def dispatch_for_record(self, record, event_type):
         """Schedule every applicable automated print policy independently.
 
-        Odoo policy data is authoritative for automated routing. Each policy
-        is evaluated independently so a bad target cannot block unrelated
-        valid policies, while the Intent model remains the single idempotency
-        boundary for the physical print operation.
+        Policy selection is Odoo-owned control-plane data. Each policy is
+        evaluated and scheduled independently so one invalid target cannot
+        prevent other valid policies from printing. Idempotency is enforced
+        by the Intent layer, not by the hooks themselves.
         """
         policies = self.resolve_for_record(record, event_type)
         intent_model = self.env["print_gateway.intent"].sudo()

@@ -184,6 +184,7 @@ class TestControlPlane(TransactionCase):
         self.assertEqual(intent2.id, intent1.id, "Duplicate trigger must return existing intent and suppress duplicate job creation")
 
     def test_billing_retry_uses_relative_retry_after_not_gateway_absolute_period_end(self):
+        source = (self.env["print_gateway.print_job"]._original_module_path if False else None)
         from pathlib import Path
         print_job_source = (
             Path(__file__).resolve().parents[1] / "models" / "print_job.py"
