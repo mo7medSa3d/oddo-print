@@ -190,7 +190,8 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         widget_source = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
         self.assertIn("assignment_only", widget_source)
         view_source = (VIEWS / "binding_views.xml").read_text(encoding="utf-8")
-        self.assertIn("options=\"{'assignment_only': true}\"", view_source)
+        self.assertIn('widget="gateway_runtime_agent_binding"', view_source)
+        self.assertNotIn("assignment_only", view_source)
 
     def test_agent_widget_clears_previous_printer_on_agent_change(self):
         source = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
