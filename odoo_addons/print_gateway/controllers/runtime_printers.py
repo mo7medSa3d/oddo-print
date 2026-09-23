@@ -147,6 +147,18 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         if not selected_agent_id:
             return {'enabled': True, 'selectedAgentId': False, 'printers': []}
 
+        # A branch-scoped printer inventory is an object-level discovery surface:
+        # a valid tenant Agent is not automatically authorized for every Odoo
+        # Branch. Enforce the same explicit Branch -> Agent assignment used by
+        # Binding writes, so a crafted RPC call cannot inspect another branch's
+        # printer inventory even when the caller is a system administrator.
+        if branch:
+            allowed_agent_ids = self._assigned_runtime_agent_ids(root_company, branch)
+            if selected_agent_id not in allowed_agent_ids:
+                raise Forbidden(
+                    'Access Denied: The selected Gateway Agent is not assigned to this Odoo Branch.'
+                )
+
         # Validate that the selected Agent is active and belongs to the same
         # Gateway tenant before exposing its printer inventory. Assignment is
         # intentionally not required at discovery time; it is created/checked
