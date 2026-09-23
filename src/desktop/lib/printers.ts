@@ -182,6 +182,13 @@ export function friendlyPrinterError(raw: string): string {
     return "Print status is unknown. The printer may have received part or all of the job. Automatic retry is paused to prevent duplicate printing - check the printer before reprinting.";
   }
   const lower = raw.toLowerCase();
+
+  // Agent configuration failures can surface through printer discovery/refresh
+  // because the Tauri Gateway transport reads the local Agent config first.
+  // Never expose the config path or Windows error text to operators.
+  if (lower.includes("load agent config failed") || lower.includes("config.yaml")) {
+    return "Administrator permission is required to access the local Agent. Reopen Yasser Print Manager as Administrator and try again.";
+  }
   if (lower.includes("connection refused") || lower.includes("dial tcp"))
     return "Could not connect to the printer.";
   if (lower.includes("timeout") || lower.includes("deadline"))
@@ -189,8 +196,19 @@ export function friendlyPrinterError(raw: string): string {
   if (lower.includes("offline")) return "Printer is offline.";
   if (lower.includes("not found") || lower.includes("no such"))
     return "Printer not found.";
-  if (lower.includes("access denied") || lower.includes("permission"))
-    return "Access denied. Check Windows printer permissions.";
+  if (lower.includes("access denied") || lower.includes("access is denied") || lower.includes("permission"))
+    return "Windows denied access to the printer. Check printer permissions and try again.";
+
+  // Keep unexpected runtime failures operator-safe when they contain a local
+  // filesystem path or other backend diagnostics.
+  if (
+    /[A-Za-z]:\\/.test(raw) ||
+    lower.includes("stack backtrace") ||
+    lower.includes("panic")
+  ) {
+    return "The printer operation could not be completed. Check the printer and try again.";
+  }
+
   return raw.length > 140 ? raw.slice(0, 140) + "…" : raw;
 }
 
