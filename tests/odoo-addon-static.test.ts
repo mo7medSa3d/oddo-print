@@ -193,11 +193,14 @@ describe("Odoo addon static contracts", () => {
     expect(controller).toContain('["print_gateway.gateway_config"].sudo().search');
   });
 
-  it("guards runtime assignment sync with savepoint and handles IntegrityError for concurrency safety", () => {
+  it("treats explicit Branch → Agent assignment as the binding source of truth", () => {
     const binding = read("models/binding.py");
-    expect(binding).toContain("from psycopg2 import IntegrityError");
-    expect(binding).toContain("with self.env.cr.savepoint():");
-    expect(binding).toContain("except IntegrityError:");
+    expect(binding).toContain('self.env["print_gateway.runtime_agent_assignment"].sudo()');
+    expect(binding).toContain('("runtime_agent_id", "=", record.runtime_agent_id.strip())');
+    expect(binding).toContain('("enabled", "=", True)');
+    expect(binding).toContain("is not explicitly assigned to");
+    expect(binding).not.toContain("from psycopg2 import IntegrityError");
+    expect(binding).not.toContain("def _ensure_branch_agent_assignment");
   });
 
   it("stops automatic retry of unknown submission outcomes in outbox and restricts cron to queued jobs", () => {
@@ -210,12 +213,12 @@ describe("Odoo addon static contracts", () => {
     expect(jobs).toContain("def action_force_reprint");
   });
 
-  it("ensures branch agent assignment additively and preserves independent assignments on unlink", () => {
+  it("does not create or widen Branch agent assignments from print bindings", () => {
     const binding = read("models/binding.py");
-    expect(binding).toContain("def _ensure_branch_agent_assignment(self):");
-    expect(binding).toContain("records._ensure_branch_agent_assignment()");
-    expect(binding).toContain("def unlink(self):");
-    expect(binding).toContain("return super().unlink()");
+    expect(binding).not.toContain("def _ensure_branch_agent_assignment(self):");
+    expect(binding).not.toContain("records._ensure_branch_agent_assignment()");
+    expect(binding).toContain("def create(self, vals_list):");
+    expect(binding).toContain("return super().create(vals_list)");
   });
 
   it("keeps the Odoo migration tree unambiguous, ordered, and covered by the manifest version", () => {
