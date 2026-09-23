@@ -1,6 +1,7 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
+import { showGatewayBillingLimitDialog } from "./gateway_limit_dialog";
 import { formatDateTime } from "@web/core/l10n/dates";
 
 // `@web/core/l10n/dates` does not export DateTime in Odoo 19 (it reads the
@@ -81,6 +82,9 @@ patch(SaleDetailsButton.prototype, {
             }
             return result;
         } catch (error) {
+            if (showGatewayBillingLimitDialog(this.env, error)) {
+                return false;
+            }
             // Fail-safe parity with the receipt router: notify once and
             // return false instead of re-throwing, so a Gateway failure
             // cannot freeze the Sale Details button with a double dialog.
