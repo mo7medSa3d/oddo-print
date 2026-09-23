@@ -183,6 +183,49 @@ class TestControlPlane(TransactionCase):
         intent2 = intent_model.create_and_route(policy, mock_picking, "picking_validated")
         self.assertEqual(intent2.id, intent1.id, "Duplicate trigger must return existing intent and suppress duplicate job creation")
 
+    def test_automation_dispatch_continues_after_one_policy_failure(self):
+        """One invalid automated target must not suppress other valid policies."""
+        model = self.env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
+        policy_model = self.env["print_gateway.policy"]
+        first = policy_model.create({
+            "name": "Broken Automation Target",
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "model_id": model.id,
+            "event_type": "picking_validated",
+            "action_type": "raw_template",
+            "raw_template": "^XA^FD{name}^FS^XZ",
+            "raw_protocol": "zpl",
+            "binding_id": self.zpl_binding.id,
+            "active": True,
+            "priority": 1,
+        })
+        second = policy_model.create({
+            "name": "Valid Automation Target",
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "model_id": model.id,
+            "event_type": "picking_validated",
+            "action_type": "raw_template",
+            "raw_template": "^XA^FD{name}^FS^XZ",
+            "raw_protocol": "zpl",
+            "binding_id": self.zpl_binding.id,
+            "active": True,
+            "priority": 2,
+        })
+        mock_picking = MagicMock()
+        mock_picking._name = model.model
+        mock_picking.id = 9910
+        mock_picking.company_id = self.branch
+
+        PolicyClass = type(first)
+        IntentClass = type(self.env["print_gateway.intent"])
+        with patch.object(PolicyClass, "matches_record", return_value=True),              patch.object(PolicyClass, "effective_target_key", side_effect=[ValidationError("broken target"), ("valid-binding", "raw_template", False, "zpl", "template")]),              patch.object(IntentClass, "create_and_route", return_value=second):
+            result = policy_model.dispatch_for_record(mock_picking, "picking_validated")
+
+        self.assertEqual(result, {"scheduled": 1, "failed": 1})
+        IntentClass.create_and_route.assert_called_once_with(second, mock_picking, "picking_validated")
+
     def test_01b_raw_policy_dedup_identity_includes_resolved_binding_and_protocol(self):
         """Raw fan-out dedup must include the resolved target and language."""
         model = self.env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
