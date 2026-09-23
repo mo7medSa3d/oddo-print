@@ -2,7 +2,7 @@ import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, tenants, authRateLimits } from "../../../../db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { validateManager, managerCookieHeader } from "../../../../lib/manager-auth";
 import { verifyTenantSelectionToken } from "../../../../lib/customer-auth";
 import { writeAuditEvent } from "../../../../lib/audit";
@@ -40,8 +40,8 @@ export async function POST(req: Request) {
       if (isSelectionToken && tokenJti) {
         const consumed = await tx.insert(authRateLimits).values({
           key: `tsel_used_${tokenJti}`,
-          windowStartedAt: new Date(),
-          updatedAt: new Date(),
+          windowStartedAt: sql`now()`,
+          updatedAt: sql`now()`,
         }).onConflictDoNothing({ target: authRateLimits.key }).returning({ key: authRateLimits.key });
         if (consumed.length !== 1) {
           throw new Error("Selection token already used");
