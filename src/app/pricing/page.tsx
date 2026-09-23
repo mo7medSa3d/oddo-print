@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { db } from "../../db";
 import { plans, tenantSubscriptions } from "../../db/schema";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
-import { getManagerCookieName, validateManagerClaims, verifyManagerToken } from "../../lib/manager-auth";
+import { getManagerCookieName, verifyManagerToken } from "../../lib/manager-auth";
 import { ArrowRight, Check, CreditCard } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +36,7 @@ export default async function Pricing() {
     .orderBy(asc(plans.displayOrder), asc(plans.name));
 
   const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
-  const claims = await validateManagerClaims(token ? verifyManagerToken(token) : null);
+  const claims = token ? await verifyManagerToken(token) : null;
 
   let currentPlanId: string | null = null;
 
