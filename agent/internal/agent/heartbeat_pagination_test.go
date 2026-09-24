@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -167,5 +168,5 @@ func TestHeartbeatPaginationSplitsLargeAuxiliaryState(t *testing.T) {
 // formatTestIndex is intentionally local to this file so the inventory tests
 // do not depend on UUID generation or random ordering.
 func formatTestIndex(i int) string {
-	return json.Number(string(rune('a'+(i%26)))) + json.Number(string(rune('0'+(i/26)%10))).String()
+	return fmt.Sprintf("%04d", i)
 }
