@@ -8,6 +8,16 @@ import {
 } from "../src/server/ws";
 
 describe("WebSocket capacity reservation", () => {
+  it("guards upgrade reservation cleanup before registration", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/server/ws.ts"), "utf8");
+    const handleUpgrade = source.indexOf("wss.handleUpgrade(req, socket, head");
+    const reservationClose = source.indexOf('socket.once("close", releaseReservation)', handleUpgrade - 600);
+    const guardedCatch = source.indexOf("releaseReservation();\n      } catch (error)", handleUpgrade);
+    expect(handleUpgrade).toBeGreaterThanOrEqual(0);
+    expect(reservationClose).toBeGreaterThanOrEqual(0);
+    expect(guardedCatch).toBeGreaterThan(handleUpgrade);
+  });
+
   it("counts in-flight upgrades before admitting another connection", () => {
     expect(__canReserveAgentSocketSlotForTests(4095, 0)).toBe(true);
     expect(__canReserveAgentSocketSlotForTests(4096, 0)).toBe(false);

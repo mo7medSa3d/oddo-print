@@ -870,6 +870,10 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         releaseAgentSocketSlot();
       };
 
+      // A raw client disconnect or synchronous handshake failure must release
+      // the global reservation. Otherwise repeated failed upgrades can exhaust
+      // MAX_TOTAL_AGENT_SOCKETS even though no WebSocket was registered.
+      socket.once("close", releaseReservation);
       try {
         wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
           const aws = ws as AgentSocket;
@@ -906,6 +910,7 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         aws.once("close", releaseReservation);
         });
       } catch (error) {
+        releaseReservation();
       logUpgradeError(error);
       if (!socket.destroyed && !socket.writableEnded) {
         writeWsHttpError(socket, 500, "WebSocket upgrade failed");
