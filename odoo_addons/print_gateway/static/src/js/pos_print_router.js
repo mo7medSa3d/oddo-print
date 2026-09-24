@@ -451,7 +451,7 @@ patch(PosStore.prototype, {
             this.notification.add(error?.message || "Kitchen / Preparation printing failed.", { type: "danger" });
             return false;
         }
-    }
+    },
 
     async printOrderChanges(data, printer, posPrinterId = null, isRetry = false) {
         const orderId = data?.orderData?.__gateway_order_id;
