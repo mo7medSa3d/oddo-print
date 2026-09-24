@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { AddressInfo } from "net";
 import WebSocket from "ws";
 import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, jobRow, closePool, pool, type Fixture } from "./helpers/pg";
-import { attachAgentWSS, handleAgentMessage } from "../src/server/ws";
+import { attachAgentWSS, handleAgentMessage, __getNotificationListenerPidForTests } from "../src/server/ws";
 import { POST as printJobsPOST, GET as printJobsGET } from "../src/app/api/print/jobs/route";
 import { GET as agentJobsGET, PATCH as agentJobsPATCH } from "../src/app/api/agent/jobs/route";
 
@@ -19,6 +19,7 @@ suite("end-to-end job flow (Odoo -> Gateway -> agent socket -> status)", () => {
     attachAgentWSS(server);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     port = (server.address() as AddressInfo).port;
+    await expect.poll(() => __getNotificationListenerPidForTests(), { timeout: 5000 }).not.toBeNull();
   });
   afterAll(async () => {
     for (const ws of sockets) { try { ws.close(); } catch {} }
