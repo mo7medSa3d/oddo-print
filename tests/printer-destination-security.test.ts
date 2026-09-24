@@ -14,6 +14,7 @@ describe("printer destination security policy", () => {
     expect(validateConnectionConfig("network", { ip: "192.168.1.50", port: 9101 })).toContain("port must be 9100");
     expect(validateConnectionConfig("network", { ip: "10.20.30.40", port: 9100 })).toBeNull();
     expect(validateConnectionConfig("network", { ip: "fe80::10", port: 9100 })).toBeNull();
+    expect(validateConnectionConfig("network", { ip: "[fe80::10]", port: 9100, address: "[fe80::10]:9100" })).toBeNull();
   });
 
   it("rejects public, loopback, hostname, metadata and non-print ports", () => {
@@ -27,6 +28,8 @@ describe("printer destination security policy", () => {
   it("accepts private IPP endpoints and rejects public URLs", () => {
     expect(validateConnectionConfig("ipp", { address: "ipp://192.168.1.60/ipp/print" })).toBeNull();
     expect(validateConnectionConfig("ipps", { address: "https://10.0.0.20:631/ipp/print" })).toBeNull();
+    expect(validateConnectionConfig("ipp", { address: "http://[fd00:1234:5678::1]:631/ipp/print" })).toBeNull();
+    expect(validateConnectionConfig("ipps", { address: "https://[fe80::10]:631/ipp/print" })).toBeNull();
     expect(validateConnectionConfig("ipp", { address: "http://127.0.0.1:631/ipp/print" })).toContain("private or link-local");
     expect(validateConnectionConfig("ipp", { address: "https://169.254.169.254/ipp/print" })).toContain("private or link-local");
     expect(validateConnectionConfig("ipp", { address: "https://example.com/ipp/print" })).toContain("private or link-local");
