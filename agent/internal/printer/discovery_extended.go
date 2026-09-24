@@ -83,6 +83,7 @@ func dedupeKey(di DeviceInfo) string {
 	}
 	return "id:" + di.ID
 }
+
 // SNMP discovery: safe read-only query for printer MIB.
 // Uses UDP 161 with community "public" (never hardcodes private credentials).
 // Queries: sysDescr (1.3.6.1.2.1.1.1.0), sysName (1.3.6.1.2.1.1.5.0), hrDeviceDescr (1.3.6.1.2.1.25.3.2.1.3), printer MIB 1.3.6.1.2.1.43.5.1.1.17 (prtGeneralSerialNumber)

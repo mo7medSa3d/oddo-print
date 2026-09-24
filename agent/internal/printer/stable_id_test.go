@@ -36,7 +36,7 @@ func TestStableIDForDevicePrefersSerialOverNetworkAddress(t *testing.T) {
 func TestDedupeKeySerialDoesNotDependOnDisplayName(t *testing.T) {
 	a := DeviceInfo{
 		Capabilities: map[string]interface{}{"serial": "SN-42", "manufacturer": "Zebra", "model": "ZD421"},
-		Name: "Old Name",
+		Name:         "Old Name",
 	}
 	b := a
 	b.Name = "New Name"
