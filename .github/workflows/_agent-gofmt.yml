@@ -1,0 +1,37 @@
+name: temporary-agent-gofmt
+
+on:
+  push:
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.ref_name == 'audit/gofmt-fix-20260924'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: agent/go.mod
+          cache: true
+          cache-dependency-path: agent/go.sum
+      - name: Format and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          gofmt -w agent
+          if git diff --quiet -- agent; then
+            echo "agent already formatted"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add agent
+          git commit -m "style(agent): format Go sources"
+          git push origin HEAD:refs/heads/audit/gofmt-fix-20260924
