@@ -67,6 +67,30 @@ func TestIPPBuildPrintJob(t *testing.T) {
 	}
 }
 
+func TestIPPPrintDoesNotFollowRedirects(t *testing.T) {
+	var redirectedHits int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/capture" {
+			redirectedHits++
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Redirect(w, r, "/capture", http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+
+	p, err := NewIPPPrinter(server.URL+"/ipp/print", "Redirect")
+	if err != nil {
+		t.Fatalf("NewIPPPrinter: %v", err)
+	}
+	err = p.PrintDocument(context.Background(), Document{Kind: KindPDF, Data: validTestPDFBytes()})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 307") {
+		t.Fatalf("expected redirect response to be surfaced, got %v", err)
+	}
+	if redirectedHits != 0 {
+		t.Fatalf("IPP client followed redirect and resubmitted the print payload")
+	}
+}
 func TestIPPPrintWithMockServer(t *testing.T) {
 	var received []byte
 	var contentType string

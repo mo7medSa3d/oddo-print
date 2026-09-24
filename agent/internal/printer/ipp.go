@@ -193,7 +193,14 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 			req.SetBasicAuth(p.creds.Username(), pass)
 		}
 	}
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		// IPP print submissions contain the complete document. Never follow a
+		// redirect because it could resend the payload to an unintended host.
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	if deadline, ok := ctx.Deadline(); ok {
 		// Honor the print budget: a large/slow IPP transfer legitimately
 		// outlives the 15s stall floor, and the budget context already
@@ -310,7 +317,13 @@ func (p *IPPPrinter) getPrinterAttributes(ctx context.Context) (map[string]strin
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/ipp")
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		// Status probes must stay bound to the configured printer endpoint.
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
