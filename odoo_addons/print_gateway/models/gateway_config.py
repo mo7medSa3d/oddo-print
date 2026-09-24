@@ -62,13 +62,36 @@ def _same_gateway_endpoint(url_a, url_b):
     return bool(left) and left == right
 
 
+
+def _safe_redirect_target(location):
+    """Return only the non-sensitive origin of a redirect target."""
+    if not location or not isinstance(location, str):
+        return _("another endpoint")
+    try:
+        parsed = urlparse(location.strip())
+        scheme = parsed.scheme.lower()
+        hostname = parsed.hostname
+        if scheme not in ("http", "https") or not hostname:
+            return _("another endpoint")
+        host = hostname
+        if ":" in host and not host.startswith("["):
+            host = "[%s]" % host
+        port = ""
+        try:
+            if parsed.port:
+                port = ":%d" % parsed.port
+        except ValueError:
+            return _("another endpoint")
+        return "%s://%s%s" % (scheme, host, port)
+    except Exception:
+        return _("another endpoint")
 def _gateway_redirect_message(response, gateway_url):
     """Build an actionable message when the Gateway answers with a redirect.
 
     Sync calls use allow_redirects=False so credentials are never forwarded
     implicitly; a 3xx therefore means the configured origin is wrong (e.g. an
     HTTP URL behind an HTTPS-enforcing proxy) and must be fixed at the source.
-    Returns the message, or None when the response is not a redirect.
+    Returns the message, or None when the response is not a redirect. The\n    Location header is reduced to an origin so query/userinfo/fragment secrets\n    can never become durable Odoo error state.
     """
     if response is None or getattr(response, "status_code", None) not in (301, 302, 303, 307, 308):
         return None
@@ -83,7 +106,7 @@ def _gateway_redirect_message(response, gateway_url):
     ) % {
         "url": gateway_url or _("the configured Gateway URL"),
         "code": response.status_code,
-        "location": (_(" to %s") % location) if location else "",
+        "location": (_(" to %s") % _safe_redirect_target(location)) if location else "",
     }
 
 

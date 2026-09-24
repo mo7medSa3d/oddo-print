@@ -68,3 +68,18 @@ class TestPrintGatewayURLTransport(TransactionCase):
         self.assertIn(url, timeout)
         self.assertIn(url, generic)
         self.assertIn("unexpected transport failure", generic)
+
+    def test_gateway_redirect_message_redacts_sensitive_location(self):
+        from odoo.addons.print_gateway.models.gateway_config import _gateway_redirect_message
+        response = type("Response", (), {
+            "status_code": 307,
+            "headers": {
+                "Location": "https://user:pass@gateway.example.com/login?token=SUPER_SECRET&sig=PRIVATE#fragment"
+            },
+        })()
+        message = _gateway_redirect_message(response, "https://gateway.example.com")
+        self.assertIn("gateway.example.com", message)
+        self.assertNotIn("SUPER_SECRET", message)
+        self.assertNotIn("PRIVATE", message)
+        self.assertNotIn("user:pass", message)
+        self.assertNotIn("/login", message)
