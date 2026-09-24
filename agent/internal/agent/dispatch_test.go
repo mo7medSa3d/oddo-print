@@ -63,7 +63,6 @@ func TestRedeliveryAdoptsLiveClaimTokenForReports(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("first print never reached the device")
 	}
-	allowInjectedPrintersForTest(ag)
 
 	// The "printing" report happened under the live token at the time (A).
 	mu.Lock()
@@ -348,7 +347,6 @@ func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
 	ag.printers = map[string]printer.Printer{"p1": p1, "p2": p2}
 	ag.printerConfigs = map[string]config.PrinterConfig{
 		"p1": {ID: "p1", Name: "Slow", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
-	allowInjectedPrintersForTest(ag)
 		"p2": {ID: "p2", Name: "Fast", Type: "network", Endpoint: "127.0.0.1:9101", Protocol: "raw"},
 	}
 
