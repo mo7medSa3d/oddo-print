@@ -238,6 +238,7 @@ func TestHeartbeatInvalidFinalSnapshotFailsClosed(t *testing.T) {
 	}))
 	defer server.Close()
 	a.cfg.Server.URL = server.URL
+	a.client = server.Client()
 
 	a.sendHeartbeat()
 
