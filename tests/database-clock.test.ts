@@ -260,8 +260,13 @@ describe("clock authority is enforced in the source", () => {
       "src/app/api/odoo/keys/route.ts",
     ]) {
       const source = read(path);
-      expect(source).toContain("isBillingAccessStatus");
-      expect(source).toContain("isSubscriptionPeriodLive");
+      const usesCalibratedPeriodGate =
+        source.includes("isBillingAccessStatus") &&
+        source.includes("isSubscriptionPeriodLive");
+      const usesLockedDatabaseGate =
+        source.includes("requireTenantBillingAccess(") &&
+        source.includes("clock_timestamp()");
+      expect(usesCalibratedPeriodGate || usesLockedDatabaseGate).toBe(true);
       expect(source).not.toContain("currentPeriodEnd) > new Date()");
     }
   });
