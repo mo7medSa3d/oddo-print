@@ -298,6 +298,14 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         prefix = source[max(0, method_idx - 80):method_idx]
         self.assertIn("@api.private", prefix)
 
+    def test_kitchen_gateway_fails_closed_on_missing_station_binding(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("missing_routes", source)
+        self.assertIn("uncovered", source)
+        self.assertIn("Printing was cancelled to prevent silently losing kitchen tickets.", source)
+        model_source = (MODELS / "pos_order.py").read_text(encoding="utf-8")
+        self.assertIn('"missing_routes": missing', model_source)
+
     def test_kitchen_gateway_preserves_odoo_preparation_printer_routing(self):
         source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
         self.assertIn("get_gateway_kitchen_routes", source)
