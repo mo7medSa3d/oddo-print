@@ -185,6 +185,62 @@ async function currentAgentLifecycleRevision(agentId: string): Promise<number | 
   return snapshot?.lifecycleRevision ?? null;
 }
 
+/**
+ * Establish the in-memory delivery registration while holding a shared lock
+ * on the durable Agent lifecycle row.  This closes the upgrade/lifecycle
+ * race: a disable transaction cannot commit between the verification and
+ * `trackAgentSocket`, and a socket cannot be selected by `sendToAgent` before
+ * its lifecycle fence has been verified.
+ *
+ * The lifecycle transition takes `FOR UPDATE` on this same row and publishes
+ * its close notification in that transaction.  Therefore either (a) the
+ * transition commits first and this function rejects the socket, or (b) this
+ * function registers an active socket first and the later transition fences
+ * it through the session-close notification.
+ */
+async function verifyAndTrackAgentSocket(
+  agentId: string,
+  authenticatedRevision: number | undefined,
+  ws: AgentSocket,
+): Promise<boolean> {
+  const client = await pool.connect();
+  let transactionOpen = false;
+  let tracked = false;
+  try {
+    await client.query("BEGIN");
+    transactionOpen = true;
+    const result = await client.query<{ lifecycle: string; lifecycle_revision: number | string }>(
+      "SELECT lifecycle, lifecycle_revision FROM agents WHERE id = $1 FOR SHARE",
+      [agentId],
+    );
+    const row = result.rows[0];
+    const revision = row ? Number(row.lifecycle_revision) : undefined;
+    if (!shouldAcceptAgentSocketForLifecycleState(authenticatedRevision, revision, row?.lifecycle)) {
+      await client.query("ROLLBACK");
+      transactionOpen = false;
+      return false;
+    }
+
+    trackAgentSocket(agentId, ws);
+    tracked = true;
+    await client.query("COMMIT");
+    transactionOpen = false;
+    return true;
+  } catch (error) {
+    if (transactionOpen) {
+      try { await client.query("ROLLBACK"); } catch { /* preserve the original error */ }
+    }
+    // The close listener removes the map entry and corrects the global count.
+    // Do not leave a registration behind if the transaction could not commit.
+    if (tracked) {
+      try { ws.terminate(); } catch {}
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export function closeAgentSockets(agentId: string, lifecycleRevision: number): void {
   const set = agentSockets.get(agentId);
   if (!set || set.size === 0) return;
@@ -777,19 +833,14 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         aws.tenantId = agent!.tenantId;
         aws.on("pong", () => { aws.isAlive = true; });
         aws.lifecycleRevision = agent!.lifecycleRevision;
-        trackAgentSocket(agent!.id, aws);
         // Lifecycle changes can race the async authentication/upgrade path.
-        // Verify the durable state after the socket is tracked but BEFORE
-        // exposing it through the connection event. A delayed PostgreSQL
-        // notification must not be the sole protection for this narrow gap.
+        // Register only under a shared lifecycle lock: tracking first would
+        // expose an unverified socket to sendToAgent(), while checking first
+        // without a lock lets a disable commit between check and registration.
         void (async () => {
           try {
-            const current = await currentAgentLifecycleState(agent!.id);
-            if (!shouldAcceptAgentSocketForLifecycleState(
-              agent!.lifecycleRevision,
-              current?.lifecycleRevision,
-              current?.lifecycle,
-            )) {
+            const accepted = await verifyAndTrackAgentSocket(agent!.id, agent!.lifecycleRevision, aws);
+            if (!accepted) {
               try { ws.close(4001, "agent lifecycle changed during WebSocket upgrade"); } catch { try { ws.terminate(); } catch {} }
               return;
             }

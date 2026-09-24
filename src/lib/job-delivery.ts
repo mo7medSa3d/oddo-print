@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { printJobs } from "../db/schema";
-import { sql } from "drizzle-orm";
+import { and, sql } from "drizzle-orm";
 import { fencedDeliveryWrite } from "./job-fencing";
 import { STALE_CLAIM_SECONDS, MAX_DELIVERY_ATTEMPTS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "./job-maintenance";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./agent-availability";
@@ -250,7 +250,21 @@ export async function recordJobAck(jobId: string, tenantId: string, agentId: str
     // ACK means the Agent admitted the job into its bounded local executor.
     // Transport delivery evidence is recorded separately by markJobDelivered().
     .set({ ackedAt: sql`COALESCE(${printJobs.ackedAt}, now())`, updatedAt: sql`now()` })
-    .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed", "printing"]))
+    // A WebSocket close notification is an optimisation, not an authority:
+    // PostgreSQL LISTEN/NOTIFY is not a durable queue and a listener can be
+    // disconnected during a lifecycle transition.  Keep the durable Agent
+    // lifecycle as the authorization boundary for agent-originated ACKs, so a
+    // revoked socket cannot mutate delivery state merely because its close
+    // notification was missed or delayed.
+    .where(and(
+      fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed", "printing"]),
+      sql`EXISTS (
+        SELECT 1 FROM agents a
+        WHERE a.id = ${agentId}
+          AND a.tenant_id = ${tenantId}
+          AND a.lifecycle = 'active'
+      )`,
+    ))
     .returning({ id: printJobs.id });
   return res.length > 0;
 }

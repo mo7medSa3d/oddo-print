@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   shouldAcceptAgentSocketForLifecycleState,
   shouldCloseAgentSocketForLifecycleRevision,
@@ -39,5 +41,17 @@ describe("WebSocket lifecycle session fencing", () => {
     expect(shouldAcceptAgentSocketForLifecycleState(5, undefined, "active")).toBe(false);
     expect(shouldAcceptAgentSocketForLifecycleState(5, 5, undefined)).toBe(false);
     expect(shouldAcceptAgentSocketForLifecycleState(-1, 5, "active")).toBe(false);
+  });
+
+  it("registers an upgraded socket under the lifecycle row lock", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/server/ws.ts"), "utf8");
+    const helper = source.slice(
+      source.indexOf("async function verifyAndTrackAgentSocket"),
+      source.indexOf("export function closeAgentSockets"),
+    );
+
+    expect(helper).toContain("FOR SHARE");
+    expect(helper.indexOf("FOR SHARE")).toBeLessThan(helper.indexOf("trackAgentSocket(agentId, ws)"));
+    expect(helper.indexOf("trackAgentSocket(agentId, ws)")).toBeLessThan(helper.indexOf('await client.query("COMMIT")'));
   });
 });
