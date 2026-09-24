@@ -215,7 +215,14 @@ class PrintGatewayBinding(models.Model):
                 # report_id is the single operator-facing report selector. Keep
                 # destination_report_id as a legacy compatibility field only.
                 destination = record.report_id or record.destination_report_id
-            record.destination_ref = "%s,%s" % (destination._name, destination.id) if destination else False
+            destination_id = getattr(destination, "id", False) if destination else False
+            # Odoo 19 form/onchange records can carry a NewId pseudo-identifier.
+            # fields.Reference cannot convert that placeholder to an integer, so
+            # keep the computed reference empty until the destination is saved.
+            if destination and isinstance(destination_id, int) and destination_id > 0:
+                record.destination_ref = "%s,%s" % (destination._name, destination_id)
+            else:
+                record.destination_ref = False
 
     @api.depends(
         "report_id", "report_id.model", "report_id.report_name",
