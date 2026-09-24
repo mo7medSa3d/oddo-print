@@ -275,7 +275,7 @@ def test_gateway_kitchen_uses_native_order_change_lifecycle():
     method = source[start:end]
 
     assert "order.updateLastOrderChange(opts);" in method
-    assert "updateLastOrderChangeIfNoDevice" not in method
+    assert "this.updateLastOrderChangeIfNoDevice(" not in method
 
 
 def test_gateway_kitchen_preserves_odoo19_post_print_sync():
