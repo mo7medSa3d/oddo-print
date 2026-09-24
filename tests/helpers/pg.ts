@@ -86,7 +86,7 @@ export async function truncateAll(): Promise<void> {
     try {
       if (schema) await client.query(`SET search_path TO ${quoteIdent(schema)}, public`);
       await client.query("BEGIN");
-      for (const table of ["billing_events", "tenant_subscriptions", "plans", "audit_events", "agents", "api_keys", "auth_rate_limits", "discovered_devices", "discovery_sessions", "manager_sessions", "printers", "print_jobs", "print_usage_periods", "print_job_rate_limits", "tenant_domains", "applications", "tenant_users", "users", "tenants"]) {
+      for (const table of ["billing_events", "tenant_subscriptions", "plans", "audit_events", "agents", "api_keys", "auth_rate_limits", "discovered_devices", "discovery_sessions", "manager_sessions", "printers", "print_jobs", "print_usage_periods", "tenant_domains", "applications", "tenant_users", "users", "tenants"]) {
         try { await client.query(`TRUNCATE TABLE ${quoteIdent(table)} RESTART IDENTITY CASCADE`); } catch (error: any) { if (error?.code !== "42P01") throw error; }
       }
       await client.query("COMMIT");
