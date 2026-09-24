@@ -12,6 +12,8 @@ type ApiKey = {
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
+  readOnlyUntil: string | null;
+  rotationState: "active" | "retiring" | "revoked";
   odooEnabled: boolean;
   odooEnabledRevision: number;
   odooEnabledUpdatedAt: string | null;
@@ -150,7 +152,7 @@ export default function ApiKeysPage() {
           <div className="mt-2 flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${enabled > 0 ? "bg-ok-solid" : "bg-ink-4"}`} />
             <span className="text-[13px] font-semibold text-ink">
-              {active === 0 ? "Not connected" : enabled === active ? "Read / write · All documents" : "Odoo integration disabled"}
+              {active === 0 ? "Not connected" : enabled === active ? "Integration read / write · All documents" : "Odoo integration disabled"}
             </span>
           </div>
         </div>
@@ -190,7 +192,19 @@ export default function ApiKeysPage() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[13px] font-semibold text-ink">{k.name}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${k.revokedAt ? "border border-edge bg-surface-3 text-ink-3" : "border border-ok-edge bg-ok-bg text-ok"}`}>{k.revokedAt ? "Revoked" : "Active"}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                      k.rotationState === "active"
+                        ? "border border-ok-edge bg-ok-bg text-ok"
+                        : k.rotationState === "retiring"
+                          ? "border border-warning-edge bg-warning-bg text-warning"
+                          : "border border-edge bg-surface-3 text-ink-3"
+                    }`}>{
+                      k.rotationState === "retiring"
+                        ? "Retiring"
+                        : k.rotationState === "revoked"
+                          ? "Revoked"
+                          : "Active"
+                    }</span>
                   </div>
                   <div className="mt-1 text-[11px] text-ink-3">
                     {new Date(k.createdAt).toLocaleDateString()} • Last used {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : "Never"}

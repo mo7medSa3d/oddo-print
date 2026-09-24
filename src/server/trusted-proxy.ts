@@ -18,6 +18,43 @@ export function trustProxyEnabled(): boolean {
   return process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true";
 }
 
+
+function normalizedOrigin(value: string): string | null {
+  try {
+    const origin = new URL(value).origin;
+    return origin === "null" ? null : origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ASVS 5.0 WebSocket handshake boundary:
+ * - native agents normally omit Origin and are accepted;
+ * - browser-originated handshakes with an Origin must match the public
+ *   application origin or an explicit WS_ALLOWED_ORIGINS allowlist;
+ * - wildcard origins are never accepted.
+ */
+export function isAllowedWebSocketOrigin(originHeader: string | null): boolean {
+  if (!originHeader) return true;
+  const supplied = normalizedOrigin(originHeader.trim());
+  if (!supplied) return false;
+
+  const configured = new Set<string>();
+  const appBaseUrl = process.env.APP_BASE_URL?.trim();
+  if (appBaseUrl) {
+    const origin = normalizedOrigin(appBaseUrl);
+    if (origin) configured.add(origin);
+  }
+  const extra = process.env.WS_ALLOWED_ORIGINS?.split(",") ?? [];
+  for (const item of extra) {
+    const origin = normalizedOrigin(item.trim());
+    if (origin) configured.add(origin);
+  }
+
+  return configured.has(supplied);
+}
+
 export function isTrustedProxyRequest(req: Request): boolean {
   if (!trustProxyEnabled()) return true;
   const secret = configuredProxySecret();

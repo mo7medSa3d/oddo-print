@@ -12,6 +12,7 @@
 import { db, queryWithTimeout } from "../db/client";
 import { agents, printers, printJobs } from "../db/schema";
 import { eq, and, count, sql } from "drizzle-orm";
+import { logWarn } from "./log";
 
 export type AgentHealthStatus = "ONLINE" | "DEGRADED" | "OFFLINE" | "STARTING" | "UNKNOWN";
 export type HealthCheckResult = {
@@ -70,20 +71,34 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   const now = new Date();
   const baseStatus = computeAgentHealthStatus(agent.lastSeenAt, agent.createdAt, now);
 
-  const queueRows = await queryWithTimeout(
-    db.select({ cnt: count() }).from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.agentId, agentId), sql`${printJobs.status} in ('queued','claimed','printing')`)),
-    3000,
-    "agentQueueDepth"
-  ).catch(() => [{ cnt: 0 }]);
-  const queueDepth = (queueRows[0] as any)?.cnt ?? 0;
+  let queueRows: Array<{ cnt: number }> = [];
+  let queueDataAvailable = true;
+  try {
+    queueRows = await queryWithTimeout(
+      db.select({ cnt: count() }).from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.agentId, agentId), sql`${printJobs.status} in ('queued','claimed','printing')`)),
+      3000,
+      "agentQueueDepth"
+    );
+  } catch (error) {
+    queueDataAvailable = false;
+    logWarn("agent.health.queue_lookup_failed", { tenantId, agentId, error: error instanceof Error ? error.message : "unknown" });
+  }
+  const queueDepth = queueRows[0]?.cnt ?? 0;
 
-  const printerRows = await queryWithTimeout(
-    db.select({ id: printers.id, status: printers.status }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
-    3000,
-    "agentPrinters"
-  ).catch(() => []);
+  let printerRows: Array<{ id: string; status: string }> = [];
+  let printerDataAvailable = true;
+  try {
+    printerRows = await queryWithTimeout(
+      db.select({ id: printers.id, status: printers.status }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
+      3000,
+      "agentPrinters"
+    );
+  } catch (error) {
+    printerDataAvailable = false;
+    logWarn("agent.health.printer_lookup_failed", { tenantId, agentId, error: error instanceof Error ? error.message : "unknown" });
+  }
   const printerCount = printerRows.length;
-  const onlinePrinterCount = printerRows.filter((p: any) => p.status === "online").length;
+  const onlinePrinterCount = printerRows.filter((p) => p.status === "online").length;
 
   const checks: HealthCheckResult[] = [];
 
@@ -113,21 +128,33 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   });
 
   // Observed: Queue depth from DB
-  checks.push({
+  checks.push(queueDataAvailable ? {
     name: "Queue",
     status: queueDepth > 50 ? "warn" : "ok",
     message: queueDepth === 0 ? "Queue empty (observed from print_jobs)" : `${queueDepth} jobs pending (observed)`,
     observed: true,
     details: { queueDepth, source: "print_jobs count where status in queued,claimed,printing" },
+  } : {
+    name: "Queue",
+    status: "unknown",
+    message: "Queue data unavailable (database lookup failed)",
+    observed: false,
+    details: { source: "print_jobs", unavailable: true },
   });
 
   // Observed: Printers from DB
-  checks.push({
+  checks.push(printerDataAvailable ? {
     name: "Printers",
     status: printerCount === 0 ? "warn" : onlinePrinterCount === 0 ? "error" : onlinePrinterCount < printerCount ? "warn" : "ok",
     message: `${onlinePrinterCount}/${printerCount} printers online (observed from printers table)`,
     observed: true,
     details: { printerCount, onlinePrinterCount, source: "printers table" },
+  } : {
+    name: "Printers",
+    status: "unknown",
+    message: "Printer data unavailable (database lookup failed)",
+    observed: false,
+    details: { source: "printers", unavailable: true },
   });
 
   // Observed: Version from metadata
@@ -142,7 +169,7 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
 
   // Determine overall status with degraded logic — only using observed data
   let status: AgentHealthStatus = baseStatus;
-  if (baseStatus === "ONLINE" && (queueDepth > 100 || (onlinePrinterCount === 0 && printerCount > 0))) {
+  if (baseStatus === "ONLINE" && (!queueDataAvailable || !printerDataAvailable || queueDepth > 100 || (onlinePrinterCount === 0 && printerCount > 0))) {
     status = "DEGRADED";
   }
 

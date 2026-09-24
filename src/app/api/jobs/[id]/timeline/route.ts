@@ -5,7 +5,7 @@ import { validateManager } from "../../../../../lib/manager-auth";
 import { and, eq } from "drizzle-orm";
 import { getJobTimeline, buildTimelineFromJobRow } from "../../../../../lib/job-timeline";
 import { runWithCorrelation, generateRequestId } from "../../../../../server/correlation";
-import { requestIdFrom } from "../../../../../lib/log";
+import { requestIdFrom, logWarn } from "../../../../../lib/log";
 import { createHash } from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +56,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     let events: any[] = [];
     try {
       events = await getJobTimeline(tenantId, id);
-    } catch {
+    } catch (error) {
+      // The job-row fallback is intentional degraded mode, but the database
+      // failure must remain observable instead of looking like an empty timeline.
+      logWarn("job.timeline_lookup_failed", { requestId, tenantId, jobId: id, error: error instanceof Error ? error.message : "unknown" });
       events = [];
     }
 

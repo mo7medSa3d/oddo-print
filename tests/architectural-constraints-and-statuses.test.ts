@@ -32,13 +32,15 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(viewsXml).not.toMatch(/<form[^>]*delete="0"/);
   });
 
-  it("discovers active tenant agents without making branch assignment a discovery gate", () => {
+  it("keeps Pair Agent discovery broad while scoping Binding runtime agents to branch assignments", () => {
     const ctrlPy = read("odoo_addons/print_gateway/controllers/runtime_printers.py");
     expect(ctrlPy).toContain("api/odoo/agents");
     expect(ctrlPy).toContain("selected_agent_id");
-    expect(ctrlPy).toContain("same Gateway tenant");
-    expect(ctrlPy).not.toContain("allowed_agent_ids = {");
-    expect(ctrlPy).not.toContain("print_gateway.runtime_agent_assignment");
+    expect(ctrlPy).toContain("_assigned_runtime_agent_ids");
+    expect(ctrlPy).toContain("assignment_only=False");
+    expect(ctrlPy).toContain("if assignment_only:");
+    expect(ctrlPy).toContain("if branch:");
+    expect(ctrlPy).toContain("The selected Gateway Agent is not assigned to this Odoo Branch.");
     expect(ctrlPy).toContain("'selectedAgentId': selected");
   });
 

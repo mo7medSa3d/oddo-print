@@ -23,7 +23,7 @@ export async function POST(req: Request) {
   const rate = await reserveAuthAttempt(ip, email);
   if (!rate.allowed) { const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 }); res.headers.set("Retry-After", String(rate.retryAfterSec)); return res; }
   const existing = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.email, email), columns: { id: true, emailVerifiedAt: true } });
-  if (existing) return NextResponse.json(GENERIC, { status: 202 });
+  if (existing) return NextResponse.json({ error: "An account with this email already exists. You can sign in instead.", code: "ACCOUNT_EXISTS" }, { status: 409 });
   const userId = `usr_${nanoid(18)}`;
   const rawToken = generateOpaqueToken();
   const now = new Date();

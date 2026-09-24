@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Info } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Field, Input, ErrorState } from "../../components/ui";
 
@@ -11,6 +11,7 @@ export default function Signup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
+  const [accountExists, setAccountExists] = useState(false);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -19,6 +20,7 @@ export default function Signup() {
     event.preventDefault();
     setLoading(true);
     setErr("");
+    setAccountExists(false);
     try {
       const response = await fetch("/api/auth/register", {
         method: "POST",
@@ -30,6 +32,10 @@ export default function Signup() {
         }),
       });
       const data = await response.json().catch(() => ({}));
+      if (response.status === 409 && data.code === "ACCOUNT_EXISTS") {
+        setAccountExists(true);
+        return;
+      }
       if (!response.ok) throw new Error(data.error ?? "Registration failed");
       setDone(true);
       const planId = new URLSearchParams(window.location.search).get("plan") ?? "";
@@ -61,12 +67,26 @@ export default function Signup() {
         ) : (
           <form className="space-y-5 p-6 sm:p-7" onSubmit={submit}>
             <Field label="Email" htmlFor="email">
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
+              <Input id="email" type="email" value={email} onChange={(e) => { setEmail(e.target.value); setAccountExists(false); }} autoComplete="email" required />
             </Field>
             <Field label="Password" htmlFor="password" hint="Use at least 12 characters.">
               <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={12} required />
             </Field>
-            {err && <ErrorState title="Could not create account" message={err} />}
+            {accountExists ? (
+              <div className="rounded-[11px] border border-edge-accent bg-brand-subtle p-4">
+                <div className="flex items-start gap-2.5">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand" aria-hidden />
+                  <div>
+                    <p className="text-[13px] font-semibold text-ink">Account already registered</p>
+                    <p className="mt-1 text-[12.5px] leading-relaxed text-ink-2">This email is already registered. You can sign in instead.</p>
+                    <Link href="/login" className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-brand hover:underline">
+                      Sign in
+                      <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            ) : err ? <ErrorState title="Could not create account" message={err} /> : null}
             <Button type="submit" variant="primary" className="w-full" loading={loading} icon={<ArrowRight className="h-4 w-4" />}>
               {loading ? "Creating…" : "Create account"}
             </Button>

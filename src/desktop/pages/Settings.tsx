@@ -3,7 +3,7 @@ import { Activity, ChevronRight, KeyRound, Link2, Play, Power, RotateCcw, Server
 import { Button, Card, CopyButton, ErrorState, Field, Input, StatusBadge, StatusDot } from "../../components/ui";
 import { SettingsSection } from "../ui";
 import type { DesktopState } from "../types";
-import { friendlyPrinterError, labelPrinter } from "../lib/printers";
+import { friendlyAgentError, friendlyGatewayError, friendlyPrinterError, labelPrinter } from "../lib/printers";
 import { getAutostart, setAutostart } from "../lib/ipc";
 
 export function SettingsPage({ s }: { s: DesktopState }) {
@@ -24,7 +24,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
             <Input id="gw-url" value={s.gatewayUrl} onChange={(e) => s.setGw(e.target.value)} placeholder="https://gateway.example.com" className="h-10 rounded-[10px]" />
           </Field>
           <div className="flex justify-end"><Button variant="primary" onClick={s.checkHealth} loading={s.gatewayChecking} icon={<Activity className="h-4 w-4" />} className="h-10 rounded-[10px]">Check connection</Button></div>
-          {s.healthError && <ErrorState title="Gateway check failed" message={friendlyPrinterError(s.healthError)} retry={s.checkHealth} />}
+          {s.healthError && <ErrorState title="Gateway check failed" message={friendlyGatewayError(s.healthError)} retry={s.checkHealth} />}
         </SettingsSection>
 
         <SettingsSection title="Local agent" description="Windows service that talks to printers" icon={<Server className="h-4 w-4" />}>
@@ -40,7 +40,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
               <button role="switch" aria-checked={!!s.autostart} aria-busy={s.autostart === null || autostartBusy} disabled={s.autostart === null || autostartBusy} onClick={async () => {
                 if (s.autostart === null || autostartBusy) return; const next = !s.autostart; setAutostartBusy(true);
                 try { await setAutostart(next); const st = await getAutostart(); s.setAutostartState(st.enabled); s.setMsg({ text: st.enabled ? "Launch at sign-in is on." : "Launch at sign-in is off.", type: "success" }); }
-                catch (error) { s.setMsg({ text: friendlyPrinterError(error instanceof Error ? error.message : "Could not update startup preference."), type: "error" }); }
+                catch (error) { s.setMsg({ text: friendlyAgentError(error instanceof Error ? error.message : "Could not update startup preference."), type: "error" }); }
                 finally { setAutostartBusy(false); }
               }} className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${s.autostart ? "bg-brand" : "bg-surface-3"}`}>
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${s.autostart ? "translate-x-6" : "translate-x-1"}`} />
@@ -81,7 +81,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
           <div className="max-h-64 overflow-y-auto rounded-[12px] border border-edge bg-surface-2 p-3 text-[12px] space-y-2">
             <div className="flex items-center justify-between"><span className="font-medium text-ink-2">Agent service</span><span className={s.isOnline ? "font-semibold text-ok" : "font-semibold text-bad"}>{s.isOnline ? "Running" : "Stopped"}</span></div>
             <div className="flex items-center justify-between"><span className="font-medium text-ink-2">Gateway</span><span className={s.gatewayConnected ? "font-semibold text-ok" : s.gatewayUrl ? "font-semibold text-bad" : "font-semibold text-warn"}>{s.gatewayConnected ? "Reachable" : s.gatewayUrl ? "Failed check" : "Not configured"}</span></div>
-            {s.healthError && <div className="rounded-[8px] border border-bad-edge bg-bad-bg px-2.5 py-1.5 text-[11px] text-bad">{friendlyPrinterError(s.healthError)}</div>}
+            {s.healthError && <div className="rounded-[8px] border border-bad-edge bg-bad-bg px-2.5 py-1.5 text-[11px] text-bad">{friendlyGatewayError(s.healthError)}</div>}
             <div className="flex items-center justify-between"><span className="font-medium text-ink-2">Devices</span><span className="font-semibold text-ink tabular-nums">{s.printers.length}</span></div>
             {s.printers.map((p) => (<div key={p.id} className="flex items-center justify-between rounded-[8px] border border-edge bg-surface px-2.5 py-1.5"><span className="truncate text-ink-2">{p.name}</span><span className={`font-semibold text-[11px] ${p.status === "online" ? "text-ok" : p.status === "offline" || p.status === "error" ? "text-bad" : "text-warn"}`}>{labelPrinter(p.status)}</span></div>))}
             {s.printers.length === 0 && <p className="text-[11px] text-ink-3">No devices reported yet.</p>}

@@ -76,6 +76,8 @@ import {
   jobId,
   jobPrinterId,
   jobStatus,
+  friendlyAgentError,
+  friendlyGatewayError,
   labelJob,
   toneJob,
   labelPrinter,
@@ -170,7 +172,7 @@ export default function App() {
       setAgentStatus(s);
       setLastStatusCheck(new Date().toISOString());
     } catch (e) {
-      setAgentStatus({ error: errMsg(e) });
+      setAgentStatus({ error: friendlyAgentError(errMsg(e)) });
     }
   }, []);
 
@@ -204,7 +206,7 @@ export default function App() {
       setJobsError(
         status === 401 || status === 403
           ? "Gateway job access is unavailable — pair this PC with the Gateway and verify the connection."
-          : `Could not load jobs: ${errMsg(e)}`
+          : friendlyGatewayError(errMsg(e))
       );
     } finally {
       setJobsLoading(false);
@@ -218,7 +220,7 @@ export default function App() {
       setCheckedGatewayUrl(targetUrl);
       const gatewayError = (h as { error?: unknown })?.error;
       if (gatewayError) {
-        setHealthError(errMsg(gatewayError));
+        setHealthError(friendlyGatewayError(errMsg(gatewayError)));
         return false;
       }
       setHealthError(null);
@@ -226,7 +228,7 @@ export default function App() {
     } catch (e) {
       setHealth(null);
       setCheckedGatewayUrl(targetUrl);
-      setHealthError(friendlyPrinterError(errMsg(e)));
+      setHealthError(friendlyGatewayError(errMsg(e)));
       return false;
     }
   }, []);
@@ -261,7 +263,7 @@ export default function App() {
       setSavedGatewayUrl(target);
       setMsg({ text: "Gateway connection verified and saved", type: "success" });
     } catch (e) {
-      setMsg({ text: errMsg(e), type: "error" });
+      setMsg({ text: friendlyGatewayError(errMsg(e)), type: "error" });
     } finally {
       setGatewayChecking(false);
     }
@@ -276,8 +278,13 @@ export default function App() {
       const list = res.printers.filter(isProductionPrinter);
       setDiscoveredPrinters(list);
       await refreshPrinters();
-      setMsg({ text: "Local discovery found " + list.length + " physical printers; Gateway inventory refreshed.", type: "success" });
-      if (res.errors.length) setPrintersError(res.errors.join("; ").slice(0, 300));
+      setPrintersError(null);
+      setMsg({
+        text: list.length === 0
+          ? "No physical printers were found. Connect a printer or make sure it is reachable, then try Discover again."
+          : `Discovery found ${list.length} physical printer${list.length === 1 ? "" : "s"} and refreshed the Gateway inventory.`,
+        type: "success",
+      });
     } catch (e) {
       setPrintersError(friendlyPrinterError(errMsg(e)));
     } finally {
@@ -342,7 +349,7 @@ export default function App() {
       setMsg({ text: m, type: "success" });
       refreshStatus();
     } catch (e) {
-      setMsg({ text: friendlyPrinterError(errMsg(e)), type: "error" });
+      setMsg({ text: friendlyAgentError(errMsg(e)), type: "error" });
     } finally {
       setBusyBoth(false);
     }
@@ -356,7 +363,7 @@ export default function App() {
       setMsg({ text: m, type: "success" });
       refreshStatus();
     } catch (e) {
-      setMsg({ text: errMsg(e), type: "error" });
+      setMsg({ text: friendlyAgentError(errMsg(e)), type: "error" });
     } finally {
       setBusyBoth(false);
     }
@@ -369,7 +376,7 @@ export default function App() {
       setMsg({ text: m, type: "success" });
       refreshStatus();
     } catch (e) {
-      setMsg({ text: errMsg(e), type: "error" });
+      setMsg({ text: friendlyAgentError(errMsg(e)), type: "error" });
     } finally {
       setBusyBoth(false);
     }
@@ -392,7 +399,7 @@ export default function App() {
       refreshStatus();
       await Promise.all([refreshPrinters(), refreshJobs()]);
     } catch (e) {
-      setMsg({ text: errMsg(e), type: "error" });
+      setMsg({ text: friendlyAgentError(errMsg(e)), type: "error" });
     } finally {
       setBusyBoth(false);
     }
@@ -1058,14 +1065,6 @@ export default function App() {
                       <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
                         {friendlyPrinterError(String(selectedJob.error))}
                       </p>
-                      <details className="mt-3">
-                        <summary className="cursor-pointer text-[13px] font-medium text-ink-3">
-                          Technical details
-                        </summary>
-                        <p className="mt-2 break-all font-mono text-[12px] text-ink-2">
-                          {String(selectedJob.error)}
-                        </p>
-                      </details>
                       {!unknown && (
                         <p className="mt-3 text-[13px] text-ink-3">
                           This job failed before printing started. Once the cause is fixed, resend the

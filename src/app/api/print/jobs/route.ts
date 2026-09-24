@@ -71,6 +71,17 @@ export async function POST(req: Request) {
   if (hasBodyOverLimit(req, MAX_BODY)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   const odoo = await validateOdooKey(req);
   if (!odoo) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (odoo.readOnly) {
+    return NextResponse.json(
+      {
+        error: "API key is in its rotation grace period and is read-only.",
+        code: "API_KEY_READ_ONLY",
+        retryable: false,
+        upgradeRequired: false,
+      },
+      { status: 409, headers: { "Cache-Control": "no-store" } },
+    );
+  }
 
   let raw: unknown;
   try { raw = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -146,7 +157,17 @@ export async function POST(req: Request) {
       }
       return NextResponse.json(response, { status: 429, headers });
     }
-    if (error instanceof TenantEntitlementError) return NextResponse.json({ error: error.message, code: error.code }, { status: 429, headers: { "Retry-After": "60" } });
+    if (error instanceof TenantEntitlementError) {
+      return NextResponse.json({
+        error: error.message,
+        code: error.code,
+        entitlement: error.entitlement,
+        limit: error.limit,
+        used: error.used,
+        upgradeRequired: true,
+        retryable: true,
+      }, { status: 429, headers: { "Retry-After": "60", "Cache-Control": "no-store" } });
+    }
     if (isTenantBillingError(error)) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
     if (error instanceof AgentQueueFullError || error instanceof AgentQueuedJobsFullError) {
       return NextResponse.json({ error: error.code, code: error.code, retryable: true }, { status: 503 });

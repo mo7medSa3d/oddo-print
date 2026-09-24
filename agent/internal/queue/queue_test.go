@@ -75,6 +75,61 @@ func TestQueueIdempotencyAndStatus(t *testing.T) {
 	}
 }
 
+func TestTerminalStatusClearsClaimToken(t *testing.T) {
+	q := newTestQueue(t)
+
+	if err := q.Push("success-token", "p1", []byte("data")); err != nil {
+		t.Fatalf("Push success-token: %v", err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET claim_token = ? WHERE id = ?`, "gateway-claim-success", "success-token"); err != nil {
+		t.Fatalf("seed success claim token: %v", err)
+	}
+	if err := q.UpdateStatus("success-token", "success"); err != nil {
+		t.Fatalf("UpdateStatus success: %v", err)
+	}
+	if got := q.ClaimTokenFor("success-token"); got != "" {
+		t.Fatalf("terminal success must clear claim token, got %q", got)
+	}
+
+	if err := q.Push("failed-token", "p1", []byte("data")); err != nil {
+		t.Fatalf("Push failed-token: %v", err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET claim_token = ? WHERE id = ?`, "gateway-claim-failed", "failed-token"); err != nil {
+		t.Fatalf("seed failed claim token: %v", err)
+	}
+	if err := q.UpdateStatusWithError("failed-token", "failed", "UNKNOWN_PARTIAL_DELIVERY: ambiguous"); err != nil {
+		t.Fatalf("UpdateStatusWithError failed: %v", err)
+	}
+	if got := q.ClaimTokenFor("failed-token"); got != "" {
+		t.Fatalf("terminal failure must clear claim token, got %q", got)
+	}
+}
+
+func TestMarkInterruptedPreservesClaimForRemoteRecovery(t *testing.T) {
+	q := newTestQueue(t)
+
+	if err := q.Push("crash-token", "p1", []byte("data")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.UpdateStatus("crash-token", "printing"); err != nil {
+		t.Fatalf("UpdateStatus printing: %v", err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET claim_token = ? WHERE id = ?`, "gateway-crash-token", "crash-token"); err != nil {
+		t.Fatalf("seed claim token: %v", err)
+	}
+
+	interrupted, err := q.MarkInterrupted()
+	if err != nil {
+		t.Fatalf("MarkInterrupted: %v", err)
+	}
+	if len(interrupted) != 1 || interrupted[0].ClaimToken != "gateway-crash-token" {
+		t.Fatalf("crash recovery must retain the pre-read claim token for reporting, got %#v", interrupted)
+	}
+	if got := q.ClaimTokenFor("crash-token"); got != "" {
+		t.Fatalf("terminal interruption row must clear stored claim token, got %q", got)
+	}
+}
+
 func TestQueueUpdateWithError(t *testing.T) {
 	dir := t.TempDir()
 	q, err := New(filepath.Join(dir, "x.db"))
@@ -381,5 +436,47 @@ func TestBeginPrintConcurrentClaimersCannotStealToken(t *testing.T) {
 	owner := q.ClaimTokenFor(jobID)
 	if owner == "" {
 		t.Fatal("winning claim token must persist")
+	}
+}
+
+func TestTerminalStatusClearsClaimTimestampAndToken(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.BeginPrint("terminal-clear", "printer-1", []byte("payload"), "claim-terminal", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET claimed_at = CURRENT_TIMESTAMP WHERE id = ?`, "terminal-clear"); err != nil {
+		t.Fatalf("seed claimed_at: %v", err)
+	}
+	if err := q.UpdateStatus("terminal-clear", "success"); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+	var token interface{}
+	var claimedAt interface{}
+	if err := q.db.QueryRow(`SELECT claim_token, claimed_at FROM print_jobs WHERE id = ?`, "terminal-clear").Scan(&token, &claimedAt); err != nil {
+		t.Fatalf("read terminal row: %v", err)
+	}
+	if token != nil || claimedAt != nil {
+		t.Fatalf("terminal row retained execution lease state: token=%v claimed_at=%v", token, claimedAt)
+	}
+}
+
+func TestTerminalStatusWithErrorClearsClaimTimestampAndToken(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.BeginPrint("terminal-clear-error", "printer-1", []byte("payload"), "claim-terminal-error", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET claimed_at = CURRENT_TIMESTAMP WHERE id = ?`, "terminal-clear-error"); err != nil {
+		t.Fatalf("seed claimed_at: %v", err)
+	}
+	if err := q.UpdateStatusWithError("terminal-clear-error", "failed", "paper jam before transmission"); err != nil {
+		t.Fatalf("UpdateStatusWithError: %v", err)
+	}
+	var token interface{}
+	var claimedAt interface{}
+	if err := q.db.QueryRow(`SELECT claim_token, claimed_at FROM print_jobs WHERE id = ?`, "terminal-clear-error").Scan(&token, &claimedAt); err != nil {
+		t.Fatalf("read terminal row: %v", err)
+	}
+	if token != nil || claimedAt != nil {
+		t.Fatalf("terminal row retained execution lease state: token=%v claimed_at=%v", token, claimedAt)
 	}
 }

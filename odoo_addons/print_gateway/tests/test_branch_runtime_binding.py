@@ -5,6 +5,7 @@ from unittest.mock import patch
 # Hard imports: this module only runs under the Odoo test runner; a fallback
 # previously degraded the whole file into silent skips with a green exit.
 from odoo.exceptions import ValidationError
+from werkzeug.exceptions import Forbidden
 from odoo.tests.common import TransactionCase
 
 
@@ -179,6 +180,69 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding_root._compute_effective_company_id()
         self.assertEqual(binding_root.effective_company_id, self.company)
 
+
+    def test_runtime_printer_discovery_rejects_agent_assigned_to_another_branch(self):
+        second_branch = self.env["res.company"].create({"name": "Gateway Branch 2", "parent_id": self.company.id})
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        branch_agent = "agent-a-%s" % self.branch.id
+        other_branch_agent = "agent-b-%s" % second_branch.id
+        assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": branch_agent,
+            "enabled": True,
+        })
+        assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": second_branch.id,
+            "runtime_agent_id": other_branch_agent,
+            "enabled": True,
+        })
+
+        from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
+        controller = PrintGatewayRuntimePrinterController()
+        with patch.object(controller, "_require_runtime_admin"), \
+             patch.object(controller, "_scope", return_value=(self.company, self.branch)), \
+             patch.object(controller, "_get_config", return_value=(self.config, self.company)), \
+             patch("odoo.addons.print_gateway.controllers.runtime_printers.request", type("RequestStub", (), {"env": self.env})()), \
+             patch("odoo.addons.print_gateway.controllers.runtime_printers.requests.get") as remote_get:
+            with self.assertRaises(Forbidden):
+                controller.runtime_printers(
+                    company_id=self.company.id,
+                    branch_id=self.branch.id,
+                    agent_id=other_branch_agent,
+                )
+            remote_get.assert_not_called()
+
+    def test_runtime_agent_assignment_scope_is_exact_to_selected_branch(self):
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        branch_agent = "agent-a-%s" % self.branch.id
+        cross_branch_agent = "agent-b-%s" % self.branch.id
+        assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": branch_agent,
+            "enabled": True,
+        })
+        assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": cross_branch_agent,
+            "enabled": True,
+        })
+        second_branch = self.env["res.company"].create({"name": "Gateway Branch 2", "parent_id": self.company.id})
+        assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": second_branch.id,
+            "runtime_agent_id": "agent-c-%s" % second_branch.id,
+            "enabled": True,
+        })
+        from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
+        controller = PrintGatewayRuntimePrinterController()
+        branch_agents = controller._assigned_runtime_agent_ids(self.company, self.branch, env=self.env)
+        other_branch_agents = controller._assigned_runtime_agent_ids(self.company, second_branch, env=self.env)
+        self.assertEqual(branch_agents, {branch_agent, cross_branch_agent})
+        self.assertEqual(other_branch_agents, {"agent-c-%s" % second_branch.id})
 
     def test_branch_accepts_multiple_distinct_agent_assignments(self):
         model = self.env["print_gateway.runtime_agent_assignment"]

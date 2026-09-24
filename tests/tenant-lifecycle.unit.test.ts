@@ -27,6 +27,7 @@ import {
 } from "../src/lib/tenant-lifecycle";
 import {
   requireActiveTenant,
+  requireActiveTenantOrNull,
   TenantSuspendedError,
   TenantDeletedError,
 } from "../src/lib/tenant-guard";
@@ -55,6 +56,19 @@ describe("Tenant Lifecycle Unit Tests", () => {
     it("throws TenantDeletedError when tenant is missing", async () => {
       tenantFindFirst.mockResolvedValue(null);
       await expect(requireActiveTenant("missing")).rejects.toThrow(TenantDeletedError);
+    });
+  });
+
+  describe("requireActiveTenantOrNull error classification", () => {
+    it("returns null for expected lifecycle denials", async () => {
+      tenantFindFirst.mockResolvedValue({ id: "t4", lifecycle: "suspended" });
+      await expect(requireActiveTenantOrNull("t4")).resolves.toBeNull();
+    });
+
+    it("rethrows unexpected database failures", async () => {
+      const failure = new Error("database temporarily unavailable");
+      tenantFindFirst.mockRejectedValueOnce(failure);
+      await expect(requireActiveTenantOrNull("t5")).rejects.toBe(failure);
     });
   });
 

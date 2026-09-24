@@ -442,6 +442,34 @@
       "when": 1790100000062,
       "tag": "0062_subscription_period_start_default",
       "breakpoints": false
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1790141532356,
+      "tag": "0063_job_events_tenant_fk",
+      "breakpoints": false
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1790141866457,
+      "tag": "0064_odoo_key_rotation_grace",
+      "breakpoints": false
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1790142193119,
+      "tag": "0065_api_key_rotation_state_check",
+      "breakpoints": false
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1790142862337,
+      "tag": "0066_job_events_cascade",
+      "breakpoints": false
     }
   ]
 }

@@ -87,5 +87,8 @@ export async function POST(req: Request) {
     throw error;
   }
   const session = await issueCustomerSession(user.id, tenantId!, role);
+  if (!session) {
+    return NextResponse.json({ error: "Workspace is unavailable" }, { status: 403 });
+  }
   return NextResponse.json({ ok: true, next: "/onboarding" }, { headers: { "Set-Cookie": customerSessionCookie(session) } });
 }

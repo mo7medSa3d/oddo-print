@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 
-const apiKeyFindFirst = vi.fn();
-const apiKeyUpdate = vi.fn();
+const { apiKeyFindFirst, apiKeyUpdate, requireActiveTenantOrNull } = vi.hoisted(() => ({
+  apiKeyFindFirst: vi.fn(),
+  apiKeyUpdate: vi.fn(),
+  requireActiveTenantOrNull: vi.fn().mockResolvedValue("active"),
+}));
 
 vi.mock("../src/db", () => ({
   db: {
@@ -14,7 +17,7 @@ vi.mock("../src/db", () => ({
 }));
 
 vi.mock("../src/lib/tenant-guard", () => ({
-  requireActiveTenant: vi.fn().mockResolvedValue("active"),
+  requireActiveTenantOrNull,
   TenantSuspendedError: class TenantSuspendedError extends Error {},
   TenantDeletedError: class TenantDeletedError extends Error {},
 }));
@@ -31,6 +34,7 @@ describe("Odoo API-key authentication ignores the database name", () => {
     tenantId: "tenant_a",
     hashedKey: hash,
     revokedAt: null,
+    readOnlyUntil: null,
     odooEnabled: true,
   };
 
@@ -80,6 +84,42 @@ describe("Odoo API-key authentication ignores the database name", () => {
     apiKeyFindFirst.mockResolvedValue({ ...liveRow, revokedAt: new Date() });
     const req = post({ authorization: "Bearer odoo_testkey", "x-odoo-database": "odoo-db" });
     await expect(validateOdooKey(req)).resolves.toBeNull();
+  });
+
+  it("accepts a rotated API key as read-only during the grace window", async () => {
+    apiKeyFindFirst.mockResolvedValue({
+      ...liveRow,
+      revokedAt: new Date(Date.now() - 1000),
+      readOnlyUntil: new Date(Date.now() + 60_000),
+    });
+    const req = post({ authorization: "Bearer odoo_testkey" });
+    await expect(validateOdooKey(req)).resolves.toMatchObject({ id: "key_a", readOnly: true });
+  });
+
+  it("rejects a rotated API key after the grace window", async () => {
+    apiKeyFindFirst.mockResolvedValue({
+      ...liveRow,
+      revokedAt: new Date(Date.now() - 60_000),
+      readOnlyUntil: new Date(Date.now() - 1000),
+    });
+    const req = post({ authorization: "Bearer odoo_testkey" });
+    await expect(validateOdooKey(req)).resolves.toBeNull();
+  });
+
+  it("fails closed for an active key with an invalid read-only marker", async () => {
+    apiKeyFindFirst.mockResolvedValue({
+      ...liveRow,
+      readOnlyUntil: new Date(Date.now() + 60_000),
+    });
+    const req = post({ authorization: "Bearer odoo_testkey" });
+    await expect(validateOdooKey(req)).resolves.toBeNull();
+  });
+
+  it("propagates unexpected tenant database errors instead of treating them as bad credentials", async () => {
+    const failure = new Error("database temporarily unavailable");
+    requireActiveTenantOrNull.mockRejectedValueOnce(failure);
+    const req = post({ authorization: "Bearer odoo_testkey" });
+    await expect(validateOdooKey(req)).rejects.toBe(failure);
   });
 
   it("rejects keys without the odoo_ prefix", async () => {

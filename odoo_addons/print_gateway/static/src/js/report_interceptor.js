@@ -2,6 +2,7 @@
 
 import { registry } from "@web/core/registry";
 import { _t } from "@web/core/l10n/translation";
+import { showGatewayBillingLimitDialog } from "./gateway_limit_dialog";
 
 /**
  * OWL 3 silent report interceptor.
@@ -89,7 +90,10 @@ async function silentPrintReportHandler(action, options, env) {
             return true;
         }
 
-        if (res.has_binding && (res.success === false || !res.dispatched)) {
+        if (res.has_binding && (res.billing_limit || res.success === false || !res.dispatched)) {
+            if (res.billing_limit && showGatewayBillingLimitDialog(env, res.billing_limit)) {
+                return true;
+            }
             // Sticky: a failed interception must stay visible — unlike the
             // transient success toast, a failure needs an explicit dismiss
             // so the operator never misses that no paper came out.
@@ -120,6 +124,9 @@ async function silentPrintReportHandler(action, options, env) {
             return true; // Cancel default browser PDF dialog
         }
     } catch (err) {
+        if (showGatewayBillingLimitDialog(env, err)) {
+            return true;
+        }
         // Same persistence rule as a failed dispatch: an RPC-level error
         // must stay visible until dismissed, with the Jobs list one click
         // away for verification.

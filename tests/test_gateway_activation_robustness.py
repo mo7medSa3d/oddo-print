@@ -108,7 +108,7 @@ def test_automatic_gateway_health_probe_detects_revoked_keys_and_network_failure
     probe_idx = source.index("def _probe_gateway_connection")
     probe_end = source.index("def _persist_gateway_migration_result", probe_idx)
     probe = source[probe_idx:probe_end]
-    assert '"/api/odoo/health" % gateway_url' in probe
+    assert '"%s/api/odoo/health" % gateway_url' in probe
     assert 'response.status_code == 401' in probe
     assert '"last_test_status": "revoked"' in probe
     assert '"last_test_status": "failed"' in probe

@@ -152,9 +152,11 @@ export const apiKeys = pgTable("api_keys", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastUsedAt: timestamp("last_used_at"),
   revokedAt: timestamp("revoked_at"),
+  readOnlyUntil: timestamp("read_only_until"),
 }, (table) => ({
   tenantIdUnique: unique("api_keys_tenant_id_unique").on(table.tenantId, table.id),
   odooEnabledRevisionCheck: check("api_keys_odoo_enabled_revision_check", sql`${table.odooEnabledRevision} >= -1`),
+  readOnlyUntilCheck: check("api_keys_read_only_until_check", sql`${table.readOnlyUntil} IS NULL OR ${table.revokedAt} IS NOT NULL`),
 }));
 
 export const managerSessions = pgTable("manager_sessions", {
@@ -376,6 +378,11 @@ export const jobEvents = pgTable("job_events", {
   metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
+  jobFk: foreignKey({
+    name: "job_events_tenant_id_job_id_print_jobs_fk",
+    columns: [table.tenantId, table.jobId],
+    foreignColumns: [printJobs.tenantId, printJobs.id],
+  }),
   jobIdIdx: index("job_events_job_id_idx").on(table.jobId),
   tenantJobIdx: index("job_events_tenant_job_idx").on(table.tenantId, table.jobId),
   stageCheck: check("job_events_stage_check", sql`${table.stage} in ('created','queued','claimed','accepted','connection','printing','delivery','success','failed','expired','blocked')`),

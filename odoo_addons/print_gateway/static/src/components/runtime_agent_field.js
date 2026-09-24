@@ -80,7 +80,11 @@ export class RuntimeAgentField extends Component {
 
         this.state.loading = true;
         try {
-            const result = await this.rpc("/print_gateway/runtime-agents", { company_id: companyId, branch_id: branchId });
+            const result = await this.rpc("/print_gateway/runtime-agents", {
+                company_id: companyId,
+                branch_id: branchId,
+                assignment_only: Boolean(this.props.options?.assignment_only),
+            });
             if (reqId !== this.currentRequestId) return;
             this.state.agents = Array.isArray(result?.agents) ? result.agents : [];
             if (result?.selectedAgentId && !props.readonly && !props.record?.data?.[props.name]) {

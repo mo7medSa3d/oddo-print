@@ -46,7 +46,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
 
   async function handleLogout() {
     await fetch("/api/platform/auth/logout", { method: "POST" });
-    router.push("/platform/login");
+    router.push("/");
     router.refresh();
   }
 

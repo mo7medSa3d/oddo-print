@@ -104,10 +104,10 @@ suite("production-like PostgreSQL migration upgrade", () => {
         SELECT column_name
         FROM information_schema.columns
         WHERE table_schema='public' AND table_name='api_keys'
-          AND column_name IN ('scope', 'allowed_document_types')
+          AND column_name IN ('scope', 'allowed_document_types', 'read_only_until')
         ORDER BY column_name
       `);
-      expect(apiKeyColumns.rows).toEqual([]);
+      expect(apiKeyColumns.rows).toEqual([{ column_name: "read_only_until" }]);
 
       const job = await pool.query(`SELECT id, agent_id, printer_id, destination, idempotency_key FROM print_jobs WHERE id=$1`, [jobId]);
       expect(job.rows).toEqual([{

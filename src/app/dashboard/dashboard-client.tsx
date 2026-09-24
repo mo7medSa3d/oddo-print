@@ -197,6 +197,37 @@ async function sendGatewayReprint(jobId: string): Promise<{ jobId?: string }> {
   return { jobId: typeof body?.jobId === "string" ? body.jobId : undefined };
 }
 
+
+function upgradeLimitResourceForEntitlement(entitlement: unknown): UpgradeLimitResource | null {
+  switch (entitlement) {
+    case "max_agents": return "agents";
+    case "max_printers": return "printers";
+    case "max_jobs_per_minute": return "rate";
+    case "max_concurrent_jobs": return "concurrency";
+    case "max_prints_per_period": return "prints";
+    default: return null;
+  }
+}
+
+function upgradeLimitFromApiError(error: DashboardApiError): {
+  resource: UpgradeLimitResource;
+  used?: number | null;
+  limit?: number | "unlimited" | null;
+  periodEnd?: string | null;
+  retryAfterSeconds?: number | null;
+} | null {
+  if (!error.details || typeof error.details !== "object") return null;
+  const resource = upgradeLimitResourceForEntitlement(error.details.entitlement);
+  if (!resource || error.details.upgradeRequired !== true) return null;
+  return {
+    resource,
+    used: typeof error.details.used === "number" ? error.details.used : null,
+    limit: typeof error.details.limit === "number" || error.details.limit === "unlimited" ? error.details.limit : null,
+    periodEnd: typeof error.details.periodEnd === "string" ? error.details.periodEnd : null,
+    retryAfterSeconds: resource === "rate" || resource === "concurrency" ? 60 : null,
+  };
+}
+
 async function sendGatewayTestPage(printerId: string): Promise<{ jobId?: string; status?: string }> {
   const response = await fetch(`/api/printers/${encodeURIComponent(printerId)}/test-print`, {
     method: "POST",
@@ -274,8 +305,10 @@ export default function DashboardClient({
     used?: number | null;
     limit?: number | "unlimited" | null;
     periodEnd?: string | null;
+    retryAfterSeconds?: number | null;
   } | null>(null);
   const [billingUsage, setBillingUsage] = useState<BillingUsage | null>(null);
+  const [billingUsageError, setBillingUsageError] = useState(false);
 
   const [printerViewMode, setPrinterViewMode] = useState<"grid" | "table">("grid");
   const [printerSearch, setPrinterSearch] = useState("");
@@ -357,10 +390,20 @@ export default function DashboardClient({
   const refreshBillingUsage = React.useCallback(async () => {
     try {
       const res = await fetch("/api/billing/usage", { credentials: "same-origin", cache: "no-store" });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setBillingUsageError(true);
+        return;
+      }
       const data = await res.json().catch(() => null);
-      if (data && typeof data === "object") setBillingUsage(data as BillingUsage);
-    } catch {}
+      if (!data || typeof data !== "object") {
+        setBillingUsageError(true);
+        return;
+      }
+      setBillingUsage(data as BillingUsage);
+      setBillingUsageError(false);
+    } catch {
+      setBillingUsageError(true);
+    }
   }, []);
 
   const refreshData = React.useCallback(async () => {
@@ -506,12 +549,15 @@ export default function DashboardClient({
       });
       void refreshData();
     } catch (error) {
-      if (error instanceof DashboardApiError && error.code === "PRINT_QUOTA_EXCEEDED") {
-        setUpgradeLimit({
-          resource: "prints",
-          used: typeof error.details.used === "number" ? error.details.used : null,
-          limit: typeof error.details.limit === "number" || error.details.limit === "unlimited" ? error.details.limit : null,
-          periodEnd: typeof error.details.periodEnd === "string" ? error.details.periodEnd : null,
+      if (error instanceof DashboardApiError) {
+        const limit = upgradeLimitFromApiError(error);
+        if (limit) {
+          setUpgradeLimit(limit);
+          return;
+        }
+        setMessage({
+          text: error instanceof Error ? error.message : "Test page failed. Check the agent and printer status.",
+          type: "err",
         });
       } else {
         setMessage({
@@ -704,6 +750,12 @@ export default function DashboardClient({
         </div>
       )}
 
+      {billingUsageError && (
+        <div role="alert" className="rounded-[12px] border border-warn-edge bg-warn-bg px-4 py-3 text-[13px] text-warn">
+          Print usage is temporarily unavailable. Retry after the billing service recovers.
+        </div>
+      )}
+
       {billingUsage?.resources.prints && (
         <section className="rounded-[12px] border border-edge bg-surface px-4 py-3.5 shadow-card" aria-label="Print usage">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -733,13 +785,26 @@ export default function DashboardClient({
       )}
 
       {activePairing && (
-        <div className="flex items-center justify-between rounded-xl border border-ink bg-ink px-6 py-4 text-white">
-          <div className="flex items-center gap-5">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Pairing</div>
-            <div className="font-mono text-[24px] font-bold tracking-[0.3em]">{activePairing.code}</div>
-            <div className="text-[12px] tabular-nums text-ink-4">{countdownText}</div>
+        <div className="rounded-[14px] border border-edge-accent bg-surface-accent px-5 py-4 shadow-card sm:px-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand">Agent pairing</span>
+                <span className="inline-flex items-center rounded-full border border-edge bg-surface px-2.5 py-1 text-[10px] font-semibold tabular-nums text-ink-3">
+                  Expires in {countdownText}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2.5">
+                <code className="inline-flex min-h-11 items-center rounded-[10px] border border-edge bg-surface px-3.5 font-mono text-[22px] font-bold tracking-[0.24em] text-ink shadow-xs">
+                  {activePairing.code}
+                </code>
+                <Button variant="secondary" size="sm" onClick={() => copyPairingCode(activePairing.code)} icon={<Copy className="h-4 w-4" />}>
+                  {copiedCode ? "Copied" : "Copy code"}
+                </Button>
+              </div>
+              <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">Enter this code in the Windows Agent to pair this machine with the Gateway.</p>
+            </div>
           </div>
-          <Button variant="secondary" size="sm" onClick={() => copyPairingCode(activePairing.code)} icon={<Copy className="h-4 w-4" />}>{copiedCode ? "Copied" : "Copy"}</Button>
         </div>
       )}
 
@@ -1165,6 +1230,7 @@ export default function DashboardClient({
         used={upgradeLimit?.used}
         limit={upgradeLimit?.limit}
         periodEnd={upgradeLimit?.periodEnd}
+        retryAfterSeconds={upgradeLimit?.retryAfterSeconds}
       />
 
       <Modal open={Boolean(reprintCandidate)} onClose={() => { if (!busy) setReprintCandidate(null); }} title="Reprint this document?" description="Sends ORIGINAL document again.">
@@ -1181,13 +1247,13 @@ export default function DashboardClient({
           setMessage({ text: `Reprint queued for ${job.printerId}`, type: "ok" });
           void refreshData();
         } catch (error) {
-          if (error instanceof DashboardApiError && error.code === "PRINT_QUOTA_EXCEEDED") {
-            setUpgradeLimit({
-              resource: "prints",
-              used: typeof error.details.used === "number" ? error.details.used : null,
-              limit: typeof error.details.limit === "number" || error.details.limit === "unlimited" ? error.details.limit : null,
-              periodEnd: typeof error.details.periodEnd === "string" ? error.details.periodEnd : null,
-            });
+          if (error instanceof DashboardApiError) {
+            const limit = upgradeLimitFromApiError(error);
+            if (limit) {
+              setUpgradeLimit(limit);
+              return;
+            }
+            setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
           } else {
             setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
           }

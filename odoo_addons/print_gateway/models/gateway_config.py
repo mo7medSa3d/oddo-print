@@ -32,19 +32,19 @@ def _friendly_gateway_request_error(exc, gateway_url):
     """
     url = gateway_url or _("the configured Gateway URL")
     if isinstance(exc, requests.exceptions.ConnectionError):
-        return _(
+        return str(_(
             "Could not reach the Gateway at %(url)s. Verify the URL host and port "
             "match the Gateway deployment (scheme, host and explicit port, without an API path) "
             "and that the Gateway is running."
-        ) % {"url": url}
+        )) % {"url": url}
     if isinstance(exc, requests.exceptions.Timeout):
-        return _(
+        return str(_(
             "The Gateway at %(url)s did not respond within 10 seconds. Verify the host/port "
             "and the network path between Odoo and the Gateway."
-        ) % {"url": url}
-    return _(
+        )) % {"url": url}
+    return str(_(
         "Gateway request to %(url)s failed: %(error)s"
-    ) % {"url": url, "error": str(exc)[:1500]}
+    )) % {"url": url, "error": str(exc)[:1500]}
 
 
 def _same_gateway_endpoint(url_a, url_b):
@@ -264,7 +264,7 @@ class PrintGatewayConfig(models.Model):
                 record.gateway_sync_state = "attention"
                 record.gateway_sync_message = _(
                     "Your printing settings are being updated in the printing service."
-                ) % (_("enabled") if record.enabled else _("disabled"))
+                )
                 continue
             if record.pending_disable_gateway_url and record.last_gateway_migration_sync_error:
                 # The old-endpoint shutdown fence is blocking the current

@@ -4,7 +4,7 @@ import { apiKeys, tenantSubscriptions } from "../../../../db/schema";
 import { validateManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { generateOdooApiKey } from "../../../../lib/odoo-auth";
-import { eq, and, desc, isNotNull } from "drizzle-orm";
+import { eq, and, desc, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
 import { writeAuditEvent } from "../../../../lib/audit";
 
@@ -43,6 +43,7 @@ export async function GET(req: Request) {
       createdAt: apiKeys.createdAt,
       lastUsedAt: apiKeys.lastUsedAt,
       revokedAt: apiKeys.revokedAt,
+      readOnlyUntil: apiKeys.readOnlyUntil,
       odooEnabled: apiKeys.odooEnabled,
       odooEnabledRevision: apiKeys.odooEnabledRevision,
       odooEnabledUpdatedAt: apiKeys.odooEnabledUpdatedAt,
@@ -50,7 +51,17 @@ export async function GET(req: Request) {
     .from(apiKeys)
     .where(eq(apiKeys.tenantId, manager.tenantId))
     .orderBy(desc(apiKeys.createdAt));
-  return NextResponse.json(rows);
+
+  const now = Date.now();
+  return NextResponse.json(rows.map((row) => ({
+    ...row,
+    rotationState:
+      row.revokedAt && row.readOnlyUntil && new Date(row.readOnlyUntil).getTime() > now
+        ? "retiring" as const
+        : row.revokedAt
+          ? "revoked" as const
+          : "active" as const,
+  })));
 }
 
 export async function POST(req: Request) {
@@ -128,7 +139,15 @@ export async function DELETE(req: Request) {
   if (bodyRecord.remove === true) {
     try {
       const removed = await db.delete(apiKeys)
-        .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId), isNotNull(apiKeys.revokedAt)))
+        .where(and(
+          eq(apiKeys.id, id),
+          eq(apiKeys.tenantId, manager.tenantId),
+          isNotNull(apiKeys.revokedAt),
+          or(
+            isNull(apiKeys.readOnlyUntil),
+            lte(apiKeys.readOnlyUntil, new Date()),
+          ),
+        ))
         .returning({ id: apiKeys.id });
       if (removed.length) return NextResponse.json({ id: removed[0].id, removed: true }, { status: 200 });
     } catch (error) {

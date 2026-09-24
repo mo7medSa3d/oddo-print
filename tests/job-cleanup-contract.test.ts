@@ -17,6 +17,14 @@ describe("print-job cleanup contract", () => {
     expect(src).toContain("before=<ISO-8601 timestamp>");
   });
 
+  it("keeps operational job timelines subordinate to bounded job retention", () => {
+    const schema = read("src/db/schema.ts");
+    expect(schema).toContain('job_events_tenant_id_job_id_print_jobs_fk');
+    expect(schema).toContain('onDelete: "cascade"');
+    const migration = read("drizzle/0066_job_events_cascade.sql");
+    expect(migration).toContain('ON DELETE CASCADE');
+  });
+
   it("surfaces a confirmed bounded retention action in the Gateway dashboard", () => {
     const page = read("src/app/dashboard/page.tsx");
     const button = read("src/components/JobCleanupButton.tsx");

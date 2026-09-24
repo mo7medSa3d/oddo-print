@@ -83,14 +83,14 @@ export default async function Pricing() {
                   }
                 : rows.length >= 3 && index === 1
                   ? {
-                      label: "Popular",
+                      label: "Recommended",
                       badgeClass:
                         "rounded-full border border-brand-subtle-border bg-brand-subtle text-brand-subtle-text",
                       icon: "none" as const,
                     }
                   : rows.length >= 3 && index === 2
                     ? {
-                        label: "Scale",
+                        label: "Scale-ready",
                         badgeClass:
                           "rounded-[6px] border border-dashed border-info-edge bg-info-bg text-info",
                         icon: "dot" as const,

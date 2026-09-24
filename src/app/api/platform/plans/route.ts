@@ -3,7 +3,7 @@ import { db } from "../../../../db";
 import { queryWithTimeout } from "../../../../db/client";
 import { plans, tenantSubscriptions } from "../../../../db/schema";
 import { asc, eq, sql } from "drizzle-orm";
-import { requirePlatformOwner } from "../../../../lib/platform-auth";
+import { requirePlatformOwner, PlatformUnauthorizedError } from "../../../../lib/platform-auth";
 import { normalizePlanEntitlements } from "../../../../lib/entitlements";
 import { validateStripePriceBinding, StripePriceBindingError } from "../../../../lib/stripe";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
@@ -45,8 +45,11 @@ function parsePlanPayload(input: unknown) {
 export async function GET(req: Request) {
   try {
     await requirePlatformOwner(req);
-  } catch {
-    return NextResponse.json({ error: "Platform Owner authentication required" }, { status: 401 });
+  } catch (error) {
+    if (error instanceof PlatformUnauthorizedError) {
+      return NextResponse.json({ error: "Platform Owner authentication required" }, { status: 401 });
+    }
+    return NextResponse.json({ error: "Platform authentication temporarily unavailable" }, { status: 503 });
   }
 
   const { searchParams } = new URL(req.url);
@@ -87,8 +90,11 @@ export async function POST(req: Request) {
   let claims;
   try {
     claims = await requirePlatformOwner(req);
-  } catch {
-    return NextResponse.json({ error: "Platform Owner authentication required" }, { status: 401 });
+  } catch (error) {
+    if (error instanceof PlatformUnauthorizedError) {
+      return NextResponse.json({ error: "Platform Owner authentication required" }, { status: 401 });
+    }
+    return NextResponse.json({ error: "Platform authentication temporarily unavailable" }, { status: 503 });
   }
 
   let parsed;

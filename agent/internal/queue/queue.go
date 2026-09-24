@@ -122,12 +122,23 @@ func (q *Queue) Push(id, printerID string, payload []byte) error {
 
 // UpdateStatus sets a simple status (queued/printing/success/failed) and bumps updated_at.
 func (q *Queue) UpdateStatus(id, status string) error {
+	if status == "success" || status == "failed" {
+		_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, claim_token = NULL, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, id)
+		return err
+	}
 	_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, id)
 	return err
 }
 
-// UpdateStatusWithError also records last_error.
+// UpdateStatusWithError also records last_error. Terminal local outcomes no
+// longer need the Gateway execution credential: clear it at the same durable
+// state transition. MarkInterrupted reads the token before calling this
+// helper, so crash recovery can still report the preserved token to Gateway.
 func (q *Queue) UpdateStatusWithError(id, status, lastErr string) error {
+	if status == "success" || status == "failed" {
+		_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, last_error = ?, claim_token = NULL, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, lastErr, id)
+		return err
+	}
 	_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, lastErr, id)
 	return err
 }

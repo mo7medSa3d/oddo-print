@@ -57,8 +57,14 @@ export async function POST(req: Request) {
 
   let identity: { userId: string; role: import("../../../../../lib/manager-auth").ManagerRole } | null = null;
   if (!identity && username.includes("@")) {
-    try { identity = await authenticateManagerUser(username, password, tenantId); } catch (e) {
-      logWarn("auth.login.user_lookup_failed", { requestId, error: e instanceof Error ? e.message : "unknown" });
+    try {
+      identity = await authenticateManagerUser(username, password, tenantId);
+    } catch (e) {
+      // A database/transport failure is operationally distinct from invalid
+      // credentials. Never fall through to the 401 path when the identity
+      // lookup itself could not be completed.
+      logError("auth.login.user_lookup_failed", { requestId, error: e instanceof Error ? e.message : "unknown" });
+      return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });
     }
   }
   const legacyEnabled = process.env.NODE_ENV !== "production" && process.env.ALLOW_LEGACY_MANAGER_AUTH === "1";

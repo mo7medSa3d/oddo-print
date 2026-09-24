@@ -26,7 +26,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
         </div>
       </Toolbar>
 
-      {s.printersError && !s.printersLoading && <ErrorState title="Could not load printers" message={s.printersError} retry={s.refreshPrinters} />}
+      {s.printersError && !s.printersLoading && (total > 0 || !s.gatewayConnected) && <ErrorState title="Could not load printers" message={s.printersError} retry={s.refreshPrinters} />}
 
       <Card className="overflow-hidden">
         <CardHeader title={<span className="flex items-center gap-2.5">Printers<span className="rounded-full bg-surface-2 px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-ink-3 border border-edge">{total} total</span></span>} subtitle="Physical print devices this agent can reach" icon={<PrinterIcon className="h-4 w-4 text-brand" />} />

@@ -10,6 +10,8 @@ import { writeAuditEvent } from "../../../../../../lib/audit";
 
 export const dynamic = "force-dynamic";
 
+const ODOO_KEY_ROTATION_GRACE_MS = 60 * 60 * 1000;
+
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const manager = await validateManager(req);
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -25,7 +27,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     const rotated = await db.transaction(async (tx) => {
       const locked = await tx.execute(sql`
-        SELECT id, name, description, revoked_at
+        SELECT id, name, description, revoked_at,
+               odoo_enabled, odoo_enabled_revision, odoo_enabled_updated_at
         FROM api_keys
         WHERE id = ${id} AND tenant_id = ${manager.tenantId}
         FOR UPDATE
@@ -35,6 +38,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         name: string;
         description: string | null;
         revoked_at: Date | string | null;
+        odoo_enabled: boolean;
+        odoo_enabled_revision: number | string;
+        odoo_enabled_updated_at: Date | string | null;
       } | undefined;
       if (!old) return { kind: "not_found" as const };
       if (old.revoked_at) return { kind: "revoked" as const };
@@ -46,9 +52,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         name: old.name,
         description: old.description,
         hashedKey: hashed,
+        odooEnabled: old.odoo_enabled === true,
+        odooEnabledRevision: Number(old.odoo_enabled_revision ?? -1),
+        odooEnabledUpdatedAt: old.odoo_enabled_updated_at ? new Date(old.odoo_enabled_updated_at) : null,
       });
+      const rotatedAt = new Date();
+      const readOnlyUntil = new Date(rotatedAt.getTime() + ODOO_KEY_ROTATION_GRACE_MS);
       await tx.update(apiKeys)
-        .set({ revokedAt: new Date() })
+        .set({ revokedAt: rotatedAt, readOnlyUntil })
         .where(and(eq(apiKeys.id, old.id), eq(apiKeys.tenantId, manager.tenantId)));
       await writeAuditEvent({
         tenantId: manager.tenantId,
@@ -59,7 +70,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         resourceId: newId,
         metadata: { replacedKeyId: old.id },
       }, tx);
-      return { kind: "rotated" as const, oldId: old.id, newId, raw, name: old.name };
+      return { kind: "rotated" as const, oldId: old.id, newId, raw, name: old.name, readOnlyUntil };
     });
 
     if (rotated.kind === "not_found") return NextResponse.json({ error: "API key not found" }, { status: 404 });
@@ -70,7 +81,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       replacedKeyId: rotated.oldId,
       name: rotated.name,
       apiKey: rotated.raw,
-      note: "Update the Odoo installation with this new key now. The previous key has been revoked and the raw key will never be shown again.",
+      readOnlyUntil: rotated.readOnlyUntil.toISOString(),
+      note: "Update Odoo with this new key within 60 minutes. The previous key is read-only during that grace window for status reconciliation and cannot create or change jobs. It then becomes fully unusable.",
     }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     logError("[odoo] API key rotation failed", { error: error instanceof Error ? error.message : error });

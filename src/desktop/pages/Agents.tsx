@@ -3,7 +3,7 @@ import { Activity, Cpu, HardDrive, Play, RefreshCw, RotateCcw, Server, Settings,
 import { Button, Card, CardHeader, CopyButton, EmptyState, ErrorState, Mono, StatusBadge, StatusDot } from "../../components/ui";
 import { DetailList, StatCard } from "../ui";
 import type { DesktopState } from "../types";
-import { friendlyPrinterError, isProductionPrinter } from "../lib/printers";
+import { friendlyAgentError, friendlyGatewayError, isProductionPrinter } from "../lib/printers";
 
 export function AgentsPage({ s }: { s: DesktopState }) {
   const anyStatus = s.agentStatus as Record<string, unknown> | null;
@@ -37,14 +37,14 @@ export function AgentsPage({ s }: { s: DesktopState }) {
               { label: "Printers", value: `${online}/${physical.length} online • ${attention} attention` },
             ]} />
             {anyStatus?.note ? <p className="rounded-[10px] border border-edge bg-surface-2 px-3 py-2.5 text-[12px] text-ink-2">{String(anyStatus.note)}</p> : null}
-            {anyStatus?.error ? <ErrorState title="Agent status unavailable" message={String(anyStatus.error)} retry={s.refreshStatus} /> : null}
+            {anyStatus?.error ? <ErrorState title="Agent status unavailable" message={friendlyAgentError(String(anyStatus.error))} retry={s.refreshStatus} /> : null}
           </div>
         </Card>
 
         <Card className="overflow-hidden">
           <CardHeader title="Gateway fleet" subtitle={`Agents registered with ${s.gatewayUrl ? "gateway" : "no gateway"}`} icon={<Server className="h-4 w-4 text-brand" />} actions={s.gatewayUrl ? <Button size="sm" variant="secondary" onClick={s.checkHealth} icon={<Activity className="h-4 w-4" />}>Check</Button> : undefined} />
           <div className="px-5 pb-5">
-            {!s.gatewayUrl ? <EmptyState icon={<Server className="h-8 w-8" />} title="Gateway not configured" description="Set gateway URL in Settings so agent can register." action={<Button variant="primary" onClick={() => s.navigate("settings")} icon={<Settings className="h-4 w-4" />}>Open settings</Button>} /> : s.healthError ? <ErrorState title="Gateway check failed" message={friendlyPrinterError(s.healthError)} retry={s.checkHealth} /> : s.fleetTotal !== null && s.fleetTotal > 0 ? (
+            {!s.gatewayUrl ? <EmptyState icon={<Server className="h-8 w-8" />} title="Gateway not configured" description="Set gateway URL in Settings so agent can register." action={<Button variant="primary" onClick={() => s.navigate("settings")} icon={<Settings className="h-4 w-4" />}>Open settings</Button>} /> : s.healthError ? <ErrorState title="Gateway check failed" message={friendlyGatewayError(s.healthError)} retry={s.checkHealth} /> : s.fleetTotal !== null && s.fleetTotal > 0 ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3"><div className="rounded-[12px] border border-edge bg-surface-2 p-4"><div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Total agents</div><div className="mt-1 text-[24px] font-bold tabular-nums text-ink">{s.fleetTotal}</div></div><div className="rounded-[12px] border border-edge bg-surface-2 p-4"><div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">Online<StatusDot tone={(s.fleetOnline ?? 0) > 0 ? "ok" : "bad"} /></div><div className="mt-1 flex items-baseline gap-2"><span className="text-[24px] font-bold tabular-nums text-ink">{s.fleetOnline}</span><span className="text-[12px] text-ink-3">of {s.fleetTotal}</span></div></div></div>
                 <p className="text-[12px] leading-relaxed text-ink-3">Health probe reports liveness only. Full management available in gateway dashboard.</p>

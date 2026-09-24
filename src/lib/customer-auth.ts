@@ -6,7 +6,7 @@ import { normalizeEmail } from "./password";
 import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { nanoid } from "./nanoid";
-import { requireActiveTenant } from "./tenant-guard";
+import { requireActiveTenantOrNull } from "./tenant-guard";
 
 function getSecret(): string {
   const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
@@ -93,7 +93,8 @@ export function verifyTenantSelectionToken(token: string): TenantSelectionClaims
 }
 
 export async function issueCustomerSession(userId: string, tenantId: string, role: ManagerRole) {
-  await requireActiveTenant(tenantId);
+  const tenantLifecycle = await requireActiveTenantOrNull(tenantId);
+  if (!tenantLifecycle) return null;
   const session = await createManagerSession(tenantId, { userId, role });
   return session;
 }
@@ -108,7 +109,7 @@ export async function authenticateForTenant(email: string, password: string, ten
   if (tenantId) {
     const membership = await db.query.tenantUsers.findFirst({ where: and(eq(tenantUsers.userId, identity.userId), eq(tenantUsers.tenantId, tenantId)), columns: { tenantId: true, role: true } });
     if (!membership) return null;
-    await requireActiveTenant(membership.tenantId);
+    if (!(await requireActiveTenantOrNull(membership.tenantId))) return null;
     return { ...identity, tenantId: membership.tenantId, role: membership.role as ManagerRole };
   }
   const memberships = await db.select({ tenantId: tenantUsers.tenantId, role: tenantUsers.role }).from(tenantUsers).where(eq(tenantUsers.userId, identity.userId)).limit(50);
@@ -119,7 +120,7 @@ export async function authenticateForTenant(email: string, password: string, ten
     const selectionToken = createTenantSelectionToken(identity.userId, identity.email);
     return { ...identity, multipleTenants: true, selectionToken, memberships };
   }
-  await requireActiveTenant(memberships[0].tenantId);
+  if (!(await requireActiveTenantOrNull(memberships[0].tenantId))) return null;
   return { ...identity, tenantId: memberships[0].tenantId, role: memberships[0].role as ManagerRole };
 }
 

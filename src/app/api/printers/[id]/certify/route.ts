@@ -71,7 +71,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const printer = printerRows[0] as any;
     setStep("auth", "ok", `Printer ${printer.name} owned by tenant`, `printerId=${printerId} agentId=${printer.agentId}`);
 
-    const capability = await getPrinterCapabilityMatrix(tenantId, printerId).catch(() => null);
+    let capability;
+    try {
+      capability = await getPrinterCapabilityMatrix(tenantId, printerId);
+    } catch (error) {
+      logError("print.certification.capability_lookup_failed", { requestId, printerId, tenantId, error: error instanceof Error ? error.message : "unknown" });
+      setStep("auth", "error", "Unable to verify printer capabilities", `printerId=${printerId}`);
+      return NextResponse.json({ printerId, requestId, steps, certified: false, blocked: false, code: "CAPABILITY_LOOKUP_FAILED" }, { status: 503, headers: { "x-request-id": requestId } });
+    }
 
     // Queue: use canonical pipeline with real idempotency key
     let jobId: string | null = null;
@@ -180,15 +187,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // Now derive state-driven steps from actual job row, not inferred
     // Fetch fresh job row
     let freshJob: any = null;
+    let jobStateLookupFailed = false;
     try {
       const { printJobs } = await import("../../../../../db/schema");
       const rows = await db.select().from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.id, jobId!))).limit(1);
       freshJob = rows[0] ?? null;
       if (freshJob) jobStatus = freshJob.status;
-    } catch {}
+    } catch (error) {
+      jobStateLookupFailed = true;
+      logError("print.certification.job_state_lookup_failed", { requestId, printerId, tenantId, jobId, error: error instanceof Error ? error.message : "unknown" });
+      setStep("claim", "error", "Unable to verify queued job state", `jobId=${jobId}`);
+      setStep("agent", "error", "Agent state cannot be verified while Gateway database access is unavailable", `agentId=${printer.agentId}`);
+    }
 
     // Claim step: observed from job status
-    if (!freshJob) {
+    if (jobStateLookupFailed) {
+      // Keep the explicit error state; do not reinterpret a DB outage as a
+      // missing job/pending claim.
+    } else if (!freshJob) {
       setStep("claim", "pending", "Job row not found after enqueue — pending", `jobId=${jobId}`);
     } else if (freshJob.status === "queued") {
       setStep("claim", "pending", `Job queued, waiting for agent ${printer.agentId} to claim via advisory lock`, `jobId=${jobId} status=queued`);
@@ -201,13 +217,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
 
     // Agent step: observed from claim
-    if (!freshJob) {
+    if (jobStateLookupFailed) {
+      // Agent state was already marked as an explicit error above.
+    } else if (!freshJob) {
       setStep("agent", "pending", "Waiting for job row", `jobId=${jobId}`);
     } else if (freshJob.status === "queued") {
       // Check agent health but don't claim PASS — pending unless claimed
-      const agentRows = await db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, printer.agentId))).limit(1).catch(() => []);
-      const agent = (agentRows as any[])[0];
-      if (!agent) {
+      let agent: any = null;
+      let agentLookupFailed = false;
+      try {
+        const agentRows = await db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, printer.agentId))).limit(1);
+        agent = agentRows[0] ?? null;
+      } catch (error) {
+        agentLookupFailed = true;
+        logError("print.certification.agent_lookup_failed", { requestId, printerId, tenantId, agentId: printer.agentId, error: error instanceof Error ? error.message : "unknown" });
+        setStep("agent", "error", "Unable to verify agent health", `agentId=${printer.agentId}`);
+      }
+      if (agentLookupFailed) {
+        // Preserve the explicit database verification error.
+      } else if (!agent) {
         setStep("agent", "error", "Agent not found", `agentId=${printer.agentId}`);
       } else if (!agent.lastSeenAt) {
         setStep("agent", "pending", "Agent never seen — waiting for heartbeat", `agentId=${printer.agentId}`);
@@ -227,7 +255,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     // Transport step: observed from printer config and job status
     const transport = `${printer.connectionType}/${printer.protocol}`;
-    if (!freshJob || freshJob.status === "queued") {
+    if (jobStateLookupFailed) {
+      setStep("transport", "error", "Unable to verify transport execution state", `jobId=${jobId}`);
+    } else if (!freshJob || freshJob.status === "queued") {
       setStep("transport", "pending", `Transport ${transport} selected, waiting for claim to observe execution`, `transport=${transport}`);
     } else {
       const isSpooler = printer.connectionType === "spooler" || printer.protocol === "spooler" || printer.protocol === "windows_spooler";
@@ -244,7 +274,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     setStep("physical", "blocked", "Physical verification requires real printer — BLOCKED in sandbox, must be verified on hardware", "BLOCKED: no physical printer in sandbox; test-print job created but paper outcome unverified");
 
     // Ack — observed from job status
-    if (!freshJob) {
+    if (jobStateLookupFailed) {
+      setStep("ack", "error", "Unable to verify agent acknowledgement", `jobId=${jobId}`);
+    } else if (!freshJob) {
       setStep("ack", "pending", "Waiting for job row", `jobId=${jobId}`);
     } else if (freshJob.status === "success") {
       setStep("ack", "ok", `Agent acked success at ${freshJob.ackedAt?.toISOString() ?? freshJob.updatedAt?.toISOString() ?? "unknown"}`, `spoolerJobId=${freshJob.spoolerJobId ?? "n/a"} status=success`);

@@ -66,7 +66,8 @@
                     </group>
 
                     <group string="Printer Setup">
-                        <field name="runtime_agent_id" string="Print Agent" widget="gateway_runtime_agent"/>
+                        <field name="runtime_agent_id" string="Print Agent" widget="gateway_runtime_agent"
+                               options="{'assignment_only': true}"/>
                         <field name="printer_id" string="Runtime Printer" widget="gateway_runtime_printer"/>
                     </group>
 

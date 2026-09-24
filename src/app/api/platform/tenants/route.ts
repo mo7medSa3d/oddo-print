@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requirePlatformOwner } from "../../../../lib/platform-auth";
+import { requirePlatformOwner, PlatformUnauthorizedError } from "../../../../lib/platform-auth";
 import { db } from "../../../../db";
 import { tenants, tenantSubscriptions, tenantUsers, agents, printers, plans } from "../../../../db/schema";
 import { desc, eq, sql } from "drizzle-orm";
@@ -8,8 +8,11 @@ import { queryWithTimeout } from "../../../../db/client";
 export async function GET(req: Request) {
   try {
     await requirePlatformOwner(req);
-  } catch {
-    return NextResponse.json({ error: "Platform Owner authentication required" }, { status: 401 });
+  } catch (error) {
+    if (error instanceof PlatformUnauthorizedError) {
+      return NextResponse.json({ error: "Platform Owner authentication required" }, { status: 401 });
+    }
+    return NextResponse.json({ error: "Platform authentication temporarily unavailable" }, { status: 503 });
   }
 
   const { searchParams } = new URL(req.url);

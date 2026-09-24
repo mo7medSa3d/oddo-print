@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requirePlatformOwner } from "../../../../../../lib/platform-auth";
+import { requirePlatformOwner, PlatformUnauthorizedError } from "../../../../../../lib/platform-auth";
 import { transitionTenantLifecycle, TenantLifecycleError } from "../../../../../../lib/tenant-lifecycle";
 import { runtimeSecret } from "../../../../../../lib/runtime-secret";
 
@@ -7,8 +7,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   let claims;
   try {
     claims = await requirePlatformOwner(req);
-  } catch {
-    return NextResponse.json({ error: "Platform Owner authentication required" }, { status: 401 });
+  } catch (error) {
+    if (error instanceof PlatformUnauthorizedError) {
+      return NextResponse.json({ error: "Platform Owner authentication required" }, { status: 401 });
+    }
+    return NextResponse.json({ error: "Platform authentication temporarily unavailable" }, { status: 503 });
   }
 
   const { id } = await context.params;

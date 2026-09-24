@@ -2,6 +2,10 @@
 
 The Odoo integration contract is intentionally small. Odoo owns business records, destination/report context, bindings and print intent. Gateway owns runtime agents, printers, queues and physical execution.
 
+## Odoo API key rotation
+
+Rotating an Odoo API key creates a new key and immediately removes write capability from the previous key. The previous key remains read-only for 60 minutes so in-flight Odoo status synchronization can reconcile jobs created under the old credential. After that grace period the previous key is rejected completely. Update the Odoo installation with the new key during the grace window before removing the old key.
+
 ## Authentication
 
 ### Agent
@@ -15,7 +19,7 @@ The Odoo integration contract is intentionally small. Odoo owns business records
 
 Odoo Gateway authentication is based on the Odoo installation API key. The Odoo database name is not used as an authentication requirement. Odoo may still send `X-Odoo-Database` for informational purposes; the Gateway ignores it for authentication.
 
-The raw Odoo key is returned only when generated. Gateway persists only its cryptographic hash and a revoke timestamp.
+The raw Odoo key is returned only when generated. Gateway persists only its cryptographic hash plus lifecycle metadata; rotated keys use a bounded read-only grace window before full invalidation.
 
 ## `GET /api/odoo/health`
 
@@ -46,7 +50,7 @@ Request:
 
 No Gateway branch ID, Gateway destination ID, Gateway document-type ID, agent provisioning data, or printer-creation data is accepted.
 
-The Gateway validates the Odoo key, payload, expiration and idempotency before queueing the runtime job. The Odoo installation key is a full read/write credential for the tenant and is not restricted by document type. A created Odoo-originated job is stamped with the authenticated API-key identity. Status lookup is scoped to that API key; idempotency remains tenant-scoped so credential rotation can safely replay an existing logical operation. Internal Manager-created jobs may omit that identity and are not exposed through this Odoo status endpoint.
+The Gateway validates the Odoo key, payload, expiration and idempotency before queueing the runtime job. The Odoo installation key is a credential for the Odoo integration API surface documented here. It is not a Manager or Platform credential and is not accepted by generic console endpoints. It is not restricted by document type. A created Odoo-originated job is stamped with the authenticated API-key identity. Status lookup is scoped to that API key; idempotency remains tenant-scoped so credential rotation can safely replay an existing logical operation. Internal Manager-created jobs may omit that identity and are not exposed through this Odoo status endpoint.
 
 `201` means a new job was accepted. `200` means an idempotent retry matched an existing job and returns that job identity. A reused key with different routing/payload data returns `409 IDEMPOTENCY_CONFLICT`.
 
