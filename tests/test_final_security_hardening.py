@@ -146,7 +146,7 @@ def test_nextjs_has_explicit_csp():
 
 def test_manifest_declares_crypto_dependency_and_migration_version():
     manifest = (ADDON / "__manifest__.py").read_text(encoding="utf-8")
-    assert "'version': '19.0.2.8.0'" in manifest
+    assert "'version': '19.0.2.9.0'" in manifest
     assert "'cryptography'" in manifest
     assert (ADDON / "migrations" / "19.0.2.4.0" / "post-migrate.py").exists()
 
