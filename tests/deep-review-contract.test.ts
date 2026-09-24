@@ -144,7 +144,6 @@ describe("deep production review contracts", () => {
     expect(entitlementSource).toContain("ts.status = 'past_due'");
     expect(entitlementSource).toContain("COALESCE(ts.entitlement_blocked, false) = false");
     expect(entitlementSource).toContain("ts.current_period_end > clock_timestamp()");
-    }
 
     // The poll candidate CTEs must filter invalid rows before LIMIT is applied;
     // otherwise a page full of stale/revoked candidates can starve healthy work.
