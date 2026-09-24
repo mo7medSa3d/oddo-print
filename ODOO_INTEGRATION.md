@@ -95,8 +95,8 @@ Root Company
 - A Branch binding requires an Agent assigned to that exact Branch; a Company-only binding may use any Agent assigned to the Company or one of its direct child Branches
 - Printer must belong to the selected agent
 - POS Receipt bindings are rendered by the POS client and do not require a PDF report
-- POS Kitchen / Preparation bindings use the POS Shop as the logical destination and the Gateway Runtime Printer as the physical target
-- An Odoo `pos.printer` is not required for Gateway Kitchen / Preparation printing
+- POS Kitchen / Preparation bindings use the native Odoo 19 Preparation Printer as the logical category-aware destination and the Gateway Runtime Printer as the physical target
+- An Odoo 19 `pos.printer` is required when using category-aware Gateway Kitchen / Preparation routing; a POS Shop binding remains available only as a compatibility fallback when no native Preparation Printer binding exists
 - POS receipts and kitchen tickets cannot target laser/inkjet printers
 
 ## Print Policy Automation
