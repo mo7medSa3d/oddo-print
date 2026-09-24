@@ -171,6 +171,7 @@ func newTestAgent(t *testing.T, printerID string, p printer.Printer) *Agent {
 	cfg.Agent.ID = "agt_test"
 	cfg.Agent.Secret = "secret"
 	cfg.Server.URL = server.URL
+	cfg.Printers = append([]config.PrinterConfig{{ID: printerID, Name: "Test", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"}}, cfg.Printers...)
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
 	ag, err := New(cfg, cfgPath)
