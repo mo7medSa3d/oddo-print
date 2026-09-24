@@ -1,6 +1,6 @@
 # Odoo Integration Guide
 
-> Module: `print_gateway` | Version: 19.0.2.9.0 | Odoo: 19 Community Edition
+> Module: `print_gateway` | Version: 19.0.2.10.0 | Odoo: 19 Community Edition
 
 ## Overview
 
@@ -85,7 +85,7 @@ Root Company
 | `runtime_agent_id` | Gateway agent ID |
 | `printer_id` | Gateway printer ID |
 | `printer_protocol` | Required: escpos, zpl, tspl, raw, spooler, ipp, ipps, unknown |
-| `report_id` | Odoo report to render for backend/document bindings; POS Receipt and POS Kitchen / Preparation bindings do not require a report |
+| `report_id` | Single operator-facing Odoo report selector for backend/document bindings; POS Receipt and POS Kitchen / Preparation bindings do not require a report |
 | `fallback_binding_id` | Pre-dispatch failover if primary printer is offline |
 
 ### Validation Rules
@@ -122,3 +122,6 @@ Each root company needs one `gateway_config` record with:
 - `enabled`: Boolean flag
 
 The config is tested via the Gateway's `/api/odoo/health` endpoint during setup.
+
+### Report Destination
+For `destination_type = Report`, the operator selects exactly one `Report`. The legacy `destination_report_id` field is retained only for compatibility with pre-2.10 data and is hidden from the form.

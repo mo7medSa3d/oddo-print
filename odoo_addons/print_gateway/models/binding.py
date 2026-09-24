@@ -198,7 +198,7 @@ class PrintGatewayBinding(models.Model):
                     "The failover binding must use the same document type as the primary binding."
                 ))
 
-    @api.depends("destination_type", "destination_pos_config_id", "destination_pos_printer_id", "destination_picking_type_id", "destination_report_id")
+    @api.depends("destination_type", "destination_pos_config_id", "destination_pos_printer_id", "destination_picking_type_id", "destination_report_id", "report_id")
     def _compute_destination_ref(self):
         for record in self:
             destination = False
@@ -209,7 +209,9 @@ class PrintGatewayBinding(models.Model):
             elif record.destination_type == "picking_type":
                 destination = record.destination_picking_type_id
             elif record.destination_type == "report":
-                destination = record.destination_report_id
+                # report_id is the single operator-facing report selector. Keep
+                # destination_report_id as a legacy compatibility field only.
+                destination = record.report_id or record.destination_report_id
             record.destination_ref = "%s,%s" % (destination._name, destination.id) if destination else False
 
     @api.depends("report_id", "report_id.model", "report_id.report_name", "destination_type")
@@ -219,8 +221,10 @@ class PrintGatewayBinding(models.Model):
                 record.document_type = "receipt"
             elif record.destination_type == "pos_printer":
                 record.document_type = "kitchen"
-            elif record.report_id:
-                report = record.report_id
+            elif record.report_id or record.destination_report_id:
+                # Legacy rows may still carry only destination_report_id until
+                # the 2.10 migration completes. New rows use report_id.
+                report = record.report_id or record.destination_report_id
                 record.document_type = DOCUMENT_TYPE_BY_MODEL.get(report.model, "report:%s" % (report.report_name or report.id).strip().lower())
             else:
                 record.document_type = False
@@ -247,6 +251,14 @@ class PrintGatewayBinding(models.Model):
                 record.destination_report_id = False
             if record.destination_type in ("pos", "pos_printer"):
                 record.report_id = False
+            elif record.destination_type == "report":
+                record.destination_report_id = record.report_id or record.destination_report_id
+
+    @api.onchange("report_id")
+    def _onchange_report_id(self):
+        for record in self:
+            if record.destination_type == "report":
+                record.destination_report_id = record.report_id
 
     @api.onchange("company_id")
     def _onchange_company_id(self):
@@ -409,6 +421,11 @@ class PrintGatewayBinding(models.Model):
                         raise ValidationError(_("Legacy Odoo Kitchen Printer is not available to the selected Odoo Branch."))
                 if record.report_id:
                     raise ValidationError(_("POS Kitchen / Preparation bindings must not select an Odoo Report."))
+            elif record.destination_type == "report":
+                if not record.report_id:
+                    raise ValidationError(_("A Report must be selected for this Destination Type."))
+                if record.destination_report_id and record.destination_report_id != record.report_id:
+                    raise ValidationError(_("Report destination and report document must be the same record."))
             elif not record.report_id:
                 raise ValidationError(_("A real Odoo report must be selected for this Destination Type."))
             if record.report_id and record.report_id.model == "pos.order" and record.destination_type not in ("pos", "report"):

@@ -23,6 +23,20 @@ class TestBranchRuntimeBinding(TransactionCase):
     def setUp(self):
         super().setUp()
         self.company = self.env.company
+        # Odoo 19 creates the default POS payment methods while a new
+        # pos.config is created. A clean Community test database may have no
+        # bank journal yet, so provide the minimal accounting prerequisite
+        # before creating the real POS configuration used by these tests.
+        self.bank_journal = self.env["account.journal"].search([
+            ("company_id", "=", self.company.id),
+            ("type", "=", "bank"),
+        ], limit=1)
+        if not self.bank_journal:
+            self.bank_journal = self.env["account.journal"].create({
+                "name": "Gateway Test Bank",
+                "type": "bank",
+                "company_id": self.company.id,
+            })
         self.pos_config = self.env["pos.config"].search(
             [("company_id", "=", self.company.id)],
             limit=1,
@@ -292,6 +306,51 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding._check_company_hierarchy()
         binding._check_runtime_scope()
         binding._check_binding()
+
+    def test_report_binding_uses_the_single_authoritative_report_field(self):
+        report = self._report()
+        binding = self.env["print_gateway.binding"].new({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "destination_type": "report",
+            "destination_report_id": False,
+            "report_id": report,
+            "runtime_agent_id": "agent-a",
+            "printer_id": "printer-a",
+            "printer_protocol": "spooler",
+            "enabled": True,
+            "priority": 92,
+        })
+        binding._compute_destination_ref()
+        binding._compute_document_type()
+        self.assertEqual(binding.destination_ref, "ir.actions.report,%s" % report.id)
+        self.assertEqual(binding.document_type, "order")
+        binding._check_company_hierarchy()
+        binding._check_runtime_scope()
+        binding._check_binding()
+
+    def test_report_binding_rejects_mismatched_legacy_destination_report(self):
+        report = self._report()
+        other_report = self.env["ir.actions.report"].search(
+            [("model", "=", "stock.picking"), ("id", "!=", report.id)], limit=1
+        )
+        self.assertTrue(other_report)
+        binding = self.env["print_gateway.binding"].new({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "destination_type": "report",
+            "destination_report_id": other_report,
+            "report_id": report,
+            "runtime_agent_id": "agent-a",
+            "printer_id": "printer-a",
+            "printer_protocol": "spooler",
+            "enabled": True,
+            "priority": 93,
+        })
+        binding._compute_destination_ref()
+        binding._compute_document_type()
+        with self.assertRaises(ValidationError):
+            binding._check_binding()
 
     def test_gateway_kitchen_binding_rejects_mixed_pos_and_native_printer_targets(self):
         binding = self.env["print_gateway.binding"].new({

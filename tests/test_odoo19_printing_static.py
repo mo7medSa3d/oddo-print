@@ -39,10 +39,12 @@ def test_gateway_pos_receipt_and_kitchen_do_not_require_native_odoo_printers_or_
     assert '("pos_printer", "POS Kitchen / Preparation")' in binding
     assert 'record.document_type = "receipt"' in binding
     assert 'record.document_type = "kitchen"' in binding
-    assert 'destination = record.destination_pos_config_id or record.destination_pos_printer_id' in binding
+    assert 'destination = record.report_id or record.destination_report_id' in binding
     assert 'required="destination_type in (\'pos\', \'pos_printer\')"' in view
     assert 'required="destination_type not in (\'pos\', \'pos_printer\')"' in view
     assert 'name="destination_pos_printer_id" invisible="1"' in view
+    assert 'name="destination_report_id" invisible="1"' in view
+    assert 'name="report_id" string="Report"' in view
     assert 'action_print_gateway_kitchen(self, image, reprint=False, operation_id=None)' in pos
     assert 'def has_gateway_kitchen_binding(self):' in pos
     assert 'def route_kitchen_print(self, order, image_base64' in router

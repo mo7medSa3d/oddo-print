@@ -1028,7 +1028,14 @@ func TestPollJobsDispatchesBoundedBatch(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("a valid in-limit batch must be dispatched")
 	}
-}
+
+	// The started notification proves admission, not completion. Wait for the
+	// tracked execution to leave the in-flight set before the test's TempDir
+	// cleanup closes queue.db; otherwise the background job can still write its
+	// SQLite ledger while testing.TearDown removes the temporary directory.
+	if !ag.waitForJobs() {
+		t.Fatal("a valid in-limit batch did not drain before test cleanup")
+	}
 
 func TestProcessJobCancellationBeforePrintingRefusesHardware(t *testing.T) {
 	printingStarted := make(chan struct{})
