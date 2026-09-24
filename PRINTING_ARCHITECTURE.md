@@ -105,9 +105,9 @@ sequenceDiagram
 * **Rendering**: Canvas render via OWL `OrderReceipt` component → 2D Context background fill `#ffffff` → JPEG base64 (quality 0.65).
 * **Delivery**: Dispatched to `pos.order.action_print_gateway_receipt` → Gateway Image Payload.
 
-### 2. PDF Report Interception Pipeline (`ir_actions_report.py`, `report_download_override.py`, `report_interceptor.js`)
+### 2. PDF Report Interception Pipeline (`ir_actions_report.py`, `report_interceptor.js`)
 * **Trigger**: Print Invoice, Sales Order, Delivery Slip, Picking Operation.
-* **Interception**: 3-layer fail-closed interception catches report execution before browser download.
+* **Interception**: 2-layer fail-closed interception: ORM-level routing plus the Odoo 19 client-side report action handler. The native `/report/download` controller remains untouched.
 * **Rendering**: Native Odoo QWeb PDF engine generates raw binary PDF stream.
 * **Delivery**: Gateway PDF Payload (`type='pdf', encoding='base64'`).
 
