@@ -1,0 +1,41 @@
+server:
+  # Production gateways SHOULD use HTTPS. The agent accepts both http:// and
+  # https:// for any host by design (zero-config LAN support; there is no
+  # environment opt-in gate in code). Over http:// the pairing code and agent
+  # secret travel in plaintext — use https:// outside a trusted LAN.
+  url: "https://your-print-gateway.example.com"
+
+agent:
+  id: ""
+  secret: ""
+  name: "Main Office Agent"
+  # Safe default: false prevents silent duplicate physical output after a crash.
+  # Set true only when the business accepts at-least-once reprinting.
+  reprint_after_crash: false
+
+printers:
+  - id: "printer_kitchen"
+    name: "Kitchen Printer"
+    type: "network"
+    endpoint: "192.168.1.50:9100"
+    protocol: "escpos"
+  
+  # USB printers can be represented through the Windows spooler backend when a
+  # local Windows queue is available. Direct raw USB is intentionally not used
+  # as a network transport.
+  - id: "printer_receipt"
+    name: "Front Desk Printer"
+    type: "network"
+    endpoint: "192.168.1.51:9100"
+    protocol: "raw"
+
+  # Windows OS spooler printer example (A4 reports, laser, USB thermal via driver):
+  # - id: "printer_office_a4"
+  #   name: "Office Laser Printer"
+  #   type: "spooler"
+  #   connection_type: "spooler"
+  #   printer_type: "laser"
+  #   spooler_name: "HP LaserJet Pro MFP"
+  #   protocol: "windows_spooler"
+  #   enabled: true
+

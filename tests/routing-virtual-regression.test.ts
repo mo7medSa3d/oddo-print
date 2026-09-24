@@ -1,0 +1,49 @@
+import { describe, expect, it } from "vitest";
+import { isPrinterAvailableForJob, validatePayloadForPrinter } from "../src/lib/routing";
+
+function printer(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "printer-1", agentId: "agent-1", name: "Physical Printer", printerType: "physical", deviceClass: "thermal",
+    connectionType: "network", protocol: "raw", lifecycle: "active", status: "online", capabilities: null, config: {},
+    ...overrides,
+  };
+}
+
+describe("runtime printer routing regressions", () => {
+  it("keeps active physical printers routable", () => {
+    expect(isPrinterAvailableForJob(printer())).toBe(true);
+  });
+
+  it("does not treat virtual printers as physical execution targets", () => {
+    expect(isPrinterAvailableForJob(printer({ printerType: "virtual" }))).toBe(false);
+    expect(isPrinterAvailableForJob(printer({ printerType: "virtual", connectionType: "spooler", protocol: "spooler" }))).toBe(false);
+  });
+
+  it("separates unknown health from execution eligibility for connected unidirectional network printers", () => {
+    expect(isPrinterAvailableForJob(printer({ status: "unknown", protocol: "escpos" }))).toBe(true);
+    expect(isPrinterAvailableForJob(printer({ status: "unknown", protocol: "ipp" }))).toBe(false);
+    expect(isPrinterAvailableForJob(printer({ status: "unknown", connectionType: "spooler" }))).toBe(false);
+    expect(isPrinterAvailableForJob(printer({ status: "offline" }))).toBe(false);
+    expect(isPrinterAvailableForJob(printer({ lifecycle: "disabled" }))).toBe(false);
+  });
+
+  it("does not silently accept a payload capability the printer does not advertise", () => {
+    const result = validatePayloadForPrinter({ type: "image" }, {
+      protocol: "raw",
+      connectionType: "network",
+      capabilities: { supported_protocols: ["raw"] },
+    });
+    expect(result.ok).toBe(false);
+    // Metadata cannot turn a RAW TCP backend into an image renderer.
+    expect(validatePayloadForPrinter({ type: "image" }, {
+      protocol: "raw",
+      connectionType: "network",
+      capabilities: { supported_protocols: ["raw", "escpos"] },
+    }).ok).toBe(false);
+    expect(validatePayloadForPrinter({ type: "image" }, {
+      protocol: "escpos",
+      connectionType: "network",
+      capabilities: { supported_protocols: ["escpos"] },
+    }).ok).toBe(true);
+  });
+});
