@@ -41,16 +41,27 @@ func TestConfidenceForDevice(t *testing.T) {
 	if confidenceForDevice([]string{"raw"}, "candidate", "", "") != "low" {
 		t.Fatalf("expected low for single raw candidate")
 	}
-	if confidenceForDevice([]string{"snmp", "mdns"}, "candidate", "HP", "LaserJet") != "high" {
-		// multiple sources + model => high
+	if got := confidenceForDevice([]string{"snmp", "mdns"}, "candidate", "HP", "LaserJet"); got != "high" {
+		t.Fatalf("multiple sources plus a model should yield high confidence, got %q", got)
 	}
 }
 
 func TestNoFalsePositives(t *testing.T) {
-	// Open port alone must NOT be verified printer — verification must be candidate without IPP/SNMP
-	di := DeviceInfo{NetworkAddress: "192.168.1.99", Port: 9100, Protocol: "raw"}
-	_ = di
-	// Ensure isValidDiscoveredPrinter rejects generic non-printer devices already tested elsewhere
+	// A generic USB/PnP device must never enter the printer inventory.
+	di := DeviceInfo{
+		Name:           "USB Input Device",
+		DisplayName:    "USB Input Device",
+		ConnectionType: "usb",
+		Protocol:       "raw",
+	}
+	if isValidDiscoveredPrinter(di) {
+		t.Fatal("generic USB input devices must be rejected as printers")
+	}
+
+	// A raw port probe alone is a candidate, not high-confidence/verified evidence.
+	if got := confidenceForDevice([]string{"raw"}, "candidate", "", ""); got != "low" {
+		t.Fatalf("raw-port-only discovery should remain low confidence, got %q", got)
+	}
 }
 
 func TestSameUSBDeviceRequiresStrongPhysicalIdentity(t *testing.T) {
