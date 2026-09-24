@@ -59,7 +59,7 @@ describe("architecture hardening", () => {
     // The external snake_case response is derived from the transaction outcome,
     // after the pairing transaction has atomically consumed the credential.
     expect(src).toContain("agent_id: outcome.agentId");
-    expect(src).toContain("agent_secret: secret");
+    expect(src).toContain("agent_secret: outcome.secret");
   });
 
   it("declares discovered_devices.device_class NOT NULL and ships the reconciling migration", () => {
