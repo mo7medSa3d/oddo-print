@@ -797,6 +797,13 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
   });
 
   server.on("upgrade", async (req: IncomingMessage, socket, head) => {
+    let reservationActive = false;
+    const releaseReservation = () => {
+      if (!reservationActive) return;
+      reservationActive = false;
+      releaseAgentSocketSlot();
+    };
+
     try {
       const url = req.url ?? "";
       if (!url.startsWith("/api/agent/ws")) {
@@ -864,13 +871,6 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
       }
 
       reservationActive = true;
-
-      let reservationActive = false;
-      const releaseReservation = () => {
-        if (!reservationActive) return;
-        reservationActive = false;
-        releaseAgentSocketSlot();
-      };
 
       // A raw client disconnect or synchronous handshake failure must release
       // the global reservation. Otherwise repeated failed upgrades can exhaust
