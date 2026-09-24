@@ -206,17 +206,11 @@ patch(PosStore.prototype, {
             if (!opts.byPassPrint) {
                 let reprint = false;
 
-                // Odoo's native preparation gate depends on config.printerCategories,
-                // which is populated only from native pos.printer records. In Gateway
-                // mode the physical printer is owned by the Gateway, so use every
-                // loaded POS category as the logical preparation scope instead.
-                const gatewayCategories = new Set();
-                for (const product of this.models["product.product"].getAll()) {
-                    for (const categoryId of product?.parentPosCategIds || []) {
-                        gatewayCategories.add(categoryId);
-                    }
-                }
-
+                // Odoo 19 defines the preparation scope from native
+                // pos.printer.product_categories_ids. Gateway changes only the
+                // physical destination; it must not expand the business scope
+                // to every product category loaded in the POS.
+                const gatewayCategories = this.config.printerCategories;
                 let orderChange = changesToOrder(order, gatewayCategories, opts.cancelled);
                 hasChanges =
                     orderChange.new.length ||
