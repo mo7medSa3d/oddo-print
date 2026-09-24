@@ -528,5 +528,4 @@ patch(PosStore.prototype, {
             };
         }
     },
-    },
 });
