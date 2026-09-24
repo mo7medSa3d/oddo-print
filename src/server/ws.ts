@@ -141,33 +141,48 @@ export function shouldCloseAgentSocketForLifecycleRevision(
   return socketRevision < invalidatingRevision;
 }
 
-export function closeAgentSockets(agentId: string, lifecycleRevision: number): void {
-  const set = agentSockets.get(agentId);
-  if (!set || set.size === 0) return;
-  for (const ws of set) {
-    // A lifecycle notification invalidates sessions authenticated BEFORE the
-    // transition that produced this revision. A newer session must survive,
-    // even if the notification itself was delayed in the PG LISTEN queue.
-    if (!shouldCloseAgentSocketForLifecycleRevision(ws.lifecycleRevision, lifecycleRevision)) {
-      continue;
-    }
-    try {
-      ws.close(4001, "agent deactivated");
-    } catch {
-      try { ws.terminate(); } catch {}
-    }
-  }
+export function shouldAcceptAgentSocketForLifecycleState(
+  authenticatedRevision: number | undefined,
+  currentRevision: number | undefined,
+  currentLifecycle: string | undefined,
+): boolean {
+  // Authentication and socket registration are separate async steps. The
+  // agent can be deactivated in that gap, so the durable lifecycle snapshot
+  // must still be active at exactly the revision that authenticated the socket.
+  return (
+    currentLifecycle === "active" &&
+    typeof authenticatedRevision === "number" &&
+    Number.isSafeInteger(authenticatedRevision) &&
+    authenticatedRevision >= 0 &&
+    typeof currentRevision === "number" &&
+    Number.isSafeInteger(currentRevision) &&
+    currentRevision >= 0 &&
+    authenticatedRevision === currentRevision
+  );
 }
 
-async function currentAgentLifecycleRevision(agentId: string): Promise<number | null> {
-  const result = await pool.query<{ lifecycle_revision: number | string }>(
-    "SELECT lifecycle_revision FROM agents WHERE id = $1",
+type AgentLifecycleSnapshot = {
+  lifecycle: string;
+  lifecycleRevision: number;
+};
+
+async function currentAgentLifecycleState(agentId: string): Promise<AgentLifecycleSnapshot | null> {
+  const result = await pool.query<{ lifecycle: string; lifecycle_revision: number | string }>(
+    "SELECT lifecycle, lifecycle_revision FROM agents WHERE id = $1",
     [agentId],
   );
   if (result.rows.length !== 1) return null;
   const revision = Number(result.rows[0].lifecycle_revision);
   if (!Number.isSafeInteger(revision) || revision < 0) return null;
-  return revision;
+  return {
+    lifecycle: result.rows[0].lifecycle,
+    lifecycleRevision: revision,
+  };
+}
+
+async function currentAgentLifecycleRevision(agentId: string): Promise<number | null> {
+  const snapshot = await currentAgentLifecycleState(agentId);
+  return snapshot?.lifecycleRevision ?? null;
 }
 
 export function closeTenantSockets(tenantId: string): void {
@@ -745,10 +760,31 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         aws.on("pong", () => { aws.isAlive = true; });
         aws.lifecycleRevision = agent!.lifecycleRevision;
         trackAgentSocket(agent!.id, aws);
-        // No per-connection bucket init here: getBucketForAgent(agentId)
-        // lazily creates or reuses the persistent agent-level limiter, so
-        // reconnects retain token state instead of resetting evasion budget.
-        wss.emit("connection", ws, req);
+        // Lifecycle changes can race the async authentication/upgrade path.
+        // Verify the durable state after the socket is tracked but BEFORE
+        // exposing it through the connection event. A delayed PostgreSQL
+        // notification must not be the sole protection for this narrow gap.
+        void (async () => {
+          try {
+            const current = await currentAgentLifecycleState(agent!.id);
+            if (!shouldAcceptAgentSocketForLifecycleState(
+              agent!.lifecycleRevision,
+              current?.lifecycleRevision,
+              current?.lifecycle,
+            )) {
+              try { ws.close(4001, "agent lifecycle changed during WebSocket upgrade"); } catch { try { ws.terminate(); } catch {} }
+              return;
+            }
+
+            // No per-connection bucket init here: getBucketForAgent(agentId)
+            // lazily creates or reuses the persistent agent-level limiter, so
+            // reconnects retain token state instead of resetting evasion budget.
+            wss.emit("connection", ws, req);
+          } catch (error) {
+            logUpgradeError(error);
+            try { ws.close(1011, "agent lifecycle verification failed"); } catch { try { ws.terminate(); } catch {} }
+          }
+        })();
       });
     } catch (error) {
       logUpgradeError(error);
