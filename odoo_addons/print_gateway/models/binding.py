@@ -12,6 +12,27 @@ from odoo.exceptions import AccessError, ValidationError
 _logger = logging.getLogger(__name__)
 
 
+def _assert_report_usage_access(env, report):
+    """Apply Odoo report-use restrictions before Gateway physical dispatch.
+
+    ``ir.actions.report.group_ids`` defines which user groups may view/use a
+    report. Custom Gateway entry points bypass Odoo's native report controller,
+    so this permission must be enforced explicitly before rendering or creating
+    a physical print job.
+    """
+    report = report.sudo().exists()
+    if not report:
+        raise ValidationError(_("The requested report is unavailable."))
+    if str(report.report_type or "").strip() != "qweb-pdf":
+        raise ValidationError(_("Only QWeb PDF reports can be sent to the Print Gateway."))
+    if env.is_superuser:
+        return report
+    allowed_group_ids = set(report.group_ids.ids)
+    if allowed_group_ids and not allowed_group_ids.intersection(env.user.groups_id.ids):
+        raise AccessError(_("You are not allowed to view or use this report."))
+    return report
+
+
 DESTINATION_MODELS = [
     ("pos", "POS Configuration"),
     ("pos_printer", "POS / Kitchen Printer"),
