@@ -8,6 +8,7 @@ describe("HTTP test email capture", () => {
   it("allows an HTTP APP_BASE_URL only in explicit HTTP test mode", () => {
     const previousMode = process.env.YASSER_HTTP_TEST_MODE;
     const previousNodeEnv = process.env.NODE_ENV;
+    const previousBaseUrl = process.env.APP_BASE_URL;
     try {
       process.env.NODE_ENV = "production";
       process.env.YASSER_HTTP_TEST_MODE = "1";
@@ -21,7 +22,8 @@ describe("HTTP test email capture", () => {
       else process.env.YASSER_HTTP_TEST_MODE = previousMode;
       if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = previousNodeEnv;
-      delete process.env.APP_BASE_URL;
+      if (previousBaseUrl === undefined) delete process.env.APP_BASE_URL;
+      else process.env.APP_BASE_URL = previousBaseUrl;
     }
   });
 
