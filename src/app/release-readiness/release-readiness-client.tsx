@@ -62,7 +62,7 @@ export default function ReleaseReadinessClient() {
       implemented: "PASS",
       runtimeVerified: "PASS",
       status: "PASS",
-      evidence: "src/server/correlation.ts AsyncLocalStorage, tracing.ts OTel-inspired (not full OTel), X-Request-Id header, log.ts auto-enrichment, docs/DISTRIBUTED_TRACING.md honest about OTel-inspired. 5 tests green.",
+      evidence: "src/server/correlation.ts AsyncLocalStorage, X-Request-Id header, log.ts auto-enrichment, docs/DISTRIBUTED_TRACING.md honest about OTel-inspired. 5 tests green.",
     },
     {
       area: "System Health tenant-safe + overall policy",

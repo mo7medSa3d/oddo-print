@@ -22,4 +22,35 @@ describe("Drizzle Migration Journal & File Integrity", () => {
       expect(sqlFiles[i]).toBe(expectedFilename);
     });
   });
+  // drizzle-kit computes the next migration by diffing src/db/schema.ts against
+  // the NEWEST snapshot in drizzle/meta. Without a current snapshot, db:generate
+  // can re-emit already-applied DDL instead of producing only the real delta.
+  it("keeps a drizzle-kit snapshot for the newest migration", () => {
+    const drizzleDir = join(process.cwd(), "drizzle");
+    const journalPath = join(drizzleDir, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const newest = journal.entries[journal.entries.length - 1];
+
+    const snapshotPath = join(drizzleDir, "meta", `${newest.tag}_snapshot.json`);
+    expect(existsSync(snapshotPath)).toBe(true);
+
+    const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as {
+      tables?: Record<string, unknown>;
+    };
+    const snapshotTables = new Set(
+      Object.keys(snapshot.tables ?? {}).map((name) =>
+        name.includes(".") ? name.split(".").slice(1).join(".") : name,
+      ),
+    );
+
+    const schemaSource = readFileSync(join(process.cwd(), "src", "db", "schema.ts"), "utf8");
+    const schemaTables = new Set(
+      [...schemaSource.matchAll(/export const \w+ = pgTable\("([\w_]+)"/g)].map((m) => m[1]),
+    );
+
+    expect(schemaTables.size).toBeGreaterThan(0);
+    expect(snapshotTables).toEqual(schemaTables);
+  });
 });
