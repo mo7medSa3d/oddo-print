@@ -14,7 +14,18 @@ import {
 
 type Stats = {
   tenants: { total: number; active: number; suspended: number; deleted: number };
-  subscriptions: { total: number; active: number; trialing: number; pastDue: number; cancelled: number };
+  subscriptions: {
+    total: number;
+    active: number;
+    trialing: number;
+    pastDue: number;
+    incomplete: number;
+    incompleteExpired: number;
+    unpaid: number;
+    paused: number;
+    cancelled: number;
+    attention: number;
+  };
   users: { total: number; verified: number };
   agents: { total: number; online: number; offline: number };
   printers: { total: number; online: number; offline: number };
@@ -34,7 +45,15 @@ type SubscriptionRow = {
   tenantName: string;
   planName: string;
   stripeSubscriptionId: string | null;
-  status: "trialing" | "active" | "past_due" | "paused" | "cancelled";
+  status:
+    | "trialing"
+    | "active"
+    | "past_due"
+    | "incomplete"
+    | "incomplete_expired"
+    | "unpaid"
+    | "paused"
+    | "cancelled";
   createdAt: string;
 };
 
@@ -55,6 +74,9 @@ function SubscriptionStatus({
     active: "bg-ok-bg text-ok",
     trialing: "bg-info-bg text-info",
     past_due: "bg-warn-bg text-warn",
+    incomplete: "bg-warn-bg text-warn",
+    incomplete_expired: "bg-warn-bg text-warn",
+    unpaid: "bg-bad-bg text-bad",
     paused: "bg-surface-3 text-ink-3",
     cancelled: "bg-bad-bg text-bad",
   } as const;
@@ -199,7 +221,7 @@ export default function PlatformDashboardPage() {
         }}
         agents={{ offline: stats?.agents.offline ?? 0 }}
         printers={{ offline: stats?.printers.offline ?? 0 }}
-        pastDue={stats?.subscriptions.pastDue ?? 0}
+        pastDue={stats?.subscriptions.attention ?? stats?.subscriptions.pastDue ?? 0}
       />
 
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.55fr_0.85fr]">
@@ -305,7 +327,22 @@ export default function PlatformDashboardPage() {
               Manage
             </Link>
           </div>
-          <SubscriptionMixChart subscriptions={stats?.subscriptions ?? { total: 0, active: 0, trialing: 0, pastDue: 0, cancelled: 0 }} />
+          <SubscriptionMixChart
+            subscriptions={
+              stats?.subscriptions ?? {
+                total: 0,
+                active: 0,
+                trialing: 0,
+                pastDue: 0,
+                incomplete: 0,
+                incompleteExpired: 0,
+                unpaid: 0,
+                paused: 0,
+                cancelled: 0,
+                attention: 0,
+              }
+            }
+          />
         </div>
 
         <div className="card p-6">
