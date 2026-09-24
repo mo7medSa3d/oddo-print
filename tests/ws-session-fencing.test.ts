@@ -2,9 +2,29 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  __canReserveAgentSocketSlotForTests,
   shouldAcceptAgentSocketForLifecycleState,
   shouldCloseAgentSocketForLifecycleRevision,
 } from "../src/server/ws";
+
+describe("WebSocket capacity reservation", () => {
+  it("counts in-flight upgrades before admitting another connection", () => {
+    expect(__canReserveAgentSocketSlotForTests(4095, 0)).toBe(true);
+    expect(__canReserveAgentSocketSlotForTests(4096, 0)).toBe(false);
+    expect(__canReserveAgentSocketSlotForTests(4095, 1)).toBe(false);
+    expect(__canReserveAgentSocketSlotForTests(4094, 1)).toBe(true);
+  });
+
+  it("reserves the global slot before handleUpgrade", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/server/ws.ts"), "utf8");
+    const reserve = source.indexOf("if (!reserveAgentSocketSlot())");
+    const handleUpgrade = source.indexOf("wss.handleUpgrade(req, socket, head", reserve);
+    expect(reserve).toBeGreaterThanOrEqual(0);
+    expect(handleUpgrade).toBeGreaterThan(reserve);
+    expect(source).toContain("totalAgentSockets + pendingAgentSocketReservations");
+    expect(source).toContain("ws.readyState !== WebSocket.OPEN");
+  });
+});
 
 describe("WebSocket lifecycle session fencing", () => {
   it("closes sessions authenticated before the invalidating revision", () => {

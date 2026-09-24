@@ -37,6 +37,7 @@ const wsMessageInFlightByAgentId = new Map<string, number>();
 // 8 leaves ample headroom for rolling reconnect overlap.
 const MAX_AGENT_SOCKETS = 8;
 const MAX_TOTAL_AGENT_SOCKETS = 4096;
+let pendingAgentSocketReservations = 0;
 const MAX_WS_MESSAGE_BYTES = 64 * 1024;
 const MAX_WS_INFLIGHT_MESSAGES_PER_AGENT = 16;
 const MAX_WS_BUFFERED_BYTES = 1 * 1024 * 1024;
@@ -220,6 +221,11 @@ async function verifyAndTrackAgentSocket(
       transactionOpen = false;
       return false;
     }
+    if (ws.readyState !== WebSocket.OPEN) {
+      await client.query("ROLLBACK");
+      transactionOpen = false;
+      return false;
+    }
 
     trackAgentSocket(agentId, ws);
     tracked = true;
@@ -323,6 +329,36 @@ function writeWsHttpError(socket: WritableSocket, status: number, body: string, 
 function logUpgradeError(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`[ws] upgrade handling failed: ${message.slice(0, 500)}`);
+}
+
+function canReserveAgentSocketSlot(activeCount: number, pendingCount: number, max = MAX_TOTAL_AGENT_SOCKETS): boolean {
+  return (
+    Number.isSafeInteger(activeCount) &&
+    Number.isSafeInteger(pendingCount) &&
+    Number.isSafeInteger(max) &&
+    activeCount >= 0 &&
+    pendingCount >= 0 &&
+    max > 0 &&
+    activeCount + pendingCount < max
+  );
+}
+
+function reserveAgentSocketSlot(): boolean {
+  if (!canReserveAgentSocketSlot(totalAgentSockets, pendingAgentSocketReservations)) return false;
+  pendingAgentSocketReservations += 1;
+  return true;
+}
+
+function releaseAgentSocketSlot(): void {
+  pendingAgentSocketReservations = Math.max(0, pendingAgentSocketReservations - 1);
+}
+
+export function __canReserveAgentSocketSlotForTests(
+  activeCount: number,
+  pendingCount: number,
+  max = MAX_TOTAL_AGENT_SOCKETS,
+): boolean {
+  return canReserveAgentSocketSlot(activeCount, pendingCount, max);
 }
 
 function uncountAgentSocket(ws: AgentSocket): void {
@@ -822,14 +858,22 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         return;
       }
 
-      if (totalAgentSockets >= MAX_TOTAL_AGENT_SOCKETS) {
+      if (!reserveAgentSocketSlot()) {
         writeWsHttpError(socket, 503, "WebSocket connection capacity reached", 1);
         return;
       }
 
-      wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
-        const aws = ws as AgentSocket;
-        aws.isAlive = true;
+      let reservationActive = true;
+      const releaseReservation = () => {
+        if (!reservationActive) return;
+        reservationActive = false;
+        releaseAgentSocketSlot();
+      };
+
+      try {
+        wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+          const aws = ws as AgentSocket;
+          aws.isAlive = true;
         aws.tenantId = agent!.tenantId;
         aws.on("pong", () => { aws.isAlive = true; });
         aws.lifecycleRevision = agent!.lifecycleRevision;
@@ -840,6 +884,7 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         void (async () => {
           try {
             const accepted = await verifyAndTrackAgentSocket(agent!.id, agent!.lifecycleRevision, aws);
+            releaseReservation();
             if (!accepted) {
               try { ws.close(4001, "agent lifecycle changed during WebSocket upgrade"); } catch { try { ws.terminate(); } catch {} }
               return;
@@ -850,10 +895,15 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
             // reconnects retain token state instead of resetting evasion budget.
             wss.emit("connection", ws, req);
           } catch (error) {
+            releaseReservation();
             logUpgradeError(error);
             try { ws.close(1011, "agent lifecycle verification failed"); } catch { try { ws.terminate(); } catch {} }
           }
         })();
+
+        // A client can disconnect while lifecycle verification waits on PostgreSQL.
+        // Release only the reservation; readyState is checked before registration.
+        aws.once("close", releaseReservation);
       });
     } catch (error) {
       logUpgradeError(error);
