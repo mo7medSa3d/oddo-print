@@ -58,4 +58,49 @@ describe("Drizzle Migration Journal & File Integrity", () => {
     expect(schemaTables.size).toBeGreaterThan(0);
     expect(snapshotTables).toEqual(schemaTables);
   });
+
+  // drizzle-kit validates the snapshot CHAIN through `prevId`, not just the
+  // journal: if two snapshots declare the same `prevId` it aborts with
+  // "… are pointing to a parent snapshot … which is a collision" and `db:generate`
+  // produces nothing at all. A hand-installed snapshot with a nil `prevId`
+  // collides with the root 0000 snapshot exactly this way — so assert the
+  // chain is a proper linked list with unique parents.
+  it("keeps the drizzle-kit snapshot prevId chain free of collisions", () => {
+    const metaDir = join(process.cwd(), "drizzle", "meta");
+    const snapshotFiles = readdirSync(metaDir).filter((f) => f.endsWith("_snapshot.json"));
+    expect(snapshotFiles.length).toBeGreaterThan(1);
+
+    const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+    const byPrevId = new Map<string, string[]>();
+    const ids = new Set<string>();
+
+    for (const file of snapshotFiles) {
+      const snap = JSON.parse(readFileSync(join(metaDir, file), "utf8")) as {
+        id?: string;
+        prevId?: string;
+      };
+      expect(typeof snap.id).toBe("string");
+      ids.add(snap.id as string);
+
+      // Every non-root snapshot must name a real parent.
+      expect(typeof snap.prevId).toBe("string");
+      const key = snap.prevId as string;
+      byPrevId.set(key, [...(byPrevId.get(key) ?? []), file]);
+    }
+
+    // No two snapshots may claim the same parent (this is the collision that
+    // made `db:generate` fail outright).
+    for (const [prevId, files] of byPrevId) {
+      expect(files.length, `multiple snapshots share prevId ${prevId}`).toBe(1);
+    }
+
+    // At most one root (nil prevId), and every non-root parent must exist.
+    for (const [prevId, files] of byPrevId) {
+      if (prevId === NIL_UUID) {
+        expect(files.length).toBeLessThanOrEqual(1);
+      } else {
+        expect(ids.has(prevId), `snapshot ${files[0]} points at missing parent ${prevId}`).toBe(true);
+      }
+    }
+  });
 });

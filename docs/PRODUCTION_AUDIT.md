@@ -1173,6 +1173,14 @@ confirmed correct behaviour, and unresolved questions.
 
 ## 25. Post-challenge corrections and applied remediation
 
+### 25.0 Errors in the remediation itself (self-corrected, round 2)
+
+| # | Defect in my own fix | Correction |
+|---|---|---|
+| 7 | The first 0070 snapshot was installed with **`prevId = nil`**. drizzle-kit validates the snapshot **chain** through `prevId`, so it collided with the root `0000_snapshot.json` and `db:generate` failed outright: *"… are pointing to a parent snapshot … which is a collision."* My "fix" had turned a noisy-but-usable generator into a **hard failure**. | Set `prevId` to 0028's `id` (`0f37cee5-…`). Verified empirically: with a temporary column added to `printers`, `db:generate` now emits exactly one statement (`ALTER TABLE "printers" ADD COLUMN …`); with the schema restored it reports *"No schema changes, nothing to migrate"*. |
+| 8 | The regression test I added would NOT have caught #7 — it only checked snapshot existence and table parity. | Added a second assertion that the `prevId` chain is a proper linked list with unique parents. Verified by deliberately breaking `prevId`: the test fails with *"multiple snapshots share prevId 00000000-…: expected 2 to be 1"*. |
+| 9 | A code comment claimed the fenced subqueries are answered "from the composite tenant+id indexes". Overstated — `lifecycle` is not in those indexes. | Comment now states the accurate cost model (index narrows by `tenant_id`, `lifecycle` remains a heap filter) and records that both forms are **row-equivalent** because `printer_id`/`agent_id` are `NOT NULL` with composite FKs on `(tenant_id, id)`. |
+
 ### 25.1 Errors in the first version of this audit (self-corrected)
 
 | # | Original claim | Correction |
@@ -1190,7 +1198,7 @@ confirmed correct behaviour, and unresolved questions.
 |---|---|---|
 | P0 | Tenant-fenced the `NOT IN` subqueries in the dashboard server action, mirroring `api/jobs/route.ts` | `src/app/actions.ts` |
 | P0 | Extracted `confirmReprint()` and wrapped the reprint request in `busy` (NO client idempotency key — see §9) | `src/app/dashboard/dashboard-client.tsx` |
-| P1 | Installed `drizzle/meta/0070_discovered_device_identity_snapshot.json` (25/25 tables match `schema.ts`) so the next `db:generate` diffs from real HEAD; added a regression assertion | `drizzle/meta/`, `tests/migration-journal.test.ts` |
+| P1 | Installed `drizzle/meta/0070_discovered_device_identity_snapshot.json` (25/25 tables match `schema.ts`) **with `prevId` chained to 0028** so the next `db:generate` diffs from real HEAD; added two regression assertions | `drizzle/meta/`, `tests/migration-journal.test.ts` |
 | P1 | Go verification: build, `vet`, `test -race`, stress pass, `GOOS=windows vet` — all clean | (verification only, no source change) |
 | P2 | Consolidated the 13-copy subscription gate into `subscriptionLiveExists()` / `subscriptionLiveWhere()`, all on `clock_timestamp()` | `src/lib/entitlements.ts`, `src/lib/job-delivery.ts`, `src/app/api/agent/jobs/route.ts`, `src/app/api/agent/register/route.ts` |
 | P2 | Replaced host-clock writes with `sql\`now()\``; trial window now derived from `databaseNowMs()` | `src/app/actions.ts`, `src/app/api/settings/route.ts`, `src/app/api/onboarding/route.ts` |
@@ -1211,6 +1219,8 @@ confirmed correct behaviour, and unresolved questions.
 | `npx tsc --noEmit` | **clean** |
 | `npx vitest run --config vitest.config.mts` | **79 files / 559 tests passed, 38 files & 283 tests skipped (PG-gated), 0 failures** |
 | `pytest tests/` (Odoo) | **75 passed** |
+| `drizzle-kit generate` (drift probe: temp column added, then reverted) | emits exactly `ALTER TABLE "printers" ADD COLUMN …`; with schema restored: *"No schema changes, nothing to migrate"* |
+| Negative test of the snapshot-chain guard | deliberate `prevId` break ⇒ test fails as intended |
 | `go build` / `go vet` / `GOOS=windows go vet` | **pass, 0 findings** |
 | `go test -race ./...` | **pass, 0 race-detector reports** — with one unreproduced intermittent failure in `internal/printer` (§5), recorded as an open observation |
 | `GOOS=windows go vet` | **pass** |

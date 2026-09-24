@@ -414,9 +414,17 @@ export async function getDashboardJobs(options?: {
       );
     } else if (statusParam === "unassigned") {
       conditions.push(
-        // The NOT IN subqueries are tenant-fenced so PostgreSQL can answer
-        // them from the composite tenant+id indexes (printers_tenant_id_unique /
-        // agents_tenant_id_unique) instead of full-scanning every tenant's rows.
+        // The NOT IN subqueries are tenant-fenced so PostgreSQL narrows them to
+        // this tenant via the composite (tenant_id, id) unique indexes
+        // (printers_tenant_id_unique / agents_tenant_id_unique) instead of
+        // scanning every tenant's rows. `lifecycle` is not in those indexes, so
+        // it is still a heap filter — but only over this tenant's rows, which is
+        // the point: cost scales with the tenant, not with the platform.
+        //
+        // Unfenced is safe but not equivalent-cost: print_jobs.printer_id /
+        // agent_id are NOT NULL and carry composite FKs on (tenant_id, id), so
+        // both forms select the same rows.
+        //
         // This mirrors the identical filter in src/app/api/jobs/route.ts; the two
         // must stay in lockstep — an unfenced copy here re-introduces a
         // cross-tenant scan on every dashboard poll.
