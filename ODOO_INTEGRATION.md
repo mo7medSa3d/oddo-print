@@ -1,6 +1,6 @@
 # Odoo Integration Guide
 
-> Module: `print_gateway` | Version: 19.0.2.8.0 | Odoo: 19 Community Edition
+> Module: `print_gateway` | Version: 19.0.2.9.0 | Odoo: 19 Community Edition
 
 ## Overview
 
@@ -57,7 +57,7 @@ Patches `PosStore.prototype.printReceipt` to:
 3. Submit the image to `pos.order.action_print_gateway_receipt`
 
 ### Kitchen/Preparation Printing
-Patches `PosStore.prototype.printOrderChanges` to route kitchen tickets through the Gateway with per-printer targeting and idempotency keys.
+Patches `PosStore.prototype.printChanges` so Gateway-enabled POS kitchen tickets are rendered from order changes directly and sent to the Gateway binding; Odoo's native `pos.printer` is not used as a physical target.
 
 ### Sale Details Report (`pos.py`)
 Intercepts the `/pos/sale_details_report` route for Z-report printing.
@@ -81,11 +81,11 @@ Root Company
 |-------|-------------|
 | `company_id` | Root Odoo company (not a branch) |
 | `branch_id` | Optional Odoo branch (child company) |
-| `destination_type` | POS Config, POS Printer, Operation Type, or Report |
+| `destination_type` | POS Receipt, POS Kitchen / Preparation, Operation Type, or Report |
 | `runtime_agent_id` | Gateway agent ID |
 | `printer_id` | Gateway printer ID |
 | `printer_protocol` | Required: escpos, zpl, tspl, raw, spooler, ipp, ipps, unknown |
-| `report_id` | Odoo report to render (not for kitchen bindings) |
+| `report_id` | Odoo report to render for backend/document bindings; POS Receipt and POS Kitchen / Preparation bindings do not require a report |
 | `fallback_binding_id` | Pre-dispatch failover if primary printer is offline |
 
 ### Validation Rules
@@ -94,8 +94,10 @@ Root Company
 - Branch must belong to the selected root company
 - A Branch binding requires an Agent assigned to that exact Branch; a Company-only binding may use any Agent assigned to the Company or one of its direct child Branches
 - Printer must belong to the selected agent
-- POS receipts cannot target laser/inkjet printers
-- Kitchen bindings cannot have a report_id
+- POS Receipt bindings are rendered by the POS client and do not require a PDF report
+- POS Kitchen / Preparation bindings use the POS Shop as the logical destination and the Gateway Runtime Printer as the physical target
+- An Odoo `pos.printer` is not required for Gateway Kitchen / Preparation printing
+- POS receipts and kitchen tickets cannot target laser/inkjet printers
 
 ## Print Policy Automation
 
