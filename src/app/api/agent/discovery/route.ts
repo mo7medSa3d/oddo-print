@@ -78,6 +78,13 @@ export async function POST(req: Request) {
     parsedDevices.push(parsed.data);
   }
 
+  if (devices.length > 0 && parsedDevices.length === 0) {
+    return NextResponse.json(
+      { error: skippedDevices[0]?.reason ?? "No valid discovery devices were supplied" },
+      { status: 400 },
+    );
+  }
+
   function identityKeyForDevice(d: ReturnType<typeof deviceSchema.parse>): string | null {
     const supplied = typeof d.stableId === "string" ? d.stableId.trim() : "";
     if (supplied) return supplied;
