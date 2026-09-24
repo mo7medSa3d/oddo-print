@@ -42,6 +42,15 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Temporary unused export scan (Knip)
+        shell: bash
+        run: |
+          set +e
+          npx --yes knip --include exports --reporter compact
+          status=$?
+          echo "KNIP_EXIT=$status"
+          exit 0
+
       - name: npm audit
         shell: bash
         run: |
@@ -73,6 +82,16 @@ jobs:
       - name: Go vulnerability scan
         working-directory: agent
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.5.0 ./...
+
+      - name: Temporary Go U1000 scan (Staticcheck)
+        working-directory: agent
+        shell: bash
+        run: |
+          set +e
+          go run honnef.co/go/tools/cmd/staticcheck@latest -checks=U1000 ./...
+          status=$?
+          echo "STATICCHECK_U1000_EXIT=$status"
+          exit 0
 
       - name: Rust vulnerability scan
         working-directory: src-tauri
