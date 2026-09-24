@@ -47,10 +47,11 @@ describe("gateway clock calibration", () => {
     // availability gate treats as stale and hides every Agent/printer.
     const lastSeenAt = new Date(Date.now() + 30_000);
     const agent = { lifecycle: "active", status: "online", lastSeenAt };
+    const printer = { lifecycle: "active", status: "online", lastSeenAt };
 
     __setClockSkewForTests(30_000);
     expect(getAgentAvailability(agent).reason).toBe("active-online-fresh");
-    expect(getEffectivePrinterStatus({ lifecycle: "active", status: "online" }, agent)).toBe("online");
+    expect(getEffectivePrinterStatus(printer, agent)).toBe("online");
 
     __setClockSkewForTests(null);
     expect(getAgentAvailability(agent).reason).toBe("stale");
