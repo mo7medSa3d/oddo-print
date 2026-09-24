@@ -145,15 +145,27 @@ func TestNetworkPrinterPartialDelivery(t *testing.T) {
 	}
 	defer ln.Close()
 
-	// Server accepts, reads 10 bytes, and forcefully closes connection with TCP RST
+	// The server intentionally constrains its receive buffer and keeps the
+	// connection open long enough for the client to hit backpressure. Once the
+	// first bytes arrive, it sends a TCP RST. This makes the client-side write
+	// failure deterministic instead of depending on a race between Write and
+	// remote close propagation.
+	ready := make(chan struct{})
 	go func() {
 		conn, err := ln.Accept()
 		if err != nil {
 			return
 		}
+		defer conn.Close()
+
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			_ = tcpConn.SetReadBuffer(1024)
+		}
+		close(ready)
+
 		buf := make([]byte, 10)
 		_, _ = io.ReadFull(conn, buf)
-		// Force immediate TCP RST on Windows and Linux by setting linger to 0
+
 		if tcpConn, ok := conn.(*net.TCPConn); ok {
 			_ = tcpConn.SetLinger(0)
 		}
@@ -161,20 +173,29 @@ func TestNetworkPrinterPartialDelivery(t *testing.T) {
 	}()
 
 	p := &NetworkPrinter{Address: ln.Addr().String()}
-	// Large payload (2MB) to ensure write loop has multiple iterations and gets interrupted
-	largeData := make([]byte, 2*1024*1024)
+
+	// Ensure the accept side has installed the constrained receive window
+	// before starting the large write.
+	select {
+	case <-ready:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for test server")
+	}
+
+	// Large payload guarantees the sender cannot buffer the complete stream
+	// before the peer resets the connection.
+	largeData := make([]byte, 64*1024*1024)
 	for i := range largeData {
 		largeData[i] = 'A'
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	err = p.Print(ctx, largeData)
 	if err == nil {
 		t.Fatal("expected error on severed connection")
 	}
-	// Check that error contains UNKNOWN_PARTIAL_DELIVERY marker
 	if !strings.Contains(err.Error(), "UNKNOWN_PARTIAL_DELIVERY") {
 		t.Fatalf("expected UNKNOWN_PARTIAL_DELIVERY error marker, got: %v", err)
 	}
