@@ -863,7 +863,9 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         return;
       }
 
-      let reservationActive = true;
+      reservationActive = true;
+
+      let reservationActive = false;
       const releaseReservation = () => {
         if (!reservationActive) return;
         reservationActive = false;
