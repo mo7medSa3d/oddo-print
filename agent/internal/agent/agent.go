@@ -1455,9 +1455,6 @@ func (a *Agent) getPrinterLock(printerID string) *sync.Mutex {
 // sendHeartbeatGuarded makes heartbeat ticks non-reentrant: if the previous
 // heartbeat is still running (slow gateway, many offline printers) the tick
 // is skipped instead of queueing up duplicate probes and HTTP calls.
-func (a *Agent) sendHeartbeatGuarded() {
-	a.sendHeartbeatGuardedContext(context.Background())
-}
 
 // sendHeartbeatGuardedContext makes production heartbeat ticks cancellable by
 // the Agent lifecycle while preserving the background-context helper used by
