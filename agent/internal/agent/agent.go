@@ -1559,7 +1559,6 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 	a.printersMu.RUnlock()
 	sort.Strings(ids) // deterministic order aids gateway-side diffing
 
-
 	statuses := make([]string, len(ids))
 	// Probe results flow back through a bounded worker pool. The old heartbeat
 	// ceiling implicitly capped this at 500 goroutines; once inventory became

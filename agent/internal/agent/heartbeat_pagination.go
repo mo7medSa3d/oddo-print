@@ -1,8 +1,6 @@
 package agent
 
-import (
-	"encoding/json"
-)
+import "encoding/json"
 
 const (
 	// The Gateway limit is deliberately a per-page protocol bound, not a

@@ -119,7 +119,6 @@ func isValidDiscoveredPrinter(d DeviceInfo) bool {
 	return true
 }
 
-
 // sameUSBDevice reports whether two discovered USB records have enough
 // identity evidence to represent the same physical printer. VID/PID is only
 // model-level evidence, so it is intentionally insufficient by itself.
