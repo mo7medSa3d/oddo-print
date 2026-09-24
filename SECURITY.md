@@ -12,7 +12,7 @@
 
 ### API Key Authentication (Odoo → Gateway)
 - Format: `Bearer {api_key}`
-- Key stored as SHA-256 hash with prefix for lookup
+- Key stored as a SHA-256 hash of the full credential
 - Scoped to tenant via `api_keys.tenant_id`
 
 ### Customer Authentication
@@ -49,7 +49,7 @@
 - **Protocol enforcement**: Printer capability gating prevents incompatible routing
 - **ZPL/TSPL/ESC/POS**: Character sanitization prevents command injection
 - **SQL**: Parameterized queries via Drizzle ORM (no raw string interpolation)
-- **Document IDs**: Strict integer validation in report download controller
+- **Report IDs**: Odoo-side report interception validates selected record IDs before routing; the native `/report/download` controller remains untouched
 
 ## Tenant Isolation
 
