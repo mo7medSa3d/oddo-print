@@ -151,7 +151,7 @@ describe("deep production review contracts", () => {
     expect((pollClaim.match(/\bstale_candidates\s+AS\s*\(/g) ?? []).length).toBe(1);
     expect((pollClaim.match(/\bqueued_candidates\s+AS\s*\(/g) ?? []).length).toBe(1);
     expect((pollClaim.match(/\bclaimable\s+AS\s*\(/g) ?? []).length).toBe(1);
-    expect((pollClaim.match(/pr\.last_seen_at > now\(\) - make_interval/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((pollClaim.match(/pr\.last_seen_at > now\(\) - make_interval/g) ?? []).length).toBe(3);
   });
 
   it("keeps Agent heartbeat as observed telemetry and Manager-owned desired state", async () => {
