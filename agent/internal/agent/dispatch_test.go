@@ -54,6 +54,7 @@ func TestRedeliveryAdoptsLiveClaimTokenForReports(t *testing.T) {
 	p := &fakePrinter{blocked: make(chan struct{}), startedCh: make(chan string, 1)}
 	ag.printers = map[string]printer.Printer{"p1": p}
 	ag.printerConfigs = map[string]config.PrinterConfig{"p1": {ID: "p1", Name: "Test", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"}}
+	allowInjectedPrintersForTest(ag)
 
 	first := dispatchTestJob("reclaim_token_race", "p1")
 	first["claimToken"] = "tok-A"
@@ -349,6 +350,7 @@ func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
 		"p1": {ID: "p1", Name: "Slow", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
 		"p2": {ID: "p2", Name: "Fast", Type: "network", Endpoint: "127.0.0.1:9101", Protocol: "raw"},
 	}
+	allowInjectedPrintersForTest(ag)
 
 	for i := 0; i < blockedJobs; i++ {
 		id := fmt.Sprintf("slow_%d", i)
