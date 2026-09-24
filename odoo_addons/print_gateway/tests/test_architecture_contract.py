@@ -342,6 +342,18 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertLess(layout_idx, access_idx)
         self.assertLess(access_idx, route_idx)
 
+    def test_report_binding_selection_is_fenced_against_dispatch_toctou(self):
+        router = (MODELS / "print_router.py").read_text(encoding="utf-8")
+        binding = (MODELS / "binding.py").read_text(encoding="utf-8")
+        self.assertIn("def route_report(self, report, records, data=None, explicit_binding=None):", router)
+        route_start = router.index("def route_report(self, report, records, data=None, explicit_binding=None):")
+        route_block = router[route_start:route_start + 2600]
+        self.assertGreaterEqual(route_block.count("explicit_binding=explicit_binding or None"), 2)
+        self.assertIn(
+            "route = router.route_report(report, records, data=data, explicit_binding=binding)",
+            binding,
+        )
+
     def test_report_interceptor_malformed_response_is_fail_closed(self):
         source = (ADDON / "static/src/js/report_interceptor.js").read_text(encoding="utf-8")
         self.assertIn('typeof res.has_binding !== "boolean"', source)
