@@ -89,7 +89,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     let connectionType = parsed.data.connectionType ?? existing.connectionType;
     let protocol = parsed.data.protocol ?? existing.protocol;
-    const cfg = (parsed.data.config ?? existing.config ?? {}) as Record<string, unknown>;
+    const cfg = { ...((existing.config ?? {}) as Record<string, unknown>), ...((parsed.data.config ?? {}) as Record<string, unknown>) };
     if (connectionType === "usb" && typeof cfg.spooler_name === "string" && cfg.spooler_name.trim()) {
       connectionType = "spooler";
       protocol = "spooler";
