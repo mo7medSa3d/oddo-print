@@ -918,6 +918,7 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         try { socket.destroy(); } catch {}
       }
     }
+    }
   });
 
   wss.on("connection", (ws: AgentSocket) => {
