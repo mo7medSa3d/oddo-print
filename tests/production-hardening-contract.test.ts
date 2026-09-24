@@ -96,6 +96,33 @@ describe("production hardening contracts", () => {
     expect(read("scripts/db-migrate.ts")).toContain("hasDatabaseSettings");
   });
 
+  it("scopes Agent-generated printer and discovery identities to the tenant", () => {
+    const schema = read("src/db/schema.ts");
+    const printersBlock = schema.slice(schema.indexOf("export const printers = pgTable"));
+    const printersTable = printersBlock.slice(0, printersBlock.indexOf("export const apiKeys"));
+    expect(printersTable).toContain("id: text(\"id\").notNull()");
+    expect(printersTable).not.toContain("id: text(\"id\").primaryKey()");
+    expect(printersTable).toContain("unique(\"printers_tenant_id_unique\")");
+
+    const discoveredBlock = schema.slice(schema.indexOf("export const discoveredDevices = pgTable"));
+    const discoveredTable = discoveredBlock.slice(0, discoveredBlock.indexOf("export const printJobs"));
+    expect(discoveredTable).toContain("id: text(\"id\").notNull()");
+    expect(discoveredTable).not.toContain("id: text(\"id\").primaryKey()");
+    expect(discoveredTable).toContain("unique(\"discovered_devices_tenant_id_unique\")");
+
+    const heartbeat = read("src/app/api/agent/heartbeat/route.ts");
+    expect(heartbeat).toContain("onConflictDoNothing({ target: [printers.tenantId, printers.id] })");
+    expect(heartbeat).not.toContain("onConflictDoNothing({ target: printers.id })");
+
+    const discovery = read("src/app/api/agent/discovery/route.ts");
+    expect(discovery).toContain("onConflictDoNothing({ target: [discoveredDevices.tenantId, discoveredDevices.id] })");
+
+    const migration = read("drizzle/0072_tenant_scoped_printer_identity.sql");
+    expect(migration).toContain("DROP CONSTRAINT IF EXISTS \"printers_pkey\"");
+    expect(migration).toContain("DROP INDEX IF EXISTS \"printers_gateway_id_global_unique\"");
+    expect(migration).toContain("DROP CONSTRAINT IF EXISTS \"discovered_devices_pkey\"");
+  });
+
   it("keeps Drizzle journal entries unique and aligned with migration files", () => {
     const journal = JSON.parse(read("drizzle/meta/_journal.json")) as { entries: Array<{ tag: string }> };
     const tags = journal.entries.map((entry) => entry.tag);
