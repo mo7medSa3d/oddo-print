@@ -15,6 +15,7 @@ export const integrationVitestTestFiles = [
   "tests/batch-status.test.ts",
   "tests/odoo-gateway-activation-sync.test.ts",
   "tests/odoo-configuration-billing-race.integration.test.ts",
+  "tests/agent-heartbeat-pagination.test.ts",
   "tests/billing-webhook-concurrency.integration.test.ts",
   "tests/billing-webhook.test.ts",
   "tests/database-clock.integration.test.ts",
