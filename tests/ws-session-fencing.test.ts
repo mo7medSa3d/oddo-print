@@ -12,7 +12,7 @@ describe("WebSocket capacity reservation", () => {
     const source = readFileSync(resolve(process.cwd(), "src/server/ws.ts"), "utf8");
     const handleUpgrade = source.indexOf("wss.handleUpgrade(req, socket, head");
     const reservationClose = source.indexOf('socket.once("close", releaseReservation)', handleUpgrade - 600);
-    const guardedCatch = source.indexOf("releaseReservation();\n      } catch (error)", handleUpgrade);
+    const guardedCatch = source.indexOf("releaseReservation();\n        logUpgradeError(error);\n        if (!socket.destroyed", handleUpgrade);
     expect(handleUpgrade).toBeGreaterThanOrEqual(0);
     expect(reservationClose).toBeGreaterThanOrEqual(0);
     expect(guardedCatch).toBeGreaterThan(handleUpgrade);
