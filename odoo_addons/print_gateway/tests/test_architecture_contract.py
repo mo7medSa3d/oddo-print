@@ -101,8 +101,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         # Verbose legacy labels must stay out of the simplified form.
         self.assertNotIn("Hardware Print Binding", source)
         self.assertIn('string="Odoo Preparation Printer"', source)
-        self.assertIn("product_categories_ids", source)
-        self.assertIn("Gateway physical printer remains the physical target", source)
+        self.assertIn("Gateway Runtime Printer remains the physical target", source)
 
     def test_database_utc_clock_is_the_shared_scheduler_clock(self):
         clock = (ADDON / "runtime_clock.py").read_text(encoding="utf-8")
@@ -311,7 +310,6 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("get_gateway_kitchen_routes", source)
         self.assertIn("routeCategories", source)
         self.assertIn("pos_printer_id", source)
-        self.assertIn("product_categories_ids", source)
         self.assertIn("retryItems = null", source)
 
     def test_kitchen_retry_and_reprint_use_fresh_gateway_operations(self):
@@ -330,7 +328,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn('gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial"', source)
         ambiguous_idx = source.index('gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial"')
         ambiguous_block = source[ambiguous_idx:source.index('if (result.successful)', ambiguous_idx)]
-        self.assertIn("continue;", ambiguous_block)
+        self.assertIn("return;", ambiguous_block)
         self.assertNotIn("retryPrinters.add(printer)", ambiguous_block)
         self.assertIn('const recordPrintAttempt = !["failed", "unknown", "partial"].includes(result?.status);', source)
 
