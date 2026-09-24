@@ -1,6 +1,6 @@
 # Yasser Cloud Printing Platform — Architecture
 
-> **Version**: 19.0.2.8.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
+> **Version**: 19.0.2.10.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
 
 ## 1. System Overview
 
@@ -37,11 +37,11 @@ Yasser Cloud Printing Platform is a multi-tenant SaaS platform that enables sile
 
 ## 2. Component Architecture
 
-### 2.1 Central Gateway (Next.js 16.3.4 + Custom Server)
+### 2.1 Central Gateway (Next.js 16.3.6 + Custom Server)
 
 **Location**: `src/`, `server.ts`
 
-The Gateway is a Next.js 16.3.4 application with a **custom HTTP server** (`server.ts`) that:
+The Gateway is a Next.js 16.3.6 application with a **custom HTTP server** (`server.ts`) that:
 - Runs the Next.js request handler for API routes and dashboard UI
 - Attaches a WebSocket server for real-time agent communication (`/api/agent/ws`)
 - Runs periodic maintenance (job sweep, auth cleanup, agent presence sweep)
@@ -91,7 +91,7 @@ A Tauri 2 desktop application for Windows that provides:
 An Odoo 19 Community module that:
 - Owns print bindings: maps (Company/Branch, Document Type, Destination) → (Gateway Agent, Gateway Printer)
 - Intercepts `ir.actions.report` execution for silent PDF printing
-- Overrides `/report/download` controller for defense-in-depth report interception
+- Registers an OWL report-action handler (`report_interceptor.js`) for defense-in-depth silent report interception
 - Routes POS receipts and kitchen tickets as JPEG images
 - Supports raw command routing (ZPL, TSPL, ESC/POS) with protocol enforcement
 - Implements automated print policies with event-driven intent dispatch
@@ -162,7 +162,7 @@ claimed → queued (fenced rejection / lease timeout)
 - Auth rate limiting: per-key with lockout (`auth_rate_limits` table)
 - WebSocket upgrade: per-IP rate limiting
 - WebSocket messages: per-agent token bucket (20 capacity, 5/s refill)
-- Print job submission: per-API-key minute/hour windows (`print_job_rate_limits` table)
+- Print job admission: tenant plan entitlements and bounded Agent queue/in-flight limits
 
 ### Input Validation
 
@@ -176,7 +176,7 @@ claimed → queued (fenced rejection / lease timeout)
 
 ### PostgreSQL + Drizzle ORM
 
-**Schema**: 25 tables defined in `src/db/schema.ts`
+**Schema**: 24 tables defined in `src/db/schema.ts`
 **Migrations**: 73 forward-only migrations (`0000`–`0072`) in `drizzle/`
 **Driver**: `pg` 8.23.0 with connection pool
 
