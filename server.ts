@@ -6,7 +6,8 @@ import { parse } from "url";
 import next from "next";
 import { attachAgentWSS } from "./src/server/ws";
 import { guardApiRequest } from "./src/server/request-guard";
-import { sweepPrintJobs } from "./src/lib/job-maintenance";
+import { applyApiCacheControlDefault } from "./src/server/api-defaults";
+import { sweepPrintJobs from "./src/lib/job-maintenance";
 import { cleanupAuthRateLimits } from "./src/lib/auth-rate-limit";
 import { cleanupExpiredManagerSessions } from "./src/lib/manager-auth";
 import { applyApiCors, handleApiCorsPreflight } from "./src/server/cors";
@@ -39,8 +40,10 @@ const KNOWN_PLACEHOLDER_SECRETS = new Set([
   "replace-with-another-at-least-32-random-secret",
 ]);
 
-function assertRealSecret(name: string, value: string | undefined, minLength: number): string | undefined {
-  if (!value || value.length < minLength) return value;
+function assertRealSecret(name: string, value: string | undefined, minLength: number): string {
+  if (!value || value.length < minLength) {
+    throw new Error(`Refusing production startup: ${name} must be configured with a real secret of at least ${minLength} characters.`);
+  }
   if (KNOWN_PLACEHOLDER_SECRETS.has(value.trim())) {
     throw new Error(`Refusing production startup: ${name} is a known example placeholder from the repository. Generate a real secret (>=${minLength} chars).`);
   }
@@ -150,6 +153,7 @@ const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {
+    applyApiCacheControlDefault(req, res);
     if (trustProxyEnabled() && req.url !== "/api/health" && req.url !== "/api/live") {
       const headers = new Headers();
       for (const [key, value] of Object.entries(req.headers)) {

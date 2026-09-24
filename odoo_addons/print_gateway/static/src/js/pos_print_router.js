@@ -3,6 +3,7 @@
 import { patch } from "@web/core/utils/patch";
 import { showGatewayBillingLimitDialog } from "./gateway_limit_dialog";
 import { PosStore } from "@point_of_sale/app/services/pos_store";
+import { changesToOrder } from "@point_of_sale/app/models/utils/order_change";
 import { renderToElement } from "@web/core/utils/render";
 import { htmlToCanvas } from "@point_of_sale/app/services/render_service";
 import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt";
@@ -184,21 +185,129 @@ patch(PosStore.prototype, {
         return receiptsData;
     },
 
-    async printChanges(order, orderChange, reprint = false, printers = this.unwatched.printers) {
-        let isPrinted = false;
-        const unsuccessfulPrints = [];
-        const retryPrinters = new Set();
+    async sendOrderInPreparation(order, opts = {}) {
+        const sessionId = this.session?.id;
+        const gatewayEnabled = sessionId
+            ? await this.data.call("pos.session", "is_gateway_printing_enabled", [[sessionId]], {}, true)
+            : false;
+        if (gatewayEnabled !== true) {
+            return super.sendOrderInPreparation(order, opts);
+        }
 
-        // Odoo 19 core retries every { successful: false } result. A Gateway
-        // "unknown"/"partial" outcome has crossed the physical boundary and
-        // therefore must never enter that retry path: the ticket may already
-        // exist on paper.
-        for (const printer of printers) {
+        let isPrinted = false;
+        let hasChanges = false;
+        try {
+            this.syncingOrders.add(order.uuid);
+
+            if (!opts.byPassPrint) {
+                let reprint = false;
+
+                // Odoo's native preparation gate depends on config.printerCategories,
+                // which is populated only from native pos.printer records. In Gateway
+                // mode the physical printer is owned by the Gateway, so use every
+                // loaded POS category as the logical preparation scope instead.
+                const gatewayCategories = new Set();
+                for (const product of this.models["product.product"].getAll()) {
+                    for (const categoryId of product?.parentPosCategIds || []) {
+                        gatewayCategories.add(categoryId);
+                    }
+                }
+
+                let orderChange = changesToOrder(order, gatewayCategories, opts.cancelled);
+                hasChanges =
+                    orderChange.new.length ||
+                    orderChange.cancelled.length ||
+                    orderChange.noteUpdate.length ||
+                    orderChange.internal_note ||
+                    orderChange.general_customer_note;
+
+                let shouldPrint = true;
+                if (!hasChanges) {
+                    if (opts.explicitReprint && order.uiState.lastPrints) {
+                        orderChange = [order.uiState.lastPrints.at(-1)];
+                        reprint = true;
+                    } else {
+                        shouldPrint = false;
+                    }
+                } else {
+                    orderChange = [orderChange];
+                }
+
+                if (reprint && opts.orderDone) {
+                    shouldPrint = false;
+                }
+
+                if (shouldPrint) {
+                    isPrinted = await this.printChanges(order, orderChange, reprint);
+                    if (isPrinted) {
+                        order.updateLastOrderChange();
+                    }
+                }
+            }
+
+            this.updateLastOrderChangeIfNoDevice(order, opts);
+        } finally {
+            this.syncingOrders.delete(order.uuid);
+        }
+
+        return isPrinted;
+    },
+
+    async printChanges(order, orderChange, reprint = false, printers = this.unwatched.printers) {
+        const sessionId = this.session?.id;
+        const gatewayEnabled = sessionId
+            ? await this.data.call("pos.session", "is_gateway_printing_enabled", [[sessionId]], {}, true)
+            : false;
+        if (gatewayEnabled !== true) {
+            return super.printChanges(order, orderChange, reprint, printers);
+        }
+
+        const orderId = order?.id;
+        if (!orderId) {
+            const message = "The POS order is not synchronized yet, so kitchen printing cannot continue.";
+            this.notification.add(message, { type: "danger" });
+            return false;
+        }
+
+        try {
+            const hasBinding = await this.data.call(
+                "pos.order",
+                "has_gateway_kitchen_binding",
+                [[orderId]],
+                {},
+                true
+            );
+            if (hasBinding !== true) {
+                this.notification.add(
+                    "Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for the current POS Shop.",
+                    { type: "danger", sticky: true }
+                );
+                return false;
+            }
+
+            // Gateway owns the physical target. Build one complete kitchen
+            // ticket from the current order changes without consulting Odoo's
+            // native pos.printer list.
+            const categoryIds = new Set();
+            for (const change of orderChange) {
+                for (const key of ["new", "cancelled", "noteUpdate"]) {
+                    for (const line of change?.[key] || []) {
+                        const product = this.models["product.product"].get(line.product_id);
+                        for (const categoryId of product?.parentPosCategIds || []) {
+                            categoryIds.add(categoryId);
+                        }
+                    }
+                }
+            }
+
+            let isPrinted = false;
+            const unsuccessfulPrints = [];
+
             for (const change of orderChange) {
                 const { orderData, changes } = this.generateOrderChange(
                     order,
                     change,
-                    printer.config.product_categories_ids,
+                    [...categoryIds],
                     reprint
                 );
                 const receiptsData = await this.generateReceiptsDataToPrint(
@@ -206,8 +315,9 @@ patch(PosStore.prototype, {
                     changes,
                     change
                 );
+
                 for (const data of receiptsData) {
-                    const result = await this.printOrderChanges(data, printer);
+                    const result = await this.printOrderChanges(data);
 
                     if (result?.gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial") {
                         this.notification.add(
@@ -221,36 +331,40 @@ patch(PosStore.prototype, {
                     if (result.successful) {
                         isPrinted = true;
                     } else {
-                        retryPrinters.add(printer);
                         unsuccessfulPrints.push(
-                            printer.config.name + ": " +
-                            (result.message?.body || "Kitchen print failed.")
+                            result.message?.body || "Kitchen / Preparation print failed."
                         );
                     }
 
                     if (result.successful && result.warningCode) {
-                        this.displayPrinterWarning(result, printer.config.name);
+                        this.displayPrinterWarning(result, "Gateway Kitchen");
                     }
                 }
             }
-        }
 
-        if (!reprint && isPrinted && orderChange.length) {
-            order.uiState.lastPrints.push(orderChange[0]);
-        }
+            if (!reprint && isPrinted && orderChange.length) {
+                order.uiState.lastPrints.push(orderChange[0]);
+            }
 
-        if (unsuccessfulPrints.length) {
-            const failedReceipts = unsuccessfulPrints.join("\n");
-            this.dialog.add(RetryPrintPopup, {
-                message: failedReceipts,
-                canRetry: true,
-                retry: () => {
-                    this.printChanges(order, orderChange, reprint, retryPrinters);
-                },
-            });
-        }
+            if (unsuccessfulPrints.length) {
+                const failedReceipts = unsuccessfulPrints.join("\n");
+                this.dialog.add(RetryPrintPopup, {
+                    message: failedReceipts,
+                    canRetry: true,
+                    retry: () => {
+                        this.printChanges(order, orderChange, reprint);
+                    },
+                });
+            }
 
-        return isPrinted;
+            return isPrinted;
+        } catch (error) {
+            if (showGatewayBillingLimitDialog(this.env, error)) {
+                return false;
+            }
+            this.notification.add(error?.message || "Kitchen / Preparation printing failed.", { type: "danger" });
+            return false;
+        }
     },
 
     async printOrderChanges(data, printer) {
@@ -282,7 +396,7 @@ patch(PosStore.prototype, {
                 "pos.order",
                 "action_print_gateway_kitchen",
                 [[orderId]],
-                { printer_id: printer.config.id, image, reprint, operation_id: operationId },
+                { image, reprint, operation_id: operationId },
                 true
             );
             const status = result?.status;

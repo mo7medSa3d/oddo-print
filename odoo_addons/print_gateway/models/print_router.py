@@ -450,25 +450,21 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
-    def route_kitchen_print(self, order, native_printer, image_base64, *, reprint=False, idempotency_key=None):
+    def route_kitchen_print(self, order, image_base64, *, reprint=False, idempotency_key=None):
         order.ensure_one()
-        native_printer.ensure_one()
         self._assert_current_company(order.company_id, record=order)
         company = self.env.company
-        if native_printer.company_id != company:
-            raise ValidationError(_("Kitchen printer belongs to another Odoo company."))
         self._validate_jpeg_base64(image_base64)
         route = self.resolve_binding(
-            record=order, company=company, document_type="kitchen", explicit_destination=native_printer,
+            record=order, company=company, document_type="kitchen", explicit_destination=order.config_id,
         )
         if route.get("native"):
             raise ValidationError(
-                _("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for the selected Odoo printer.")
+                _("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for the current POS Shop.")
             )
-        stable_key = "%s:%s" % (idempotency_key or uuid.uuid4().hex, native_printer.id)
         return self._submit_route(
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},
-            company=company, source_model=order._name, source_record_id=order.id, idempotency_key=stable_key,
+            company=company, source_model=order._name, source_record_id=order.id, idempotency_key=idempotency_key,
         )
 
     @api.model
@@ -618,17 +614,20 @@ class PrintGatewayRouter(models.AbstractModel):
                     )
             elif current_company.parent_id:
                 # Root binding used from one of its branches: allowed as the
-                # documented find_for fallback. Company-wide assignment is
-                # still required by the centralized runtime authorization.
+                # documented find_for fallback. The centralized runtime
+                # authorization permits an Agent assigned to this Company or
+                # to any of its direct child Branches for a company-wide rule.
                 pass
             if not binding.printer_id:
                 raise ValidationError(_("Print binding '%s' has no Gateway Runtime Printer assigned.") % binding.display_name)
             if binding.branch_id and not binding.runtime_agent_id:
                 raise ValidationError(_("Print binding '%s' has no Gateway Runtime Agent assigned.") % binding.display_name)
             if binding.runtime_agent_id:
-                # Authorization follows the Binding's declared scope: branch Bindings may inherit
-                # a company-wide assignment, while root/company-wide Bindings require a company-wide
-                # assignment even when a child branch consumes the root fallback.
+                # Authorization follows the Binding's declared scope: a Branch
+                # A Branch Binding must use an Agent assigned to that exact
+                # Branch. A root/company-wide Binding may use any assignment
+                # owned by the selected Company, including a child-Branch
+                # assignment.
                 binding_scope = binding.branch_id or False
                 self._assert_branch_agent_assignment(
                     binding.company_id, binding_scope, binding.runtime_agent_id,

@@ -114,9 +114,11 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 'status': status,
             })
         # Binding pickers must only expose Agents explicitly assigned to the
-        # selected Odoo Company + Branch. The Pair Agent wizard deliberately
-        # omits assignment_only so it can discover a new Agent before creating
-        # that assignment. This is a discovery filter, not the authorization
+        # selected Odoo scope. With no Branch selected, a company-wide binding
+        # may use any Agent assigned to the root Company or one of its direct
+        # child Branches. The Pair Agent wizard deliberately omits
+        # assignment_only so it can discover a new Agent before creating that
+        # assignment. This is a discovery filter, not the authorization
         # boundary; binding write-time validation remains authoritative.
         if assignment_only:
             allowed_agent_ids = self._assigned_runtime_agent_ids(root_company, branch)

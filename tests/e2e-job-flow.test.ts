@@ -3,13 +3,21 @@ import { createServer, type Server } from "http";
 import { AddressInfo } from "net";
 import WebSocket from "ws";
 import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, jobRow, closePool, pool, type Fixture } from "./helpers/pg";
-import { attachAgentWSS, handleAgentMessage } from "../src/server/ws";
+import { attachAgentWSS, handleAgentMessage, __getNotificationListenerPidForTests } from "../src/server/ws";
 import { POST as printJobsPOST, GET as printJobsGET } from "../src/app/api/print/jobs/route";
 import { GET as agentJobsGET, PATCH as agentJobsPATCH } from "../src/app/api/agent/jobs/route";
 
 const suite = describe.skipIf(!hasTestDatabase);
 function pdfBase64() { return Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n").toString("base64"); }
 function odooRequest(key: string, body: unknown) { return new Request("http://gateway.test/api/print/jobs", { method: "POST", headers: { Authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify(body) }); }
+async function waitForNotificationListener(timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (__getNotificationListenerPidForTests() !== null) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("PostgreSQL notification listener did not become ready before the E2E server started.");
+}
 
 suite("end-to-end job flow (Odoo -> Gateway -> agent socket -> status)", () => {
   let server: Server; let port: number; let f: Fixture; const sockets: WebSocket[] = [];
@@ -19,6 +27,7 @@ suite("end-to-end job flow (Odoo -> Gateway -> agent socket -> status)", () => {
     attachAgentWSS(server);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     port = (server.address() as AddressInfo).port;
+    await waitForNotificationListener();
   });
   afterAll(async () => {
     for (const ws of sockets) { try { ws.close(); } catch {} }

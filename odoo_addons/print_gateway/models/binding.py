@@ -34,8 +34,8 @@ def _assert_report_usage_access(env, report):
 
 
 DESTINATION_MODELS = [
-    ("pos", "POS Configuration"),
-    ("pos_printer", "POS / Kitchen Printer"),
+    ("pos", "POS Receipt"),
+    ("pos_printer", "POS Kitchen / Preparation"),
     ("picking_type", "Operation Type"),
     ("report", "Report"),
 ]
@@ -78,12 +78,14 @@ class PrintGatewayBinding(models.Model):
         DESTINATION_MODELS, string="Destination Type", required=True, default="pos",
     )
     destination_pos_config_id = fields.Many2one(
-        "pos.config", string="POS Configuration", ondelete="restrict", check_company=True,
+        "pos.config", string="POS Shop", ondelete="restrict", check_company=True,
         domain="['&', '|', ('company_id', '=', False), ('company_id', '=', effective_company_id), ('active', '=', True)]",
+        help="Logical POS destination. The physical printer is selected from the Gateway Runtime Printer below.",
     )
     destination_pos_printer_id = fields.Many2one(
-        "pos.printer", string="POS / Kitchen Printer", ondelete="restrict", check_company=True,
+        "pos.printer", string="Legacy Odoo Kitchen Printer", ondelete="restrict", check_company=True,
         domain="['|', ('company_id', '=', False), ('company_id', '=', effective_company_id)]",
+        help="Legacy compatibility only. New Gateway Kitchen bindings must select the POS Shop and Gateway Runtime Printer instead.",
     )
     destination_picking_type_id = fields.Many2one(
         "stock.picking.type", string="Operation Type", ondelete="restrict", check_company=True,
@@ -196,27 +198,37 @@ class PrintGatewayBinding(models.Model):
                     "The failover binding must use the same document type as the primary binding."
                 ))
 
-    @api.depends("destination_type", "destination_pos_config_id", "destination_pos_printer_id", "destination_picking_type_id", "destination_report_id")
+    @api.depends("destination_type", "destination_pos_config_id", "destination_pos_printer_id", "destination_picking_type_id", "destination_report_id", "report_id")
     def _compute_destination_ref(self):
         for record in self:
             destination = False
-            if record.destination_type == "pos":
-                destination = record.destination_pos_config_id
-            elif record.destination_type == "pos_printer":
-                destination = record.destination_pos_printer_id
+            if record.destination_type in ("pos", "pos_printer"):
+                # New POS Kitchen bindings target the POS Shop directly. Keep
+                # the native Odoo printer fallback only for legacy records.
+                destination = record.destination_pos_config_id or record.destination_pos_printer_id
             elif record.destination_type == "picking_type":
                 destination = record.destination_picking_type_id
             elif record.destination_type == "report":
-                destination = record.destination_report_id
+                # report_id is the single operator-facing report selector. Keep
+                # destination_report_id as a legacy compatibility field only.
+                destination = record.report_id or record.destination_report_id
             record.destination_ref = "%s,%s" % (destination._name, destination.id) if destination else False
 
-    @api.depends("report_id", "report_id.model", "report_id.report_name", "destination_type", "destination_pos_printer_id")
+    @api.depends(
+        "report_id", "report_id.model", "report_id.report_name",
+        "destination_report_id", "destination_report_id.model",
+        "destination_report_id.report_name", "destination_type",
+    )
     def _compute_document_type(self):
         for record in self:
-            if record.destination_type == "pos_printer":
+            if record.destination_type == "pos":
+                record.document_type = "receipt"
+            elif record.destination_type == "pos_printer":
                 record.document_type = "kitchen"
-            elif record.report_id:
-                report = record.report_id
+            elif record.report_id or record.destination_report_id:
+                # Legacy rows may still carry only destination_report_id until
+                # the 2.10 migration completes. New rows use report_id.
+                report = record.report_id or record.destination_report_id
                 record.document_type = DOCUMENT_TYPE_BY_MODEL.get(report.model, "report:%s" % (report.report_name or report.id).strip().lower())
             else:
                 record.document_type = False
@@ -233,7 +245,7 @@ class PrintGatewayBinding(models.Model):
     @api.onchange("destination_type")
     def _onchange_destination_type(self):
         for record in self:
-            if record.destination_type != "pos":
+            if record.destination_type not in ("pos", "pos_printer"):
                 record.destination_pos_config_id = False
             if record.destination_type != "pos_printer":
                 record.destination_pos_printer_id = False
@@ -241,8 +253,16 @@ class PrintGatewayBinding(models.Model):
                 record.destination_picking_type_id = False
             if record.destination_type != "report":
                 record.destination_report_id = False
-            if record.destination_type == "pos_printer":
+            if record.destination_type in ("pos", "pos_printer"):
                 record.report_id = False
+            elif record.destination_type == "report":
+                record.destination_report_id = record.report_id or record.destination_report_id
+
+    @api.onchange("report_id")
+    def _onchange_report_id(self):
+        for record in self:
+            if record.destination_type == "report":
+                record.destination_report_id = record.report_id
 
     @api.onchange("company_id")
     def _onchange_company_id(self):
@@ -333,8 +353,10 @@ class PrintGatewayBinding(models.Model):
         if agent.get("id") != self.runtime_agent_id:
             raise ValidationError(_("Gateway Runtime Printer does not belong to the selected Runtime Agent."))
         device_class = str(selected_printer.get("deviceClass") or "").strip().lower()
-        if self.destination_type in ("pos", "pos_printer") and device_class in ("laser", "inkjet"):
-            raise ValidationError(_("Point of Sale receipts require a thermal receipt printer, not a document/laser printer."))
+        if self.destination_type == "pos" and device_class in ("laser", "inkjet"):
+            raise ValidationError(_("POS receipts require a thermal receipt printer, not a document/laser printer."))
+        if self.destination_type == "pos_printer" and device_class in ("laser", "inkjet"):
+            raise ValidationError(_("POS Kitchen / Preparation printing requires a thermal printer, not a document/laser printer."))
         if self.destination_type == "picking_type" and device_class in ("laser", "inkjet") and not self.report_id:
             raise ValidationError(_("Direct inventory/warehouse operations require a label or thermal printer."))
 
@@ -383,12 +405,31 @@ class PrintGatewayBinding(models.Model):
                 raise ValidationError(_("Odoo Destination belongs to another company/branch context."))
             if record.report_id and getattr(record.report_id, "company_id", False) and record.report_id.company_id != expected_company:
                 raise ValidationError(_("Document / Report belongs to another company/branch context."))
-            if record.destination_type == "pos_printer":
-                printer_configs = record.destination_pos_printer_id.pos_config_ids
-                if printer_configs and expected_company not in printer_configs.mapped("company_id"):
-                    raise ValidationError(_("POS / Kitchen Printer is not available to the selected Odoo Branch."))
+            if record.destination_type == "pos":
+                if not record.destination_pos_config_id:
+                    raise ValidationError(_("A POS Shop is required for a POS Receipt binding."))
+                if record.destination_pos_printer_id:
+                    raise ValidationError(_("POS Receipt bindings must not select an Odoo Kitchen Printer."))
                 if record.report_id:
-                    raise ValidationError(_("Kitchen bindings use the built-in Kitchen / Preparation document type."))
+                    raise ValidationError(_("POS Receipt bindings must not select an Odoo Report; the receipt is rendered by the POS client."))
+            elif record.destination_type == "pos_printer":
+                if record.destination_pos_config_id and record.destination_pos_printer_id:
+                    raise ValidationError(_("POS Kitchen / Preparation bindings must not select an Odoo Kitchen Printer; choose the POS Shop and Gateway Runtime Printer."))
+                if not record.destination_pos_config_id and not record.destination_pos_printer_id:
+                    raise ValidationError(_("A POS Shop is required for a POS Kitchen / Preparation binding."))
+                if record.destination_pos_printer_id:
+                    # Legacy binding compatibility: old records may still point
+                    # at a native Odoo printer and remain readable.
+                    printer_configs = record.destination_pos_printer_id.pos_config_ids
+                    if printer_configs and expected_company not in printer_configs.mapped("company_id"):
+                        raise ValidationError(_("Legacy Odoo Kitchen Printer is not available to the selected Odoo Branch."))
+                if record.report_id:
+                    raise ValidationError(_("POS Kitchen / Preparation bindings must not select an Odoo Report."))
+            elif record.destination_type == "report":
+                if not record.report_id:
+                    raise ValidationError(_("A Report must be selected for this Destination Type."))
+                if record.destination_report_id and record.destination_report_id != record.report_id:
+                    raise ValidationError(_("Report destination and report document must be the same record."))
             elif not record.report_id:
                 raise ValidationError(_("A real Odoo report must be selected for this Destination Type."))
             if record.report_id and record.report_id.model == "pos.order" and record.destination_type not in ("pos", "report"):

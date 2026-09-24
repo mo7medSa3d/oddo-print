@@ -1750,9 +1750,11 @@ class TestControlPlane(TransactionCase):
                     idempotency_key="test_scope_%s_%s" % (company.id, binding.id),
                 )
 
-        # A root Binding is authorized by its own company-wide scope. Revoking
-        # that assignment must not be bypassed by adding a branch-only
-        # assignment for the same Agent.
+        # A root/company-wide Binding can use any enabled assignment owned by
+        # the Company, including a direct child-Branch assignment. Therefore a
+        # child assignment legitimately keeps the Agent authorized for the
+        # Company-wide binding even when its separate company-wide assignment
+        # is disabled.
         revocable_printer = "printer-scope-revocable-root"
         revocable_agent = "agent-scope-%s" % revocable_printer
         self.env["print_gateway.runtime_agent_assignment"].create({
@@ -1773,8 +1775,9 @@ class TestControlPlane(TransactionCase):
             "runtime_agent_id": revocable_agent,
             "enabled": True,
         })
-        with self.assertRaises(ValidationError):
-            _route(self.branch, revocable_root_binding)
+        self.assertTrue(
+            _route(self.branch, revocable_root_binding).get("gateway_enabled")
+        )
         # Same branch: the binding find_for would resolve here.
         self.assertTrue(_route(self.branch, branch_binding).get("gateway_enabled"))
         # Manually supplied binding works the same as a resolved one.
@@ -1783,7 +1786,8 @@ class TestControlPlane(TransactionCase):
         with self.assertRaises(ValidationError):
             _route(self.branch, sibling_binding)
         # Branch operation with a root binding: allowed, mirroring find_for's
-        # documented (company, branch=False) fallback.
+        # documented (company, branch=False) fallback. A child-Branch Agent
+        # assignment is also valid for the Company-wide binding.
         self.assertTrue(_route(self.branch, root_binding).get("gateway_enabled"))
         # Root operation with a branch binding: find_for from the root only
         # searches branch=False, so this is rejected.

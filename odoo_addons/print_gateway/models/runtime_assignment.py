@@ -49,10 +49,13 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
     def assigned_agent_ids(self, company, branch=False):
         """Return enabled Gateway Agent IDs assigned to an Odoo scope.
 
-        Branch scope inherits company-wide assignments (branch_id=False), while
-        a root company scope accepts only company-wide assignments. This is the
-        single source of truth consumed by the controller, binding validation,
-        and print router.
+        A Branch scope contains only Agents assigned to that exact Branch. A
+        root/company-wide scope includes every enabled Agent assigned to the
+        company itself or to one of its direct child Branches. This lets a
+        binding created without a Branch use any Agent that belongs to the
+        selected Odoo Company, while a Branch-scoped binding never inherits
+        another scope. This is the single source of truth consumed by the
+        controller, binding validation, and print router.
         """
         company = company.exists() if company else company
         if not company or len(company) != 1:
@@ -65,19 +68,25 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
             branch = branch.exists()
             if not branch or len(branch) != 1:
                 return set()
-            # Never inherit a company-wide assignment into an unrelated
-            # branch. This guard is deliberately inside the source-of-truth
-            # lookup, not only in model constraints or UI domains.
+            # Branch-scoped bindings are exact: do not inherit company-wide
+            # or other-branch assignments. This rule stays inside the source
+            # of truth so UI and server-side authorization have identical scope
+            # semantics.
             if branch.parent_id != company:
                 return set()
+            domain.append(("branch_id", "=", branch.id))
+        else:
+            # A Company-only binding is explicitly a company-wide rule. It may
+            # therefore use any enabled Agent assigned to the root Company or
+            # to one of its direct child Branches. The assignment row still
+            # remains owned by the same root Company, so this does not cross a
+            # tenant boundary.
             domain = [
                 "|",
-                ("branch_id", "=", branch.id),
                 ("branch_id", "=", False),
+                ("branch_id.parent_id", "=", company.id),
                 *domain,
             ]
-        else:
-            domain.append(("branch_id", "=", False))
         return {
             record.runtime_agent_id.strip()
             for record in self.sudo().search(domain)

@@ -241,12 +241,13 @@ describe("Odoo addon static contracts", () => {
       }
       return 0;
     };
-    // Ordering is strict and unambiguous: Odoo executes applicable
-    // migrations in ascending version order, so numeric and lexical order
-    // must agree (readdir order itself is filesystem-dependent and is not
-    // asserted).
+    // Odoo orders migrations by parsed numeric version, not by filesystem
+    // enumeration or lexical directory-name order (e.g. 2.10 comes after 2.8).
+    // Validate the semantic order independently of how the filesystem lists it.
     const sorted = [...versions].sort(compare);
-    expect(sorted).toEqual([...versions].sort());
+    for (let i = 1; i < sorted.length; i += 1) {
+      expect(compare(sorted[i - 1], sorted[i])).toBeLessThan(0);
+    }
     // Every migration step ships exactly one stage script defining migrate().
     for (const version of versions) {
       const pre = path.join(dir, version, "pre-migrate.py");

@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: static-security-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: true
 
 jobs:
   codeql:
@@ -64,10 +64,7 @@ jobs:
 
   dependency-review:
     name: Dependency Review
-    # The repository's Dependency Graph is unavailable in this environment.
-    # Keep the isolated HTTP test PR's CodeQL/secret gates active, while the
-    # production/main path continues to run Dependency Review normally.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref != 'test/http-server-ready'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
