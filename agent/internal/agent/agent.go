@@ -1618,7 +1618,7 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 						status = work.p.Status()
 					}()
 					a.setProbeLastStatus(work.pid, status)
-				a.observeDesiredRevision(work.pid, status)
+					a.observeDesiredRevision(work.pid, status)
 					results <- probeResult{idx: work.idx, status: status}
 				}()
 			}
