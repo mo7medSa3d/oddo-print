@@ -28,7 +28,7 @@ def _assert_report_usage_access(env, report):
     if env.is_superuser:
         return report
     allowed_group_ids = set(report.group_ids.ids)
-    if allowed_group_ids and not allowed_group_ids.intersection(env.user.groups_id.ids):
+    if allowed_group_ids and not allowed_group_ids.intersection(env.user.all_group_ids.ids):
         raise AccessError(_("You are not allowed to view or use this report."))
     return report
 
