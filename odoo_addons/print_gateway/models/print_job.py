@@ -757,6 +757,7 @@ class PrintGatewayJob(models.Model):
             name = type(current).__name__
             if name in (
                 "ConnectionRefusedError",
+                "ConnectTimeout",
                 "gaierror",
                 "NewConnectionError",
                 "ConnectTimeoutError",
