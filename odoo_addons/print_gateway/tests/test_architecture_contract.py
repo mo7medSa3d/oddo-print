@@ -297,6 +297,11 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         prefix = source[max(0, method_idx - 80):method_idx]
         self.assertIn("@api.private", prefix)
 
+    def test_kitchen_gateway_preserves_odoo19_preparation_category_scope(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("const gatewayCategories = this.config.printerCategories;", source)
+        self.assertNotIn('this.models["product.product"].getAll()', source)
+
     def test_kitchen_gateway_fails_closed_on_missing_station_binding(self):
         source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
         self.assertIn("missing_routes", source)
