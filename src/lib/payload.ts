@@ -187,9 +187,12 @@ export function buildTestPrintPayloadForPrinter(
   const byteTransportEligible =
     conn === "usb" ||
     (conn === "network" && declared !== "ipp" && declared !== "ipps");
+  // For a declared byte protocol, explicit capabilities can only confirm
+  // that protocol; they cannot replace it with another language. The Gateway
+  // routing contract fences physical byte transports to the declared protocol.
+  // Unknown byte transports remain dark until a protocol is explicitly declared.
   const byteProto =
     (declaredByteProtocol && allows(declaredByteProtocol) ? declaredByteProtocol : null) ??
-    (byteTransportEligible && hasExplicitCaps ? byteCandidates.find((candidate) => allows(candidate)) : null) ??
     "";
   const plainName = safeTestText(printerName);
   const plainAgent = safeTestText(agentName);
