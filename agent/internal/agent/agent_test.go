@@ -1037,6 +1037,8 @@ func TestPollJobsDispatchesBoundedBatch(t *testing.T) {
 		t.Fatal("a valid in-limit batch did not drain before test cleanup")
 	}
 
+}
+
 func TestProcessJobCancellationBeforePrintingRefusesHardware(t *testing.T) {
 	printingStarted := make(chan struct{})
 	var printingOnce sync.Once
