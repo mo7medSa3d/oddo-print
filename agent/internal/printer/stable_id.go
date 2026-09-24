@@ -135,6 +135,13 @@ func StableIDFromEndpoint(endpoint string) string {
 // not expose a durable identity.
 func StableIDForDevice(d DeviceInfo) string {
 	if key, ok := physicalIdentityKey(d); ok {
+		// Keep the established USB ID namespace for serial-backed manual
+		// registration. This preserves compatibility with existing bindings
+		// while the physical identity key still lets registry reconciliation
+		// recognize the same device across endpoint/name changes.
+		if strings.HasPrefix(key, "usb-serial:") {
+			return StableIDFromUSB(d.USBVID, d.USBPID, d.USBSerial, "")
+		}
 		return stableIDFromIdentityKey(key)
 	}
 

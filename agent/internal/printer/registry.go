@@ -262,17 +262,7 @@ func UpsertRegistry(registryPath string, discovered []DeviceInfo) ([]DeviceInfo,
 // (spooler queues, IPP URLs) may derive it.
 func RegisterManual(registryPath string, info DeviceInfo) ([]DeviceInfo, error) {
 	if info.ID == "" {
-		// Preserve the established manual USB ID namespace so existing operator
-		// registrations remain stable. Automatic discovery can still use the
-		// stronger source-independent identity and UpsertRegistry will migrate
-		// to an existing persisted ID when the physical identity matches.
-		connectionType := strings.ToLower(strings.TrimSpace(info.ConnectionType))
-		if connectionType == "usb" && (info.USBVID != "" || info.USBPID != "" || info.USBSerial != "") {
-			location := capabilityIdentityValue(info, "location", "usb_location", "usbLocation")
-			info.ID = StableIDFromUSB(info.USBVID, info.USBPID, info.USBSerial, location)
-		} else {
-			info.ID = StableIDForDevice(info)
-		}
+		info.ID = StableIDForDevice(info)
 	}
 	if info.Status == "" {
 		info.Status = "unknown"
