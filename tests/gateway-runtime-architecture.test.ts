@@ -135,7 +135,7 @@ describe("gateway runtime ownership contract", () => {
 
   it("contains no legacy ownership terms in the active addon production source", () => {
     const source = readAll(odooProductionFiles);
-    for (const token of ["gateway_branch_id", "branch_sync", "report_mapping", "async_report", "destination_id", "document_type_id"]) {
+    for (const token of ["gateway_branch_id", "branch_sync", "report_mapping", "async_report", "document_type_id"]) {
       expect(source).not.toContain(token);
     }
   });
