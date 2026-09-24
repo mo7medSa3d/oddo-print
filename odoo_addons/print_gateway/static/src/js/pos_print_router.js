@@ -299,6 +299,34 @@ patch(PosStore.prototype, {
             }
 
             const routes = kitchenRoutes.routes;
+            const missingRoutes = Array.isArray(kitchenRoutes.missing_routes)
+                ? kitchenRoutes.missing_routes
+                : [];
+
+            if (missingRoutes.length && !(Array.isArray(retryItems) && retryItems.length)) {
+                const changedCategoryIds = new Set();
+                for (const change of orderChange || []) {
+                    for (const key of ["new", "cancelled", "noteUpdate"]) {
+                        for (const line of change?.[key] || []) {
+                            const product = this.models["product.product"].get(line.product_id);
+                            for (const categoryId of product?.parentPosCategIds || []) {
+                                changedCategoryIds.add(categoryId);
+                            }
+                        }
+                    }
+                }
+                const uncovered = missingRoutes.filter((route) =>
+                    (route.category_ids || []).some((categoryId) => changedCategoryIds.has(categoryId))
+                );
+                if (uncovered.length) {
+                    this.notification.add(
+                        "Gateway Kitchen routing is incomplete for one or more Odoo Preparation Printers. Printing was cancelled to prevent silently losing kitchen tickets.",
+                        { type: "danger", sticky: true }
+                    );
+                    return false;
+                }
+            }
+
             if (!routes.length) {
                 this.notification.add(
                     "Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for an Odoo preparation printer.",
