@@ -11,11 +11,13 @@ describe("WebSocket capacity reservation", () => {
   it("guards upgrade reservation cleanup before registration", () => {
     const source = readFileSync(resolve(process.cwd(), "src/server/ws.ts"), "utf8");
     const handleUpgrade = source.indexOf("wss.handleUpgrade(req, socket, head");
-    const reservationClose = source.indexOf('socket.once("close", releaseReservation)', handleUpgrade - 600);
-    const guardedCatch = source.indexOf("releaseReservation();\n        logUpgradeError(error);\n        if (!socket.destroyed", handleUpgrade);
+    const reservationClose = source.indexOf('socket.once("close", releaseReservation)', 0);
+    const catchStart = source.indexOf("} catch (error)", handleUpgrade);
+    const releaseInCatch = source.indexOf("releaseReservation();", catchStart);
     expect(handleUpgrade).toBeGreaterThanOrEqual(0);
     expect(reservationClose).toBeGreaterThanOrEqual(0);
-    expect(guardedCatch).toBeGreaterThan(handleUpgrade);
+    expect(catchStart).toBeGreaterThan(handleUpgrade);
+    expect(releaseInCatch).toBeGreaterThan(catchStart);
   });
 
   it("counts in-flight upgrades before admitting another connection", () => {
@@ -31,8 +33,10 @@ describe("WebSocket capacity reservation", () => {
     const handleUpgrade = source.indexOf("wss.handleUpgrade(req, socket, head", reserve);
     expect(reserve).toBeGreaterThanOrEqual(0);
     expect(handleUpgrade).toBeGreaterThan(reserve);
-    expect(source).toContain("totalAgentSockets + pendingAgentSocketReservations");
-    expect(source).toContain("ws.readyState !== WebSocket.OPEN");
+    expect(source).toContain("canReserveAgentSocketSlot(totalAgentSockets, pendingAgentSocketReservations)");
+    expect(source).toContain("pendingAgentSocketReservations += 1;");
+    expect(source).toContain("pendingAgentSocketReservations = Math.max(0, pendingAgentSocketReservations - 1);");
+    expect(source).toContain("ws.readyState === WebSocket.OPEN");
   });
 });
 
