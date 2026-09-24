@@ -264,6 +264,7 @@ class TestBranchRuntimeBinding(TransactionCase):
         self.assertTrue(assignment.exists())
 
     def test_pos_receipt_binding_does_not_require_report(self):
+        self._ensure_assignment("agent-a")
         binding = self.env["print_gateway.binding"].new({
             "company_id": self.company.id,
             "branch_id": False,
@@ -286,6 +287,7 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding._check_binding()
 
     def test_gateway_kitchen_binding_does_not_require_odoo_kitchen_printer(self):
+        self._ensure_assignment("agent-a")
         binding = self.env["print_gateway.binding"].new({
             "company_id": self.company.id,
             "branch_id": False,
@@ -310,6 +312,7 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding._check_binding()
 
     def test_report_binding_uses_the_single_authoritative_report_field(self):
+        self._ensure_assignment("agent-a")
         report = self._report()
         binding = self.env["print_gateway.binding"].new({
             "company_id": self.company.id,
