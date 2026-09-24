@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Yasser Print Gateway',
-    'version': '19.0.2.8.0',
+    'version': '19.0.2.9.0',
     'summary': 'Reliable silent printing for Odoo through Yasser Print Gateway',
     'description': """
 Yasser Print Gateway connects Odoo with the printers used by your business.
