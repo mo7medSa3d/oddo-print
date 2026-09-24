@@ -3,16 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Activity, Building2, CreditCard, RefreshCw, ShieldCheck, Users } from "lucide-react";
 import {
-  Activity,
-  Building2,
-    CreditCard,
-  Printer,
-  RefreshCw,
-  ShieldCheck,
-  Users,
-  Wifi,
-} from "lucide-react";
+  FleetHealthChart,
+  OperationalSignals,
+  PrintThroughputChart,
+  SubscriptionMixChart,
+  type OverviewHourlyPoint,
+} from "../../../components/platform/overview-charts";
 
 type Stats = {
   tenants: { total: number; active: number; suspended: number; deleted: number };
@@ -21,6 +19,7 @@ type Stats = {
   agents: { total: number; online: number; offline: number };
   printers: { total: number; online: number; offline: number };
   jobs24h: { total: number; success: number; failed: number; queued: number; inFlight: number; expired: number };
+  jobs24hHourly: OverviewHourlyPoint[];
 };
 
 type TenantRow = {
@@ -45,72 +44,6 @@ function formatNumber(value: number) {
 
 function percent(part: number, total: number) {
   return total > 0 ? Math.round((part / total) * 100) : null;
-}
-
-function MetricCard({
-  label,
-  value,
-  icon: Icon,
-  detail,
-}: {
-  label: string;
-  value: number;
-  icon: typeof Activity;
-  detail: React.ReactNode;
-}) {
-  return (
-    <div className="card p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-subtle text-brand-subtle-text">
-          <Icon className="h-4.5 w-4.5" aria-hidden />
-        </div>
-      </div>
-      <div className="mt-4">
-        <div className="label-caps normal-case tracking-normal">{label}</div>
-        <div className="mt-1 text-[30px] font-bold tracking-[-0.03em] text-ink tabular-nums">
-          {formatNumber(value)}
-        </div>
-        <div className="mt-2 text-[12px] text-ink-3">{detail}</div>
-      </div>
-    </div>
-  );
-}
-
-function HealthRow({
-  label,
-  value,
-  total,
-  tone,
-}: {
-  label: string;
-  value: number;
-  total: number;
-  tone: "ok" | "info" | "warn";
-}) {
-  const rate = percent(value, total);
-  const toneClasses = {
-    ok: "bg-ok-solid",
-    info: "bg-info-solid",
-    warn: "bg-warn-solid",
-  } as const;
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-4 text-[13px]">
-        <span className="font-medium text-ink-2">{label}</span>
-        <span className="tabular-nums text-ink-3">
-          {formatNumber(value)} / {formatNumber(total)}
-          {rate !== null ? ` · ${rate}%` : ""}
-        </span>
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-surface-3">
-        <div
-          className={`h-full rounded-full transition-[width] duration-300 ${toneClasses[tone]}`}
-          style={{ width: `${rate ?? 0}%` }}
-        />
-      </div>
-    </div>
-  );
 }
 
 function SubscriptionStatus({
@@ -192,18 +125,23 @@ export default function PlatformDashboardPage() {
   }, [router, reloadKey]);
 
   const derived = useMemo(() => {
-    const tenantsTotal = stats?.tenants.total ?? 0;
-    const usersTotal = stats?.users.total ?? 0;
-    const agentsTotal = stats?.agents.total ?? 0;
-    const printersTotal = stats?.printers.total ?? 0;
-    const terminalJobs = (stats?.jobs24h.success ?? 0) + (stats?.jobs24h.failed ?? 0) + (stats?.jobs24h.expired ?? 0);
+    const terminalJobs =
+      (stats?.jobs24h.success ?? 0) +
+      (stats?.jobs24h.failed ?? 0) +
+      (stats?.jobs24h.expired ?? 0);
+    const hourly = stats?.jobs24hHourly ?? [];
+    const latest = hourly.at(-1);
+    const previous = hourly.at(-2);
+    const latestDelta =
+      latest && previous && previous.total > 0
+        ? Math.round(((latest.total - previous.total) / previous.total) * 100)
+        : null;
 
     return {
-      activeTenantRate: percent(stats?.tenants.active ?? 0, tenantsTotal),
-      verifiedUserRate: percent(stats?.users.verified ?? 0, usersTotal),
-      onlineAgentRate: percent(stats?.agents.online ?? 0, agentsTotal),
-      onlinePrinterRate: percent(stats?.printers.online ?? 0, printersTotal),
       jobSuccessRate: percent(stats?.jobs24h.success ?? 0, terminalJobs),
+      latestHour: latest?.total ?? 0,
+      latestHourDelta: latestDelta,
+      hourlyHasData: hourly.some((point) => point.total > 0),
     };
   }, [stats]);
 
@@ -252,126 +190,162 @@ export default function PlatformDashboardPage() {
         </div>
       )}
 
-      <section aria-label="Platform totals" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <MetricCard
-          label="Tenants"
-          value={stats?.tenants.total ?? 0}
-          icon={Building2}
-          detail={`${formatNumber(stats?.tenants.active ?? 0)} active · ${formatNumber(stats?.tenants.suspended ?? 0)} suspended`}
-        />
-        <MetricCard
-          label="Users"
-          value={stats?.users.total ?? 0}
-          icon={Users}
-          detail={derived.verifiedUserRate === null ? "No verified users recorded" : `${formatNumber(stats?.users.verified ?? 0)} verified · ${derived.verifiedUserRate}% of users`}
-        />
-        <MetricCard
-          label="Subscriptions"
-          value={stats?.subscriptions.total ?? 0}
-          icon={CreditCard}
-          detail={`${formatNumber(stats?.subscriptions.active ?? 0)} active · ${formatNumber(stats?.subscriptions.trialing ?? 0)} trialing`}
-        />
-        <MetricCard
-          label="Agents"
-          value={stats?.agents.total ?? 0}
-          icon={Wifi}
-          detail={`${formatNumber(stats?.agents.online ?? 0)} online · ${formatNumber(stats?.agents.offline ?? 0)} offline`}
-        />
-        <MetricCard
-          label="Printers"
-          value={stats?.printers.total ?? 0}
-          icon={Printer}
-          detail={`${formatNumber(stats?.printers.online ?? 0)} online · ${formatNumber(stats?.printers.offline ?? 0)} offline`}
-        />
-        <MetricCard
-          label="Print jobs · 24h"
-          value={stats?.jobs24h.total ?? 0}
-          icon={Activity}
-          detail={`${formatNumber(stats?.jobs24h.success ?? 0)} success · ${formatNumber(stats?.jobs24h.failed ?? 0)} failed · ${formatNumber((stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0))} open`}
-        />
-      </section>
+      <OperationalSignals
+        jobs={{
+          failed: stats?.jobs24h.failed ?? 0,
+          expired: stats?.jobs24h.expired ?? 0,
+          queued: stats?.jobs24h.queued ?? 0,
+          inFlight: stats?.jobs24h.inFlight ?? 0,
+        }}
+        agents={{ offline: stats?.agents.offline ?? 0 }}
+        printers={{ offline: stats?.printers.offline ?? 0 }}
+        pastDue={stats?.subscriptions.pastDue ?? 0}
+      />
 
-      <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+      <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.55fr_0.85fr]">
         <div className="card p-6">
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h2 className="text-[17px] font-semibold text-ink">Operational coverage</h2>
+              <div className="flex items-center gap-2">
+                <Activity className="h-4 w-4 text-brand" aria-hidden />
+                <h2 className="text-[17px] font-semibold text-ink">Print throughput</h2>
+              </div>
+              <p className="mt-1 text-[12px] text-ink-4">
+                Hourly print volume and outcome mix across the gateway.
+              </p>
             </div>
-            <Activity className="mt-0.5 h-5 w-5 text-brand" aria-hidden />
+            <div className="text-left sm:text-right">
+              <div className="text-[24px] font-bold tracking-[-0.03em] text-ink tabular-nums">
+                {formatNumber(stats?.jobs24h.total ?? 0)}
+              </div>
+              <div className="mt-1 text-[11px] text-ink-4">
+                jobs in 24h
+                {derived.jobSuccessRate !== null ? ` · ${derived.jobSuccessRate}% successful` : ""}
+              </div>
+            </div>
           </div>
 
-          <div className="mt-6 grid gap-5 sm:grid-cols-2">
-            <HealthRow
-              label="Active tenants"
-              value={stats?.tenants.active ?? 0}
-              total={stats?.tenants.total ?? 0}
-              tone="ok"
-            />
-            <HealthRow
-              label="Verified users"
-              value={stats?.users.verified ?? 0}
-              total={stats?.users.total ?? 0}
-              tone="info"
-            />
-            <HealthRow
-              label="Agents online"
-              value={stats?.agents.online ?? 0}
-              total={stats?.agents.total ?? 0}
-              tone="ok"
-            />
-            <HealthRow
-              label="Printers online"
-              value={stats?.printers.online ?? 0}
-              total={stats?.printers.total ?? 0}
-              tone="ok"
-            />
+          {derived.hourlyHasData ? (
+            <PrintThroughputChart data={stats?.jobs24hHourly ?? []} />
+          ) : (
+            <div className="mt-5 flex h-[260px] items-center justify-center rounded-xl border border-dashed border-edge bg-surface-2 px-6 text-center">
+              <div>
+                <div className="text-[13px] font-semibold text-ink">No print activity yet</div>
+                <div className="mt-1 text-[12px] text-ink-4">The throughput chart will populate as jobs enter the gateway.</div>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-edge pt-4 text-[11px] text-ink-4">
+            <span>{formatNumber(stats?.jobs24h.success ?? 0)} successful</span>
+            <span>{formatNumber(stats?.jobs24h.failed ?? 0)} failed</span>
+            <span>{formatNumber(stats?.jobs24h.expired ?? 0)} expired</span>
+            <span>{formatNumber((stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0))} currently open</span>
+            {derived.latestHourDelta !== null && (
+              <span className={derived.latestHourDelta < 0 ? "text-warn" : "text-ink-3"}>
+                Latest hour {derived.latestHourDelta > 0 ? "+" : ""}{derived.latestHourDelta}% vs previous
+              </span>
+            )}
           </div>
         </div>
 
         <div className="card p-6">
-          <div>
-            <h2 className="text-[17px] font-semibold text-ink">Print activity · last 24 hours</h2>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-[17px] font-semibold text-ink">Fleet health</h2>
+              <p className="mt-1 text-[12px] text-ink-4">
+                Runtime availability derived from recent agent heartbeats.
+              </p>
+            </div>
+            <span className="rounded-full bg-surface-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-4">
+              Live state
+            </span>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <FleetHealthChart
+            fleet={{
+              agents: {
+                total: stats?.agents.total ?? 0,
+                online: stats?.agents.online ?? 0,
+                offline: stats?.agents.offline ?? 0,
+              },
+              printers: {
+                total: stats?.printers.total ?? 0,
+                online: stats?.printers.online ?? 0,
+                offline: stats?.printers.offline ?? 0,
+              },
+            }}
+          />
+
+          <div className="mt-5 grid grid-cols-2 gap-3 border-t border-edge pt-5">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.08em] text-ink-4">Tenants</div>
+              <div className="mt-1 text-lg font-bold tabular-nums text-ink">{formatNumber(stats?.tenants.active ?? 0)}</div>
+              <div className="text-[11px] text-ink-4">active of {formatNumber(stats?.tenants.total ?? 0)}</div>
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.08em] text-ink-4">Users</div>
+              <div className="mt-1 text-lg font-bold tabular-nums text-ink">{formatNumber(stats?.users.verified ?? 0)}</div>
+              <div className="text-[11px] text-ink-4">verified of {formatNumber(stats?.users.total ?? 0)}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <div className="card p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-[17px] font-semibold text-ink">Subscription health</h2>
+              <p className="mt-1 text-[12px] text-ink-4">
+                Current lifecycle mix, with past-due accounts isolated for follow-up.
+              </p>
+            </div>
+            <Link href="/platform/subscriptions" className="text-[12px] font-semibold text-brand hover:text-brand-hover">
+              Manage
+            </Link>
+          </div>
+          <SubscriptionMixChart subscriptions={stats?.subscriptions ?? { total: 0, active: 0, trialing: 0, pastDue: 0, cancelled: 0 }} />
+        </div>
+
+        <div className="card p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-[17px] font-semibold text-ink">Platform footprint</h2>
+              <p className="mt-1 text-[12px] text-ink-4">
+                The business surface behind the runtime: customers, users, and connected infrastructure.
+              </p>
+            </div>
+            <Building2 className="h-5 w-5 text-brand" aria-hidden />
+          </div>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <div className="inset-panel p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Success state</div>
-              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.jobs24h.success ?? 0)}</div>
-              <div className="mt-1 text-[11px] text-ok">
-                {derived.jobSuccessRate === null ? "No terminal jobs" : `${derived.jobSuccessRate}% of terminal jobs`}
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">
+                <Building2 className="h-3.5 w-3.5" aria-hidden />
+                Tenants
+              </div>
+              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.tenants.total ?? 0)}</div>
+              <div className="mt-1 text-[11px] text-ink-4">{formatNumber(stats?.tenants.active ?? 0)} active</div>
+            </div>
+            <div className="inset-panel p-4">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">
+                <Users className="h-3.5 w-3.5" aria-hidden />
+                Users
+              </div>
+              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.users.total ?? 0)}</div>
+              <div className="mt-1 text-[11px] text-ink-4">
+                {percent(stats?.users.verified ?? 0, stats?.users.total ?? 0) ?? 0}% verified
               </div>
             </div>
             <div className="inset-panel p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Failed</div>
-              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.jobs24h.failed ?? 0)}</div>
-              <div className="mt-1 text-[11px] text-bad">Recorded failures</div>
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">
+                <CreditCard className="h-3.5 w-3.5" aria-hidden />
+                Plans
+              </div>
+              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.subscriptions.total ?? 0)}</div>
+              <div className="mt-1 text-[11px] text-ink-4">{formatNumber(stats?.subscriptions.active ?? 0)} active</div>
             </div>
-            <div className="inset-panel p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">Open</div>
-              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber((stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0))}</div>
-              <div className="mt-1 text-[11px] text-warn">{formatNumber(stats?.jobs24h.queued ?? 0)} queued · {formatNumber(stats?.jobs24h.inFlight ?? 0)} in flight</div>
-            </div>
-          </div>
-
-          <div className="mt-5 space-y-2">
-            {[
-              ["Success", stats?.jobs24h.success ?? 0, "bg-ok-solid"],
-              ["Failed", stats?.jobs24h.failed ?? 0, "bg-bad-solid"],
-              ["Open", (stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0), "bg-warn-solid"],
-              ["Expired", stats?.jobs24h.expired ?? 0, "bg-info-solid"],
-            ].map(([label, value, barClass]) => {
-              const total = stats?.jobs24h.total ?? 0;
-              const width = total > 0 ? ((value as number) / total) * 100 : 0;
-              return (
-                <div key={label as string} className="flex items-center gap-3 text-[12px]">
-                  <span className="w-16 text-ink-3">{label as string}</span>
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3">
-                    <div className={`h-full rounded-full ${barClass as string}`} style={{ width: `${width}%` }} />
-                  </div>
-                  <span className="w-10 text-right tabular-nums text-ink-3">{formatNumber(value as number)}</span>
-                </div>
-              );
-            })}
           </div>
         </div>
       </section>
