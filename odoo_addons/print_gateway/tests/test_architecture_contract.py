@@ -100,6 +100,9 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn('widget="gateway_runtime_printer"', source)
         # Verbose legacy labels must stay out of the simplified form.
         self.assertNotIn("Hardware Print Binding", source)
+        self.assertIn('string="Odoo Preparation Printer"', source)
+        self.assertIn("product_categories_ids", source)
+        self.assertIn("Gateway physical printer remains the physical target", source)
 
     def test_database_utc_clock_is_the_shared_scheduler_clock(self):
         clock = (ADDON / "runtime_clock.py").read_text(encoding="utf-8")
@@ -294,6 +297,22 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertGreaterEqual(method_idx, 0)
         prefix = source[max(0, method_idx - 80):method_idx]
         self.assertIn("@api.private", prefix)
+
+    def test_kitchen_gateway_preserves_odoo_preparation_printer_routing(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("get_gateway_kitchen_routes", source)
+        self.assertIn("routeCategories", source)
+        self.assertIn("pos_printer_id", source)
+        self.assertIn("product_categories_ids", source)
+        self.assertIn("retryItems = null", source)
+
+    def test_kitchen_retry_and_reprint_use_fresh_gateway_operations(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("if (reprint || !orderChange.__gateway_print_id)", source)
+        self.assertIn('"kitchen-retry-" + crypto.randomUUID()', source)
+        self.assertIn("retry: () =>", source)
+        self.assertIn("failedItems", source)
+        self.assertIn("retryItems", source)
 
     def test_pos_gateway_unknown_outcome_cannot_enter_core_retry_path(self):
         source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
