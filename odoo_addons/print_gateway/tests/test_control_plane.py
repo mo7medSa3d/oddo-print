@@ -1803,6 +1803,56 @@ class TestControlPlane(TransactionCase):
         with self.assertRaises(ValidationError):
             _route(self.branch, other_binding)
 
+    def test_32a_report_group_access_is_enforced_on_gateway_dispatch(self):
+        """Gateway report RPC must preserve ir.actions.report group_ids."""
+        report = self.env["ir.actions.report"].create({
+            "name": "Gateway Restricted Test Report",
+            "model": "stock.picking",
+            "report_type": "qweb-pdf",
+            "report_name": "stock.report_picking",
+            "group_ids": [(6, 0, [self.env.ref("stock.group_stock_user").id])],
+        })
+        user = self._operator_user()
+        self.assertFalse(user.has_group("stock.group_stock_user"))
+
+        with self.assertRaises(AccessError):
+            self.env["print_gateway.binding"].with_user(user).dispatch_report_action(
+                report_id=report.id,
+                res_ids=[],
+            )
+
+    def test_32b_non_pdf_report_cannot_enter_gateway_dispatch(self):
+        """Gateway report RPC must never convert HTML/text reports into PDF jobs."""
+        report = self.env["ir.actions.report"].create({
+            "name": "Gateway HTML Test Report",
+            "model": "stock.picking",
+            "report_type": "qweb-html",
+            "report_name": "stock.report_picking",
+        })
+
+        with self.assertRaisesRegex(ValidationError, "Only QWeb PDF reports"):
+            self.env["print_gateway.binding"].dispatch_report_action(
+                report_id=report.id,
+                res_ids=[],
+            )
+
+    def test_32c_report_action_preserves_report_group_access(self):
+        """The report_action interception path must fail before Gateway routing."""
+        report = self.env["ir.actions.report"].create({
+            "name": "Gateway Restricted Action Report",
+            "model": "stock.picking",
+            "report_type": "qweb-pdf",
+            "report_name": "stock.report_picking",
+            "group_ids": [(6, 0, [self.env.ref("stock.group_stock_user").id])],
+        })
+        user = self._operator_user()
+        router = self.env["print_gateway.print_router"].with_user(user)
+
+        with patch.object(type(router), "route_report") as route_report:
+            with self.assertRaises(AccessError):
+                report.with_user(user).report_action([])
+            route_report.assert_not_called()
+
     def test_32_report_dispatch_requires_record_read_access(self):
         """BEHAVIORAL (P1 IDOR closure): an internal user cannot dispatch a
         report render for records they are not allowed to READ - even when
