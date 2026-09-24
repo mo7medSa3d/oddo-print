@@ -256,7 +256,8 @@ export async function POST(req: Request) {
       }
 
       const skipped: Array<{ id: string; reason: string }> = [];
-      const sanitizedPrinters: Array<ReturnType<typeof sanitizePrinter> extends { ok: true; printer: infer P } ? P : never> = [];
+      type SanitizedPrinter = Extract<ReturnType<typeof sanitizePrinter>, { ok: true }>["printer"];
+      const sanitizedPrinters: SanitizedPrinter[] = [];
       for (const raw of reportedPrinters) {
         const rawId = typeof raw?.id === "string" ? raw.id : "(unknown)";
         const res = sanitizePrinter(raw);
