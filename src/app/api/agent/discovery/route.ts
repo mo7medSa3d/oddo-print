@@ -8,6 +8,7 @@ import { z } from "zod";
 import { nanoid } from "../../../../lib/nanoid";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { isPrivateNetworkAddress } from "../../../../lib/network-address";
+import { requireActiveTenantInTransaction, TenantDeletedError, TenantSuspendedError } from "../../../../lib/tenant-guard";
 
 export const dynamic = "force-dynamic";
 const MAX_DISCOVERY_BODY_BYTES = 2 * 1024 * 1024;
@@ -152,6 +153,15 @@ export async function POST(req: Request) {
     if (!currentSession?.id) return { kind: "not_found" as const };
     if (currentSession.status !== "running") return { kind: "not_running" as const, status: currentSession.status ?? "unknown" };
 
+    try {
+      await requireActiveTenantInTransaction(tx, agent.tenantId);
+    } catch (error) {
+      if (error instanceof TenantSuspendedError || error instanceof TenantDeletedError) {
+        return { kind: "tenant_inactive" as const };
+      }
+      throw error;
+    }
+
     let insertedCount = 0;
     let updatedCount = 0;
 
@@ -231,5 +241,6 @@ export async function POST(req: Request) {
 
   if (result.kind === "not_found") return NextResponse.json({ error: "Discovery not found" }, { status: 404 });
   if (result.kind === "not_running") return NextResponse.json({ error: `Discovery already ${result.status}` }, { status: 409 });
+  if (result.kind === "tenant_inactive") return NextResponse.json({ error: "Workspace is no longer active", code: "TENANT_UNAVAILABLE" }, { status: 403 });
   return NextResponse.json({ ok: true, inserted: result.insertedCount, updated: result.updatedCount, skipped: skippedDevices, verification: "candidate-only" });
 }

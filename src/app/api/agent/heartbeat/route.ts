@@ -7,6 +7,7 @@ import { DEVICE_CLASSES, PRINTER_TYPES, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABI
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError } from "../../../../lib/log";
 import { getTenantEntitlementLimit, isTenantBillingError, TenantEntitlementError } from "../../../../lib/entitlements";
+import { requireActiveTenantInTransaction, TenantDeletedError, TenantSuspendedError } from "../../../../lib/tenant-guard";
 
 const MAX_HEARTBEAT_BODY_BYTES = 512 * 1024;
 const MAX_KEEP_ALIVE_JOB_IDS = 64;
@@ -208,6 +209,15 @@ export async function POST(req: Request) {
       const currentAgent = lockedAgent.rows[0] as { id?: string; lifecycle?: unknown } | undefined;
       if (!currentAgent?.id) return { kind: "missing" as const };
       if (currentAgent.lifecycle !== "active") return { kind: "inactive" as const, lifecycle: String(currentAgent.lifecycle) };
+
+      try {
+        await requireActiveTenantInTransaction(tx, agent.tenantId);
+      } catch (error) {
+        if (error instanceof TenantSuspendedError || error instanceof TenantDeletedError) {
+          return { kind: "tenant_inactive" as const };
+        }
+        throw error;
+      }
 
       await tx.update(agents)
         .set({ status, lastSeenAt: sql`now()` })
@@ -423,6 +433,7 @@ export async function POST(req: Request) {
 
     if (result.kind === "missing") return NextResponse.json({ error: "Agent not found" }, { status: 401 });
     if (result.kind === "inactive") return NextResponse.json({ error: `Agent is ${result.lifecycle}` }, { status: 409 });
+    if (result.kind === "tenant_inactive") return NextResponse.json({ error: "Workspace is no longer active", code: "TENANT_UNAVAILABLE" }, { status: 403 });
 
     const response: Record<string, unknown> = {
       success: true,

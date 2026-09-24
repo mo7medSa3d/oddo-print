@@ -8,6 +8,8 @@ import { z } from "zod";
 import { canTransitionLifecycle } from "../../../../lib/lifecycle";
 import { PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, assertPrinterMetadataLimits, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { writeAuditEvent } from "../../../../lib/audit";
+import { isTenantBillingError } from "../../../../lib/entitlements";
+import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +70,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   try { assertPrinterMetadataLimits({ config: parsed.data.config ?? {} }); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "printer metadata exceeds limits" }, { status: 400 }); }
 
-  const result = await db.transaction(async (tx) => {
+  let result;
+  try {
+    result = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${tenantId} || ':' || ${id}))`);
 
     const existing = await tx.query.printers.findFirst({
@@ -86,6 +90,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!ownerLifecycle) return { kind: "error" as const, message: "Printer owner agent missing" };
       if (ownerLifecycle !== "active") return { kind: "conflict" as const, message: `cannot activate printer while agent is ${ownerLifecycle}` };
     }
+
+    // Existing printer/agent locks are held; acquire tenant fence last to
+    // preserve the current lock order and serialize with lifecycle transition.
+    await requireActiveTenantInTransaction(tx, tenantId);
 
     let connectionType = parsed.data.connectionType ?? existing.connectionType;
     let protocol = parsed.data.protocol ?? existing.protocol;
@@ -163,7 +171,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }, tx);
 
     return { kind: "ok" as const, row };
-  });
+    });
+  } catch (error) {
+    if (isTenantBillingError(error)) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
+    throw error;
+  }
 
   if (result.kind === "not_found") return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (result.kind === "conflict") return NextResponse.json({ error: result.message }, { status: 409 });

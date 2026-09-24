@@ -4,7 +4,7 @@ import { tenants } from "../src/db/schema";
 import { eq } from "drizzle-orm";
 import { hasTestDatabase, applyMigrations, closePool } from "./helpers/pg";
 import { transitionTenantLifecycle, TenantLifecycleError } from "../src/lib/tenant-lifecycle";
-import { requireActiveTenant, TenantSuspendedError, TenantDeletedError } from "../src/lib/tenant-guard";
+import { requireActiveTenant, requireActiveTenantInTransaction, TenantSuspendedError, TenantDeletedError } from "../src/lib/tenant-guard";
 import { nanoid } from "../src/lib/nanoid";
 
 const suite = describe.skipIf(!hasTestDatabase);
@@ -119,6 +119,36 @@ suite("Tenant Lifecycle", () => {
         expect(suspended.value.previousLifecycle).toBe("active");
         expect(suspended.value.lifecycle).toBe("suspended");
       }
+    });
+  });
+
+  describe("runtime write fence", () => {
+    it("serializes tenant suspension behind an in-flight runtime write", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+
+      let release!: () => void;
+      const hold = new Promise<void>((resolve) => { release = resolve; });
+      let fenceReady!: () => void;
+      const ready = new Promise<void>((resolve) => { fenceReady = resolve; });
+
+      const runtimeWrite = db.transaction(async (tx) => {
+        await requireActiveTenantInTransaction(tx, id);
+        fenceReady();
+        await hold;
+      });
+
+      await ready;
+      const transition = transitionTenantLifecycle(id, "suspended", "Concurrent suspension", { type: "platform", id: "suspend" });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const beforeCommit = await db.query.tenants.findFirst({ where: eq(tenants.id, id), columns: { lifecycle: true } });
+      expect(beforeCommit!.lifecycle).toBe("active");
+
+      release();
+      await runtimeWrite;
+      const result = await transition;
+      expect(result.lifecycle).toBe("suspended");
     });
   });
 

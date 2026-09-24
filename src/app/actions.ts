@@ -23,6 +23,7 @@ import { ActionError } from "../lib/action-error";
 import { writeAuditEvent } from "../lib/audit";
 import { requireManagerPermission } from "../lib/authorization";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, entitlementLimitSignal, isTenantBillingError } from "../lib/entitlements";
+import { requireActiveTenantInTransaction } from "../lib/tenant-guard";
 import type { LimitSignalResult } from "../lib/limit-signal";
 import { isAgentAvailableForJob } from "../lib/agent-availability";
 import { gatewayNow } from "../lib/database-clock";
@@ -71,6 +72,7 @@ export async function createAgent(name: string) {
         "max_agents",
         sql`SELECT COUNT(*)::int AS count FROM agents WHERE tenant_id = ${manager.tenantId} AND lifecycle <> 'retired'`,
       );
+      await requireActiveTenantInTransaction(tx, manager.tenantId);
       await tx.insert(agents).values({
         id, tenantId: manager.tenantId, name: name.trim(),
         pairingCodeHash: hashPairingCode(pairingCode),
@@ -113,6 +115,7 @@ export async function deleteAgent(id: string) {
     `);
     const agent = (locked as unknown as { rows?: { id: string; status: string; lifecycle: string; last_seen_at?: Date | string | null }[] }).rows?.[0];
     if (!agent) throw new ActionError("Agent not found", 404);
+    await requireActiveTenantInTransaction(tx, manager.tenantId);
     if (isAgentAvailableForJob({ lifecycle: agent.lifecycle, status: agent.status, lastSeenAt: agent.last_seen_at })) {
       throw new ActionError("This agent is still connected. Stop the agent service first, then delete it.", 409);
     }

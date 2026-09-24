@@ -7,6 +7,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "../../../../../../../lib/nanoid";
 import { validateConnectionConfig } from "../../../../../../../lib/printer-model";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../../../../../lib/entitlements";
+import { requireActiveTenantInTransaction } from "../../../../../../../lib/tenant-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const rows = locked.rows as Array<{ id: string; candidate_status: string; verification: string; provisioned_printer_id: string | null }>;
     const row = rows[0];
     if (!row) return { kind: "not_found" as const };
+
+    // Agent and discovery rows are locked. Fence tenant lifecycle before any
+    // provisioning or state reconciliation mutation.
+    await requireActiveTenantInTransaction(tx, claims.tenantId);
+
     if (row.candidate_status === "provisioned" && row.provisioned_printer_id) {
       return { kind: "already" as const, printerId: row.provisioned_printer_id };
     }
