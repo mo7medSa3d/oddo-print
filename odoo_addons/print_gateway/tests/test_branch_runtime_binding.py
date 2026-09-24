@@ -245,6 +245,69 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding.write({"enabled": False})
         self.assertTrue(assignment.exists())
 
+    def test_pos_receipt_binding_does_not_require_report(self):
+        binding = self.env["print_gateway.binding"].new({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "destination_type": "pos",
+            "destination_pos_config_id": self.env["pos.config"].browse(999991),
+            "report_id": False,
+            "runtime_agent_id": "agent-a",
+            "printer_id": "printer-a",
+            "printer_protocol": "spooler",
+            "enabled": True,
+            "priority": 89,
+        })
+        binding._compute_destination_ref()
+        binding._compute_document_type()
+        self.assertEqual(binding.document_type, "receipt")
+        self.assertEqual(binding.destination_ref, "pos.config,999991")
+        binding._check_company_hierarchy()
+        binding._check_runtime_scope()
+        binding._check_binding()
+
+    def test_gateway_kitchen_binding_does_not_require_odoo_kitchen_printer(self):
+        binding = self.env["print_gateway.binding"].new({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "destination_type": "pos_printer",
+            "destination_pos_config_id": self.env["pos.config"].browse(999992),
+            "destination_pos_printer_id": False,
+            "report_id": False,
+            "runtime_agent_id": "agent-a",
+            "printer_id": "printer-a",
+            "printer_protocol": "escpos",
+            "enabled": True,
+            "priority": 90,
+        })
+        binding._compute_destination_ref()
+        binding._compute_document_type()
+        self.assertFalse(binding.destination_pos_printer_id)
+        self.assertEqual(binding.document_type, "kitchen")
+        self.assertEqual(binding.destination_ref, "pos.config,999992")
+        binding._check_company_hierarchy()
+        binding._check_runtime_scope()
+        binding._check_binding()
+
+    def test_gateway_kitchen_binding_rejects_mixed_pos_and_native_printer_targets(self):
+        binding = self.env["print_gateway.binding"].new({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "destination_type": "pos_printer",
+            "destination_pos_config_id": self.env["pos.config"].browse(999993),
+            "destination_pos_printer_id": self.env["pos.printer"].browse(999994),
+            "report_id": False,
+            "runtime_agent_id": "agent-a",
+            "printer_id": "printer-a",
+            "printer_protocol": "escpos",
+            "enabled": True,
+            "priority": 91,
+        })
+        binding._compute_destination_ref()
+        binding._compute_document_type()
+        with self.assertRaises(ValidationError):
+            binding._check_binding()
+
     def test_effective_company_id_computation(self):
         binding_branch = self.env["print_gateway.binding"].new({
             "company_id": self.company.id,
