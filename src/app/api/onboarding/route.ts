@@ -50,15 +50,14 @@ export async function POST(req: Request) {
       FOR UPDATE
     `);
     if (lockedTenant.rows.length !== 1) throw new Error("TENANT_NOT_FOUND");
-    await tx.update(tenants).set({ name, updatedAt: new Date() }).where(eq(tenants.id, claims.tenantId));
+    await tx.update(tenants).set({ name, updatedAt: sql`now()` }).where(eq(tenants.id, claims.tenantId));
     if (!trial) return;
-    const end = new Date(Date.now() + 30 * 24 * 60 * 60_000);
     const existing = await tx.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, claims.tenantId) });
     if (existing?.trialStartedAt) throw new Error("Trial has already been used for this workspace");
     if (existing) {
-      await tx.update(tenantSubscriptions).set({ planId: plan.id, status: "trialing", currentPeriodEnd: end, trialStartedAt: new Date(), cancelAtPeriodEnd: false, updatedAt: new Date() }).where(eq(tenantSubscriptions.tenantId, claims.tenantId));
+      await tx.update(tenantSubscriptions).set({ planId: plan.id, status: "trialing", currentPeriodEnd: sql`clock_timestamp() + interval '30 days'`, trialStartedAt: sql`clock_timestamp()`, cancelAtPeriodEnd: false, updatedAt: sql`now()` }).where(eq(tenantSubscriptions.tenantId, claims.tenantId));
     } else {
-      await tx.insert(tenantSubscriptions).values({ tenantId: claims.tenantId, planId: plan.id, status: "trialing", currentPeriodEnd: end, trialStartedAt: new Date() });
+      await tx.insert(tenantSubscriptions).values({ tenantId: claims.tenantId, planId: plan.id, status: "trialing", currentPeriodEnd: sql`clock_timestamp() + interval '30 days'`, trialStartedAt: sql`clock_timestamp()` });
     }
     });
   } catch (error) {
