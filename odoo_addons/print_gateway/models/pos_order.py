@@ -43,6 +43,8 @@ class PosOrderGatewayPrinting(models.Model):
         Gateway owns the physical printer, while Odoo still owns the business
         destination/category mapping. A POS-level Gateway binding remains a
         backwards-compatible fallback when no native-printer bindings exist.
+        Missing bindings are returned explicitly so the frontend can fail closed
+        instead of silently dropping a kitchen station.
         """
         self.ensure_one()
         self.check_access("read")
@@ -50,6 +52,7 @@ class PosOrderGatewayPrinting(models.Model):
         company = self.config_id.company_id or self.company_id
         preparation_printers = self.config_id.printer_ids.filtered(lambda p: p.product_categories_ids)
         routes = []
+        missing = []
         for pos_printer in preparation_printers:
             route = router.resolve_binding(
                 record=self,
@@ -58,13 +61,20 @@ class PosOrderGatewayPrinting(models.Model):
                 explicit_destination=pos_printer,
                 raise_if_not_found=False,
             )
+            route_info = {
+                "pos_printer_id": pos_printer.id,
+                "category_ids": pos_printer.product_categories_ids.ids,
+            }
             if route.get("binding"):
-                routes.append({
-                    "pos_printer_id": pos_printer.id,
-                    "category_ids": pos_printer.product_categories_ids.ids,
-                })
-        if routes:
-            return {"mode": "preparation_printers", "routes": routes}
+                routes.append(route_info)
+            else:
+                missing.append(route_info)
+        if routes or missing:
+            return {
+                "mode": "preparation_printers",
+                "routes": routes,
+                "missing_routes": missing,
+            }
 
         fallback = router.resolve_binding(
             record=self,
@@ -74,8 +84,12 @@ class PosOrderGatewayPrinting(models.Model):
             raise_if_not_found=False,
         )
         if fallback.get("binding"):
-            return {"mode": "pos_fallback", "routes": [{"pos_printer_id": False, "category_ids": []}]}
-        return {"mode": "missing", "routes": []}
+            return {
+                "mode": "pos_fallback",
+                "routes": [{"pos_printer_id": False, "category_ids": []}],
+                "missing_routes": [],
+            }
+        return {"mode": "missing", "routes": [], "missing_routes": []}
 
     def action_print_gateway_kitchen(self, image, reprint=False, operation_id=None, pos_printer_id=None):
         self.ensure_one()
