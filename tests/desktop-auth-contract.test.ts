@@ -27,7 +27,8 @@ describe("desktop manager authentication contract", () => {
     if (testBranch) {
       expect(commands).toContain('let remote_http = scheme == "http";');
       expect(commands).toContain("This isolated test branch intentionally accepts remote HTTP");
-      expect(commands).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
+      expect(commands).toContain('cmd.env("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1");');
+      expect(commands).toContain("The isolated HTTP-test branch requires explicit insecure-HTTP opt-in");
       expect(commands).toContain("gateway URL cannot include embedded credentials");
     } else {
       expect(commands).toContain('if scheme == "http"');
