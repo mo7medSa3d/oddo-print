@@ -21,4 +21,17 @@ describe("Odoo billing control-plane contracts", () => {
     expect(source).not.toContain("isBillingAccessStatus(");
     expect(source).not.toContain("isSubscriptionPeriodLive(");
   });
+
+  it("makes Odoo agent discovery use the canonical database-authoritative billing predicate", () => {
+    const source = read("src/app/api/odoo/agents/route.ts");
+    expect(source).toContain("await requireTenantBillingAccess(db, apiKey.tenantId);");
+    expect(source).not.toContain("db.query.tenantSubscriptions.findFirst");
+    expect(source).not.toContain("isBillingAccessStatus(");
+    expect(source).not.toContain("isSubscriptionPeriodLive(");
+  });
+
+  it("requires active billing access before exposing Odoo printer inventory", () => {
+    const source = read("src/app/api/odoo/printers/route.ts");
+    expect(source).toContain("await requireTenantBillingAccess(db, apiKey.tenantId);");
+  });
 });
