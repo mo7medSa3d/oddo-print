@@ -90,19 +90,20 @@ Odoo outbox never re-POSTs once a Gateway job id exists.
 
 ## 3. Recommendations (product decisions, not defects)
 
-1. **Repository hygiene**: `final-fix.patch` and `fix.patch` at the repository
-   root are stale artifacts describing the removed SQLite-Gateway architecture
-   (~400 KB). They should be deleted so they cannot be mistaken for pending work.
-2. **Dead schema**: `print_job_rate_limits` has no readers or writers (rate
-   limiting moved into plan entitlements). Drop it in a future migration.
-3. **Odoo audit clock**: `completed_at` in `print_job.py` uses Odoo's host clock
-   while `next_retry_at` uses `db_now_utc`. The value is display/audit only and
-   never drives scheduling, but the two markers in the same write can disagree.
-4. **`past_due` policy**: `past_due` intentionally keeps access while Stripe
+1. **Repository hygiene — completed**: the stale `fix.patch` and `final-fix.patch`
+   artifacts describing the removed SQLite-Gateway architecture were deleted.
+2. **Dead schema — completed**: `print_job_rate_limits` was removed from the live
+   Drizzle schema and is dropped by migration `0071_remove_print_job_rate_limits`.
+3. **Odoo audit clock — completed**: the stale `completed_at` recommendation is
+   retired; current `print_job.py` uses `db_now_utc` for those writes.
+4. **Migration metadata**: `drizzle/meta` still lacks the latest journal snapshot.
+   `npm run db:generate` now fails closed instead of generating from an older
+   snapshot. Restoring the complete snapshot chain remains a release-engineering task.
+5. **`past_due` policy**: `past_due` intentionally keeps access while Stripe
    recovers payment, and the SQL gate does not apply the `current_period_end`
    check to it. Confirm the intended dunning window, since it is a revenue
    exposure rather than a technical defect.
-5. **Agent SQLite driver**: `mattn/go-sqlite3` requires cgo, which complicates
+6. **Agent SQLite driver**: `mattn/go-sqlite3` requires cgo, which complicates
    Windows cross-compilation; `modernc.org/sqlite` is the pure-Go alternative.
 
 ## 4. Verification
