@@ -241,6 +241,11 @@ describe("deep production review contracts", () => {
     expect(source).toContain("def _schedule_postcommit_submission(self, job_id):");
     expect(source).toContain("the durable outbox row remains queued for cron recovery");
   });
+  it("locks the tenant row during print-job admission", () => {
+    const source = read("src/lib/print-job-service.ts");
+    expect(source).toContain("FOR UPDATE OF a, p, te");
+  });
+
 });
 
 

@@ -96,6 +96,39 @@ suite("Tenant Isolation Invariants (Negative Tests)", () => {
     expect(rows.rows.every((r: any) => r.count === 1)).toBe(true);
   });
 
+  it("linearizes tenant suspension and print-job admission", async () => {
+    await truncateAll();
+    const f = await seedFixture();
+    const payload = { type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=" } as const;
+    const client = await pool().connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT id FROM tenants WHERE id = $1 FOR UPDATE", [f.tenantId]);
+
+      const creating = createPrintJobForPrinter(f.printerId, payload, {
+        tenantId: f.tenantId,
+        requestedBy: "tenant-suspension-race",
+        documentType: "receipt",
+        destination: f.destination,
+        idempotencyKey: "tenant-suspension-race-" + f.tenantId,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await client.query(
+        "UPDATE tenants SET lifecycle = 'suspended', lifecycle_reason = 'Concurrent suspension test', suspended_at = clock_timestamp() WHERE id = $1",
+        [f.tenantId],
+      );
+      await client.query("COMMIT");
+
+      await expect(creating).rejects.toMatchObject({ code: "TENANT_UNAVAILABLE" });
+      const rows = await pool().query("SELECT count(*)::int AS count FROM print_jobs WHERE tenant_id = $1", [f.tenantId]);
+      expect(rows.rows[0].count).toBe(0);
+    } finally {
+      try { await client.query("ROLLBACK"); } catch {}
+      client.release();
+    }
+  });
   it("Test 5: WebSocket/job-delivery ownership cannot cross Agent tenants", async () => {
     await truncateAll();
     const a = await seedFixture();

@@ -236,10 +236,11 @@ async function insertQueuedJobAtomically({
     // path's row-lock order to avoid an enqueue-vs-reconfigure deadlock.
     //
     // NOTE: The tenants table is also joined here (not in the original query)
-    // to close a TOCTOU window: if a tenant is suspended/deleted between the
-    // auth check (validateOdooKey / requireActiveTenant) and this INSERT, the
-    // job must be rejected. The poll-claim path already guards on t.lifecycle;
-    // this makes the enqueue path equally strict.
+    // and its row is locked with the Agent and Printer. This closes the TOCTOU
+    // window against a concurrent tenant suspend/delete: the lifecycle read and
+    // the INSERT are now linearized with the authoritative tenant transition.
+    // The poll-claim path already guards on t.lifecycle; this makes enqueue
+    // admission equally strict.
     const runtimeOwner = await tx.execute(sql`
       SELECT
         p.lifecycle AS printer_lifecycle,
@@ -265,7 +266,7 @@ async function insertQueuedJobAtomically({
         AND a.tenant_id = ${tenantId}
         AND p.id = ${printerId}
         AND p.tenant_id = ${tenantId}
-      FOR UPDATE OF a, p
+      FOR UPDATE OF a, p, te
     `);
     const owner = runtimeOwner.rows[0] as {
       printer_lifecycle?: string;
