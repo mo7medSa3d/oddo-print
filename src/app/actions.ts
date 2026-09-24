@@ -57,8 +57,7 @@ export async function createAgent(name: string) {
   if (!pairingCode) throw new ActionError("Could not mint a unique pairing code. Try again.", 500);
   const id = `agt_${nanoid(8)}`;
   let expiresAt: Date | undefined;
-  try {
-    await db.transaction(async (tx) => {
+  await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('agents:' || ${manager.tenantId}))`);
       const clock = await tx.execute(sql`SELECT clock_timestamp() + interval '10 minutes' AS expires_at`);
       const rawExpiresAt = clock.rows[0]?.expires_at;
