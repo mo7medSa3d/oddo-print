@@ -106,7 +106,7 @@ describe("gateway runtime ownership contract", () => {
 
   it("blocks native POS order-preparation printing while Gateway mode is enabled", () => {
     const source = readFileSync(join(root, "odoo_addons/print_gateway/static/src/js/pos_print_router.js"), "utf8");
-    const methodStart = source.indexOf("async printOrderChanges(data, printer) {");
+    const methodStart = source.indexOf("async printOrderChanges(");
     const method = methodStart >= 0 ? source.slice(methodStart) : "";
     const gatewayGuard = method.indexOf("if (gatewayEnabled !== true) {");
     const gatewayCall = method.indexOf("action_print_gateway_kitchen");
