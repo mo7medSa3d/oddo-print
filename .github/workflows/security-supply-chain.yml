@@ -1,0 +1,127 @@
+name: Security and Resilience Gates
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: agent/go.mod
+          cache: true
+          cache-dependency-path: agent/go.sum
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: npm audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            set +e
+            audit_output="$(npm audit --audit-level=moderate 2>&1)"
+            audit_status=$?
+            set -e
+            printf '%s\n' "$audit_output"
+
+            if [ "$audit_status" -eq 0 ]; then
+              exit 0
+            fi
+
+            # npm registry maintenance / transient 5xx responses are infrastructure
+            # failures, not dependency findings. Retry them without ever ignoring
+            # a real audit result.
+            if printf '%s\n' "$audit_output" | grep -Eqi '503 Service Unavailable|currently performing maintenance|registry.*5[0-9][0-9]'; then
+              if [ "$attempt" -lt 3 ]; then
+                sleep $((attempt * 5))
+                continue
+              fi
+            fi
+
+            exit "$audit_status"
+          done
+
+      - name: Go vulnerability scan
+        working-directory: agent
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.5.0 ./...
+
+      - name: Rust vulnerability scan
+        working-directory: src-tauri
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit
+
+      - name: Verify all third-party GitHub Actions are SHA pinned
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE '^[[:space:]]*uses:[[:space:]]*[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@' .github/workflows \
+            | grep -vE '@[0-9a-fA-F]{40}([[:space:]]+#.*)?$'; then
+            echo 'Unpinned GitHub Action reference detected. Use an immutable 40-character commit SHA with a version comment.'
+            exit 1
+          fi
+          echo 'All third-party workflow action references are immutable SHA pins.'
+
+  postgres-failure-injection:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d app_db"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app_db
+      CI: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run migrations
+        run: npm run db:migrate
+      - name: PostgreSQL LISTEN reconnect failure injection
+        run: npx tsx scripts/pg-notify-failure-injection.ts

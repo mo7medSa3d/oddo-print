@@ -1,0 +1,272 @@
+import { describe, it, expect } from "vitest";
+import { buildTestPrintPayloadForPrinter, buildTestPdfPayload } from "../src/lib/payload";
+import { getEffectivePrinterStatus } from "../src/lib/agent-availability";
+import { isPrinterAvailableForJob, isAgentAvailableForPrinter } from "../src/lib/routing";
+import { effectivePrinterStatus } from "../src/shared/job-vocabulary";
+import fs from "node:fs";
+import path from "node:path";
+
+describe("DEFECT #1 — Gateway Send Test Page & PDF payload validation", () => {
+  it("generates a valid, minimal printable PDF document for spooler/ipp/ipps transports", () => {
+    const printer = {
+      id: "p_spooler_1",
+      name: "Front Desk Spooler",
+      protocol: "spooler" as const,
+      deviceClass: "standard" as const,
+      connectionType: "spooler" as const,
+    };
+    const payload = buildTestPrintPayloadForPrinter(printer.name, "Office Agent", printer);
+    expect(payload.type).toBe("pdf");
+    expect(payload.encoding).toBe("base64");
+    expect(typeof payload.data).toBe("string");
+
+    const decoded = Buffer.from(payload.data, "base64");
+    // Verify standard PDF header and trailer
+    expect(decoded.subarray(0, 5).toString("ascii")).toBe("%PDF-");
+    expect(decoded.toString("utf-8")).toContain("%%EOF");
+    expect(decoded.toString("utf-8")).toContain("/Type /Page");
+    expect(decoded.toString("utf-8")).toContain("Front Desk Spooler");
+    expect(decoded.toString("utf-8")).toContain("Office Agent");
+  });
+
+  it("buildTestPdfPayload passes standard PDF structure requirements", () => {
+    const pdfString = buildTestPdfPayload("Warehouse Zebra", "Zebra Agent");
+    expect(pdfString.length).toBeGreaterThan(100);
+    expect(pdfString.startsWith("%PDF-1.4")).toBe(true);
+    expect(pdfString).toContain("trailer");
+    expect(pdfString).toContain("startxref");
+    expect(pdfString).toContain("%%EOF");
+  });
+
+  it("preserves raw protocol for escpos/zpl/tspl hardware", () => {
+    const escposPrinter = {
+      id: "p_escpos_1",
+      name: "Kitchen Receipt",
+      protocol: "escpos" as const,
+      deviceClass: "thermal" as const,
+      connectionType: "network" as const,
+    };
+    const payload = buildTestPrintPayloadForPrinter(escposPrinter.name, "Kitchen Agent", escposPrinter);
+    expect(payload.type).toBe("escpos");
+    expect(payload.encoding).toBe("base64");
+  });
+});
+
+describe("DEFECT #2 — Printer Status After Agent Heartbeat Loss", () => {
+  const nowMs = Date.now();
+  const nowDate = new Date(nowMs);
+  const freshTime = new Date(nowMs - 30_000); // 30s ago (fresh, <= 90s)
+  const staleTime = new Date(nowMs - 120_000); // 120s ago (stale, > 90s)
+
+  it("marks printer online only when both agent and printer are fresh and active", () => {
+    const agent = { status: "online", lastSeenAt: freshTime, lifecycle: "active" };
+    const printer = { status: "online", lastSeenAt: freshTime, lifecycle: "active" };
+
+    const status = getEffectivePrinterStatus(printer, agent, nowDate);
+    expect(status).toBe("online");
+  });
+
+  it("marks printer offline immediately if agent heartbeat is stale (>90s), even if DB printer status is 'online'", () => {
+    const agent = { status: "online", lastSeenAt: staleTime, lifecycle: "active" };
+    const printer = { status: "online", lastSeenAt: freshTime, lifecycle: "active" };
+
+    const status = getEffectivePrinterStatus(printer, agent, nowDate);
+    expect(status).toBe("offline");
+  });
+
+  it("marks printer offline if parent agent is marked offline or disabled", () => {
+    const agent = { status: "offline", lastSeenAt: freshTime, lifecycle: "active" };
+    const printer = { status: "online", lastSeenAt: freshTime, lifecycle: "active" };
+
+    const status = getEffectivePrinterStatus(printer, agent, nowDate);
+    expect(status).toBe("offline");
+
+    const disabledAgent = { status: "online", lastSeenAt: freshTime, lifecycle: "inactive" };
+    expect(getEffectivePrinterStatus(printer, disabledAgent, nowDate)).toBe("offline");
+  });
+
+  it("routing service isPrinterAvailableForJob refuses dispatch to printer with stale agent", () => {
+    const agent = { status: "online" as const, lastSeenAt: staleTime, lifecycle: "active" as const };
+    const printer = {
+      id: "p1",
+      name: "Test",
+      status: "online" as const,
+      lifecycle: "active" as const,
+      lastSeenAt: freshTime,
+      protocol: "raw" as const,
+      deviceClass: "standard" as const,
+      connectionType: "network" as const,
+      endpoint: "192.168.1.100:9100",
+    };
+
+    expect(isAgentAvailableForPrinter(agent, nowDate)).toBe(false);
+    expect(isPrinterAvailableForJob(printer, agent, nowDate)).toBe(false);
+  });
+
+  it("effectivePrinterStatus shared vocabulary helper produces consistent status for dashboard UI", () => {
+    const agent = { status: "online", lastSeenAt: staleTime.toISOString(), lifecycle: "active" };
+    const printer = { status: "online", lastSeenAt: freshTime.toISOString(), lifecycle: "active" };
+
+    expect(effectivePrinterStatus(printer, agent, nowMs)).toBe("offline");
+  });
+});
+
+describe("DEFECT #3 — Manual Printer Registration & Heartbeat Handling", () => {
+  it("agent CLI supports --printer-type flag alias in addition to --device-class", () => {
+    const cliSource = fs.readFileSync(path.resolve(__dirname, "../agent/cmd/cli/main.go"), "utf-8");
+    expect(cliSource).toContain('fs.String("printer-type"');
+    expect(cliSource).toContain('fs.String("device-class"');
+  });
+
+  it("agent reloads local registry before sending heartbeat", () => {
+    const agentSource = fs.readFileSync(path.resolve(__dirname, "../agent/internal/agent/agent.go"), "utf-8");
+    expect(agentSource).toContain("a.reloadRegistryPrinters()");
+    expect(agentSource).toContain("skippedPrinters");
+    expect(agentSource).toContain("rejected by gateway");
+  });
+
+  it("heartbeat API route populates skippedPrinters with structured reason", () => {
+    const heartbeatRoute = fs.readFileSync(path.resolve(__dirname, "../src/app/api/agent/heartbeat/route.ts"), "utf-8");
+    expect(heartbeatRoute).toContain("skipped.push({ id: rawId, reason: res.reason })");
+    expect(heartbeatRoute).toContain("sanitizePrinter");
+    expect(heartbeatRoute).toContain("skippedPrinters: skipped");
+  });
+});
+
+describe("DEFECT #4 — Odoo Agent Selection & Runtime Printer Field", () => {
+  it("binding model defaults company_id to parent company when accessed from a branch", () => {
+    const bindingSource = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/models/binding.py"), "utf-8");
+    expect(bindingSource).toContain("default=lambda self: self.env.company.parent_id or self.env.company");
+  });
+
+  it("runtime_printers controller passes agent_id parameter to Gateway", () => {
+    const controllerSource = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/controllers/runtime_printers.py"), "utf-8");
+    expect(controllerSource).toContain("params={'agent_id': selected_agent_id}");
+  });
+
+  it("runtime_printer_field OWL component binds value and preserves offline configured printer", () => {
+    const widgetSource = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/static/src/components/runtime_printer_field.js"), "utf-8");
+    expect(widgetSource).toContain('t-att-value="props.record.data[props.name] || \'\'"');
+    expect(widgetSource).toContain("configuredPrinterMissing");
+    expect(widgetSource).toContain("(saved / currently unavailable)");
+    expect(widgetSource).toContain("updateData.printer_protocol = found.protocol");
+  });
+});
+
+describe("DEFECT #5 — Odoo POS TaxLabel & Receipt Rendering Contract", () => {
+  it("pos_print_router.js renders OrderReceipt OWL component via renderer service with fallback", () => {
+    const posRouter = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/static/src/js/pos_print_router.js"), "utf-8");
+    expect(posRouter).toContain('import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt"');
+    expect(posRouter).toContain("renderer.toJpeg(OrderReceipt");
+    // Phase 13 deliberately eliminated the mocked doesAnyOrderlineHaveTaxLabel
+    // shim (commit 5d245a5): the direct-template fallback must use the native
+    // Odoo data contract instead. Assert the native contract AND the absence
+    // of the fake so neither regresses silently.
+    expect(posRouter).not.toContain("doesAnyOrderlineHaveTaxLabel");
+    expect(posRouter).toContain("export_for_printing");
+    expect(posRouter).toContain("formatCurrency");
+    expect(posRouter).toContain("renderReceiptImage(this, currentOrder, basic)");
+  });
+});
+
+describe("DEFECT #6 — Odoo PDF Download vs Gateway Silent Printing", () => {
+  it("report_interceptor chooses the first populated valid ID source and normalizes scalar IDs", () => {
+    const interceptor = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/static/src/js/report_interceptor.js"), "utf-8").replace(/\r\n/g, "\n");
+    const helpers = interceptor.match(/function normalizeIds[\s\S]*?\n}\s*function firstNonEmptyIds[\s\S]*?\n}/)?.[0];
+    expect(helpers).toBeTruthy();
+    const firstNonEmptyIds = new Function(`${helpers}; return firstNonEmptyIds;`)() as (...sources: unknown[]) => number[];
+
+    expect(firstNonEmptyIds([], [2], [3])).toEqual([2]); // options
+    expect(firstNonEmptyIds([], [], 4, [5])).toEqual([4]); // context scalar
+    expect(firstNonEmptyIds([], [], [], null, [], [6])).toEqual([6]); // action docids
+    expect(firstNonEmptyIds([], [], [], null, [], [], [], "7")).toEqual([7]); // data docids
+    expect(firstNonEmptyIds([], [null, false, "", "bad"], [8])).toEqual([8]);
+    expect(firstNonEmptyIds([], null, false, "bad")).toEqual([]); // native fallback
+    expect(interceptor).toContain("report_id: action.id");
+    expect(interceptor).toContain("data: action.data ?? null");
+  });
+
+  it("preserves report action data through binding dispatch and PDF rendering", () => {
+    const binding = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/models/binding.py"), "utf-8");
+    const router = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/models/print_router.py"), "utf-8");
+    expect(binding).toContain("context=None, data=None");
+    expect(binding).toContain("route_report(report, records, data=data)");
+    expect(router).toContain("_render_pdf_payload(report, records, data=data)");
+    expect(router).toContain("res_ids=records.ids, data=data");
+  });
+
+  it("resolve_binding supports native fallback and exact explicit bindings", () => {
+    const routerSource = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/models/print_router.py"), "utf-8");
+    expect(routerSource).toContain("explicit_binding=None");
+    expect(routerSource).toContain("binding_model.resolve_explicit(");
+    expect(routerSource).toContain('"native": True');
+    expect(routerSource).toContain('"binding": False');
+  });
+
+  it("leaves Odoo 19 report download native and uses the supported JS interceptor", () => {
+    const controllers = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/controllers/__init__.py"), "utf-8");
+    const manifest = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/__manifest__.py"), "utf-8");
+    expect(controllers).not.toContain("report_download_override");
+    expect(manifest).toContain("report_interceptor.js");
+    expect(fs.existsSync(path.resolve(__dirname, "../odoo_addons/print_gateway/controllers/report_download_override.py"))).toBe(false);
+  });
+});
+
+describe("DEFECT #7 — Local Agent Test Print Latency Optimization", () => {
+  it("TestPrinter checks registry and config first to avoid network scans", () => {
+    const discoverySource = fs.readFileSync(path.resolve(__dirname, "../agent/internal/printer/discovery.go"), "utf-8");
+    expect(discoverySource).toContain("if infos, err := LoadRegistryPrinters(registryPath)");
+    expect(discoverySource).toContain("for _, p := range discoverFromConfig(cfg)");
+    expect(discoverySource).toContain("Never invoke network discovery here");
+  });
+});
+
+describe("DEFECT #8 — current agent presence is offline when heartbeat is stale", () => {
+  it("uses offline semantics rather than an online warning when heartbeat freshness expires", () => {
+    const source = fs.readFileSync(path.resolve(__dirname, "../src/shared/job-vocabulary.ts"), "utf-8");
+    expect(source).toContain('return { tone: "bad", label: "Offline — heartbeat lost" };');
+    expect(source).not.toContain('label: "Online (heartbeat lost)"');
+  });
+
+  it("server agent inventory resolves status from current heartbeat availability", () => {
+    const source = fs.readFileSync(path.resolve(__dirname, "../src/app/api/agents/route.ts"), "utf-8");
+    expect(source).toContain("isAgentAvailableForJob");
+    expect(source).toContain('status: isAgentAvailableForJob(agent, now) ? "online" : "offline"');
+  });
+});
+
+describe("DEFECT #9 — selected printer test never falls through to LAN discovery", () => {
+  it("resolves selected printers from local registry/config only", () => {
+    const source = fs.readFileSync(path.resolve(__dirname, "../agent/internal/printer/discovery.go"), "utf-8");
+    const block = source.slice(source.indexOf("func TestPrinter("));
+    expect(block).toContain("LoadRegistryPrinters(registryPath)");
+    expect(block).toContain("discoverFromConfig(cfg)");
+    expect(block).not.toContain("ListPrinters(cfg, registryPath)");
+    expect(block).not.toContain("DiscoverQuick(cfg, registryPath)");
+  });
+});
+
+describe("DEFECT #6 — Agent test-print fast path", () => {
+  it("does not use discovery or the ESC/POS health preflight for the local test print", () => {
+    const discovery = fs.readFileSync(path.resolve(__dirname, "../agent/internal/printer/discovery.go"), "utf-8");
+    const network = fs.readFileSync(path.resolve(__dirname, "../agent/internal/printer/network.go"), "utf-8");
+    const testSource = fs.readFileSync(path.resolve(__dirname, "../agent/internal/printer/network_test_fastpath_test.go"), "utf-8");
+    const testPrinter = discovery.slice(discovery.indexOf("func TestPrinter"));
+    expect(testPrinter).toContain("LoadRegistryPrinters(registryPath)");
+    expect(testPrinter).not.toContain("DiscoverQuick(cfg, registryPath)");
+    expect(network).toContain("return p.printBytes(testCtx, []byte(\"\\x1b\\x40Hello from Yasser Agent!\\n\\n\\x1d\\x56\\x01\"), false, testPrintDialTimeout)");
+    expect(network).toContain("testPrintDialTimeout  = 3 * time.Second");
+    expect(testSource).toContain("healthy test print took");
+    expect(testSource).toContain("refused printer test took");
+  });
+});
+
+
+describe("SECURITY — onboarding function-level authorization", () => {
+  it("onboarding endpoint enforces tenant and billing permissions server-side", () => {
+    const source = fs.readFileSync(path.resolve(__dirname, "../src/app/api/onboarding/route.ts"), "utf-8");
+    expect(source).toContain("hasManagerPermission(claims, \"tenant.update\")");
+    expect(source).toContain("hasManagerPermission(claims, \"billing.manage\")");
+    expect(source).toContain('return NextResponse.json({ error: "Forbidden" }, { status: 403 });');
+  });
+});

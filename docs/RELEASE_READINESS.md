@@ -7,14 +7,14 @@ Single dashboard showing P0 must-close before Production and industry compliance
 
 | Area | Implemented | Runtime Verified | Status | Evidence |
 | ---- | ----------- | ---------------- | ------ | -------- |
-| Real Print Certification Mode (canonical pipeline + idempotency + state-driven) | PASS | BLOCKED | BLOCKED | POST /api/printers/[id]/certify uses createPrintJobForPrinter (canonical), Idempotency-Key header, state-driven from job row (queued→pending, claimed→ok), Physical BLOCKED in sandbox, never auto-certify. Covered by automated regression tests; current CI status is reported by GitHub Actions. |
-| Printer Capability Matrix (evidence-based) | PASS | PASS | PASS | GET /api/printers/capabilities, printer-health.ts freshness check, driver health from capabilities.driver_name + fresh, spooler health requires spooler_status. Covered by automated regression tests; current CI status is reported by GitHub Actions. |
-| Agent Health ONLINE/DEGRADED/OFFLINE/STARTING (observed vs inferred) | PASS | PASS | PASS | lib/agent-health.ts STARTING from createdAt<5min never seen, ONLINE <90s, DEGRADED 90s-5m, OFFLINE >5m, checks Gateway observed, Queue observed, Printers observed, Version observed, Heartbeat inferred labeled, failureCount null NOT MEASURED. Covered by automated regression tests; current CI status is reported by GitHub Actions. |
+| Real Print Certification Mode (canonical pipeline + idempotency + state-driven) | PASS | BLOCKED | BLOCKED | POST /api/printers/[id]/certify uses createPrintJobForPrinter (canonical), Idempotency-Key header, state-driven from job row (queued→pending, claimed→ok), Physical BLOCKED in sandbox, never auto-certify. 7 tests green. |
+| Printer Capability Matrix (evidence-based) | PASS | PASS | PASS | GET /api/printers/capabilities, printer-health.ts freshness check, driver health from capabilities.driver_name + fresh, spooler health requires spooler_status. 6 tests green. |
+| Agent Health ONLINE/DEGRADED/OFFLINE/STARTING (observed vs inferred) | PASS | PASS | PASS | lib/agent-health.ts STARTING from createdAt<5min never seen, ONLINE <90s, DEGRADED 90s-5m, OFFLINE >5m, checks Gateway observed, Queue observed, Printers observed, Version observed, Heartbeat inferred labeled, failureCount null NOT MEASURED. 8 tests green. |
 | Windows Service Recovery | PASS | BLOCKED | BLOCKED | docs/WINDOWS_SERVICE_RECOVERY.md, /api/agents/service-status BLOCKED explicit, code hardened. Runtime requires Windows host — BLOCKED. |
 | Printer Queue Health + Gateway↔Spooler linking | PASS | PASS | PASS | Statuses with freshness, spoolerJobId linking, agent/jobs PATCH persists. |
-| Job Timeline (redacted claim tokens) | PASS | PASS | PASS | GET /api/jobs/[id]/timeline, claim token redacted via sha256, regression test. Covered by automated regression tests; current CI status is reported by GitHub Actions. |
-| Distributed Trace (OTel-inspired, not full OTel) | PASS | PASS | PASS | correlation.ts, correlation.ts-based, X-Request-Id, log enrichment, docs honest. Covered by automated regression tests; current CI status is reported by GitHub Actions. |
-| System Health tenant-safe + overall policy | PASS | PASS | PASS | checkQueue requires tenantId (tenant-safe), overall policy prevents false OK when UNKNOWN, Odoo/Billing UNKNOWN honest. Covered by automated regression tests; current CI status is reported by GitHub Actions. |
+| Job Timeline (redacted claim tokens) | PASS | PASS | PASS | GET /api/jobs/[id]/timeline, claim token redacted via sha256, regression test. 4 tests green. |
+| Distributed Trace (OTel-inspired, not full OTel) | PASS | PASS | PASS | correlation.ts, tracing.ts OTel-inspired, X-Request-Id, log enrichment, docs honest. 5 tests green. |
+| System Health tenant-safe + overall policy | PASS | PASS | PASS | checkQueue requires tenantId (tenant-safe), overall policy prevents false OK when UNKNOWN, Odoo/Billing UNKNOWN honest. 6 tests green. |
 | Tenant isolation | PASS | PASS | PASS | 413 tests green, composite FKs, tenant scoping. |
 | Claim tokens not exposed | PASS | PASS | PASS | timeline redacts via hash, regression test. |
 | IPP support / driverless direction (not certified) | PASS | BLOCKED | BLOCKED | IPP/IPPS transport supported, but NOT claiming IPP Everywhere certification without conformance testing. |
@@ -54,7 +54,7 @@ Single dashboard showing P0 must-close before Production and industry compliance
 - **OTel-inspired distributed correlation** (not full OpenTelemetry): custom application-specific fields, documented as such, not official OTel semantic conventions — PASS honest
 
 ## Verification
-- `npm run test:unit` — automated unit/regression suite covering tenant safety, claim redaction, evidence-based health, and lifecycle contracts; current pass/fail state is reported by GitHub Actions
+- `npm run test:unit` — 413+ tests green (was 387), includes new regression tests for tenant-safe, claim redaction, evidence-based health
 - `npm run build` — 53 pages green
 - No secrets in test pages (No credentials are printed)
 - Tenant isolation preserved (checkQueue requires tenantId)

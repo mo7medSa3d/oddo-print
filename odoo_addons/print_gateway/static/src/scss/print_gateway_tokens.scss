@@ -1,0 +1,156 @@
+/* PRINT GATEWAY — Premium 2026 Odoo tokens
+   Mirrors Gateway SaaS + Desktop Manager design system.
+   Namespaced --pg-* to avoid Odoo leaks. */
+
+:root {
+    /* Odoo-native module palette: quiet plum + teal accents, neutral surfaces. */
+    --pg-brand-50: #f7f1f5;
+    --pg-brand-100: #eee2ea;
+    --pg-brand-200: #ddc8d7;
+    --pg-brand-300: #c4a0b5;
+    --pg-brand-400: #a27491;
+    --pg-brand-500: #714B67;
+    --pg-brand-600: #653F58;
+    --pg-brand-700: #58364C;
+    --pg-brand-800: #4B2E41;
+    --pg-brand-900: #3C2533;
+
+    --pg-brand: #714B67;
+    --pg-brand-hover: #653F58;
+    --pg-brand-active: #58364C;
+    --pg-brand-contrast: #FFFFFF;
+    --pg-brand-subtle: #f7f1f5;
+    --pg-brand-subtle-hover: #eee2ea;
+    --pg-brand-subtle-text: #714B67;
+    --pg-brand-ring: rgba(113,75,103,.16);
+
+    --pg-bg: #f6f7f8;
+    --pg-surface: #ffffff;
+    --pg-surface-2: #f3f4f5;
+    --pg-surface-3: #e9ecef;
+    --pg-surface-accent: #f7f1f5;
+    --pg-surface-accent-2: #eee2ea;
+    --pg-border: #dee2e6;
+    --pg-border-strong: #ced4da;
+    --pg-border-accent: #c4a5b8;
+
+    --pg-text: #212529;
+    --pg-text-2: #495057;
+    --pg-text-3: #6c757d;
+    --pg-text-4: #8F8F8F;
+
+    --pg-ok: #198754;
+    --pg-ok-solid: #198754;
+    --pg-ok-bg: #edf7f1;
+    --pg-ok-border: #b9ddc6;
+    --pg-warn: #8a6100;
+    --pg-warn-solid: #a97800;
+    --pg-warn-bg: #fff8e7;
+    --pg-warn-border: #ecd69d;
+    --pg-bad: #b23a48;
+    --pg-bad-solid: #c84a59;
+    --pg-bad-bg: #fff1f2;
+    --pg-bad-border: #efc6cc;
+    --pg-info: #017E84;
+    --pg-info-solid: #017E84;
+    --pg-info-bg: #eff8f8;
+    --pg-info-border: #b8d9da;
+    --pg-neutral: #6C757D;
+    --pg-neutral-solid: #6C757D;
+    --pg-neutral-bg: #f3f4f5;
+    --pg-neutral-border: #ced4da;
+
+    --pg-cred-ok-bg: #edf7f1;
+    --pg-cred-ok-border: #b9ddc6;
+    --pg-cred-ok-text: #198754;
+    --pg-cred-missing-bg: #fff1f2;
+    --pg-cred-missing-border: #efc6cc;
+    --pg-cred-missing-text: #b23a48;
+
+    --pg-activation-enabled-bg: #f7f1f5;
+    --pg-activation-enabled-border: #ddc8d7;
+    --pg-activation-enabled-text: #714B67;
+    --pg-activation-disabled-bg: #f3f4f5;
+    --pg-activation-disabled-border: #ced4da;
+    --pg-activation-disabled-text: #6C757D;
+
+    --pg-conn-active-bg: #edf7f1;
+    --pg-conn-active-border: #b9ddc6;
+    --pg-conn-active-text: #198754;
+    --pg-conn-syncing-bg: #eff8f8;
+    --pg-conn-syncing-border: #b8d9da;
+    --pg-conn-syncing-text: #017E84;
+    --pg-conn-attention-bg: #fff8e7;
+    --pg-conn-attention-border: #ecd69d;
+    --pg-conn-attention-text: #8a6100;
+    --pg-conn-disabled-bg: #f3f4f5;
+    --pg-conn-disabled-border: #ced4da;
+    --pg-conn-disabled-text: #6C757D;
+
+    --pg-r-sm: 7px;
+    --pg-r-md: 9px;
+    --pg-r-lg: 12px;
+    --pg-r-xl: 14px;
+    --pg-r-2xl: 16px;
+    --pg-r-pill: 9999px;
+
+    --pg-shadow-xs: 0 1px 2px rgba(33,37,41,.05);
+    --pg-shadow-sm: 0 1px 3px rgba(33,37,41,.06), 0 1px 2px rgba(33,37,41,.04);
+    --pg-shadow-md: 0 4px 12px -2px rgba(33,37,41,.07), 0 2px 4px -2px rgba(33,37,41,.04);
+    --pg-shadow-card: 0 1px 2px rgba(33,37,41,.05), 0 6px 18px rgba(33,37,41,.06);
+
+    --pg-space-1: 4px;
+    --pg-space-2: 8px;
+    --pg-space-3: 12px;
+    --pg-space-4: 16px;
+    --pg-space-5: 20px;
+    --pg-space-6: 24px;
+
+    --pg-fs-caption: 11px;
+    --pg-fs-small: 12px;
+    --pg-fs-body: 13px;
+    --pg-tracking-label: 0.06em;
+    --pg-dur: 180ms;
+    --pg-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Keep the module on Odoo's light backend surface instead of importing a Gateway dark palette. */
+.o_dark_mode, body.o_dark_mode {
+    color-scheme: light;
+    --pg-bg: #f6f7f8;
+    --pg-surface: #ffffff;
+    --pg-surface-2: #f3f4f5;
+    --pg-surface-3: #e9ecef;
+    --pg-surface-accent: #f7f1f5;
+    --pg-surface-accent-2: #eee2ea;
+    --pg-border: #dee2e6;
+    --pg-border-strong: #ced4da;
+    --pg-border-accent: #c4a5b8;
+    --pg-text: #212529;
+    --pg-text-2: #495057;
+    --pg-text-3: #6c757d;
+    --pg-text-4: #8F8F8F;
+    --pg-brand: #714B67;
+    --pg-brand-hover: #653F58;
+    --pg-brand-active: #58364C;
+    --pg-brand-contrast: #FFFFFF;
+    --pg-brand-subtle: #f7f1f5;
+    --pg-brand-subtle-hover: #eee2ea;
+    --pg-brand-subtle-text: #714B67;
+    --pg-brand-ring: rgba(113,75,103,.16);
+    --pg-info: #017E84;
+    --pg-info-solid: #017E84;
+    --pg-info-bg: #eff8f8;
+    --pg-info-border: #b8d9da;
+}
+
+@keyframes pg-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(1.1); }
+}
+.pg-pulse { animation: pg-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+
+@keyframes pg-shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
