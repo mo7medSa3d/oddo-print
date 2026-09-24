@@ -22,7 +22,7 @@ Single dashboard showing P0 must-close before Production and industry compliance
 | Physical printing | PASS | BLOCKED | BLOCKED | Job row created but paper unverified, Physical BLOCKED by design. |
 | Odoo runtime | PASS | BLOCKED | BLOCKED | Views fixed, but no Odoo deployment — System health Odoo UNKNOWN honest. |
 | PostgreSQL integration | PASS | BLOCKED | BLOCKED | Code inspected, integration tests skipped without DB. |
-| Go race detector | PASS | BLOCKED | BLOCKED | No Go toolchain. |
+| Go race detector | PASS | BLOCKED | BLOCKED | The Go race suite is exercised in CI; local runtime evidence is environment-dependent. |
 
 ## P1 Features — Honest
 - System Health single page: /system-health, /api/system/health — PASS (tenant-safe, policy documented)
@@ -55,12 +55,11 @@ Single dashboard showing P0 must-close before Production and industry compliance
 
 ## Verification
 - `npm run test:unit` — automated unit/regression coverage; current result is reported by GitHub Actions
-- `npm run build` — 53 pages green
 - No secrets in test pages (No credentials are printed)
 - Tenant isolation preserved (checkQueue requires tenantId)
 - State machine preserved (timeline only records, doesn't mutate)
 - Security contracts preserved (claim tokens redacted)
-- No fake PASS: Windows Service, Physical printing, Odoo runtime, PG integration, Go race, Tauri updater, IPP Everywhere certification all BLOCKED explicit
+- No fake PASS: Windows Service, Physical printing, Odoo runtime, PG integration, Tauri updater, and IPP Everywhere certification remain explicitly blocked where runtime or conformance evidence is unavailable.
 
 ## Release Decision
 **RELEASE READY WITH EXPLICIT BLOCKED** — P0 implemented with truthful state-driven wizard, tenant-safe health, claim token redaction, evidence-based printer/agent health. BLOCKED items explicit:
@@ -68,7 +67,7 @@ Single dashboard showing P0 must-close before Production and industry compliance
 - Windows Service runtime BLOCKED (no Windows host)
 - Odoo runtime BLOCKED (no deployment)
 - PostgreSQL integration BLOCKED (no DB)
-- Go race BLOCKED (no toolchain)
+- Go race runtime status depends on the CI/runner toolchain; no local hardware/runtime claim is made here.
 - Tauri updater BLOCKED (no config)
 - IPP Everywhere certification BLOCKED (no conformance testing)
 

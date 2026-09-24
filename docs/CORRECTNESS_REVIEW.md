@@ -122,3 +122,7 @@ Odoo outbox never re-POSTs once a Gateway job id exists.
   assertion related to this review fails.
 - `tsc --noEmit`, `eslint .` and `next build` are clean; the production-like
   migration upgrade path replays 0067 without data loss.
+
+## Tenant lifecycle vs print admission TOCTOU — fixed
+
+The print-job admission transaction re-checked tenant lifecycle state but did not lock the joined tenant row while locking its Agent and Printer. A concurrent platform suspend/delete could therefore commit after the lifecycle read but before the job INSERT, creating a durable queued job after the authoritative lifecycle transition. The fix adds the tenant row to the existing row lock (`FOR UPDATE OF a, p, te`), making admission linearizable with the tenant lifecycle transaction. Regression coverage is in tests/tenant-isolation.test.ts and the source contract is checked in tests/deep-review-contract.test.ts.
