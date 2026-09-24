@@ -117,3 +117,31 @@
 - Regression test: `test_report_action_preserves_odoo19_layout_configuration_gate` asserts the layout gate precedes report access and Gateway routing.
 - Verification:
   GitHub Actions run `36066509146`, job `107857771046` — `Install and test addon on Odoo 19 Community: success`; `Assert the Odoo addon tests actually ran and passed: success`.
+
+
+## 2026-09-25 — Odoo 19 preparation-printer relation correction
+- File: `odoo_addons/print_gateway/models/pos_order.py`
+- Problem: Kitchen routing used `config_id.printer_ids` for membership/discovery. Odoo 19 defines separate `preparation_printer_ids` and `receipt_printer_ids`; the native preparation flow consumes `preparation_printer_ids`.
+- Evidence before fix:
+  Odoo 19 source search returned:
+  `preparation_printer_ids = fields.Many2many('pos.printer', ... string="Preparation Printers", domain="[('use_type', '=', 'preparation')]")`
+  and native preparation generation iterates `self.config_id.preparation_printer_ids`.
+  Repository source count before fix: `config_id.printer_ids:3`.
+- Fix: Replaced all three Kitchen-side `config_id.printer_ids` references with `config_id.preparation_printer_ids`.
+- Regression test: `test_kitchen_gateway_uses_odoo_19_preparation_printer_relation` asserts the native relation is present and the generic relation is absent.
+- Verification evidence:
+  Before/after replacement command output:
+  `BEFORE_COUNT=config_id.printer_ids:3`
+  `AFTER_COUNT=config_id.printer_ids:0`
+  `REPLACED=3`
+  GitHub Actions for the resulting `main` commit were then triggered.
+
+## 2026-09-25 — Correctness review migration metadata drift
+- File: `docs/CORRECTNESS_REVIEW.md`
+- Problem: The document identified the latest Drizzle snapshot as 0071 while the repository contains migration/snapshot 0072.
+- Evidence before fix:
+  `drizzle/meta/0071_remove_print_job_rate_limits_snapshot.json`
+  `drizzle/meta/0072_tenant_scoped_printer_identity_snapshot.json`
+  and current migration tree contains 73 SQL migrations ending at 0072.
+- Fix: Updated the review to identify 0072 as the current snapshot and state the current 0000–0072 migration range.
+- Verification: The edited document was committed as `2ff2be4ae80fed5c21317ff1aa524313eac0fa42`; the current `main` history contains that commit before the Kitchen relation fix.
