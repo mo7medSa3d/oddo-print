@@ -5,12 +5,28 @@ import { agents, printers } from "../../../../db/schema";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
 import { getEffectivePrinterStatus } from "../../../../lib/agent-availability";
 import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
+import { TenantSubscriptionRequiredError, requireTenantBillingAccess } from "../../../../lib/entitlements";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   const apiKey = await validateOdooKey(req);
   if (!apiKey) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Printer inventory is an Odoo runtime-control-plane surface. Do not expose
+  // tenant printer identities after subscription access has ended; use the same
+  // database-authoritative predicate as print admission and agent discovery.
+  try {
+    await requireTenantBillingAccess(db, apiKey.tenantId);
+  } catch (error) {
+    if (error instanceof TenantSubscriptionRequiredError) {
+      return NextResponse.json(
+        { error: error.message, code: "SUBSCRIPTION_REQUIRED" },
+        { status: 403, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    throw error;
+  }
 
   const { searchParams } = new URL(req.url);
   const agentId = searchParams.get("agent_id")?.trim();
