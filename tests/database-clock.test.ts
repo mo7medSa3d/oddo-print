@@ -253,19 +253,19 @@ describe("clock authority is enforced in the source", () => {
     expect(source).not.toContain("isSubscriptionPeriodLive(sub.currentPeriodEnd)");
   });
 
-  it("routes subscription access through the canonical helper or the calibrated status view", () => {
+  it("routes subscription access through the intended billing contract for each entry point", () => {
+    const billingStatus = read("src/app/api/billing/status/route.ts");
+    expect(billingStatus).toContain("isBillingAccessStatus");
+    expect(billingStatus).toContain("isSubscriptionPeriodLive");
+    expect(billingStatus).not.toContain("currentPeriodEnd) > new Date()");
+
     for (const path of [
-      "src/app/api/billing/status/route.ts",
       "src/app/api/odoo/agents/route.ts",
       "src/app/api/odoo/configuration/route.ts",
       "src/app/api/odoo/keys/route.ts",
     ]) {
       const source = read(path);
-      const usesCalibratedPeriodView =
-        source.includes("isBillingAccessStatus") &&
-        source.includes("isSubscriptionPeriodLive");
-      const usesCanonicalBillingGate = source.includes("requireTenantBillingAccess(");
-      expect(usesCalibratedPeriodView || usesCanonicalBillingGate).toBe(true);
+      expect(source, path).toContain("requireTenantBillingAccess(");
       expect(source).not.toContain("currentPeriodEnd) > new Date()");
     }
   });
