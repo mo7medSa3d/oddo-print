@@ -21,7 +21,7 @@ def migrate(cr, version):
                    WHEN r.model = 'pos.order' THEN 'receipt'
                    ELSE 'report:' || COALESCE(NULLIF(lower(trim(r.report_name)), ''), r.id::text)
                END
-          FROM ir_actions_report AS r
+          FROM ir_act_report_xml AS r
          WHERE b.destination_type = 'report'
            AND b.destination_report_id IS NOT NULL
            AND r.id = b.destination_report_id
@@ -44,7 +44,7 @@ def migrate(cr, version):
                    WHEN r.model = 'pos.order' THEN 'receipt'
                    ELSE 'report:' || COALESCE(NULLIF(lower(trim(r.report_name)), ''), r.id::text)
                END
-          FROM ir_actions_report AS r
+          FROM ir_act_report_xml AS r
          WHERE b.destination_type = 'report'
            AND b.report_id IS NOT NULL
            AND r.id = b.report_id
