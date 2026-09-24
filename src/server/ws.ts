@@ -904,8 +904,8 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         // A client can disconnect while lifecycle verification waits on PostgreSQL.
         // Release only the reservation; readyState is checked before registration.
         aws.once("close", releaseReservation);
-      });
-    } catch (error) {
+        });
+      } catch (error) {
       logUpgradeError(error);
       if (!socket.destroyed && !socket.writableEnded) {
         writeWsHttpError(socket, 500, "WebSocket upgrade failed");
