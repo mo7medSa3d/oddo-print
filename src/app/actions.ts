@@ -66,13 +66,16 @@ export async function createAgent(name: string) {
       const candidate = rawExpiresAt instanceof Date ? rawExpiresAt : new Date(String(rawExpiresAt ?? ""));
       if (!rawExpiresAt || Number.isNaN(candidate.getTime())) throw new Error("Database clock is unavailable");
       expiresAt = candidate;
+      // Keep the same tenant -> subscription ordering as Billing operations.
+      // Taking the lifecycle fence before the entitlement lock avoids a
+      // subscription -> tenant / tenant -> subscription deadlock during suspend.
+      await requireActiveTenantInTransaction(tx, manager.tenantId);
       await enforceTenantResourceEntitlement(
         tx,
         manager.tenantId,
         "max_agents",
         sql`SELECT COUNT(*)::int AS count FROM agents WHERE tenant_id = ${manager.tenantId} AND lifecycle <> 'retired'`,
       );
-      await requireActiveTenantInTransaction(tx, manager.tenantId);
       await tx.insert(agents).values({
         id, tenantId: manager.tenantId, name: name.trim(),
         pairingCodeHash: hashPairingCode(pairingCode),
