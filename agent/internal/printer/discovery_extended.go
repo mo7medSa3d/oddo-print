@@ -225,10 +225,20 @@ func buildSNMPGet(oids []string) []byte {
 	vbLenPos := pdu.Len()
 	pdu.WriteByte(0)
 	for _, oid := range oids {
-		pdu.WriteByte(0x30)     // varbind
-		pdu.WriteByte(0x06 + 5) // approximate
-		// OID
+		pdu.WriteByte(0x30) // varbind
+		// VarBind length is the complete encoded OID TLV plus the NULL TLV.
+		// The old fixed 0x0b length was incorrect for the 9-byte OIDs used
+		// here: it declared 11 bytes while writing 13 bytes, producing malformed
+		// BER and causing compliant SNMP agents to reject the discovery request.
 		oidBytes := encodeOID(oid)
+		varbindLen := 2 + len(oidBytes) + 2
+		if varbindLen > 127 {
+			// Current discovery OIDs use BER short-form lengths. Fail closed
+			// rather than emit another malformed packet for a future long OID.
+			continue
+		}
+		pdu.WriteByte(byte(varbindLen))
+		// OID
 		pdu.WriteByte(0x06)
 		pdu.WriteByte(byte(len(oidBytes)))
 		pdu.Write(oidBytes)
