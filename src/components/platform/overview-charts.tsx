@@ -1,7 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
-
 export type OverviewHourlyPoint = {
   bucket: string;
   total: number;
@@ -74,12 +72,8 @@ export function PrintThroughputChart({
   const failed = data.map((point) => point.failed);
   const max = Math.max(1, ...totals);
 
-  const labels = useMemo(
-    () =>
-      data.map((point) =>
-        new Date(point.bucket).toLocaleTimeString([], { hour: "2-digit", hour12: false }),
-      ),
-    [data],
+  const labels = data.map((point) =>
+    new Date(point.bucket).toLocaleTimeString([], { hour: "2-digit", hour12: false }),
   );
 
   return (
@@ -149,7 +143,6 @@ function AvailabilityRing({
   total: number;
   tone: "brand" | "ok";
 }) {
-  const hasInventory = total > 0;
   const percentage = rate(online, total);
   const radius = 38;
   const circumference = 2 * Math.PI * radius;
