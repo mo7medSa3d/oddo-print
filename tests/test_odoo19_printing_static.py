@@ -249,6 +249,19 @@ def test_gateway_sync_state_does_not_report_active_after_health_failure():
     assert 'record.gateway_sync_state = "active"' in compute[active_idx:]
 
 
+def test_gateway_pos_receipt_keeps_nb_print_in_sync():
+    source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+    start = source.index("async printReceipt(")
+    end = source.index("    getOrderData(", start)
+    method = source[start:end]
+
+    assert 'const writeResult = await this.data.silentCall(' in method
+    assert 'if (writeResult !== false)' in method
+    assert 'currentOrder.nb_print = count;' in method
+    assert method.index("await this.data.silentCall") < method.index("currentOrder.nb_print = count;")
+
+
+
 def test_gateway_kitchen_preserves_odoo19_post_print_sync():
     source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
     method_start = source.index("async sendOrderInPreparation(order, opts = {})")
