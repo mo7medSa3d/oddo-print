@@ -185,6 +185,24 @@ async function currentAgentLifecycleRevision(agentId: string): Promise<number | 
   return snapshot?.lifecycleRevision ?? null;
 }
 
+export function closeAgentSockets(agentId: string, lifecycleRevision: number): void {
+  const set = agentSockets.get(agentId);
+  if (!set || set.size === 0) return;
+  for (const ws of set) {
+    // A lifecycle notification invalidates sessions authenticated BEFORE the
+    // transition that produced this revision. A newer session must survive,
+    // even if the notification itself was delayed in the PG LISTEN queue.
+    if (!shouldCloseAgentSocketForLifecycleRevision(ws.lifecycleRevision, lifecycleRevision)) {
+      continue;
+    }
+    try {
+      ws.close(4001, "agent deactivated");
+    } catch {
+      try { ws.terminate(); } catch {}
+    }
+  }
+}
+
 export function closeTenantSockets(tenantId: string): void {
   for (const [, set] of agentSockets) {
     for (const ws of set) {
