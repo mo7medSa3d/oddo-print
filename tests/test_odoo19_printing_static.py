@@ -268,6 +268,16 @@ def test_gateway_pos_receipt_keeps_nb_print_in_sync():
 
 
 
+def test_gateway_kitchen_uses_native_order_change_lifecycle():
+    source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+    start = source.index("async sendOrderInPreparation(order, opts = {})")
+    end = source.index("async printChanges(", start)
+    method = source[start:end]
+
+    assert "order.updateLastOrderChange(opts);" in method
+    assert "updateLastOrderChangeIfNoDevice" not in method
+
+
 def test_gateway_kitchen_preserves_odoo19_post_print_sync():
     source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
     method_start = source.index("async sendOrderInPreparation(order, opts = {})")
