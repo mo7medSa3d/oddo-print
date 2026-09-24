@@ -45,7 +45,7 @@
     "tailwind-merge": "^3.6.0",
     "tsx": "^4.23.13",
     "ws": "8.21.3",
-    "zod": "^4.6.1"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.3",
