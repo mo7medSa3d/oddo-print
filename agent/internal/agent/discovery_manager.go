@@ -1,9 +1,9 @@
 package agent
 
 import (
-	"crypto/sha256"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"

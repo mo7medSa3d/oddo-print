@@ -21,7 +21,6 @@ func TestDiscoveryVerificationDoesNotTrustWSDAsPrintVerification(t *testing.T) {
 	}
 }
 
-
 func TestDiscoveryDeviceIDIsDeterministicAndAgentScoped(t *testing.T) {
 	first := discoveryDeviceID("agent-a", "printer_net_1234")
 	second := discoveryDeviceID("agent-a", "printer_net_1234")
