@@ -10,7 +10,7 @@ describe("HTTP test email capture", () => {
     const previousNodeEnv = process.env.NODE_ENV;
     const previousBaseUrl = process.env.APP_BASE_URL;
     try {
-      process.env.NODE_ENV = "production";
+      Reflect.set(process.env, "NODE_ENV", "production");
       process.env.YASSER_HTTP_TEST_MODE = "1";
       process.env.APP_BASE_URL = "http://127.0.0.1:8080";
       expect(appBaseUrl(new Request("http://127.0.0.1:8080/api/auth/register"))).toBe("http://127.0.0.1:8080");
@@ -20,8 +20,8 @@ describe("HTTP test email capture", () => {
     } finally {
       if (previousMode === undefined) delete process.env.YASSER_HTTP_TEST_MODE;
       else process.env.YASSER_HTTP_TEST_MODE = previousMode;
-      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousNodeEnv === undefined) Reflect.deleteProperty(process.env, "NODE_ENV");
+      else Reflect.set(process.env, "NODE_ENV", previousNodeEnv);
       if (previousBaseUrl === undefined) delete process.env.APP_BASE_URL;
       else process.env.APP_BASE_URL = previousBaseUrl;
     }
