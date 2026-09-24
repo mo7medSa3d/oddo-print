@@ -96,8 +96,8 @@ Odoo outbox never re-POSTs once a Gateway job id exists.
    Drizzle schema and is dropped by migration `0071_remove_print_job_rate_limits`.
 3. **Odoo audit clock — completed**: the stale `completed_at` recommendation is
    retired; current `print_job.py` uses `db_now_utc` for those writes.
-4. **Migration metadata — latest snapshot restored**: `drizzle/meta/0071_remove_print_job_rate_limits_snapshot.json` is now present and its table set matches `src/db/schema.ts`.
-   The journal still jumps from the `0028` snapshot lineage to the current `0071` snapshot, so the historical intermediate snapshot chain is non-contiguous. `npm run db:generate` is guarded against a missing current snapshot and must not be used to reconstruct historical metadata.
+4. **Migration metadata — latest snapshot verified**: `drizzle/meta/0072_tenant_scoped_printer_identity_snapshot.json` is present and the repository currently contains forward migrations `0000` through `0072`.
+   The historical snapshot chain remains non-contiguous before the current `0072` snapshot. `npm run db:generate` is guarded against a missing current snapshot and must not be used to reconstruct historical metadata.
 5. **`past_due` policy**: `past_due` intentionally keeps access while Stripe
    recovers payment, and the SQL gate does not apply the `current_period_end`
    check to it. Confirm the intended dunning window, since it is a revenue
