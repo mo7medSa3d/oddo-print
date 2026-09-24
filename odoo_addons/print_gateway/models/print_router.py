@@ -476,6 +476,8 @@ class PrintGatewayRouter(models.AbstractModel):
             company=company, source_model=order._name, source_record_id=order.id, idempotency_key=idempotency_key,
         )
 
+    @api.model
+    @api.private
     def route_pos_sale_details(self, session, image_base64):
         session.ensure_one()
         self._assert_current_company(session.company_id, record=session)
