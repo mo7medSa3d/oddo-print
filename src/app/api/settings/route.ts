@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { tenants, users } from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { validateManager } from "../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../lib/authorization";
 import { writeAuditEvent } from "../../../lib/audit";
@@ -25,7 +25,7 @@ export async function PATCH(req: Request) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (name.length < 2 || name.length > 120) return NextResponse.json({ error: "Workspace name must be 2-120 characters" }, { status: 400 });
   await db.transaction(async (tx) => {
-    await tx.update(tenants).set({ name, updatedAt: new Date() }).where(eq(tenants.id, claims.tenantId));
+    await tx.update(tenants).set({ name, updatedAt: sql`now()` }).where(eq(tenants.id, claims.tenantId));
     await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "tenant.updated", resourceType: "tenant", resourceId: claims.tenantId }, tx);
   });
   return NextResponse.json({ ok: true, name });
