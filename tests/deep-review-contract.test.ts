@@ -249,7 +249,9 @@ describe("deep production review contracts", () => {
     const lifecycle = read("src/lib/agent-lifecycle.ts");
     const entitlements = read("src/lib/entitlements.ts");
     const odooAgents = read("src/app/api/odoo/agents/route.ts");
-    expect(odooAgents).toContain("active subscription is required before pairing agents");
+    expect(odooAgents).toContain("requireTenantBillingAccess(db, apiKey.tenantId)");
+    expect(odooAgents).toContain("TenantSubscriptionRequiredError");
+    expect(odooAgents).toContain('code: "SUBSCRIPTION_REQUIRED"');
     expect(register).toContain("SUBSCRIPTION_REQUIRED");
     expect(register).toContain("liveTenantSubscriptionPredicate");
     expect(lifecycle).toContain("requireTenantBillingAccess(tx, tenantId)");
