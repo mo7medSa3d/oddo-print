@@ -247,13 +247,12 @@ patch(PosStore.prototype, {
 
                 if (shouldPrint) {
                     isPrinted = await this.printChanges(order, orderChange, reprint);
-                    if (isPrinted) {
-                        order.updateLastOrderChange();
-                    }
                 }
             }
 
-            this.updateLastOrderChangeIfNoDevice(order, opts);
+            // Preserve the Odoo 19 core order-change lifecycle. This method
+            // exists on PosOrder; updateLastOrderChangeIfNoDevice() does not.
+            order.updateLastOrderChange(opts);
         } finally {
             this.syncingOrders.delete(order.uuid);
         }
