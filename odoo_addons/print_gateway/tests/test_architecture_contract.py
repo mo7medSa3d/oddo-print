@@ -332,6 +332,16 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertNotIn("retryPrinters.add(printer)", ambiguous_block)
         self.assertIn('const recordPrintAttempt = !["failed", "unknown", "partial"].includes(result?.status);', source)
 
+    def test_report_action_preserves_odoo19_layout_configuration_gate(self):
+        source = (MODELS / "ir_actions_report.py").read_text(encoding="utf-8")
+        self.assertIn("external_report_layout_id", source)
+        self.assertIn('self.env.context.get("discard_logo_check")', source)
+        layout_idx = source.index("external_report_layout_id")
+        access_idx = source.index("_assert_report_usage_access(self.env, self)")
+        route_idx = source.index("route = router.route_report(self, records, data=data)")
+        self.assertLess(layout_idx, access_idx)
+        self.assertLess(access_idx, route_idx)
+
     def test_report_interceptor_malformed_response_is_fail_closed(self):
         source = (ADDON / "static/src/js/report_interceptor.js").read_text(encoding="utf-8")
         self.assertIn('typeof res.has_binding !== "boolean"', source)
