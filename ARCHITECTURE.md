@@ -166,7 +166,7 @@ claimed → queued (fenced rejection / lease timeout)
 
 ### Input Validation
 
-- All API routes use Zod schema validation
+- API input validation is endpoint-specific: structured request payloads use Zod schemas, while simple probes and fixed/primitive inputs use explicit type and length checks.
 - Mutating `/api/*` requests require a valid `Content-Length`, are capped at 8 MiB, and reserve authenticated/unauthenticated concurrent-byte budgets until the response closes
 - Print job payloads are validated against `payloadContractCheck` (database CHECK constraint); PDF data must begin with `%PDF-`
 - Printer protocol/capability gating prevents incompatible job routing
