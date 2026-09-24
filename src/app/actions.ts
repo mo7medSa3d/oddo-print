@@ -58,120 +58,120 @@ export async function createAgent(name: string) {
   const id = `agt_${nanoid(8)}`;
   let expiresAt: Date | undefined;
   await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('agents:' || ${manager.tenantId}))`);
-      const clock = await tx.execute(sql`SELECT clock_timestamp() + interval '10 minutes' AS expires_at`);
-      const rawExpiresAt = clock.rows[0]?.expires_at;
-      const candidate = rawExpiresAt instanceof Date ? rawExpiresAt : new Date(String(rawExpiresAt ?? ""));
-      if (!rawExpiresAt || Number.isNaN(candidate.getTime())) throw new Error("Database clock is unavailable");
-      expiresAt = candidate;
-      await enforceTenantResourceEntitlement(
-        tx,
-        manager.tenantId,
-        "max_agents",
-        sql`SELECT COUNT(*)::int AS count FROM agents WHERE tenant_id = ${manager.tenantId} AND lifecycle <> 'retired'`,
-      );
-      await tx.insert(agents).values({
-        id, tenantId: manager.tenantId, name: name.trim(),
-        pairingCodeHash: hashPairingCode(pairingCode),
-        pairingCodeExpiresAt: expiresAt,
-        status: "offline", lifecycle: "active",
-      });
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('agents:' || ${manager.tenantId}))`);
+    const clock = await tx.execute(sql`SELECT clock_timestamp() + interval '10 minutes' AS expires_at`);
+    const rawExpiresAt = clock.rows[0]?.expires_at;
+    const candidate = rawExpiresAt instanceof Date ? rawExpiresAt : new Date(String(rawExpiresAt ?? ""));
+    if (!rawExpiresAt || Number.isNaN(candidate.getTime())) throw new Error("Database clock is unavailable");
+    expiresAt = candidate;
+    await enforceTenantResourceEntitlement(
+      tx,
+      manager.tenantId,
+      "max_agents",
+      sql`SELECT COUNT(*)::int AS count FROM agents WHERE tenant_id = ${manager.tenantId} AND lifecycle <> 'retired'`,
+    );
+    await tx.insert(agents).values({
+      id, tenantId: manager.tenantId, name: name.trim(),
+      pairingCodeHash: hashPairingCode(pairingCode),
+      pairingCodeExpiresAt: expiresAt,
+      status: "offline", lifecycle: "active",
     });
-  } catch (error) {
-    if (error instanceof TenantEntitlementError) {
-      const code = error.entitlement === "max_agents" ? "MAX_AGENTS_EXCEEDED" : "TENANT_ENTITLEMENT_EXCEEDED";
-      throw new ActionError(error.message, 429, code, {
-        entitlement: error.entitlement,
-        limit: error.limit,
-        used: error.used,
-        upgradeRequired: error.entitlement === "max_agents",
-      });
-    }
-    if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
-    throw error;
+  });
+} catch (error) {
+  if (error instanceof TenantEntitlementError) {
+    const code = error.entitlement === "max_agents" ? "MAX_AGENTS_EXCEEDED" : "TENANT_ENTITLEMENT_EXCEEDED";
+    throw new ActionError(error.message, 429, code, {
+      entitlement: error.entitlement,
+      limit: error.limit,
+      used: error.used,
+      upgradeRequired: error.entitlement === "max_agents",
+    });
   }
-  if (!expiresAt) throw new ActionError("Could not create agent pairing expiry.", 500);
-  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.paired", resourceType: "agent", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
-  revalidatePath("/dashboard");
-  return { id, pairingCode, expiresAt, expires_at: expiresAt.toISOString() };
+  if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
+  throw error;
+}
+if (!expiresAt) throw new ActionError("Could not create agent pairing expiry.", 500);
+void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.paired", resourceType: "agent", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
+revalidatePath("/dashboard");
+return { id, pairingCode, expiresAt, expires_at: expiresAt.toISOString() };
 }
 
 export async function deleteAgent(id: string) {
-  const manager = await requireManager();
-  requireManagerPermission(manager, "agents.retire");
-  if (typeof id !== "string" || !id.trim()) throw new ActionError("agent id is required", 400);
-  const agentId = id.trim();
+const manager = await requireManager();
+requireManagerPermission(manager, "agents.retire");
+if (typeof id !== "string" || !id.trim()) throw new ActionError("agent id is required", 400);
+const agentId = id.trim();
 
-  await db.transaction(async (tx) => {
-    // Acquire row-level lock to prevent concurrent state transitions or reconnect races
-    const locked = await tx.execute(sql`
-      SELECT id, status, lifecycle, last_seen_at
-      FROM agents
-      WHERE id = ${agentId} AND tenant_id = ${manager.tenantId}
-      FOR UPDATE
-    `);
-    const agent = (locked as unknown as { rows?: { id: string; status: string; lifecycle: string; last_seen_at?: Date | string | null }[] }).rows?.[0];
-    if (!agent) throw new ActionError("Agent not found", 404);
-    if (isAgentAvailableForJob({ lifecycle: agent.lifecycle, status: agent.status, lastSeenAt: agent.last_seen_at })) {
-      throw new ActionError("This agent is still connected. Stop the agent service first, then delete it.", 409);
-    }
-    if (agent.lifecycle === "retired") {
-      throw new ActionError("Retired agents are kept for audit history and cannot be deleted.", 409);
-    }
+await db.transaction(async (tx) => {
+  // Acquire row-level lock to prevent concurrent state transitions or reconnect races
+  const locked = await tx.execute(sql`
+    SELECT id, status, lifecycle, last_seen_at
+    FROM agents
+    WHERE id = ${agentId} AND tenant_id = ${manager.tenantId}
+    FOR UPDATE
+  `);
+  const agent = (locked as unknown as { rows?: { id: string; status: string; lifecycle: string; last_seen_at?: Date | string | null }[] }).rows?.[0];
+  if (!agent) throw new ActionError("Agent not found", 404);
+  if (isAgentAvailableForJob({ lifecycle: agent.lifecycle, status: agent.status, lastSeenAt: agent.last_seen_at })) {
+    throw new ActionError("This agent is still connected. Stop the agent service first, then delete it.", 409);
+  }
+  if (agent.lifecycle === "retired") {
+    throw new ActionError("Retired agents are kept for audit history and cannot be deleted.", 409);
+  }
 
-    // Referential integrity: check if this agent or any of its printers have historical print jobs
-    const agentPrinters = await tx.select({ id: printers.id }).from(printers).where(and(eq(printers.agentId, agent.id), eq(printers.tenantId, manager.tenantId)));
-    const printerIds = agentPrinters.map((p) => p.id);
-    const jobConditions = [and(eq(printJobs.agentId, agent.id), eq(printJobs.tenantId, manager.tenantId))];
-    if (printerIds.length > 0) {
-      jobConditions.push(and(inArray(printJobs.printerId, printerIds), eq(printJobs.tenantId, manager.tenantId)));
-    }
-    const [{ c: jobCount }] = await tx
-      .select({ c: count() })
-      .from(printJobs)
-      .where(or(...jobConditions));
+  // Referential integrity: check if this agent or any of its printers have historical print jobs
+  const agentPrinters = await tx.select({ id: printers.id }).from(printers).where(and(eq(printers.agentId, agent.id), eq(printers.tenantId, manager.tenantId)));
+  const printerIds = agentPrinters.map((p) => p.id);
+  const jobConditions = [and(eq(printJobs.agentId, agent.id), eq(printJobs.tenantId, manager.tenantId))];
+  if (printerIds.length > 0) {
+    jobConditions.push(and(inArray(printJobs.printerId, printerIds), eq(printJobs.tenantId, manager.tenantId)));
+  }
+  const [{ c: jobCount }] = await tx
+    .select({ c: count() })
+    .from(printJobs)
+    .where(or(...jobConditions));
 
-    if (Number(jobCount ?? 0) > 0) {
-      throw new ActionError("This agent has print history and cannot be deleted. Choose Retire instead to preserve the audit history.", 409);
-    }
+  if (Number(jobCount ?? 0) > 0) {
+    throw new ActionError("This agent has print history and cannot be deleted. Choose Retire instead to preserve the audit history.", 409);
+  }
 
-    // Clean removable transient discovery runtime records
-    await tx.delete(discoveredDevices).where(and(eq(discoveredDevices.agentId, agent.id), eq(discoveredDevices.tenantId, manager.tenantId)));
-    await tx.delete(discoverySessions).where(and(eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, manager.tenantId)));
+  // Clean removable transient discovery runtime records
+  await tx.delete(discoveredDevices).where(and(eq(discoveredDevices.agentId, agent.id), eq(discoveredDevices.tenantId, manager.tenantId)));
+  await tx.delete(discoverySessions).where(and(eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, manager.tenantId)));
 
-    // Clean removable runtime printers registered by this agent
-    await tx.delete(printers).where(and(eq(printers.agentId, agent.id), eq(printers.tenantId, manager.tenantId)));
+  // Clean removable runtime printers registered by this agent
+  await tx.delete(printers).where(and(eq(printers.agentId, agent.id), eq(printers.tenantId, manager.tenantId)));
 
-    // Permanently delete the agent
-    await tx.delete(agents).where(and(eq(agents.id, agent.id), eq(agents.tenantId, manager.tenantId)));
-    
-    // Notify all instances to close any remaining sockets
-    await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ agentId })}::text)`);
-  });
+  // Permanently delete the agent
+  await tx.delete(agents).where(and(eq(agents.id, agent.id), eq(agents.tenantId, manager.tenantId)));
+  
+  // Notify all instances to close any remaining sockets
+  await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ agentId })}::text)`);
+});
 
-  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.deleted", resourceType: "agent", resourceId: agentId }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
-  revalidatePath("/dashboard");
-  return { ok: true };
+void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.deleted", resourceType: "agent", resourceId: agentId }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
+revalidatePath("/dashboard");
+return { ok: true };
 }
 
 export async function createPrintJob(printerId: string, payload: unknown) {
-  const manager = await requireManager();
-  requireManagerPermission(manager, "jobs.create");
-  try {
-    const result = await createPrintJobForPrinter(printerId, payload, { requestedBy: "manager", tenantId: manager.tenantId });
-    revalidatePath("/dashboard");
-    return { ok: true as const, id: result.id, reused: result.isReused === true };
-  } catch (error) {
-    // A limit trip is RETURNED, not thrown: Next.js only serializes a sanitized
-    // message for errors thrown from a server action in a production build, so
-    // a thrown ActionError would lose the entitlement details the upgrade
-    // dialog needs. HTTP routes keep using ActionError, which they translate to
-    // a 429/403 body server-side.
-    const limit = entitlementLimitSignal(error);
-    if (limit) return { ok: false as const, limit } satisfies LimitSignalResult;
-    if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
-    throw error;
-  }
+const manager = await requireManager();
+requireManagerPermission(manager, "jobs.create");
+try {
+  const result = await createPrintJobForPrinter(printerId, payload, { requestedBy: "manager", tenantId: manager.tenantId });
+  revalidatePath("/dashboard");
+  return { ok: true as const, id: result.id, reused: result.isReused === true };
+} catch (error) {
+  // A limit trip is RETURNED, not thrown: Next.js only serializes a sanitized
+  // message for errors thrown from a server action in a production build, so
+  // a thrown ActionError would lose the entitlement details the upgrade
+  // dialog needs. HTTP routes keep using ActionError, which they translate to
+  // a 429/403 body server-side.
+  const limit = entitlementLimitSignal(error);
+  if (limit) return { ok: false as const, limit } satisfies LimitSignalResult;
+  if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
+  throw error;
+}
 }
 
 /**
@@ -184,110 +184,110 @@ export async function createPrintJob(printerId: string, payload: unknown) {
  * unknown outcomes are always an explicit operator action.
  */
 export async function reprintJob(jobId: string) {
-  const manager = await requireManager();
-  requireManagerPermission(manager, "jobs.retry");
-  if (typeof jobId !== "string" || !jobId.trim()) throw new ActionError("job id is required", 400);
-  const job = await db.query.printJobs.findFirst({ where: and(eq(printJobs.id, jobId.trim()), eq(printJobs.tenantId, manager.tenantId)) });
-  if (!job) throw new ActionError("Job not found", 404);
-  if (!isTerminal(job.status as JobStatus)) {
-    throw new ActionError("Only finished, failed, or expired jobs can be reprinted. The current job is still in progress.", 409);
-  }
-  try {
-    // Reprint sequence allocation happens inside createPrintJobForPrinter's
-    // tenant enqueue transaction, so concurrent double-clicks cannot derive
-    // different keys from a stale COUNT(*).
-    const result = await createPrintJobForPrinter(job.printerId, job.payload, {
-      requestedBy: "manager-reprint",
-      reprintOfJobId: job.id,
-      destination: job.destination,
-      documentType: job.documentType ?? undefined,
-      tenantId: manager.tenantId,
-    });
-    revalidatePath("/dashboard");
-    return { ok: true as const, id: result.id, reused: result.isReused === true };
-  } catch (error) {
-    // Same contract as createPrintJob: the quota signal must survive the
-    // server-action boundary, so it is returned instead of thrown.
-    const limit = entitlementLimitSignal(error);
-    if (limit) return { ok: false as const, limit } satisfies LimitSignalResult;
-    if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
-    throw error;
-  }
+const manager = await requireManager();
+requireManagerPermission(manager, "jobs.retry");
+if (typeof jobId !== "string" || !jobId.trim()) throw new ActionError("job id is required", 400);
+const job = await db.query.printJobs.findFirst({ where: and(eq(printJobs.id, jobId.trim()), eq(printJobs.tenantId, manager.tenantId)) });
+if (!job) throw new ActionError("Job not found", 404);
+if (!isTerminal(job.status as JobStatus)) {
+  throw new ActionError("Only finished, failed, or expired jobs can be reprinted. The current job is still in progress.", 409);
+}
+try {
+  // Reprint sequence allocation happens inside createPrintJobForPrinter's
+  // tenant enqueue transaction, so concurrent double-clicks cannot derive
+  // different keys from a stale COUNT(*).
+  const result = await createPrintJobForPrinter(job.printerId, job.payload, {
+    requestedBy: "manager-reprint",
+    reprintOfJobId: job.id,
+    destination: job.destination,
+    documentType: job.documentType ?? undefined,
+    tenantId: manager.tenantId,
+  });
+  revalidatePath("/dashboard");
+  return { ok: true as const, id: result.id, reused: result.isReused === true };
+} catch (error) {
+  // Same contract as createPrintJob: the quota signal must survive the
+  // server-action boundary, so it is returned instead of thrown.
+  const limit = entitlementLimitSignal(error);
+  if (limit) return { ok: false as const, limit } satisfies LimitSignalResult;
+  if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
+  throw error;
+}
 }
 
 export async function setPrinterLifecycle(id: string, lifecycle: "active" | "disabled" | "retired") {
-  const manager = await requireManager();
-  requireManagerPermission(manager, "printers.manage");
+const manager = await requireManager();
+requireManagerPermission(manager, "printers.manage");
 
-  await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${manager.tenantId} || ':' || ${id}))`);
+await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${manager.tenantId} || ':' || ${id}))`);
 
-      // Use the same lock ordering as agent heartbeats: agent row first,
-      // then printer row. The preliminary lookup does not lock either row;
-      // the authoritative printer row is locked only after the owner agent
-      // lock is acquired. This prevents an agent heartbeat from deadlocking
-      // with a concurrent lifecycle transition.
-      const owner = await tx.execute(sql`
-        SELECT agent_id
-        FROM printers
-        WHERE id = ${id} AND tenant_id = ${manager.tenantId}
-      `);
-      const ownerAgentId = (owner.rows[0] as { agent_id?: string } | undefined)?.agent_id;
-      if (!ownerAgentId) throw new ActionError("Printer not found", 404);
+    // Use the same lock ordering as agent heartbeats: agent row first,
+    // then printer row. The preliminary lookup does not lock either row;
+    // the authoritative printer row is locked only after the owner agent
+    // lock is acquired. This prevents an agent heartbeat from deadlocking
+    // with a concurrent lifecycle transition.
+    const owner = await tx.execute(sql`
+      SELECT agent_id
+      FROM printers
+      WHERE id = ${id} AND tenant_id = ${manager.tenantId}
+    `);
+    const ownerAgentId = (owner.rows[0] as { agent_id?: string } | undefined)?.agent_id;
+    if (!ownerAgentId) throw new ActionError("Printer not found", 404);
 
-      if (lifecycle === "active") {
-        const agent = await tx.execute(sql`
-          SELECT lifecycle
-          FROM agents
-          WHERE id = ${ownerAgentId} AND tenant_id = ${manager.tenantId}
-          FOR UPDATE
-        `);
-        const agentLifecycle = (agent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
-        if (!agentLifecycle) throw new ActionError("The agent that owns this printer no longer exists.", 404);
-        if (agentLifecycle !== "active") {
-          throw new ActionError(`The agent owning this printer is ${agentLifecycle}; reactivate the agent first.`, 409);
-        }
-      }
-
-      const locked = await tx.execute(sql`
-        SELECT id, agent_id, lifecycle
-        FROM printers
-        WHERE id = ${id} AND tenant_id = ${manager.tenantId}
+    if (lifecycle === "active") {
+      const agent = await tx.execute(sql`
+        SELECT lifecycle
+        FROM agents
+        WHERE id = ${ownerAgentId} AND tenant_id = ${manager.tenantId}
         FOR UPDATE
       `);
-      const printer = locked.rows[0] as { id?: string; agent_id?: string; lifecycle?: unknown } | undefined;
-      if (!printer?.id) throw new ActionError("Printer not found", 404);
-      if (typeof printer.lifecycle !== "string") throw new ActionError("Printer has an invalid lifecycle.", 500);
-
-      const current = printer.lifecycle as "active" | "disabled" | "retired";
-      if (current === lifecycle) return;
-
-      if (!canTransitionLifecycle(current, lifecycle)) {
-        throw new ActionError(`This printer cannot go from ${current} to ${lifecycle}.`, 409);
+      const agentLifecycle = (agent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
+      if (!agentLifecycle) throw new ActionError("The agent that owns this printer no longer exists.", 404);
+      if (agentLifecycle !== "active") {
+        throw new ActionError(`The agent owning this printer is ${agentLifecycle}; reactivate the agent first.`, 409);
       }
+    }
 
-      const [updated] = await tx.update(printers)
-        .set({
-          lifecycle,
-          managementSource: "manager",
-          desiredRevision: sql<number>`${printers.desiredRevision} + 1`,
-          updatedAt: sql`now()`,
-        })
-        .where(and(eq(printers.id, id), eq(printers.tenantId, manager.tenantId), eq(printers.lifecycle, current)))
-        .returning({ id: printers.id, lifecycle: printers.lifecycle, desiredRevision: printers.desiredRevision });
+    const locked = await tx.execute(sql`
+      SELECT id, agent_id, lifecycle
+      FROM printers
+      WHERE id = ${id} AND tenant_id = ${manager.tenantId}
+      FOR UPDATE
+    `);
+    const printer = locked.rows[0] as { id?: string; agent_id?: string; lifecycle?: unknown } | undefined;
+    if (!printer?.id) throw new ActionError("Printer not found", 404);
+    if (typeof printer.lifecycle !== "string") throw new ActionError("Printer has an invalid lifecycle.", 500);
 
-      if (!updated) throw new ActionError("Printer lifecycle changed concurrently; refresh and try again.", 409);
+    const current = printer.lifecycle as "active" | "disabled" | "retired";
+    if (current === lifecycle) return;
 
-      await writeAuditEvent({
-        tenantId: manager.tenantId,
-        actorType: manager.userId ? "user" : "system",
-        actorId: manager.userId ?? "legacy-manager",
-        action: `printer.lifecycle.${lifecycle}`,
-        resourceType: "printer",
-        resourceId: id,
-        metadata: { from: current, to: lifecycle, desiredRevision: updated.desiredRevision },
-      }, tx);
-    });
+    if (!canTransitionLifecycle(current, lifecycle)) {
+      throw new ActionError(`This printer cannot go from ${current} to ${lifecycle}.`, 409);
+    }
+
+    const [updated] = await tx.update(printers)
+      .set({
+        lifecycle,
+        managementSource: "manager",
+        desiredRevision: sql<number>`${printers.desiredRevision} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(and(eq(printers.id, id), eq(printers.tenantId, manager.tenantId), eq(printers.lifecycle, current)))
+      .returning({ id: printers.id, lifecycle: printers.lifecycle, desiredRevision: printers.desiredRevision });
+
+    if (!updated) throw new ActionError("Printer lifecycle changed concurrently; refresh and try again.", 409);
+
+    await writeAuditEvent({
+      tenantId: manager.tenantId,
+      actorType: manager.userId ? "user" : "system",
+      actorId: manager.userId ?? "legacy-manager",
+      action: `printer.lifecycle.${lifecycle}`,
+      resourceType: "printer",
+      resourceId: id,
+      metadata: { from: current, to: lifecycle, desiredRevision: updated.desiredRevision },
+    }, tx);
+  });
   revalidatePath("/dashboard");
 }
 
