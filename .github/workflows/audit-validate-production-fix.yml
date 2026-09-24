@@ -1,0 +1,89 @@
+name: audit-validate-production-fix
+
+on:
+  push:
+    branches: [audit/production-fixes-20260924]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: audit-validate-production-fix
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d app_db"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app_db
+      CI: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: agent/go.mod
+          cache: true
+          cache-dependency-path: agent/go.sum
+      - name: Install dependencies and refresh lockfile
+        run: |
+          set -euo pipefail
+          npm install --package-lock-only --ignore-scripts
+          npm ci --ignore-scripts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- package-lock.json; then
+            git add package-lock.json
+            git commit -m "chore(deps): refresh lockfile for Next.js security patch"
+            git push origin HEAD:refs/heads/audit/production-fixes-20260924
+          fi
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Build Next.js
+        run: npm run build
+      - name: Unit tests
+        run: npm run test:unit
+      - name: WebSocket lifecycle regression
+        run: npm test -- tests/ws-session-fencing.test.ts
+      - name: Odoo static tests
+        run: |
+          python3 -m pip install --disable-pip-version-check pytest
+          pytest tests/test_odoo19_printing_static.py tests/test_security_contracts.py tests/test_final_security_hardening.py
+      - name: Go formatting
+        working-directory: agent
+        run: test -z "$(gofmt -l .)"
+      - name: Go vet
+        working-directory: agent
+        run: go vet ./...
+      - name: Go tests
+        working-directory: agent
+        run: go test -count=1 -p 2 ./...
+      - name: Go race tests
+        working-directory: agent
+        run: go test -count=1 -race -p 2 ./...
+      - name: Integration tests
+        run: npm run db:migrate && npm run test:integration
