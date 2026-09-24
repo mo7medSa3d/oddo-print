@@ -2,6 +2,7 @@ import { sql, type SQL } from "drizzle-orm";
 import { logError } from "./log";
 import { gatewayNowMs } from "./database-clock";
 import type { EntitlementLimitSignal } from "./limit-signal";
+import { TenantDeletedError, TenantSuspendedError } from "./tenant-guard";
 
 export class TenantEntitlementError extends Error {
   readonly code = "TENANT_ENTITLEMENT_EXCEEDED" as const;
@@ -117,8 +118,8 @@ export type EntitlementTx = { execute: (query: SQL) => Promise<{ rows: Record<st
  * (HTTP 429). Distinct from TenantEntitlementError, which is a momentary
  * limit trip carrying a Retry-After.
  */
-export function isTenantBillingError(error: unknown): error is TenantSubscriptionRequiredError | TenantEntitlementConfigError {
-  return error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError;
+export function isTenantBillingError(error: unknown): error is TenantSubscriptionRequiredError | TenantEntitlementConfigError | TenantSuspendedError | TenantDeletedError {
+  return error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError || error instanceof TenantSuspendedError || error instanceof TenantDeletedError;
 }
 
 /** Canonical live-subscription predicate; database time is authoritative. */

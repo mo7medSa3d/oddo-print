@@ -6,6 +6,19 @@ import { hasBodyOverLimit } from "../src/lib/request-limits";
 const read = (file: string) => readFileSync(resolve(process.cwd(), file), "utf8");
 
 describe("production hardening contracts", () => {
+  it("fences tenant lifecycle inside transactional runtime/control writes", () => {
+    expect(read("src/lib/tenant-guard.ts")).toContain("requireActiveTenantInTransaction");
+    expect(read("src/lib/tenant-guard.ts")).toContain("FOR SHARE");
+    expect(read("src/lib/print-job-service.ts")).toContain("requireActiveTenantInTransaction(tx, tenantId)");
+    expect(read("src/lib/agent-lifecycle.ts")).toContain("requireActiveTenantInTransaction(tx, tenantId)");
+    expect(read("src/app/actions.ts")).toContain("requireActiveTenantInTransaction(tx, manager.tenantId)");
+    expect(read("src/app/api/agent/register/route.ts")).toContain("requireActiveTenantInTransaction(tx, agent.tenantId)");
+    expect(read("src/app/api/agent/heartbeat/route.ts")).toContain("requireActiveTenantInTransaction(tx, agent.tenantId)");
+    expect(read("src/app/api/agent/discovery/route.ts")).toContain("requireActiveTenantInTransaction(tx, agent.tenantId)");
+    expect(read("src/app/api/agents/[id]/discovered-printers/[deviceId]/provision/route.ts")).toContain("requireActiveTenantInTransaction(tx, claims.tenantId)");
+    expect(read("src/app/api/printers/[id]/route.ts")).toContain("requireActiveTenantInTransaction(tx, tenantId)");
+  });
+
   it("rejects declared request bodies over the endpoint limit", () => {
     expect(hasBodyOverLimit(new Request("http://test", { headers: { "content-length": "1024" } }), 2048)).toBe(false);
     expect(hasBodyOverLimit(new Request("http://test", { headers: { "content-length": "2049" } }), 2048)).toBe(true);

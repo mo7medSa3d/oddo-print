@@ -9,6 +9,7 @@ import { canonicalize } from "./canonicalize";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "./job-delivery";
 
 import { enforceTenantJobEntitlements, reserveTenantPrintCredit } from "./entitlements";
+import { requireActiveTenantInTransaction } from "./tenant-guard";
 import { logInfo, logWarn } from "./log";
 import { recordJobEvent } from "./job-timeline";
 
@@ -236,10 +237,11 @@ async function insertQueuedJobAtomically({
     // path's row-lock order to avoid an enqueue-vs-reconfigure deadlock.
     //
     // NOTE: The tenants table is also joined here (not in the original query)
-    // to close a TOCTOU window: if a tenant is suspended/deleted between the
-    // auth check (validateOdooKey / requireActiveTenant) and this INSERT, the
-    // job must be rejected. The poll-claim path already guards on t.lifecycle;
-    // this makes the enqueue path equally strict.
+    // and its row is locked with the Agent and Printer. This closes the TOCTOU
+    // window against a concurrent tenant suspend/delete: the lifecycle read and
+    // the INSERT are now linearized with the authoritative tenant transition.
+    // The poll-claim path already guards on t.lifecycle; this makes enqueue
+    // admission equally strict.
     const runtimeOwner = await tx.execute(sql`
       SELECT
         p.lifecycle AS printer_lifecycle,
@@ -265,7 +267,7 @@ async function insertQueuedJobAtomically({
         AND a.tenant_id = ${tenantId}
         AND p.id = ${printerId}
         AND p.tenant_id = ${tenantId}
-      FOR UPDATE OF a, p
+      FOR UPDATE OF a, p, te
     `);
     const owner = runtimeOwner.rows[0] as {
       printer_lifecycle?: string;
@@ -313,6 +315,13 @@ async function insertQueuedJobAtomically({
     ) {
       throw new PrintJobInputError("Printer configuration is still applying; retry when the printer is ready", "PRINTER_UNAVAILABLE", 503);
     }
+
+    // The owner rows are already locked above. Acquire the tenant lifecycle
+    // fence only now, immediately before any durable queue mutation. This keeps
+    // the existing agent/printer -> tenant lock ordering and makes suspension
+    // linearize before or after the whole enqueue transaction, never between
+    // the final lifecycle check and print_jobs INSERT.
+    await requireActiveTenantInTransaction(tx, tenantId);
 
     // Capability validation is repeated under the authoritative printer row
     // lock. The pre-check in createPrintJobForPrinter can race with a manager

@@ -10,6 +10,8 @@ import {
 } from "../../../../lib/auth-rate-limit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { z } from "zod";
+import { isTenantBillingError } from "../../../../lib/entitlements";
+import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -112,6 +114,10 @@ export async function POST(req: Request) {
         return { kind: "not_found" as const };
       }
 
+      // The agent row is already locked. Fence tenant lifecycle immediately
+      // before billing/code consumption so suspension cannot race credential minting.
+      await requireActiveTenantInTransaction(tx, agent.tenantId);
+
       // Pairing grants a fresh runtime credential, so subscription entitlement
       // must be checked at the same database boundary as consuming the
       // one-time code. Past-due remains usable; active/trialing require a live
@@ -193,6 +199,9 @@ export async function POST(req: Request) {
       agent_secret: outcome.secret,
     }, { status: 200 });
   } catch (error) {
+    if (isTenantBillingError(error)) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
     logError("[agent/register] registration failed", { error: error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

@@ -5,6 +5,7 @@ import { canTransitionLifecycle } from "./lifecycle";
 import { generatePairingCode, hashPairingCode } from "./agent-auth";
 import { writeAuditEvent, type AuditActor } from "./audit";
 import { requireTenantBillingAccess } from "./entitlements";
+import { requireActiveTenantInTransaction } from "./tenant-guard";
 
 export type AgentLifecycleResult = {
   changed: boolean;
@@ -52,6 +53,11 @@ export async function transitionAgentLifecycle(
     if (!canTransitionLifecycle(current, next)) {
       throw new LifecycleConflict(`invalid lifecycle transition: ${current} -> ${next}`);
     }
+
+    // The agent row is already locked. Fence tenant lifecycle at the last
+    // possible point before changing the agent so suspend/delete cannot race
+    // this control-plane mutation.
+    await requireActiveTenantInTransaction(tx, tenantId);
 
     const reenable = current === "disabled" && next === "active";
     let pairingCode: string | null = null;
