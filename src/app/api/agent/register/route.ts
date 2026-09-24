@@ -1,4 +1,5 @@
-import { liveTenantSubscriptionPredicate } from "../../../../lib/entitlements";
+import { isTenantBillingError, liveTenantSubscriptionPredicate } from "../../../../lib/entitlements";
+import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
@@ -112,6 +113,10 @@ export async function POST(req: Request) {
         return { kind: "not_found" as const };
       }
 
+      // The agent row is already locked. Fence tenant lifecycle before
+      // consuming the one-time pairing code or minting a new secret.
+      await requireActiveTenantInTransaction(tx, agent.tenantId);
+
       // Pairing grants a fresh runtime credential, so subscription entitlement
       // must be checked at the same database boundary as consuming the
       // one-time code. Past-due remains usable; active/trialing require a live
@@ -193,6 +198,9 @@ export async function POST(req: Request) {
       agent_secret: outcome.secret,
     }, { status: 200 });
   } catch (error) {
+    if (isTenantBillingError(error)) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
     logError("[agent/register] registration failed", { error: error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

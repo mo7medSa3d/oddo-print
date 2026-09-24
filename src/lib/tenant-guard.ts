@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { tenants } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql, type SQL } from "drizzle-orm";
 
 /**
  * Thrown when a tenant is suspended. Maps to HTTP 403.
@@ -25,6 +25,29 @@ export class TenantDeletedError extends Error {
 }
 
 export type TenantLifecycleStatus = "active" | "suspended" | "deleted";
+
+/**
+ * Transactional tenant lifecycle write fence.
+ * The shared tenant-row lock is the linearization point: a committed
+ * suspension/deletion is observed before any protected mutation, while a
+ * runtime transaction holding the fence makes lifecycle transition wait.
+ */
+export async function requireActiveTenantInTransaction(
+  tx: { execute: (query: SQL) => Promise<unknown> },
+  tenantId: string,
+): Promise<TenantLifecycleStatus> {
+  const result = await tx.execute(sql`
+    SELECT lifecycle
+    FROM tenants
+    WHERE id = ${tenantId}
+    FOR SHARE
+  `) as { rows?: unknown[] };
+  const lifecycle = (result.rows?.[0] as { lifecycle?: unknown } | undefined)?.lifecycle;
+  if (lifecycle === "suspended") throw new TenantSuspendedError(tenantId);
+  if (lifecycle === "deleted" || lifecycle === undefined) throw new TenantDeletedError(tenantId);
+  if (lifecycle !== "active") throw new TenantDeletedError(tenantId);
+  return "active";
+}
 
 /**
  * Reusable guard that verifies a tenant is in the 'active' lifecycle state.

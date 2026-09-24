@@ -23,6 +23,7 @@ import { ActionError } from "../lib/action-error";
 import { writeAuditEvent } from "../lib/audit";
 import { requireManagerPermission } from "../lib/authorization";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, entitlementLimitSignal, isTenantBillingError } from "../lib/entitlements";
+import { requireActiveTenantInTransaction } from "../lib/tenant-guard";
 import type { LimitSignalResult } from "../lib/limit-signal";
 import { isAgentAvailableForJob } from "../lib/agent-availability";
 import { gatewayNow } from "../lib/database-clock";
@@ -65,6 +66,10 @@ export async function createAgent(name: string) {
       const candidate = rawExpiresAt instanceof Date ? rawExpiresAt : new Date(String(rawExpiresAt ?? ""));
       if (!rawExpiresAt || Number.isNaN(candidate.getTime())) throw new Error("Database clock is unavailable");
       expiresAt = candidate;
+      // Keep the same tenant -> subscription ordering as Billing operations.
+      // Taking the lifecycle fence before the entitlement lock avoids a
+      // subscription -> tenant / tenant -> subscription deadlock during suspend.
+      await requireActiveTenantInTransaction(tx, manager.tenantId);
       await enforceTenantResourceEntitlement(
         tx,
         manager.tenantId,
@@ -113,6 +118,7 @@ export async function deleteAgent(id: string) {
     `);
     const agent = (locked as unknown as { rows?: { id: string; status: string; lifecycle: string; last_seen_at?: Date | string | null }[] }).rows?.[0];
     if (!agent) throw new ActionError("Agent not found", 404);
+    await requireActiveTenantInTransaction(tx, manager.tenantId);
     if (isAgentAvailableForJob({ lifecycle: agent.lifecycle, status: agent.status, lastSeenAt: agent.last_seen_at })) {
       throw new ActionError("This agent is still connected. Stop the agent service first, then delete it.", 409);
     }
