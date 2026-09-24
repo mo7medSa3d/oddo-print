@@ -38,6 +38,13 @@ const wsMessageInFlightByAgentId = new Map<string, number>();
 const MAX_AGENT_SOCKETS = 8;
 const MAX_TOTAL_AGENT_SOCKETS = 4096;
 let pendingAgentSocketReservations = 0;
+type AgentSocketRegistrationWaiter = {
+  resolve: (ready: boolean) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+const pendingAgentSocketRegistrations = new Map<string, number>();
+const agentSocketRegistrationWaiters = new Map<string, Set<AgentSocketRegistrationWaiter>>();
+const MAX_AGENT_SOCKET_READY_WAIT_MS = 1_000;
 const MAX_WS_MESSAGE_BYTES = 64 * 1024;
 const MAX_WS_INFLIGHT_MESSAGES_PER_AGENT = 16;
 const MAX_WS_BUFFERED_BYTES = 1 * 1024 * 1024;
@@ -353,6 +360,52 @@ function releaseAgentSocketSlot(): void {
   pendingAgentSocketReservations = Math.max(0, pendingAgentSocketReservations - 1);
 }
 
+function markAgentSocketRegistrationPending(agentId: string): void {
+  pendingAgentSocketRegistrations.set(
+    agentId,
+    (pendingAgentSocketRegistrations.get(agentId) ?? 0) + 1,
+  );
+}
+
+function finishAgentSocketRegistrationPending(agentId: string, ready: boolean): void {
+  const pending = pendingAgentSocketRegistrations.get(agentId) ?? 0;
+  if (pending <= 1) pendingAgentSocketRegistrations.delete(agentId);
+  else pendingAgentSocketRegistrations.set(agentId, pending - 1);
+
+  if (!ready && pending > 1) return;
+
+  const waiters = agentSocketRegistrationWaiters.get(agentId);
+  if (!waiters) return;
+  agentSocketRegistrationWaiters.delete(agentId);
+  for (const waiter of waiters) {
+    clearTimeout(waiter.timer);
+    waiter.resolve(ready);
+  }
+}
+
+function waitForAgentSocketReady(agentId: string): Promise<boolean> {
+  if (hasOpenAgentSocket(agentId)) return Promise.resolve(true);
+  if ((pendingAgentSocketRegistrations.get(agentId) ?? 0) === 0) return Promise.resolve(false);
+
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => {
+      const waiters = agentSocketRegistrationWaiters.get(agentId);
+      if (waiters) {
+        waiters.delete(waiter);
+        if (waiters.size === 0) agentSocketRegistrationWaiters.delete(agentId);
+      }
+      resolve(hasOpenAgentSocket(agentId));
+    }, MAX_AGENT_SOCKET_READY_WAIT_MS);
+    const waiter: AgentSocketRegistrationWaiter = { resolve, timer };
+    let waiters = agentSocketRegistrationWaiters.get(agentId);
+    if (!waiters) {
+      waiters = new Set();
+      agentSocketRegistrationWaiters.set(agentId, waiters);
+    }
+    waiters.add(waiter);
+  });
+}
+
 export function __canReserveAgentSocketSlotForTests(
   activeCount: number,
   pendingCount: number,
@@ -502,7 +555,15 @@ export type PushOutcome = "delivered" | "no_socket" | "not_claimable" | "requeue
 
 export async function claimAndPushJobToAgent(job: { id: string; agentId: string }): Promise<PushOutcome> {
   const startedAt = Date.now();
-  if (!hasOpenAgentSocket(job.agentId)) return "no_socket";
+  if (!hasOpenAgentSocket(job.agentId)) {
+    // The WebSocket client receives its "open" event immediately after the HTTP
+    // upgrade, while durable lifecycle verification and in-memory registration
+    // complete asynchronously. A job notification can therefore race the
+    // registration window. Wait only when an authenticated socket is currently
+    // being registered; a genuinely disconnected agent remains a fast no-op.
+    const ready = await waitForAgentSocketReady(job.agentId);
+    if (!ready && !hasOpenAgentSocket(job.agentId)) return "no_socket";
+  }
   const claimStartedAt = Date.now();
   const claimed = await claimJobForDelivery(job.id, job.agentId, { markDeliveryEvidencePending: true });
   const claimLatencyMs = Date.now() - claimStartedAt;
@@ -871,6 +932,13 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
       }
 
       reservationActive = true;
+      markAgentSocketRegistrationPending(agent!.id);
+      let registrationPending = true;
+      const completeRegistration = (ready: boolean) => {
+        if (!registrationPending) return;
+        registrationPending = false;
+        finishAgentSocketRegistrationPending(agent!.id, ready);
+      };
 
       // A raw client disconnect or synchronous handshake failure must release
       // the global reservation. Otherwise repeated failed upgrades can exhaust
@@ -895,6 +963,7 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
                 aws,
               );
               releaseReservation();
+              completeRegistration(accepted);
               if (!accepted) {
                 try {
                   ws.close(4001, "agent lifecycle changed during WebSocket upgrade");
@@ -910,6 +979,7 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
               wss.emit("connection", ws, req);
             } catch (error) {
               releaseReservation();
+              completeRegistration(false);
               logUpgradeError(error);
               try {
                 ws.close(1011, "agent lifecycle verification failed");
