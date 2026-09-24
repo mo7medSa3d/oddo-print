@@ -39,8 +39,8 @@
 | Auth (login) | Per-key with progressive lockout | `auth_rate_limits` table |
 | WebSocket upgrade | Per-IP rate check | At upgrade time |
 | WebSocket messages | Per-agent token bucket | 20 capacity, 5 refill/s |
-| Print job submission | Per-API-key window | minute + hour limits in `print_job_rate_limits` |
-| Heartbeat payload | Max 500 printers | Truncated at gateway |
+| Print job admission | Atomic tenant plan entitlements | `max_jobs_per_minute` and `max_concurrent_jobs` are enforced inside the PostgreSQL transaction that creates/claims work; billing-period print credits are reserved atomically |
+| Heartbeat payload | Schema/size validation | Gateway rejects oversized or malformed control-plane payloads before applying state |
 
 ## Input Validation
 
