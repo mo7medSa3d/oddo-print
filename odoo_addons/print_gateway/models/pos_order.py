@@ -22,22 +22,25 @@ class PosOrderGatewayPrinting(models.Model):
             raise ValidationError(_("The rendered POS receipt image is required."))
         return self.env["print_gateway.print_router"].route_pos_receipt(self, image)
 
-    def action_print_gateway_kitchen(self, printer_id, image, reprint=False, operation_id=None):
+    def has_gateway_kitchen_binding(self):
         self.ensure_one()
         self.check_access("read")
-        if not printer_id:
-            raise ValidationError(_("The Odoo Kitchen / Preparation printer is required."))
-        try:
-            printer = self.env["pos.printer"].browse(int(printer_id)).exists()
-        except (TypeError, ValueError) as exc:
-            raise ValidationError(_("The selected Kitchen / Preparation printer is invalid.")) from exc
-        if not printer:
-            raise ValidationError(_("The selected Kitchen / Preparation printer no longer exists."))
-        target_company = self.config_id.company_id or self.company_id
-        if printer.company_id != target_company:
-            raise ValidationError(_("The selected Kitchen / Preparation printer belongs to another Odoo company."))
+        route = self.env["print_gateway.print_router"].resolve_binding(
+            record=self,
+            company=self.config_id.company_id or self.company_id,
+            document_type="kitchen",
+            explicit_destination=self.config_id,
+            raise_if_not_found=False,
+        )
+        return bool(route.get("binding"))
+
+    def action_print_gateway_kitchen(self, image, reprint=False, operation_id=None):
+        self.ensure_one()
+        self.check_access("read")
+        if not image:
+            raise ValidationError(_("The rendered POS Kitchen / Preparation image is required."))
         return self.env["print_gateway.print_router"].route_kitchen_print(
-            self, printer, image, reprint=bool(reprint), idempotency_key=operation_id,
+            self, image, reprint=bool(reprint), idempotency_key=operation_id,
         )
 
     def is_gateway_printing_enabled(self):
