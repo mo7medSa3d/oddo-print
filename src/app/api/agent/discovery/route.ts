@@ -19,7 +19,7 @@ export async function GET(req: Request) {
   const agent = await validateAgent(req.headers.get("Authorization"));
   if (!agent) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (agent.lifecycle !== "active") return NextResponse.json({ error: `Agent is ${agent.lifecycle}` }, { status: 409 });
-  const rows = await db.query.discoverySessions.findMany({ where: and(eq(discoverySessions.agentId, agent.id), eq(discoverySessions.status, "running")), orderBy: [desc(discoverySessions.createdAt)], limit: 5 });
+  const rows = await db.query.discoverySessions.findMany({ where: and(eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId), eq(discoverySessions.status, "running")), orderBy: [desc(discoverySessions.createdAt)], limit: 5 });
   return NextResponse.json(rows);
 }
 
@@ -172,7 +172,7 @@ export async function POST(req: Request) {
       if (anonymousRows.length > 0) {
         const inserted = await tx.insert(discoveredDevices)
           .values(anonymousRows)
-          .onConflictDoNothing()
+          .onConflictDoNothing({ target: [discoveredDevices.tenantId, discoveredDevices.id] })
           .returning({ id: discoveredDevices.id });
         insertedCount += inserted.length;
       }

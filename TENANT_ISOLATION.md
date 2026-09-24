@@ -59,6 +59,8 @@ ALTER TABLE "print_jobs"
   ON DELETE CASCADE;
 ```
 
+Printer and discovered-device row IDs are **not** globally unique. Agents derive those IDs from hardware or local network identity (for example `printer_net_<hash(ip:port)>`), so two tenants may independently own the same ID. PostgreSQL uniqueness is `UNIQUE(tenant_id, id)` only; the pre-tenant global `printers_pkey` / `printers_gateway_id_global_unique` indexes were removed in migration `0072`. Heartbeat and discovery upserts conflict on `(tenant_id, id)`, never on `id` alone.
+
 ### Relational Invariant Guarantee
 Even if an application-layer bug were to omit a `tenant_id` check in an `INSERT` or `UPDATE` statement, PostgreSQL will reject any transaction attempting to associate a Printer of Tenant A with an Agent of Tenant B, or create a Print Job referencing mismatched tenant components.
 

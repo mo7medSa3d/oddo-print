@@ -212,4 +212,43 @@ suite("Tenant Isolation Invariants (Negative Tests)", () => {
     const exists = await pool().query("SELECT count(*)::int AS count FROM print_jobs WHERE id = $1", [jobId]);
     expect(exists.rows[0].count).toBe(0);
   });
+
+  it("Test 7: two tenants can register the same hardware-derived printer id", async () => {
+    await truncateAll();
+    const a = await seedFixture();
+    const b = await seedFixture();
+    const sharedId = "printer_net_cafef00ddeadbeef".slice(0, 24);
+    const reported = {
+      id: sharedId,
+      name: "LAN Receipt",
+      printerType: "physical",
+      deviceClass: "thermal",
+      connectionType: "network",
+      protocol: "raw",
+      config: { ip: "192.168.1.50", port: 9100 },
+      status: "online",
+    };
+    const { POST } = await import("../src/app/api/agent/heartbeat/route");
+    const heartbeat = (auth: string) => POST(new Request("http://gateway.test/api/agent/heartbeat", {
+      method: "POST",
+      headers: { Authorization: auth, "content-type": "application/json" },
+      body: JSON.stringify({ status: "online", printers: [reported] }),
+    }));
+
+    const resA = await heartbeat(a.agentAuth);
+    const resB = await heartbeat(b.agentAuth);
+    expect(resA.status).toBe(200);
+    expect(resB.status).toBe(200);
+    const bodyB = await resB.json() as { skippedPrinters?: Array<{ id: string; reason: string }> };
+    expect(bodyB.skippedPrinters ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: sharedId })]),
+    );
+
+    const rows = await pool().query(
+      "SELECT tenant_id, agent_id FROM printers WHERE id = $1 ORDER BY tenant_id",
+      [sharedId],
+    );
+    expect(rows.rows).toHaveLength(2);
+    expect(new Set(rows.rows.map((row: { tenant_id: string }) => row.tenant_id))).toEqual(new Set([a.tenantId, b.tenantId]));
+  });
 });

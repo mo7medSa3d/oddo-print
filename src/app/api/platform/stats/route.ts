@@ -3,7 +3,7 @@ import { requirePlatformOwner, PlatformUnauthorizedError } from "../../../../lib
 import { db } from "../../../../db";
 import { queryWithTimeout } from "../../../../db/client";
 import { tenants, tenantSubscriptions, users, agents, printers, printJobs } from "../../../../db/schema";
-import { sql, eq } from "drizzle-orm";
+import { sql, eq, and } from "drizzle-orm";
 import { agentStaleThresholdSeconds } from "../../../../lib/agent-availability";
 
 type PlatformHourlyJobStatsRow = {
@@ -101,7 +101,7 @@ export async function GET(req: Request) {
         )::int`,
       })
         .from(printers)
-        .leftJoin(agents, eq(printers.agentId, agents.id)),
+        .leftJoin(agents, and(eq(printers.agentId, agents.id), eq(printers.tenantId, agents.tenantId))),
 
       db.select({
         total: sql<number>`count(*)::int`,

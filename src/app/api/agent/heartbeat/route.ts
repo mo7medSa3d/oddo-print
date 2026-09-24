@@ -380,7 +380,7 @@ export async function POST(req: Request) {
             config: p.config as typeof printers.$inferInsert.config,
             capabilities: p.capabilities as typeof printers.$inferInsert.capabilities,
             lastSeenAt: sql`now()`,
-          }).onConflictDoNothing({ target: printers.id }).returning({ id: printers.id });
+          }).onConflictDoNothing({ target: [printers.tenantId, printers.id] }).returning({ id: printers.id });
 
           if (inserted.length === 0) {
             const raced = await tx.query.printers.findFirst({
