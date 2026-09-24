@@ -358,10 +358,10 @@ class TestBranchRuntimeBinding(TransactionCase):
             "branch_id": False,
             "destination_type": "pos_printer",
             "destination_pos_config_id": self.pos_config,
-            "destination_pos_printer_id": self.env["pos.printer"].search(
-                [("company_id", "=", self.company.id)],
-                limit=1,
-            ),
+            "destination_pos_printer_id": self.env["pos.printer"].new({
+                "name": "Legacy Kitchen Printer",
+                "company_id": self.company.id,
+            }),
             "report_id": False,
             "runtime_agent_id": "agent-a",
             "printer_id": "printer-a",
