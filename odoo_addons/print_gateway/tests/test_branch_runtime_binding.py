@@ -23,6 +23,10 @@ class TestBranchRuntimeBinding(TransactionCase):
     def setUp(self):
         super().setUp()
         self.company = self.env.company
+        self.pos_config = self.env["pos.config"].search(
+            [("company_id", "=", self.company.id)],
+            limit=1,
+        ) or self.env["pos.config"].create({"name": "Gateway Test POS", "company_id": self.company.id})
         self.branch = self.env["res.company"].create({"name": "Gateway Branch", "parent_id": self.company.id})
         self.other_company = self.env["res.company"].create({"name": "Other Company"})
         self.other_branch = self.env["res.company"].create({"name": "Other Branch", "parent_id": self.other_company.id})
@@ -250,7 +254,7 @@ class TestBranchRuntimeBinding(TransactionCase):
             "company_id": self.company.id,
             "branch_id": False,
             "destination_type": "pos",
-            "destination_pos_config_id": self.env["pos.config"].browse(999991),
+            "destination_pos_config_id": self.pos_config,
             "report_id": False,
             "runtime_agent_id": "agent-a",
             "printer_id": "printer-a",
@@ -261,7 +265,7 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding._compute_destination_ref()
         binding._compute_document_type()
         self.assertEqual(binding.document_type, "receipt")
-        self.assertEqual(binding.destination_ref, "pos.config,999991")
+        self.assertEqual(binding.destination_ref, "pos.config,%s" % self.pos_config.id)
         binding._check_company_hierarchy()
         binding._check_runtime_scope()
         binding._check_binding()
@@ -271,7 +275,7 @@ class TestBranchRuntimeBinding(TransactionCase):
             "company_id": self.company.id,
             "branch_id": False,
             "destination_type": "pos_printer",
-            "destination_pos_config_id": self.env["pos.config"].browse(999992),
+            "destination_pos_config_id": self.pos_config,
             "destination_pos_printer_id": False,
             "report_id": False,
             "runtime_agent_id": "agent-a",
@@ -284,7 +288,7 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding._compute_document_type()
         self.assertFalse(binding.destination_pos_printer_id)
         self.assertEqual(binding.document_type, "kitchen")
-        self.assertEqual(binding.destination_ref, "pos.config,999992")
+        self.assertEqual(binding.destination_ref, "pos.config,%s" % self.pos_config.id)
         binding._check_company_hierarchy()
         binding._check_runtime_scope()
         binding._check_binding()
@@ -294,8 +298,11 @@ class TestBranchRuntimeBinding(TransactionCase):
             "company_id": self.company.id,
             "branch_id": False,
             "destination_type": "pos_printer",
-            "destination_pos_config_id": self.env["pos.config"].browse(999993),
-            "destination_pos_printer_id": self.env["pos.printer"].browse(999994),
+            "destination_pos_config_id": self.pos_config,
+            "destination_pos_printer_id": self.env["pos.printer"].search(
+                [("company_id", "=", self.company.id)],
+                limit=1,
+            ),
             "report_id": False,
             "runtime_agent_id": "agent-a",
             "printer_id": "printer-a",
