@@ -460,10 +460,10 @@ func TestDifferentJobsAcrossThreePrintersConcurrent(t *testing.T) {
 	ag.printers = map[string]printer.Printer{"p1": p1, "p2": p2, "p3": p3}
 	ag.printerConfigs = map[string]config.PrinterConfig{
 		"p1": {ID: "p1", Name: "P1", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
-	allowInjectedPrintersForTest(ag)
 		"p2": {ID: "p2", Name: "P2", Type: "network", Endpoint: "127.0.0.1:9101", Protocol: "raw"},
 		"p3": {ID: "p3", Name: "P3", Type: "network", Endpoint: "127.0.0.1:9102", Protocol: "raw"},
 	}
+	allowInjectedPrintersForTest(ag)
 	ctx := context.Background()
 	start := make(chan struct{})
 	var wg sync.WaitGroup
