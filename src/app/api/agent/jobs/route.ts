@@ -8,6 +8,7 @@ import { logInfo, logWarn, requestIdFrom } from "../../../../lib/log";
 import { incrementMetric } from "../../../../lib/metrics";
 import { STALE_CLAIM_SECONDS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "../../../../lib/job-maintenance";
 import { CLAIM_RETURNING, MAX_DELIVERY_ATTEMPTS, MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../lib/job-delivery";
+import { subscriptionLiveExists } from "../../../../lib/entitlements";
 import { fencedJobWrite } from "../../../../lib/job-fencing";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "../../../../lib/agent-availability";
@@ -118,18 +119,7 @@ export async function GET(req: Request) {
         ))
         AND pr.last_seen_at IS NOT NULL
         AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
-        AND EXISTS (
-          SELECT 1
-          FROM tenant_subscriptions ts
-          WHERE ts.tenant_id = p.tenant_id
-            AND ts.status IN ('trialing', 'active', 'past_due')
-            AND (
-              ts.status = 'past_due'
-              OR ts.current_period_end IS NULL
-              OR ts.current_period_end > now()
-            )
-            AND COALESCE(ts.entitlement_blocked, false) = false
-        )
+        AND ${subscriptionLiveExists(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${MAX_CLAIM_BATCH}
@@ -158,18 +148,7 @@ export async function GET(req: Request) {
         ))
         AND pr.last_seen_at IS NOT NULL
         AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
-        AND EXISTS (
-          SELECT 1
-          FROM tenant_subscriptions ts
-          WHERE ts.tenant_id = p.tenant_id
-            AND ts.status IN ('trialing', 'active', 'past_due')
-            AND (
-              ts.status = 'past_due'
-              OR ts.current_period_end IS NULL
-              OR ts.current_period_end > now()
-            )
-            AND COALESCE(ts.entitlement_blocked, false) = false
-        )
+        AND ${subscriptionLiveExists(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${queuedLimit}
@@ -198,18 +177,7 @@ export async function GET(req: Request) {
         ))
         AND pr.last_seen_at IS NOT NULL
         AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
-        AND EXISTS (
-          SELECT 1
-          FROM tenant_subscriptions ts
-          WHERE ts.tenant_id = p.tenant_id
-            AND ts.status IN ('trialing', 'active', 'past_due')
-            AND (
-              ts.status = 'past_due'
-              OR ts.current_period_end IS NULL
-              OR ts.current_period_end > now()
-            )
-            AND COALESCE(ts.entitlement_blocked, false) = false
-        )
+        AND ${subscriptionLiveExists(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC
         LIMIT ${MAX_CLAIM_BATCH}
@@ -230,18 +198,7 @@ export async function GET(req: Request) {
                        ELSE print_jobs.retries END
       FROM claimable
       WHERE print_jobs.id = claimable.id
-        AND EXISTS (
-          SELECT 1
-          FROM tenant_subscriptions ts
-          WHERE ts.tenant_id = print_jobs.tenant_id
-            AND ts.status IN ('trialing', 'active', 'past_due')
-            AND (
-              ts.status = 'past_due'
-              OR ts.current_period_end IS NULL
-              OR ts.current_period_end > now()
-            )
-            AND COALESCE(ts.entitlement_blocked, false) = false
-        )
+        AND ${subscriptionLiveExists(sql`print_jobs.tenant_id`)}
       RETURNING ${CLAIM_RETURNING}
     `);
 

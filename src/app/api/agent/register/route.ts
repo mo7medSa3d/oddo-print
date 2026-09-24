@@ -8,6 +8,7 @@ import {
   reservePairingAttempt,
 } from "../../../../lib/auth-rate-limit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
+import { subscriptionLiveWhere } from "../../../../lib/entitlements";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -117,15 +118,8 @@ export async function POST(req: Request) {
       // current period unless Stripe has not recorded an end yet.
       const billingResult = await tx.execute(sql`
         SELECT 1
-        FROM tenant_subscriptions
-        WHERE tenant_id = ${agent.tenantId}
-          AND status IN ('trialing', 'active', 'past_due')
-          AND (
-            status = 'past_due'
-            OR current_period_end IS NULL
-            OR current_period_end > clock_timestamp()
-          )
-          AND COALESCE(entitlement_blocked, false) = false
+        FROM tenant_subscriptions ts
+        WHERE ${subscriptionLiveWhere(sql`${agent.tenantId}`)}
         FOR UPDATE
       `);
       if (billingResult.rows.length !== 1) {

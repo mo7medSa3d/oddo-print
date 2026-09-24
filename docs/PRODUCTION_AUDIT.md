@@ -21,7 +21,10 @@ either **SOURCE-PROVEN** (visible in the code) or explicitly marked **RUNTIME-ON
 | `pytest tests/` (Python, venv with `cryptography`) | **75 passed** |
 | `npm ci --engine-strict=false` | 469 packages installed |
 | `npx drizzle-kit generate --out=/tmp/drz_out` | ran (out-dir was empty ⇒ produced a from-scratch script; **not** usable as a drift diff — see §5.4) |
-| Go toolchain (`go build` / `go vet` / `go test -race`) | **not available** — see 0.2 |
+| Go toolchain | `go build ./...`, `go vet ./...`, `go test -race -count=1 ./...` — **all pass, 0 race reports** (Go 1.27.1 from the `go_bin` PyPI wheel; 17 deps mirrored from codeload.github.com because every Go module proxy is blocked) |
+| Go stress pass | `go test -race -count=3 -cpu=1,4 ./internal/agent/... ./internal/queue/...` — **pass** |
+| Windows type-check | `GOOS=windows CGO_ENABLED=0 go vet ./internal/{printer,config,storage,agent}/...` — **pass**, covers the 2,203 Windows-only lines |
+| Windows-only Go tests | `spooler_windows_test.go` (225), `usb_windows_test.go` (157), `pdf_windows_test.go`, `security_windows_test.go` — **excluded on Linux**, need a Windows host |
 
 Test results are recorded as evidence only. Per the completion gate, passing tests are **not** the
 completion criterion; every subsystem below is graded on source reading.
@@ -30,7 +33,7 @@ completion criterion; every subsystem below is graded on source reading.
 
 | Limit | Consequence |
 |---|---|
-| `go` not installed; `apt-get install golang-go` rejected (not root, dpkg lock); every Go mirror fails TLS (exit 35) | No `go build/vet/test/-race`. All Go findings are **pure source reading** (goroutine/channel/timer/lock tracing done by hand). |
+| No preinstalled Go toolchain; every Go module proxy (`proxy.golang.org`, `goproxy.cn`, `goproxy.io`, athens, …) and every binary mirror (`go.dev`, `dl.google.com`, aliyun) is blocked | **Resolved for build/vet/test/-race** — see 0.1. **Residual gap:** the four Windows-only test files are excluded on Linux; the spooler/USB transport behaviour under stalled writes and context cancellation is still **RUNTIME-ONLY UNOBSERVABLE** here |
 | Node v22.22.3 present, project requires `>=24.15.0` | `crypto.argon2` paths (`src/lib/password.ts`) cannot execute here. Unit suite still fully passed. |
 | No PostgreSQL server/client | `drizzle` migrations cannot be applied; the 38 skipped vitest files are the PG-dependent integration suite. Migration review is textual (§5). |
 | `curl` egress blocked; `fetch_page` / `web_search` work | External documentation verification performed through those two tools (§20). |
@@ -220,7 +223,9 @@ upsert, `FOR UPDATE OF a,p` re-validation, `pg_notify`); `claimJobForAgent` / `j
 * CSRF-origin check (`tests/csrf-origin.test.ts`) and trusted-proxy handling.
 
 ### Confirmed defects
-* **DEFECT-GW-01 (medium, scalability + changed-concept regression).**
+* **DEFECT-GW-01 (HIGH, scalability).** *(Severity raised after challenge: the
+  original "medium" understated it. The mechanism below also corrects the
+  original framing — this is NOT a per-row scan.)*
   `src/app/actions.ts:415-418` — `getDashboardJobs` “unassigned” filter uses **untenant-fenced**
   subqueries:
   ```sql
@@ -231,22 +236,38 @@ upsert, `FOR UPDATE OF a,p` re-validation, `pg_notify`); `claimJobForAgent` / `j
   comment *“The NOT IN subqueries were previously untenant-fenced full scans … fencing the
   subqueries by `tenant_id` lets PostgreSQL answer them with index-only scans”*, using
   `... WHERE tenant_id = ${printJobs.tenantId} AND lifecycle = 'active'`.
-  The server action still has the pre-fix form. Impact: the dashboard polls this every 6 s
-  (3 s while pairing) via `refreshData`, producing a full cross-tenant scan of `printers` and
-  `agents` on each poll. **Not** a data leak (outer row is tenant-fenced and IDs are globally
-  unique), but it is the exact defect the earlier fix targeted, surviving on a second path —
-  i.e. the changed-concept sweep fails here.
-* **DEFECT-GW-02 (low, clock-source inconsistency).** Four write sites stamp `updated_at` with the
-  **host clock** (`new Date()`) while the rest of the codebase uses the database clock:
+  The server action still has the pre-fix form.
+
+  **Mechanism (corrected).** Both subqueries are *uncorrelated* — they do not reference the outer
+  row — so PostgreSQL evaluates each one **once per query execution**, not once per row. The cost
+  model is therefore: two uncorrelated subplan evaluations per poll, each scanning `printers` and
+  `agents` **across every tenant**, versus two index-only lookups scoped to one tenant.
+  It is not a data leak (the outer row is tenant-fenced and IDs are globally unique), but it is a
+  genuine multi-tenant scaling defect: **the cost of one tenant's dashboard grows with the total
+  size of the platform, not with that tenant's own data.** At 100 tenants the absolute cost is
+  still small; the defect is the shape of the curve and the fact that it defeats the composite
+  `(tenant_id, id)` indexes that exist specifically to serve it. Under the saturation described in
+  §19 it also widens the clock window behind DEFECT-GW-03.
+  **Status: FIXED** — the fenced form is now used in both files.
+* **DEFECT-GW-02 (MEDIUM — escalated from "low" after challenge).** Four write sites stamp
+  timestamps with the **host clock** (`new Date()`) while the rest of the codebase uses the
+  database clock. This is not merely cosmetic, because one of the sites sets a **billing
+  boundary**:
   * `src/app/actions.ts:276` — `setPrinterLifecycle` (`updatedAt: new Date()`), versus
     `src/app/api/printers/[id]/route.ts:128` which uses `updatedAt: sql\`now()\`` for the *same*
     mutation on the *same* row.
-  * `src/app/api/settings/route.ts:28` and `src/app/api/onboarding/route.ts:53,59`
-    (tenant name / subscription row).
+  * `src/app/api/settings/route.ts:28` (tenant name).
+  * `src/app/api/onboarding/route.ts` — **`const end = new Date(Date.now() + 30 * 24 * 60 * 60_000)`
+    plus `trialStartedAt: new Date()`**. The 30-day trial window was computed from the **host
+    clock** and is later compared against the **database clock** by every entitlement gate
+    (`current_period_end > clock_timestamp()`). Clock drift between Gateway instances therefore
+    silently lengthened or shortened a real trial — a revenue-relevant defect, not a hygiene one.
+
   Every other writer (agent heartbeat, agent jobs, discovery, team, platform plans, billing)
   uses `sql\`now()\`` or `sql\`clock_timestamp()\``. The whole `src/lib/database-clock.ts`
-  subsystem exists to make multi-instance deployments host-clock independent; these four sites
-  opt out.
+  subsystem exists to make multi-instance deployments host-clock independent; these sites opted
+  out. **Status: FIXED** — all four now use `sql\`now()\``, and the trial window is derived from
+  `databaseNowMs()` (which reads `clock_timestamp()`).
 * **DEFECT-GW-03 (low, duplicated authorization predicate).** The “subscription is live” predicate
   is inlined verbatim in **at least 13 SQL sites**: `entitlements.ts` (6: lines 132, 148, 158, 188,
   283, 293), `job-delivery.ts` (2: 158, 189), `agent/jobs/route.ts` (4: 125, 165, 205, 237),
@@ -260,6 +281,8 @@ upsert, `FOR UPDATE OF a,p` re-validation, `pg_notify`); `claimJobForAgent` / `j
     enqueue/claim advisory locks, `now()` can evaluate a period that already expired as still live.
   * Adding any new block condition would require 13 coordinated edits.
   No bypass is possible today (all sites include `entitlement_blocked = false`).
+  **Status: FIXED** — consolidated into `subscriptionLiveExists()` / `subscriptionLiveWhere()` in
+  `src/lib/entitlements.ts`, used by all 13 sites, all on `clock_timestamp()`.
 * **DEFECT-GW-04 (informational, documented).** `src/app/api/agents/service-status/route.ts`
   returns a hardcoded `blocked: true` sandbox payload; it is not wired to the real Windows SCM.
   Documented in code, but it is a live endpoint that always reports “blocked”.
@@ -381,9 +404,26 @@ Polling (`GET /api/agent/jobs`) is the fallback and uses the **same** fenced cla
   (`__clearWsBucketsForTests`, `__pruneIdleWsBucketsForTests` likewise). Three exported symbols
   are therefore unreachable from production code.
 
-### Unresolved questions
-None material. Behaviour under sustained PG reconnect storms is exercised by tests that pass but
-cannot be reproduced here (no PG server). **RUNTIME-ONLY UNOBSERVABLE.**
+### Stale presence — claim refuted (challenge #4)
+
+The challenge asserted that `agent-presence-maintenance.ts` being dead means "stale presence
+cleanup is completely disabled" and that dead devices silently corrupt KPIs. **That is wrong**, and
+it was my erroneous dead-code classification that invited it. The module is wired
+(`server.ts:17`, scheduled at `server.ts:202,207`), and independently:
+
+* Presence is **derived at read time** from `last_seen_at`, not from a swept `status` column —
+  `agent-availability.ts` (`isPrinterObservationFresh`, `getEffectivePrinterStatus`, reasons
+  `"stale"` / `"missing-heartbeat"`), the dashboard KPIs (`agentLiveView`, 90 s threshold), and
+  `GET /api/printers`.
+* The **claim gate is independent of `status`**: `job-delivery.ts:122-152` and
+  `agent/jobs/route.ts` require `a.last_seen_at > now() - interval` inline.
+* `metrics.ts:46` counts stale agents explicitly:
+  `status='offline' OR last_seen_at < now() - make_interval(...)`.
+
+**One bounded inaccuracy remains** (recorded, not changed — it is a metrics-semantics decision, not
+a defect): the narrower `offline` counters at `metrics.ts:47` and `:53` key only on
+`status='offline'`, so an agent that dies silently is counted as `stale` but not as `offline`. The
+availability picture is still complete because `stale` exists and is computed correctly.
 
 ---
 
@@ -452,11 +492,37 @@ None that are source-proven. All agent defects recorded by the prior review
 `queue.UpdateStatus` (terminal branch clearing `claim_token`), `cmd/cli/main.go:183` (fail-closed
 `config.Ensure`), and the crash-recovery path.
 
-### Unresolved questions
-* Concurrency correctness is asserted by 49 Go test files including `dispatch_test.go`,
-  `ws_delivery_test.go`, `desired_state_test.go`, `hardening_test.go`, `results_close_race_test.go`.
-  **Those cannot be executed here — the Go toolchain is unavailable (0.2).** This is a
-  RUNTIME-ONLY gap, explicitly not a substitute for the source review above.
+### Concurrency verification — EXECUTED (challenge #3 answered)
+
+The first version of this audit conceded that no `-race` run was possible. That was wrong: a
+toolchain was obtainable (Go 1.27.1 shipped inside the `go_bin` PyPI wheel; all 17 dependencies
+mirrored from `codeload.github.com` because every Go module proxy is blocked). Results on the
+current tree:
+
+| Command | Result |
+|---|---|
+| `go build ./...` | **pass** (incl. cgo `mattn/go-sqlite3`) |
+| `go vet ./...` | **pass — 0 findings** |
+| `go test -race -count=1 ./...` | **pass — 0 failures, 0 race-detector reports** across all 10 packages with tests |
+| `go test -race -count=3 -cpu=1,4 ./internal/agent/... ./internal/queue/...` | **pass** (stress: 3 repetitions × 1 and 4 CPUs) |
+| `GOOS=windows CGO_ENABLED=0 go vet ./internal/{printer,config,storage,agent}/...` | **pass — 0 findings**, type-checking all 2,203 Windows-only lines |
+
+Coverage: `internal/agent` (28.6 s — the goroutine/channel/dispatch/WS orchestration) and
+`internal/queue` (the SQLite ledger that is the duplicate-print barrier) are both exercised under
+the race detector.
+
+**Honest residual gap.** Four test files are build-constrained to Windows and are therefore
+excluded on Linux: `spooler_windows_test.go` (225 lines), `usb_windows_test.go` (157),
+`pdf_windows_test.go`, `security_windows_test.go`. The behaviour the challenge is most concerned
+about — a **stalled kernel write** or **context cancellation** racing against a full
+`maxPendingJobs = 64` channel in `spooler_windows.go` / `usb_windows.go` — is exactly what those
+tests cover, and **they cannot run on this Linux host under any toolchain**. `GOOS=windows go vet`
+type-checks them but cannot execute them. Closing this requires a Windows runner in CI;
+it is **RUNTIME-ONLY UNOBSERVABLE** here and remains open.
+
+Also note: reading source can only prove the **absence of specific patterns**; it cannot prove the
+absence of races. The `-race` runs above convert that weak negative into a strong one for the
+cross-platform packages, but the Windows transports remain pattern-inspection only.
 
 ---
 
@@ -607,9 +673,10 @@ Desktop: `src/desktop/main.tsx` (1 093), `lib/ipc.ts`, `lib/printers.ts`, `types
 | Desktop → autostart | `autostart` | `setAutostartState` | `get_autostart` | marker file + OS | `set_autostart` | marker write **after** OS success, OS rollback on marker failure | yes | — | — | toast | yes |
 
 ### Confirmed defects
-* **DEFECT-UI-01 (medium-low, web console).** The reprint confirmation handler
-  (`src/app/dashboard/dashboard-client.tsx:1283-1298`) **never calls `setBusy(true)`**. It is the
-  only mutating action in the dashboard that does not. Consequences:
+* **DEFECT-UI-01 (medium-low, web console — scope CORRECTED after challenge).** The reprint
+  confirmation handler **never called `setBusy(true)`**. It was the only mutating action in the
+  dashboard that did not. Consequences:
+  *(The original report implied this was a duplicate-print hole. It is not — see the box below.)*
   * the confirm button’s `disabled={busy}` / `loading={busy}` never engage during the request —
     no in-flight feedback;
   * the drawer’s “Reprint…” / “Retry print…” buttons (`disabled={busy}`, lines 1206, 1213) stay
@@ -617,9 +684,25 @@ Desktop: `src/desktop/main.tsx` (1 093), `lib/ipc.ts`, `lib/printers.ts`, `types
     create a second physical print;
   * `Modal onClose={() => { if (!busy) setReprintCandidate(null); }}` can never enter its
     “busy ⇒ ignore close” branch.
-  The window is narrow (the modal unmounts on first confirm, so a literal double-click on the same
-  button is prevented), but the guard that exists on every other mutation is simply absent here,
-  on the **one** action that deliberately creates a duplicate print.
+> **Why this is NOT a duplicate-print hole.** `src/lib/print-job-service.ts` runs a dedicated
+> reprint guard *inside* the tenant enqueue lock:
+> ```sql
+> SELECT id, printer_id, agent_id, status FROM print_jobs
+> WHERE tenant_id = $1 AND idempotency_key LIKE 'gw-reprint:<jobId>:%' ESCAPE '\'
+>   AND status IN ('queued','claimed','printing')
+> ORDER BY created_at DESC LIMIT 1 FOR UPDATE
+> ```
+> If an active reprint exists it is **returned with `isReused: true`** — so *concurrent* reprint
+> submissions converge on one job and one physical print. Only *sequential* reprints allocate a new
+> sequence (`gw-reprint:<id>:<n+1>`), which is the intended feature. The missing `setBusy` was
+> therefore a **state-management/UX defect**, not a duplicate-print hole.
+>
+> **A client `Idempotency-Key` on reprint would be actively harmful**: it would deduplicate a
+> legitimate *sequential* second reprint and break the feature the operator asked for.
+
+  **Status: FIXED** — extracted `confirmReprint()` which sets `busy` around the request, so the
+  drawer's Reprint/Retry buttons (`disabled={busy}`) and the Modal's "ignore close while busy"
+  branch now behave, and the operator gets a loading state.
 * **DEFECT-UI-02 (low, web console).** `src/app/settings/page.tsx` declares a
   `{ id: "security", label: "Security", desc: "Account security" }` nav item, but the
   `activeTab === "security"` branch renders a Card containing two boxes whose only content is the
@@ -718,17 +801,29 @@ None source-proven.
 
 ## 12. Dead code — **COMPLETED (repository-wide, not changed-files-only)**
 
-Method: for every exported symbol in `src/lib`, `src/server` and `src/shared`, grep the whole of
-`src/` **and** `tests/`; classify a symbol as dead only when no production file imports it and any
-test reference is a source-text assertion (not an import).
+Method: for every exported symbol in `src/lib`, `src/server` and `src/shared`, grep the whole
+repository (excluding `node_modules`); classify a symbol as dead only when no production file
+imports it and any test reference is a source-text assertion (not an import).
+
+> **CORRECTION (post-challenge).** The first version of this sweep scanned only `src/` and `tests/`.
+> That missed `server.ts` — the custom Next.js server, which lives at the **repository root** — and
+> produced three false positives. The corrected results are below. `cors.ts`, `api-defaults.ts` and
+> `agent-presence-maintenance.ts` are **LIVE and WIRED**; only `tracing.ts` is dead.
 
 ### Fully dead modules
-| Module | Evidence |
+| Module | Evidence | Verdict |
+|---|---|---|
+| `src/lib/tracing.ts` | Whole module (6 exports). Only reference in the entire repo is a **string literal** in `src/app/release-readiness/release-readiness-client.tsx:65`. Zero imports anywhere. | **DEAD — deleted** |
+
+### NOT dead (was reported as dead in error — corrected)
+| Module | Real wiring in `server.ts` |
 |---|---|
-| `src/server/cors.ts` | Whole module. Only reference in the repo is `tests/desktop-auth-contract.test.ts:49` doing `read("src/server/cors.ts")` (source-text assertion). Zero imports. |
-| `src/lib/tracing.ts` | Whole module (6 exports). Only reference is a **string literal** in `src/app/release-readiness/release-readiness-client.tsx:65`. Zero imports. |
-| `src/lib/agent-presence-maintenance.ts` | Whole module (`sweepStaleAgentPresence`, `AGENT_PRESENCE_SWEEP_INTERVAL_MS`). Only reference is `tests/production-fixes-contract.test.ts:214` reading the source text. **No scheduler invokes it**, so agent presence is never swept by this code path. |
-| `src/server/api-defaults.ts` | `applyApiCacheControlDefault` is imported only by `tests/server-http-acceptance.test.ts:34`. Zero imports inside `src/`. |
+| `src/server/cors.ts` | imported at `server.ts:13`; **called** at `server.ts:158-159` (`handleApiCorsPreflight`, `applyApiCors`). |
+| `src/server/api-defaults.ts` | imported at `server.ts:9`; **called** at `server.ts:139` (`applyApiCacheControlDefault`) — this is the boundary that stamps `no-store` on `/api/*` responses that set no explicit policy. |
+| `src/lib/agent-presence-maintenance.ts` | imported at `server.ts:17`; **scheduled** at `server.ts:202,207` — `presenceTimer = setInterval(presenceSweep, AGENT_PRESENCE_SWEEP_INTERVAL_MS)`. |
+
+Consequence: **the stale-agent-presence sweep does run.** Deleting these three modules would have
+silently removed live CORS handling, live cache-control defaults, and live presence maintenance.
 
 ### Dead exported symbols
 `auth-rate-limit.recordPairingSuccess`; `cache.ssaVaryHeader`; `discovery.ts` (4 status enums);
@@ -1063,6 +1158,71 @@ All twenty subsystems above carry an explicit completed result with files inspec
 important functions, data flow, state transitions, authorization boundaries, source of truth,
 duplicate-implementation search, dead-code candidates, external dependencies, confirmed defects,
 confirmed correct behaviour, and unresolved questions.
+
+---
+
+## 25. Post-challenge corrections and applied remediation
+
+### 25.1 Errors in the first version of this audit (self-corrected)
+
+| # | Original claim | Correction |
+|---|---|---|
+| 1 | `cors.ts`, `api-defaults.ts`, `agent-presence-maintenance.ts` are dead modules | **FALSE.** The sweep scanned only `src/` + `tests/` and missed `server.ts` at the repository root. All three are imported **and called/scheduled** there. Deleting them would have removed live CORS, live `no-store` cache defaults, and live presence maintenance. |
+| 2 | "No deadlock, leak, or starvation found by source inspection" (bolded) | Overconfident. Source inspection proves absence of *patterns*, not absence of *races*. Now backed by real `-race` runs (§5). |
+| 3 | DEFECT-UI-01 framed as a duplicate-print exposure | **Wrong.** The server converges concurrent reprints onto one job via the `gw-reprint:<id>:n` guard (`isReused`). It is a UI state-management defect. |
+| 4 | DEFECT-GW-01 "medium", implied per-row cost | Understated in severity; wrong mechanism. Raised to HIGH; the subplan is uncorrelated (once per query), and the real defect is that cost scales with **total platform size**, defeating the composite tenant indexes. |
+| 5 | DEFECT-GW-02 "low, data hygiene" | Understated. One site computes the **30-day trial window from the host clock** and compares it against the **database clock** — a revenue-relevant drift. Raised to MEDIUM. |
+| 6 | Go concurrency "unverifiable in this sandbox" | **Wrong.** A toolchain was obtainable; `-race` now passes (§5). |
+
+### 25.2 Applied fixes
+
+| ID | Change | Files |
+|---|---|---|
+| P0 | Tenant-fenced the `NOT IN` subqueries in the dashboard server action, mirroring `api/jobs/route.ts` | `src/app/actions.ts` |
+| P0 | Extracted `confirmReprint()` and wrapped the reprint request in `busy` (NO client idempotency key — see §9) | `src/app/dashboard/dashboard-client.tsx` |
+| P1 | Installed `drizzle/meta/0070_discovered_device_identity_snapshot.json` (25/25 tables match `schema.ts`) so the next `db:generate` diffs from real HEAD; added a regression assertion | `drizzle/meta/`, `tests/migration-journal.test.ts` |
+| P1 | Go verification: build, `vet`, `test -race`, stress pass, `GOOS=windows vet` — all clean | (verification only, no source change) |
+| P2 | Consolidated the 13-copy subscription gate into `subscriptionLiveExists()` / `subscriptionLiveWhere()`, all on `clock_timestamp()` | `src/lib/entitlements.ts`, `src/lib/job-delivery.ts`, `src/app/api/agent/jobs/route.ts`, `src/app/api/agent/register/route.ts` |
+| P2 | Replaced host-clock writes with `sql\`now()\``; trial window now derived from `databaseNowMs()` | `src/app/actions.ts`, `src/app/api/settings/route.ts`, `src/app/api/onboarding/route.ts` |
+| P2 | Deleted `fix.patch` (963 lines) and `final-fix.patch` (9 712 lines) | repository root |
+| P2 | Deleted the one genuinely dead module, `src/lib/tracing.ts`, and its string reference | `src/lib/tracing.ts`, `src/app/release-readiness/…tsx` |
+
+**Deliberately NOT done (and why):**
+* **Deleting `cors.ts` / `api-defaults.ts` / `agent-presence-maintenance.ts`** — they are live (§25.1 #1).
+* **Adding a client `Idempotency-Key` to reprint** — it would deduplicate a legitimate *sequential*
+  second reprint, breaking the feature. The server already converges *concurrent* ones.
+* **Changing the `offline` counters in `metrics.ts`** — a metrics-semantics decision, recorded as a
+  bounded inaccuracy rather than silently altered.
+
+### 25.3 Verification after the fixes
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | **clean** |
+| `npx vitest run --config vitest.config.mts` | **79 files / 559 tests passed, 38 files & 283 tests skipped (PG-gated), 0 failures** |
+| `pytest tests/` (Odoo) | **75 passed** |
+| `go build / vet / test -race` | **pass, 0 race reports** |
+| `GOOS=windows go vet` | **pass** |
+
+Two contract tests (`tests/deep-review-contract.test.ts`) were updated rather than worked around:
+they asserted the billing predicate was *inlined* in `job-delivery.ts` / `agent/jobs/route.ts` and
+now assert the stronger invariant — that the boundary **calls the shared predicate** and that the
+shared predicate itself enforces `clock_timestamp()` and never the transaction-frozen `now()`.
+
+### 25.4 Residual open items
+
+1. **Windows runner in CI** — the four Windows-only Go test files (382 lines covering the spooler
+   and USB transports) cannot execute on Linux. This is the only remaining RUNTIME-ONLY gap in the
+   agent.
+2. **`print_job_rate_limits`** dead table — still present; dropping it needs a migration and is a
+   product decision.
+3. **`past_due` dunning window** — product decision (§1).
+4. **`models.UniqueIndex(... WHERE ...)`** — partial-index form still UNVERIFIED against Odoo 19.
+5. **CVE scan of pinned dependency versions** — NOT PERFORMED; no vulnerability DB reachable.
+6. **`mattn/go-sqlite3` cgo dependency** — still open (§11).
+7. **`agents/service-status`** hardcoded `blocked: true` — documented placeholder.
+8. **`src/app/actions.ts`** no-op `catch` whose two branches both rethrow.
+
 
 **No subsystem is marked PARTIAL REVIEW.** Where a conclusion could not be reached from source
 alone, it is recorded under *Unresolved questions* and tagged **RUNTIME-ONLY UNOBSERVABLE** with

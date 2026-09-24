@@ -34,6 +34,60 @@ export function isBillingAccessStatus(status: string | null | undefined): boolea
 }
 
 /**
+ * CANONICAL subscription-liveness gate. Two SQL shapes are provided — an
+ * `EXISTS` predicate for correlated checks inside larger statements, and a
+ * bare WHERE fragment for statements that need the subscription row itself
+ * (`FOR UPDATE`, or the joined plan entitlements).
+ *
+ * Both shapes are generated from this one definition so they cannot drift.
+ * They previously existed as 13 hand-written copies that HAD already drifted:
+ * some used `now()` and some `clock_timestamp()`. `now()` is frozen at
+ * transaction start, so a period that expires while a transaction is open
+ * (for example one holding the enqueue advisory locks, or one slowed down by
+ * database saturation) would still evaluate as live — a silent resource leak.
+ * `clock_timestamp()` reads the wall clock at statement execution time, so the
+ * decision reflects the moment the protected mutation actually happens.
+ *
+ * Change the policy here and ONLY here.
+ *
+ * @param tenantColumn SQL expression identifying the tenant, e.g.
+ *   `sql\`p.tenant_id\`` or `sql\`${printJobs.tenantId}\``.
+ */
+export function subscriptionLiveExists(tenantColumn: SQL): SQL {
+  return sql`EXISTS (
+          SELECT 1
+          FROM tenant_subscriptions ts
+          WHERE ts.tenant_id = ${tenantColumn}
+            AND ts.status IN ('trialing', 'active', 'past_due')
+            AND (
+              ts.status = 'past_due'
+              OR ts.current_period_end IS NULL
+              OR ts.current_period_end > clock_timestamp()
+            )
+            AND COALESCE(ts.entitlement_blocked, false) = false
+        )`;
+}
+
+/**
+ * WHERE-clause counterpart of {@link subscriptionLiveExists}, for statements
+ * that select the subscription row itself. The subscription table MUST be
+ * aliased `ts`, matching every call site.
+ *
+ * `past_due` deliberately bypasses the period check (Stripe is retrying
+ * payment); this is a product decision, not an oversight.
+ */
+export function subscriptionLiveWhere(tenantColumn: SQL): SQL {
+  return sql`ts.tenant_id = ${tenantColumn}
+      AND ts.status IN ('trialing', 'active', 'past_due')
+      AND (
+        ts.status = 'past_due'
+        OR ts.current_period_end IS NULL
+        OR ts.current_period_end > clock_timestamp()
+      )
+      AND COALESCE(ts.entitlement_blocked, false) = false`;
+}
+
+/**
  * Subscription period gate used by every Odoo/console entry point.
  *
  * `current_period_end` is a Stripe/DB timestamp, so it must be compared with
@@ -127,11 +181,8 @@ export async function requireTenantBillingAccess(tx: EntitlementTx, tenantId: st
   // change between this decision and the protected runtime mutation.
   const result = await tx.execute(sql`
     SELECT 1
-    FROM tenant_subscriptions
-    WHERE tenant_id = ${tenantId}
-      AND status IN ('trialing', 'active', 'past_due')
-      AND (status = 'past_due' OR current_period_end IS NULL OR current_period_end > clock_timestamp())
-      AND COALESCE(entitlement_blocked, false) = false
+    FROM tenant_subscriptions ts
+    WHERE ${subscriptionLiveWhere(sql`${tenantId}`)}
     LIMIT 1
     FOR UPDATE
   `);
@@ -144,9 +195,7 @@ export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: str
     SELECT p.entitlements, ts.entitlement_blocked AS "entitlementBlocked"
     FROM tenant_subscriptions ts
     JOIN plans p ON p.id = ts.plan_id
-    WHERE ts.tenant_id = ${tenantId}
-      AND ts.status IN ('trialing','active','past_due')
-      AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+    WHERE ${subscriptionLiveWhere(sql`${tenantId}`)}
     LIMIT 1
     FOR UPDATE OF ts
   `)
@@ -154,9 +203,7 @@ export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: str
     SELECT p.entitlements, ts.entitlement_blocked AS "entitlementBlocked"
     FROM tenant_subscriptions ts
     JOIN plans p ON p.id = ts.plan_id
-    WHERE ts.tenant_id = ${tenantId}
-      AND ts.status IN ('trialing','active','past_due')
-      AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+    WHERE ${subscriptionLiveWhere(sql`${tenantId}`)}
     LIMIT 1
   `);
   if (!result.rows[0]) throw new TenantSubscriptionRequiredError();
@@ -184,9 +231,7 @@ export async function getTenantEntitlements(tx: EntitlementTx, tenantId: string)
     SELECT p.entitlements, ts.entitlement_blocked AS "entitlementBlocked"
     FROM tenant_subscriptions ts
     JOIN plans p ON p.id = ts.plan_id
-    WHERE ts.tenant_id = ${tenantId}
-      AND ts.status IN ('trialing','active','past_due')
-      AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+    WHERE ${subscriptionLiveWhere(sql`${tenantId}`)}
     LIMIT 1
   `);
   if (!result.rows[0]) throw new TenantSubscriptionRequiredError();
@@ -279,9 +324,7 @@ async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string, l
         SELECT p.entitlements, ts.current_period_start AS "periodStart", ts.current_period_end AS "periodEnd", ts.entitlement_blocked AS "entitlementBlocked"
         FROM tenant_subscriptions ts
         JOIN plans p ON p.id = ts.plan_id
-        WHERE ts.tenant_id = ${tenantId}
-          AND ts.status IN ('trialing','active','past_due')
-          AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+        WHERE ${subscriptionLiveWhere(sql`${tenantId}`)}
         LIMIT 1
         FOR UPDATE OF ts
       `)
@@ -289,9 +332,7 @@ async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string, l
         SELECT p.entitlements, ts.current_period_start AS "periodStart", ts.current_period_end AS "periodEnd", ts.entitlement_blocked AS "entitlementBlocked"
         FROM tenant_subscriptions ts
         JOIN plans p ON p.id = ts.plan_id
-        WHERE ts.tenant_id = ${tenantId}
-          AND ts.status IN ('trialing','active','past_due')
-          AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+        WHERE ${subscriptionLiveWhere(sql`${tenantId}`)}
         LIMIT 1
       `);
   const row = result.rows[0] as TenantPrintQuotaRow | undefined;

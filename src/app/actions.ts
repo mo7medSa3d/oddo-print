@@ -273,7 +273,7 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
           lifecycle,
           managementSource: "manager",
           desiredRevision: sql<number>`${printers.desiredRevision} + 1`,
-          updatedAt: new Date(),
+          updatedAt: sql`now()`,
         })
         .where(and(eq(printers.id, id), eq(printers.tenantId, manager.tenantId), eq(printers.lifecycle, current)))
         .returning({ id: printers.id, lifecycle: printers.lifecycle, desiredRevision: printers.desiredRevision });
@@ -414,7 +414,13 @@ export async function getDashboardJobs(options?: {
       );
     } else if (statusParam === "unassigned") {
       conditions.push(
-        or(eq(printJobs.destination, "unassigned"), eq(printJobs.printerId, "unassigned"), sql`${printJobs.printerId} NOT IN (SELECT id FROM printers WHERE lifecycle = 'active')`, sql`${printJobs.agentId} NOT IN (SELECT id FROM agents WHERE lifecycle = 'active')`)!
+        // The NOT IN subqueries are tenant-fenced so PostgreSQL can answer
+        // them from the composite tenant+id indexes (printers_tenant_id_unique /
+        // agents_tenant_id_unique) instead of full-scanning every tenant's rows.
+        // This mirrors the identical filter in src/app/api/jobs/route.ts; the two
+        // must stay in lockstep — an unfenced copy here re-introduces a
+        // cross-tenant scan on every dashboard poll.
+        or(eq(printJobs.destination, "unassigned"), eq(printJobs.printerId, "unassigned"), sql`${printJobs.printerId} NOT IN (SELECT id FROM printers WHERE tenant_id = ${printJobs.tenantId} AND lifecycle = 'active')`, sql`${printJobs.agentId} NOT IN (SELECT id FROM agents WHERE tenant_id = ${printJobs.tenantId} AND lifecycle = 'active')`)!
       );
     }
   }

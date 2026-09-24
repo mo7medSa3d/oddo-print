@@ -137,12 +137,23 @@ describe("deep production review contracts", () => {
       expect(source).toContain("printerStaleThresholdSeconds");
       expect(source).toContain("pr.last_seen_at IS NOT NULL");
       expect(source).toContain("pr.last_seen_at > now() - make_interval");
-      expect(source).toContain("FROM tenant_subscriptions ts");
-      expect(source).toContain("ts.status IN ('trialing', 'active', 'past_due')");
-      expect(source).toContain("ts.status = 'past_due'");
-      expect(source).toContain("COALESCE(ts.entitlement_blocked, false) = false");
-      expect(source).toContain("ts.current_period_end > now()");
+      // The billing gate is no longer inlined here: both delivery boundaries
+      // must call the SINGLE shared predicate so the two paths cannot drift.
+      expect(source).toContain("subscriptionLiveExists(");
+      expect(source).not.toContain("FROM tenant_subscriptions ts");
     }
+
+    // ...and the shared predicate itself must enforce the full policy with the
+    // statement-time clock (clock_timestamp(), never the transaction-frozen now()).
+    const entitlementsSource = read("src/lib/entitlements.ts");
+    expect(entitlementsSource).toContain("export function subscriptionLiveExists(");
+    expect(entitlementsSource).toContain("FROM tenant_subscriptions ts");
+    expect(entitlementsSource).toContain("ts.status IN ('trialing', 'active', 'past_due')");
+    expect(entitlementsSource).toContain("ts.status = 'past_due'");
+    expect(entitlementsSource).toContain("COALESCE(ts.entitlement_blocked, false) = false");
+    expect(entitlementsSource).toContain("ts.current_period_end > clock_timestamp()");
+    // The transaction-frozen now() must never reappear in the liveness gate.
+    expect(entitlementsSource).not.toContain("current_period_end > now()");
 
     // The poll candidate CTEs must filter invalid rows before LIMIT is applied;
     // otherwise a page full of stale/revoked candidates can starve healthy work.
@@ -250,12 +261,13 @@ describe("deep production review contracts", () => {
     const odooAgents = read("src/app/api/odoo/agents/route.ts");
     expect(odooAgents).toContain("active subscription is required before pairing agents");
     expect(register).toContain("SUBSCRIPTION_REQUIRED");
-    expect(register).toContain("entitlement_blocked");
+    // Pairing must use the shared gate rather than a private copy of the policy.
+    expect(register).toContain("subscriptionLiveWhere(");
     expect(lifecycle).toContain("requireTenantBillingAccess(tx, tenantId)");
     expect(entitlements).toContain("requireTenantBillingAccess");
     expect(entitlements).toContain("status IN ('trialing', 'active', 'past_due')");
     expect(entitlements).toContain("current_period_end > clock_timestamp()");
-    expect(entitlements).toContain("COALESCE(entitlement_blocked, false) = false");
+    expect(entitlements).toContain("COALESCE(ts.entitlement_blocked, false) = false");
     expect(entitlements).toContain("TenantSubscriptionRequiredError");
   });
 
