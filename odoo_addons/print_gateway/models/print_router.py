@@ -628,8 +628,8 @@ class PrintGatewayRouter(models.AbstractModel):
                 raise ValidationError(_("Print binding '%s' has no Gateway Runtime Agent assigned.") % binding.display_name)
             if binding.runtime_agent_id:
                 # Authorization follows the Binding's declared scope: a Branch
-                # Binding may use a same-Branch or company-wide assignment,
-                # while a root/company-wide Binding may use any assignment
+                # A Branch Binding must use an Agent assigned to that exact
+                # Branch. A root/company-wide Binding may use any assignment
                 # owned by the selected Company, including a child-Branch
                 # assignment.
                 binding_scope = binding.branch_id or False

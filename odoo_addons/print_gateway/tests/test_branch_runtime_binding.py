@@ -356,7 +356,8 @@ class TestBranchRuntimeBinding(TransactionCase):
                 )
                 self.assertEqual([agent["id"] for agent in result["agents"]], ["agent-b"])
 
-            # Company-wide assignments are inherited by every child branch.
+            # Company-wide assignments are available to Company-only bindings,
+            # but are not inherited by a Branch-scoped binding.
             self.agents.append({"id": "agent-company-wide", "name": "Company Wide Agent", "status": "online", "lifecycle": "active"})
             assignment_model.create({
                 "company_id": self.company.id,
@@ -372,7 +373,7 @@ class TestBranchRuntimeBinding(TransactionCase):
                 )
                 self.assertEqual(
                     [agent["id"] for agent in result["agents"]],
-                    ["agent-a", "agent-company-wide"],
+                    ["agent-a"],
                 )
 
             with patch.object(controller, "_scope", return_value=(self.company, False)):
@@ -430,17 +431,17 @@ class TestBranchRuntimeBinding(TransactionCase):
 
         self.assertEqual(
             model.assigned_agent_ids(self.company, self.branch),
-            {"agent-branch", "agent-company-wide"},
+            {"agent-branch"},
         )
         self.assertEqual(
             model.assigned_agent_ids(self.company, second_branch),
-            {"agent-other-branch", "agent-company-wide"},
+            {"agent-other-branch"},
         )
         self.assertEqual(
             model.assigned_agent_ids(self.company, False),
             {"agent-branch", "agent-other-branch", "agent-company-wide"},
         )
-        self.assertTrue(model.is_agent_assigned(self.company, self.branch, "agent-company-wide"))
+        self.assertFalse(model.is_agent_assigned(self.company, self.branch, "agent-company-wide"))
         self.assertTrue(model.is_agent_assigned(self.company, self.branch, "agent-branch"))
         self.assertFalse(model.is_agent_assigned(self.company, self.branch, "agent-other-branch"))
         self.assertTrue(model.is_agent_assigned(self.company, False, "agent-company-wide"))
@@ -612,32 +613,39 @@ class TestBranchRuntimeBinding(TransactionCase):
         })
         branch_agents = controller._assigned_runtime_agent_ids(self.company, self.branch, env=self.env)
         other_branch_agents = controller._assigned_runtime_agent_ids(self.company, second_branch, env=self.env)
-        self.assertEqual(branch_agents, {branch_agent, cross_branch_agent, "agent-company-wide"})
-        self.assertEqual(other_branch_agents, {"agent-c-%s" % second_branch.id, "agent-company-wide"})
+        self.assertEqual(branch_agents, {branch_agent, cross_branch_agent})
+        self.assertEqual(other_branch_agents, {"agent-c-%s" % second_branch.id})
 
         from odoo.addons.print_gateway.models.print_router import PrintGatewayRouter
         router = self.env["print_gateway.print_router"]
-        router._assert_branch_agent_assignment(self.company, self.branch, "agent-company-wide")
+        with self.assertRaises(ValidationError):
+            router._assert_branch_agent_assignment(self.company, self.branch, "agent-company-wide")
         with self.assertRaises(ValidationError):
             router._assert_branch_agent_assignment(self.company, self.branch, "agent-not-assigned")
         router._assert_branch_agent_assignment(self.company, False, "agent-company-wide")
         with self.assertRaises(ValidationError):
             router._assert_branch_agent_assignment(self.company, False, "agent-not-assigned")
 
-    def test_binding_accepts_company_wide_agent_assignment_for_branch(self):
-        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
-        assignment_model.create({
+    def test_branch_binding_rejects_company_wide_agent_assignment(self):
+        self.env["print_gateway.runtime_agent_assignment"].create({
             "company_id": self.company.id,
             "branch_id": False,
             "runtime_agent_id": "agent-company-wide",
             "enabled": True,
         })
-        binding = self.env["print_gateway.binding"].create(self._values(
-            runtime_agent_id="agent-company-wide",
-            printer_id="printer-a",
-            priority=96,
-        ))
-        self.assertEqual(binding.runtime_agent_id, "agent-company-wide")
+        with self.assertRaises(ValidationError):
+            self.env["print_gateway.binding"].create({
+                "company_id": self.company.id,
+                "branch_id": self.branch.id,
+                "destination_type": "report",
+                "destination_report_id": self._report().id,
+                "report_id": self._report().id,
+                "runtime_agent_id": "agent-company-wide",
+                "printer_id": "printer-a",
+                "printer_protocol": "escpos",
+                "enabled": True,
+                "priority": 96,
+            })
 
     def test_branch_accepts_multiple_distinct_agent_assignments(self):
         model = self.env["print_gateway.runtime_agent_assignment"]
