@@ -117,7 +117,7 @@ class TestBranchRuntimeBinding(TransactionCase):
     def test_controller_accepts_active_branch_as_its_own_branch_scope(self):
         from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
         controller = PrintGatewayRuntimePrinterController()
-        branch_env = self.env.with_company(self.branch)
+        branch_env = self.env["res.company"].browse(self.branch.id).with_company(self.branch).env
         company, branch = controller._scope(
             company_id=self.branch.id,
             branch_id=self.branch.id,
