@@ -139,9 +139,32 @@ export async function POST(req: Request) {
     const rawStatus = typeof body?.status === "string" ? body.status.trim().toLowerCase() : "online";
     if (!VALID_AGENT_STATUSES.has(rawStatus)) return NextResponse.json({ error: "status must be online or offline" }, { status: 400 });
     const status = rawStatus;
+    const heartbeatPageRaw = body?.heartbeatPage;
+    const heartbeatPageCountRaw = body?.heartbeatPageCount;
+    const paginatedHeartbeat = heartbeatPageRaw !== undefined || heartbeatPageCountRaw !== undefined;
+    const heartbeatPage = paginatedHeartbeat
+      ? (typeof heartbeatPageRaw === "number" && Number.isSafeInteger(heartbeatPageRaw) ? heartbeatPageRaw : -1)
+      : 1;
+    const heartbeatPageCount = paginatedHeartbeat
+      ? (typeof heartbeatPageCountRaw === "number" && Number.isSafeInteger(heartbeatPageCountRaw) ? heartbeatPageCountRaw : -1)
+      : 1;
+    if (
+      heartbeatPage < 1 ||
+      heartbeatPageCount < 1 ||
+      heartbeatPage > heartbeatPageCount
+    ) {
+      return NextResponse.json({
+        error: "heartbeatPage and heartbeatPageCount must be positive integers with heartbeatPage <= heartbeatPageCount",
+      }, { status: 400 });
+    }
+    const isFinalHeartbeatPage = heartbeatPage === heartbeatPageCount;
+
     const reportedPrinters = Array.isArray(body?.printers) ? body.printers : [];
-    if (reportedPrinters.length > 500) return NextResponse.json({ error: "too many printers in heartbeat" }, { status: 400 });
-    if (utf8ByteLength(JSON.stringify(reportedPrinters)) > 256_000) return NextResponse.json({ error: "heartbeat printer metadata exceeds 256KB" }, { status: 400 });
+    // 500 is a transport page ceiling, not a fleet-size ceiling. Agents with
+    // larger inventories send multiple pages; no printer may be silently
+    // discarded just because the fleet exceeds one request.
+    if (reportedPrinters.length > 500) return NextResponse.json({ error: "too many printers in heartbeat page" }, { status: 400 });
+    if (utf8ByteLength(JSON.stringify(reportedPrinters)) > 256_000) return NextResponse.json({ error: "heartbeat printer metadata page exceeds 256KB" }, { status: 400 });
 
     const gatewayOwnedPrinterIds = new Set<string>();
     if (Array.isArray(body?.gatewayOwnedPrinterIds)) {
@@ -331,37 +354,42 @@ export async function POST(req: Request) {
         }
       }
 
-      const desiredRows = await tx.query.printers.findMany({
-        where: and(eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id), eq(printers.managementSource, "manager")),
-        columns: {
-          id: true,
-          name: true,
-          printerType: true,
-          deviceClass: true,
-          connectionType: true,
-          protocol: true,
-          lifecycle: true,
-          config: true,
-          desiredRevision: true,
-          appliedDesiredRevision: true,
-          observedDesiredRevision: true,
-        },
-      });
+      const desiredRows = isFinalHeartbeatPage
+        ? await tx.query.printers.findMany({
+            where: and(eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id), eq(printers.managementSource, "manager")),
+            columns: {
+              id: true,
+              name: true,
+              printerType: true,
+              deviceClass: true,
+              connectionType: true,
+              protocol: true,
+              lifecycle: true,
+              config: true,
+              desiredRevision: true,
+              appliedDesiredRevision: true,
+              observedDesiredRevision: true,
+            },
+          })
+        : [];
 
       return {
         kind: "ok" as const,
         skippedPrinters: skipped,
         desiredState: desiredRows,
+        isFinalPage: isFinalHeartbeatPage,
       };
     });
 
     if (result.kind === "missing") return NextResponse.json({ error: "Agent not found" }, { status: 401 });
     if (result.kind === "inactive") return NextResponse.json({ error: `Agent is ${result.lifecycle}` }, { status: 409 });
 
-    return NextResponse.json({
+    const response: Record<string, unknown> = {
       success: true,
       skippedPrinters: result.skippedPrinters,
-      desiredState: result.desiredState.map((row) => ({
+    };
+    if (result.isFinalPage) {
+      response.desiredState = result.desiredState.map((row) => ({
         id: row.id,
         name: row.name,
         printerType: row.printerType,
@@ -371,8 +399,9 @@ export async function POST(req: Request) {
         lifecycle: row.lifecycle,
         config: row.config,
         desiredRevision: row.desiredRevision,
-      })),
-    });
+      }));
+    }
+    return NextResponse.json(response);
   } catch (error) {
     logError("agent.heartbeat.failed", { agentId: agent.id, error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
