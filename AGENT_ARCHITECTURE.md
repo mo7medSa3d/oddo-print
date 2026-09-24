@@ -35,7 +35,7 @@ agent/
 - Automatic reconnection with jittered exponential backoff (5s–60s)
 
 ### Fallback: HTTP Polling
-- Polls `GET /api/agent/jobs` every 10 seconds when WebSocket is down
+- Polls `GET /api/agent/jobs` every 5 seconds when WebSocket is down
 - Safety poll every 30 seconds even when WebSocket is connected (catches stuck claims)
 
 ### Heartbeat
