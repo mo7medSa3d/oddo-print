@@ -7,15 +7,15 @@ Single dashboard showing P0 must-close before Production and industry compliance
 
 | Area | Implemented | Runtime Verified | Status | Evidence |
 | ---- | ----------- | ---------------- | ------ | -------- |
-| Real Print Certification Mode (canonical pipeline + idempotency + state-driven) | PASS | BLOCKED | BLOCKED | POST /api/printers/[id]/certify uses createPrintJobForPrinter (canonical), Idempotency-Key header, state-driven from job row (queued→pending, claimed→ok), Physical BLOCKED in sandbox, never auto-certify. 7 tests green. |
-| Printer Capability Matrix (evidence-based) | PASS | PASS | PASS | GET /api/printers/capabilities, printer-health.ts freshness check, driver health from capabilities.driver_name + fresh, spooler health requires spooler_status. 6 tests green. |
-| Agent Health ONLINE/DEGRADED/OFFLINE/STARTING (observed vs inferred) | PASS | PASS | PASS | lib/agent-health.ts STARTING from createdAt<5min never seen, ONLINE <90s, DEGRADED 90s-5m, OFFLINE >5m, checks Gateway observed, Queue observed, Printers observed, Version observed, Heartbeat inferred labeled, failureCount null NOT MEASURED. 8 tests green. |
+| Real Print Certification Mode (canonical pipeline + idempotency + state-driven) | PASS | BLOCKED | BLOCKED | POST /api/printers/[id]/certify uses createPrintJobForPrinter (canonical), Idempotency-Key header, state-driven from job row (queued→pending, claimed→ok), Physical BLOCKED in sandbox, never auto-certify.. |
+| Printer Capability Matrix (evidence-based) | PASS | PASS | PASS | GET /api/printers/capabilities, printer-health.ts freshness check, driver health from capabilities.driver_name + fresh, spooler health requires spooler_status.. |
+| Agent Health ONLINE/DEGRADED/OFFLINE/STARTING (observed vs inferred) | PASS | PASS | PASS | lib/agent-health.ts STARTING from createdAt<5min never seen, ONLINE <90s, DEGRADED 90s-5m, OFFLINE >5m, checks Gateway observed, Queue observed, Printers observed, Version observed, Heartbeat inferred labeled, failureCount null NOT MEASURED.. |
 | Windows Service Recovery | PASS | BLOCKED | BLOCKED | docs/WINDOWS_SERVICE_RECOVERY.md, /api/agents/service-status BLOCKED explicit, code hardened. Runtime requires Windows host — BLOCKED. |
 | Printer Queue Health + Gateway↔Spooler linking | PASS | PASS | PASS | Statuses with freshness, spoolerJobId linking, agent/jobs PATCH persists. |
-| Job Timeline (redacted claim tokens) | PASS | PASS | PASS | GET /api/jobs/[id]/timeline, claim token redacted via sha256, regression test. 4 tests green. |
+| Job Timeline (redacted claim tokens) | PASS | PASS | PASS | GET /api/jobs/[id]/timeline, claim token redacted via sha256, regression test.. |
 | Distributed Trace (OTel-inspired, not full OTel) | PASS | PASS | PASS | correlation.ts, X-Request-Id, log enrichment, docs/DISTRIBUTED_TRACING.md; automated regression coverage is reported by GitHub Actions. |
-| System Health tenant-safe + overall policy | PASS | PASS | PASS | checkQueue requires tenantId (tenant-safe), overall policy prevents false OK when UNKNOWN, Odoo/Billing UNKNOWN honest. 6 tests green. |
-| Tenant isolation | PASS | PASS | PASS | 413 tests green, composite FKs, tenant scoping. |
+| System Health tenant-safe + overall policy | PASS | PASS | PASS | checkQueue requires tenantId (tenant-safe), overall policy prevents false OK when UNKNOWN, Odoo/Billing UNKNOWN honest.. |
+| Tenant isolation | PASS | PASS | PASS | automated regression coverage, composite FKs, tenant scoping. |
 | Claim tokens not exposed | PASS | PASS | PASS | timeline redacts via hash, regression test. |
 | IPP support / driverless direction (not certified) | PASS | BLOCKED | BLOCKED | IPP/IPPS transport supported, but NOT claiming IPP Everywhere certification without conformance testing. |
 | Tauri updater signed | FAIL | BLOCKED | BLOCKED | No updater plugin/config in tauri.conf.json/Cargo.toml — NOT IMPLEMENTED, marked BLOCKED. |
