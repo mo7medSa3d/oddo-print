@@ -183,6 +183,7 @@ func newAgentAgainst(t *testing.T, serverURL, printerID string, p printer.Printe
 			t.Logf("Agent.Close: %v", err)
 		}
 	})
+	allowInjectedPrintersForTest(ag)
 	return ag
 }
 
