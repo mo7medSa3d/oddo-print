@@ -546,6 +546,8 @@ class PrintGatewayBinding(models.Model):
         if not report:
             return {"dispatched": False, "has_binding": False}
 
+        report = _assert_report_usage_access(binding_model.env, report)
+
         records = binding_model.env[report.model].browse(res_ids or []).exists()
         # The rendered PDF leaves the Odoo perimeter (gateway + physical
         # print), so the caller must hold READ access on every record it

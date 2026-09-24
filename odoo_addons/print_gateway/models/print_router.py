@@ -382,6 +382,7 @@ class PrintGatewayRouter(models.AbstractModel):
     @api.private
     def route_report(self, report, records, data=None):
         report.ensure_one()
+        report = _assert_report_usage_access(self.env, report)
         records = records.exists()
         if not records:
             if self._gateway_config(self.env.company):

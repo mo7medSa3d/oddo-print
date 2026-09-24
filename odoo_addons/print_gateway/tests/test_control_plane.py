@@ -1836,10 +1836,10 @@ class TestControlPlane(TransactionCase):
                 res_ids=[],
             )
 
-    def test_32c_report_action_preserves_report_group_access(self):
-        """The report_action interception path must fail before Gateway routing."""
+    def test_32c_route_report_preserves_report_group_access(self):
+        """The actual Gateway report-routing boundary must preserve group_ids."""
         report = self.env["ir.actions.report"].create({
-            "name": "Gateway Restricted Action Report",
+            "name": "Gateway Restricted Route Report",
             "model": "stock.picking",
             "report_type": "qweb-pdf",
             "report_name": "stock.report_picking",
@@ -1848,10 +1848,8 @@ class TestControlPlane(TransactionCase):
         user = self._operator_user()
         router = self.env["print_gateway.print_router"].with_user(user)
 
-        with patch.object(type(router), "route_report") as route_report:
-            with self.assertRaises(AccessError):
-                report.with_user(user).report_action([])
-            route_report.assert_not_called()
+        with self.assertRaises(AccessError):
+            router.route_report(report.with_user(user), self.env["stock.picking"].browse([]))
 
     def test_32_report_dispatch_requires_record_read_access(self):
         """BEHAVIORAL (P1 IDOR closure): an internal user cannot dispatch a
