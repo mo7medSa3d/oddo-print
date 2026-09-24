@@ -60,6 +60,22 @@ Typical failures include `400` invalid input, `401` authentication failure, `404
 
 Authenticated with the Odoo installation key. Returns the runtime status and routing identifiers only when the requested job was created with that same API key. A job belonging to another installation, or a legacy/internal job without an Odoo API-key identity, is returned as `404 Not found`.
 
+## Agent heartbeat pagination
+
+`POST /api/agent/heartbeat` is the Agent runtime inventory and liveness contract. The `500` printer limit is a per-request page ceiling, not a tenant or Agent fleet-size ceiling.
+
+The current Agent sends:
+- `heartbeatPage`: 1-based page number.
+- `heartbeatPageCount`: total number of pages in this heartbeat cycle.
+- `printers`: at most 500 entries per page and no more than 256 KB of serialized printer metadata per page.
+- `desiredStateAcks`: at most 500 entries per page.
+- `gatewayOwnedPrinterIds`: the Gateway-owned IDs represented on that page, used to preserve the manager-owned/deletion fence.
+- `keepAliveJobIds`: the existing bounded execution keep-alive set.
+
+Agents with more than 500 printers send multiple pages. The Gateway accepts legacy heartbeats without page fields as a single page for backward compatibility. On the current contract, the final page is the only page that returns the complete `desiredState` snapshot; the Agent applies that snapshot only after the final page succeeds.
+
+Agent-owned printer registration remains subject to the tenant plan's `max_printers` entitlement. Exceeding that capacity returns `429 MAX_PRINTERS_EXCEEDED`; existing printer observations are not a substitute for entitlement and manager-owned printers remain governed by desired state.
+
 ## Runtime ownership boundary
 
 Gateway APIs for Branches, business destinations, business document catalogs and Odoo-to-Gateway business synchronization are intentionally absent. Agents register runtime resources with Gateway; Odoo references those runtime printers only when creating bindings.
