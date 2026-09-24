@@ -185,20 +185,60 @@ patch(PosStore.prototype, {
     },
 
     async printChanges(order, orderChange, reprint = false, printers = this.unwatched.printers) {
-        let isPrinted = false;
-        const unsuccessfulPrints = [];
-        const retryPrinters = new Set();
+        const sessionId = this.session?.id;
+        const gatewayEnabled = sessionId
+            ? await this.data.call("pos.session", "is_gateway_printing_enabled", [[sessionId]], {}, true)
+            : false;
+        if (gatewayEnabled !== true) {
+            return super.printChanges(order, orderChange, reprint, printers);
+        }
 
-        // Odoo 19 core retries every { successful: false } result. A Gateway
-        // "unknown"/"partial" outcome has crossed the physical boundary and
-        // therefore must never enter that retry path: the ticket may already
-        // exist on paper.
-        for (const printer of printers) {
+        const orderId = order?.id;
+        if (!orderId) {
+            const message = "The POS order is not synchronized yet, so kitchen printing cannot continue.";
+            this.notification.add(message, { type: "danger" });
+            return false;
+        }
+
+        try {
+            const hasBinding = await this.data.call(
+                "pos.order",
+                "has_gateway_kitchen_binding",
+                [[orderId]],
+                {},
+                true
+            );
+            if (hasBinding !== true) {
+                this.notification.add(
+                    "Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for the current POS Shop.",
+                    { type: "danger", sticky: true }
+                );
+                return false;
+            }
+
+            // Gateway owns the physical target. Build one complete kitchen
+            // ticket from the current order changes without consulting Odoo's
+            // native pos.printer list.
+            const categoryIds = new Set();
+            for (const change of orderChange) {
+                for (const key of ["new", "cancelled", "noteUpdate"]) {
+                    for (const line of change?.[key] || []) {
+                        const product = this.models["product.product"].get(line.product_id);
+                        for (const categoryId of product?.parentPosCategIds || []) {
+                            categoryIds.add(categoryId);
+                        }
+                    }
+                }
+            }
+
+            let isPrinted = false;
+            const unsuccessfulPrints = [];
+
             for (const change of orderChange) {
                 const { orderData, changes } = this.generateOrderChange(
                     order,
                     change,
-                    printer.config.product_categories_ids,
+                    [...categoryIds],
                     reprint
                 );
                 const receiptsData = await this.generateReceiptsDataToPrint(
@@ -206,8 +246,9 @@ patch(PosStore.prototype, {
                     changes,
                     change
                 );
+
                 for (const data of receiptsData) {
-                    const result = await this.printOrderChanges(data, printer);
+                    const result = await this.printOrderChanges(data);
 
                     if (result?.gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial") {
                         this.notification.add(
@@ -221,36 +262,40 @@ patch(PosStore.prototype, {
                     if (result.successful) {
                         isPrinted = true;
                     } else {
-                        retryPrinters.add(printer);
                         unsuccessfulPrints.push(
-                            printer.config.name + ": " +
-                            (result.message?.body || "Kitchen print failed.")
+                            result.message?.body || "Kitchen / Preparation print failed."
                         );
                     }
 
                     if (result.successful && result.warningCode) {
-                        this.displayPrinterWarning(result, printer.config.name);
+                        this.displayPrinterWarning(result, "Gateway Kitchen");
                     }
                 }
             }
-        }
 
-        if (!reprint && isPrinted && orderChange.length) {
-            order.uiState.lastPrints.push(orderChange[0]);
-        }
+            if (!reprint && isPrinted && orderChange.length) {
+                order.uiState.lastPrints.push(orderChange[0]);
+            }
 
-        if (unsuccessfulPrints.length) {
-            const failedReceipts = unsuccessfulPrints.join("\n");
-            this.dialog.add(RetryPrintPopup, {
-                message: failedReceipts,
-                canRetry: true,
-                retry: () => {
-                    this.printChanges(order, orderChange, reprint, retryPrinters);
-                },
-            });
-        }
+            if (unsuccessfulPrints.length) {
+                const failedReceipts = unsuccessfulPrints.join("\n");
+                this.dialog.add(RetryPrintPopup, {
+                    message: failedReceipts,
+                    canRetry: true,
+                    retry: () => {
+                        this.printChanges(order, orderChange, reprint);
+                    },
+                });
+            }
 
-        return isPrinted;
+            return isPrinted;
+        } catch (error) {
+            if (showGatewayBillingLimitDialog(this.env, error)) {
+                return false;
+            }
+            this.notification.add(error?.message || "Kitchen / Preparation printing failed.", { type: "danger" });
+            return false;
+        }
     },
 
     async printOrderChanges(data, printer) {
@@ -282,7 +327,7 @@ patch(PosStore.prototype, {
                 "pos.order",
                 "action_print_gateway_kitchen",
                 [[orderId]],
-                { printer_id: printer.config.id, image, reprint, operation_id: operationId },
+                { image, reprint, operation_id: operationId },
                 true
             );
             const status = result?.status;
