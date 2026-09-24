@@ -7,7 +7,7 @@ import next from "next";
 import { attachAgentWSS } from "./src/server/ws";
 import { guardApiRequest } from "./src/server/request-guard";
 import { applyApiCacheControlDefault } from "./src/server/api-defaults";
-import { sweepPrintJobs from "./src/lib/job-maintenance";
+import { sweepPrintJobs } from "./src/lib/job-maintenance";
 import { cleanupAuthRateLimits } from "./src/lib/auth-rate-limit";
 import { cleanupExpiredManagerSessions } from "./src/lib/manager-auth";
 import { applyApiCors, handleApiCorsPreflight } from "./src/server/cors";
