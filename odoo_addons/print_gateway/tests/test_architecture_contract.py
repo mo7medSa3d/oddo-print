@@ -310,6 +310,11 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         model_source = (MODELS / "pos_order.py").read_text(encoding="utf-8")
         self.assertIn('"missing_routes": missing', model_source)
 
+    def test_kitchen_router_enforces_preparation_printer_membership(self):
+        source = (MODELS / "print_router.py").read_text(encoding="utf-8")
+        self.assertIn("order.config_id.preparation_printer_ids", source)
+        self.assertNotIn("order.config_id.printer_ids", source)
+
     def test_kitchen_gateway_uses_odoo_19_preparation_printer_relation(self):
         source = (ADDON / "models/pos_order.py").read_text(encoding="utf-8")
         self.assertIn("config_id.preparation_printer_ids", source)
