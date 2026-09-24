@@ -21,7 +21,8 @@ type Subscriptions = {
   total: number;
   active: number;
   trialing: number;
-  pastDue: number;
+  attention: number;
+  paused: number;
   cancelled: number;
 };
 
@@ -148,6 +149,7 @@ function AvailabilityRing({
   total: number;
   tone: "brand" | "ok";
 }) {
+  const hasInventory = total > 0;
   const percentage = rate(online, total);
   const radius = 38;
   const circumference = 2 * Math.PI * radius;
@@ -200,7 +202,8 @@ export function SubscriptionMixChart({ subscriptions }: { subscriptions: Subscri
   const segments = [
     { label: "Active", value: subscriptions.active, className: "bg-ok-solid" },
     { label: "Trialing", value: subscriptions.trialing, className: "bg-info-solid" },
-    { label: "Past due", value: subscriptions.pastDue, className: "bg-warn-solid" },
+    { label: "Needs attention", value: subscriptions.attention, className: "bg-warn-solid" },
+    { label: "Paused", value: subscriptions.paused, className: "bg-surface-4" },
     { label: "Cancelled", value: subscriptions.cancelled, className: "bg-bad-solid" },
   ];
   const total = Math.max(1, subscriptions.total);
