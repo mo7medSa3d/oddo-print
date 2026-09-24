@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/yasser-agent/agent/internal/config"
 	"github.com/yasser-agent/agent/internal/printer"
