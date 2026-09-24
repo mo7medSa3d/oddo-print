@@ -99,19 +99,30 @@ export async function GET(req: Request) {
         sql`${printJobs.createdAt} >= clock_timestamp() - interval '24 hours'`,
       ),
 
-      db.select({
-        bucket: sql<Date>`date_trunc('hour', ${printJobs.createdAt})`,
-        total: sql<number>`count(*)::int`,
-        success: sql<number>`count(*) filter (where ${printJobs.status} = 'success')::int`,
-        failed: sql<number>`count(*) filter (where ${printJobs.status} = 'failed')::int`,
-        queued: sql<number>`count(*) filter (where ${printJobs.status} = 'queued')::int`,
-        inFlight: sql<number>`count(*) filter (where ${printJobs.status} in ('claimed','printing'))::int`,
-        expired: sql<number>`count(*) filter (where ${printJobs.status} = 'expired')::int`,
-      })
-        .from(printJobs)
-        .where(sql`${printJobs.createdAt} >= clock_timestamp() - interval '24 hours'`)
-        .groupBy(sql`date_trunc('hour', ${printJobs.createdAt})`)
-        .orderBy(sql`date_trunc('hour', ${printJobs.createdAt})`),
+      db.execute(sql`
+        WITH hours AS (
+          SELECT generate_series(
+            date_trunc('hour', clock_timestamp() - interval '24 hours'),
+            date_trunc('hour', clock_timestamp()),
+            interval '1 hour'
+          ) AS bucket
+        )
+        SELECT
+          hours.bucket AS bucket,
+          count(j.id)::int AS total,
+          count(j.id) FILTER (WHERE j.status = 'success')::int AS success,
+          count(j.id) FILTER (WHERE j.status = 'failed')::int AS failed,
+          count(j.id) FILTER (WHERE j.status = 'queued')::int AS queued,
+          count(j.id) FILTER (WHERE j.status IN ('claimed','printing'))::int AS "inFlight",
+          count(j.id) FILTER (WHERE j.status = 'expired')::int AS expired
+        FROM hours
+        LEFT JOIN print_jobs j
+          ON j.created_at >= hours.bucket
+         AND j.created_at < hours.bucket + interval '1 hour'
+         AND j.created_at >= clock_timestamp() - interval '24 hours'
+        GROUP BY hours.bucket
+        ORDER BY hours.bucket
+      `),
     ]),
     8_000,
     "platformStatsAggregate",
@@ -126,12 +137,12 @@ export async function GET(req: Request) {
     jobs24h: jobStats24h[0] ?? { total: 0, success: 0, failed: 0, queued: 0, inFlight: 0, expired: 0 },
     jobs24hHourly: (hourlyJobStats ?? []).map((row) => ({
       bucket: new Date(row.bucket).toISOString(),
-      total: row.total ?? 0,
-      success: row.success ?? 0,
-      failed: row.failed ?? 0,
-      queued: row.queued ?? 0,
-      inFlight: row.inFlight ?? 0,
-      expired: row.expired ?? 0,
+      total: Number(row.total ?? 0),
+      success: Number(row.success ?? 0),
+      failed: Number(row.failed ?? 0),
+      queued: Number(row.queued ?? 0),
+      inFlight: Number(row.inFlight ?? 0),
+      expired: Number(row.expired ?? 0),
     })),
   });
 }
