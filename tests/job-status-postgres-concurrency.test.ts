@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, insertQueuedJob, jobRow, pool, closePool, type Fixture } from "./helpers/pg";
 import { PATCH as jobStatusPATCH } from "../src/app/api/agent/jobs/route";
-import { readFileSync } from "node:fs";
 
 const suite = describe.skipIf(!hasTestDatabase);
 
@@ -11,17 +10,52 @@ suite("atomic Agent job status transitions", () => {
   afterAll(async () => { await closePool(); });
   beforeEach(async () => { await truncateAll(); f = await seedFixture(); });
 
-  it("keeps spooler linkage inside the claim-fenced status transition", () => {
-    const source = readFileSync(new URL("../src/app/api/agent/jobs/route.ts", import.meta.url), "utf8");
-    const updateStart = source.indexOf("const updated = await db.update(printJobs)");
-    const updateEnd = source.indexOf(".where(and(", updateStart);
-    expect(updateStart).toBeGreaterThanOrEqual(0);
-    expect(updateEnd).toBeGreaterThan(updateStart);
-    const updateBlock = source.slice(updateStart, updateEnd);
+  it("keeps spooler linkage inside the claim-fenced status transition", async () => {
+    await insertQueuedJob(f, "job_spooler_fence");
+    await pool().query(
+      `UPDATE print_jobs
+       SET status='printing', claim_token='tok-spooler-a', updated_at=now()
+       WHERE id='job_spooler_fence'`,
+    );
 
-    expect(updateBlock).toContain("...(spoolerJobId ? { spoolerJobId } : {}),");
-    expect(source).not.toContain("Persist spoolerJobId if provided");
-    expect(source).not.toContain("eq(printJobs.id, jobId), eq(printJobs.tenantId, agent.tenantId))");
+    const patch = (claimToken?: string) => jobStatusPATCH(new Request("http://gateway.test/api/agent/jobs", {
+      method: "PATCH",
+      headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({
+        jobId: "job_spooler_fence",
+        status: "success",
+        spoolerJobId: "spooler-123",
+        ...(claimToken ? { claimToken } : {}),
+      }),
+    }));
+
+    // A stale attempt must not be able to attach its spooler evidence to the
+    // current claim, even though it knows the logical job id.
+    expect((await patch("tok-spooler-b")).status).toBe(409);
+    const afterStale = await pool().query(
+      `SELECT status, claim_token, spooler_job_id
+       FROM print_jobs
+       WHERE id='job_spooler_fence'`,
+    );
+    expect(afterStale.rows[0]).toMatchObject({
+      status: "printing",
+      claim_token: "tok-spooler-a",
+      spooler_job_id: null,
+    });
+
+    // The live claim can attach spooler evidence as part of the same terminal
+    // transition, so there is no second un-fenced write window.
+    expect((await patch("tok-spooler-a")).status).toBe(200);
+    const afterLive = await pool().query(
+      `SELECT status, claim_token, spooler_job_id
+       FROM print_jobs
+       WHERE id='job_spooler_fence'`,
+    );
+    expect(afterLive.rows[0]).toMatchObject({
+      status: "success",
+      claim_token: null,
+      spooler_job_id: "spooler-123",
+    });
   });
 
   it("allows at most one of two concurrent printing->terminal transitions", async () => {
