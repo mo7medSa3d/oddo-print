@@ -290,7 +290,7 @@ def test_odoo_integration_guide_matches_current_module_architecture():
     assert "report_download_override.py" not in guide
     assert "report_interceptor.js" in guide
     assert "runtime_agent_assignment" in guide
-    assert "company-wide assignment inherited by its branches" in guide
+    assert "a Company-only binding may use any Agent assigned to the Company or one of its direct child Branches" in guide
 
 
 def test_critical_addon_models_have_no_duplicate_methods():

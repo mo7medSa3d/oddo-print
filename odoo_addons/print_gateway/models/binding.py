@@ -289,10 +289,8 @@ class PrintGatewayBinding(models.Model):
         if not assignment_model.is_agent_assigned(
             config.company_id, self.branch_id, self.runtime_agent_id
         ):
-            scope_label = self.branch_id.display_name if self.branch_id else self.company_id.display_name
             raise ValidationError(
-                _("The selected Gateway Runtime Agent is not assigned to the selected Odoo scope '%s'.")
-                % scope_label
+                _("The selected Gateway Runtime Agent is not assigned to the current Odoo Branch.")
             )
         try:
             response = requests.get("%s/api/odoo/agents" % config._gateway_base(for_request=True), headers=config._gateway_headers(), timeout=10, allow_redirects=False)
@@ -368,8 +366,8 @@ class PrintGatewayBinding(models.Model):
             ):
                 scope_label = record.branch_id.display_name if record.branch_id else record.company_id.display_name
                 raise ValidationError(
-                    _("Gateway Runtime Agent '%s' is not assigned to the selected Odoo scope '%s'. "
-                      "Assign the Agent to this scope before creating the binding.")
+                    _("Gateway Runtime Agent '%s' is not explicitly assigned to '%s'. "
+                      "Assign the Agent to this exact Odoo scope before creating the binding.")
                     % (record.runtime_agent_id.strip(), scope_label)
                 )
 
