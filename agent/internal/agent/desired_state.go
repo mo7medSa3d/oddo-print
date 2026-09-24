@@ -242,6 +242,17 @@ func (a *Agent) isPrinterExecutionAllowed(id string) bool {
 	row, managed := a.desiredStates[id]
 	synced := a.desiredStateSynced
 	a.desiredStateMu.Unlock()
+
+	// Before the first successful full Gateway desired-state snapshot, every
+	// non-YAML runtime printer is ambiguous: it may be a stale/tampered local
+	// registry entry for a Gateway-managed printer whose ownership/configuration
+	// has not yet been restored. Fail closed for that class. YAML printers are
+	// explicitly local operator configuration and retain their existing startup
+	// behavior for backward compatibility.
+	if !a.isYAMLOwnedPrinter(id) && !synced {
+		return false
+	}
+
 	if !managed {
 		return true
 	}
@@ -250,6 +261,18 @@ func (a *Agent) isPrinterExecutionAllowed(id string) bool {
 		row.Desired.Lifecycle == "active" &&
 		row.AppliedDesiredRevision >= row.Desired.DesiredRevision &&
 		row.ObservedDesiredRevision >= row.Desired.DesiredRevision
+}
+
+func (a *Agent) isYAMLOwnedPrinter(id string) bool {
+	if a.cfg == nil {
+		return false
+	}
+	for _, pc := range a.cfg.Printers {
+		if pc.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Agent) desiredStateAcksPayload() []map[string]interface{} {

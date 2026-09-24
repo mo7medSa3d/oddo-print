@@ -219,6 +219,36 @@ func TestHeartbeatPaginationPreservesFullInventoryAndOwnershipFence(t *testing.T
 	}
 }
 
+func TestHeartbeatInvalidFinalSnapshotFailsClosed(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	a.cfg.Agent.ID = "agt_heartbeat_invalid_snapshot"
+	a.cfg.Agent.Secret = "secret"
+	a.cfg.Server.URL = "http://gateway.invalid"
+	a.desiredStateMu.Lock()
+	a.desiredStateSynced = true
+	a.desiredStateMu.Unlock()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agent/heartbeat" || r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"desiredState":[`))
+	}))
+	defer server.Close()
+	a.cfg.Server.URL = server.URL
+
+	a.sendHeartbeat()
+
+	a.desiredStateMu.Lock()
+	synced := a.desiredStateSynced
+	a.desiredStateMu.Unlock()
+	if synced {
+		t.Fatal("invalid final desired-state snapshot must fail closed and clear desiredStateSynced")
+	}
+}
+
 func TestHeartbeatPaginationSplitsLargeAuxiliaryState(t *testing.T) {
 	printers := make([]map[string]interface{}, 0, maxHeartbeatPrintersPerPage+1)
 	for i := 0; i < maxHeartbeatPrintersPerPage+1; i++ {

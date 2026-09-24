@@ -294,6 +294,43 @@ func TestDesiredStateRestartRecovery(t *testing.T) {
 	}
 }
 
+func TestNonYAMLLocalPrinterRemainsFencedBeforeDesiredStateSync(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	device := productionNetworkDevice("printer-pre-sync", "127.0.0.1:9100")
+	if _, err := printer.RegisterManual(a.registryPath, device); err != nil {
+		t.Fatalf("RegisterManual: %v", err)
+	}
+	a.reloadRegistryPrinters()
+
+	if _, ok := a.printerConfigs[device.ID]; !ok {
+		t.Fatal("expected registry printer to load into runtime")
+	}
+	if a.isPrinterExecutionAllowed(device.ID) {
+		t.Fatal("non-YAML local printer must remain fenced until the first successful Gateway desired-state sync")
+	}
+
+	a.desiredStateMu.Lock()
+	a.desiredStateSynced = true
+	a.desiredStateMu.Unlock()
+	if !a.isPrinterExecutionAllowed(device.ID) {
+		t.Fatal("unmanaged local printer should be executable again after desired-state sync")
+	}
+}
+
+func TestYAMLOwnedPrinterRemainsAvailableBeforeDesiredStateSync(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	const id = "yaml-local"
+	a.cfg.Printers = []config.PrinterConfig{{
+		ID: id, Name: "YAML Local", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw",
+	}}
+	a.printerConfigs[id] = a.cfg.Printers[0]
+	a.printers[id] = &fakePrinter{status: "online"}
+
+	if !a.isPrinterExecutionAllowed(id) {
+		t.Fatal("explicit YAML-owned printer must retain local startup behavior before Gateway desired-state sync")
+	}
+}
+
 func TestDesiredStateSameRevisionConflictIsRejected(t *testing.T) {
 	a := newDesiredStateTestAgent(t)
 	a.desiredStateSynced = true

@@ -1992,6 +1992,17 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 			} `json:"skippedPrinters"`
 		}
 		if err := json.Unmarshal(body, &hbResp); err != nil {
+			// A final page is the only authoritative desired-state snapshot.
+			// Retaining a previous sync after an invalid 2xx response would
+			// allow stale manager configuration to remain executable. Fail closed
+			// until the next complete snapshot can be parsed.
+			if pageIndex == len(pages)-1 {
+				a.desiredStateMu.Lock()
+				a.desiredStateSynced = false
+				a.desiredStateMu.Unlock()
+				log.Printf("Heartbeat page %d/%d returned an invalid final response; desired-state execution fence enabled: %v", pageIndex+1, len(pages), err)
+				return
+			}
 			continue
 		}
 
