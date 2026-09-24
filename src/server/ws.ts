@@ -878,47 +878,60 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
           const aws = ws as AgentSocket;
           aws.isAlive = true;
-        aws.tenantId = agent!.tenantId;
-        aws.on("pong", () => { aws.isAlive = true; });
-        aws.lifecycleRevision = agent!.lifecycleRevision;
-        // Lifecycle changes can race the async authentication/upgrade path.
-        // Register only under a shared lifecycle lock: tracking first would
-        // expose an unverified socket to sendToAgent(), while checking first
-        // without a lock lets a disable commit between check and registration.
-        void (async () => {
-          try {
-            const accepted = await verifyAndTrackAgentSocket(agent!.id, agent!.lifecycleRevision, aws);
-            releaseReservation();
-            if (!accepted) {
-              try { ws.close(4001, "agent lifecycle changed during WebSocket upgrade"); } catch { try { ws.terminate(); } catch {} }
-              return;
+          aws.tenantId = agent!.tenantId;
+          aws.on("pong", () => { aws.isAlive = true; });
+          aws.lifecycleRevision = agent!.lifecycleRevision;
+
+          // Lifecycle changes can race the async authentication/upgrade path.
+          // Register only under a shared lifecycle lock: tracking first would
+          // expose an unverified socket to sendToAgent(), while checking first
+          // without a lock lets a disable commit between check and registration.
+          void (async () => {
+            try {
+              const accepted = await verifyAndTrackAgentSocket(
+                agent!.id,
+                agent!.lifecycleRevision,
+                aws,
+              );
+              releaseReservation();
+              if (!accepted) {
+                try {
+                  ws.close(4001, "agent lifecycle changed during WebSocket upgrade");
+                } catch {
+                  try { ws.terminate(); } catch {}
+                }
+                return;
+              }
+
+              // No per-connection bucket init here: getBucketForAgent(agentId)
+              // lazily creates or reuses the persistent agent-level limiter, so
+              // reconnects retain token state instead of resetting evasion budget.
+              wss.emit("connection", ws, req);
+            } catch (error) {
+              releaseReservation();
+              logUpgradeError(error);
+              try {
+                ws.close(1011, "agent lifecycle verification failed");
+              } catch {
+                try { ws.terminate(); } catch {}
+              }
             }
+          })();
 
-            // No per-connection bucket init here: getBucketForAgent(agentId)
-            // lazily creates or reuses the persistent agent-level limiter, so
-            // reconnects retain token state instead of resetting evasion budget.
-            wss.emit("connection", ws, req);
-          } catch (error) {
-            releaseReservation();
-            logUpgradeError(error);
-            try { ws.close(1011, "agent lifecycle verification failed"); } catch { try { ws.terminate(); } catch {} }
-          }
-        })();
-
-        // A client can disconnect while lifecycle verification waits on PostgreSQL.
-        // Release only the reservation; readyState is checked before registration.
-        aws.once("close", releaseReservation);
+          // A client can disconnect while lifecycle verification waits on PostgreSQL.
+          // Release only the reservation; readyState is checked before registration.
+          aws.once("close", releaseReservation);
         });
       } catch (error) {
         releaseReservation();
-      logUpgradeError(error);
-      if (!socket.destroyed && !socket.writableEnded) {
-        writeWsHttpError(socket, 500, "WebSocket upgrade failed");
-      } else {
-        try { socket.destroy(); } catch {}
+        logUpgradeError(error);
+        if (!socket.destroyed && !socket.writableEnded) {
+          writeWsHttpError(socket, 500, "WebSocket upgrade failed");
+        } else {
+          try { socket.destroy(); } catch {}
+        }
       }
-    }
-    }
+    });
   });
 
   wss.on("connection", (ws: AgentSocket) => {
