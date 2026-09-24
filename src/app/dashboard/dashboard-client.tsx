@@ -608,6 +608,51 @@ export default function DashboardClient({
     }
   };
 
+  /**
+   * Reprint is the ONE mutation that deliberately creates a NEW physical
+   * print, so it must be double-submit guarded at the UI boundary.
+   *
+   * The server already converges concurrent reprints of the same job onto
+   * one row (print-job-service reuses an active reprint job), so this guard
+   * is about state/UX correctness, not a duplicate-print hole.
+   */
+  const confirmReprint = async () => {
+    const job = reprintCandidate;
+    if (!job || busy) return;
+    setReprintCandidate(null);
+    setMessage(null);
+    setBusy(true);
+    try {
+      const result = await sendGatewayReprint(job.id);
+      setMessage({
+        text: result.jobId
+          ? `Reprint queued for ${job.printerId} (job ${result.jobId.slice(0, 12)})`
+          : `Reprint queued for ${job.printerId}`,
+        type: "ok",
+      });
+      void refreshData();
+    } catch (error) {
+      if (error instanceof DashboardApiError) {
+        const limit = upgradeLimitFromApiError(error);
+        if (limit) {
+          setUpgradeLimit(limit);
+          return;
+        }
+        setMessage({
+          text: error instanceof Error ? error.message : "Reprint request failed.",
+          type: "err",
+        });
+      } else {
+        setMessage({
+          text: error instanceof Error ? error.message : "Reprint request failed.",
+          type: "err",
+        });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const confirmAgentAction = async () => {
     if (!pendingAgentAction) return;
     const { agent, next } = pendingAgentAction;
@@ -1280,27 +1325,7 @@ export default function DashboardClient({
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setReprintCandidate(null)} disabled={busy}>Cancel</Button>
-          <Button variant="danger" disabled={busy} loading={busy} onClick={async () => {
-            const job = reprintCandidate;
-            if (!job) return;
-            setBusy(true);
-            setReprintCandidate(null);
-            try {
-              await sendGatewayReprint(job.id);
-              setMessage({ text: `Reprint queued for ${job.printerId}`, type: "ok" });
-              void refreshData();
-            } catch (error) {
-              if (error instanceof DashboardApiError) {
-                const limit = upgradeLimitFromApiError(error);
-                if (limit) { setUpgradeLimit(limit); return; }
-                setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
-              } else {
-                setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
-              }
-            } finally {
-              setBusy(false);
-            }
-          }} icon={<RotateCcw className="h-4 w-4" />}>Reprint</Button>
+          <Button variant="danger" disabled={busy} loading={busy} onClick={() => void confirmReprint()} icon={<RotateCcw className="h-4 w-4" />}>Reprint</Button>
         </div>
       </Modal>
 
