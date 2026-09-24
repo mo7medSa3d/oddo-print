@@ -111,6 +111,7 @@ export async function POST(req: Request) {
     eventType === "customer.subscription.deleted" || currentSnapshotSubscriptionEvents.has(eventType);
 
   let stateObj: Record<string, unknown> = obj;
+  let staleSnapshotEvent = false;
   if (currentSnapshotSubscriptionEvents.has(eventType)) {
     const subscriptionId = typeof obj.id === "string" ? obj.id : "";
     if (!subscriptionId) return NextResponse.json({ error: "Subscription event missing subscription id" }, { status: 400 });
@@ -121,6 +122,7 @@ export async function POST(req: Request) {
     const knownEventMs = parseDbTimeMs(knownSubscription?.stripeLastEventCreatedAt);
     const skipStaleSnapshotFetch =
       knownEventMs !== null && eventCreatedAt.getTime() < knownEventMs;
+    staleSnapshotEvent = skipStaleSnapshotFetch;
 
     if (!skipStaleSnapshotFetch) {
       try {
@@ -391,7 +393,7 @@ export async function POST(req: Request) {
           // Stripe's terminated resource is no longer retrievable, so the signed
           // deletion event is a terminal fence and can advance on an equal timestamp.
           const currentSnapshotAuthoritative =
-            currentSnapshotSubscriptionEvents.has(eventType);
+            currentSnapshotSubscriptionEvents.has(eventType) && !staleSnapshotEvent;
           const terminalDelete =
             eventType === "customer.subscription.deleted";
           const sameSubscriptionCanUpdate =
