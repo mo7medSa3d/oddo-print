@@ -1558,16 +1558,6 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 	a.printersMu.RUnlock()
 	sort.Strings(ids) // deterministic order aids gateway-side diffing
 
-	// The gateway accepts up to 500 printers per heartbeat ("too many
-	// printers in heartbeat" above that), and each entry is a short id +
-	// status pair (~100 bytes), so 500 stays two orders of magnitude under
-	// the heartbeat body cap. Truncating lower would silently hide real
-	// printers from routing: gateway availability requires a fresh
-	// heartbeat sighting, so an unreported printer can never be routed to.
-	const maxReportedPrinters = 500
-	if len(ids) > maxReportedPrinters {
-		ids = ids[:maxReportedPrinters]
-	}
 
 	statuses := make([]string, len(ids))
 	// Probe results flow back through a channel and are applied ONLY by this
@@ -1935,69 +1925,73 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 		return
 	}
 	reqURL := fmt.Sprintf("%s/api/agent/heartbeat", a.cfg.Server.URL)
-	payload := map[string]interface{}{
-		"status":                 "online",
-		"printers":               a.printerStatusPayload(),
-		"desiredStateAcks":       a.desiredStateAcksPayload(),
-		"gatewayOwnedPrinterIds": a.gatewayOwnedPrinterIDs(),
-	}
-	// Print-lease keep-alive: report every (jobId, claimToken) pair this
-	// agent currently holds (accepted + executing + physically printing).
-	// While this agent is alive and working those jobs, the gateway keeps
-	// their updated_at fresh, so a legitimately long print (or a job
-	// waiting behind the per-printer serialization lock) is never
-	// force-failed by the stale-printing sweep. A dead agent stops
-	// heartbeating and its jobs time out exactly as before. Capped: the
-	// gateway accepts at most 64.
-	if ids := a.inFlightJobIDs(64); len(ids) > 0 {
-		payload["keepAliveJobIds"] = ids
-	}
-	// printerStatusPayload may spend bounded time probing local devices. Do
-	// not open a new gateway request once the owning Agent lifecycle has
-	// already been canceled.
-	if parent.Err() != nil {
-		return
-	}
-	heartbeatCtx, cancel := context.WithTimeout(parent, 15*time.Second)
-	defer cancel()
-	resp, err := a.doAuthorizedRequest(heartbeatCtx, "POST", reqURL, payload)
-	if err != nil {
-		log.Printf("Heartbeat failed: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxHeartbeatBytes))
-	if resp.StatusCode >= 300 {
-		log.Printf("Heartbeat rejected (%d): %s", resp.StatusCode, string(body))
-		return
-	}
-	if parent.Err() != nil {
-		return
-	}
+	printerPayload := a.printerStatusPayload()
+	desiredAcks := a.desiredStateAcksPayload()
+	gatewayOwnedIDs := a.gatewayOwnedPrinterIDs()
 
-	var hbResp struct {
-		Success         bool                  `json:"success"`
-		DesiredState    *[]desiredPrinterWire `json:"desiredState"`
-		SkippedPrinters []struct {
-			ID     string `json:"id"`
-			Reason string `json:"reason"`
-		} `json:"skippedPrinters"`
-	}
-	if err := json.Unmarshal(body, &hbResp); err == nil {
+	// Heartbeats are paginated at the transport boundary. The Gateway still
+	// enforces 500 printers / page, but the Agent never truncates a real
+	// inventory: every printer is delivered across one or more pages. The
+	// auxiliary desired-state ACKs are paginated too, while Gateway-owned IDs
+	// are scoped to the printer IDs in the same page so a stale local registry
+	// entry can never bypass the ownership fence merely because it landed on a
+	// different page.
+	keepAlive := a.inFlightJobIDs(64)
+	pages := buildHeartbeatPayloadPages(printerPayload, desiredAcks, gatewayOwnedIDs, keepAlive)
+	for pageIndex, payload := range pages {
 		if parent.Err() != nil {
 			return
 		}
-		if hbResp.DesiredState != nil {
-			a.reconcileGatewayDesiredState(*hbResp.DesiredState)
-			a.desiredStateMu.Lock()
-			a.desiredStateSynced = true
-			a.desiredStateMu.Unlock()
-		} else {
-			// Older gateways without the full desired-state contract are not
-			// allowed to make a manager-owned printer executable.
-			a.desiredStateMu.Lock()
-			a.desiredStateSynced = false
-			a.desiredStateMu.Unlock()
+
+		heartbeatCtx, cancel := context.WithTimeout(parent, 15*time.Second)
+		resp, err := a.doAuthorizedRequest(heartbeatCtx, "POST", reqURL, payload)
+		cancel()
+		if err != nil {
+			log.Printf("Heartbeat page %d/%d failed: %v", pageIndex+1, len(pages), err)
+			return
+		}
+
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxHeartbeatBytes))
+		_ = resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			log.Printf("Heartbeat page %d/%d rejected (%d): %s", pageIndex+1, len(pages), resp.StatusCode, string(body))
+			return
+		}
+		if parent.Err() != nil {
+			return
+		}
+
+		var hbResp struct {
+			Success         bool                  `json:"success"`
+			DesiredState    *[]desiredPrinterWire `json:"desiredState"`
+			SkippedPrinters []struct {
+				ID     string `json:"id"`
+				Reason string `json:"reason"`
+			} `json:"skippedPrinters"`
+		}
+		if err := json.Unmarshal(body, &hbResp); err != nil {
+			continue
+		}
+
+		if parent.Err() != nil {
+			return
+		}
+		// Only the final page carries a desired-state snapshot on the modern
+		// Gateway. Keep the local execution fence unchanged while intermediate
+		// pages are in flight.
+		if pageIndex == len(pages)-1 {
+			if hbResp.DesiredState != nil {
+				a.reconcileGatewayDesiredState(*hbResp.DesiredState)
+				a.desiredStateMu.Lock()
+				a.desiredStateSynced = true
+				a.desiredStateMu.Unlock()
+			} else {
+				// Older gateways without the full desired-state contract are not
+				// allowed to make a manager-owned printer executable.
+				a.desiredStateMu.Lock()
+				a.desiredStateSynced = false
+				a.desiredStateMu.Unlock()
+			}
 		}
 		if len(hbResp.SkippedPrinters) > 0 {
 			for _, sp := range hbResp.SkippedPrinters {
