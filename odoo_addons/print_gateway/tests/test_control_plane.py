@@ -927,6 +927,8 @@ class TestControlPlane(TransactionCase):
         intent.action_rearm_intent()
         self.assertEqual(intent.status, "pending")
         self.assertEqual(intent.attempts, 0)
+        self.assertFalse(intent.claimed_at)
+        self.assertFalse(intent.claim_token)
 
     def test_14_intent_single_claim_recovery_and_fencing(self):
         """Verify single-claim intent recovery lifecycle and fencing token lease protection."""

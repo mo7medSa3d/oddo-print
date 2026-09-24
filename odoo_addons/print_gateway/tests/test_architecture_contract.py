@@ -108,6 +108,11 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         jobs = (MODELS / "print_job.py").read_text(encoding="utf-8")
         self.assertIn("db_now_utc", intent)
         self.assertIn("db_now_utc", jobs)
+        gateway = (MODELS / "gateway_config.py").read_text(encoding="utf-8")
+        self.assertIn("from ..runtime_clock import db_now_utc", gateway)
+        self.assertIn("(db_now_utc(self.env.cr) - started_at).total_seconds()", gateway)
+        self.assertIn('"pending_sync_started_at": db_now_utc(self.env.cr)', gateway)
+        self.assertNotIn("fields.Datetime.now() - started_at", gateway)
 
     def test_automated_hooks_delegate_to_policy_dispatcher(self):
         hooks = {

@@ -304,6 +304,7 @@ class PrintGatewayIntent(models.Model):
                 "last_error": False,
                 "next_retry_at": False,
                 "claim_token": False,
+                "claimed_at": False,
             })
             self.env.cr.postcommit.add(
                 lambda i_id=intent.id, m=intent.res_model, r_id=intent.res_id:

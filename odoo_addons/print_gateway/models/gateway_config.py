@@ -7,6 +7,8 @@ import logging
 import os
 import requests
 
+from ..runtime_clock import db_now_utc
+
 from .crypto import (
     CredentialDecryptError,
     CredentialKeyUnavailable,
@@ -293,7 +295,7 @@ class PrintGatewayConfig(models.Model):
                 # escalate instead of spinning.
                 started_at = record.pending_sync_started_at
                 pending_seconds = (
-                    (fields.Datetime.now() - started_at).total_seconds()
+                    (db_now_utc(self.env.cr) - started_at).total_seconds()
                     if started_at
                     else float("inf")
                 )
@@ -752,7 +754,7 @@ class PrintGatewayConfig(models.Model):
                 "enabled_sync_revision": next_revision,
                 "last_enabled_sync_error": False,
                 "pending_sync_revision": next_revision,
-                "pending_sync_started_at": fields.Datetime.now(),
+                "pending_sync_started_at": db_now_utc(self.env.cr),
             })
             cr.commit()
             return {"kind": "retry", "revision": next_revision}
