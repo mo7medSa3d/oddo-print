@@ -1,3 +1,4 @@
+import { liveTenantSubscriptionPredicate } from "../../../../lib/entitlements";
 import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
@@ -117,15 +118,8 @@ export async function POST(req: Request) {
       // current period unless Stripe has not recorded an end yet.
       const billingResult = await tx.execute(sql`
         SELECT 1
-        FROM tenant_subscriptions
-        WHERE tenant_id = ${agent.tenantId}
-          AND status IN ('trialing', 'active', 'past_due')
-          AND (
-            status = 'past_due'
-            OR current_period_end IS NULL
-            OR current_period_end > clock_timestamp()
-          )
-          AND COALESCE(entitlement_blocked, false) = false
+        FROM tenant_subscriptions ts
+        WHERE ${liveTenantSubscriptionPredicate(sql`${agent.tenantId}`)}
         FOR UPDATE
       `);
       if (billingResult.rows.length !== 1) {

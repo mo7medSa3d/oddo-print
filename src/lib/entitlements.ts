@@ -121,17 +121,31 @@ export function isTenantBillingError(error: unknown): error is TenantSubscriptio
   return error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError;
 }
 
+/** Canonical live-subscription predicate; database time is authoritative. */
+export function liveTenantSubscriptionPredicate(tenantId: SQL, requireUnblocked = true): SQL {
+  const unblocked = requireUnblocked
+    ? sql`AND COALESCE(ts.entitlement_blocked, false) = false`
+    : sql``;
+  return sql`
+    ts.tenant_id = ${tenantId}
+    AND ts.status IN ('trialing', 'active', 'past_due')
+    AND (
+      ts.status = 'past_due'
+      OR ts.current_period_end IS NULL
+      OR ts.current_period_end > clock_timestamp()
+    )
+    ${unblocked}
+  `;
+}
+
 export async function requireTenantBillingAccess(tx: EntitlementTx, tenantId: string): Promise<void> {
   // Lock the subscription row while deciding whether to grant or re-enable
   // runtime access. Webhook updates use the same row, so billing state cannot
   // change between this decision and the protected runtime mutation.
   const result = await tx.execute(sql`
     SELECT 1
-    FROM tenant_subscriptions
-    WHERE tenant_id = ${tenantId}
-      AND status IN ('trialing', 'active', 'past_due')
-      AND (status = 'past_due' OR current_period_end IS NULL OR current_period_end > clock_timestamp())
-      AND COALESCE(entitlement_blocked, false) = false
+    FROM tenant_subscriptions ts
+    WHERE ${liveTenantSubscriptionPredicate(sql`${tenantId}`)}
     LIMIT 1
     FOR UPDATE
   `);
@@ -145,8 +159,7 @@ export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: str
     FROM tenant_subscriptions ts
     JOIN plans p ON p.id = ts.plan_id
     WHERE ts.tenant_id = ${tenantId}
-      AND ts.status IN ('trialing','active','past_due')
-      AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+      ${liveTenantSubscriptionPredicate(sql`${tenantId}`, false)}
     LIMIT 1
     FOR UPDATE OF ts
   `)
@@ -155,8 +168,7 @@ export async function getTenantEntitlementLimit(tx: EntitlementTx, tenantId: str
     FROM tenant_subscriptions ts
     JOIN plans p ON p.id = ts.plan_id
     WHERE ts.tenant_id = ${tenantId}
-      AND ts.status IN ('trialing','active','past_due')
-      AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+      ${liveTenantSubscriptionPredicate(sql`${tenantId}`, false)}
     LIMIT 1
   `);
   if (!result.rows[0]) throw new TenantSubscriptionRequiredError();
@@ -185,8 +197,7 @@ export async function getTenantEntitlements(tx: EntitlementTx, tenantId: string)
     FROM tenant_subscriptions ts
     JOIN plans p ON p.id = ts.plan_id
     WHERE ts.tenant_id = ${tenantId}
-      AND ts.status IN ('trialing','active','past_due')
-      AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+      ${liveTenantSubscriptionPredicate(sql`${tenantId}`, false)}
     LIMIT 1
   `);
   if (!result.rows[0]) throw new TenantSubscriptionRequiredError();
@@ -280,8 +291,7 @@ async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string, l
         FROM tenant_subscriptions ts
         JOIN plans p ON p.id = ts.plan_id
         WHERE ts.tenant_id = ${tenantId}
-          AND ts.status IN ('trialing','active','past_due')
-          AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+          ${liveTenantSubscriptionPredicate(sql`${tenantId}`, false)}
         LIMIT 1
         FOR UPDATE OF ts
       `)
@@ -290,8 +300,7 @@ async function getTenantPrintQuotaContext(tx: EntitlementTx, tenantId: string, l
         FROM tenant_subscriptions ts
         JOIN plans p ON p.id = ts.plan_id
         WHERE ts.tenant_id = ${tenantId}
-          AND ts.status IN ('trialing','active','past_due')
-          AND (ts.status = 'past_due' OR ts.current_period_end IS NULL OR ts.current_period_end > now())
+          ${liveTenantSubscriptionPredicate(sql`${tenantId}`, false)}
         LIMIT 1
       `);
   const row = result.rows[0] as TenantPrintQuotaRow | undefined;
