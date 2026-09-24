@@ -119,6 +119,47 @@ func isValidDiscoveredPrinter(d DeviceInfo) bool {
 	return true
 }
 
+
+// sameUSBDevice reports whether two discovered USB records have enough
+// identity evidence to represent the same physical printer. VID/PID is only
+// model-level evidence, so it is intentionally insufficient by itself.
+func sameUSBDevice(a, b DeviceInfo) bool {
+	if a.USBVID == "" || b.USBVID == "" ||
+		!strings.EqualFold(strings.TrimSpace(a.USBVID), strings.TrimSpace(b.USBVID)) ||
+		!strings.EqualFold(strings.TrimSpace(a.USBPID), strings.TrimSpace(b.USBPID)) {
+		return false
+	}
+	normalize := func(value string) string {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" || value == "0" || value == "00000000" {
+			return ""
+		}
+		return value
+	}
+	capValue := func(d DeviceInfo, key string) string {
+		if d.Capabilities == nil {
+			return ""
+		}
+		if value, ok := d.Capabilities[key]; ok {
+			return normalize(fmt.Sprint(value))
+		}
+		return ""
+	}
+	aInstance, bInstance := capValue(a, "device_instance_id"), capValue(b, "device_instance_id")
+	if aInstance != "" && bInstance != "" {
+		return aInstance == bInstance
+	}
+	aSerial, bSerial := normalize(a.USBSerial), normalize(b.USBSerial)
+	if aSerial != "" && bSerial != "" {
+		return aSerial == bSerial
+	}
+	aLocation, bLocation := capValue(a, "location"), capValue(b, "location")
+	if aLocation != "" && bLocation != "" {
+		return aLocation == bLocation
+	}
+	return false
+}
+
 // DiscoveryResult is the outcome of enumerating all sources.
 type DiscoveryResult struct {
 	Printers []DeviceInfo `json:"printers"`
@@ -313,16 +354,15 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 					continue
 				}
 			}
-			// USB dedup: same VID/PID/serial
+			// USB dedup requires a strong physical identity. VID/PID only identifies a
+			// device model, not a physical unit; merging two identical USB printers
+			// with no serial/location evidence would hide one device and make routing
+			// nondeterministic.
 			if d.USBVID != "" || d.USBSerial != "" {
 				duplicate := false
 				for i, existing := range all {
-					if d.USBVID != "" && existing.USBVID != "" && strings.EqualFold(existing.USBVID, d.USBVID) && strings.EqualFold(existing.USBPID, d.USBPID) {
-						// If both have serial, require serial match
-						if d.USBSerial != "" && existing.USBSerial != "" && !strings.EqualFold(existing.USBSerial, d.USBSerial) {
-							continue
-						}
-						log.Printf("[discovery] duplicate USB printer merged %s:%s serial %q", d.USBVID, d.USBPID, d.USBSerial)
+					if sameUSBDevice(existing, d) {
+						log.Printf("[discovery] duplicate USB printer merged %s:%s", d.USBVID, d.USBPID)
 						all[i] = mergeDeviceInfo(existing, d)
 						seen[d.ID] = true
 						duplicate = true
