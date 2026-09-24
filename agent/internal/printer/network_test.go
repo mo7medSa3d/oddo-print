@@ -174,14 +174,9 @@ func TestNetworkPrinterPartialDelivery(t *testing.T) {
 
 	p := &NetworkPrinter{Address: ln.Addr().String()}
 
-	// Ensure the accept side has installed the constrained receive window
-	// before starting the large write.
-	select {
-	case <-ready:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for test server")
-	}
-
+	// Start the write first so the server goroutine can Accept() and install
+	// its constrained receive window. Waiting for ready before Print() would
+	// deadlock because ready is closed only after Accept() succeeds.
 	// Large payload guarantees the sender cannot buffer the complete stream
 	// before the peer resets the connection.
 	largeData := make([]byte, 4*1024*1024)
@@ -192,7 +187,18 @@ func TestNetworkPrinterPartialDelivery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err = p.Print(ctx, largeData)
+	printErr := make(chan error, 1)
+	go func() {
+		printErr <- p.Print(ctx, largeData)
+	}()
+
+	select {
+	case <-ready:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for test server")
+	}
+
+	err = <-printErr
 	if err == nil {
 		t.Fatal("expected error on severed connection")
 	}
