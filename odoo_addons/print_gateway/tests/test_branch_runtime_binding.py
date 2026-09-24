@@ -286,6 +286,37 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding._check_runtime_scope()
         binding._check_binding()
 
+    def test_gateway_kitchen_binding_can_target_native_preparation_printer(self):
+        self._ensure_assignment("agent-a")
+        category = self.env["pos.category"].create({"name": "Gateway Kitchen Category"})
+        printer = self.env["pos.printer"].create({
+            "name": "Gateway Preparation Printer",
+            "company_id": self.company.id,
+            "pos_config_ids": [(6, 0, [self.pos_config.id])],
+            "product_categories_ids": [(6, 0, [category.id])],
+        })
+        binding = self.env["print_gateway.binding"].new({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "destination_type": "pos_printer",
+            "destination_pos_config_id": False,
+            "destination_pos_printer_id": printer,
+            "report_id": False,
+            "runtime_agent_id": "agent-a",
+            "printer_id": "printer-a",
+            "printer_protocol": "escpos",
+            "enabled": True,
+            "priority": 91,
+        })
+        binding._compute_destination_ref()
+        binding._compute_document_type()
+        self.assertEqual(binding.document_type, "kitchen")
+        self.assertEqual(binding.destination_ref._name, "pos.printer")
+        self.assertEqual(binding.destination_ref.id, printer.id)
+        binding._check_company_hierarchy()
+        binding._check_runtime_scope()
+        binding._check_binding()
+
     def test_gateway_kitchen_binding_does_not_require_odoo_kitchen_printer(self):
         self._ensure_assignment("agent-a")
         binding = self.env["print_gateway.binding"].new({
