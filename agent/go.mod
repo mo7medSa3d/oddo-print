@@ -8,7 +8,7 @@ require (
 	github.com/grandcat/zeroconf v1.0.0
 	github.com/kardianos/service v1.3.0
 	github.com/klippa-app/go-pdfium v1.19.8
-	github.com/mattn/go-sqlite3 v1.14.50
+	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/tetratelabs/wazero v1.12.0
 	golang.org/x/sys v0.47.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
