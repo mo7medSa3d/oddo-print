@@ -312,5 +312,11 @@ describe("Odoo addon static contracts", () => {
     expect(physicalImage).toContain("escpos");
     expect(physicalImage).not.toContain("ipp");
   });
+  it("uses the Odoo 19 physical table name for report actions in the latest migration", () => {
+    const migration = read("migrations/19.0.2.10.0/post-migrate.py");
+    expect(migration).toContain("FROM ir_act_report_xml AS r");
+    expect(migration).not.toContain("FROM ir_actions_report AS r");
+  });
+
 });
 
