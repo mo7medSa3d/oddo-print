@@ -56,7 +56,9 @@ describe("architecture hardening", () => {
     // itself, not on an incidental query-builder syntax.
     expect(src).toContain("WHERE pairing_code_hash = ${hashedCode}");
     expect(src).toContain("agentId: agent.id");
-    expect(src).toContain("agent_id: agent.id");
+    // The external snake_case response is derived from the transaction outcome,
+    // after the pairing transaction has atomically consumed the credential.
+    expect(src).toContain("agent_id: outcome.agentId");
     expect(src).toContain("agent_secret: secret");
   });
 
