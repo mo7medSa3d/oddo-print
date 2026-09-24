@@ -5,7 +5,7 @@ import WebSocket from "ws";
 import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, insertQueuedJob, jobRow, closePool, pool, type Fixture } from "./helpers/pg";
 import { attachAgentWSS, claimAndPushJobToAgent } from "../src/server/ws";
 import { db } from "../src/db";
-import { claimJobForDelivery, releaseUndeliveredClaim, recordJobAck, MAX_DELIVERY_ATTEMPTS, MAX_AGENT_IN_FLIGHT_JOBS } from "../src/lib/job-delivery";
+import { claimJobForDelivery, markJobDelivered, releaseUndeliveredClaim, recordJobAck, MAX_DELIVERY_ATTEMPTS, MAX_AGENT_IN_FLIGHT_JOBS } from "../src/lib/job-delivery";
 import type { ClaimedJobRow } from "../src/lib/job-delivery";
 import { MAX_RETRIES, sweepPrintJobs } from "../src/lib/job-maintenance";
 import { GET as agentJobsGET, PATCH as agentJobsPATCH } from "../src/app/api/agent/jobs/route";
@@ -169,6 +169,24 @@ suite("WS claim-before-delivery", () => {
     expect(row.status).toBe("claimed");
     expect(await recordJobAck("job_ack_forged", f.tenantId, f.agentId, claim!.claimToken)).toBe(true);
     expect((await jobRow("job_ack_forged")).acked_at).not.toBeNull();
+  });
+
+  it("does not accept an ACK from an agent revoked after delivery", async () => {
+    await insertQueuedJob(f, "job_ack_revoked_agent");
+    const claim = await claimJobForDelivery("job_ack_revoked_agent", f.agentId);
+    expect(claim?.claimToken).toBeTruthy();
+    expect(await markJobDelivered("job_ack_revoked_agent", f.tenantId, f.agentId, claim!.claimToken)).toBe(true);
+
+    // A LISTEN/NOTIFY session-close message may be delayed or lost while a
+    // Gateway instance reconnects. The durable lifecycle row must still
+    // reject an ACK arriving through a formerly authenticated socket.
+    await pool().query(
+      "UPDATE agents SET lifecycle = 'disabled', secret = NULL WHERE id = $1 AND tenant_id = $2",
+      [f.agentId, f.tenantId],
+    );
+
+    expect(await recordJobAck("job_ack_revoked_agent", f.tenantId, f.agentId, claim!.claimToken)).toBe(false);
+    expect((await jobRow("job_ack_revoked_agent")).acked_at).toBeNull();
   });
 
   it("late ACK cannot mutate terminal delivery bookkeeping", async () => {
