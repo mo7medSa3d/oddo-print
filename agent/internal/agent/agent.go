@@ -1570,9 +1570,9 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 		status string
 	}
 	type probeWork struct {
-		idx  int
-		pid  string
-		p    printer.Printer
+		idx   int
+		pid   string
+		p     printer.Printer
 		state *printerProbeState
 	}
 
