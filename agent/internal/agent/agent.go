@@ -65,7 +65,8 @@ const (
 	// Heartbeat is control-plane metadata only. Keep a hard multi-megabyte
 	// ceiling; real printer desired-state payloads are far smaller, and a
 	// bounded cap prevents a malformed gateway from consuming hundreds of MiB.
-	maxHeartbeatBytes = 32 << 20
+	maxHeartbeatBytes            = 32 << 20
+	maxHeartbeatProbeConcurrency = 64
 )
 
 func maxPollJobsBytes() int64 {
