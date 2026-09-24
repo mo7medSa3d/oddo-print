@@ -248,6 +248,14 @@ patch(PosStore.prototype, {
             this.syncingOrders.delete(order.uuid);
         }
 
+        // Match Odoo 19 core: after preparation printing, synchronize the
+        // changed order unless a preparation display already owns the sync.
+        // Without this, another POS device can observe the same change and
+        // submit the kitchen ticket again.
+        if (!this.models["pos.prep.display"]?.length) {
+            await this.syncAllOrders({ orders: [order] });
+        }
+
         return isPrinted;
     },
 
