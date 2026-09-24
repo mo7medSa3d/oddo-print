@@ -8,6 +8,7 @@ import { z } from "zod";
 import { nanoid } from "../../../../lib/nanoid";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { isPrivateNetworkAddress } from "../../../../lib/network-address";
+import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 
 export const dynamic = "force-dynamic";
 const MAX_DISCOVERY_BODY_BYTES = 2 * 1024 * 1024;
@@ -151,6 +152,8 @@ export async function POST(req: Request) {
     const currentSession = lockedSession.rows[0] as { id?: string; status?: string } | undefined;
     if (!currentSession?.id) return { kind: "not_found" as const };
     if (currentSession.status !== "running") return { kind: "not_running" as const, status: currentSession.status ?? "unknown" };
+
+    await requireActiveTenantInTransaction(tx, agent.tenantId);
 
     let insertedCount = 0;
     let updatedCount = 0;

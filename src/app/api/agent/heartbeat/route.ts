@@ -7,6 +7,7 @@ import { DEVICE_CLASSES, PRINTER_TYPES, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABI
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError } from "../../../../lib/log";
 import { getTenantEntitlementLimit, isTenantBillingError, TenantEntitlementError } from "../../../../lib/entitlements";
+import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 
 const MAX_HEARTBEAT_BODY_BYTES = 512 * 1024;
 const MAX_KEEP_ALIVE_JOB_IDS = 64;
@@ -208,6 +209,8 @@ export async function POST(req: Request) {
       const currentAgent = lockedAgent.rows[0] as { id?: string; lifecycle?: unknown } | undefined;
       if (!currentAgent?.id) return { kind: "missing" as const };
       if (currentAgent.lifecycle !== "active") return { kind: "inactive" as const, lifecycle: String(currentAgent.lifecycle) };
+
+      await requireActiveTenantInTransaction(tx, agent.tenantId);
 
       await tx.update(agents)
         .set({ status, lastSeenAt: sql`now()` })
