@@ -44,7 +44,7 @@
 
 ## Input Validation
 
-- **All API routes**: Zod schema validation on request body/params
+- **API input validation**: Zod schemas are used for structured request bodies/parameters; endpoints with only simple probes, fixed identifiers, or security-sensitive primitive checks use explicit type/length validation.
 - **Print payloads**: Database CHECK constraint (`payloadContractCheck`)
 - **Protocol enforcement**: Printer capability gating prevents incompatible routing
 - **ZPL/TSPL/ESC/POS**: Character sanitization prevents command injection
