@@ -124,9 +124,7 @@ export function isTenantBillingError(error: unknown): error is TenantSubscriptio
 
 /**
  * Canonical live-subscription row predicate for queries that already select
- * tenant_subscriptions as alias `ts`. This must not be implemented by nesting
- * an EXISTS expression against the same table, because callers already bind
- * the subscription row they need to inspect or lock.
+ * tenant_subscriptions as alias `ts`.
  */
 export function liveTenantSubscriptionWhere(tenantId: SQL, requireUnblocked = true): SQL {
   const unblocked = requireUnblocked

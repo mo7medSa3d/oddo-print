@@ -1,0 +1,76 @@
+import { db } from "../db";
+import { agents } from "../db/schema";
+import { eq } from "drizzle-orm";
+import { createHash, randomBytes, randomInt, timingSafeEqual } from "crypto";
+import { requireActiveTenantOrNull } from "./tenant-guard";
+
+/**
+ * Public pairing contract shared by Gateway, Go agent and Tauri manager.
+ * 32-character unambiguous alphabet; excludes O/I and 0/1.
+ */
+export const PAIRING_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+export const PAIRING_CODE_LENGTH = 6;
+export const PAIRING_CODE_PATTERN = new RegExp(`^[${PAIRING_CODE_ALPHABET}]{${PAIRING_CODE_LENGTH}}$`);
+
+export function hashSecret(secret: string): string {
+  return createHash("sha256").update(secret).digest("hex");
+}
+
+export function hashPairingCode(code: string): string {
+  return createHash("sha256").update(code.trim().toUpperCase()).digest("hex");
+}
+
+export function generateSecret(): string {
+  return randomBytes(24).toString("base64url");
+}
+
+export function generatePairingCode(): string {
+  let code = "";
+  for (let i = 0; i < PAIRING_CODE_LENGTH; i += 1) {
+    code += PAIRING_CODE_ALPHABET[randomInt(0, PAIRING_CODE_ALPHABET.length)];
+  }
+  return code;
+}
+
+export function isValidPairingCode(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toUpperCase();
+  if (normalized.length !== PAIRING_CODE_LENGTH) return false;
+  for (const char of normalized) {
+    if (!PAIRING_CODE_ALPHABET.includes(char)) return false;
+  }
+  return true;
+}
+
+function timingSafeStringEqual(a: string, b: string): boolean {
+  // Length-oracle hardening: hash both inputs to fixed 32-byte digests
+  // before comparing, so no code path branches on secret length and
+  // timingSafeEqual never receives mismatched buffers (the old
+  // length-mismatch branch compared a buffer to itself, leaking length
+  // via response-time differences).
+  const digestA = createHash("sha256").update(a, "utf8").digest();
+  const digestB = createHash("sha256").update(b, "utf8").digest();
+  return timingSafeEqual(digestA, digestB);
+}
+
+export async function validateAgent(authHeader: string | null) {
+  if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
+
+  const token = authHeader.slice("Bearer ".length);
+  const separatorIndex = token.indexOf(":");
+  if (separatorIndex === -1) return null;
+
+  const agentId = token.slice(0, separatorIndex);
+  const secret = token.slice(separatorIndex + 1);
+  if (!agentId || !secret) return null;
+
+  const agent = await db.query.agents.findFirst({ where: eq(agents.id, agentId) });
+  if (!agent || !agent.secret || agent.lifecycle !== "active") return null;
+
+  const providedHash = hashSecret(secret);
+  if (!timingSafeStringEqual(agent.secret, providedHash)) return null;
+  // Tenant lifecycle gate: agents of suspended/deleted tenants cannot connect.
+  const tenantLifecycle = await requireActiveTenantOrNull(agent.tenantId);
+  if (!tenantLifecycle) return null;
+  return agent;
+}

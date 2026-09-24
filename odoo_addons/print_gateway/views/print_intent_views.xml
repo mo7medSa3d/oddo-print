@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_print_gateway_intent_list" model="ir.ui.view">
+        <field name="name">print_gateway.intent.list</field>
+        <field name="model">print_gateway.intent</field>
+        <field name="arch" type="xml">
+            <list string="Automation Activity" create="0" edit="0" delete="0">
+                <field name="create_date" string="Created"/>
+                <field name="company_id" optional="show"/>
+                <field name="policy_id"/>
+                <field name="event_type"/>
+                <field name="res_model" string="Record Type"/>
+                <field name="res_id" string="Record"/>
+                <field name="intent_key" optional="hide"/>
+                <field name="status" widget="badge"
+                       decoration-info="status == 'pending'"
+                       decoration-warning="status == 'claimed'"
+                       decoration-success="status in ('dispatched', 'skipped')"
+                       decoration-danger="status == 'failed'"/>
+                <field name="attempts" string="Attempts"/>
+                <field name="max_attempts" optional="hide"/>
+                <field name="next_retry_at" optional="hide"/>
+                <field name="print_job_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_print_gateway_intent_form" model="ir.ui.view">
+        <field name="name">print_gateway.intent.form</field>
+        <field name="model">print_gateway.intent</field>
+        <field name="arch" type="xml">
+            <form string="Automation Activity" create="0" delete="0" class="o_pg_view o_pg_form">
+                <header>
+                    <button name="action_rearm_intent" type="object" string="Retry Print" class="btn-warning"
+                            confirm="Retry this failed print activity. Check the printer first because the previous attempt may already have produced a page."
+                            invisible="status != 'failed'" groups="base.group_system"/>
+                    <field name="status" widget="statusbar" statusbar_visible="pending,claimed,dispatched,failed,skipped"
+                           decoration-danger="status == 'failed'" decoration-warning="status == 'claimed'"/>
+                </header>
+                <sheet>
+                    <div class="alert alert-warning" role="alert" invisible="status != 'failed'">
+                        <b>Automatic printing could not be completed.</b>
+                        Check the issue below, correct the print rule or printer, then select <i>Retry Print</i>.
+                    </div>
+                    <div class="alert alert-info" role="alert" invisible="status != 'pending'">
+                        Waiting for the business transaction to finish. Printing will continue afterwards.
+                    </div>
+                    <group>
+                        <group string="Business Event">
+                            <field name="company_id" readonly="1"/>
+                            <field name="policy_id" readonly="1"/>
+                            <field name="event_type" readonly="1"/>
+                            <field name="res_model" readonly="1"/>
+                            <field name="res_id" readonly="1"/>
+                            <field name="intent_key" readonly="1"/>
+                        </group>
+                        <group string="Activity">
+                            <field name="attempts" readonly="1"/>
+                            <field name="max_attempts" readonly="1"/>
+                            <field name="next_retry_at" readonly="1"/>
+                            <field name="claimed_at" readonly="1"/>
+                            <field name="print_job_id" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Issue" invisible="not last_error">
+                        <field name="last_error" readonly="1" nolabel="1" class="o_pg_mono text-danger"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_print_gateway_intent_search" model="ir.ui.view">
+        <field name="name">print_gateway.intent.search</field>
+        <field name="model">print_gateway.intent</field>
+        <field name="arch" type="xml">
+            <search string="Search Automation Activity">
+                <field name="intent_key"/>
+                <field name="policy_id"/>
+                <field name="res_model"/>
+                <field name="res_id"/>
+                <filter name="filter_failed_intents" string="Failed - Needs Attention" domain="[('status', '=', 'failed')]"/>
+                <filter name="filter_inflight_intents" string="In Progress" domain="[('status', 'in', ['pending', 'claimed'])]"/>
+                <filter name="filter_dispatched_intents" string="Completed" domain="[('status', '=', 'dispatched')]"/>
+                <separator/>
+                <group>
+                    <filter name="group_intent_status" string="Status" context="{'group_by': 'status'}"/>
+                    <filter name="group_intent_policy" string="Policy" context="{'group_by': 'policy_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_print_gateway_intents" model="ir.actions.act_window">
+        <field name="name">Automated Print Intents</field>
+        <field name="res_model">print_gateway.intent</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_print_gateway_intent_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No automated print intents captured yet</p>
+            <p>Intents are created durably inside business transactions (validated pickings,
+               posted invoices, paid POS orders) and dispatched only after the transaction commits.</p>
+        </field>
+    </record>
+</odoo>
