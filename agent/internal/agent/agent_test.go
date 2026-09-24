@@ -171,6 +171,7 @@ func newTestAgent(t *testing.T, printerID string, p printer.Printer) *Agent {
 	cfg.Agent.ID = "agt_test"
 	cfg.Agent.Secret = "secret"
 	cfg.Server.URL = server.URL
+	cfg.Printers = append([]config.PrinterConfig{{ID: printerID, Name: "Test", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"}}, cfg.Printers...)
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
 	ag, err := New(cfg, cfgPath)
@@ -186,6 +187,16 @@ func newTestAgent(t *testing.T, printerID string, p printer.Printer) *Agent {
 		}
 	})
 	return ag
+}
+
+func allowInjectedPrintersForTest(ag *Agent) {
+	ag.printersMu.RLock()
+	configs := make([]config.PrinterConfig, 0, len(ag.printerConfigs))
+	for _, pc := range ag.printerConfigs {
+		configs = append(configs, pc)
+	}
+	ag.printersMu.RUnlock()
+	ag.cfg.Printers = append(ag.cfg.Printers, configs...)
 }
 
 func assertNoInFlight(t *testing.T, ag *Agent) {
@@ -267,6 +278,7 @@ func TestDifferentPrintersConcurrent(t *testing.T) {
 		"p1": {ID: "p1", Name: "P1", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
 		"p2": {ID: "p2", Name: "P2", Type: "network", Endpoint: "127.0.0.1:9101", Protocol: "raw"},
 	}
+	allowInjectedPrintersForTest(ag)
 	ctx := context.Background()
 	start := make(chan struct{})
 	var wg sync.WaitGroup
@@ -450,6 +462,7 @@ func TestDifferentJobsAcrossThreePrintersConcurrent(t *testing.T) {
 		"p2": {ID: "p2", Name: "P2", Type: "network", Endpoint: "127.0.0.1:9101", Protocol: "raw"},
 		"p3": {ID: "p3", Name: "P3", Type: "network", Endpoint: "127.0.0.1:9102", Protocol: "raw"},
 	}
+	allowInjectedPrintersForTest(ag)
 	ctx := context.Background()
 	start := make(chan struct{})
 	var wg sync.WaitGroup
@@ -659,6 +672,7 @@ func TestStaleTransportFailureHaltsBeforeHardware(t *testing.T) {
 	p := &fakePrinter{}
 	ag.printers = map[string]printer.Printer{"p1": p}
 	ag.printerConfigs = map[string]config.PrinterConfig{"p1": {ID: "p1", Name: "T", Type: "network", Protocol: "raw", Endpoint: "127.0.0.1:9100"}}
+	allowInjectedPrintersForTest(ag)
 	jobID := "job-stale-transport"
 	// Simulate a delivery accepted long ago: dispatch acceptance stamped
 	// the receipt time, then the gateway went dark.
@@ -703,6 +717,7 @@ func TestFreshTransportFailureStillPrints(t *testing.T) {
 	p := &fakePrinter{}
 	ag.printers = map[string]printer.Printer{"p1": p}
 	ag.printerConfigs = map[string]config.PrinterConfig{"p1": {ID: "p1", Name: "T", Type: "network", Protocol: "raw", Endpoint: "127.0.0.1:9100"}}
+	allowInjectedPrintersForTest(ag)
 	jobID := "job-fresh-transport"
 	ag.dispatchJob(context.Background(), map[string]interface{}{
 		"id":         jobID,
@@ -999,6 +1014,7 @@ func TestPollJobsDispatchesBoundedBatch(t *testing.T) {
 
 	ag.printers = map[string]printer.Printer{"prt-bounded": &fakePrinter{startedCh: started}}
 	ag.printerConfigs = map[string]config.PrinterConfig{"prt-bounded": {ID: "prt-bounded", Name: "Bounded", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"}}
+	allowInjectedPrintersForTest(ag)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1049,6 +1065,7 @@ func TestProcessJobCancellationBeforePrintingRefusesHardware(t *testing.T) {
 	ag.printerConfigs = map[string]config.PrinterConfig{
 		"p1": {ID: "p1", Name: "Test", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
 	}
+	allowInjectedPrintersForTest(ag)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

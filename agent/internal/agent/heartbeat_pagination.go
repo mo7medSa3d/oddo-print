@@ -133,8 +133,8 @@ func buildHeartbeatPayloadPages(
 			"printers":               pagePrinters,
 			"desiredStateAcks":       pageAcks,
 			"gatewayOwnedPrinterIds": gatewayOwnedIDsForPrinterPage(pagePrinters, gatewayOwnedIDs),
-			"heartbeatPage":           i + 1,
-			"heartbeatPageCount":      totalPages,
+			"heartbeatPage":          i + 1,
+			"heartbeatPageCount":     totalPages,
 		}
 		if len(keepAlive) > 0 {
 			page["keepAliveJobIds"] = keepAlive
