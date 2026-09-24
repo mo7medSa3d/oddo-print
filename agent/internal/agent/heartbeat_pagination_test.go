@@ -6,11 +6,98 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/yasser-agent/agent/internal/config"
 	"github.com/yasser-agent/agent/internal/printer"
 )
+
+type boundedStatusPrinter struct {
+	fakePrinter
+	active    int32
+	maxActive int32
+	started   chan struct{}
+	release   chan struct{}
+}
+
+func (p *boundedStatusPrinter) Status() string {
+	active := atomic.AddInt32(&p.active, 1)
+	defer atomic.AddInt32(&p.active, -1)
+
+	for {
+		previous := atomic.LoadInt32(&p.maxActive)
+		if active <= previous || atomic.CompareAndSwapInt32(&p.maxActive, previous, active) {
+			break
+		}
+	}
+
+	select {
+	case p.started <- struct{}{}:
+	default:
+	}
+	<-p.release
+	return "online"
+}
+
+func TestHeartbeatStatusProbesUseBoundedConcurrency(t *testing.T) {
+	const printerCount = maxHeartbeatProbeConcurrency * 2
+	ag := newTestAgent(t, "seed", &fakePrinter{})
+	release := make(chan struct{})
+	started := make(chan struct{}, printerCount)
+
+	ag.printers = make(map[string]printer.Printer, printerCount)
+	ag.printerConfigs = make(map[string]config.PrinterConfig, printerCount)
+	probes := make([]*boundedStatusPrinter, 0, printerCount)
+	for i := 0; i < printerCount; i++ {
+		p := &boundedStatusPrinter{started: started, release: release}
+		id := "probe-" + formatTestIndex(i)
+		ag.printers[id] = p
+		ag.printerConfigs[id] = config.PrinterConfig{
+			ID: id, Name: id, Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw",
+		}
+		probes = append(probes, p)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		_ = ag.printerStatusPayload()
+		close(done)
+	}()
+
+	for i := 0; i < maxHeartbeatProbeConcurrency; i++ {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			close(release)
+			t.Fatal("bounded heartbeat probe pool did not start the expected worker count")
+		}
+	}
+
+	select {
+	case <-started:
+		close(release)
+		t.Fatal("heartbeat started more probes than the configured concurrency ceiling")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("heartbeat status payload did not drain after probe release")
+	}
+
+	maxObserved := int32(0)
+	for _, p := range probes {
+		if got := atomic.LoadInt32(&p.maxActive); got > maxObserved {
+			maxObserved = got
+		}
+	}
+	if maxObserved > maxHeartbeatProbeConcurrency {
+		t.Fatalf("heartbeat probe concurrency exceeded ceiling: got %d, want <= %d", maxObserved, maxHeartbeatProbeConcurrency)
+	}
+}
 
 func TestHeartbeatPaginationPreservesFullInventoryAndOwnershipFence(t *testing.T) {
 	var received []map[string]interface{}
