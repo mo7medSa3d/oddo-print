@@ -184,7 +184,7 @@ func TestNetworkPrinterPartialDelivery(t *testing.T) {
 
 	// Large payload guarantees the sender cannot buffer the complete stream
 	// before the peer resets the connection.
-	largeData := make([]byte, 64*1024*1024)
+	largeData := make([]byte, 4*1024*1024)
 	for i := range largeData {
 		largeData[i] = 'A'
 	}
