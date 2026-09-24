@@ -137,11 +137,13 @@ describe("deep production review contracts", () => {
       expect(source).toContain("printerStaleThresholdSeconds");
       expect(source).toContain("pr.last_seen_at IS NOT NULL");
       expect(source).toContain("pr.last_seen_at > now() - make_interval");
-      expect(source).toContain("FROM tenant_subscriptions ts");
-      expect(source).toContain("ts.status IN ('trialing', 'active', 'past_due')");
-      expect(source).toContain("ts.status = 'past_due'");
-      expect(source).toContain("COALESCE(ts.entitlement_blocked, false) = false");
-      expect(source).toContain("ts.current_period_end > now()");
+      expect(source).toContain("liveTenantSubscriptionPredicate");
+    }
+    const entitlementSource = read("src/lib/entitlements.ts");
+    expect(entitlementSource).toContain("ts.status IN ('trialing', 'active', 'past_due')");
+    expect(entitlementSource).toContain("ts.status = 'past_due'");
+    expect(entitlementSource).toContain("COALESCE(ts.entitlement_blocked, false) = false");
+    expect(entitlementSource).toContain("ts.current_period_end > clock_timestamp()");
     }
 
     // The poll candidate CTEs must filter invalid rows before LIMIT is applied;
@@ -250,7 +252,7 @@ describe("deep production review contracts", () => {
     const odooAgents = read("src/app/api/odoo/agents/route.ts");
     expect(odooAgents).toContain("active subscription is required before pairing agents");
     expect(register).toContain("SUBSCRIPTION_REQUIRED");
-    expect(register).toContain("entitlement_blocked");
+    expect(register).toContain("liveTenantSubscriptionPredicate");
     expect(lifecycle).toContain("requireTenantBillingAccess(tx, tenantId)");
     expect(entitlements).toContain("requireTenantBillingAccess");
     expect(entitlements).toContain("status IN ('trialing', 'active', 'past_due')");
