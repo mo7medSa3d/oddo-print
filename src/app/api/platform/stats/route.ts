@@ -23,6 +23,7 @@ export async function GET(req: Request) {
     agentStats,
     printerStats,
     jobStats24h,
+    hourlyJobStats,
   ] = await queryWithTimeout(
     Promise.all([
       db.select({
@@ -97,6 +98,20 @@ export async function GET(req: Request) {
       }).from(printJobs).where(
         sql`${printJobs.createdAt} >= clock_timestamp() - interval '24 hours'`,
       ),
+
+      db.select({
+        bucket: sql<Date>`date_trunc('hour', ${printJobs.createdAt})`,
+        total: sql<number>`count(*)::int`,
+        success: sql<number>`count(*) filter (where ${printJobs.status} = 'success')::int`,
+        failed: sql<number>`count(*) filter (where ${printJobs.status} = 'failed')::int`,
+        queued: sql<number>`count(*) filter (where ${printJobs.status} = 'queued')::int`,
+        inFlight: sql<number>`count(*) filter (where ${printJobs.status} in ('claimed','printing'))::int`,
+        expired: sql<number>`count(*) filter (where ${printJobs.status} = 'expired')::int`,
+      })
+        .from(printJobs)
+        .where(sql`${printJobs.createdAt} >= clock_timestamp() - interval '24 hours'`)
+        .groupBy(sql`date_trunc('hour', ${printJobs.createdAt})`)
+        .orderBy(sql`date_trunc('hour', ${printJobs.createdAt})`),
     ]),
     8_000,
     "platformStatsAggregate",
@@ -109,5 +124,14 @@ export async function GET(req: Request) {
     agents: agentStats[0] ?? { total: 0, online: 0, offline: 0 },
     printers: printerStats[0] ?? { total: 0, online: 0, offline: 0 },
     jobs24h: jobStats24h[0] ?? { total: 0, success: 0, failed: 0, queued: 0, inFlight: 0, expired: 0 },
+    jobs24hHourly: (hourlyJobStats ?? []).map((row) => ({
+      bucket: new Date(row.bucket).toISOString(),
+      total: row.total ?? 0,
+      success: row.success ?? 0,
+      failed: row.failed ?? 0,
+      queued: row.queued ?? 0,
+      inFlight: row.inFlight ?? 0,
+      expired: row.expired ?? 0,
+    })),
   });
 }
