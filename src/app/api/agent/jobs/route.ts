@@ -461,6 +461,10 @@ export async function PATCH(req: Request) {
       ...(isTerminal(requestedStatus) ? { claimToken: sql`NULL` } : {}),
       updatedAt: sql`now()`,
       deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
+      // Spooler linkage is part of the same claim-fenced status transition.
+      // A second id+tenant-only UPDATE here could let a stale attempt overwrite
+      // current-attempt spooler evidence after this lifecycle UPDATE commits.
+      ...(spoolerJobId ? { spoolerJobId } : {}),
     })
     .where(and(
       fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
@@ -483,14 +487,6 @@ export async function PATCH(req: Request) {
   }
   logInfo(`print.job.${requestedStatus}`, { requestId, jobId, agentId: agent.id, physicalOutcome, spoolerJobId, attemptId: incomingAttemptId, transport });
 
-  // Persist spoolerJobId if provided (Gateway↔Spooler linking) — enterprise requirement
-  if (spoolerJobId) {
-    try {
-      await db.update(printJobs).set({ spoolerJobId, updatedAt: sql`now()` } as any).where(and(eq(printJobs.id, jobId), eq(printJobs.tenantId, agent.tenantId)));
-    } catch (error) {
-      logWarn("print.job.spooler_link_persist_failed", { requestId, jobId, spoolerJobId, error: error instanceof Error ? error.message : "unknown" });
-    }
-  }
 
   // Record timeline event (non-blocking for main flow)
   try {

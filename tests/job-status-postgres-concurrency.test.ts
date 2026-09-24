@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, insertQueuedJob, jobRow, pool, closePool, type Fixture } from "./helpers/pg";
 import { PATCH as jobStatusPATCH } from "../src/app/api/agent/jobs/route";
+import { readFileSync } from "node:fs";
 
 const suite = describe.skipIf(!hasTestDatabase);
 
@@ -9,6 +10,19 @@ suite("atomic Agent job status transitions", () => {
   beforeAll(async () => { await applyMigrations(); });
   afterAll(async () => { await closePool(); });
   beforeEach(async () => { await truncateAll(); f = await seedFixture(); });
+
+  it("keeps spooler linkage inside the claim-fenced status transition", () => {
+    const source = readFileSync("src/app/api/agent/jobs/route.ts", "utf8");
+    const updateStart = source.indexOf("const updated = await db.update(printJobs)");
+    const updateEnd = source.indexOf(".where(and(", updateStart);
+    expect(updateStart).toBeGreaterThanOrEqual(0);
+    expect(updateEnd).toBeGreaterThan(updateStart);
+    const updateBlock = source.slice(updateStart, updateEnd);
+
+    expect(updateBlock).toContain("...(spoolerJobId ? { spoolerJobId } : {}),");
+    expect(source).not.toContain("Persist spoolerJobId if provided");
+    expect(source).not.toContain("eq(printJobs.id, jobId), eq(printJobs.tenantId, agent.tenantId))");
+  });
 
   it("allows at most one of two concurrent printing->terminal transitions", async () => {
     await insertQueuedJob(f, "job_race");
