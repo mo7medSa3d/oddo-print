@@ -28,7 +28,7 @@ def test_gateway_mode_never_falls_back_to_core_printer_for_physical_pos_paths():
     assert "return super.printOrderChanges(data, printer)" in kitchen
 
 
-def test_gateway_pos_receipt_and_kitchen_do_not_require_native_odoo_printers_or_reports():
+def test_gateway_pos_receipt_and_kitchen_use_native_business_destinations():
     binding = read("models/binding.py")
     view = read("views/binding_views.xml")
     pos = read("models/pos_order.py")
@@ -40,23 +40,20 @@ def test_gateway_pos_receipt_and_kitchen_do_not_require_native_odoo_printers_or_
     assert 'record.document_type = "receipt"' in binding
     assert 'record.document_type = "kitchen"' in binding
     assert 'destination = record.report_id or record.destination_report_id' in binding
-    assert 'required="destination_type in (\'pos\', \'pos_printer\')"' in view
-    assert 'required="destination_type not in (\'pos\', \'pos_printer\')"' in view
-    assert 'name="destination_pos_printer_id" invisible="1"' in view
-    assert 'name="destination_report_id" invisible="1"' in view
-    assert 'name="report_id" string="Report"' in view
-    assert 'action_print_gateway_kitchen(self, image, reprint=False, operation_id=None)' in pos
-    assert 'def has_gateway_kitchen_binding(self):' in pos
-    assert 'def route_kitchen_print(self, order, image_base64' in router
-    assert 'explicit_destination=order.config_id' in router
-    assert 'printer_id: printer.config.id' not in js
-    assert 'has_gateway_kitchen_binding' in js
-    assert 'return super.printChanges(order, orderChange, reprint, printers)' in js
-    assert "async sendOrderInPreparation(order, opts = {})" in js
-    assert 'return super.sendOrderInPreparation(order, opts)' in js
-    assert "const gatewayCategories = new Set();" in js
-    assert "changesToOrder(order, gatewayCategories, opts.cancelled)" in js
-    assert "this.config.printerCategories.size" not in js
+    assert 'name="destination_pos_printer_id" string="Odoo Preparation Printer"' in view
+    assert 'invisible="destination_type != \'pos_printer\'"' in view
+    assert 'name="destination_pos_config_id" string="POS Shop"' in view
+    assert 'action_print_gateway_kitchen(self, image, reprint=False, operation_id=None, pos_printer_id=None)' in pos
+    assert "def get_gateway_kitchen_routes(self):" in pos
+    assert "destination_pos_printer_id" in pos
+    assert "pos_printer_id=None" in router
+    assert "explicit_destination = pos_printer" in router
+    assert "get_gateway_kitchen_routes" in js
+    assert "routeCategories" in js
+    assert "missing_routes" in js
+    assert "kitchen-retry-" in js
+    assert "if (reprint || !orderChange.__gateway_print_id)" in js
+    assert "return super.sendOrderInPreparation(order, opts)" in js
 
 def test_project_does_not_add_parallel_browser_iot_or_epos_print_path():
     files = list((ADDON / "static").rglob("*.js")) + list((ADDON / "controllers").rglob("*.py"))
