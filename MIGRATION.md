@@ -43,8 +43,9 @@ This runs `scripts/db-migrate.ts` which applies all pending migrations from `dri
 | 0059 | 1 | Remove API key scope and document-type restrictions |
 | 0060–0069 | 10 | Billing, usage, time authority, key rotation, job-event hardening, and claim-id redaction |
 | 0070 | 1 | Durable discovered-device identity for per-Agent sync convergence |
+| 0071 | 1 | Remove obsolete print-job rate-limit table |
 
-**Total**: 71 migrations (0000–0070)
+**Total**: 72 migrations (0000–0071)
 
 ## Migration Policy
 
