@@ -146,7 +146,11 @@ describe("deep production review contracts", () => {
 
     // The poll candidate CTEs must filter invalid rows before LIMIT is applied;
     // otherwise a page full of stale/revoked candidates can starve healthy work.
-    expect((pollClaim.match(/WITH stale_candidates|queued_candidates|claimable/g) ?? []).length).toBe(3);
+    // Count only CTE declarations, not the defensive references to those CTEs later
+    // in the claim query.
+    expect((pollClaim.match(/\bstale_candidates\s+AS\s*\(/g) ?? []).length).toBe(1);
+    expect((pollClaim.match(/\bqueued_candidates\s+AS\s*\(/g) ?? []).length).toBe(1);
+    expect((pollClaim.match(/\bclaimable\s+AS\s*\(/g) ?? []).length).toBe(1);
     expect((pollClaim.match(/pr\.last_seen_at > now\(\) - make_interval/g) ?? []).length).toBeGreaterThanOrEqual(4);
   });
 
