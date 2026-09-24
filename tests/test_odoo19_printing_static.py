@@ -249,6 +249,22 @@ def test_gateway_sync_state_does_not_report_active_after_health_failure():
     assert 'record.gateway_sync_state = "active"' in compute[active_idx:]
 
 
+def test_gateway_kitchen_preserves_odoo19_post_print_sync():
+    source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+    method_start = source.index("async sendOrderInPreparation(order, opts = {})")
+    method_end = source.index("async printChanges(", method_start)
+    method = source[method_start:method_end]
+
+    # Odoo 19's native sendOrderInPreparation() synchronizes the changed order
+    # after printing unless a preparation display already owns synchronization.
+    assert 'if (!this.models["pos.prep.display"]?.length)' in method
+    assert 'await this.syncAllOrders({ orders: [order] });' in method
+    assert method.index("this.syncingOrders.delete(order.uuid)") < method.index(
+        'await this.syncAllOrders({ orders: [order] });'
+    )
+
+
+
 def test_gateway_config_auto_syncs_after_api_key_save():
     source = (ADDON / "static" / "src" / "js" / "gateway_config_auto_sync.js").read_text(encoding="utf-8")
     manifest = (ADDON / "__manifest__.py").read_text(encoding="utf-8")
