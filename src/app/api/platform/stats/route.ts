@@ -135,7 +135,7 @@ export async function GET(req: Request) {
     agents: agentStats[0] ?? { total: 0, online: 0, offline: 0 },
     printers: printerStats[0] ?? { total: 0, online: 0, offline: 0 },
     jobs24h: jobStats24h[0] ?? { total: 0, success: 0, failed: 0, queued: 0, inFlight: 0, expired: 0 },
-    jobs24hHourly: (hourlyJobStats ?? []).map((row) => ({
+    jobs24hHourly: (hourlyJobStats?.rows ?? []).map((row) => ({
       bucket: new Date(row.bucket).toISOString(),
       total: Number(row.total ?? 0),
       success: Number(row.success ?? 0),
