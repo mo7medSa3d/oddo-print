@@ -13,7 +13,7 @@ Single dashboard showing P0 must-close before Production and industry compliance
 | Windows Service Recovery | PASS | BLOCKED | BLOCKED | docs/WINDOWS_SERVICE_RECOVERY.md, /api/agents/service-status BLOCKED explicit, code hardened. Runtime requires Windows host — BLOCKED. |
 | Printer Queue Health + Gateway↔Spooler linking | PASS | PASS | PASS | Statuses with freshness, spoolerJobId linking, agent/jobs PATCH persists. |
 | Job Timeline (redacted claim tokens) | PASS | PASS | PASS | GET /api/jobs/[id]/timeline, claim token redacted via sha256, regression test. 4 tests green. |
-| Distributed Trace (OTel-inspired, not full OTel) | PASS | PASS | PASS | correlation.ts, tracing.ts OTel-inspired, X-Request-Id, log enrichment, docs honest. 5 tests green. |
+| Distributed Trace (OTel-inspired, not full OTel) | PASS | PASS | PASS | correlation.ts AsyncLocalStorage, X-Request-Id header, log enrichment, docs honest. 5 tests green. (The stand-alone `src/lib/tracing.ts` helper module was dead — zero importers — and has been removed.) |
 | System Health tenant-safe + overall policy | PASS | PASS | PASS | checkQueue requires tenantId (tenant-safe), overall policy prevents false OK when UNKNOWN, Odoo/Billing UNKNOWN honest. 6 tests green. |
 | Tenant isolation | PASS | PASS | PASS | 413 tests green, composite FKs, tenant scoping. |
 | Claim tokens not exposed | PASS | PASS | PASS | timeline redacts via hash, regression test. |

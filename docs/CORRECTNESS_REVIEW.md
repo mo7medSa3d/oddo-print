@@ -90,9 +90,9 @@ Odoo outbox never re-POSTs once a Gateway job id exists.
 
 ## 3. Recommendations (product decisions, not defects)
 
-1. **Repository hygiene**: `final-fix.patch` and `fix.patch` at the repository
-   root are stale artifacts describing the removed SQLite-Gateway architecture
-   (~400 KB). They should be deleted so they cannot be mistaken for pending work.
+1. **Repository hygiene**: ~~`final-fix.patch` and `fix.patch` should be deleted~~
+   **DONE** — both removed (they were stale artifacts describing the removed
+   SQLite-Gateway architecture, ~400 KB).
 2. **Dead schema**: `print_job_rate_limits` has no readers or writers (rate
    limiting moved into plan entitlements). Drop it in a future migration.
 3. **Odoo audit clock**: `completed_at` in `print_job.py` uses Odoo's host clock

@@ -3,7 +3,6 @@ import { db } from "../../../db";
 import { plans, tenantSubscriptions, tenants } from "../../../db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { validateManager } from "../../../lib/manager-auth";
-import { databaseNowMs } from "../../../lib/database-clock";
 import { hasManagerPermission } from "../../../lib/authorization";
 import { hasBodyOverLimit } from "../../../lib/request-limits";
 
@@ -58,13 +57,31 @@ export async function POST(req: Request) {
     // be derived from that same clock. Computing it from the Node host clock
     // let clock drift between Gateway instances silently lengthen or shorten
     // a paying tenant's trial by the drift amount.
-    const end = new Date((await databaseNowMs()) + 30 * 24 * 60 * 60_000);
+    //
+    // Both instants are read in ONE statement through `tx` (the transaction's
+    // own connection) so that:
+    //   1. `trial_started_at` and `current_period_end` come from the exact same
+    //      instant — otherwise a long wait on the `FOR UPDATE` tenant lock above
+    //      would make the window start before its own start timestamp; and
+    //   2. no second connection is pulled from the pool while this transaction
+    //      already holds one and is holding the tenant row lock (which would
+    //      risk pool-exhaustion deadlock under concurrency).
+    const clockRow = await tx.execute(sql`
+      SELECT clock_timestamp() AS started_at,
+             clock_timestamp() + make_interval(days => 30) AS trial_end
+    `);
+    const clock = clockRow.rows[0] as { started_at?: Date | string; trial_end?: Date | string } | undefined;
+    const startedAt = clock?.started_at ? new Date(clock.started_at) : null;
+    const trialEnd = clock?.trial_end ? new Date(clock.trial_end) : null;
+    if (!startedAt || !trialEnd || Number.isNaN(startedAt.getTime()) || Number.isNaN(trialEnd.getTime())) {
+      throw new Error("DATABASE_CLOCK_UNAVAILABLE");
+    }
     const existing = await tx.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, claims.tenantId) });
     if (existing?.trialStartedAt) throw new Error("Trial has already been used for this workspace");
     if (existing) {
-      await tx.update(tenantSubscriptions).set({ planId: plan.id, status: "trialing", currentPeriodEnd: end, trialStartedAt: sql`now()`, cancelAtPeriodEnd: false, updatedAt: sql`now()` }).where(eq(tenantSubscriptions.tenantId, claims.tenantId));
+      await tx.update(tenantSubscriptions).set({ planId: plan.id, status: "trialing", currentPeriodEnd: trialEnd, trialStartedAt: startedAt, cancelAtPeriodEnd: false, updatedAt: sql`now()` }).where(eq(tenantSubscriptions.tenantId, claims.tenantId));
     } else {
-      await tx.insert(tenantSubscriptions).values({ tenantId: claims.tenantId, planId: plan.id, status: "trialing", currentPeriodEnd: end, trialStartedAt: sql`now()` });
+      await tx.insert(tenantSubscriptions).values({ tenantId: claims.tenantId, planId: plan.id, status: "trialing", currentPeriodEnd: trialEnd, trialStartedAt: startedAt });
     }
     });
   } catch (error) {

@@ -636,7 +636,7 @@ export default function DashboardClient({
       const result = await sendGatewayReprint(job.id);
       setMessage({
         text: result.jobId
-          ? `Reprint queued for ${job.printerId}${result.jobId ? ` (job ${result.jobId.slice(0, 12)})` : ""}`
+          ? `Reprint queued for ${job.printerId} (job ${result.jobId.slice(0, 12)})`
           : `Reprint queued for ${job.printerId}`,
         type: "ok",
       });

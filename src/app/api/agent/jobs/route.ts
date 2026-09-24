@@ -120,7 +120,7 @@ export async function GET(req: Request) {
         AND pr.last_seen_at IS NOT NULL
         AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
         AND ${subscriptionLiveExists(sql`p.tenant_id`)}
-          AND t.lifecycle = 'active'
+        AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${MAX_CLAIM_BATCH}
       ),
@@ -149,7 +149,7 @@ export async function GET(req: Request) {
         AND pr.last_seen_at IS NOT NULL
         AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
         AND ${subscriptionLiveExists(sql`p.tenant_id`)}
-          AND t.lifecycle = 'active'
+        AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${queuedLimit}
       ),
@@ -178,7 +178,7 @@ export async function GET(req: Request) {
         AND pr.last_seen_at IS NOT NULL
         AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
         AND ${subscriptionLiveExists(sql`p.tenant_id`)}
-          AND t.lifecycle = 'active'
+        AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC
         LIMIT ${MAX_CLAIM_BATCH}
         FOR UPDATE OF p, a, pr, t SKIP LOCKED

@@ -22,7 +22,6 @@ Logs are JSON lines with these fields. Future: export to OTel collector via OTLP
 
 ### Gateway (Next.js)
 - `src/server/correlation.ts`: AsyncLocalStorage for correlation context, generates requestId, attemptId, claimId
-- `src/lib/tracing.ts`: helpers `traceInfo`, `traceWarn`, `traceError`, `buildTraceHeaders` — OTel-inspired, not OTel SDK
 - `src/lib/log.ts`: automatically enriches logs with correlation context from AsyncLocalStorage, sanitizes sensitive keys
 - Middleware: `requestIdFrom(req)` extracts or mints request ID, `X-Request-Id` header returned in all responses
 - APIs: `/api/jobs/[id]/timeline` returns correlation object with REDACTED claimId (never raw token), `/api/printers/[id]/certify` returns requestId/attemptId

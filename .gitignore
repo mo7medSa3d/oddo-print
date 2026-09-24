@@ -16,6 +16,9 @@ agent/odoo-agent-cli.exe
 .env.*
 !.env.example
 
+# Scratch virtualenv used to run the Python/Odoo tests
+.venv-pytest/
+
 *.log
 
 # Local agent runtime state

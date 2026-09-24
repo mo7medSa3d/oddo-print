@@ -503,13 +503,23 @@ current tree:
 |---|---|
 | `go build ./...` | **pass** (incl. cgo `mattn/go-sqlite3`) |
 | `go vet ./...` | **pass — 0 findings** |
-| `go test -race -count=1 ./...` | **pass — 0 failures, 0 race-detector reports** across all 10 packages with tests |
+| `go test -race -count=1 ./...` | **pass — 0 race-detector reports** across all 10 packages with tests. **Caveat: one non-reproducing failure** — see the box below |
 | `go test -race -count=3 -cpu=1,4 ./internal/agent/... ./internal/queue/...` | **pass** (stress: 3 repetitions × 1 and 4 CPUs) |
 | `GOOS=windows CGO_ENABLED=0 go vet ./internal/{printer,config,storage,agent}/...` | **pass — 0 findings**, type-checking all 2,203 Windows-only lines |
 
 Coverage: `internal/agent` (28.6 s — the goroutine/channel/dispatch/WS orchestration) and
 `internal/queue` (the SQLite ledger that is the duplicate-print barrier) are both exercised under
 the race detector.
+
+> **One intermittent, unreproduced failure.** During one early full-suite `-race` run,
+> `internal/printer` reported `FAIL` (11.084 s). It did **not** reproduce in 8 subsequent
+> attempts: 5 isolated `go test -race -count=1 ./internal/printer/...` runs and 3 further
+> full-suite runs all passed. The captured tail (last 14 lines, ending in `network_write` /
+> `PDF job … submitted`) contained **no `WARNING: DATA RACE`** line, so this does not look like a
+> detected data race — more likely a timing/port sensitivity in the network-transport tests when
+> packages run in parallel. **This is recorded, not dismissed**: it is an open
+> RUNTIME-ONLY observation that needs a Windows/Linux CI loop (e.g. `go test -race -count=20`) to
+> characterise. It must not be reported as "confirmed clean".
 
 **Honest residual gap.** Four test files are build-constrained to Windows and are therefore
 excluded on Linux: `spooler_windows_test.go` (225 lines), `usb_windows_test.go` (157),
@@ -1201,7 +1211,8 @@ confirmed correct behaviour, and unresolved questions.
 | `npx tsc --noEmit` | **clean** |
 | `npx vitest run --config vitest.config.mts` | **79 files / 559 tests passed, 38 files & 283 tests skipped (PG-gated), 0 failures** |
 | `pytest tests/` (Odoo) | **75 passed** |
-| `go build / vet / test -race` | **pass, 0 race reports** |
+| `go build` / `go vet` / `GOOS=windows go vet` | **pass, 0 findings** |
+| `go test -race ./...` | **pass, 0 race-detector reports** — with one unreproduced intermittent failure in `internal/printer` (§5), recorded as an open observation |
 | `GOOS=windows go vet` | **pass** |
 
 Two contract tests (`tests/deep-review-contract.test.ts`) were updated rather than worked around:
@@ -1214,6 +1225,9 @@ shared predicate itself enforces `clock_timestamp()` and never the transaction-f
 1. **Windows runner in CI** — the four Windows-only Go test files (382 lines covering the spooler
    and USB transports) cannot execute on Linux. This is the only remaining RUNTIME-ONLY gap in the
    agent.
+2. **Intermittent `-race` failure in `internal/printer`** — observed once, not reproduced in 8
+   attempts, no data-race warning in the captured tail. Needs a repeated-run CI loop to
+   characterise before the agent can be called concurrency-clean.
 2. **`print_job_rate_limits`** dead table — still present; dropping it needs a migration and is a
    product decision.
 3. **`past_due` dunning window** — product decision (§1).
