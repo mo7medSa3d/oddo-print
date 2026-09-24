@@ -49,7 +49,8 @@ export function assertPrinterMetadataLimits(input: Pick<CanonicalPrinterInput, "
  * garbage, not a half-registered device. One rule, both boundaries.
  */
 export function isAllowedPrinterDestination(ip: string): boolean {
-  const host = ip.trim();
+  // Accept bare IPv6 addresses and URL-style bracketed IPv6 literals.
+  const host = ip.trim().replace(/^\\[([^\\]]+)\\]$/, "$1");
   // Reject the IPv4/IPv6 cloud-instance metadata endpoints even though they
   // are technically link-local/ULA destinations. A printer configuration
   // must never become a metadata-service proxy.
