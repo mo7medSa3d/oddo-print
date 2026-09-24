@@ -6,6 +6,16 @@ import { tenants, tenantSubscriptions, users, agents, printers, printJobs } from
 import { sql, eq } from "drizzle-orm";
 import { agentStaleThresholdSeconds } from "../../../../lib/agent-availability";
 
+type PlatformHourlyJobStatsRow = {
+  bucket: Date | string;
+  total: number | string | null;
+  success: number | string | null;
+  failed: number | string | null;
+  queued: number | string | null;
+  inFlight: number | string | null;
+  expired: number | string | null;
+};
+
 export async function GET(req: Request) {
   try {
     await requirePlatformOwner(req);
@@ -38,8 +48,8 @@ export async function GET(req: Request) {
         active: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'active')::int`,
         trialing: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'trialing')::int`,
         pastDue: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'past_due')::int`,
-        incomplete: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'incomplete'::int`,
-        incompleteExpired: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'incomplete_expired'::int`,
+        incomplete: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'incomplete')::int`,
+        incompleteExpired: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'incomplete_expired')::int`,
         unpaid: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'unpaid')::int`,
         paused: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'paused')::int`,
         cancelled: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'cancelled')::int`,
@@ -104,7 +114,7 @@ export async function GET(req: Request) {
         sql`${printJobs.createdAt} >= clock_timestamp() - interval '24 hours'`,
       ),
 
-      db.execute(sql`
+      db.execute(sql<PlatformHourlyJobStatsRow>`
         WITH hours AS (
           SELECT generate_series(
             date_trunc('hour', clock_timestamp() - interval '24 hours'),
@@ -140,7 +150,7 @@ export async function GET(req: Request) {
     agents: agentStats[0] ?? { total: 0, online: 0, offline: 0 },
     printers: printerStats[0] ?? { total: 0, online: 0, offline: 0 },
     jobs24h: jobStats24h[0] ?? { total: 0, success: 0, failed: 0, queued: 0, inFlight: 0, expired: 0 },
-    jobs24hHourly: (hourlyJobStats?.rows ?? []).map((row) => ({
+    jobs24hHourly: (hourlyJobStats?.rows as PlatformHourlyJobStatsRow[] | undefined ?? []).map((row) => ({
       bucket: new Date(row.bucket).toISOString(),
       total: Number(row.total ?? 0),
       success: Number(row.success ?? 0),
