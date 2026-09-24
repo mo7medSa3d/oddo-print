@@ -70,7 +70,7 @@ Intercepts the `/pos/sale_details_report` route for Z-report printing.
 Root Company
 ├── Branch A
 │   ├── Binding: POS Counter → Agent-1 / Receipt Printer
-│   └── Binding: Kitchen → Agent-1 / Kitchen Printer
+│   └── Binding: Kitchen → Agent-1 / Gateway Runtime Printer
 └── Branch B
     └── Binding: POS Counter → Agent-2 / Receipt Printer
 ```
