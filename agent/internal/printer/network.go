@@ -1,0 +1,204 @@
+package printer
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"net"
+	"strings"
+	"time"
+)
+
+const maxPrintBytes = 5 * 1024 * 1024
+
+const (
+	// dialTimeout: TCP connect for actual print jobs. Reduced from 10s to 5s
+	// per 2024-2025 best practice: POS printers should respond in <1s on LAN,
+	// 5s is generous and halves user-perceived delay when printer offline.
+	// Test pages use 3s (testPrintDialTimeout) for even faster feedback.
+	dialTimeout           = 5 * time.Second
+	testPrintDialTimeout  = 3 * time.Second
+	writeStallTimeout     = 60 * time.Second
+	networkWriteChunkSize = 16 * 1024
+)
+
+type NetworkPrinter struct {
+	Address        string
+	Protocol       string
+	RasterMaxWidth int
+}
+
+func (p *NetworkPrinter) Print(ctx context.Context, data []byte) error {
+	return p.printBytes(ctx, data, true, dialTimeout)
+}
+
+// printBytes transmits bytes over a single RAW TCP connection. The optional
+// ESC/POS preflight is intentionally separate from the test-page path: a RAW
+// print stream is write-only by contract, and a diagnostic page must not wait
+// for a device status response that is not required to accept print bytes.
+func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight bool, connectTimeout time.Duration) error {
+	if len(data) == 0 {
+		return fmt.Errorf("refusing to print empty payload")
+	}
+	if len(data) > maxPrintBytes {
+		return fmt.Errorf("payload %d bytes exceeds %d limit", len(data), maxPrintBytes)
+	}
+
+	// Single connection with keepalive to eliminate connection churn and race conditions.
+	dialStart := time.Now()
+	d := net.Dialer{
+		Timeout:   connectTimeout,
+		KeepAlive: 10 * time.Second,
+	}
+	conn, err := d.DialContext(ctx, "tcp", p.Address)
+	if err != nil {
+		// Zero bytes sent: provably pre-dispatch failure, safely retryable.
+		return fmt.Errorf("%w: dial %s: %w", ErrPrinterOffline, p.Address, err)
+	}
+	defer conn.Close()
+	log.Printf("print.trace network_connect address=%s latency_ms=%d", p.Address, time.Since(dialStart).Milliseconds())
+
+	// Active preflight on the OPEN connection before normal ESC/POS document
+	// streaming. Test pages deliberately skip this optional status inquiry.
+	if preflight && strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
+		_ = conn.SetDeadline(time.Now().Add(1500 * time.Millisecond))
+		if _, err := QueryHealthStatus(conn); err != nil {
+			var netErr net.Error
+			if errors.Is(err, ErrPrinterStatusUnsupported) || (errors.As(err, &netErr) && netErr.Timeout()) {
+				log.Printf("printer %s: ESC/POS status channel unavailable (%v); proceeding without health proof", p.Address, err)
+			} else {
+				return fmt.Errorf("pre-flight health check failed: %w", err)
+			}
+		}
+		// Reset read/write deadline
+		_ = conn.SetDeadline(time.Time{})
+	}
+
+	written := 0
+	writeStart := time.Now()
+	for written < len(data) {
+		select {
+		case <-ctx.Done():
+			if written > 0 {
+				return MarkUnknown("print cancelled after %d/%d bytes: %v", written, len(data), ctx.Err())
+			}
+			return fmt.Errorf("print cancelled after %d/%d bytes: %w", written, len(data), ctx.Err())
+		default:
+		}
+		chunk := data[written:]
+		if len(chunk) > networkWriteChunkSize {
+			chunk = chunk[:networkWriteChunkSize]
+		}
+		_ = conn.SetWriteDeadline(time.Now().Add(writeStallTimeout))
+		n, err := conn.Write(chunk)
+		written += n
+		if err != nil {
+			if written > 0 {
+				return MarkUnknown("write %d/%d to %s: %v", written, len(data), p.Address, err)
+			}
+			return fmt.Errorf("write %d/%d to %s: %w", written, len(data), p.Address, err)
+		}
+		if n == 0 {
+			if written > 0 {
+				return MarkUnknown("short write 0 bytes after %d/%d to %s", written, len(data), p.Address)
+			}
+			return fmt.Errorf("short write 0 bytes to %s", p.Address)
+		}
+	}
+
+	// Graceful shutdown: signal EOF after all application bytes have been
+	// accepted by the socket. TCP close semantics provide delivery ordering;
+	// an arbitrary sleep is not a correctness mechanism.
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		if err := tcpConn.CloseWrite(); err != nil {
+			return MarkUnknown("failed to half-close print connection after sending %d bytes: %v", written, err)
+		}
+	}
+	log.Printf("print.trace network_write address=%s bytes=%d latency_ms=%d", p.Address, written, time.Since(writeStart).Milliseconds())
+
+	return nil
+}
+
+// SupportsKind exposes the render paths this byte-stream backend can produce.
+// The per-protocol device compatibility decision (which payload protocol may
+// touch which device protocol) is enforced by PayloadCompatibleForDevice in
+// the job pipeline; this coarse gate only reflects transport capability.
+func (p *NetworkPrinter) SupportsKind(kind string) bool {
+	k := NormalizeKind(kind)
+	switch strings.ToLower(strings.TrimSpace(p.Protocol)) {
+	case "zpl":
+		return k == KindRaw || k == KindZPL || k == KindLabel
+	case "tspl":
+		return k == KindRaw || k == KindTSPL || k == KindLabel
+	default:
+		switch k {
+		case KindRaw, KindESCPOS, KindImage:
+			return true
+		default:
+			return false
+		}
+	}
+}
+
+func (p *NetworkPrinter) PrintDocument(ctx context.Context, doc Document) error {
+	kind := NormalizeKind(doc.Kind)
+	switch kind {
+	case KindRaw, KindESCPOS, KindZPL, KindTSPL, KindLabel:
+		return p.Print(ctx, doc.Data)
+	case KindImage:
+		if !strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
+			return CapabilityMismatchf("image payloads are raster-converted for ESC/POS devices only (device protocol %q)", p.Protocol)
+		}
+		data, err := JPEGToESCPOSWithMaxWidth(doc.Data, DefaultRasterSliceHeight, p.RasterMaxWidth)
+		if err != nil {
+			return fmt.Errorf("render image for raw TCP printer: %w", err)
+		}
+		return p.Print(ctx, data)
+	default:
+		return CapabilityMismatchf("raw TCP printer %s cannot render %s payloads", p.Address, kind)
+	}
+}
+
+func (p *NetworkPrinter) Test(ctx context.Context) error {
+	if !strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
+		return CapabilityMismatchf("local test pages are only supported for ESC/POS TCP devices (device protocol %q); send a protocol-matched test page from the Gateway console", p.Protocol)
+	}
+	testCtx, cancel := context.WithTimeout(ctx, testPrintDialTimeout)
+	defer cancel()
+	return p.printBytes(testCtx, []byte("\x1b\x40Hello from Yasser Agent!\n\n\x1d\x56\x01"), false, testPrintDialTimeout)
+}
+
+// Status differentiates transport reachability from device health:
+//   - escpos devices are actively probed (DLE EOT). A device that answers
+//     with paper-out/cover-open/offline reports "error"/"offline"; a device
+//     that accepts TCP but never answers the status inquiry reports
+//     "unknown", NEVER "online" (an unreadable status is not proof of
+//     health).
+//   - unidirectional transports (raw/zpl/tspl byte sinks) report "online"
+//     on TCP reachability because that is the strongest claim the transport
+//     physically allows; their safety properties come from pre-dispatch
+//     dial failure detection and UNKNOWN_PARTIAL_DELIVERY classification on
+//     mid-stream writes, not from status telemetry.
+func (p *NetworkPrinter) Status() string {
+	conn, err := net.DialTimeout("tcp", p.Address, 2*time.Second)
+	if err != nil {
+		return "offline"
+	}
+	defer conn.Close()
+	if !strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
+		return "online"
+	}
+	_ = conn.SetDeadline(time.Now().Add(1500 * time.Millisecond))
+	if _, err := QueryHealthStatus(conn); err != nil {
+		var netErr net.Error
+		if errors.Is(err, ErrPrinterStatusUnsupported) || (errors.As(err, &netErr) && netErr.Timeout()) {
+			return "unknown"
+		}
+		if errors.Is(err, ErrPrinterOffline) {
+			return "offline"
+		}
+		return "error"
+	}
+	return "online"
+}

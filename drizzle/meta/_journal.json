@@ -1,0 +1,510 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788063485214,
+      "tag": "0000_simple_tigra",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788063485215,
+      "tag": "0001_phase1_branch_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788063485216,
+      "tag": "0002_add_document_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788063485217,
+      "tag": "0003_add_idempotency_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788063485218,
+      "tag": "0004_add_job_delivery_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788063485219,
+      "tag": "0005_auth_rate_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788063485220,
+      "tag": "0006_architecture_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788063485221,
+      "tag": "0007_auth_rate_limit_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788063485222,
+      "tag": "0008_remove_pcl_contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788063485223,
+      "tag": "0009_runtime_invariant_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788375830076,
+      "tag": "0010_discovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788422427729,
+      "tag": "0011_worker_schema_fk_hardening",
+      "breakpoints": false
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788610000000,
+      "tag": "0012_runtime_state_checks",
+      "breakpoints": false
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788610000002,
+      "tag": "0013_runtime_state_constraint_scope_fix",
+      "breakpoints": false
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1788610000003,
+      "tag": "0014_discovery_state_checks",
+      "breakpoints": false
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1788620000000,
+      "tag": "0015_metrics_and_agent_notifications",
+      "breakpoints": false
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788630000000,
+      "tag": "0016_print_job_rate_limits",
+      "breakpoints": false
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788630000001,
+      "tag": "0017_notify_requeued_jobs",
+      "breakpoints": false
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788739200000,
+      "tag": "0018_global_print_job_idempotency",
+      "breakpoints": false
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788739200001,
+      "tag": "0019_drop_legacy_print_destination_fk",
+      "breakpoints": false
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788739200002,
+      "tag": "0020_remove_gateway_business_ownership",
+      "breakpoints": false
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788739200003,
+      "tag": "0021_scope_print_jobs_to_api_key",
+      "breakpoints": false
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788739200004,
+      "tag": "0022_pairing_code_hash",
+      "breakpoints": false
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788739200005,
+      "tag": "0023_internal_print_job_idempotency",
+      "breakpoints": false
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788825600000,
+      "tag": "0024_claim_fencing_and_payload_contract",
+      "breakpoints": false
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1788825600001,
+      "tag": "0025_constraint_scope_and_protocol_contract_fix",
+      "breakpoints": false
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1788912000000,
+      "tag": "0026_printer_type_default_alignment",
+      "breakpoints": false
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1788998400000,
+      "tag": "0027_printers_protocol_check_windows_spooler",
+      "breakpoints": false
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1789257401607,
+      "tag": "0028_add_multi_tenancy",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789340000000,
+      "tag": "0029_enforce_tenant_id_not_null",
+      "breakpoints": false
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1789340000001,
+      "tag": "0030_tenant_domains_and_manager_sessions",
+      "breakpoints": false
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790000000001,
+      "tag": "0031_enforce_tenant_cross_table_foreign_keys",
+      "breakpoints": false
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790000000002,
+      "tag": "0032_pairing_code_hash_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1789257600033,
+      "tag": "0033_manager_identity",
+      "breakpoints": false
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1789257600034,
+      "tag": "0034_saas_control_plane",
+      "breakpoints": false
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1789257600035,
+      "tag": "0035_tenant_membership_role_check",
+      "breakpoints": false
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1789257600036,
+      "tag": "0036_print_job_request_id",
+      "breakpoints": false
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790000000037,
+      "tag": "0037_customer_identity_billing",
+      "breakpoints": false
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1790000000038,
+      "tag": "0038_trial_state",
+      "breakpoints": false
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1790000000039,
+      "tag": "0039_billing_event_ordering",
+      "breakpoints": false
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790000000040,
+      "tag": "0040_tenant_lifecycle",
+      "breakpoints": false
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790000000041,
+      "tag": "0041_fix_composite_fk_prerequisites",
+      "breakpoints": false
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1790000000042,
+      "tag": "0042_dos_indexes",
+      "breakpoints": false
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790000000043,
+      "tag": "0043_add_platform_owner",
+      "breakpoints": false
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1790000000044,
+      "tag": "0044_single_platform_owner_idx",
+      "breakpoints": false
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790000000045,
+      "tag": "0045_audit_events_platform_scope",
+      "breakpoints": false
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1790000000046,
+      "tag": "0046_scope_internal_print_job_idempotency",
+      "breakpoints": false
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1790000000047,
+      "tag": "0047_desired_printer_reconciliation",
+      "breakpoints": false
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790000000048,
+      "tag": "0048_discovery_running_agent_unique",
+      "breakpoints": false
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1790000000049,
+      "tag": "0049_tenant_scoped_idempotency_and_owner_unique",
+      "breakpoints": false
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1790000000050,
+      "tag": "0050_billing_single_flight_state",
+      "breakpoints": false
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1790000000051,
+      "tag": "0051_agent_lifecycle_revision",
+      "breakpoints": false
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1790000000052,
+      "tag": "0052_plan_catalog_management",
+      "breakpoints": false
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1790000000053,
+      "tag": "0053_discovery_spooler_name",
+      "breakpoints": false
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1790000000054,
+      "tag": "0054_odoo_gateway_activation_state",
+      "breakpoints": false
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1790000000055,
+      "tag": "0055_job_events_and_spooler_job_id",
+      "breakpoints": false
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1790000000056,
+      "tag": "0056_discovered_device_class_not_null",
+      "breakpoints": false
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1790000000057,
+      "tag": "0057_api_key_composite_index",
+      "breakpoints": false
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1790000000058,
+      "tag": "0058_scope_odoo_activation_to_api_key",
+      "breakpoints": false
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1790000000059,
+      "tag": "0059_remove_api_key_restrictions",
+      "breakpoints": false
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1790100000060,
+      "tag": "0060_preserve_stripe_subscription_states",
+      "breakpoints": false
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1790100000061,
+      "tag": "0061_print_usage_quota",
+      "breakpoints": false
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1790100000062,
+      "tag": "0062_subscription_period_start_default",
+      "breakpoints": false
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1790141532356,
+      "tag": "0063_job_events_tenant_fk",
+      "breakpoints": false
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1790141866457,
+      "tag": "0064_odoo_key_rotation_grace",
+      "breakpoints": false
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1790142193119,
+      "tag": "0065_api_key_rotation_state_check",
+      "breakpoints": false
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1790142862337,
+      "tag": "0066_job_events_cascade",
+      "breakpoints": false
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1790574862337,
+      "tag": "0067_print_job_wall_clock",
+      "breakpoints": false
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1790574863000,
+      "tag": "0068_billing_entitlement_block",
+      "breakpoints": false
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1790574863001,
+      "tag": "0069_redact_legacy_claim_ids",
+      "breakpoints": false
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1790574863002,
+      "tag": "0070_discovered_device_identity",
+      "breakpoints": false
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1790574863003,
+      "tag": "0071_remove_print_job_rate_limits",
+      "breakpoints": false
+    }
+  ]
+}

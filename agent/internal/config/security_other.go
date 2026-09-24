@@ -1,0 +1,12 @@
+//go:build !windows
+
+package config
+
+import "github.com/yasser-agent/agent/internal/storage"
+
+// EnsureSecureDirectoryACL forwards to storage.EnsureSecureDirectoryACL.
+func EnsureSecureDirectoryACL(path string) error {
+	return storage.EnsureSecureDirectoryACL(path)
+}
+
+func EnsureSecureFileACL(path string) error { return storage.EnsureSecureFileACL(path) }

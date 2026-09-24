@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_print_gateway_config_list" model="ir.ui.view">
+        <field name="name">print_gateway.gateway_config.list</field>
+        <field name="model">print_gateway.gateway_config</field>
+        <field name="arch" type="xml">
+            <list string="Connection &amp; Printing" create="1" class="o_pg_list">
+                <field name="company_id" string="Company"/>
+                <field name="last_test_status"
+                       string="Connection"
+                       widget="badge"
+                       decoration-success="last_test_status == 'success'"
+                       decoration-danger="last_test_status in ('failed', 'revoked')"
+                       decoration-muted="last_test_status == 'draft'"/>
+                <field name="enabled" widget="boolean_toggle" string="Printing"/>
+                <field name="gateway_url"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_print_gateway_config_form" model="ir.ui.view">
+        <field name="name">print_gateway.gateway_config.form</field>
+        <field name="model">print_gateway.gateway_config</field>
+        <field name="arch" type="xml">
+            <form string="Connection &amp; Printing" create="1" class="o_pg_view o_pg_form">
+                <header/>
+                <sheet>
+                    <group>
+                        <field name="company_id" string="Company"/>
+                        <field name="enabled" widget="boolean_toggle" string="Enable Printing Service"/>
+                        <field name="gateway_url" placeholder="https://print.example.com"/>
+                        <field name="gateway_api_key" password="True" placeholder="Enter the installation API key"/>
+                        <field name="last_test_status"
+                               string="Connection"
+                               widget="badge"
+                               decoration-success="last_test_status == 'success'"
+                               decoration-danger="last_test_status in ('failed', 'revoked')"
+                               decoration-muted="last_test_status == 'draft'"
+                               readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_print_gateway_config_search" model="ir.ui.view">
+        <field name="name">print_gateway.gateway_config.search</field>
+        <field name="model">print_gateway.gateway_config</field>
+        <field name="arch" type="xml">
+            <search string="Connection &amp; Printing">
+                <field name="company_id"/>
+                <field name="gateway_url"/>
+                <field name="last_test_status"/>
+                <field name="enabled"/>
+                <filter string="Connected" name="filter_connected" domain="[('last_test_status','=','success')]"/>
+                <filter string="Not connected" name="filter_not_connected" domain="[('last_test_status','=','failed')]"/>
+                <filter string="API key revoked" name="filter_revoked" domain="[('last_test_status','=','revoked')]"/>
+                <filter string="Not checked" name="filter_not_checked" domain="[('last_test_status','=','draft')]"/>
+                <separator/>
+                <filter string="Printing enabled" name="filter_enabled" domain="[('enabled','=',True)]"/>
+                <filter string="Printing disabled" name="filter_disabled" domain="[('enabled','=',False)]"/>
+                <separator/>
+                <filter string="Company" name="group_company" context="{'group_by':'company_id'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_print_gateway_config" model="ir.actions.act_window">
+        <field name="name">Gateway Configuration</field>
+        <field name="res_model">print_gateway.gateway_config</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_print_gateway_config_search"/>
+    </record>
+
+    <record id="view_print_gateway_pair_agent_wizard_form" model="ir.ui.view">
+        <field name="name">print_gateway.pair_agent_wizard.form</field>
+        <field name="model">print_gateway.pair_agent_wizard</field>
+        <field name="arch" type="xml">
+            <form string="Connect Print Agent" class="o_pg_view o_pg_pairing_wizard">
+                <sheet>
+                    <div class="o_pg_wizard_header text-center mb-4">
+                        <i class="fa fa-plug fa-3x text-primary mb-2" title="Connect Agent" role="img" aria-label="Connect Agent"/>
+                        <h3 class="fw-bold">Connect Print Agent</h3>
+                        <p class="text-muted">Select the branch and choose an available Print Agent. A branch can use more than one agent.</p>
+                    </div>
+                    <group>
+                        <field name="config_id" invisible="1"/>
+                        <field name="company_id" invisible="1"/>
+                        <field name="branch_id" string="Branch" options="{'no_create': True, 'no_open': True}"/>
+                        <field name="agent_id" string="Print Agent" widget="gateway_runtime_agent_picker" placeholder="Select a connected Print Agent" class="o_pg_pairing_code_input" required="1" help="Choose a connected Print Agent for this branch."/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_confirm_pairing" string="Connect Agent" type="object" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

@@ -1,0 +1,58 @@
+import { createServer } from "node:http";
+import { Pool } from "pg";
+import { attachAgentWSS, __getNotificationListenerPidForTests } from "../src/server/ws";
+
+const CHANNEL_PREFIX = "print_gateway_agent_";
+const WAIT_MS = 500;
+const MAX_WAIT_MS = 15_000;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForListener(previousPid?: number): Promise<number> {
+  const started = Date.now();
+  while (Date.now() - started < MAX_WAIT_MS) {
+    const pid = __getNotificationListenerPidForTests();
+    if (typeof pid === "number" && pid > 0 && pid !== previousPid) return pid;
+    await sleep(WAIT_MS);
+  }
+  throw new Error("Timed out waiting for PostgreSQL notification listener connection");
+}
+
+async function main() {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL is required");
+
+  const admin = new Pool({ connectionString: url, max: 2 });
+  const server = createServer();
+  attachAgentWSS(server);
+
+  try {
+    await admin.query("SELECT 1");
+    const firstPid = await waitForListener();
+    console.log(`Initial LISTEN backend: ${firstPid}`);
+
+    const terminated = await admin.query("SELECT pg_terminate_backend($1::int) AS terminated", [firstPid]);
+    if (!terminated.rows[0]?.terminated) throw new Error(`pg_terminate_backend(${firstPid}) did not terminate the listener`);
+    console.log(`Forced disconnect of LISTEN backend ${firstPid}`);
+
+    const replacementPid = await waitForListener(firstPid);
+    console.log(`Reconnected LISTEN backend: ${replacementPid}`);
+    if (replacementPid === firstPid) throw new Error("LISTEN backend PID did not change after forced disconnect");
+
+    const check = await admin.query("SELECT 1 AS ok");
+    if (check.rows[0]?.ok !== 1) throw new Error("PostgreSQL connectivity check failed after reconnect");
+    console.log("PostgreSQL LISTEN failure-injection proof passed.");
+  } finally {
+    await admin.end();
+    server.close();
+  }
+}
+
+main()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error(error instanceof Error ? error.stack ?? error.message : error);
+    process.exit(1);
+  });
