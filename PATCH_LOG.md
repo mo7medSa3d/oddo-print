@@ -145,3 +145,23 @@
   and current migration tree contains 73 SQL migrations ending at 0072.
 - Fix: Updated the review to identify 0072 as the current snapshot and state the current 0000–0072 migration range.
 - Verification: The edited document was committed as `2ff2be4ae80fed5c21317ff1aa524313eac0fa42`; the current `main` history contains that commit before the Kitchen relation fix.
+## 2026-09-25 — Odoo 19 Kitchen retry scope
+- File: `odoo_addons/print_gateway/static/src/js/pos_print_router.js`
+- Problem: Odoo 19's `printChanges()` retry callback passes the failed native printer set, but Gateway routing ignored that argument and could retry every preparation station.
+- Evidence before fix:
+  Odoo 19 core `PosStore.printChanges()` creates `retryPrinters = new Set()`, adds only the failed printer, and invokes `this.printChanges(order, orderChange, reprint, retryPrinters)`.
+  The Gateway override instead rebuilt `routes` from all configured preparation printers and did not consume the fourth argument.
+- Fix: Detect retry calls by printer-set identity, restrict Gateway routes to the requested printer IDs, and generate a fresh operation UUID for each retry attempt. Unknown/partial outcomes remain excluded from automatic retry.
+- Verification:
+  Current source contains `const retryAttempt = printers !== this.unwatched.printers;`, `requestedPrinterIds`, `kitchenRoutes.routes.filter`, and `crypto.randomUUID()`.
+  Odoo 19 static regression test asserts the retry scope contract.
+
+## 2026-09-25 — Odoo 19 Kitchen router membership
+- File: `odoo_addons/print_gateway/models/print_router.py`
+- Problem: The Kitchen runtime route membership check still used generic `config_id.printer_ids` after the Odoo 19 migration to distinct preparation/receipt printer relations.
+- Evidence before fix:
+  Odoo 19 defines `pos.config.preparation_printer_ids` separately from `receipt_printer_ids`; native preparation code iterates `preparation_printer_ids`.
+  Repository source had `order.config_id.printer_ids` inside `route_kitchen_print()`.
+- Fix: Membership is now checked against `order.config_id.preparation_printer_ids`.
+- Verification:
+  Regression test `test_kitchen_router_enforces_preparation_printer_membership` asserts the preparation relation is present and the generic relation is absent.
