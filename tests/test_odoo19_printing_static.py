@@ -249,6 +249,12 @@ def test_gateway_sync_state_does_not_report_active_after_health_failure():
     assert 'record.gateway_sync_state = "active"' in compute[active_idx:]
 
 
+def test_gateway_report_group_check_uses_odoo19_effective_groups():
+    source = (ADDON / "models/binding.py").read_text(encoding="utf-8")
+    assert "env.user.all_group_ids.ids" in source
+    assert "env.user.groups_id.ids" not in source
+
+
 def test_gateway_pos_receipt_keeps_nb_print_in_sync():
     source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
     start = source.index("async printReceipt(")
