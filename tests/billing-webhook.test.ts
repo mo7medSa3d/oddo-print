@@ -878,6 +878,19 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     const json2 = await res2.json();
     expect(json2).toEqual({ error: "Invalid event" });
 
+    // 10c: Missing Stripe event timestamp must fail closed rather than
+    // falling back to the application host clock.
+    const missingCreated = JSON.stringify({
+      id: "evt_missing_created",
+      type: "customer.subscription.updated",
+      data: { object: {} },
+    });
+    const sig3 = signPayload(missingCreated);
+    const res3 = await POST(createWebhookRequest(missingCreated, sig3));
+    expect(res3.status).toBe(400);
+    const json3 = await res3.json();
+    expect(json3).toEqual({ error: "Invalid event" });
+
     // Verify no events were recorded in billing_events
     const count = await db.query.billingEvents.findMany();
     expect(count.length).toBe(0);
