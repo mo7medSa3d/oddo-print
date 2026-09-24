@@ -380,7 +380,7 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
-    def route_report(self, report, records, data=None):
+    def route_report(self, report, records, data=None, explicit_binding=None):
         report.ensure_one()
         report = _assert_report_usage_access(self.env, report)
         records = records.exists()
@@ -388,15 +388,31 @@ class PrintGatewayRouter(models.AbstractModel):
             if self._gateway_config(self.env.company):
                 raise ValidationError(_("Gateway printing requires at least one report record."))
             return {"gateway_enabled": False, "native": True}
-        route = self.resolve_binding(report=report, record=records[0], company=self.env.company)
+
+        route = self.resolve_binding(
+            report=report,
+            record=records[0],
+            company=self.env.company,
+            explicit_binding=explicit_binding or None,
+            payload_type="pdf",
+        )
         if route.get("native"):
             return route
+
+        selected_binding_id = route["binding"].id
         for record in records[1:]:
             if hasattr(record, "company_id") and record.company_id and record.company_id != self.env.company:
                 raise ValidationError(_("Selected records belong to conflicting routing scopes."))
-            candidate = self.resolve_binding(report=report, record=record, company=self.env.company)
-            if candidate["binding"].id != route["binding"].id:
+            candidate = self.resolve_binding(
+                report=report,
+                record=record,
+                company=self.env.company,
+                explicit_binding=explicit_binding or None,
+                payload_type="pdf",
+            )
+            if candidate["binding"].id != selected_binding_id:
                 raise ValidationError(_("The selected records resolve to different Print Bindings. Print them separately."))
+
         return self._submit_route(
             route=route,
             payload=self._render_pdf_payload(report, records, data=data),
