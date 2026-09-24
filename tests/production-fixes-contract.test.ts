@@ -266,13 +266,15 @@ describe("2026-09-24 remediation contracts", () => {
 
   it("protects the explicit dashboard reprint with the shared busy guard", () => {
     const source = read("src/app/dashboard/dashboard-client.tsx");
-    const start = source.indexOf("Reprint this document?");
-    const from = source.indexOf("onClick={async () => {", start);
-    const to = source.indexOf("}} icon={<RotateCcw", from);
+    const from = source.indexOf("const confirmReprint = async () => {");
+    const to = source.indexOf("const confirmAgentAction = async () => {", from);
     const block = source.slice(from, to);
-    expect(block).toContain("setBusy(true)");
+    expect(from).toBeGreaterThanOrEqual(0);
+    expect(to).toBeGreaterThan(from);
+    expect(block).toContain("if (!job || busy) return;");
+    expect(block).toContain("setBusy(true);");
     expect(block).toContain("finally");
-    expect(block).toContain("setBusy(false)");
+    expect(block).toContain("setBusy(false);");
   });
 
   it("uses the canonical live-subscription predicate for runtime claims", () => {
