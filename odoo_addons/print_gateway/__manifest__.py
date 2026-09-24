@@ -50,6 +50,6 @@ to the printing service without opening the browser print dialog.
     },
     'installable': True,
     'application': True,
-    'icon': 'static/description/icon.png',
+    'icon': '/print_gateway/static/description/icon.png',
     'license': 'LGPL-3',
 }

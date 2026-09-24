@@ -29,7 +29,7 @@
     "active": true,
     "targets": "all",
     "publisher": "Yasser",
-    "copyright": "Copyright \u00a9 2026 Yasser",
+    "copyright": "Copyright © 2026 Yasser",
     "shortDescription": "Desktop print manager for Yasser Agent",
     "longDescription": "Yasser Print Manager pairs this Windows PC with the Yasser Gateway, manages the local print agent, and shows gateway/agent health from the system tray.",
     "icon": [
@@ -52,6 +52,8 @@
         "installMode": "perMachine",
         "displayLanguageSelector": false,
         "startMenuFolder": "Yasser Print Manager",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
         "installerHooks": "./installer_hooks.nsh"
       },
       "webviewInstallMode": {
