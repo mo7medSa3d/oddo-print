@@ -12,7 +12,7 @@ suite("atomic Agent job status transitions", () => {
   beforeEach(async () => { await truncateAll(); f = await seedFixture(); });
 
   it("keeps spooler linkage inside the claim-fenced status transition", () => {
-    const source = readFileSync("src/app/api/agent/jobs/route.ts", "utf8");
+    const source = readFileSync(new URL("../src/app/api/agent/jobs/route.ts", import.meta.url), "utf8");
     const updateStart = source.indexOf("const updated = await db.update(printJobs)");
     const updateEnd = source.indexOf(".where(and(", updateStart);
     expect(updateStart).toBeGreaterThanOrEqual(0);
