@@ -314,7 +314,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_pre_dispatch_failover_key_01",
+            "idempotency_key": "idem_test_02",
             "fallback_binding_id": self.backup_binding.id,
         })
 
@@ -350,7 +350,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_post_dispatch_timeout_key_01",
+            "idempotency_key": "idem_test_02",
             "fallback_binding_id": self.backup_binding.id,
         })
 
@@ -375,7 +375,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_midstream_reset_key_01",
+            "idempotency_key": "idem_test_02",
             "fallback_binding_id": self.backup_binding.id,
         })
 
@@ -412,7 +412,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_failover_deadlock_key_%s" % uuid.uuid4().hex[:8],
+            "idempotency_key": "idem_test_02" % uuid.uuid4().hex[:8],
             "fallback_binding_id": self.backup_binding.id,
         })
 
@@ -454,7 +454,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_connect_timeout_key_01",
+            "idempotency_key": "idem_test_02",
             "fallback_binding_id": self.backup_binding.id,
         })
 
@@ -625,7 +625,7 @@ class TestControlPlane(TransactionCase):
                 "document_type": "delivery",
                 "status": "queued",
                 "payload": json.dumps({"type": "raw", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-                "idempotency_key": "test_cron_recovery_key_01",
+                "idempotency_key": "idem_test_02",
             })
             intent = self.env["print_gateway.intent"].create({
                 "company_id": self.branch.id,
@@ -702,7 +702,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_cycle_safety_key_01",
+            "idempotency_key": "idem_test_02",
             "fallback_binding_id": self.backup_binding.id,
         })
         import requests
@@ -758,7 +758,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_chain_depth_key_01",
+            "idempotency_key": "idem_test_01",
             "fallback_binding_id": self.backup_binding.id,
         })
         import requests
@@ -951,7 +951,7 @@ class TestControlPlane(TransactionCase):
 
         # 1. Pending intent acquires claim token
         intent_pending = intent_model.create({
-            "intent_key": "intent_claim_test_pending_01",
+            "intent_key": "intent_test_01",
             "policy_id": policy.id,
             "res_model": model.model,
             "res_id": 1,
@@ -1184,7 +1184,7 @@ class TestControlPlane(TransactionCase):
                 "data": "JVBERi0xLjQK",
                 "peripherals": {"drawer": "none", "cutter": "none", "buzzer": "none"},
             }),
-            "idempotency_key": "test_periph_pdf_none_01",
+            "idempotency_key": "idem_test_02",
         })
         body = job_pdf._submission_body()
         self.assertNotIn("peripherals", body["payload"], "Empty/none peripherals must be normalized away for PDF")
@@ -1202,7 +1202,7 @@ class TestControlPlane(TransactionCase):
                 "data": "JVBERi0xLjQK",
                 "peripherals": {"drawer": "pin2"},
             }),
-            "idempotency_key": "test_periph_pdf_active_01",
+            "idempotency_key": "idem_test_02",
         })
         with self.assertRaises(ValidationError):
             job_pdf_active._submission_body()
@@ -1251,7 +1251,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "no-late-success-odoo-%s" % uuid.uuid4().hex[:10],
+            "idempotency_key": "idem_test_02" % uuid.uuid4().hex[:10],
         })
         job.write({"status": "failed", "last_error": "CONNECTION_ERROR: printer offline"})
         with self.assertRaises(ValidationError):
@@ -1284,7 +1284,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_idempotent_replay_success_01",
+            "idempotency_key": "idem_test_02",
         })
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -1412,7 +1412,7 @@ class TestControlPlane(TransactionCase):
                 "destination": "Visibility Desk",
                 "document_type": "label",
                 "payload": {"type": "raw", "protocol": "raw", "encoding": "base64", "data": "dGVzdA=="},
-                "idempotency_key": "test_visibility_key_01",
+                "idempotency_key": "idem_test_02",
             })
         self.assertIn("no longer available", str(ctx.exception))
         # And a wholesale-missing record fails the same existence gate
@@ -1426,7 +1426,7 @@ class TestControlPlane(TransactionCase):
                 "destination": "Visibility Desk",
                 "document_type": "label",
                 "payload": {"type": "raw", "protocol": "raw", "encoding": "base64", "data": "dGVzdA=="},
-                "idempotency_key": "test_visibility_key_02",
+                "idempotency_key": "idem_test_02",
             })
 
     def test_27_create_operation_is_not_reachable_via_rpc(self):
@@ -1469,7 +1469,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "label",
             "status": "failed",
             "payload": json.dumps({"type": "raw", "protocol": "raw", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_retry_guard_key_01",
+            "idempotency_key": "idem_test_02",
         })
         with self.assertRaises(AccessError):
             job.with_user(user).action_retry()
@@ -1520,7 +1520,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_failover_incompatible_key_01",
+            "idempotency_key": "idem_test_02",
             "fallback_binding_id": incompatible.id,
         })
 
@@ -1600,7 +1600,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_billing_403_recovery_%s" % uuid.uuid4().hex[:12],
+            "idempotency_key": "idem_test_02" % uuid.uuid4().hex[:12],
             "fallback_binding_id": self.backup_binding.id,
         })
         response = MagicMock()
@@ -1637,7 +1637,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_deterministic_corrupt_%s" % uuid.uuid4().hex[:12],
+            "idempotency_key": "idem_test_02" % uuid.uuid4().hex[:12],
             "fallback_binding_id": self.backup_binding.id,
         })
         corrupted.write({"payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "!!!not-base64!!!"})})
@@ -1658,7 +1658,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_deterministic_garbage_%s" % uuid.uuid4().hex[:12],
+            "idempotency_key": "idem_test_02" % uuid.uuid4().hex[:12],
             "fallback_binding_id": self.backup_binding.id,
         })
         mock_resp = MagicMock()
