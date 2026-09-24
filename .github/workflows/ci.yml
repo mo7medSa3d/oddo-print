@@ -165,6 +165,23 @@ jobs:
                 WHERE table_schema='public' AND table_name='printers' AND column_name=column_name_value
               ) THEN RAISE EXCEPTION 'desired-state printer column is missing: %', column_name_value; END IF;
             END LOOP;
+            IF EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE schemaname='public' AND tablename='printers'
+                AND indexname='printers_gateway_id_global_unique'
+            ) THEN RAISE EXCEPTION 'global printer id uniqueness must not exist after tenant-scoped identity'; END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='printers_pkey'
+            ) THEN RAISE EXCEPTION 'printers must not have a global primary key on id'; END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='discovered_devices_pkey'
+            ) THEN RAISE EXCEPTION 'discovered_devices must not have a global primary key on id'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='printers_tenant_id_unique'
+            ) THEN RAISE EXCEPTION 'printers tenant-scoped identity unique constraint is missing'; END IF;
             IF NOT EXISTS (
               SELECT 1 FROM pg_indexes
               WHERE schemaname='public' AND tablename='printers'

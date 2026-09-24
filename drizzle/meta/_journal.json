@@ -505,6 +505,13 @@
       "when": 1790574863003,
       "tag": "0071_remove_print_job_rate_limits",
       "breakpoints": false
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1790574863004,
+      "tag": "0072_tenant_scoped_printer_identity",
+      "breakpoints": false
     }
   ]
 }

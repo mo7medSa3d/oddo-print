@@ -101,7 +101,10 @@ export const agents = pgTable("agents", {
 }));
 
 export const printers = pgTable("printers", {
-  id: text("id").primaryKey(),
+  // Identity is tenant-scoped. Agent-generated IDs are derived from hardware
+  // or network coordinates (for example printer_net_<hash(ip:port)>), so two
+  // tenants can legitimately observe the same local address.
+  id: text("id").notNull(),
   tenantId: text("tenant_id").references(() => tenants.id).notNull(),
   agentId: text("agent_id").notNull(),
   name: text("name").notNull(),
@@ -259,7 +262,10 @@ export const discoverySessions = pgTable("discovery_sessions", {
 }));
 
 export const discoveredDevices = pgTable("discovered_devices", {
-  id: text("id").primaryKey(),
+  // Observation row identity is tenant-scoped. Agents often reuse the same
+  // stable printer id as the discovery row id; that must not collide across
+  // tenants.
+  id: text("id").notNull(),
   tenantId: text("tenant_id").references(() => tenants.id).notNull(),
   discoveryId: text("discovery_id").notNull(),
   agentId: text("agent_id").notNull(),
@@ -390,7 +396,7 @@ export const jobEvents = pgTable("job_events", {
     name: "job_events_tenant_id_job_id_print_jobs_fk",
     columns: [table.tenantId, table.jobId],
     foreignColumns: [printJobs.tenantId, printJobs.id],
-  }),
+  }).onDelete("cascade"),
   jobIdIdx: index("job_events_job_id_idx").on(table.jobId),
   tenantJobIdx: index("job_events_tenant_job_idx").on(table.tenantId, table.jobId),
   stageCheck: check("job_events_stage_check", sql`${table.stage} in ('created','queued','claimed','accepted','connection','printing','delivery','success','failed','expired','blocked')`),

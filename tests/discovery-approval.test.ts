@@ -255,6 +255,45 @@ suite("discovery trust and approval flow", () => {
     });
   });
 
+  it("allows two tenants to report the same discovery device id", async () => {
+    const other = await seedFixture();
+    const sharedDeviceId = "dev_shared_net_identity";
+    const discoveryA = await createDiscoverySession("disc-tenant-a-shared");
+    await pool().query(
+      `INSERT INTO discovery_sessions (id, tenant_id, agent_id, status, config, stats)
+       VALUES ($1, $2, $3, 'running', '{}'::jsonb, '{}'::jsonb)`,
+      ["disc-tenant-b-shared", other.tenantId, other.agentId],
+    );
+
+    const resA = await agentRequest(discoveryA, [{
+      id: sharedDeviceId, stableId: "printer_net_shared", protocol: "raw",
+      ipAddress: "192.168.1.50", port: 9100, deviceName: "Tenant A LAN",
+    }]);
+    expect(resA.status).toBe(200);
+
+    const resB = await discoveryReportPOST(new Request("http://gateway.test/api/agent/discovery", {
+      method: "POST",
+      headers: { Authorization: other.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({
+        discoveryId: "disc-tenant-b-shared",
+        status: "completed",
+        devices: [{
+          id: sharedDeviceId, stableId: "printer_net_shared", protocol: "raw",
+          ipAddress: "192.168.1.50", port: 9100, deviceName: "Tenant B LAN",
+        }],
+      }),
+    }));
+    expect(resB.status).toBe(200);
+    expect((await resB.json()).inserted).toBe(1);
+
+    const rows = await pool().query(
+      `SELECT tenant_id, device_name FROM discovered_devices WHERE id = $1 ORDER BY tenant_id`,
+      [sharedDeviceId],
+    );
+    expect(rows.rows).toHaveLength(2);
+    expect(new Set(rows.rows.map((row: { tenant_id: string }) => row.tenant_id))).toEqual(new Set([f.tenantId, other.tenantId]));
+  });
+
   it("deduplicates repeated device identities inside one discovery report", async () => {
     const discoveryId = await createDiscoverySession("disc-intra-batch-dedupe");
     const res = await agentRequest(discoveryId, [
