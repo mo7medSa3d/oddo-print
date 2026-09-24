@@ -214,7 +214,11 @@ class PrintGatewayBinding(models.Model):
                 destination = record.report_id or record.destination_report_id
             record.destination_ref = "%s,%s" % (destination._name, destination.id) if destination else False
 
-    @api.depends("report_id", "report_id.model", "report_id.report_name", "destination_type")
+    @api.depends(
+        "report_id", "report_id.model", "report_id.report_name",
+        "destination_report_id", "destination_report_id.model",
+        "destination_report_id.report_name", "destination_type",
+    )
     def _compute_document_type(self):
         for record in self:
             if record.destination_type == "pos":
