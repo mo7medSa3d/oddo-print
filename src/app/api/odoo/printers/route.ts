@@ -54,7 +54,7 @@ export async function GET(req: Request) {
       agentLastSeenAt: agents.lastSeenAt,
     })
     .from(printers)
-    .innerJoin(agents, eq(printers.agentId, agents.id))
+    .innerJoin(agents, and(eq(printers.agentId, agents.id), eq(printers.tenantId, agents.tenantId)))
     .where(and(...conditions))
     .orderBy(printers.name);
 

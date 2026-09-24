@@ -114,13 +114,22 @@ describe("production hardening contracts", () => {
     expect(heartbeat).toContain("onConflictDoNothing({ target: [printers.tenantId, printers.id] })");
     expect(heartbeat).not.toContain("onConflictDoNothing({ target: printers.id })");
 
-    const discovery = read("src/app/api/agent/discovery/route.ts");
-    expect(discovery).toContain("onConflictDoNothing({ target: [discoveredDevices.tenantId, discoveredDevices.id] })");
+    const discoveryReport = read("src/app/api/agent/discovery/route.ts");
+    expect(discoveryReport).toContain("onConflictDoNothing({ target: [discoveredDevices.tenantId, discoveredDevices.id] })");
 
     const migration = read("drizzle/0072_tenant_scoped_printer_identity.sql");
     expect(migration).toContain("DROP CONSTRAINT IF EXISTS \"printers_pkey\"");
     expect(migration).toContain("DROP INDEX IF EXISTS \"printers_gateway_id_global_unique\"");
     expect(migration).toContain("DROP CONSTRAINT IF EXISTS \"discovered_devices_pkey\"");
+
+    const odooPrinters = read("src/app/api/odoo/printers/route.ts");
+    expect(odooPrinters).toContain("and(eq(printers.agentId, agents.id), eq(printers.tenantId, agents.tenantId))");
+    expect(odooPrinters).not.toContain(".innerJoin(agents, eq(printers.agentId, agents.id))");
+
+    const platformStats = read("src/app/api/platform/stats/route.ts");
+    expect(platformStats).toContain("and(eq(printers.agentId, agents.id), eq(printers.tenantId, agents.tenantId))");
+
+    expect(discoveryReport).toContain("eq(discoverySessions.tenantId, agent.tenantId)");
   });
 
   it("keeps Drizzle journal entries unique and aligned with migration files", () => {
