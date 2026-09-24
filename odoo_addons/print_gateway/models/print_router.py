@@ -450,25 +450,21 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
-    def route_kitchen_print(self, order, native_printer, image_base64, *, reprint=False, idempotency_key=None):
+    def route_kitchen_print(self, order, image_base64, *, reprint=False, idempotency_key=None):
         order.ensure_one()
-        native_printer.ensure_one()
         self._assert_current_company(order.company_id, record=order)
         company = self.env.company
-        if native_printer.company_id != company:
-            raise ValidationError(_("Kitchen printer belongs to another Odoo company."))
         self._validate_jpeg_base64(image_base64)
         route = self.resolve_binding(
-            record=order, company=company, document_type="kitchen", explicit_destination=native_printer,
+            record=order, company=company, document_type="kitchen", explicit_destination=order.config_id,
         )
         if route.get("native"):
             raise ValidationError(
-                _("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for the selected Odoo printer.")
+                _("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for the current POS Shop.")
             )
-        stable_key = "%s:%s" % (idempotency_key or uuid.uuid4().hex, native_printer.id)
         return self._submit_route(
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},
-            company=company, source_model=order._name, source_record_id=order.id, idempotency_key=stable_key,
+            company=company, source_model=order._name, source_record_id=order.id, idempotency_key=idempotency_key,
         )
 
     @api.model
