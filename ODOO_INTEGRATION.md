@@ -57,7 +57,7 @@ Patches `PosStore.prototype.printReceipt` to:
 3. Submit the image to `pos.order.action_print_gateway_receipt`
 
 ### Kitchen/Preparation Printing
-Patches `PosStore.prototype.printChanges` so Gateway-enabled POS kitchen tickets are rendered from order changes directly and sent to the Gateway binding; Odoo's native `pos.printer` is not used as a physical target.
+Patches `PosStore.prototype.printChanges` so Gateway-enabled POS kitchen tickets preserve Odoo 19's native `pos.printer`/product-category routing; the native `pos.printer` is the logical preparation destination, while the Gateway Runtime Printer is the physical target.
 
 ### Sale Details Report (`pos.py`)
 Intercepts the `/pos/sale_details_report` route for Z-report printing.
