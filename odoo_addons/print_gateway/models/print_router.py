@@ -450,8 +450,6 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
-    @api.model
-    @api.private
     def route_kitchen_print(self, order, image_base64, *, reprint=False, idempotency_key=None, pos_printer=None):
         order.ensure_one()
         self._assert_current_company(order.company_id, record=order)
