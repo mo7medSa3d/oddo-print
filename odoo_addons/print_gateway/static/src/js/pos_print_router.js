@@ -136,7 +136,17 @@ patch(PosStore.prototype, {
             if (!printBillActionTriggered && recordPrintAttempt) {
                 const count = currentOrder.nb_print ? currentOrder.nb_print + 1 : 1;
                 try {
-                    await this.data.silentCall("pos.order", "write", [[orderId], { nb_print: count }]);
+                    const writeResult = await this.data.silentCall(
+                        "pos.order",
+                        "write",
+                        [[orderId], { nb_print: count }],
+                    );
+                    // Odoo 19 silentCall() returns false when the RPC fails
+                    // instead of throwing. Keep the local model in sync only
+                    // after the server accepted the count update.
+                    if (writeResult !== false) {
+                        currentOrder.nb_print = count;
+                    }
                 } catch (writeErr) {
                     console.warn("Failed to record receipt print count:", writeErr);
                 }
