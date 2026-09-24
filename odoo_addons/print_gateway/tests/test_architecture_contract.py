@@ -320,15 +320,18 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("get_gateway_kitchen_routes", source)
         self.assertIn("routeCategories", source)
         self.assertIn("pos_printer_id", source)
-        self.assertIn("retryItems = null", source)
+        self.assertIn("const retryAttempt = printers !== this.unwatched.printers;", source)
+        self.assertIn("requestedPrinterIds", source)
+        self.assertIn("kitchenRoutes.routes.filter", source)
 
     def test_kitchen_retry_and_reprint_use_fresh_gateway_operations(self):
         source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
         self.assertIn("if (reprint || !orderChange.__gateway_print_id)", source)
         self.assertIn('"kitchen-retry-" + crypto.randomUUID()', source)
         self.assertIn("retry: () =>", source)
-        self.assertIn("failedItems", source)
-        self.assertIn("retryItems", source)
+        self.assertIn("const retryPrinters = new Set();", source)
+        self.assertIn("this.printChanges(order, orderChange, reprint, retryPrinters)", source)
+        self.assertNotIn("retryItems", source)
 
     def test_pos_gateway_unknown_outcome_cannot_enter_core_retry_path(self):
         source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
