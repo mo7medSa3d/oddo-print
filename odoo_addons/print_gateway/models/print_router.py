@@ -11,6 +11,8 @@ import uuid
 from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
 
+from .binding import _assert_report_usage_access
+
 REPORT_DOCUMENT_TYPES = {
     "sale.order": "order",
     "account.move": "invoice",
@@ -413,6 +415,7 @@ class PrintGatewayRouter(models.AbstractModel):
         if not report:
             raise ValidationError(_("The requested report is unavailable."))
         report.ensure_one()
+        report = _assert_report_usage_access(self.env, report)
         company = company or self.env.company
         self._assert_current_company(company)
         route = self.resolve_binding(
