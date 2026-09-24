@@ -874,8 +874,7 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
       // the global reservation. Otherwise repeated failed upgrades can exhaust
       // MAX_TOTAL_AGENT_SOCKETS even though no WebSocket was registered.
       socket.once("close", releaseReservation);
-      try {
-        wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+      wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
           const aws = ws as AgentSocket;
           aws.isAlive = true;
           aws.tenantId = agent!.tenantId;
@@ -922,16 +921,15 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
           // Release only the reservation; readyState is checked before registration.
           aws.once("close", releaseReservation);
         });
-      } catch (error) {
-        releaseReservation();
-        logUpgradeError(error);
-        if (!socket.destroyed && !socket.writableEnded) {
+    } catch (error) {
+      releaseReservation();
+      logUpgradeError(error);
+      if (!socket.destroyed && !socket.writableEnded) {
           writeWsHttpError(socket, 500, "WebSocket upgrade failed");
         } else {
           try { socket.destroy(); } catch {}
         }
       }
-    });
   });
 
   wss.on("connection", (ws: AgentSocket) => {
