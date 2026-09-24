@@ -83,9 +83,9 @@ class PrintGatewayBinding(models.Model):
         help="Logical POS destination. The physical printer is selected from the Gateway Runtime Printer below.",
     )
     destination_pos_printer_id = fields.Many2one(
-        "pos.printer", string="Legacy Odoo Kitchen Printer", ondelete="restrict", check_company=True,
+        "pos.printer", string="Odoo Preparation Printer", ondelete="restrict", check_company=True,
         domain="['|', ('company_id', '=', False), ('company_id', '=', effective_company_id)]",
-        help="Legacy compatibility only. New Gateway Kitchen bindings must select the POS Shop and Gateway Runtime Printer instead.",
+        help="Native Odoo 19 preparation-printer identity. Its product categories determine which kitchen lines this Gateway binding receives.",
     )
     destination_picking_type_id = fields.Many2one(
         "stock.picking.type", string="Operation Type", ondelete="restrict", check_company=True,
@@ -202,10 +202,13 @@ class PrintGatewayBinding(models.Model):
     def _compute_destination_ref(self):
         for record in self:
             destination = False
-            if record.destination_type in ("pos", "pos_printer"):
-                # New POS Kitchen bindings target the POS Shop directly. Keep
-                # the native Odoo printer fallback only for legacy records.
-                destination = record.destination_pos_config_id or record.destination_pos_printer_id
+            if record.destination_type == "pos":
+                destination = record.destination_pos_config_id
+            elif record.destination_type == "pos_printer":
+                # Native Odoo preparation-printer routing is the authoritative
+                # category-aware destination. Keep the POS Shop form as a
+                # compatibility fallback for existing Gateway-only bindings.
+                destination = record.destination_pos_printer_id or record.destination_pos_config_id
             elif record.destination_type == "picking_type":
                 destination = record.destination_picking_type_id
             elif record.destination_type == "report":
@@ -413,16 +416,12 @@ class PrintGatewayBinding(models.Model):
                 if record.report_id:
                     raise ValidationError(_("POS Receipt bindings must not select an Odoo Report; the receipt is rendered by the POS client."))
             elif record.destination_type == "pos_printer":
-                if record.destination_pos_config_id and record.destination_pos_printer_id:
-                    raise ValidationError(_("POS Kitchen / Preparation bindings must not select an Odoo Kitchen Printer; choose the POS Shop and Gateway Runtime Printer."))
                 if not record.destination_pos_config_id and not record.destination_pos_printer_id:
-                    raise ValidationError(_("A POS Shop is required for a POS Kitchen / Preparation binding."))
+                    raise ValidationError(_("An Odoo Preparation Printer or POS Shop is required for a POS Kitchen / Preparation binding."))
                 if record.destination_pos_printer_id:
-                    # Legacy binding compatibility: old records may still point
-                    # at a native Odoo printer and remain readable.
                     printer_configs = record.destination_pos_printer_id.pos_config_ids
                     if printer_configs and expected_company not in printer_configs.mapped("company_id"):
-                        raise ValidationError(_("Legacy Odoo Kitchen Printer is not available to the selected Odoo Branch."))
+                        raise ValidationError(_("Odoo Preparation Printer is not available to the selected Odoo Branch."))
                 if record.report_id:
                     raise ValidationError(_("POS Kitchen / Preparation bindings must not select an Odoo Report."))
             elif record.destination_type == "report":
