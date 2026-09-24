@@ -79,3 +79,30 @@
 - Fix: Corrected those two security descriptions only.
 - Verification:
   Post-edit fetch of `SECURITY.md` returned full-credential SHA-256 wording and the native-controller-untouched wording.
+
+## 2026-09-25 — Odoo 19 Kitchen preparation-printer routing
+- Files: `odoo_addons/print_gateway/models/binding.py`, `models/pos_order.py`, `models/print_router.py`, `static/src/js/pos_print_router.js`, `views/binding_views.xml`
+- Problem: Gateway Kitchen routing had been reduced to a POS-level destination and did not preserve Odoo 19's native preparation-printer/category partition.
+- Evidence before fix:
+  Odoo 19 `addons/point_of_sale/models/pos_printer.py` defines `product_categories_ids` and `pos_config_ids`; Odoo 19 `PosStore.printChanges()` passes each printer's `config.product_categories_ids` into `generateOrderChange()` for category filtering.
+- Fix: Gateway bindings can target the native Odoo `pos.printer` as the logical preparation destination; `get_gateway_kitchen_routes()` resolves a Gateway binding per preparation printer and returns its category IDs; the Gateway runtime printer remains the physical target. POS-only routing remains an explicit compatibility fallback.
+- Verification:
+  GitHub Actions Odoo job `Install and test addon on Odoo 19 Community` = `success`.
+  Main CI `Run integration tests (PostgreSQL)` = `success`; final log: `Test Files 42 passed (42)`, `Tests 299 passed (299)`.
+  
+## 2026-09-25 — Odoo 19 Kitchen retry/reprint idempotency
+- File: `odoo_addons/print_gateway/static/src/js/pos_print_router.js`
+- Problem: Reprinting a preparation change could reuse the original operation identity, allowing Gateway idempotency to collapse a legitimate physical reprint into the original print.
+- Evidence before fix:
+  Odoo 19's preparation flow explicitly uses `order.uiState.lastPrints` and calls `printChanges(..., reprint=true)` for the last kitchen order.
+- Fix: Reprints generate a fresh `crypto.randomUUID()`; operator retries use a separate `kitchen-retry-${uuid}` operation identity.
+- Verification:
+  Current source contains `if (reprint || !orderChange.__gateway_print_id)` and `"kitchen-retry-" + crypto.randomUUID()`.
+  GitHub Actions Odoo job and main CI both completed with `success`.
+
+## 2026-09-25 — Odoo 19 Kitchen fail-closed missing-station handling
+- Files: `odoo_addons/print_gateway/models/pos_order.py`, `static/src/js/pos_print_router.js`
+- Problem: If multiple Odoo preparation printers existed but one had no Gateway binding, changed lines for that station could be silently omitted.
+- Fix: The server returns `missing_routes`; the POS client maps changed product categories against those routes and cancels printing with an explicit error when an affected station is unbound.
+- Verification:
+  Current source contains `missing_routes`, `uncovered`, and the fail-closed message. Odoo 19 CI completed successfully on the containing repository state.
