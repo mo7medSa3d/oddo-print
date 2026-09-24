@@ -1,6 +1,3 @@
-from odoo import SUPERUSER_ID
-
-
 def migrate(cr, version):
     if not version:
         return
