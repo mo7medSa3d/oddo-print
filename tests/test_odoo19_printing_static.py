@@ -28,6 +28,29 @@ def test_gateway_mode_never_falls_back_to_core_printer_for_physical_pos_paths():
     assert "return super.printOrderChanges(data, printer)" in kitchen
 
 
+def test_gateway_pos_receipt_and_kitchen_do_not_require_native_odoo_printers_or_reports():
+    binding = read("models/binding.py")
+    view = read("views/binding_views.xml")
+    pos = read("models/pos_order.py")
+    router = read("models/print_router.py")
+    js = read("static/src/js/pos_print_router.js")
+
+    assert '("pos", "POS Receipt")' in binding
+    assert '("pos_printer", "POS Kitchen / Preparation")' in binding
+    assert 'record.document_type = "receipt"' in binding
+    assert 'record.document_type = "kitchen"' in binding
+    assert 'destination = record.destination_pos_config_id or record.destination_pos_printer_id' in binding
+    assert 'required="destination_type in (\'pos\', \'pos_printer\')"' in view
+    assert 'required="destination_type not in (\'pos\', \'pos_printer\')"' in view
+    assert 'name="destination_pos_printer_id" invisible="1"' in view
+    assert 'action_print_gateway_kitchen(self, image, reprint=False, operation_id=None)' in pos
+    assert 'def has_gateway_kitchen_binding(self):' in pos
+    assert 'def route_kitchen_print(self, order, image_base64' in router
+    assert 'explicit_destination=order.config_id' in router
+    assert 'printer_id: printer.config.id' not in js
+    assert 'has_gateway_kitchen_binding' in js
+    assert 'return super.printChanges(order, orderChange, reprint, printers)' in js
+
 def test_project_does_not_add_parallel_browser_iot_or_epos_print_path():
     files = list((ADDON / "static").rglob("*.js")) + list((ADDON / "controllers").rglob("*.py"))
     joined = "\n".join(p.read_text(encoding="utf-8") for p in files)
@@ -286,7 +309,7 @@ def test_gateway_config_auto_syncs_activation_toggle_without_manual_refresh():
 
 def test_odoo_integration_guide_matches_current_module_architecture():
     guide = (ROOT / "ODOO_INTEGRATION.md").read_text(encoding="utf-8")
-    assert "Version: 19.0.2.8.0" in guide
+    assert "Version: 19.0.2.9.0" in guide
     assert "report_download_override.py" not in guide
     assert "report_interceptor.js" in guide
     assert "runtime_agent_assignment" in guide
