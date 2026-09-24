@@ -69,3 +69,13 @@
 - Fix: Updated only the stale architecture claims to match the current code/schema.
 - Verification:
   Post-edit fetch of `ARCHITECTURE.md` returned `19.0.2.10.0`, `Next.js 16.3.6`, the OWL `report_interceptor.js` wording, tenant-plan/Agent queue admission wording, and `Schema: 24 tables`.
+
+
+## 2026-09-24 — SECURITY.md implementation drift
+- File: `SECURITY.md`
+- Problem: The document described Odoo API-key storage as prefix-based hashing and referred to a report-download controller validation layer that is no longer present.
+- Evidence before fix:
+  `src/lib/odoo-auth.ts` hashes the complete raw key with SHA-256 before lookup; `src/app/api/odoo/keys/route.ts` returns the raw key only from generation/rotation responses; current addon architecture uses `report_interceptor.js` and leaves the native `/report/download` controller untouched.
+- Fix: Corrected those two security descriptions only.
+- Verification:
+  Post-edit fetch of `SECURITY.md` returned full-credential SHA-256 wording and the native-controller-untouched wording.
