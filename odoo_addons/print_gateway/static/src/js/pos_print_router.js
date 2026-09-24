@@ -3,6 +3,7 @@
 import { patch } from "@web/core/utils/patch";
 import { showGatewayBillingLimitDialog } from "./gateway_limit_dialog";
 import { PosStore } from "@point_of_sale/app/services/pos_store";
+import { changesToOrder } from "@point_of_sale/app/models/utils/order_change";
 import { renderToElement } from "@web/core/utils/render";
 import { htmlToCanvas } from "@point_of_sale/app/services/render_service";
 import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt";
@@ -182,6 +183,74 @@ patch(PosStore.prototype, {
             receiptData.orderData.__gateway_print_id = `${operationId}:${index}`;
         });
         return receiptsData;
+    },
+
+    async sendOrderInPreparation(order, opts = {}) {
+        const sessionId = this.session?.id;
+        const gatewayEnabled = sessionId
+            ? await this.data.call("pos.session", "is_gateway_printing_enabled", [[sessionId]], {}, true)
+            : false;
+        if (gatewayEnabled !== true) {
+            return super.sendOrderInPreparation(order, opts);
+        }
+
+        let isPrinted = false;
+        let hasChanges = false;
+        try {
+            this.syncingOrders.add(order.uuid);
+
+            if (!opts.byPassPrint) {
+                let reprint = false;
+
+                // Odoo's native preparation gate depends on config.printerCategories,
+                // which is populated only from native pos.printer records. In Gateway
+                // mode the physical printer is owned by the Gateway, so use every
+                // loaded POS category as the logical preparation scope instead.
+                const gatewayCategories = new Set();
+                for (const product of this.models["product.product"].getAll()) {
+                    for (const categoryId of product?.parentPosCategIds || []) {
+                        gatewayCategories.add(categoryId);
+                    }
+                }
+
+                let orderChange = changesToOrder(order, gatewayCategories, opts.cancelled);
+                hasChanges =
+                    orderChange.new.length ||
+                    orderChange.cancelled.length ||
+                    orderChange.noteUpdate.length ||
+                    orderChange.internal_note ||
+                    orderChange.general_customer_note;
+
+                let shouldPrint = true;
+                if (!hasChanges) {
+                    if (opts.explicitReprint && order.uiState.lastPrints) {
+                        orderChange = [order.uiState.lastPrints.at(-1)];
+                        reprint = true;
+                    } else {
+                        shouldPrint = false;
+                    }
+                } else {
+                    orderChange = [orderChange];
+                }
+
+                if (reprint && opts.orderDone) {
+                    shouldPrint = false;
+                }
+
+                if (shouldPrint) {
+                    isPrinted = await this.printChanges(order, orderChange, reprint);
+                    if (isPrinted) {
+                        order.updateLastOrderChange();
+                    }
+                }
+            }
+
+            this.updateLastOrderChangeIfNoDevice(order, opts);
+        } finally {
+            this.syncingOrders.delete(order.uuid);
+        }
+
+        return isPrinted;
     },
 
     async printChanges(order, orderChange, reprint = false, printers = this.unwatched.printers) {
