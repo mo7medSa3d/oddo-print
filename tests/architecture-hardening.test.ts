@@ -51,7 +51,10 @@ describe("architecture hardening", () => {
     expect(src).toContain("hashPairingCode");
     expect(src).toContain("agentId: z.string().trim().min(1).max(120).optional()");
     expect(src).not.toContain("branchId");
-    expect(src).toContain("eq(agents.pairingCodeHash, hashedCode)");
+    // Registration now uses a parameterized SQL predicate directly rather than
+    // Drizzle's object-level eq() helper. Keep the contract on the credential
+    // itself, not on an incidental query-builder syntax.
+    expect(src).toContain("WHERE pairing_code_hash = ${hashedCode}");
     expect(src).toContain("agentId: agent.id");
     expect(src).toContain("agent_id: agent.id");
     expect(src).toContain("agent_secret: secret");
