@@ -273,7 +273,7 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
           lifecycle,
           managementSource: "manager",
           desiredRevision: sql<number>`${printers.desiredRevision} + 1`,
-          updatedAt: new Date(),
+          updatedAt: sql`now()`,
         })
         .where(and(eq(printers.id, id), eq(printers.tenantId, manager.tenantId), eq(printers.lifecycle, current)))
         .returning({ id: printers.id, lifecycle: printers.lifecycle, desiredRevision: printers.desiredRevision });
@@ -290,11 +290,6 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
         metadata: { from: current, to: lifecycle, desiredRevision: updated.desiredRevision },
       }, tx);
     });
-  } catch (error) {
-    if (error instanceof ActionError) throw error;
-    throw error;
-  }
-
   revalidatePath("/dashboard");
 }
 
@@ -414,7 +409,7 @@ export async function getDashboardJobs(options?: {
       );
     } else if (statusParam === "unassigned") {
       conditions.push(
-        or(eq(printJobs.destination, "unassigned"), eq(printJobs.printerId, "unassigned"), sql`${printJobs.printerId} NOT IN (SELECT id FROM printers WHERE lifecycle = 'active')`, sql`${printJobs.agentId} NOT IN (SELECT id FROM agents WHERE lifecycle = 'active')`)!
+        or(eq(printJobs.destination, "unassigned"), eq(printJobs.printerId, "unassigned"), sql`${printJobs.printerId} NOT IN (SELECT id FROM printers WHERE tenant_id = ${printJobs.tenantId} AND lifecycle = 'active')`, sql`${printJobs.agentId} NOT IN (SELECT id FROM agents WHERE tenant_id = ${printJobs.tenantId} AND lifecycle = 'active')`)!
       );
     }
   }

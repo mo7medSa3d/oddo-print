@@ -1280,22 +1280,27 @@ export default function DashboardClient({
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setReprintCandidate(null)} disabled={busy}>Cancel</Button>
-          <Button variant="danger" disabled={busy} loading={busy} onClick={async () => { const job = reprintCandidate; setReprintCandidate(null); if (!job) return; try {
-          await sendGatewayReprint(job.id);
-          setMessage({ text: `Reprint queued for ${job.printerId}`, type: "ok" });
-          void refreshData();
-        } catch (error) {
-          if (error instanceof DashboardApiError) {
-            const limit = upgradeLimitFromApiError(error);
-            if (limit) {
-              setUpgradeLimit(limit);
-              return;
+          <Button variant="danger" disabled={busy} loading={busy} onClick={async () => {
+            const job = reprintCandidate;
+            if (!job) return;
+            setBusy(true);
+            setReprintCandidate(null);
+            try {
+              await sendGatewayReprint(job.id);
+              setMessage({ text: `Reprint queued for ${job.printerId}`, type: "ok" });
+              void refreshData();
+            } catch (error) {
+              if (error instanceof DashboardApiError) {
+                const limit = upgradeLimitFromApiError(error);
+                if (limit) { setUpgradeLimit(limit); return; }
+                setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
+              } else {
+                setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
+              }
+            } finally {
+              setBusy(false);
             }
-            setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
-          } else {
-            setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
-          }
-        } }} icon={<RotateCcw className="h-4 w-4" />}>Reprint</Button>
+          }} icon={<RotateCcw className="h-4 w-4" />}>Reprint</Button>
         </div>
       </Modal>
 
