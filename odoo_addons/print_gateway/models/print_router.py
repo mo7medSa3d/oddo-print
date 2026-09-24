@@ -618,17 +618,20 @@ class PrintGatewayRouter(models.AbstractModel):
                     )
             elif current_company.parent_id:
                 # Root binding used from one of its branches: allowed as the
-                # documented find_for fallback. Company-wide assignment is
-                # still required by the centralized runtime authorization.
+                # documented find_for fallback. The centralized runtime
+                # authorization permits an Agent assigned to this Company or
+                # to any of its direct child Branches for a company-wide rule.
                 pass
             if not binding.printer_id:
                 raise ValidationError(_("Print binding '%s' has no Gateway Runtime Printer assigned.") % binding.display_name)
             if binding.branch_id and not binding.runtime_agent_id:
                 raise ValidationError(_("Print binding '%s' has no Gateway Runtime Agent assigned.") % binding.display_name)
             if binding.runtime_agent_id:
-                # Authorization follows the Binding's declared scope: branch Bindings may inherit
-                # a company-wide assignment, while root/company-wide Bindings require a company-wide
-                # assignment even when a child branch consumes the root fallback.
+                # Authorization follows the Binding's declared scope: a Branch
+                # Binding may use a same-Branch or company-wide assignment,
+                # while a root/company-wide Binding may use any assignment
+                # owned by the selected Company, including a child-Branch
+                # assignment.
                 binding_scope = binding.branch_id or False
                 self._assert_branch_agent_assignment(
                     binding.company_id, binding_scope, binding.runtime_agent_id,

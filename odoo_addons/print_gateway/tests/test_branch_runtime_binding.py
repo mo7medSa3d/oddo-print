@@ -375,6 +375,17 @@ class TestBranchRuntimeBinding(TransactionCase):
                     ["agent-a", "agent-company-wide"],
                 )
 
+            with patch.object(controller, "_scope", return_value=(self.company, False)):
+                result = controller.runtime_agents(
+                    company_id=self.company.id,
+                    branch_id=False,
+                    assignment_only=True,
+                )
+                self.assertEqual(
+                    [agent["id"] for agent in result["agents"]],
+                    ["agent-a", "agent-b", "agent-company-wide"],
+                )
+
             with patch.object(controller, "_scope", return_value=(self.company, self.branch)):
                 result = controller.runtime_agents(
                     company_id=self.company.id,
@@ -427,13 +438,14 @@ class TestBranchRuntimeBinding(TransactionCase):
         )
         self.assertEqual(
             model.assigned_agent_ids(self.company, False),
-            {"agent-company-wide"},
+            {"agent-branch", "agent-other-branch", "agent-company-wide"},
         )
         self.assertTrue(model.is_agent_assigned(self.company, self.branch, "agent-company-wide"))
         self.assertTrue(model.is_agent_assigned(self.company, self.branch, "agent-branch"))
         self.assertFalse(model.is_agent_assigned(self.company, self.branch, "agent-other-branch"))
         self.assertTrue(model.is_agent_assigned(self.company, False, "agent-company-wide"))
-        self.assertFalse(model.is_agent_assigned(self.company, False, "agent-branch"))
+        self.assertTrue(model.is_agent_assigned(self.company, False, "agent-branch"))
+        self.assertTrue(model.is_agent_assigned(self.company, False, "agent-other-branch"))
 
     def test_company_wide_binding_validates_remote_target(self):
         assignment_model = self.env["print_gateway.runtime_agent_assignment"]
@@ -461,7 +473,7 @@ class TestBranchRuntimeBinding(TransactionCase):
             result = binding.action_verify_remote_hardware()
         self.assertEqual(result.get("params", {}).get("type"), "success")
 
-    def test_root_binding_requires_company_wide_agent_assignment(self):
+    def test_root_binding_accepts_any_agent_assigned_within_company(self):
         binding_model = self.env["print_gateway.binding"]
         with self.assertRaises(ValidationError):
             binding_model.create({
@@ -477,9 +489,11 @@ class TestBranchRuntimeBinding(TransactionCase):
                 "priority": 97,
             })
 
+        # A Branch assignment is enough for a Company-only binding because the
+        # binding itself is intentionally scoped to the whole Company.
         self.env["print_gateway.runtime_agent_assignment"].create({
             "company_id": self.company.id,
-            "branch_id": False,
+            "branch_id": self.branch.id,
             "runtime_agent_id": "agent-root-assigned",
             "enabled": True,
         })
@@ -537,7 +551,7 @@ class TestBranchRuntimeBinding(TransactionCase):
         with self.assertRaises(ValidationError):
             controller._scope(self.company.id, self.company.id, env=self.env)
 
-    def test_root_runtime_printer_discovery_requires_company_wide_assignment(self):
+    def test_root_runtime_printer_discovery_accepts_any_company_agent_assignment(self):
         from odoo.addons.print_gateway.controllers.runtime_printers import PrintGatewayRuntimePrinterController
         controller = PrintGatewayRuntimePrinterController()
 
@@ -546,22 +560,24 @@ class TestBranchRuntimeBinding(TransactionCase):
                 controller.runtime_printers(
                     company_id=self.company.id,
                     branch_id=False,
-                    agent_id="agent-b",
+                    agent_id="agent-unassigned",
                 )
             remote_get.assert_not_called()
 
+            # The Agent is assigned to a child Branch, but the root-scoped
+            # binding is intentionally allowed to use it for the whole Company.
             self.env["print_gateway.runtime_agent_assignment"].create({
                 "company_id": self.company.id,
-                "branch_id": False,
-                "runtime_agent_id": "agent-a",
+                "branch_id": self.branch.id,
+                "runtime_agent_id": "agent-b",
                 "enabled": True,
             })
             result = controller.runtime_printers(
                 company_id=self.company.id,
                 branch_id=False,
-                agent_id="agent-a",
+                agent_id="agent-b",
             )
-            self.assertEqual([printer["id"] for printer in result["printers"]], ["printer-a"])
+            self.assertEqual([printer["id"] for printer in result["printers"]], ["printer-b"])
 
     def test_runtime_agent_assignment_scope_is_exact_to_selected_branch(self):
         assignment_model = self.env["print_gateway.runtime_agent_assignment"]

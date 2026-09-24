@@ -50,9 +50,13 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
         """Return enabled Gateway Agent IDs assigned to an Odoo scope.
 
         Branch scope inherits company-wide assignments (branch_id=False), while
-        a root company scope accepts only company-wide assignments. This is the
-        single source of truth consumed by the controller, binding validation,
-        and print router.
+        a root/company-wide scope includes every enabled Agent assigned to the
+        company itself or to one of its direct child Branches. This lets a
+        binding
+        created without a Branch use any Agent that belongs to the selected
+        Odoo Company, while a Branch-scoped binding remains restricted to that
+        Branch plus company-wide Agents. This is the single source of truth
+        consumed by the controller, binding validation, and print router.
         """
         company = company.exists() if company else company
         if not company or len(company) != 1:
@@ -77,7 +81,17 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
                 *domain,
             ]
         else:
-            domain.append(("branch_id", "=", False))
+            # A Company-only binding is explicitly a company-wide rule. It may
+            # therefore use any enabled Agent assigned to the root Company or
+            # to one of its direct child Branches. The assignment row still
+            # remains owned by the same root Company, so this does not cross a
+            # tenant boundary.
+            domain = [
+                "|",
+                ("branch_id", "=", False),
+                ("branch_id.parent_id", "=", company.id),
+                *domain,
+            ]
         return {
             record.runtime_agent_id.strip()
             for record in self.sudo().search(domain)

@@ -92,7 +92,7 @@ Root Company
 
 - Root company must not be a branch
 - Branch must belong to the selected root company
-- Agent must be assigned to the branch, or to the root company as a company-wide assignment inherited by its branches
+- A Branch binding requires an Agent assigned to that Branch or to the root Company; a Company-only binding may use any Agent assigned to the Company or one of its direct child Branches
 - Printer must belong to the selected agent
 - POS receipts cannot target laser/inkjet printers
 - Kitchen bindings cannot have a report_id
