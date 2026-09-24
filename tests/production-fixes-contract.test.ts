@@ -253,3 +253,60 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
     expect(source).not.toContain("const lastHeartbeatAt = printer.lastSeenAt;");
   });
 });
+
+
+describe("2026-09-24 remediation contracts", () => {
+  it("keeps dashboard job filters tenant-fenced and printer lifecycle on DB time", () => {
+    const source = read("src/app/actions.ts");
+    expect(source).toContain("tenant_id = ${printJobs.tenantId} AND lifecycle = 'active'");
+    expect(source).not.toContain("SELECT id FROM printers WHERE lifecycle = 'active'");
+    expect(source).not.toContain("SELECT id FROM agents WHERE lifecycle = 'active'");
+    expect(source).not.toContain("updatedAt: new Date()");
+  });
+
+  it("protects the explicit dashboard reprint with the shared busy guard", () => {
+    const source = read("src/app/dashboard/dashboard-client.tsx");
+    const start = source.indexOf("Reprint this document?");
+    const from = source.indexOf("onClick={async () => {", start);
+    const to = source.indexOf("}} icon={<RotateCcw", from);
+    const block = source.slice(from, to);
+    expect(block).toContain("setBusy(true)");
+    expect(block).toContain("finally");
+    expect(block).toContain("setBusy(false)");
+  });
+
+  it("uses the canonical live-subscription predicate for runtime claims", () => {
+    expect(read("src/lib/entitlements.ts")).toContain("export function liveTenantSubscriptionPredicate");
+    expect(read("src/lib/job-delivery.ts")).not.toContain("FROM tenant_subscriptions ts");
+    expect(read("src/app/api/agent/jobs/route.ts")).not.toContain("FROM tenant_subscriptions ts");
+    expect(read("src/app/api/agent/register/route.ts")).not.toContain("FROM tenant_subscriptions\n");
+  });
+
+  it("keeps workspace timestamps on the database clock", () => {
+    expect(read("src/app/api/settings/route.ts")).toContain("updatedAt: sql");
+    const onboarding = read("src/app/api/onboarding/route.ts");
+    expect(onboarding).toContain("clock_timestamp()");
+    expect(onboarding).not.toContain("Date.now()");
+    expect(onboarding).not.toContain("updatedAt: new Date()");
+  });
+
+  it("removes the dead rate-limit table without removing migration history", () => {
+    expect(read("src/db/schema.ts")).not.toContain("printJobRateLimits");
+    expect(read("tests/helpers/pg.ts")).not.toContain("print_job_rate_limits");
+    expect(read("drizzle/meta/_journal.json")).toContain("0071_remove_print_job_rate_limits");
+    expect(read("drizzle/0071_remove_print_job_rate_limits.sql")).toContain("DROP TABLE IF EXISTS print_job_rate_limits;");
+  });
+
+  it("removes the empty Security placeholder and stale patch artifacts", () => {
+    const settings = read("src/app/settings/page.tsx");
+    expect(settings).not.toContain("id: \"security\"");
+    expect(settings).not.toContain("activeTab === \"security\"");
+    expect(existsSync(resolve(process.cwd(), "fix.patch"))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), "final-fix.patch"))).toBe(false);
+  });
+
+  it("fails closed when db:generate has no current snapshot", () => {
+    expect(read("package.json")).toContain("db:generate\": \"tsx scripts/db-generate.ts");
+    expect(read("scripts/db-generate.ts")).toContain("Refusing to run drizzle-kit generate");
+  });
+});
