@@ -257,10 +257,16 @@ export function OperationalSignals({
       tone: jobs.queued + jobs.inFlight === 0 ? "ok" : "warn",
     },
     {
-      label: "Fleet exceptions",
-      value: agents.offline + printers.offline,
-      detail: "offline agents + printers",
-      tone: agents.offline + printers.offline === 0 ? "ok" : "warn",
+      label: "Offline agents",
+      value: agents.offline,
+      detail: "agents outside healthy heartbeat window",
+      tone: agents.offline === 0 ? "ok" : "warn",
+    },
+    {
+      label: "Offline printers",
+      value: printers.offline,
+      detail: "printers not currently available",
+      tone: printers.offline === 0 ? "ok" : "warn",
     },
     {
       label: "Billing attention",
@@ -271,7 +277,7 @@ export function OperationalSignals({
   ] as const;
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {signals.map((signal) => (
         <div key={signal.label} className="inset-panel p-4">
           <div className="flex items-center justify-between gap-3">
