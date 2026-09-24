@@ -127,14 +127,18 @@ export function liveTenantSubscriptionPredicate(tenantId: SQL, requireUnblocked 
     ? sql`AND COALESCE(ts.entitlement_blocked, false) = false`
     : sql``;
   return sql`
-    ts.tenant_id = ${tenantId}
-    AND ts.status IN ('trialing', 'active', 'past_due')
-    AND (
-      ts.status = 'past_due'
-      OR ts.current_period_end IS NULL
-      OR ts.current_period_end > clock_timestamp()
+    EXISTS (
+      SELECT 1
+      FROM tenant_subscriptions ts
+      WHERE ts.tenant_id = ${tenantId}
+        AND ts.status IN ('trialing', 'active', 'past_due')
+        AND (
+          ts.status = 'past_due'
+          OR ts.current_period_end IS NULL
+          OR ts.current_period_end > clock_timestamp()
+        )
+        ${unblocked}
     )
-    ${unblocked}
   `;
 }
 
@@ -145,7 +149,8 @@ export async function requireTenantBillingAccess(tx: EntitlementTx, tenantId: st
   const result = await tx.execute(sql`
     SELECT 1
     FROM tenant_subscriptions ts
-    WHERE ${liveTenantSubscriptionPredicate(sql`${tenantId}`)}
+    WHERE ts.tenant_id = ${tenantId}
+      AND ${liveTenantSubscriptionPredicate(sql`${tenantId}`)}
     LIMIT 1
     FOR UPDATE
   `);
