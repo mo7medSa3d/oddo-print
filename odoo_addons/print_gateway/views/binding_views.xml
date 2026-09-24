@@ -41,7 +41,7 @@
                     </div>
                     <div class="text-muted mb-3"><small>Select the branch, destination, and Gateway physical printer for this rule. POS Receipt and POS Kitchen / Preparation do not require an Odoo printer or PDF report.</small></div>
                     <div class="text-muted" invisible="destination_type != 'pos_printer'">
-                        <small>Gateway Kitchen / Preparation uses the selected POS Shop only. Do not configure an Odoo Kitchen Printer; choose the physical printer under Printer Setup.</small>
+                        <small>Gateway Kitchen / Preparation follows Odoo 19 Preparation Printers and their Printed Product Categories. Select the Odoo Preparation Printer here; the Gateway Runtime Printer remains the physical target. Existing POS Shop-only bindings remain a compatibility fallback.</small>
                     </div>
 
                     <group string="Scope">
@@ -53,9 +53,12 @@
                     <group string="Document &amp; Destination">
                         <field name="destination_type" string="Print Area" widget="radio" options="{'horizontal': true}"/>
                         <field name="destination_pos_config_id" string="POS Shop"
-                               invisible="destination_type not in ('pos', 'pos_printer')" required="destination_type in ('pos', 'pos_printer')"
+                               invisible="destination_type != 'pos'" required="destination_type == 'pos'"
                                domain="['&amp;', '|', ('company_id', '=', False), ('company_id', '=', effective_company_id), ('active', '=', True)]"/>
-                        <field name="destination_pos_printer_id" invisible="1"/>
+                        <field name="destination_pos_printer_id" string="Odoo Preparation Printer"
+                               invisible="destination_type != 'pos_printer'"
+                               domain="['|', ('company_id', '=', False), ('company_id', '=', effective_company_id)]"
+                               help="Odoo 19 Preparation Printer. Its Printed Product Categories determine which kitchen lines reach this Gateway runtime printer."/>
                         <field name="destination_picking_type_id" string="Operation Type"
                                invisible="destination_type != 'picking_type'" required="destination_type == 'picking_type'"
                                domain="['&amp;', '|', ('company_id', '=', False), ('company_id', '=', effective_company_id), ('active', '=', True)]"/>
