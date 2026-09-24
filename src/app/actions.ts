@@ -219,8 +219,7 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
   const manager = await requireManager();
   requireManagerPermission(manager, "printers.manage");
 
-  try {
-    await db.transaction(async (tx) => {
+  await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${manager.tenantId} || ':' || ${id}))`);
 
       // Use the same lock ordering as agent heartbeats: agent row first,
