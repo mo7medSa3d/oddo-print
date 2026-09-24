@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { DEVICE_CLASSES, PRINTER_TYPES, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABILITIES_MAX_BYTES, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError } from "../../../../lib/log";
+import { getTenantEntitlementLimit, isTenantBillingError, TenantEntitlementError } from "../../../../lib/entitlements";
 
 const MAX_HEARTBEAT_BODY_BYTES = 512 * 1024;
 const MAX_KEEP_ALIVE_JOB_IDS = 64;
@@ -255,6 +256,7 @@ export async function POST(req: Request) {
       }
 
       const skipped: Array<{ id: string; reason: string }> = [];
+      const sanitizedPrinters: Array<ReturnType<typeof sanitizePrinter> extends { ok: true; printer: infer P } ? P : never> = [];
       for (const raw of reportedPrinters) {
         const rawId = typeof raw?.id === "string" ? raw.id : "(unknown)";
         const res = sanitizePrinter(raw);
@@ -262,8 +264,45 @@ export async function POST(req: Request) {
           skipped.push({ id: rawId, reason: res.reason });
           continue;
         }
+        sanitizedPrinters.push(res.printer);
+      }
 
-        const p = res.printer;
+      // Agent heartbeats can auto-register agent-owned printers. Keep the same
+      // server-side max_printers entitlement used by explicit printer
+      // registration, while counting only genuinely new IDs in THIS page.
+      // getTenantEntitlementLimit locks the subscription row, so concurrent
+      // heartbeat pages/other registrations for the same tenant cannot both
+      // pass the capacity check against the same stale count.
+      const candidateIds = [...new Set(
+        sanitizedPrinters
+          .map((p) => p.id)
+          .filter((id) => !gatewayOwnedPrinterIds.has(id)),
+      )];
+      if (candidateIds.length > 0) {
+        const existingCandidates = await tx.query.printers.findMany({
+          where: and(eq(printers.tenantId, agent.tenantId), inArray(printers.id, candidateIds)),
+          columns: { id: true },
+        });
+        const existingIds = new Set(existingCandidates.map((row) => row.id));
+        const newPrinterCount = candidateIds.filter((id) => !existingIds.has(id)).length;
+        if (newPrinterCount > 0) {
+          const printerLimit = await getTenantEntitlementLimit(tx, agent.tenantId, "max_printers", true);
+          if (printerLimit !== null) {
+            const countResult = await tx.execute(sql`
+              SELECT COUNT(*)::int AS count
+              FROM printers
+              WHERE tenant_id = ${agent.tenantId}
+                AND lifecycle <> 'retired'
+            `);
+            const currentPrinterCount = Number(countResult.rows[0]?.count ?? 0);
+            if (currentPrinterCount + newPrinterCount > printerLimit) {
+              throw new TenantEntitlementError("max_printers", printerLimit, currentPrinterCount + newPrinterCount);
+            }
+          }
+        }
+      }
+
+      for (const p of sanitizedPrinters) {
         const observedUpdateSet = {
           status: p.status,
           observedDeviceClass: p.deviceClass as typeof printers.$inferInsert.observedDeviceClass,
@@ -403,6 +442,19 @@ export async function POST(req: Request) {
     }
     return NextResponse.json(response);
   } catch (error) {
+    if (error instanceof TenantEntitlementError) {
+      return NextResponse.json({
+        error: error.message,
+        code: "MAX_PRINTERS_EXCEEDED",
+        entitlement: error.entitlement,
+        limit: error.limit,
+        used: error.used,
+        upgradeRequired: true,
+      }, { status: 429, headers: { "Retry-After": "60", "Cache-Control": "no-store" } });
+    }
+    if (isTenantBillingError(error)) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
+    }
     logError("agent.heartbeat.failed", { agentId: agent.id, error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
