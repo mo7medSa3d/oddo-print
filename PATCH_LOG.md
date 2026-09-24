@@ -106,3 +106,14 @@
 - Fix: The server returns `missing_routes`; the POS client maps changed product categories against those routes and cancels printing with an explicit error when an affected station is unbound.
 - Verification:
   Current source contains `missing_routes`, `uncovered`, and the fail-closed message. Odoo 19 CI completed successfully on the containing repository state.
+
+## 2026-09-25 — Odoo 19 report layout configuration guard
+- File: `odoo_addons/print_gateway/models/ir_actions_report.py`
+- Problem: The Gateway `report_action()` override dispatched to the Gateway before Odoo 19's native administrator report-layout configuration check, potentially bypassing the `external_report_layout_id` configurator.
+- Evidence:
+  Odoo 19 core `ir_actions_report.report_action()` checks `config`, administrator status, `company.external_report_layout_id`, and `discard_logo_check` before continuing to the normal report action.
+  Before the fix, the addon had no `external_report_layout_id` guard and called `route_report()` after report access checks.
+- Fix: Added the same Odoo 19 layout gate before Gateway interception; when the native layout configurator condition is true, `super().report_action(...)` is returned unchanged.
+- Regression test: `test_report_action_preserves_odoo19_layout_configuration_gate` asserts the layout gate precedes report access and Gateway routing.
+- Verification:
+  GitHub Actions run `36066509146`, job `107857771046` — `Install and test addon on Odoo 19 Community: success`; `Assert the Odoo addon tests actually ran and passed: success`.
