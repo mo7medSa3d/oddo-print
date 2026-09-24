@@ -502,11 +502,3 @@ export const printUsagePeriods = pgTable("print_usage_periods", {
   periodCheck: check("print_usage_periods_period_check", sql`${table.periodEnd} IS NULL OR ${table.periodEnd} > ${table.periodStart}`),
 }));
 
-export const printJobRateLimits = pgTable("print_job_rate_limits", {
-  apiKeyId: text("api_key_id").references(() => apiKeys.id).primaryKey(),
-  minuteWindowStartedAt: timestamp("minute_window_started_at").notNull(),
-  minuteCount: integer("minute_count").notNull().default(0),
-  hourWindowStartedAt: timestamp("hour_window_started_at").notNull(),
-  hourCount: integer("hour_count").notNull().default(0),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
