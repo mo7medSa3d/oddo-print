@@ -130,7 +130,7 @@ export async function seedFixture(opts?: { printerCapabilities?: unknown }): Pro
         [tenantId, `plan_${suffix}`],
       );
       await client.query(`INSERT INTO agents (id, tenant_id, name, secret, status, lifecycle, last_seen_at) VALUES ($1, $2, $3, $4, 'online', 'active', now())`, [agentId, tenantId, `Agent ${suffix}`, sha256(agentSecret)]);
-      await client.query(`INSERT INTO printers (id, tenant_id, agent_id, name, printer_type, device_class, connection_type, protocol, status, lifecycle, config, capabilities) VALUES ($1, $2, $3, $4, 'physical', 'other', 'spooler', 'spooler', 'online', 'active', '{}'::jsonb, $5::jsonb)`, [printerId, tenantId, agentId, `Printer ${suffix}`, JSON.stringify(opts?.printerCapabilities ?? { supported_protocols: ["raw", "escpos", "pdf", "image"] })]);
+      await client.query(`INSERT INTO printers (id, tenant_id, agent_id, name, printer_type, device_class, connection_type, protocol, status, lifecycle, config, capabilities, last_seen_at) VALUES ($1, $2, $3, $4, 'physical', 'other', 'spooler', 'spooler', 'online', 'active', '{}'::jsonb, $5::jsonb, now())`, [printerId, tenantId, agentId, `Printer ${suffix}`, JSON.stringify(opts?.printerCapabilities ?? { supported_protocols: ["raw", "escpos", "pdf", "image"] })]);
       await client.query(`INSERT INTO api_keys (id, tenant_id, name, hashed_key, odoo_enabled, odoo_enabled_revision) VALUES ($1, $2, 'test key', $3, true, 0)`, [`key_${suffix}`, tenantId, sha256(odooKey)]);
       await client.query("COMMIT");
     } catch (error) { try { await client.query("ROLLBACK"); } catch {} throw error; }
