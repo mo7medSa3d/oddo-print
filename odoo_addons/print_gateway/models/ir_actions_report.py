@@ -3,6 +3,8 @@
 
 from odoo import models
 
+from .binding import _assert_report_usage_access
+
 
 class IrActionsReportGateway(models.Model):
     _inherit = "ir.actions.report"
@@ -14,6 +16,8 @@ class IrActionsReportGateway(models.Model):
         # HTML actions must preserve Odoo's native preview/render semantics.
         if self.report_type != "qweb-pdf":
             return super().report_action(docids, data=data, config=config)
+
+        _assert_report_usage_access(self.env, self)
         if getattr(docids, "_name", None) == self.model:
             records = docids.exists()
         else:
