@@ -38,7 +38,12 @@ export async function GET(req: Request) {
         active: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'active')::int`,
         trialing: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'trialing')::int`,
         pastDue: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'past_due')::int`,
+        incomplete: sql<number>`count(*) filter (where ${tenantSubscriptions.status = 'incomplete')::int`,
+        incompleteExpired: sql<number>`count(*) filter (where ${tenantSubscriptions.status = 'incomplete_expired')::int`,
+        unpaid: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'unpaid')::int`,
+        paused: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'paused')::int`,
         cancelled: sql<number>`count(*) filter (where ${tenantSubscriptions.status} = 'cancelled')::int`,
+        attention: sql<number>`count(*) filter (where ${tenantSubscriptions.status} in ('past_due','incomplete','incomplete_expired','unpaid'))::int`,
       }).from(tenantSubscriptions),
 
       db.select({
@@ -130,7 +135,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     tenants: tenantStats[0] ?? { total: 0, active: 0, suspended: 0, deleted: 0 },
-    subscriptions: subscriptionStats[0] ?? { total: 0, active: 0, trialing: 0, pastDue: 0, cancelled: 0 },
+    subscriptions: subscriptionStats[0] ?? { total: 0, active: 0, trialing: 0, pastDue: 0, incomplete: 0, incompleteExpired: 0, unpaid: 0, paused: 0, cancelled: 0, attention: 0 },
     users: userStats[0] ?? { total: 0, verified: 0 },
     agents: agentStats[0] ?? { total: 0, online: 0, offline: 0 },
     printers: printerStats[0] ?? { total: 0, online: 0, offline: 0 },
