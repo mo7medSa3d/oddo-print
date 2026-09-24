@@ -633,7 +633,7 @@ class PrintGatewayBinding(models.Model):
             return {"dispatched": False, "has_binding": False, "success": False}
 
         try:
-            route = router.route_report(report, records, data=data)
+            route = router.route_report(report, records, data=data, explicit_binding=binding)
             if route.get("native"):
                 return {"dispatched": False, "has_binding": False, "success": False}
 
