@@ -142,7 +142,9 @@ describe("deep production review contracts", () => {
     const entitlementSource = read("src/lib/entitlements.ts");
     expect(entitlementSource).toContain("ts.status IN ('trialing', 'active', 'past_due')");
     expect(entitlementSource).toContain("ts.status = 'past_due'");
-    expect(entitlementSource).toContain("COALESCE(ts.entitlement_blocked, false) = false");
+    expect(entitlementSource).toContain("export function liveTenantSubscriptionWhere(");
+    expect(entitlementSource).toContain("WHERE ${liveTenantSubscriptionWhere(sql`${tenantId}`, false)}");
+    expect(entitlementSource).not.toContain("WHERE ts.tenant_id = ${tenantId}\n      ${liveTenantSubscriptionPredicate");
     expect(entitlementSource).toContain("ts.current_period_end > clock_timestamp()");
 
     // The poll candidate CTEs must filter invalid rows before LIMIT is applied;
