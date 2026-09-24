@@ -23,6 +23,10 @@ type DeviceInfo struct {
 	Protocol       string                 `json:"protocol"`              // raw/escpos/ipp/spooler/windows_spooler
 	Endpoint       string                 `json:"endpoint,omitempty"`    // ip:port or device path
 	SpoolerName    string                 `json:"spoolerName,omitempty"` // Windows spooler name
+	SpoolerServer  string                 `json:"spoolerServer,omitempty"`
+	SpoolerPort    string                 `json:"spoolerPort,omitempty"`
+	SpoolerDriver  string                 `json:"spoolerDriver,omitempty"`
+	SpoolerShare   string                 `json:"spoolerShare,omitempty"`
 	USBVID         string                 `json:"usbVid,omitempty"`
 	USBPID         string                 `json:"usbPid,omitempty"`
 	USBSerial      string                 `json:"usbSerial,omitempty"`

@@ -4,11 +4,9 @@ import { normalizePrinterStatus } from "../src/lib/printer-health";
 import * as fs from "fs";
 
 describe("printer-capability-matrix", () => {
-  it("IPP transport supports pdf/image/raw", () => {
-    expect(getSupportedDocumentTypes("ipp", "ipp")).toContain("pdf");
+  it("IPP transport supports only PDF", () => {
+    expect(getSupportedDocumentTypes("ipp", "ipp")).toEqual(["pdf"]);
     expect(getSupportedDocumentTypes("ipps", "ipps")).toEqual(["pdf"]);
-    expect(getSupportedDocumentTypes("ipp", "ipp")).not.toContain("image");
-    expect(getSupportedDocumentTypes("ipp", "ipp")).not.toContain("raw");
     expect(isIppTransport("ipp", "ipp")).toBe(true);
     expect(isIppTransport("network", "ipp")).toBe(true);
   });
@@ -20,8 +18,8 @@ describe("printer-capability-matrix", () => {
     expect(isSpoolerTransport("network", "windows_spooler")).toBe(true);
   });
 
-  it("RAW transport supports raw/escpos/zpl/tspl", () => {
-    expect(getSupportedDocumentTypes("raw", "network")).toContain("raw");
+  it("RAW transport supports raw only", () => {
+    expect(getSupportedDocumentTypes("raw", "network")).toEqual(["raw"]);
     expect(getSupportedDocumentTypes("escpos", "network")).toContain("escpos");
     expect(isRawTransport("escpos")).toBe(true);
     expect(isRawTransport("zpl")).toBe(true); // zpl is considered raw transport per isRawTransport definition
@@ -104,3 +102,12 @@ describe("printer-capability-matrix", () => {
     expect(source).toContain("documentTypes");
   });
 });
+
+
+  it("health matrix uses the canonical capability mapping", () => {
+    const source = fs.readFileSync("src/lib/printer-health.ts", "utf8");
+    expect(source).toContain("getSupportedDocumentTypes");
+    expect(source).toContain("type ProtocolType");
+    expect(source).toContain("type TransportType");
+    expect(source).not.toContain("switch (p.protocol)");
+  });

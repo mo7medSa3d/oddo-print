@@ -18,6 +18,7 @@ import { db, queryWithTimeout } from "../db/client";
 import { printers } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import { gatewayNow } from "./database-clock";
+import { getSupportedDocumentTypes, type ProtocolType, type TransportType } from "./printer-capability";
 
 export type PrinterHealthStatus =
   | "ONLINE"
@@ -128,31 +129,10 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
   const config = (p.config ?? {}) as any;
   const caps = (p.capabilities ?? {}) as any;
 
-  let documentTypes: string[] = [];
-  switch (p.protocol) {
-    case "escpos":
-      documentTypes = ["escpos", "raw"];
-      break;
-    case "zpl":
-      documentTypes = ["zpl", "raw"];
-      break;
-    case "tspl":
-      documentTypes = ["tspl", "raw"];
-      break;
-    case "raw":
-      documentTypes = ["raw", "escpos", "zpl", "tspl"];
-      break;
-    case "ipp":
-    case "ipps":
-      documentTypes = ["pdf", "image", "raw"];
-      break;
-    case "spooler":
-    case "windows_spooler":
-      documentTypes = ["pdf", "image", "raw", "escpos"];
-      break;
-    default:
-      documentTypes = ["raw"];
-  }
+  const documentTypes = getSupportedDocumentTypes(
+    p.protocol as ProtocolType,
+    p.connectionType as TransportType,
+  );
 
   const statusInfo = normalizePrinterStatus(p.status, { lastSeenAt: p.lastSeenAt, config, capabilities: caps });
 

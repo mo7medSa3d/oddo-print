@@ -69,31 +69,8 @@ func containsDiscoverySource(a []string, s string) bool {
 // 1. UUID, 2. serial+manufacturer/model, 3. MAC, 4. IP+URI, 5. hostname+port
 
 func dedupeKey(di DeviceInfo) string {
-	if di.Capabilities != nil {
-		if v, ok := di.Capabilities["uuid"]; ok && fmt.Sprint(v) != "" {
-			return "uuid:" + strings.ToLower(fmt.Sprint(v))
-		}
-		if v, ok := di.Capabilities["printer_uuid"]; ok && fmt.Sprint(v) != "" {
-			return "uuid:" + strings.ToLower(fmt.Sprint(v))
-		}
-	}
-	if di.USBSerial != "" && di.USBVID != "" {
-		return fmt.Sprintf("usb:%s:%s:%s", strings.ToLower(di.USBVID), strings.ToLower(di.USBPID), strings.ToLower(di.USBSerial))
-	}
-	if di.Capabilities != nil {
-		if v, ok := di.Capabilities["serial"]; ok && fmt.Sprint(v) != "" {
-			s := strings.ToLower(fmt.Sprint(v))
-			m := strings.ToLower(di.Name)
-			if m != "" {
-				return "serial:" + s + ":" + m
-			}
-			return "serial:" + s
-		}
-	}
-	if di.Capabilities != nil {
-		if v, ok := di.Capabilities["mac"]; ok && fmt.Sprint(v) != "" {
-			return "mac:" + strings.ToLower(fmt.Sprint(v))
-		}
+	if key, ok := physicalIdentityKey(di); ok {
+		return key
 	}
 	if di.NetworkAddress != "" && di.Port != 0 {
 		return fmt.Sprintf("ip:%s:%d", strings.ToLower(di.NetworkAddress), di.Port)
@@ -106,7 +83,6 @@ func dedupeKey(di DeviceInfo) string {
 	}
 	return "id:" + di.ID
 }
-
 // SNMP discovery: safe read-only query for printer MIB.
 // Uses UDP 161 with community "public" (never hardcodes private credentials).
 // Queries: sysDescr (1.3.6.1.2.1.1.1.0), sysName (1.3.6.1.2.1.1.5.0), hrDeviceDescr (1.3.6.1.2.1.25.3.2.1.3), printer MIB 1.3.6.1.2.1.43.5.1.1.17 (prtGeneralSerialNumber)

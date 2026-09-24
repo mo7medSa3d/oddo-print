@@ -221,12 +221,31 @@ func UpsertRegistry(registryPath string, discovered []DeviceInfo) ([]DeviceInfo,
 			continue
 		}
 		if idx, ok := byID[d.ID]; ok {
-			// Update existing
+			// Update existing using the incoming observation.
 			existing[idx] = d
-		} else {
-			existing = append(existing, d)
-			byID[d.ID] = len(existing) - 1
+			continue
 		}
+
+		// Preserve the persisted ID when a stronger physical identity proves
+		// that an observed printer is the same device/queue after an IP or
+		// spooler-name change. This also migrates IDs created by older
+		// name/IP-based implementations without destructive re-registration.
+		if identity, ok := physicalIdentityKey(d); ok {
+			for idx, prior := range existing {
+				if priorIdentity, priorOK := physicalIdentityKey(prior); priorOK && priorIdentity == identity {
+					oldID := prior.ID
+					d.ID = oldID
+					existing[idx] = d
+					byID[oldID] = idx
+					log.Printf("[registry] preserved printer ID %s across identity-preserving endpoint/name change", oldID)
+					goto persisted
+				}
+			}
+		}
+
+		existing = append(existing, d)
+		byID[d.ID] = len(existing) - 1
+	persisted:
 	}
 	// Persist hidden records too: hiding a queue must never delete it.
 	all := concatDevices(existing, hidden)

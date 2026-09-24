@@ -660,11 +660,20 @@ func fallbackRegistryPrinters() ([]DeviceInfo, error) {
 		if name == "" {
 			continue
 		}
+		server := utf16PtrToString(pi.pServerName)
+		port := utf16PtrToString(pi.pPortName)
+		driver := utf16PtrToString(pi.pDriverName)
+		share := utf16PtrToString(pi.pShareName)
 		out = append(out, DeviceInfo{
 			Name:           name,
 			Protocol:       "spooler",
 			ConnectionType: "spooler",
 			Endpoint:       name,
+			SpoolerName:    name,
+			SpoolerServer:  server,
+			SpoolerPort:    port,
+			SpoolerDriver:  driver,
+			SpoolerShare:   share,
 		})
 	}
 	log.Printf("[discovery] registry fallback found %d printers", len(out))
