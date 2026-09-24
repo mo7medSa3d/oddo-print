@@ -1,3 +1,4 @@
+import { gatewayTestSigningKey } from "./helpers/test-secrets";
 import { createHmac, scryptSync } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import {
@@ -18,7 +19,7 @@ const suite = describe.skipIf(!hasTestDatabase);
 
 suite("manager authentication hardening", () => {
   beforeAll(async () => {
-    process.env.GATEWAY_JWT_SECRET = "test-secret-that-is-at-least-32-characters-long";
+    process.env.GATEWAY_JWT_SECRET = gatewayTestSigningKey();
     process.env.MANAGER_USERNAME = "manager";
     await applyMigrations();
   });

@@ -1,3 +1,4 @@
+import { gatewayTestSigningKey } from "./helpers/test-secrets";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import {
   hasTestDatabase,
@@ -20,7 +21,7 @@ suite("discovery trust and approval flow", () => {
   let f: Fixture;
 
   beforeAll(async () => {
-    process.env.GATEWAY_JWT_SECRET = "test-secret-that-is-at-least-32-characters-long";
+    process.env.GATEWAY_JWT_SECRET = gatewayTestSigningKey();
     await applyMigrations();
   });
 

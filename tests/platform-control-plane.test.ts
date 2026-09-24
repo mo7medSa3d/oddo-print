@@ -1,3 +1,4 @@
+import { gatewayTestSigningKey } from "./helpers/test-secrets";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import {
   createPlatformSession,
@@ -31,7 +32,7 @@ let fixture: Fixture;
 suite("Platform Control Plane & Authorization Boundaries", () => {
   beforeAll(async () => {
     prevSecret = process.env.GATEWAY_JWT_SECRET;
-    process.env.GATEWAY_JWT_SECRET = "test-secret-that-is-at-least-32-characters-long";
+    process.env.GATEWAY_JWT_SECRET = gatewayTestSigningKey();
     await applyMigrations();
   });
 

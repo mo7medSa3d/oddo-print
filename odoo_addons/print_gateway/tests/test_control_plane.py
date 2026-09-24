@@ -1600,7 +1600,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_billing_403_recovery_key_01",
+            "idempotency_key": "test_billing_403_recovery_%s" % uuid.uuid4().hex[:12],
             "fallback_binding_id": self.backup_binding.id,
         })
         response = MagicMock()
@@ -1637,7 +1637,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_deterministic_corrupt_key_01",
+            "idempotency_key": "test_deterministic_corrupt_%s" % uuid.uuid4().hex[:12],
             "fallback_binding_id": self.backup_binding.id,
         })
         corrupted.write({"payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "!!!not-base64!!!"})})
@@ -1658,7 +1658,7 @@ class TestControlPlane(TransactionCase):
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_deterministic_garbage_key_01",
+            "idempotency_key": "test_deterministic_garbage_%s" % uuid.uuid4().hex[:12],
             "fallback_binding_id": self.backup_binding.id,
         })
         mock_resp = MagicMock()

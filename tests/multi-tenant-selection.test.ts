@@ -1,3 +1,4 @@
+import { gatewayTestSigningKey } from "./helpers/test-secrets";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const { executeMock } = vi.hoisted(() => ({
@@ -17,7 +18,7 @@ import {
 
 describe("Tenant Selection Token Contract", () => {
   beforeEach(() => {
-    process.env.GATEWAY_JWT_SECRET = "test-secret-at-least-32-chars-long-for-jwt-signing";
+    process.env.GATEWAY_JWT_SECRET = gatewayTestSigningKey();
     executeMock.mockClear();
   });
 

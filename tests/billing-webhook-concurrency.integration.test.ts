@@ -1,3 +1,4 @@
+import { stripeWebhookTestKey } from "./helpers/test-secrets";
 import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac } from "node:crypto";
 import { POST } from "../src/app/api/billing/webhook/route";
@@ -26,7 +27,7 @@ stripeRetrieveMock.mockImplementation(async (path: string) => ({
 import { nanoid } from "../src/lib/nanoid";
 
 const suite = describe.skipIf(!hasTestDatabase);
-const WEBHOOK_SECRET = "whsec_test_concurrency_secret_123456789";
+const WEBHOOK_SECRET = stripeWebhookTestKey();
 process.env.STRIPE_WEBHOOK_SECRET = WEBHOOK_SECRET;
 
 function signPayload(payload: string, timestamp: number): string {

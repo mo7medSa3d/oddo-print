@@ -1,3 +1,4 @@
+import { gatewayTestSigningKey } from "./helpers/test-secrets";
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from "vitest";
 import {
   applyMigrations,
@@ -15,7 +16,7 @@ const suite = describe.skipIf(!hasTestDatabase);
 
 suite("printer desired-state authority", () => {
   beforeAll(async () => {
-    process.env.GATEWAY_JWT_SECRET = "test-secret-that-is-at-least-32-characters-long";
+    process.env.GATEWAY_JWT_SECRET = gatewayTestSigningKey();
     await applyMigrations();
   });
 
