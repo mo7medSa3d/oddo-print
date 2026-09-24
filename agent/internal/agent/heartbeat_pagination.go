@@ -9,7 +9,7 @@ const (
 	// fleet-size limit. Printer metadata is kept below the Gateway's 256,000
 	// byte aggregate page check so realistic capability/config payloads have
 	// headroom for JSON framing.
-	maxHeartbeatPrintersPerPage  = 500
+	maxHeartbeatPrintersPerPage = 500
 	maxHeartbeatPrinterBytes    = 220 * 1024
 	maxHeartbeatAuxItemsPerPage = 500
 )
