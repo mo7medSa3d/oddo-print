@@ -50,6 +50,11 @@ def test_gateway_pos_receipt_and_kitchen_do_not_require_native_odoo_printers_or_
     assert 'printer_id: printer.config.id' not in js
     assert 'has_gateway_kitchen_binding' in js
     assert 'return super.printChanges(order, orderChange, reprint, printers)' in js
+    assert "async sendOrderInPreparation(order, opts = {})" in js
+    assert 'return super.sendOrderInPreparation(order, opts)' in js
+    assert "const gatewayCategories = new Set();" in js
+    assert "changesToOrder(order, gatewayCategories, opts.cancelled)" in js
+    assert "this.config.printerCategories.size" not in js
 
 def test_project_does_not_add_parallel_browser_iot_or_epos_print_path():
     files = list((ADDON / "static").rglob("*.js")) + list((ADDON / "controllers").rglob("*.py"))
