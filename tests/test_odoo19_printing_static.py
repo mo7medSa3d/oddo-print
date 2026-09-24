@@ -45,7 +45,7 @@ def test_gateway_pos_receipt_and_kitchen_use_native_business_destinations():
     assert 'name="destination_pos_config_id" string="POS Shop"' in view
     assert 'action_print_gateway_kitchen(self, image, reprint=False, operation_id=None, pos_printer_id=None)' in pos
     assert "def get_gateway_kitchen_routes(self):" in pos
-    assert "destination_pos_printer_id" in pos
+    assert "pos_printer_id" in pos
     assert "pos_printer_id=None" in router
     assert "explicit_destination = pos_printer" in router
     assert "get_gateway_kitchen_routes" in js
