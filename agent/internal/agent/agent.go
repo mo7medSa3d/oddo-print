@@ -1560,53 +1560,79 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 
 
 	statuses := make([]string, len(ids))
-	// Probe results flow back through a channel and are applied ONLY by this
-	// goroutine. Probes themselves are bounded by each printer backend's
-	// Status() contract, so the batch warning is a latency signal rather than
-	// permission to orphan probe goroutines past the heartbeat lifecycle.
+	// Probe results flow back through a bounded worker pool. The old heartbeat
+	// ceiling implicitly capped this at 500 goroutines; once inventory became
+	// paginated, keeping one goroutine per printer would turn a large fleet
+	// heartbeat into an unbounded local resource spike. Keep per-printer
+	// single-flight semantics, but cap simultaneous OS/RPC status calls.
 	type probeResult struct {
 		idx    int
 		status string
 	}
+	type probeWork struct {
+		idx  int
+		pid  string
+		p    printer.Printer
+		state *printerProbeState
+	}
+
 	results := make(chan probeResult, len(ids))
-	probed := make(map[int]bool, len(ids))
-	pendingProbes := 0
+	works := make([]probeWork, 0, len(ids))
+	probed := make([]bool, len(ids))
 	for i, id := range ids {
 		state := a.getProbeState(id)
 		if !state.running.CompareAndSwap(false, true) {
 			// A previous probe is still running in the OS/RPC driver!
-			// Do NOT spawn another goroutine. Reuse the last known status
-			// (written under probeStateMu by whoever set it).
+			// Do NOT spawn another goroutine. Reuse the last known status.
 			statuses[i] = a.probeLastStatus(id)
 			probed[i] = true
 			continue
 		}
-
-		pendingProbes++
-		go func(i int, pid string, p printer.Printer, st *printerProbeState) {
-			defer func() {
-				st.running.Store(false)
-				a.deleteProbeState(pid)
-			}()
-			status := "error"
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						log.Printf("Status probe panic for %s: %v", pid, r)
-					}
-				}()
-				status = p.Status()
-			}()
-			a.setProbeLastStatus(pid, status)
-			a.observeDesiredRevision(pid, status)
-			results <- probeResult{idx: i, status: status}
-		}(i, id, printerByID[id], state)
+		works = append(works, probeWork{idx: i, pid: id, p: printerByID[id], state: state})
 	}
 
+	workers := len(works)
+	if workers > maxHeartbeatProbeConcurrency {
+		workers = maxHeartbeatProbeConcurrency
+	}
+	var probeWG sync.WaitGroup
+	probeWG.Add(workers)
+	workQueue := make(chan probeWork, len(works))
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer probeWG.Done()
+			for work := range workQueue {
+				func() {
+					defer func() {
+						work.state.running.Store(false)
+						a.deleteProbeState(work.pid)
+					}()
+					status := "error"
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								log.Printf("Status probe panic for %s: %v", work.pid, r)
+							}
+						}()
+						status = work.p.Status()
+					}()
+					a.setProbeLastStatus(work.pid, status)
+				a.observeDesiredRevision(work.pid, status)
+					results <- probeResult{idx: work.idx, status: status}
+				}()
+			}
+		}()
+	}
+
+	for _, work := range works {
+		workQueue <- work
+	}
+	close(workQueue)
+
+	pendingProbes := len(works)
 	// Keep the 2s signal for operator latency, but ALWAYS join every spawned
-	// probe before returning. A printer backend has its own bounded Status()
-	// call; letting this function return while probes still mutate runtime
-	// state would create an unowned goroutine after heartbeat/shutdown.
+	// probe before returning. The bounded pool prevents a large fleet from
+	// creating an unbounded number of OS/RPC calls or goroutines.
 	warningTimer := time.NewTimer(2 * time.Second)
 	defer warningTimer.Stop()
 	var warningC <-chan time.Time = warningTimer.C
@@ -1621,12 +1647,7 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 			warningC = nil
 		}
 	}
-	for i, id := range ids {
-		if !probed[i] {
-			statuses[i] = "spooler_rpc_unresponsive"
-			a.setProbeLastStatus(id, "spooler_rpc_unresponsive")
-		}
-	}
+	probeWG.Wait()
 
 	observedCapabilityStateChanged := false
 	result := make([]map[string]interface{}, 0, len(ids))
