@@ -114,14 +114,24 @@ export async function POST(req: Request) {
   if (currentSnapshotSubscriptionEvents.has(eventType)) {
     const subscriptionId = typeof obj.id === "string" ? obj.id : "";
     if (!subscriptionId) return NextResponse.json({ error: "Subscription event missing subscription id" }, { status: 400 });
-    try {
-      stateObj = await stripeRetrieve(`subscriptions/${encodeURIComponent(subscriptionId)}`);
+    const knownSubscription = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.stripeSubscriptionId, subscriptionId),
+      columns: { stripeLastEventCreatedAt: true },
+    });
+    const knownEventMs = parseDbTimeMs(knownSubscription?.stripeLastEventCreatedAt);
+    const skipStaleSnapshotFetch =
+      knownEventMs !== null && eventCreatedAt.getTime() < knownEventMs;
+
+    if (!skipStaleSnapshotFetch) {
+      try {
+        stateObj = await stripeRetrieve(`subscriptions/${encodeURIComponent(subscriptionId)}`);
     } catch (error) {
       logError("billing.webhook_latest_subscription_fetch_failed", {
         eventId,
         error: error instanceof Error ? error.message : "unknown",
       });
-      return NextResponse.json({ error: "Unable to verify current Stripe subscription state" }, { status: 502 });
+        return NextResponse.json({ error: "Unable to verify current Stripe subscription state" }, { status: 502 });
+      }
     }
   }
 
