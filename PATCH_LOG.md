@@ -165,3 +165,15 @@
 - Fix: Membership is now checked against `order.config_id.preparation_printer_ids`.
 - Verification:
   Regression test `test_kitchen_router_enforces_preparation_printer_membership` asserts the preparation relation is present and the generic relation is absent.
+
+## 2026-09-25 — Odoo 19 POS preparation sync preservation
+- File: `odoo_addons/print_gateway/static/src/js/pos_print_router.js`
+- Problem: When Gateway printing was enabled, the custom `sendOrderInPreparation()` reimplemented Odoo 19's preparation flow but returned after local state updates without the native post-print `syncAllOrders({ orders: [order] })` step.
+- Evidence before fix:
+  Odoo 19 `addons/point_of_sale/static/src/app/services/pos_store.js` performs `await this.syncAllOrders({ orders: [order] })` after preparation printing unless a preparation display is configured.
+  Repository source before fix ended the Gateway override after `this.syncingOrders.delete(order.uuid)` and returned `isPrinted`; no `syncAllOrders` call existed in that method.
+- Impact: On multi-device POS sessions, another POS device could retain the same unsynchronized preparation change and submit the kitchen ticket again.
+- Fix: Restored the Odoo 19 post-print synchronization guard verbatim in the Gateway-enabled path; native Odoo behavior remains unchanged when Gateway printing is disabled.
+- Regression test: `test_gateway_kitchen_preserves_odoo19_post_print_sync` verifies the synchronization call exists after the local syncing lock is released and is scoped to the current order.
+- Verification command/output:
+  `odoo_addons/print_gateway/tests/test_odoo19_printing_static.py::test_gateway_kitchen_preserves_odoo19_post_print_sync` added to the Odoo 19 static contract suite; final CI verification is required before this entry is considered closed.
