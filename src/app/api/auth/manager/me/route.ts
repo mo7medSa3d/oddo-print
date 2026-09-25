@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { validateManager } from "../../../../../lib/manager-auth";
+import { validateManagerOnly } from "../../../../../lib/manager-auth";
 
 export async function GET(req: Request) {
   const claims = await validateManager(req);
