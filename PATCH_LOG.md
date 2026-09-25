@@ -866,3 +866,16 @@
 - Auth verification in the same run passed: manager `7/7`, platform `11/11`, customer/tenant-selection `4/4`, rate-limit `20/20`, rate-limit fail-closed `6/6`, session rotation `8/8`, session logout `4/4`, legacy fallback `3/3`, desktop auth contract `5/5`.
 - Browser-level SameSite navigation proof remains BLOCKED because the repository has no browser automation harness; route-level and cookie-contract checks pass.
 - Temporary final verification workflow was intentionally removed after collecting the evidence; it was not part of the production codebase.
+
+
+## 2026-09-25 — Auth/session legacy-dependency closure and CI regression repair
+- Repository-wide dependency scan was run in GitHub Actions on the ref immediately before cleanup. Command output showed no INSERT/CREATE writes to manager_sessions or platform_sessions, no manager-session-tx references, and after refactoring the remaining runtime references were limited to src/lib/manager-auth.ts, src/lib/platform-auth.ts, and src/db/schema.ts.
+- managerSessions/platformSessions access previously scattered through password reset, tenant selection, ownership transfer, and tenant lifecycle code was moved behind explicit legacy compatibility helpers in the auth modules. New v2 session issuance remains centralized in src/lib/session-tokens.ts.
+- Removed the obsolete browser sessionStorage manager bearer-token path from src/desktop/lib/ipc.ts; browser authentication now uses HttpOnly cookies and refresh, while Tauri secrets remain in Rust process memory.
+- Centralized trusted Tauri request detection and blocked renderer overrides of the trusted Origin header. Manager refresh extraction now accepts X-Refresh-Token only from the trusted Tauri request boundary.
+- Corrected mgr_refresh cookie Path from /api/auth/manager/refresh to /api/auth/manager so manager logout can receive the refresh cookie after access-token expiry.
+- Fixed the Docker-discovered TypeScript regression by restoring the missing Drizzle isNull import in platform-auth.ts.
+- Repaired three stale unit-test contracts exposed by CI after the session migration: discovery auth mock, job-cleanup auth contract, and production page token-verification expectations.
+- Focused legacy-dependency scan result: TEMP Verify Auth Legacy Dependencies run 36165226720 completed successfully; its output contained no direct legacy session writes and no obsolete adapter references.
+- Docker build/runtime verification on the corresponding pre-cookie-path tree completed successfully in run 36164564234. Later cookie/IPC changes deliberately triggered a fresh final CI cycle; no final green claim is made until that clean-tree cycle completes.
+- Live browser SameSite navigation proof remains BLOCKED because the repository has no browser automation harness. Live Odoo production and real deployment validation remain out of scope.
