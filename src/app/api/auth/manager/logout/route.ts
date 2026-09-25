@@ -14,7 +14,7 @@ import {
 } from "../../../../../lib/session-tokens";
 
 export async function POST(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateManagerOnly(req);
   const refreshToken = getRefreshTokenFromRequest(req, "manager");
   let revokeFailed = false;
 
