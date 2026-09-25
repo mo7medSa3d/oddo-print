@@ -76,10 +76,6 @@ func isValidSpoolerPrinter(portName, driverName, printerName string) bool {
 	return true
 }
 
-
-
-
-
 // isVirtualSpooler reports whether a Windows spooler queue is software-only.
 // It is used before a queue enters the managed printer inventory.
 func isVirtualSpooler(portName, driverName, printerName string) bool {
