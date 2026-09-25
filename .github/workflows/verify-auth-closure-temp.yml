@@ -54,6 +54,8 @@ jobs:
       - name: Auth/session unit contracts
         run: |
           npm run test:unit --             tests/desktop-auth-contract.test.ts             tests/production-type-safety.contract.test.ts
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest
       - name: Python security contracts
         run: pytest tests/test_security_contracts.py
 
