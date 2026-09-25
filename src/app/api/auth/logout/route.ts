@@ -4,15 +4,21 @@ import { revokeManagerSession as revokeLegacyManagerSession, clearManagerCookieH
 import { validateCustomer } from "../../../../lib/customer-auth";
 import { clearCustomerRefreshCookie, clearCustomerSessionCookie } from "../../../../lib/customer-auth";
 import { writeAuditEvent } from "../../../../lib/audit";
-import { revokeSessionFamily } from "../../../../lib/session-tokens";
+import { getRefreshTokenFromRequest, revokeRefreshTokenFamily, revokeSessionFamily } from "../../../../lib/session-tokens";
 
 export async function POST(req: Request) {
   const claims = await validateCustomer(req);
   let revokeFailed = false;
   if (claims) {
     try {
-      if (claims.familyId) await revokeSessionFamily(claims.familyId, "logout");
-      else await revokeLegacyManagerSession(claims.jti);
+      if (claims.familyId) {
+        await revokeSessionFamily(claims.familyId, "logout");
+      } else {
+        const refreshToken = getRefreshTokenFromRequest(req, "customer");
+        if (!(refreshToken && await revokeRefreshTokenFamily("customer", refreshToken, "logout"))) {
+          await revokeLegacyManagerSession(claims.jti);
+        }
+      }
     } catch (error) {
       revokeFailed = true;
       logError("auth.logout.session_revoke_failed", { jti: claims.jti, familyId: claims.familyId, tenantId: claims.tenantId, error: error instanceof Error ? error.message : "unknown" });
