@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { tenantUsers, authRateLimits } from "../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { authenticateCustomer, type ManagerRole } from "./manager-auth";
+import { authenticateCustomer, validateManager, type ManagerRole, type ManagerClaims } from "./manager-auth";
 import { normalizeEmail } from "./password";
 import { createHmac, createHash, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
@@ -138,6 +138,10 @@ export function clearCustomerSessionCookie() {
 
 export function clearCustomerRefreshCookie() {
   return clearRefreshCookieHeader("customer");
+}
+
+export async function validateCustomer(req: Request): Promise<ManagerClaims | null> {
+  return validateManager(req);
 }
 
 export async function authenticateForTenant(email: string, password: string, tenantId?: string) {
