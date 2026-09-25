@@ -687,3 +687,11 @@
 - The same run's clock guard passed and printed the three `clock_timestamp()` call sites in `src/lib/auth-rate-limit.ts`; no `Date.now()`/host-clock match was accepted by the guard.
 - The repository's broader CI remained blocked by unrelated existing Odoo/CSP contract failures; those were not changed as part of B1 except for the manager-login contract string needed to recognize the new response wrapper.
 - Temporary verification workflow ordering was restored to the repository's original CI order, and the focused temporary workflow is being removed after verification.
+
+
+## 2026-09-25 — B2 fail-closed rate-limit storage policy
+- All six authentication-adjacent entrypoints now handle `reserveAuthAttempt()` storage failure explicitly.
+- Policy: fail closed with HTTP 503; no fail-open exception is implemented.
+- Reasoning: fail-open would allow an attacker to turn a rate-limiter storage outage into a brute-force bypass. The cost is temporary blocking of legitimate authentication traffic during PostgreSQL rate-limit-store failure, which is acceptable because PostgreSQL is already a hard Gateway dependency and a storage outage is expected to correlate with broader authentication unavailability.
+- Structured event: `auth.rate_limit.store_unavailable` records the affected endpoint and operational error without logging credentials.
+- Verification test added: `tests/auth-rate-limit-fail-closed.test.ts` mocks `reserveAuthAttempt` to reject and asserts HTTP 503 for manager login, platform login, customer login, forgot-password, register, and resend-verification.
