@@ -378,3 +378,11 @@ def test_auth_login_paths_do_not_send_refresh_tokens_to_browser_renderers():
     assert "platformRefreshCookieHeader" in platform
     customer = read("src/app/api/auth/login/route.ts")
     assert "customerRefreshCookie(session)" in customer
+
+
+def test_password_reset_revokes_shared_refresh_families():
+    source = read("src/app/api/auth/reset-password/route.ts")
+    assert "refreshTokens" in source
+    assert 'revokedReason: "password_reset"' in source
+    assert 'clock_timestamp()' in source
+    assert "eq(refreshTokens.userId, row.userId)" in source
