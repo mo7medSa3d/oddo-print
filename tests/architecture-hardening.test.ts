@@ -88,7 +88,8 @@ describe("architecture hardening", () => {
     expect(src).not.toContain("Content-Security-Policy");
     expect(src).not.toMatch(/script-src[^;]*unsafe-inline/);
     expect(proxy).not.toMatch(/script-src[^;]*unsafe-inline/);
-    expect(readFileSync("src/server/content-security-policy.ts", "utf8")).toContain("connect-src 'self';");
+    const csp = readFileSync("src/server/content-security-policy.ts", "utf8");
+    expect(csp).toContain("connect-src 'self';");
   });
 
   it("uses a request-scoped CSP nonce for the only application inline script", () => {
