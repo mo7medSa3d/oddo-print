@@ -480,6 +480,12 @@ export function readCookie(req: Request, name: string): string | null {
   return null;
 }
 
+export function isTrustedDesktopRequest(req: Request): boolean {
+  const origin = req.headers.get("origin") ?? "";
+  return req.headers.get("x-odoo-print-desktop") === "1"
+    && (origin === "tauri://localhost" || origin === "http://tauri.localhost");
+}
+
 export function getAccessTokenFromRequest(req: Request, kind: SessionKind): string | null {
   const cookieToken = readCookie(req, configFor(kind).accessCookieName);
   if (cookieToken) return cookieToken;
@@ -488,7 +494,7 @@ export function getAccessTokenFromRequest(req: Request, kind: SessionKind): stri
 }
 
 export function getRefreshTokenFromRequest(req: Request, kind: SessionKind): string | null {
-  if (req.headers.get("x-odoo-print-desktop") === "1") {
+  if (isTrustedDesktopRequest(req)) {
     const headerToken = req.headers.get("x-refresh-token")?.trim();
     if (headerToken) return headerToken;
   }
