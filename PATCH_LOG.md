@@ -664,3 +664,12 @@
 ## 2026-09-25 — OWASP 2025 A10 exceptional-condition review
 - Evidence: Stripe webhook processing is idempotent and returns 502 when current Stripe state cannot be verified; WebSocket delivery distinguishes requeue from explicit `delivery_unknown` after a successful socket write with failed evidence; Odoo print submission marks ambiguous post-dispatch outcomes as `UNKNOWN_SUBMISSION_OUTCOME` and pauses automatic retry, while proven pre-dispatch connection failures remain retryable/failover-safe.
 - Result: no additional exceptional-condition gap was identified in the reviewed webhook, WebSocket, and Odoo submission paths, so no production behavior change was made for A10.
+
+
+## 2026-09-25 — Auth rate-limit B1: response headers
+- Scope: `src/lib/auth-rate-limit.ts` and the six authentication-adjacent routes using `reserveAuthAttempt`.
+- Fix: `RateLimitDecision` now includes `limit`, `remaining`, and `resetAtEpochSec`; `setRateLimitHeaders()` consistently emits `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and epoch-second `X-RateLimit-Reset`.
+- Coverage: manager login, platform owner login, customer login, forgot-password, register, and resend-verification now apply the same header helper after the reservation decision, including throttled and normal response paths.
+- Clock invariant: the limiter continues to derive the authoritative current time from PostgreSQL `clock_timestamp()`; the rate-limit cleanup test uses PostgreSQL time rather than host `Date.now()`.
+- IETF status decision: the current HTTPAPI RateLimit header specification remains an active Internet-Draft rather than a stable RFC as of 2026-09-25, so the repository keeps the requested `X-` compatibility names for now.
+- Verification: current CI had a pre-existing failure in `Phase 0 architecture hardening test` before the rate-limit test step. No rate-limit PASS is claimed from that run.

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { lockDurationMs, pairingLockDurationMs, accountKey, ipKey, clientIpFrom, cleanupAuthRateLimits, AUTH_RATE_RETENTION_MS } from "../src/lib/auth-rate-limit";
+import { lockDurationMs, pairingLockDurationMs, accountKey, ipKey, clientIpFrom, cleanupAuthRateLimits, setRateLimitHeaders } from "../src/lib/auth-rate-limit";
 import {
   hasTestDatabase,
   applyMigrations,
@@ -22,6 +22,14 @@ describe("auth rate limiter (pure)", () => {
     expect(lockDurationMs(10)).toBe(5 * 60_000);
     expect(lockDurationMs(15)).toBe(15 * 60_000);
     expect(lockDurationMs(20)).toBe(60 * 60_000);
+  });
+
+  it("sets the X-RateLimit compatibility headers from one decision", () => {
+    const response = new Response(null, { status: 200 });
+    setRateLimitHeaders(response, { allowed: true, limit: 5, remaining: 4, resetAtEpochSec: 1_800_000_000 });
+    expect(response.headers.get("X-RateLimit-Limit")).toBe("5");
+    expect(response.headers.get("X-RateLimit-Remaining")).toBe("4");
+    expect(response.headers.get("X-RateLimit-Reset")).toBe("1800000000");
   });
 
   it("uses the same authoritative lockout schedule for pairing", () => {
@@ -66,12 +74,15 @@ describe("atomic rate-limit reservation contract", () => {
     const authFiles = [
       "src/app/api/auth/login/route.ts",
       "src/app/api/auth/manager/login/route.ts",
+      "src/app/api/platform/auth/login/route.ts",
       "src/app/api/auth/register/route.ts",
       "src/app/api/auth/forgot-password/route.ts",
+      "src/app/api/auth/resend-verification/route.ts",
     ];
     for (const file of authFiles) {
       const source = await readFile(file, "utf8");
       expect(source).toContain("reserveAuthAttempt");
+      expect(source).toContain("setRateLimitHeaders");
     }
     // Agent pairing has its own brute-force budget independent of the
     // account/user limiter, so it reserves from the pairing bucket only.
@@ -170,6 +181,9 @@ suite("manager login rate limiting", () => {
     const fifth = await login(USER, "wrong");
     expect(fifth.status).toBe(429);
     expect(fifth.headers.get("Retry-After")).not.toBeNull();
+    expect(fifth.headers.get("X-RateLimit-Limit")).toBe("5");
+    expect(fifth.headers.get("X-RateLimit-Remaining")).toBe("0");
+    expect(Number(fifth.headers.get("X-RateLimit-Reset"))).toBeGreaterThan(0);
     const body = await fifth.json();
     expect(body.error).toMatch(/too many/i);
   });
@@ -178,6 +192,9 @@ suite("manager login rate limiting", () => {
     const known = await login(USER, "wrong");
     const unknown = await login("no-such-user", "wrong", "198.51.100.11");
     expect(known.status).toBe(401);
+    expect(known.headers.get("X-RateLimit-Limit")).toBe("5");
+    expect(known.headers.get("X-RateLimit-Remaining")).not.toBeNull();
+    expect(known.headers.get("X-RateLimit-Reset")).not.toBeNull();
     expect(unknown.status).toBe(401);
     expect((await known.json()).error).toBe((await unknown.json()).error);
   });
@@ -211,8 +228,7 @@ suite("manager login rate limiting", () => {
   });
 
   it("removes only expired buckets and retains recent security state", async () => {
-    const staleAt = new Date(Date.now() - AUTH_RATE_RETENTION_MS - 60_000);
-    await pool().query(`INSERT INTO auth_rate_limits (key, failures, window_started_at, updated_at) VALUES ($1, 1, now() - interval '2 days', $2) ON CONFLICT (key) DO UPDATE SET updated_at = EXCLUDED.updated_at`, ["ip:stale", staleAt]);
+    await pool().query(`INSERT INTO auth_rate_limits (key, failures, window_started_at, updated_at) VALUES ($1, 1, now() - interval '2 days', clock_timestamp() - interval '24 hours' - interval '1 minute') ON CONFLICT (key) DO UPDATE SET updated_at = EXCLUDED.updated_at`, ["ip:stale"]);
     await pool().query(`INSERT INTO auth_rate_limits (key, failures, window_started_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (key) DO UPDATE SET updated_at = now()`, ["ip:fresh"]);
     const removed = await cleanupAuthRateLimits();
     expect(removed).toBeGreaterThanOrEqual(1);

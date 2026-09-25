@@ -19,7 +19,9 @@
 - Email/password with Argon2id hash (legacy scrypt hashes auto-upgraded on login)
 - Email verification required before full access
 - Password reset with time-limited, single-use tokens (SHA-256 hashed)
-- Rate limiting on login attempts (per-key lockout in `auth_rate_limits`)
+- Rate limiting on authentication-adjacent attempts uses the existing PostgreSQL dual-key reservation design (`auth_rate_limits`): account key always, trusted-proxy IP key when available.
+- Rate-limit responses after reservation expose `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and epoch-second `X-RateLimit-Reset`, with `Retry-After` on throttled responses.
+- The current lock curve remains the existing 5/10/15/20 failure progression; IP/account curve separation is deliberately deferred to the B3 decision.
 
 ### Manager Sessions
 - Server-side sessions in `manager_sessions` table
@@ -36,7 +38,8 @@
 
 | Scope | Mechanism | Parameters |
 |-------|-----------|------------|
-| Auth (login) | Per-key with progressive lockout | `auth_rate_limits` table |
+| Auth-adjacent endpoints | PostgreSQL dual-key reservation | Account key always; trusted-proxy IP key when available; 15-minute window |
+| Auth response metadata | Compatibility response headers | `X-RateLimit-Limit`, `X-RateLimit-Remaining`, epoch-second `X-RateLimit-Reset`, plus `Retry-After` when throttled |
 | WebSocket upgrade | Per-IP rate check | At upgrade time |
 | WebSocket messages | Per-agent token bucket | 20 capacity, 5 refill/s |
 | Print job admission | Atomic tenant plan entitlements | `max_jobs_per_minute` and `max_concurrent_jobs` are enforced inside the PostgreSQL transaction that creates/claims work; billing-period print credits are reserved atomically |
