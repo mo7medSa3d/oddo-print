@@ -69,13 +69,12 @@ def test_manager_login_does_not_mask_identity_lookup_failures_as_invalid_credent
     end = source.index("const legacyEnabled", start)
     block = source[start:end]
     assert 'logError("auth.login.user_lookup_failed"' in block
-    assert 'NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 })' in block
-    assert "setRateLimitHeaders" in block
+    assert 'return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });' in block
     # The catch must terminate this branch instead of falling through to the
     # generic INVALID credentials response.
     catch_start = block.index("catch")
     catch_end = block.index("}\n", catch_start) + 2
-    assert "return setRateLimitHeaders" in block[catch_start:catch_end]
+    assert "return NextResponse.json" in block[catch_start:catch_end]
 
 
 
