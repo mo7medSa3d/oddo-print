@@ -13,6 +13,7 @@ import {
   verifyManagerToken,
   verifyManagerPassword,
   validateManagerClaims,
+  validateWorkspaceManager,
 } from "../src/lib/manager-auth";
 
 const suite = describe.skipIf(!hasTestDatabase);
@@ -59,6 +60,34 @@ suite("manager authentication hardening", () => {
     expect(row.token_hash).not.toBe(created.refreshToken);
     expect(new Date(row.expires_at).getTime()).toBe(created.refreshExpiresAt.getTime());
     await expect(validateManagerClaims(claims)).resolves.not.toBeNull();
+  });
+
+  it("accepts a customer v2 session in workspace auth while manager-only validation stays separate", async () => {
+    await pool().query(
+      "INSERT INTO users (id, email, password_hash, email_verified_at) VALUES ($1, $2, $3, clock_timestamp())",
+      ["user_workspace_test", "workspace@example.test", "unused"],
+    );
+    await pool().query(
+      "INSERT INTO tenant_users (user_id, tenant_id, role) VALUES ($1, $2, $3)",
+      ["user_workspace_test", "tenant_manager_test", "admin"],
+    );
+
+    const session = await (await import("../src/lib/session-tokens")).issueSessionPair({
+      kind: "customer",
+      tenantId: "tenant_manager_test",
+      userId: "user_workspace_test",
+      role: "admin",
+      email: "workspace@example.test",
+    });
+
+    const request = new Request("http://gateway.test/api/agents", {
+      headers: { cookie: "cust_session=" + session.accessToken },
+    });
+    await expect(validateWorkspaceManager(request)).resolves.toMatchObject({
+      userId: "user_workspace_test",
+      tenantId: "tenant_manager_test",
+      kind: "customer",
+    });
   });
 
   it("rejects a token signed with a different JWT header", async () => {
