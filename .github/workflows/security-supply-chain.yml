@@ -42,6 +42,20 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Phase 0 npm audit (production dependencies)
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev
+
+      - name: Phase 0 npm audit (full dependency tree)
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit
+
       - name: npm audit
         shell: bash
         run: |
