@@ -608,3 +608,21 @@
 - Evidence: Stripe webhook processing is idempotency-fenced with `ON CONFLICT (event_id) DO NOTHING` and returns 502 when current Stripe subscription state cannot be verified; Gateway WebSocket delivery requeues only before delivery evidence and marks delivery unknown when socket acceptance is followed by evidence-write failure; Odoo submission/status paths use `UNKNOWN_SUBMISSION_OUTCOME`, reconciliation states, and explicit operator reprint paths rather than blind automatic retries.
 - Verification: `tests/test_security_contracts.py` and `tests/test_odoo19_printing_static.py` contain explicit regression assertions for these failure-state contracts; the Odoo static contract suite completed successfully in CI on the inspected state.
 - Result: no additional A10 code defect was established in the inspected Stripe/WebSocket/Odoo paths, so no speculative behavioral change was introduced.
+
+
+## 2026-09-25 — A05 Injection: Odoo SQL identifier regression guard broadened
+- Problem: the existing hardening test covered only the known dynamic-table call sites, not every Python file under `odoo_addons/**/*.py` as required for regression coverage.
+- Evidence: current `gateway_config.py` call sites use `sql.SQL(...).format(sql.Identifier(self._table))`; migration `19.0.2.3.0/post-migrate.py` uses `sql.Identifier(table)`. A repository-wide test is now required so a future addon file cannot reintroduce raw `% self._table` or f-string table interpolation unnoticed.
+- Fix: `tests/test_final_security_hardening.py::test_odoo_dynamic_table_identifiers_are_composed_safely` now scans every `*.py` below `odoo_addons/print_gateway` for the prohibited interpolation patterns and separately asserts `psycopg2.sql.Identifier` at the known dynamic-table call sites.
+- Verification: pending on the next local/CI Python test execution; no SQL runtime behavior changed.
+
+## 2026-09-25 — AppSec phase completion boundary: A09 remains an explicit finding
+- OWASP: A09 Logging and Alerting Failures.
+- Evidence: `src/lib/audit.ts` writes `audit_events`; `src/app/api/platform/audit/route.ts` reads them; no configured repository-local alert sink/provider consumes those events for real-time delivery. Logging/audit storage is therefore not counted as alerting.
+- Result: no alert backend was invented or wired to an unspecified external provider. `SECURITY.md` now states this boundary explicitly.
+
+## 2026-09-25 — AppSec phase completion boundary: A04/A07 decision
+- OWASP: A04 Cryptographic Failures / A07 Identification and Authentication Failures.
+- Official-version evidence: current `jose` documentation provides `jwtVerify` for JWS signature and JWT Claims Set validation, and allows explicit algorithm allowlists; current project code instead enforces a single `HS256` profile plus DB-backed session validation.
+- Decision: retain the existing JWT implementation because no concrete defect was found and migration would add protocol-transition complexity without a demonstrated security benefit in this codebase.
+- Verification evidence already recorded in CI: manager/platform auth tests passed on the inspected `main` state; no authentication or cryptographic runtime code was changed in this phase.
