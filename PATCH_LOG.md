@@ -709,3 +709,11 @@
 - Account curve remains 5/10/15/20 failures with the existing 30s/5m/15m/60m lock durations.
 - Trusted-proxy IP curve moves to 20/30/40/50 failures with the same progressive durations. This addresses legitimate NAT/shared-source traffic without weakening the stricter per-account protection.
 - Regression coverage added for the pure IP curve and a real integration scenario: ten failed attempts for ten different accounts from one trusted source IP leave the IP bucket unlocked; a valid login from that same source IP still succeeds.
+
+
+## 2026-09-25 — B2 auth rate-limit storage failure mode
+- Decision: keep authentication-adjacent rate limiting explicitly fail-closed. A `reserveAuthAttempt()` storage error returns HTTP 503 rather than allowing an unprotected authentication attempt.
+- Rationale: fail-closed prevents an attacker from intentionally disrupting PostgreSQL-backed limiter state to create a fail-open bypass. The availability cost is temporary blocking during a PostgreSQL limiter-store failure; PostgreSQL is already a hard dependency for Gateway authentication and core operations, so such an outage is expected to correlate with wider service degradation.
+- Scope: manager login, platform owner login, customer login, forgot-password, register, and resend-verification now log a structured `auth.rate_limit.store_unavailable` event and return 503 when reservation cannot be completed.
+- No fail-open exception is introduced because no narrower storage error class was demonstrated to be independent of database availability.
+- Verification test added: `tests/auth-rate-limit-fail-closed.test.ts` covers all six routes and asserts the 503 fail-closed behavior.
