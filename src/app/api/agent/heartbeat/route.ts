@@ -3,7 +3,7 @@ import { agents, printJobs, printers } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { DEVICE_CLASSES, PRINTER_TYPES, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABILITIES_MAX_BYTES, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
+import { DEVICE_CLASSES, PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABILITIES_MAX_BYTES, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError } from "../../../../lib/log";
 import { getTenantEntitlementLimit, isTenantBillingError, TenantEntitlementError } from "../../../../lib/entitlements";
@@ -24,8 +24,6 @@ const KNOWN_CAPABILITY_TOKENS = new Set([
   "ipp",
   "ipps",
 ]);
-const VALID_CONNECTION_TYPES = new Set(["network", "usb", "spooler", "ipp", "ipps"]);
-const VALID_PROTOCOLS = new Set(["raw", "escpos", "zpl", "tspl", "ipp", "ipps", "spooler", "windows_spooler", "unknown"]);
 const VALID_AGENT_STATUSES = new Set(["online", "offline"]);
 
 function utf8ByteLength(value: string): number {
@@ -54,13 +52,13 @@ function normalizeConnectionType(raw?: unknown, legacy?: unknown): string | null
   const normalizedOld = old === "tcp" ? "network" : old === "windows_spooler" ? "spooler" : old;
   if (canonical && normalizedOld && canonical !== normalizedOld) return null;
   const value = canonical || normalizedOld;
-  return VALID_CONNECTION_TYPES.has(value) ? value : null;
+  return CONNECTION_TYPES.includes(value as (typeof CONNECTION_TYPES)[number]) ? value : null;
 }
 
 function normalizeProtocol(raw?: unknown): string | null {
   const p = typeof raw === "string" ? raw.toLowerCase().trim() : "";
   const normalized = p === "windows_spooler" ? "spooler" : p;
-  return VALID_PROTOCOLS.has(normalized) && normalized ? normalized : null;
+  return PRINTER_PROTOCOLS.includes(normalized as (typeof PRINTER_PROTOCOLS)[number]) && normalized ? normalized : null;
 }
 
 function sanitizePrinter(p: ReportedPrinter): {
