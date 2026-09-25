@@ -62,7 +62,7 @@ async function renderReceiptImage(pos, currentOrder, basic = false) {
     }
 
     // Direct template fallback if renderer service is unavailable:
-        const receipt = renderToElement("point_of_sale.OrderReceipt", props);
+        const receipt = renderToElement("point_of_sale.pos_order_receipt", props);
     return await elementToJpeg(receipt);
 }
 
