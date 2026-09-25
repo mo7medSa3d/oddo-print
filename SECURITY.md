@@ -34,6 +34,8 @@
 - Existing pre-v2 manager/customer/platform sessions remain on the legacy `manager_sessions`/`platform_sessions` validation path until their original 8-hour expiry; no blanket forced logout is introduced.
 - Session kinds are explicitly separated: manager APIs accept only v2 `kind=manager`, customer APIs only v2 `kind=customer`, and platform APIs only v2 `kind=platform`. A v2 token never falls through into legacy validation as a different session kind.
 - Legacy `manager_sessions`/`platform_sessions` rows remain only for compatibility and legacy-session revocation/validation during the migration window.
+- Gateway housekeeping runs on the existing 5-minute in-process maintenance loop; expired refresh-token cleanup was added to that existing loop rather than introducing a new scheduler.
+- SameSite browser semantics could not be exercised with a real browser in this repository because no Playwright/Cypress/Puppeteer harness is present. Route-level checks confirm refresh/reset/verification flows do not require cross-site refresh-cookie delivery. This browser-level proof remains a BLOCKED verification item.
 
 ### Rate-limit failure mode
 Authentication-adjacent routes keep PostgreSQL-backed rate limiting fail-closed. If `reserveAuthAttempt` cannot obtain a decision because the limiter store is unavailable, the route returns HTTP 503 and does not attempt authentication without rate-limit protection. This prevents an attacker from deliberately disrupting the limiter store to manufacture a fail-open bypass.

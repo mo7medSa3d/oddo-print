@@ -797,3 +797,22 @@
 - Earlier focused session gates also passed on the same runtime line: A4 rotation `6/6` and A7 legacy fallback `3/3`.
 - No live Odoo instance or production deployment was used; those validations remain BLOCKED/out of scope as required.
 - Temporary session-verification workflows were removed from the final repository tree after acceptance.
+
+
+## 2026-09-25 — Part A final auth verification and remaining blockers
+- Final focused workflow `36149550207` on runtime tree `92e5ae48bdb0fb665f14e72138ac2d572c025078` executed PostgreSQL migrations, typecheck, lint, and the complete requested auth/session regression set.
+- Manager auth: `tests/manager-auth.test.ts` — 6/6 passed.
+- Platform auth: `tests/platform-control-plane.test.ts` — 11/11 passed.
+- Customer auth coverage: `tests/multi-tenant-selection.test.ts` — 4/4 passed.
+- Rate limiting: `tests/auth-rate-limit.test.ts` — 20/20 passed.
+- Rate-limit failure mode: `tests/auth-rate-limit-fail-closed.test.ts` — 6/6 passed; structured `auth.rate_limit.store_unavailable` events were emitted for all six covered routes.
+- Shared session rotation: `tests/session-tokens.integration.test.ts` — 7/7 passed after fixing the legacy fallback so v2 manager/customer kinds cannot cross-authenticate.
+- Legacy fallback: `tests/session-legacy-fallback.integration.test.ts` — 3/3 passed.
+- Logout family revocation: `tests/session-logout.integration.test.ts` — 3/3 passed.
+- Desktop boundary: `tests/desktop-auth-contract.test.ts` — 5/5 passed.
+- Typecheck and lint both passed on the same final runtime tree.
+- The dedicated `pytest tests/test_security_contracts.py` step reported 31 passed and 2 failed. One failure is the pre-existing Odoo raw-SQL identifier finding at `gateway_config.py` lines 748, 966, 1064, and 1656; it is outside Part A and remains BLOCKED rather than being altered. The other manager-login assertion was a stale wrapper contract and has been corrected in tests only.
+- A browser-level SameSite=Strict verification remains BLOCKED because the repository has no browser automation harness (tree search returned no Playwright/Cypress/Puppeteer assets). Route-level verification is present; no OAuth/callback routes were found in the repository tree.
+- No live Odoo 19 instance or production deployment was used or claimed.
+- Official-version check: package.json pins Next.js 16.3.6, Drizzle ORM 0.45.2, Drizzle Kit 0.31.10, Vitest 5.0.1, Node .nvmrc 24.21.0. Drizzle's current docs continue to define SQL migration generation/application via `drizzle-kit generate/migrate`. The IETF RateLimit header draft remains an Internet-Draft, not a final RFC, as of 2026-09-25. citeturn505484search0turn505484search1turn505484search2
+- The existing 5-minute Gateway housekeeping loop now includes `cleanupExpiredRefreshTokens()`; no new scheduler mechanism was introduced.
