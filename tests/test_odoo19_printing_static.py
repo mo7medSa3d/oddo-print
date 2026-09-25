@@ -45,12 +45,17 @@ def test_gateway_pos_receipt_and_kitchen_use_native_business_destinations():
     assert 'name="destination_pos_config_id" string="POS Shop"' in view
     assert 'action_print_gateway_kitchen(self, image, reprint=False, operation_id=None, pos_printer_id=None)' in pos
     assert "def get_gateway_kitchen_routes(self):" in pos
+    assert "printer_ids" in pos
+    assert "preparation_printer_ids" not in pos
     assert "pos_printer_id" in pos
     assert "pos_printer=None" in router
     assert "explicit_destination = pos_printer" in router
     assert "get_gateway_kitchen_routes" in js
     assert "routeCategories" in js
     assert "missing_routes" in js
+    assert 'printers = this.models["pos.printer"].getAll()' in js
+    assert "printers instanceof Set" in js
+    assert "this.unwatched.printers" not in js
     assert "kitchen-retry-" in js
     assert "if (reprint || !orderChange.__gateway_print_id)" in js
     assert "return super.sendOrderInPreparation(order, opts)" in js
