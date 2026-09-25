@@ -144,4 +144,35 @@ describe("architecture hardening", () => {
     expect(block).toContain("tx.delete(agents)");
     expect(block).toContain("pg_notify('print_gateway_agent_sessions'");
   });
+  it("does not introduce an unsigned Tauri updater path", () => {
+    const cargo = readFileSync("src-tauri/Cargo.toml", "utf8");
+    const config = readFileSync("src-tauri/tauri.conf.json", "utf8");
+    const main = readFileSync("src-tauri/src/main.rs", "utf8");
+    expect(cargo).not.toContain("tauri-plugin-updater");
+    expect(main).not.toContain("tauri_plugin_updater");
+    expect(config).not.toMatch(/"updater"\s*:/);
+  });
+
+  it("keeps external failure outcomes explicit instead of assuming success", () => {
+    const webhook = readFileSync("src/app/api/billing/webhook/route.ts", "utf8");
+    expect(webhook).toContain("ON CONFLICT (event_id) DO NOTHING");
+    expect(webhook).toContain("Unable to verify current Stripe subscription state");
+    expect(webhook).toContain("return NextResponse.json({ error: \"Unable to verify current Stripe subscription state\" }, { status: 502 });");
+
+    const ws = readFileSync("src/server/ws.ts", "utf8");
+    expect(ws).toContain("releaseUndeliveredClaim");
+    expect(ws).toContain("markJobDeliveryUnknown");
+    const evidenceStart = ws.indexOf("const evidenced = await markJobDelivered");
+    const evidenceEnd = ws.indexOf('return markedUnknown ? "delivery_unknown" : "not_claimable";', evidenceStart);
+    expect(evidenceStart).toBeGreaterThanOrEqual(0);
+    expect(evidenceEnd).toBeGreaterThan(evidenceStart);
+    expect(ws.slice(evidenceStart, evidenceEnd)).toContain("markJobDeliveryUnknown");
+
+    const odoo = readFileSync("odoo_addons/print_gateway/models/print_job.py", "utf8");
+    expect(odoo).toContain("UNKNOWN_SUBMISSION_OUTCOME:");
+    expect(odoo).toContain("Automated retries are paused to prevent duplicate prints.");
+    expect(odoo).toContain('failed_jobs = self.filtered(lambda row: row.status == "failed" and row.physical_outcome == "not_printed")');
+    expect(odoo).toContain("GATEWAY_JOB_NOT_FOUND:");
+  });
+
 });
