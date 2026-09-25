@@ -137,6 +137,31 @@ suite("shared refresh-token session rotation", () => {
     expect(row.user_agent).toBe("session-test");
   });
 
+  it("rejects refresh after the tenant role changes and revokes the family", async () => {
+    const first = await issueSessionPair({
+      kind: "manager",
+      tenantId: "tenant_session_test",
+      userId: "user_session_test",
+      role: "admin",
+      email: "session@example.test",
+    });
+
+    await pool().query(
+      "UPDATE tenant_users SET role = $1 WHERE user_id = $2 AND tenant_id = $3",
+      ["viewer", "user_session_test", "tenant_session_test"],
+    );
+
+    const rotated = await rotateRefreshToken("manager", first.refreshToken);
+    expect(rotated.status).toBe("invalid");
+
+    const row = (await pool().query(
+      "SELECT revoked_at, revoked_reason FROM refresh_tokens WHERE family_id = $1",
+      [first.familyId],
+    )).rows[0];
+    expect(row.revoked_at).not.toBeNull();
+    expect(row.revoked_reason).toBe("principal_invalid");
+  });
+
   it("rejects refresh after tenant membership is removed and revokes the family", async () => {
     const first = await issueSessionPair({
       kind: "customer",
