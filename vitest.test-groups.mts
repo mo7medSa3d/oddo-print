@@ -14,6 +14,7 @@ export const integrationVitestTestFiles = [
   "tests/auth-rate-limit.test.ts",
   "tests/session-tokens.integration.test.ts",
   "tests/session-logout.integration.test.ts",
+  "tests/session-legacy-fallback.integration.test.ts",
   "tests/batch-status.test.ts",
   "tests/odoo-gateway-activation-sync.test.ts",
   "tests/odoo-configuration-billing-race.integration.test.ts",
