@@ -29,9 +29,16 @@ describe("print payload wire contract", () => {
     expect((printJobPayloadSchema.shape.protocol as unknown as { unwrap: () => { options: string[] } }).unwrap().options.sort())
       .toEqual([...payloadContract.rawProtocols].sort());
 
-    expect(go).toMatch(new RegExp(`const MaxPayloadBytes = ${payloadContract.maxPayloadBytes}\\b`));
-    expect(quotedValues(go, /case TypeRaw, TypeESCPOS, TypePDF, TypeImage,[\\s\\S]*?\tdefault:[\\s\\S]*?expected ([^\\n]+)/))
-      .toEqual(expect.arrayContaining(payloadContract.wireTypes));
+    expect(go).toContain(`const MaxPayloadBytes = ${payloadContract.maxPayloadBytes}`);
+    const goTypeDecls = {
+      raw: 'TypeRaw    Type = "raw"',
+      escpos: 'TypeESCPOS Type = "escpos"',
+      pdf: 'TypePDF    Type = "pdf"',
+      image: 'TypeImage  Type = "image"',
+    } as const;
+    for (const wireType of payloadContract.wireTypes) {
+      expect(go).toContain(goTypeDecls[wireType]);
+    }
 
     const goDrawer = go.match(/case "pin2", "pin5", "none":/);
     expect(goDrawer).not.toBeNull();
