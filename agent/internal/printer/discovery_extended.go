@@ -41,8 +41,6 @@ const (
 
 // confidence helpers
 
-
-
 // Deduplication: stable identity priority as per spec:
 // 1. UUID, 2. serial+manufacturer/model, 3. MAC, 4. IP+URI, 5. hostname+port
 
