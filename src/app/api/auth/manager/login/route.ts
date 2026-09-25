@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createManagerSession, managerCookieHeader, verifyManagerPassword, getManagerUsername, resolveManagerTenantId, authenticateManagerUser } from "../../../../../lib/manager-auth";
+import { createManagerSession, managerCookieHeader, managerRefreshCookieHeader, verifyManagerPassword, getManagerUsername, resolveManagerTenantId, authenticateManagerUser } from "../../../../../lib/manager-auth";
 import {
   clientIpFrom,
   reserveAuthAttempt,
@@ -86,7 +86,15 @@ export async function POST(req: Request) {
 
   let sess;
   try {
-    sess = await createManagerSession(tenantId, identity ? { userId: identity.userId, role: identity.role } : { role: "owner" });
+    sess = await createManagerSession(
+      tenantId,
+      identity ? { userId: identity.userId, role: identity.role } : { role: "owner" },
+      {
+        ipAddress: ip,
+        userAgent: req.headers.get("user-agent"),
+        email: username.includes("@") ? username : null,
+      },
+    );
   } catch (e) {
     logError("auth.login.session_failed", { requestId, error: e instanceof Error ? e.message : "unknown" });
     return setRateLimitHeaders(NextResponse.json({ error: "Sign-in is temporarily unavailable. Try again in a moment." }, { status: 500 }), pre);
@@ -94,17 +102,23 @@ export async function POST(req: Request) {
 
   logInfo("auth.login.success", { requestId, ip });
   await writeAuditEvent({ tenantId, actorType: identity ? "user" : "system", actorId: identity?.userId ?? "legacy-manager", action: "user.login.success", requestId, metadata: { desktopClient } }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
-  const bodyOut: { ok: true; expiresAt: string; accessToken?: string } = {
+  const bodyOut: { ok: true; expiresAt: string; accessToken?: string; refreshToken?: string } = {
     ok: true,
     expiresAt: sess.exp.toISOString(),
   };
   // The desktop shell cannot rely on cross-site HttpOnly cookies. Give only
   // the explicitly identified desktop client the short-lived bearer token;
   // browser login remains cookie-only and the cookie is still HttpOnly.
-  if (desktopClient) bodyOut.accessToken = sess.token;
+  if (desktopClient) {
+    bodyOut.accessToken = sess.token;
+    bodyOut.refreshToken = sess.refreshToken;
+  }
 
   const res = NextResponse.json(bodyOut);
-  res.headers.set("Set-Cookie", managerCookieHeader(sess.token, sess.exp));
+  if (!desktopClient) {
+    res.headers.set("Set-Cookie", managerCookieHeader(sess.token, sess.exp));
+    res.headers.append("Set-Cookie", managerRefreshCookieHeader(sess.refreshToken, sess.refreshExpiresAt));
+  }
   res.headers.set("X-Request-Id", requestId);
   return setRateLimitHeaders(res, pre);
 }
