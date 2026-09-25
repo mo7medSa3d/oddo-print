@@ -232,3 +232,29 @@
   Odoo 19 CI job `107903737803`: `Install and test addon on Odoo 19 Community: success`; `Assert the Odoo addon tests actually ran and passed: success`.
   The same job reported `print_gateway: 190 tests` and `0 failed, 0 error(s) of 176 tests when loading database 'odoo19_test'`.
   Static Odoo contract tests completed successfully in the CI job.
+
+## 2026-09-25 — Odoo 19 Kitchen failure must not consume unprinted changes
+- File: `odoo_addons/print_gateway/static/src/js/pos_print_router.js`
+- Problem: The Gateway override of `PosStore.sendOrderInPreparation()` called `order.updateLastOrderChange(opts)` unconditionally after the Gateway attempt. Odoo 19 core only consumes the preparation change after a successful print, or through `updateLastOrderChangeIfNoDevice()` when there is no preparation printer.
+- Evidence before fix:
+  Odoo 19 core output:
+  `if (isPrinted) { order.updateLastOrderChange(); }`
+  followed by:
+  `this.updateLastOrderChangeIfNoDevice(order, opts);`
+  Yasser output before fix:
+  `order.updateLastOrderChange(opts);`
+- Impact:
+  A Gateway rejection/failed print could mark the kitchen/preparation change as consumed, so the POS would no longer retain that change for a retry/reconciliation path. This is a data/operational correctness issue, not merely a UI difference.
+- Fix:
+  The Gateway path now uses:
+  `if (isPrinted) { order.updateLastOrderChange(); } else { this.updateLastOrderChangeIfNoDevice(order, opts); }`
+  which preserves native Odoo 19 lifecycle semantics while keeping the Gateway physical routing.
+- Regression test:
+  `tests/test_odoo19_printing_static.py::test_gateway_kitchen_does_not_consume_failed_changes` verifies the success-only update and no-device fallback.
+- Verification:
+  Odoo 19 CI job `107906527658` = `success`.
+  The same job completed module installation and addon tests.
+  Odoo test summary:
+  `odoo.tests.stats: print_gateway: 190 tests 62.20s 109206 queries`
+  `odoo.tests.result: 0 failed, 0 error(s) of 176 tests when loading database 'odoo19_test'`
+  Odoo static contract tests = `success`.
