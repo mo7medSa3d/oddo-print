@@ -325,8 +325,7 @@ def test_browser_manager_transport_uses_http_only_cookies_and_one_refresh_retry(
     assert 'credentials: "include"' in source
     assert 'path !== "/api/auth/manager/refresh"' in source
     assert 'return gatewayRequest(base, path, method, headers, body, false);' in source
-    assert 'X-Refresh-Token' in source
-    assert 'Origin", "tauri://localhost' in source
+    assert 'X-Refresh-Token' not in source
 
 
 def test_desktop_refresh_secret_stays_inside_rust_memory_boundary():
@@ -338,6 +337,8 @@ def test_desktop_refresh_secret_stays_inside_rust_memory_boundary():
     assert 'object.remove("refreshToken");' in source
     assert "is_manager_refresh_path(path) && (status == 401 || status == 403)" in source
     assert "if status == 401 || status == 403" not in source
+
+    assert 'Origin", "tauri://localhost' in source
 
 
 def test_new_logout_paths_revoke_refresh_family_and_clear_matching_cookie():
