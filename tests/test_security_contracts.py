@@ -387,3 +387,11 @@ def test_password_reset_revokes_shared_refresh_families():
     assert 'revokedReason: "password_reset"' in source
     assert 'clock_timestamp()' in source
     assert "eq(refreshTokens.userId, row.userId)" in source
+
+
+def test_manager_and_customer_v2_session_kinds_are_explicitly_separated():
+    manager = read("src/lib/manager-auth.ts")
+    customer = read("src/lib/customer-auth.ts")
+    assert 'verifyAccessToken(token, "manager")' in manager
+    assert 'verifyAccessToken(token, "customer")' in customer
+    assert 'kind: "customer"' in customer
