@@ -3,7 +3,7 @@ import {
   clearManagerCookieHeader,
   clearManagerRefreshCookieHeader,
   revokeManagerSession,
-  validateManagerOnly,
+  validateManager,
 } from "../../../../../lib/manager-auth";
 import { writeAuditEvent } from "../../../../../lib/audit";
 import { logError } from "../../../../../lib/log";
@@ -14,7 +14,7 @@ import {
 } from "../../../../../lib/session-tokens";
 
 export async function POST(req: Request) {
-  const claims = await validateManagerOnly(req);
+  const claims = await validateManager(req);
   const refreshToken = getRefreshTokenFromRequest(req, "manager");
   let revokeFailed = false;
 
