@@ -98,7 +98,7 @@ describe("architecture hardening", () => {
     const csp = readFileSync("src/server/content-security-policy.ts", "utf8");
     const layout = readFileSync("src/app/layout.tsx", "utf8");
     expect(csp).toContain("crypto.randomUUID()");
-    expect(csp).toContain("script-src 'nonce-\${nonce}'");
+    expect(csp).toContain("script-src 'self' 'nonce-\${nonce}' 'strict-dynamic'");
     expect(csp).toContain("'strict-dynamic'");
     expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
     expect(proxy).toContain('requestHeaders.set("x-nonce", nonce)');
