@@ -197,9 +197,9 @@ def test_deployment_document_matches_declared_toolchain_contract():
     assert "`APP_BASE_URL`" in deployment
     assert "`SESSION_SECRET`" not in deployment
 
-def test_job_timeline_is_manager_scoped_not_agent_console_scoped():
+def test_job_timeline_is_workspace_manager_scoped_not_agent_console_scoped():
     route = read("src/app/api/jobs/[id]/timeline/route.ts")
-    assert 'import { validateManager } from "../../../../../lib/manager-auth";' in route
+    assert 'import { validateWorkspaceManager } from "../../../../../lib/manager-auth";' in route
     assert "validateConsoleAuth" not in route
     assert "const tenantId = auth.tenantId;" in route
 
