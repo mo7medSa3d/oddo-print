@@ -466,3 +466,16 @@ def test_agent_registration_pairing_uses_database_clock():
     assert "pairing_code_expires_at > clock_timestamp()" in register
     assert "FOR UPDATE" in register
     assert "const now = new Date()" not in register
+
+def test_dynamic_sql_identifiers_are_composed_with_psycopg2_identifier():
+    offenders = []
+    for path in (ROOT / "odoo_addons").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        for line_no, line in enumerate(source.splitlines(), 1):
+            if "_table" in line and "%" in line and "sql.Identifier" not in line:
+                offenders.append(f"{path.relative_to(ROOT)}:{line_no}:{line.strip()}")
+            if "{self._table}" in line and line.lstrip().startswith("f") and "sql.Identifier" not in line:
+                offenders.append(f"{path.relative_to(ROOT)}:{line_no}:{line.strip()}")
+            if " % table" in line and "sql.Identifier" not in line:
+                offenders.append(f"{path.relative_to(ROOT)}:{line_no}:{line.strip()}")
+    assert not offenders, "raw SQL identifier formatting remains:\n" + "\n".join(offenders)
