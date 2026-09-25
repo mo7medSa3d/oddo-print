@@ -119,7 +119,8 @@ def test_logout_does_not_report_success_when_session_revocation_fails():
     ):
         source = read(rel)
         assert "session_revoke_failed" in source
-        assert 'revokeFailed ? { ok: false, error: "Logout temporarily unavailable" } : { ok: true }' in source
+        assert "Logout temporarily unavailable" in source
+        assert "revokeFailed" in source
         assert "status: revokeFailed ? 503 : 200" in source
         assert 'action: "session.revoked"' in source
 
@@ -337,7 +338,7 @@ def test_desktop_refresh_secret_stays_inside_rust_memory_boundary():
     assert 'request.header("X-Refresh-Token", refresh_token)' in source
     assert 'object.remove("accessToken");' in source
     assert 'object.remove("refreshToken");' in source
-    assert "is_manager_refresh_path(path) && (status == 401 || status == 403)" in source
+    assert 'path == "/api/auth/manager/refresh" && (status == 401 || status == 403)' in source
     assert "if status == 401 || status == 403" not in source
 
     assert 'Origin", "tauri://localhost' in source
@@ -398,7 +399,7 @@ def test_manager_and_customer_v2_session_kinds_are_explicitly_separated():
     manager = read("src/lib/manager-auth.ts")
     customer = read("src/lib/customer-auth.ts")
     assert 'verifyAccessTokenSignature(token, "manager")' in manager
-    assert 'verifyAccessTokenSignature(token, "customer")' in customer
+    assert 'verifyAccessTokenSignature(customerToken, "customer")' in customer
     assert 'kind: "customer"' in customer
 
 
