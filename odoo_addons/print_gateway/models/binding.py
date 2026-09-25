@@ -84,7 +84,7 @@ class PrintGatewayBinding(models.Model):
     )
     destination_pos_printer_id = fields.Many2one(
         "pos.printer", string="Odoo Preparation Printer", ondelete="restrict", check_company=True,
-        domain="['&amp;', ('use_type', '=', 'preparation'), '|', ('company_id', '=', False), ('company_id', '=', effective_company_id)]",
+        domain="['|', ('company_id', '=', False), ('company_id', '=', effective_company_id)]",
         help="Native Odoo 19 preparation-printer identity. Its product categories determine which kitchen lines this Gateway binding receives.",
     )
     destination_picking_type_id = fields.Many2one(
@@ -429,7 +429,11 @@ class PrintGatewayBinding(models.Model):
                     printer = record.destination_pos_printer_id
                     printer_configs = printer.pos_config_ids
                     preparation_configs = printer_configs.filtered(
-                        lambda config: printer in config.preparation_printer_ids
+                        lambda config: printer in (
+                            getattr(config, "preparation_printer_ids", None)
+                            if getattr(config, "preparation_printer_ids", None) is not None
+                            else config.printer_ids
+                        )
                     )
                     if not preparation_configs:
                         raise ValidationError(_("Odoo Preparation Printer must belong to an Odoo POS Preparation Printer configuration."))
