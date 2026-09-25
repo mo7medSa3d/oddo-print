@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, tenants, authRateLimits } from "../../../../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { validateManager, managerCookieHeader } from "../../../../lib/manager-auth";
+import { validateManager, managerCookieHeader, managerRefreshCookieHeader } from "../../../../lib/manager-auth";
 import { verifyTenantSelectionToken } from "../../../../lib/customer-auth";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
@@ -79,6 +79,7 @@ export async function POST(req: Request) {
 
     const res = NextResponse.json({ ok: true, tenantId: result.membership.tenantId, role: result.membership.role });
     res.headers.set("Set-Cookie", managerCookieHeader(result.session.token, result.session.exp));
+    res.headers.append("Set-Cookie", managerRefreshCookieHeader(result.session.refreshToken, result.session.refreshExpiresAt));
     return res;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Workspace selection failed";
