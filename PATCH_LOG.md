@@ -569,3 +569,11 @@
 - Evidence: CI run `36124939396`, job `108038774217`, step `Run Odoo static contract tests (Python)` failed with `assert 'default-src' in '... next.config.ts ...'` at `tests/test_final_security_hardening.py:141`.
 - Fix: updated the existing Python contract test to inspect `src/server/content-security-policy.ts`, assert nonce + `strict-dynamic`, and explicitly reject `script-src 'self' 'unsafe-inline'`.
 - Verification: pending on the new `main` commit.
+
+
+## 2026-09-25 — CI unit-test drift: payload JPEG signature assertions
+- OWASP: A03 Software Supply Chain Failures / verification hygiene.
+- Problem: `tests/print-payload-contract.test.ts` expected the JPEG signature literals in TypeScript and an unavailable `hex.DecodeString` path in Go, while the actual implementations use the canonical contract in TypeScript and explicit byte checks in Go.
+- Evidence: CI run `36125659948`, job `108041475853`, step `Run unit tests (no DB)` failed with `expected ... to contain '0xff'` in `tests/print-payload-contract.test.ts`.
+- Fix: updated the test to assert the TypeScript contract-based signature conversion and the actual Go byte checks (`0xff, 0xd8, 0xff`). No runtime payload behavior changed.
+- Verification: pending on the new `main` commit.
