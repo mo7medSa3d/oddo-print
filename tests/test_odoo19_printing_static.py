@@ -291,8 +291,8 @@ def test_gateway_receipt_uses_odoo19_receipt_template():
 
 def test_gateway_kitchen_uses_odoo19_preparation_receipt_template():
     source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
-    assert 'renderToElement("point_of_sale.pos_order_change_receipt", data)' in source
-    assert 'renderToElement("point_of_sale.OrderChangeReceipt"' not in source
+    assert 'renderToElement("point_of_sale.OrderChangeReceipt", { data })' in source
+    assert 'renderToElement("point_of_sale.pos_order_change_receipt", data)' not in source
 
 
 def test_gateway_kitchen_uses_native_order_change_lifecycle():
