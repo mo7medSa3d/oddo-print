@@ -430,3 +430,11 @@
   - retained the Gateway `timeoutMs` 500..30000 contract and clamped Agent execution to that range.
 - The fix is source-only and does not weaken the discovery timeout boundary.
 - Verification state after the fix: GitHub Actions were triggered on the new commit, but were still pending at the latest check, so no final pass is claimed.
+
+
+## 2026-09-25 — CI failure: unused printer PDF test fixture
+- Failing run: CI `36090480540`, job `107931764070`, step `Go U1000 dead-code scan (Linux)`.
+- Raw failure evidence: `internal/printer/pdf_test.go:36:6: func rotatedPDF is unused (U1000)`.
+- Phase 0 evidence from the same job was clean: `go build ./...`, `go vet ./...`, and `go test ./... -race` all completed successfully. `govulncheck ./...` reported `No vulnerabilities found.`.
+- Fix: removed the unreachable `rotatedPDF` test fixture; no production behavior changed.
+- Verification: pending on the new `main` commit; no final CI pass claimed yet.
