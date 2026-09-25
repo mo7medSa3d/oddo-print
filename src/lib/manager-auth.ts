@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { managerSessions, tenants, tenantDomains, tenantUsers, users } from "../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "crypto";
+import { createHash, createHmac, scrypt, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
 import { databaseNowMs } from "./database-clock";
 import { hashPassword, verifyPassword, normalizeEmail } from "./password";
@@ -102,7 +102,7 @@ export function getManagerCookieName() {
 export async function verifyManagerToken(token: string): Promise<ManagerClaims | null> {
   const fresh = await verifyAccessToken(token, ["manager", "customer"]);
   if (fresh) {
-    return {
+    return validateManagerClaims({
       jti: fresh.jti,
       iat: fresh.iat,
       exp: fresh.exp,
@@ -114,7 +114,7 @@ export async function verifyManagerToken(token: string): Promise<ManagerClaims |
       kind: fresh.kind,
       sid: fresh.sid,
       familyId: fresh.familyId,
-    };
+    });
   }
 
   const legacy = verifySignature(token);
