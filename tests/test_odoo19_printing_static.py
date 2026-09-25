@@ -56,9 +56,8 @@ def test_gateway_pos_receipt_and_kitchen_use_native_business_destinations():
     assert "get_gateway_kitchen_routes" in js
     assert "routeCategories" in js
     assert "missing_routes" in js
-    assert 'printers = this.models["pos.printer"].getAll()' in js
+    assert "printers = this.unwatched.printers" in js
     assert "printers instanceof Set" in js
-    assert "this.unwatched.printers" not in js
     assert "kitchen-retry-" in js
     assert "if (reprint || !orderChange.__gateway_print_id)" in js
     assert "return super.sendOrderInPreparation(order, opts)" in js
