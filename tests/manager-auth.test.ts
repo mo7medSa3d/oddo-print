@@ -41,12 +41,23 @@ suite("manager authentication hardening", () => {
     vi.useRealTimers();
   });
 
-  it("creates a session that verifies and is backed by a DB session", async () => {
+  it("creates a v2 session pair that verifies against the refresh-token ledger", async () => {
     const created = await createManagerSession("tenant_manager_test");
     const claims = await verifyManagerToken(created.token);
     expect(claims).not.toBeNull();
     expect(claims?.jti).toBe(created.jti);
     expect(claims?.sub).toBe("manager");
+    expect(claims?.ver).toBe(2);
+    expect(claims?.familyId).toBe(created.familyId);
+
+    const row = (await pool().query(
+      "SELECT token_hash, family_id, expires_at FROM refresh_tokens WHERE id = $1",
+      [created.refreshTokenId],
+    )).rows[0];
+    expect(row.family_id).toBe(created.familyId);
+    expect(row.token_hash).toHaveLength(64);
+    expect(row.token_hash).not.toBe(created.refreshToken);
+    expect(new Date(row.expires_at).getTime()).toBe(created.refreshExpiresAt.getTime());
     await expect(validateManagerClaims(claims)).resolves.not.toBeNull();
   });
 
@@ -72,7 +83,7 @@ suite("manager authentication hardening", () => {
     await expect(verifyManagerToken(`${data}.${signature}`)).resolves.toBeNull();
   });
 
-  it("anchors session creation and verification to PostgreSQL when the host clock is skewed", async () => {
+  it("anchors v2 session creation and verification to PostgreSQL when the host clock is skewed", async () => {
     const dbNow = Number((await pool().query(
       "SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec",
     )).rows[0].now_sec);
