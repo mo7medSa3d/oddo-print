@@ -146,7 +146,7 @@ export async function validateCustomer(req: Request): Promise<ManagerClaims | nu
   const token = getAccessTokenFromRequest(req, "customer");
   if (!token) return null;
 
-  const versioned = verifyAccessTokenSignature(token, "customer");
+  const versioned = verifyAccessTokenSignature(token, ["customer", "manager", "platform"]);
   if (versioned) {
     if (versioned.kind !== "customer") return null;
     const claims: ManagerClaims = {
