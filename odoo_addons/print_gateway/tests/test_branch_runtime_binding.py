@@ -292,10 +292,10 @@ class TestBranchRuntimeBinding(TransactionCase):
         printer = self.env["pos.printer"].create({
             "name": "Receipt Printer",
             "company_id": self.company.id,
-            "use_type": "receipt",
             "pos_config_ids": [(6, 0, [self.pos_config.id])],
             "product_categories_ids": [(6, 0, [category.id])],
         })
+        self.pos_config.write({"receipt_printer_ids": [(4, printer.id)]})
         binding = self.env["print_gateway.binding"].new({
             "company_id": self.company.id,
             "branch_id": False,
@@ -310,7 +310,7 @@ class TestBranchRuntimeBinding(TransactionCase):
             "priority": 92,
         })
         binding._compute_destination_ref()
-        with self.assertRaisesRegex(ValidationError, "must be configured as a Preparation printer"):
+        with self.assertRaisesRegex(ValidationError, "must belong to an Odoo POS Preparation Printer"):
             binding._check_binding()
 
     def test_gateway_kitchen_binding_can_target_native_preparation_printer(self):
@@ -322,6 +322,7 @@ class TestBranchRuntimeBinding(TransactionCase):
             "pos_config_ids": [(6, 0, [self.pos_config.id])],
             "product_categories_ids": [(6, 0, [category.id])],
         })
+        self.pos_config.write({"preparation_printer_ids": [(4, printer.id)]})
         binding = self.env["print_gateway.binding"].new({
             "company_id": self.company.id,
             "branch_id": False,
