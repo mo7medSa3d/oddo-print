@@ -116,7 +116,7 @@ export async function verifyManagerToken(token: string): Promise<ManagerClaims |
       role: versioned.role as ManagerRole,
       ...(versioned.userId ? { userId: versioned.userId } : {}),
       ver: 2,
-      kind: versioned.kind,
+      kind: versioned.kind as "manager" | "customer",
       sid: versioned.sid,
       familyId: versioned.familyId,
     });
