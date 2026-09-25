@@ -82,16 +82,21 @@ suite("shared refresh-token session rotation", () => {
       role: "admin",
       email: "session@example.test",
     });
-    const customerRequest = new Request("http://gateway.test/api/auth/me", {
-      headers: { cookie: "mgr_session=" + customerPair.accessToken },
-    });
-    const customerRejectsManager = await validateCustomer(customerRequest);
-    expect(customerRejectsManager).toBeNull();
+    const managerCookieCustomerToken = await validateCustomer(request);
+    expect(managerCookieCustomerToken).toBeNull();
 
-    const customerClaims = await validateCustomer(request);
+    const customerRequest = new Request("http://gateway.test/api/auth/me", {
+      headers: { cookie: "cust_session=" + customer.accessToken },
+    });
+    const customerClaims = await validateCustomer(customerRequest);
     expect(customerClaims).not.toBeNull();
     expect(customerClaims?.kind).toBe("customer");
     expect(customerClaims?.tenantId).toBe("tenant_session_test");
+
+    const customerTokenInManagerCookie = await validateManager(new Request("http://gateway.test/api/agents", {
+      headers: { cookie: "mgr_session=" + customer.accessToken },
+    }));
+    expect(customerTokenInManagerCookie).toBeNull();
   });
 
   it("issues a 15-minute access token and hashed 30-day refresh family", async () => {
