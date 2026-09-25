@@ -381,3 +381,19 @@
 ## 2026-09-25 — Final verification state
 - Current `main` before this append-only log commit: `a6519ac306fd1b8433d202d303cb635248938401`.
 - The final verification workflow must be triggered by this latest PATCH_LOG commit. Per the user's instruction, this log does not wait for that workflow to finish and does not label pending steps as passed.
+
+## 2026-09-25 — Final regression: shared payload contract test type error
+- Evidence from final CI run on `0f9fd17a1d9474f5529915dc55292d22cabc8b16`:
+  `tests/print-payload-contract.test.ts(36,28): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type ...`
+  `Process completed with exit code 2.`
+- Cause: the JSON contract's `wireTypes` is inferred as `string[]`, while the test's lookup table has a fixed key union.
+- Fix: cast the contract wire-type iteration to `Array<keyof typeof goTypeDecls>`; production code is unchanged.
+- Verification: the corrected test is present in the current `main`. The new commit is `6cbe5095130269e2ceb2a49b5e10ef884de1c5aa`. Its final GitHub workflow runs are intentionally not awaited per the user instruction; until their output is available, no final post-fix pass is claimed.
+
+## 2026-09-25 — Final-main verification boundary
+- The final source snapshot after the test-only correction is `6cbe5095130269e2ceb2a49b5e10ef884de1c5aa` before this log append.
+- A local container clone attempt was blocked by the execution environment:
+  `fatal: unable to access 'https://github.com/mo7medSa3d/oddo-print.git/': Could not resolve host: github.com`
+- Therefore the authoritative executable verification available here is GitHub Actions. The previous completed run on `0482ce07a36356705b58d83d7f80827145b86254` proved the full pre-refactor command chain:
+  `npm ci` → `npm run typecheck` → `npm run lint` → `npm run test` → `npm run test:integration` → `npm run test:e2e` → `npm run test:odoo:static`, with the CI job completing `success`.
+- The current post-fix run must be treated as pending until GitHub publishes its result. No stronger claim is made.
