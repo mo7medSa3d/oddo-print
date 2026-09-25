@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
-import { authenticatePlatformOwner, createPlatformSession, platformCookieHeader } from "../../../../../lib/platform-auth";
+import { authenticatePlatformOwner, createPlatformSession, platformCookieHeader, platformRefreshCookieHeader } from "../../../../../lib/platform-auth";
 import { clientIpFrom, reserveAuthAttempt, recordAuthSuccess, setRateLimitHeaders } from "../../../../../lib/auth-rate-limit";
 import { logError } from "../../../../../lib/log";
 import { writeAuditEvent } from "../../../../../lib/audit";
@@ -51,7 +51,10 @@ export async function POST(req: Request) {
 
   await recordAuthSuccess(clientIp, email);
 
-  const session = await createPlatformSession(user.userId, user.email);
+  const session = await createPlatformSession(user.userId, user.email, {
+    ipAddress: clientIp,
+    userAgent: req.headers.get("user-agent"),
+  });
 
   void writeAuditEvent({
     tenantId: null,
@@ -62,12 +65,14 @@ export async function POST(req: Request) {
     resourceId: user.userId,
   }).catch((err) => logError("audit_write_failed", { error: err?.message ?? String(err) }));
 
-  return setRateLimitHeaders(NextResponse.json(
+  const response = NextResponse.json(
     { ok: true, user: { id: user.userId, email: user.email } },
     {
       headers: {
         "Set-Cookie": platformCookieHeader(session.token, session.exp),
       },
     }
-  ), decision);
+  );
+  response.headers.append("Set-Cookie", platformRefreshCookieHeader(session.refreshToken, session.refreshExpiresAt));
+  return setRateLimitHeaders(response, decision);
 }
