@@ -74,7 +74,7 @@ suite("refresh-family logout", () => {
     const second = await rotateRefreshToken("customer", first.refreshToken);
     expect(second.status).toBe("rotated");
 
-    const response = await customerLogout(requestWithCookie("mgr_session", first.accessToken));
+    const response = await customerLogout(requestWithCookie("cust_session", first.accessToken));
     expect(response.status).toBe(200);
 
     const rows = await pool().query(
