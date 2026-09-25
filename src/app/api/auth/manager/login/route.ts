@@ -36,7 +36,10 @@ export async function POST(req: Request) {
 
   const expectedUser = getManagerUsername();
   const legacyTenantId = (process.env.MANAGER_TENANT_ID ?? "").trim();
-  const desktopClient = req.headers.get("x-odoo-print-desktop") === "1";
+  const desktopOrigin = req.headers.get("origin") ?? "";
+  const desktopClient =
+    req.headers.get("x-odoo-print-desktop") === "1" &&
+    (desktopOrigin === "tauri://localhost" || desktopOrigin === "http://tauri.localhost");
   const ip = clientIpFrom(req);
 
   let pre: Awaited<ReturnType<typeof reserveAuthAttempt>>;
