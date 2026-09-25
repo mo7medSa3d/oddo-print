@@ -81,7 +81,7 @@ suite("manager authentication hardening", () => {
     vi.setSystemTime(new Date((dbNow + 24 * 60 * 60) * 1000));
     const created = await createManagerSession("tenant_manager_test");
 
-    expect(Math.floor(created.exp.getTime() / 1000)).toBe(dbNow + 8 * 60 * 60);
+    expect(Math.floor(created.exp.getTime() / 1000)).toBe(dbNow + 15 * 60);
     await expect(verifyManagerToken(created.token)).resolves.toMatchObject({ jti: created.jti });
 
     await pool().query(
