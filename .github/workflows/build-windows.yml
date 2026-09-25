@@ -73,19 +73,20 @@ jobs:
         working-directory: agent
         shell: pwsh
         run: |
-          go build ./...
+          go mod verify
+          go build -mod=readonly ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Agent Phase 0 - Go vet
         working-directory: agent
         shell: pwsh
         run: |
-          go vet ./...
+          go vet -mod=readonly ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Agent Phase 0 - Go race tests
         working-directory: agent
         shell: pwsh
         run: |
-          go test ./... -race
+          go test -mod=readonly ./... -race
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Tauri Phase 0 - cargo audit
         working-directory: src-tauri
@@ -99,13 +100,13 @@ jobs:
         working-directory: src-tauri
         shell: pwsh
         run: |
-          cargo check
+          cargo check --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Tauri Phase 0 - cargo test
         working-directory: src-tauri
         shell: pwsh
         run: |
-          cargo test
+          cargo test --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Install dependencies
@@ -130,8 +131,8 @@ jobs:
         working-directory: agent
         shell: pwsh
         run: |
-          go build -trimpath -ldflags="-s -w" -o YasserAgent.exe ./cmd/agent
-          go build -trimpath -ldflags="-s -w" -o yasser-agent-cli.exe ./cmd/cli
+          go build -mod=readonly -trimpath -ldflags="-s -w" -o YasserAgent.exe ./cmd/agent
+          go build -mod=readonly -trimpath -ldflags="-s -w" -o yasser-agent-cli.exe ./cmd/cli
       - name: Verify Go binaries
         shell: pwsh
         run: |
