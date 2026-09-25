@@ -895,3 +895,9 @@
 - Updated those tests to verify the v2 boundaries actually enforced by the current source.
 - Removed the now-redundant second `npm run desktop:vite:build` from the Windows installer workflow after moving the required frontend build ahead of `cargo check`.
 - Corrected `SECURITY.md` to document the exact refresh-cookie Paths rather than the broader auth namespaces.
+
+
+## 2026-09-25 — Refresh-cookie namespace correction
+- Final cookie-path decision: manager `mgr_refresh` uses `/api/auth/manager`; customer `cust_refresh` uses `/api/auth`; platform `plt_refresh` uses `/api/platform/auth`.
+- Reason: the refresh cookie must reach the corresponding logout route so the server can revoke the full refresh family even when the short-lived access JWT has already expired. The cookie remains HttpOnly + SameSite=Strict and never leaves the browser/Rust credential boundary.
+- The static security contract was updated to assert these namespace paths.
