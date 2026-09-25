@@ -143,11 +143,11 @@ export function clearCustomerRefreshCookie() {
 }
 
 export async function validateCustomer(req: Request): Promise<ManagerClaims | null> {
-  const token = getAccessTokenFromRequest(req, "customer");
-  if (!token) return null;
+  const customerToken = getAccessTokenFromRequest(req, "customer");
+  if (customerToken) {
+    const versioned = verifyAccessTokenSignature(customerToken, "customer");
+    if (!versioned) return null;
 
-  const versioned = verifyAccessTokenSignature(token, "customer");
-  if (versioned) {
     const claims: ManagerClaims = {
       jti: versioned.jti,
       iat: versioned.iat,
@@ -164,8 +164,13 @@ export async function validateCustomer(req: Request): Promise<ManagerClaims | nu
     return validateManagerClaims(claims);
   }
 
-  // Legacy customer JWTs predate the explicit session kind. Preserve their
-  // original DB-backed validation path during the migration window.
+  // Legacy customer JWTs predate the explicit session kind and lived in the
+  // historical manager cookie/session table. Only a legacy token may use this
+  // compatibility path; a v2 manager/customer token in the wrong cookie is
+  // rejected rather than being silently cross-accepted.
+  const managerToken = getAccessTokenFromRequest(req, "manager");
+  if (!managerToken) return null;
+  if (verifyAccessTokenSignature(managerToken, ["manager", "customer"])) return null;
   return validateManager(req);
 }
 
