@@ -12,7 +12,7 @@ The Go Windows Agent is the **data plane** of the print gateway system. It runs 
 agent/
 ├── cmd/
 │   ├── agent/      # Service entry point (Windows SCM + standalone)
-│   └── cli/        # CLI commands (register, discover, test-print, etc.)
+│   └── cli/        # CLI commands (pair, gateway-request, printer management/cleanup)
 ├── internal/
 │   ├── agent/      # Core agent logic (1911 lines)
 │   ├── config/     # YAML configuration + registry paths
