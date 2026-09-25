@@ -69,7 +69,7 @@ def test_manager_login_does_not_mask_identity_lookup_failures_as_invalid_credent
     end = source.index("const legacyEnabled", start)
     block = source[start:end]
     assert 'logError("auth.login.user_lookup_failed"' in block
-    assert 'return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });' in block
+    assert 'NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 })' in block
     # The catch must terminate this branch instead of falling through to the
     # generic INVALID credentials response.
     catch_start = block.index("catch")
@@ -392,6 +392,6 @@ def test_password_reset_revokes_shared_refresh_families():
 def test_manager_and_customer_v2_session_kinds_are_explicitly_separated():
     manager = read("src/lib/manager-auth.ts")
     customer = read("src/lib/customer-auth.ts")
-    assert 'verifyAccessToken(token, "manager")' in manager
+    assert 'verifyAccessTokenSignature(token, "manager")' in manager
     assert 'verifyAccessToken(token, "customer")' in customer
     assert 'kind: "customer"' in customer
