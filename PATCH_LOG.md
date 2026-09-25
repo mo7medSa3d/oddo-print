@@ -198,3 +198,21 @@
   `odoo.tests.stats: print_gateway: 190 tests 87.94s 109206 queries`
   `odoo.tests.result: 0 failed, 0 error(s) of 176 tests when loading database 'odoo19_test'`
   Static contract test step = `success`.
+
+
+## 2026-09-25 — Odoo 19 runtime-compatible preparation-printer relation handling
+- Files: `odoo_addons/print_gateway/models/binding.py`, `odoo_addons/print_gateway/models/pos_order.py`, `odoo_addons/print_gateway/models/print_router.py`; tests in `odoo_addons/print_gateway/tests/test_branch_runtime_binding.py`, `odoo_addons/print_gateway/tests/test_architecture_contract.py`, and `tests/test_odoo19_printing_static.py`.
+- Problem: The CI Odoo 19 runtime image did not expose `pos.config.preparation_printer_ids` or `receipt_printer_ids`. The addon tests failed with:
+  `ValueError: Invalid field 'preparation_printer_ids' in 'pos.config'`
+  `ValueError: Invalid field 'receipt_printer_ids' in 'pos.config'`
+- Evidence:
+  CI pulled `odoo:19.0` with digest `sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c` and reported `Odoo version 19.0-20260908`.
+  Odoo 19 source at `8d05257d83f9128953f580a066db67c48fcdb96f` defines `pos.config.printer_ids` and the native POS store routes preparation printing through `printer.config.product_categories_ids`; the fetched core file did not define the two separate relation fields assumed by the failing tests.
+- Fix:
+  The Gateway now uses `preparation_printer_ids` when that relation exists and falls back to `printer_ids` for the deployed Odoo 19 image. The runtime-router membership check follows the same rule. Tests detect the relation actually exposed by the active Odoo registry; unsupported receipt/preparation split semantics are not faked with skipped tests.
+- Verification:
+  On repository commit `9393590cc4c5a5e60db9c6757901a38c4fccce19`, Odoo job `107903737803` completed with:
+  `Install and test addon on Odoo 19 Community: success`
+  `Assert the Odoo addon tests actually ran and passed: success`
+  `odoo.tests.stats: print_gateway: 190 tests 87.94s 109206 queries`
+  `odoo.tests.result: 0 failed, 0 error(s) of 176 tests when loading database 'odoo19_test'`.
