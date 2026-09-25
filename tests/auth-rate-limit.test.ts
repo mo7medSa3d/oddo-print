@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { lockDurationMs, accountKey, ipKey, clientIpFrom, cleanupAuthRateLimits, AUTH_RATE_RETENTION_MS } from "../src/lib/auth-rate-limit";
+import { lockDurationMs, pairingLockDurationMs, accountKey, ipKey, clientIpFrom, cleanupAuthRateLimits, AUTH_RATE_RETENTION_MS } from "../src/lib/auth-rate-limit";
 import {
   hasTestDatabase,
   applyMigrations,
@@ -22,6 +22,12 @@ describe("auth rate limiter (pure)", () => {
     expect(lockDurationMs(10)).toBe(5 * 60_000);
     expect(lockDurationMs(15)).toBe(15 * 60_000);
     expect(lockDurationMs(20)).toBe(60 * 60_000);
+  });
+
+  it("uses the same authoritative lockout schedule for pairing", () => {
+    for (const failures of [0, 4, 5, 9, 10, 15, 20, 50]) {
+      expect(pairingLockDurationMs(failures)).toBe(lockDurationMs(failures));
+    }
   });
 
   it("normalizes account and IP keys", () => {
