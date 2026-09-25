@@ -396,3 +396,12 @@ def test_manager_and_customer_v2_session_kinds_are_explicitly_separated():
     assert 'verifyAccessTokenSignature(token, "manager")' in manager
     assert 'verifyAccessTokenSignature(token, ["customer", "manager", "platform"])' in customer
     assert 'kind: "customer"' in customer
+
+
+def test_tenant_selection_issues_customer_kind_session():
+    source = read("src/app/api/auth/select-tenant/route.ts")
+    assert 'kind: "customer"' in source
+    assert "issueSessionPairInTransaction" in source
+    assert "customerRefreshCookie" in source
+    assert 'revokedReason: "tenant_selection"' in source
+    assert "isNull(refreshTokens.revokedAt)" in source
