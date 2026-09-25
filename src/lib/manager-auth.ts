@@ -101,7 +101,7 @@ export function getManagerCookieName() {
 }
 
 export async function verifyManagerToken(token: string): Promise<ManagerClaims | null> {
-  const versioned = verifyAccessTokenSignature(token, ["manager", "customer"]);
+  const versioned = verifyAccessTokenSignature(token, "manager");
   if (versioned) {
     if (versioned.kind !== "manager") return null;
     return validateManagerClaims({
