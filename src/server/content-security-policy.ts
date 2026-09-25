@@ -9,7 +9,7 @@ function buildContentSecurityPolicy(nonce: string, isDevelopment: boolean): stri
     object-src 'none';
     frame-ancestors 'none';
     form-action 'self';
-    script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDevelopment ? " 'unsafe-eval'" : ""};
+    script-src 'nonce-${nonce}' 'strict-dynamic'${isDevelopment ? " 'unsafe-eval'" : ""};
     style-src 'self' 'nonce-${nonce}'${isDevelopment ? " 'unsafe-inline'" : ""};
     img-src 'self' data: blob:;
     font-src 'self' data:;
