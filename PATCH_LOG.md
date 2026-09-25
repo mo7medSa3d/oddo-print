@@ -702,3 +702,10 @@
 - Fail-closed test output: `tests/auth-rate-limit-fail-closed.test.ts (6 tests)`, `Test Files 1 passed (1)`, `Tests 6 passed (6)`, `Duration 758ms`.
 - Existing rate-limit regression output in the same run: `tests/auth-rate-limit.test.ts (18 tests)`, `Test Files 1 passed (1)`, `Tests 18 passed (18)`, `Duration 5.16s`.
 - Temporary verification workflow was used only to bypass unrelated full-CI gates and was removed after these results.
+
+
+## 2026-09-25 — B3 NAT-tolerant IP curve
+- Decision: split the shared lock curve rather than keeping one curve for both account and IP buckets.
+- Account curve remains 5/10/15/20 failures with the existing 30s/5m/15m/60m lock durations.
+- Trusted-proxy IP curve moves to 20/30/40/50 failures with the same progressive durations. This addresses legitimate NAT/shared-source traffic without weakening the stricter per-account protection.
+- Regression coverage added for the pure IP curve and a real integration scenario: ten failed attempts for ten different accounts from one trusted source IP leave the IP bucket unlocked; a valid login from that same source IP still succeeds.
