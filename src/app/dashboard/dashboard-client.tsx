@@ -324,7 +324,7 @@ export default function DashboardClient({
         }
         const data = await response.json().catch(() => null) as { expiresAt?: unknown } | null;
         if (!cancelled && typeof data?.expiresAt === "string") {
-          scheduleFromExpiry(data.expiresAt);
+          scheduleRefresh();
         }
       } catch {
         if (!cancelled) router.push("/login");
