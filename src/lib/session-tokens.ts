@@ -23,19 +23,19 @@ const CONFIG: Record<SessionKind, SessionKindConfig> = {
     sub: "manager",
     accessCookieName: "mgr_session",
     refreshCookieName: "mgr_refresh",
-    refreshCookiePath: "/api/auth/manager",
+    refreshCookiePath: "/api/auth/manager/refresh",
   },
   customer: {
     sub: "manager",
     accessCookieName: "cust_session",
     refreshCookieName: "cust_refresh",
-    refreshCookiePath: "/api/auth",
+    refreshCookiePath: "/api/auth/refresh",
   },
   platform: {
     sub: "platform_owner",
     accessCookieName: "plt_session",
     refreshCookieName: "plt_refresh",
-    refreshCookiePath: "/api/platform/auth",
+    refreshCookiePath: "/api/platform/auth/refresh",
   },
 };
 
