@@ -497,3 +497,11 @@
 - Fix: centralized request-scoped CSP creation in `src/server/content-security-policy.ts`; `proxy.ts` and the custom `server.ts` both use it. The custom server sets `x-nonce` on the request and the CSP on the response for page routes only.
 - Regression: `tests/architecture-hardening.test.ts` now requires the custom server to invoke the shared CSP helper and keeps the negative `unsafe-inline` assertion.
 - Verification: pending on the new CI/Docker run.
+
+
+## 2026-09-25 — Phase 0 CSP test fixture drift after policy centralization
+- OWASP: A02 Security Misconfiguration (verification-test maintenance).
+- Problem: after CSP moved to the shared helper, two architecture assertions still inspected `proxy.ts` for policy text that no longer lives there.
+- Evidence: CI `107951474689` reported 2 failed assertions in `tests/architecture-hardening.test.ts`: missing `connect-src 'self';` and missing `crypto.randomUUID()` in the proxy source.
+- Fix: assertions now inspect `src/server/content-security-policy.ts`, while retaining the production-server and proxy wiring checks and the negative `script-src ... unsafe-inline` assertion.
+- Verification: pending on the new run.
