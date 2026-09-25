@@ -397,8 +397,10 @@ def test_auth_login_paths_do_not_send_refresh_tokens_to_browser_renderers():
 def test_password_reset_revokes_shared_refresh_families():
     source = read("src/app/api/auth/reset-password/route.ts")
     assert "revokeUserRefreshFamiliesInTransaction" in source
-    assert "revokedReason: \"password_reset\"" in read("src/lib/session-tokens.ts")
-    assert "clock_timestamp()" in read("src/lib/session-tokens.ts")
+    assert '"password_reset"' in source
+    session = read("src/lib/session-tokens.ts")
+    assert "export async function revokeUserRefreshFamiliesInTransaction" in session
+    assert "clock_timestamp()" in session
 
 
 def test_manager_and_customer_v2_session_kinds_are_explicitly_separated():
