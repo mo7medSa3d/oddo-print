@@ -3,8 +3,9 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, tenants, authRateLimits } from "../../../../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { validateManager, managerCookieHeader, managerRefreshCookieHeader } from "../../../../lib/manager-auth";
-import { verifyTenantSelectionToken } from "../../../../lib/customer-auth";
+import { validateManager, revokeManagerSession } from "../../../../lib/manager-auth";
+import { verifyTenantSelectionToken, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
+import { issueSessionPairInTransaction, revokeSessionFamily } from "../../../../lib/session-tokens";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { createManagerSessionInTransaction, revokeManagerSessionInTransaction } from "../../../../lib/manager-session-tx";
@@ -60,11 +61,17 @@ export async function POST(req: Request) {
       });
       if (!tenant || tenant.lifecycle !== "active") throw new Error("Workspace is suspended or unavailable");
 
-      if (claims?.jti) await revokeManagerSessionInTransaction(tx, claims.jti);
+      if (claims?.familyId) {
+        await revokeSessionFamily(claims.familyId, "tenant_selection");
+      } else if (claims?.jti) {
+        await revokeManagerSession(claims.jti);
+      }
 
-      const session = await createManagerSessionInTransaction(tx, membership.tenantId, {
+      const session = await issueSessionPairInTransaction(tx, {
+        kind: "customer",
+        tenantId: membership.tenantId,
         userId: userId!,
-        role: membership.role as Parameters<typeof createManagerSessionInTransaction>[2]["role"],
+        role: membership.role as "owner" | "admin" | "operator" | "viewer" | "integration_admin" | "billing_admin",
       });
 
       await writeAuditEvent({
@@ -78,8 +85,8 @@ export async function POST(req: Request) {
     });
 
     const res = NextResponse.json({ ok: true, tenantId: result.membership.tenantId, role: result.membership.role });
-    res.headers.set("Set-Cookie", managerCookieHeader(result.session.token, result.session.exp));
-    res.headers.append("Set-Cookie", managerRefreshCookieHeader(result.session.refreshToken, result.session.refreshExpiresAt));
+    res.headers.set("Set-Cookie", customerSessionCookie(result.session));
+    res.headers.append("Set-Cookie", customerRefreshCookie(result.session));
     return res;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Workspace selection failed";
