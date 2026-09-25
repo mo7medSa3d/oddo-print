@@ -826,3 +826,13 @@
 - Runtime security corrections completed during this pass include: customer-kind issuance after tenant selection, transaction-local revocation during tenant selection, live-principal revalidation before refresh, refresh-family revocation on password reset, fixed Tauri-origin requirement for desktop token disclosure, browser cookie credentials, and CSP contract alignment.
 - Temporary verification workflow was deleted after the focused acceptance run.
 - Live Odoo 19 and real production deployment were not used; those validations remain BLOCKED/out of scope.
+
+## 2026-09-25 — Part A legacy-dependency closure
+- Replaced every new-session creator with the shared src/lib/session-tokens.ts factory. Remaining manager_sessions/platform_sessions references are explicitly limited to legacy validation/revocation and cleanup during the <=8-hour dual-verification window.
+- Separated v2 customer access from the manager cookie: customer sessions now use cust_session + cust_refresh; manager sessions use mgr_session + mgr_refresh; platform sessions use plt_session + plt_refresh. Legacy customer JWTs continue to validate from the historical mgr_session cookie.
+- Logout now revokes the refresh family by access-family ID or by the presented refresh credential, so logout still invalidates the family after an access token has expired. Desktop manager logout sends its in-memory refresh credential through Rust IPC; the renderer cannot provide that header.
+- Ownership transfer and password reset revoke corresponding v2 refresh families. Refresh rotation revalidates live tenant membership/role/lifecycle and Platform Owner state before minting a new access token.
+- Added expired legacy-platform session GC to the existing 5-minute Gateway housekeeping loop.
+- Removed obsolete duplicate legacy JWT signing helpers and unused tenant-selection session adapter imports.
+- Auth login responses now emit Cache-Control: no-store because desktop manager login legitimately carries opaque access/refresh secrets in the Rust-bound response.
+- Official version checks were performed against package.json. Drizzle's current migration docs document custom SQL migrations and migrate-based application; Tauri 2.11.5 documentation confirms the Windows production local origin is http://tauri.localhost unless useHttpsScheme is enabled.
