@@ -13,7 +13,10 @@ import {
 import { logError } from "../../../../../lib/log";
 
 export async function POST(req: Request) {
-  const desktopClient = req.headers.get("x-odoo-print-desktop") === "1";
+  const desktopOrigin = req.headers.get("origin") ?? "";
+  const desktopClient =
+    req.headers.get("x-odoo-print-desktop") === "1" &&
+    (desktopOrigin === "tauri://localhost" || desktopOrigin === "http://tauri.localhost");
   const token = getRefreshTokenFromRequest(req, "manager");
   if (!token) {
     const response = NextResponse.json({ error: "Refresh authentication required" }, { status: 401 });
