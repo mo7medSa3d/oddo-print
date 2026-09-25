@@ -456,3 +456,18 @@
 - Diagnosis: Knip was flagging exports that are used within their defining files, including examples such as `YasserGlyph`, `JOB_STATUSES`, and other shared same-file helpers/types. Knip documents `ignoreExportsUsedInFile` specifically for this case.
 - Fix: added `knip.json` with `ignoreExportsUsedInFile: true`. No production implementation was deleted or changed.
 - Verification: pending on the new `main` commit.
+
+
+## 2026-09-25 — CI failure: Windows rotated-PDF fixture encoding
+- Failing run: Build Windows Installer `36092152788`, job `107936903878`, step `Agent Phase 0 - Go race tests`.
+- Raw failure evidence: `--- FAIL: TestPDFiumRendersRotatedPage`; `pdf_windows_test.go:91: open rotated PDF: 3: incorrect format`.
+- Root cause: the Windows-only fixture had been committed with escaped backslash sequences instead of actual PDF newlines, so PDFium received malformed bytes.
+- Fix: corrected the fixture string encoding to match the valid PDF format; no production PDFium code changed.
+- Verification: pending on the new `main` commit.
+
+## 2026-09-25 — CI failure: Knip entrypoint configuration still too broad
+- Failing run: CI `36092152597`, job `107936659365`, step `Dead-code and unused-export scan`.
+- Raw evidence: Knip reported `Unused exports (53)`, `Unused exported types (2)`, and duplicate export `MAX_AUTHENTICATED_CONCURRENT_BYTES|MAX_CONCURRENT_CHUNKED_BYTES`.
+- Diagnosis: the repository contains multiple framework/runtime entry surfaces (Next server actions and the Vite/Tauri desktop entry) that were not declared to Knip, while `--include-entry-exports` was forcing reports for framework entry exports.
+- Fix: removed `--include-entry-exports` from the CI invocation and declared `src/app/actions.ts` and `src/desktop/main.tsx` as explicit Knip entrypoints, retaining `ignoreExportsUsedInFile: true`.
+- Verification: pending on the new `main` commit.
