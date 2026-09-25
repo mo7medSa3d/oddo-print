@@ -228,6 +228,10 @@ function normalizeContext(context?: SessionRequestContext): SessionRequestContex
   };
 }
 
+async function lockRefreshFamily(tx: SessionTx, familyId: string): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${familyId}, 0))`);
+}
+
 function validatePrincipal(principal: SharedSessionPrincipal): void {
   if (principal.kind === "platform") {
     if (!principal.userId || !principal.email || principal.tenantId || principal.role) {
@@ -282,6 +286,15 @@ async function insertInitialPair(
 
   const nowMs = await dbNowMsInTransaction(tx);
   const nowSec = Math.floor(nowMs / 1000);
+  let sessionEmail = principal.email ?? null;
+  if (!sessionEmail && principal.userId) {
+    const user = await tx.query.users.findFirst({
+      where: eq(users.id, principal.userId),
+      columns: { email: true },
+    });
+    sessionEmail = user?.email ?? null;
+  }
+  const resolvedPrincipal = sessionEmail === principal.email ? principal : { ...principal, email: sessionEmail };
   const familyId = randomBytes(16).toString("hex");
   const refreshTokenId = randomBytes(16).toString("hex");
   const accessJti = randomBytes(16).toString("hex");
@@ -289,7 +302,7 @@ async function insertInitialPair(
   const accessExpiresAt = new Date((nowSec + ACCESS_TOKEN_TTL_SECONDS) * 1000);
   const refreshExpiresAt = new Date(nowMs + REFRESH_FAMILY_TTL_MS);
   const normalized = normalizeContext(context);
-  const accessToken = signAccessToken(makeClaims(principal, accessJti, refreshTokenId, familyId, nowSec));
+  const accessToken = signAccessToken(makeClaims(resolvedPrincipal, accessJti, refreshTokenId, familyId, nowSec));
 
   await tx.insert(refreshTokens).values({
     id: refreshTokenId,
@@ -298,7 +311,7 @@ async function insertInitialPair(
     tenantId: principal.tenantId ?? null,
     userId: principal.userId ?? null,
     role: principal.role ?? null,
-    email: principal.email ?? null,
+    email: sessionEmail,
     tokenHash: hashRefreshToken(refreshToken),
     issuedAt: new Date(nowMs),
     familyCreatedAt: new Date(nowMs),
@@ -552,7 +565,18 @@ export async function rotateRefreshToken(
       replacedAt: Date | string | null;
     } | undefined;
 
-    if (!row || row.kind !== kind || row.revokedAt) return { status: "invalid" as const };
+    if (!row || row.kind !== kind) return { status: "invalid" as const };
+
+    await lockRefreshFamily(tx, row.familyId);
+
+    const lockedRowResult = await tx.execute(sql`
+      SELECT revoked_at AS "revokedAt"
+      FROM refresh_tokens
+      WHERE id = ${row.id}
+      FOR UPDATE
+    `);
+    const lockedState = lockedRowResult.rows[0] as { revokedAt?: Date | string | null } | undefined;
+    if (lockedState?.revokedAt) return { status: "invalid" as const };
 
     const nowMs = await dbNowMsInTransaction(tx);
     const familyCreatedAtMs = parseTimestampMs(row.familyCreatedAt);
@@ -684,6 +708,7 @@ export async function revokeRefreshTokenFamily(
     `);
     const familyId = (found.rows[0] as { familyId?: string } | undefined)?.familyId;
     if (!familyId) return false;
+    await lockRefreshFamily(tx, familyId);
     await tx.execute(sql`
       UPDATE refresh_tokens
       SET revoked_at = clock_timestamp(), revoked_reason = ${reason}
@@ -696,11 +721,14 @@ export async function revokeRefreshTokenFamily(
 
 export async function revokeSessionFamily(familyId: string, reason = "logout"): Promise<void> {
   if (!/^[0-9a-f]{32}$/.test(familyId)) throw new Error("Invalid session family id");
-  await db.execute(sql`
+  await db.transaction(async (tx) => {
+    await lockRefreshFamily(tx, familyId);
+    await tx.execute(sql`
     UPDATE refresh_tokens
     SET revoked_at = clock_timestamp(), revoked_reason = ${reason}
-    WHERE family_id = ${familyId} AND revoked_at IS NULL
-  `);
+      WHERE family_id = ${familyId} AND revoked_at IS NULL
+    `);
+  });
 }
 
 export async function cleanupExpiredRefreshTokens(): Promise<number> {
