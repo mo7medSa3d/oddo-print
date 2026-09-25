@@ -75,6 +75,37 @@ jobs:
         run: npm run typecheck
       - name: Lint frontend
         run: npm run lint
+      - name: Go build
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Go vet
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Go race tests
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go test -count=1 -race -p 2 ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Tauri cargo check
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          cargo check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Tauri cargo test
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          cargo test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Run Vitest suite
         run: npm run test -- --reporter=default --reporter=json --outputFile=vitest-results.json
       - name: Report skipped (DB-gated) tests explicitly
