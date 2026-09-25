@@ -22,6 +22,8 @@ describe("desktop manager authentication contract", () => {
     expect(source).toContain('"X-Odoo-Print-Desktop": "1"');
     expect(source).toContain('credentials: "include"');
     expect(source).not.toContain('"X-Refresh-Token"');
+    expect(source).not.toContain("sessionStorage");
+    expect(source).not.toContain("localStorage");
     expect(rust).toContain('request.bearer_auth(token)');
     expect(rust).toContain('request.header("X-Refresh-Token", refresh_token)');
     expect(rust).toContain('request = request.header("Origin", "tauri://localhost")');
