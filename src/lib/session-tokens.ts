@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { refreshTokens, tenantUsers, tenants, users } from "../db/schema";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { databaseNowMs } from "./database-clock";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { sessionCookieSecure } from "./session-config";
