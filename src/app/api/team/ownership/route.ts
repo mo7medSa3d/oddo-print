@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
-import { tenantUsers, managerSessions, refreshTokens } from "../../../../db/schema";
+import { tenantUsers } from "../../../../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { clearManagerCookieHeader, validateManager } from "../../../../lib/manager-auth";
+import {
+  clearManagerCookieHeader,
+  clearManagerRefreshCookieHeader,
+  validateManager,
+  revokeLegacyManagerSessionsForUserInTransaction,
+} from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { writeAuditEvent } from "../../../../lib/audit";
+import { revokeUserTenantRefreshFamiliesInTransaction } from "../../../../lib/session-tokens";
 
 class OwnershipConflict extends Error {
   readonly status = 409;
@@ -61,17 +67,13 @@ export async function POST(req: Request) {
         .returning({ userId: tenantUsers.userId });
       if (promoted.length !== 1) throw new OwnershipConflict("Target membership changed concurrently; no ownership change was committed.");
 
-      await tx.update(managerSessions)
-        .set({ revokedAt: sql`clock_timestamp()` })
-        .where(and(eq(managerSessions.userId, currentUserId), eq(managerSessions.tenantId, claims.tenantId)));
-
-      await tx.update(refreshTokens)
-        .set({ revokedAt: sql`clock_timestamp()`, revokedReason: "ownership_transferred" })
-        .where(and(
-          eq(refreshTokens.userId, currentUserId),
-          eq(refreshTokens.tenantId, claims.tenantId),
-          sql`refresh_tokens.revoked_at IS NULL`,
-        ));
+      await revokeLegacyManagerSessionsForUserInTransaction(tx, currentUserId, claims.tenantId);
+      await revokeUserTenantRefreshFamiliesInTransaction(
+        tx,
+        currentUserId,
+        claims.tenantId,
+        "ownership_transferred",
+      );
 
       await writeAuditEvent(
         {
@@ -92,5 +94,7 @@ export async function POST(req: Request) {
 
   const res = NextResponse.json({ ok: true, next: "/login" });
   res.headers.set("Set-Cookie", clearManagerCookieHeader());
+  res.headers.append("Set-Cookie", clearManagerRefreshCookieHeader());
+  res.headers.set("Cache-Control", "no-store");
   return res;
 }
