@@ -53,6 +53,14 @@ function warnUntrustedProxyOnce(): void {
   );
 }
 
+function progressiveLockDurationMs(failures: number): number {
+  if (failures < 5) return 0;
+  if (failures < 10) return 30_000;
+  if (failures < 15) return 5 * 60_000;
+  if (failures < 20) return 15 * 60_000;
+  return 60 * 60_000;
+}
+
 const RATE_LIMIT_THRESHOLDS = [5, 10, 15, 20] as const;
 
 function activeLimitFor(failures: number): number {
@@ -284,7 +292,7 @@ export async function reserveAuthAttempt(ip: string, username: string): Promise<
       if (lockedUntilMs !== null && lockedUntilMs > now.getTime()) {
         const snapshots = rows.rows.map((candidate) => {
           const rowCandidate = candidate as { key: string; failures?: number | string; window_started_at?: Date | string; locked_until?: Date | string | null };
-              return snapshotBucket(
+          return snapshotBucket(
             Number(rowCandidate.failures ?? 0),
             parseDbTimeMs(rowCandidate.window_started_at ?? now) ?? now.getTime(),
             parseDbTimeMs(rowCandidate.locked_until),
