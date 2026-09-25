@@ -70,6 +70,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Go build
+        working-directory: agent
+        run: go build ./...
+
       - name: Dead-code and unused-export scan
         run: npx --yes knip@6.31.0 --exports --include-entry-exports
       - name: Validate Odoo 19 addon XML conventions
