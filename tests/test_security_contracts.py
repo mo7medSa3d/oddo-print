@@ -276,24 +276,29 @@ def test_odoo_sql_identifiers_never_use_raw_table_name_formatting():
     """Model table names must be composed as SQL identifiers, never interpolated as values."""
     violations = []
 
-    def contains_table_attr(node):
-        return any(
-            isinstance(child, ast.Attribute) and child.attr == "_table"
-            for child in ast.walk(node)
-        )
+    def contains_unsafe_table_attr(node):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr == "Identifier":
+                value = func.value
+                if isinstance(value, ast.Name) and value.id == "sql":
+                    return False
+        if isinstance(node, ast.Attribute) and node.attr == "_table":
+            return True
+        return any(contains_unsafe_table_attr(child) for child in ast.iter_child_nodes(node))
 
     for path in (ROOT / "odoo_addons").rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod) and contains_table_attr(node.right):
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod) and contains_unsafe_table_attr(node.right):
                 violations.append(f"{path}:{node.lineno}: SQL % formatting uses _table")
             if isinstance(node, ast.JoinedStr) and any(
-                contains_table_attr(value.value) for value in node.values if isinstance(value, ast.FormattedValue)
+                contains_unsafe_table_attr(value.value) for value in node.values if isinstance(value, ast.FormattedValue)
             ):
                 violations.append(f"{path}:{node.lineno}: f-string interpolates _table")
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format":
-                if any(contains_table_attr(arg) for arg in node.args) or any(
-                    contains_table_attr(kw.value) for kw in node.keywords
+                if any(contains_unsafe_table_attr(arg) for arg in node.args) or any(
+                    contains_unsafe_table_attr(kw.value) for kw in node.keywords
                 ):
                     violations.append(f"{path}:{node.lineno}: .format() interpolates _table")
 
