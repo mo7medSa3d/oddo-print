@@ -3,6 +3,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { validateManager } from "../src/lib/manager-auth";
 import { validateCustomer } from "../src/lib/customer-auth";
 import { validatePlatformOwner } from "../src/lib/platform-auth";
+import { LEGACY_SESSION_MAX_AGE_SECONDS } from "../src/lib/session-config";
 import { applyMigrations, closePool, pool, truncateAll, hasTestDatabase } from "./helpers/pg";
 
 const suite = describe.skipIf(!hasTestDatabase);
@@ -55,7 +56,7 @@ suite("legacy authentication fallback", () => {
     const token = legacyJwt({
       jti,
       iat: nowSec,
-      exp: nowSec + 8 * 60 * 60,
+      exp: nowSec + LEGACY_SESSION_MAX_AGE_SECONDS,
       sub: "manager",
       tenantId: "tenant_legacy_test",
       userId: "user_legacy_test",
@@ -84,7 +85,7 @@ suite("legacy authentication fallback", () => {
     const token = legacyJwt({
       jti,
       iat: nowSec,
-      exp: nowSec + 8 * 60 * 60,
+      exp: nowSec + LEGACY_SESSION_MAX_AGE_SECONDS,
       sub: "manager",
       tenantId: "tenant_legacy_test",
       userId: "user_legacy_test",
@@ -111,7 +112,7 @@ suite("legacy authentication fallback", () => {
     const token = legacyJwt({
       jti,
       iat: nowSec,
-      exp: nowSec + 8 * 60 * 60,
+      exp: nowSec + LEGACY_SESSION_MAX_AGE_SECONDS,
       sub: "platform_owner",
       userId: "platform_legacy_test",
       email: "platform-legacy@example.test",
