@@ -65,5 +65,7 @@ jobs:
         run: npm run test:integration -- tests/session-logout.integration.test.ts
       - name: Desktop auth contract
         run: npm run test:unit -- tests/desktop-auth-contract.test.ts
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest
       - name: Odoo static contracts
-        run: pytest tests/test_security_contracts.py
+        run: python -m pytest tests/test_security_contracts.py
