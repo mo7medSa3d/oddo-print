@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -267,3 +268,31 @@ def test_failover_binding_is_same_route_scope_and_execution_rechecks_it():
     assert "current_binding.destination_ref.display_name == job.destination" in job
     assert "current_binding.document_type == job.document_type" in job
     assert "and route_compatible" in job
+
+
+def test_odoo_sql_identifiers_never_use_raw_table_name_formatting():
+    """Model table names must be composed as SQL identifiers, never interpolated as values."""
+    violations = []
+
+    def contains_table_attr(node):
+        return any(
+            isinstance(child, ast.Attribute) and child.attr == "_table"
+            for child in ast.walk(node)
+        )
+
+    for path in (ROOT / "odoo_addons").rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod) and contains_table_attr(node.right):
+                violations.append(f"{path}:{node.lineno}: SQL % formatting uses _table")
+            if isinstance(node, ast.JoinedStr) and any(
+                contains_table_attr(value.value) for value in node.values if isinstance(value, ast.FormattedValue)
+            ):
+                violations.append(f"{path}:{node.lineno}: f-string interpolates _table")
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format":
+                if any(contains_table_attr(arg) for arg in node.args) or any(
+                    contains_table_attr(kw.value) for kw in node.keywords
+                ):
+                    violations.append(f"{path}:{node.lineno}: .format() interpolates _table")
+
+    assert not violations, "Raw SQL table-name formatting found:\\n" + "\\n".join(violations)
