@@ -33,7 +33,7 @@ suite("refresh-family logout", () => {
     );
     await pool().query(
       "INSERT INTO users (id, email, password_hash, email_verified_at, is_platform_owner) VALUES ($1, $2, $3, clock_timestamp(), true)",
-      ["platform_logout_test", "platform-logout@example.test", "unused", true],
+      ["platform_logout_test", "platform-logout@example.test", "unused"],
     );
   });
 
