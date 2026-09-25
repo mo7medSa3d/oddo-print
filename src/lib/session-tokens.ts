@@ -699,6 +699,59 @@ export async function rotateRefreshToken(
   return outcome;
 }
 
+export async function revokeSessionFamilyInTransaction(
+  tx: SessionTx,
+  familyId: string,
+  reason = "logout",
+): Promise<void> {
+  if (!/^[0-9a-f]{32}$/.test(familyId)) throw new Error("Invalid session family id");
+  await lockRefreshFamily(tx, familyId);
+  await tx.execute(sql`
+    UPDATE refresh_tokens
+    SET revoked_at = clock_timestamp(), revoked_reason = ${reason}
+    WHERE family_id = ${familyId} AND revoked_at IS NULL
+  `);
+}
+
+export async function revokeUserRefreshFamiliesInTransaction(
+  tx: SessionTx,
+  userId: string,
+  reason: string,
+): Promise<void> {
+  await tx.execute(sql`
+    UPDATE refresh_tokens
+    SET revoked_at = clock_timestamp(), revoked_reason = ${reason}
+    WHERE user_id = ${userId} AND revoked_at IS NULL
+  `);
+}
+
+export async function revokeUserTenantRefreshFamiliesInTransaction(
+  tx: SessionTx,
+  userId: string,
+  tenantId: string,
+  reason: string,
+): Promise<void> {
+  await tx.execute(sql`
+    UPDATE refresh_tokens
+    SET revoked_at = clock_timestamp(), revoked_reason = ${reason}
+    WHERE user_id = ${userId}
+      AND tenant_id = ${tenantId}
+      AND revoked_at IS NULL
+  `);
+}
+
+export async function revokeTenantRefreshFamiliesInTransaction(
+  tx: SessionTx,
+  tenantId: string,
+  reason: string,
+): Promise<void> {
+  await tx.execute(sql`
+    UPDATE refresh_tokens
+    SET revoked_at = clock_timestamp(), revoked_reason = ${reason}
+    WHERE tenant_id = ${tenantId} AND revoked_at IS NULL
+  `);
+}
+
 export async function revokeRefreshTokenFamily(
   kind: SessionKind,
   token: string,
@@ -714,27 +767,14 @@ export async function revokeRefreshTokenFamily(
     `);
     const familyId = (found.rows[0] as { familyId?: string } | undefined)?.familyId;
     if (!familyId) return false;
-    await lockRefreshFamily(tx, familyId);
-    await tx.execute(sql`
-      UPDATE refresh_tokens
-      SET revoked_at = clock_timestamp(), revoked_reason = ${reason}
-      WHERE family_id = ${familyId} AND revoked_at IS NULL
-    `);
+    await revokeSessionFamilyInTransaction(tx, familyId, reason);
     return true;
   });
   return result;
 }
 
 export async function revokeSessionFamily(familyId: string, reason = "logout"): Promise<void> {
-  if (!/^[0-9a-f]{32}$/.test(familyId)) throw new Error("Invalid session family id");
-  await db.transaction(async (tx) => {
-    await lockRefreshFamily(tx, familyId);
-    await tx.execute(sql`
-    UPDATE refresh_tokens
-    SET revoked_at = clock_timestamp(), revoked_reason = ${reason}
-      WHERE family_id = ${familyId} AND revoked_at IS NULL
-    `);
-  });
+  await db.transaction((tx) => revokeSessionFamilyInTransaction(tx, familyId, reason));
 }
 
 export async function cleanupExpiredRefreshTokens(): Promise<number> {
