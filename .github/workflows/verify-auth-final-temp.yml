@@ -51,4 +51,6 @@ jobs:
       - name: Integration auth suites
         run: npm run test:integration -- tests/manager-auth.test.ts tests/platform-control-plane.test.ts tests/auth-rate-limit.test.ts tests/session-tokens.integration.test.ts tests/session-legacy-fallback.integration.test.ts tests/session-logout.integration.test.ts
       - name: Python security contracts
-        run: pytest tests/test_security_contracts.py
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+          pytest tests/test_security_contracts.py
