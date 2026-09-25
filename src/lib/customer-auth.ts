@@ -12,6 +12,7 @@ import {
   clearAccessCookieHeader,
   clearRefreshCookieHeader,
   issueSessionPair,
+  refreshCookieHeader,
   type SessionRequestContext,
 } from "./session-tokens";
 
@@ -128,8 +129,7 @@ export function customerSessionCookie(session: { accessToken: string; accessExpi
 }
 
 export function customerRefreshCookie(session: { refreshToken: string; refreshExpiresAt: Date }) {
-  const config = { refreshToken: session.refreshToken, refreshExpiresAt: session.refreshExpiresAt };
-  return `cust_refresh=${config.refreshToken}; Path=/api/auth; HttpOnly; SameSite=Strict; Secure; Expires=${config.refreshExpiresAt.toUTCString()}; Max-Age=${30 * 24 * 60 * 60}`;
+  return refreshCookieHeader("customer", session.refreshToken, session.refreshExpiresAt);
 }
 
 export function clearCustomerSessionCookie() {
