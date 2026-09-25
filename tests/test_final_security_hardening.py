@@ -117,6 +117,20 @@ def test_gateway_connection_test_result_uses_independent_cursor():
     assert "serialization conflict cannot abort the whole Odoo request" in body
 
 
+def test_odoo_dynamic_table_identifiers_are_composed_safely():
+    sources = [
+        ADDON / "models" / "gateway_config.py",
+        ADDON / "migrations" / "19.0.2.3.0" / "post-migrate.py",
+    ]
+    for path in sources:
+        source = path.read_text(encoding="utf-8")
+        assert "psycopg2 import sql" in source
+        assert "sql.Identifier(" in source
+        assert "% self._table" not in source
+        assert "f\"SELECT" not in source
+        assert "f'SELECT" not in source
+        assert "{self._table}" not in source
+
 def test_tauri_renderer_cannot_supply_authorization_headers():
     rust = (ROOT / "src-tauri" / "src" / "commands.rs").read_text(encoding="utf-8")
     assert 'name.eq_ignore_ascii_case("authorization")' in rust
