@@ -104,8 +104,12 @@ jobs:
           for (const [name, value] of response.headers) console.log(name + ": " + value);
           console.log("CSP_SCRIPT_NONCE=" + cspNonce);
           console.log("HTML_SCRIPT_NONCE=" + htmlNonce);
+           const scriptSrc = (csp.match(/script-src[^;]+;/i) || [""])[0];
+           const unsafeInline = /unsafe-inline/i.test(scriptSrc);
           console.log("NONCE_MATCH=" + String(Boolean(cspNonce && cspNonce === htmlNonce)));
+           console.log("SCRIPT_SRC_UNSAFE_INLINE=" + String(unsafeInline));
           console.log("BODY_BYTES=" + Buffer.byteLength(body, "utf8"));
+           if (unsafeInline) process.exit(2);
           if (!response.ok || !cspNonce || cspNonce !== htmlNonce) process.exit(1);
           NODE
           echo 'SERVED_SECURITY_HEADERS_END'
