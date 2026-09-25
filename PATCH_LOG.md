@@ -471,3 +471,11 @@
 - Diagnosis: the repository contains multiple framework/runtime entry surfaces (Next server actions and the Vite/Tauri desktop entry) that were not declared to Knip, while `--include-entry-exports` was forcing reports for framework entry exports.
 - Fix: removed `--include-entry-exports` from the CI invocation and declared `src/app/actions.ts` and `src/desktop/main.tsx` as explicit Knip entrypoints, retaining `ignoreExportsUsedInFile: true`.
 - Verification: pending on the new `main` commit.
+
+
+## 2026-09-25 — Phase 0 failure: Windows U1000 dead code
+- OWASP: A03 Software Supply Chain Failures (verification gate); this was a source-level hygiene failure exposed by the supply-chain/static-analysis gate, not a runtime vulnerability.
+- Problem: Windows build-tag staticcheck failed on unreachable printer helpers; an intermediate test edit also left an unused `bytes` import.
+- Evidence: CI job `107942527275`, step `Go U1000 dead-code scan (Windows build tags)` reported `pdf_windows_test.go:6:2: "bytes" imported and not used` plus U1000 for `isVirtualSpooler`, `classifySpoolerPrinter`, `mapWindowsStatus`, `confidenceForDevice`, `containsDiscoverySource`, `isAllowedCIDR`, `tryBeginSession`, and `buildWSDSOAPProbe`.
+- Fix: removed only those statically unreachable helpers and the unused import; production call paths were not changed.
+- Verification: pending on the new `main` commit.
