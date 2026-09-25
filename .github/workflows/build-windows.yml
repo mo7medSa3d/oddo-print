@@ -96,6 +96,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo audit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build Go Agent resources for Tauri
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go build -mod=readonly -trimpath -ldflags="-s -w" -o YasserAgent.exe ./cmd/agent
+          go build -mod=readonly -trimpath -ldflags="-s -w" -o yasser-agent-cli.exe ./cmd/cli
+          if (-not (Test-Path .\YasserAgent.exe)) { throw "Missing agent/YasserAgent.exe" }
+          if (-not (Test-Path .\yasser-agent-cli.exe)) { throw "Missing agent/yasser-agent-cli.exe" }
+
       - name: Tauri Phase 0 - cargo check
         working-directory: src-tauri
         shell: pwsh
