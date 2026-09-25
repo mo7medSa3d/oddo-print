@@ -8,7 +8,7 @@ const read = (file: string) => readFileSync(join(root, file), "utf8");
 describe("desktop manager authentication contract", () => {
   it("login issues a bearer token only to the explicitly identified desktop client", () => {
     const source = read("src/app/api/auth/manager/login/route.ts");
-    expect(source).toContain('req.headers.get("x-odoo-print-desktop") === "1"');
+    expect(source).toContain("isTrustedDesktopRequest(req)");
     expect(source).toContain("if (desktopClient)");
     expect(source).toContain("bodyOut.accessToken = sess.token;");
     expect(source).toContain("bodyOut.refreshToken = sess.refreshToken;");
