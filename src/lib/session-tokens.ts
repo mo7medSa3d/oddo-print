@@ -23,7 +23,7 @@ const CONFIG: Record<SessionKind, SessionKindConfig> = {
     sub: "manager",
     accessCookieName: "mgr_session",
     refreshCookieName: "mgr_refresh",
-    refreshCookiePath: "/api/auth/manager/refresh",
+    refreshCookiePath: "/api/auth/manager",
   },
   customer: {
     sub: "manager",
@@ -35,7 +35,7 @@ const CONFIG: Record<SessionKind, SessionKindConfig> = {
     sub: "platform_owner",
     accessCookieName: "plt_session",
     refreshCookieName: "plt_refresh",
-    refreshCookiePath: "/api/platform/auth/refresh",
+    refreshCookiePath: "/api/platform/auth",
   },
 };
 
