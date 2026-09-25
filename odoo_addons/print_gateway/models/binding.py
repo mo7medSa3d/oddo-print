@@ -426,9 +426,13 @@ class PrintGatewayBinding(models.Model):
                 if not record.destination_pos_config_id and not record.destination_pos_printer_id:
                     raise ValidationError(_("An Odoo Preparation Printer or POS Shop is required for a POS Kitchen / Preparation binding."))
                 if record.destination_pos_printer_id:
-                    if record.destination_pos_printer_id.use_type != "preparation":
-                        raise ValidationError(_("Odoo Preparation Printer must be configured as a Preparation printer in Odoo 19."))
-                    printer_configs = record.destination_pos_printer_id.pos_config_ids
+                    printer = record.destination_pos_printer_id
+                    printer_configs = printer.pos_config_ids
+                    preparation_configs = printer_configs.filtered(
+                        lambda config: printer in config.preparation_printer_ids
+                    )
+                    if not preparation_configs:
+                        raise ValidationError(_("Odoo Preparation Printer must belong to an Odoo POS Preparation Printer configuration."))
                     if printer_configs and expected_company not in printer_configs.mapped("company_id"):
                         raise ValidationError(_("Odoo Preparation Printer is not available to the selected Odoo Branch."))
                 if record.report_id:
