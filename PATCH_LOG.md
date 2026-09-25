@@ -438,3 +438,12 @@
 - Phase 0 evidence from the same job was clean: `go build ./...`, `go vet ./...`, and `go test ./... -race` all completed successfully. `govulncheck ./...` reported `No vulnerabilities found.`.
 - Fix: removed the unreachable `rotatedPDF` test fixture; no production behavior changed.
 - Verification: pending on the new `main` commit; no final CI pass claimed yet.
+
+
+## 2026-09-25 — CI failure: Windows PDF test fixture placement
+- Failing runs on commit `9d5ebdda424d9d63a955dc9905d4ef76e7e6dd37`:
+  CI `36091014856`, job `107933277283`, step `Go U1000 dead-code scan (Windows build tags)`; Build Windows Installer `36091014846`, job `107933267419`, step `Agent Phase 0 - Go vet`.
+- Raw Windows evidence: `vet.exe: internal\\printer\\pdf_windows_test.go:61:10: undefined: rotatedPDF`.
+- Root cause: the Linux U1000 cleanup removed a fixture that was required only by the Windows-specific PDFium test.
+- Fix: restored `rotatedPDF` beside the Windows-only test under `pdf_windows_test.go`; no production behavior changed.
+- Verification: pending on the new `main` commit.
