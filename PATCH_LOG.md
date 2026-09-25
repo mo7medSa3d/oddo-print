@@ -756,3 +756,4 @@
 - Desktop manager auth contract: `tests/desktop-auth-contract.test.ts (5 tests)`, `Test Files 1 passed (1)`, `Tests 5 passed (5)`, `Duration 151ms`.
 
 - A4 verification output: temporary PostgreSQL workflow `36140928157` ran migrations and `npm run test:integration -- tests/session-tokens.integration.test.ts`; Vitest reported `Test Files 1 passed (1)`, `Tests 5 passed (5)`, `Duration 3.61s`. The suite covers issuance/hash storage, normal rotation, 5-second grace, replay after grace with family revocation/audit/notification, and Strict refresh-cookie policy.
+- A5 verification output: temporary PostgreSQL workflow `36141305678` ran migrations and `npm run test:integration -- tests/session-logout.integration.test.ts`; all 3 tests passed. The suite confirms manager, customer, and platform logout revoke every refresh token in the active family with reason `logout`.
