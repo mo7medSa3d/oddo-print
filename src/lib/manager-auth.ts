@@ -6,7 +6,16 @@ import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
 import { databaseNowMs } from "./database-clock";
 import { hashPassword, verifyPassword, normalizeEmail } from "./password";
 import { requireActiveTenantOrNull } from "./tenant-guard";
-import { SESSION_MAX_AGE_SECONDS, sessionCookieSecure } from "./session-config";
+import { SESSION_MAX_AGE_SECONDS } from "./session-config";
+import {
+  accessCookieHeader,
+  clearAccessCookieHeader,
+  clearRefreshCookieHeader,
+  getAccessTokenFromRequest,
+  issueSessionPair,
+  verifyAccessToken,
+  type SessionRequestContext,
+} from "./session-tokens";
 
 const COOKIE_NAME = "mgr_session";
 const MAX_AGE_SECONDS = SESSION_MAX_AGE_SECONDS;
@@ -29,6 +38,10 @@ export type ManagerRole = "owner" | "admin" | "operator" | "viewer" | "integrati
 export type ManagerClaims = {
   jti: string; iat: number; exp: number; sub: "manager"; tenantId: string;
   userId?: string; role: ManagerRole;
+  ver?: 2;
+  kind?: "manager" | "customer";
+  sid?: string;
+  familyId?: string;
 };
 
 function sign(claims: ManagerClaims): string {
@@ -87,12 +100,54 @@ export function getManagerCookieName() {
 }
 
 export async function verifyManagerToken(token: string): Promise<ManagerClaims | null> {
-  const claims = verifySignature(token);
-  return claims ? validateManagerClaims(claims) : null;
+  const fresh = await verifyAccessToken(token, ["manager", "customer"]);
+  if (fresh) {
+    return {
+      jti: fresh.jti,
+      iat: fresh.iat,
+      exp: fresh.exp,
+      sub: "manager",
+      tenantId: fresh.tenantId!,
+      role: fresh.role as ManagerRole,
+      ...(fresh.userId ? { userId: fresh.userId } : {}),
+      ver: 2,
+      kind: fresh.kind,
+      sid: fresh.sid,
+      familyId: fresh.familyId,
+    };
+  }
+
+  const legacy = verifySignature(token);
+  return legacy ? validateManagerClaims(legacy) : null;
 }
 
 export async function validateManagerClaims(claims: ManagerClaims | null): Promise<ManagerClaims | null> {
   if (!claims) return null;
+
+  if (claims.ver === 2 && (claims.kind === "manager" || claims.kind === "customer")) {
+    let nowMs: number;
+    try {
+      nowMs = await databaseNowMs();
+    } catch {
+      return null;
+    }
+    const nowSec = Math.floor(nowMs / 1000);
+    if (claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.exp - claims.iat !== 15 * 60) return null;
+    if (!claims.tenantId || !claims.role) return null;
+
+    if (claims.userId) {
+      const membership = await db.query.tenantUsers.findFirst({
+        where: and(eq(tenantUsers.userId, claims.userId), eq(tenantUsers.tenantId, claims.tenantId)),
+        columns: { role: true },
+      });
+      if (!membership || membership.role !== claims.role) return null;
+    }
+
+    const tenantLifecycle = await requireActiveTenantOrNull(claims.tenantId);
+    if (!tenantLifecycle) return null;
+    return claims;
+  }
+
   const row = await db.query.managerSessions.findFirst({
     where: and(
       eq(managerSessions.jti, claims.jti),
@@ -153,35 +208,40 @@ export async function resolveManagerTenantId(req: Request): Promise<string | nul
   return null;
 }
 
-export async function createManagerSession(tenantId: string, identity?: { userId?: string; role?: ManagerRole }): Promise<{ token: string; jti: string; exp: Date }> {
-  const jti = randomBytes(16).toString("hex");
-  const nowMs = await databaseNowMs();
-  const now = Math.floor(nowMs / 1000);
-  const exp = now + MAX_AGE_SECONDS;
-  const role = identity?.role ?? "owner";
-  const claims: ManagerClaims = { jti, iat: now, exp, sub: "manager", tenantId, role, ...(identity?.userId ? { userId: identity.userId } : {}) };
-  const token = sign(claims);
-  await db.insert(managerSessions).values({ jti, tenantId, userId: identity?.userId ?? null, role, expiresAt: new Date(exp * 1000) });
-  return { token, jti, exp: new Date(exp * 1000) };
+export async function createManagerSession(
+  tenantId: string,
+  identity?: { userId?: string; role?: ManagerRole },
+  context?: SessionRequestContext & { email?: string | null },
+): Promise<{
+  token: string;
+  jti: string;
+  exp: Date;
+  refreshToken: string;
+  refreshTokenId: string;
+  familyId: string;
+  refreshExpiresAt: Date;
+}> {
+  const pair = await issueSessionPair({
+    kind: "manager",
+    tenantId,
+    userId: identity?.userId ?? null,
+    role: identity?.role ?? "owner",
+    email: context?.email ?? null,
+  }, context);
+  return {
+    token: pair.accessToken,
+    jti: pair.accessJti,
+    exp: pair.accessExpiresAt,
+    refreshToken: pair.refreshToken,
+    refreshTokenId: pair.refreshTokenId,
+    familyId: pair.familyId,
+    refreshExpiresAt: pair.refreshExpiresAt,
+  };
 }
 
 export async function validateManager(req: Request): Promise<ManagerClaims | null> {
-  let token: string | null = null;
-  const cookieHeader = req.headers.get("cookie") ?? "";
-  for (const part of cookieHeader.split(";")) {
-    const [k, ...rest] = part.trim().split("=");
-    if (k === COOKIE_NAME) {
-      token = rest.join("=").trim();
-      if (token.startsWith('"') && token.endsWith('"')) token = token.slice(1, -1);
-      break;
-    }
-  }
-  if (!token) {
-    const auth = req.headers.get("authorization");
-    if (auth?.startsWith("Bearer ")) token = auth.slice(7).trim();
-  }
-  if (!token) return null;
-  return verifyManagerToken(token);
+  const token = getAccessTokenFromRequest(req, "manager");
+  return token ? verifyManagerToken(token) : null;
 }
 
 export async function revokeManagerSession(jti: string) {
@@ -198,12 +258,19 @@ export async function cleanupExpiredManagerSessions(): Promise<number> {
 }
 
 export function managerCookieHeader(token: string, exp: Date): string {
-  const secure = sessionCookieSecure() ? "; Secure" : "";
-  return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax${secure}; Expires=${exp.toUTCString()}; Max-Age=${MAX_AGE_SECONDS}`;
+  return accessCookieHeader("manager", token, exp);
+}
+
+export function managerRefreshCookieHeader(token: string, exp: Date): string {
+  return refreshCookieHeader("manager", token, exp);
 }
 
 export function clearManagerCookieHeader(): string {
-  return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0`;
+  return clearAccessCookieHeader("manager");
+}
+
+export function clearManagerRefreshCookieHeader(): string {
+  return clearRefreshCookieHeader("manager");
 }
 
 function compareStringsSafe(a: string, b: string): boolean {
