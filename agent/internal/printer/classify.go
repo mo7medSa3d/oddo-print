@@ -79,6 +79,119 @@ func isValidSpoolerPrinter(portName, driverName, printerName string) bool {
 
 
 
+
+// isVirtualSpooler reports whether a Windows spooler queue is software-only.
+// It is used before a queue enters the managed printer inventory.
+func isVirtualSpooler(portName, driverName, printerName string) bool {
+	return ClassifyDevice(DeviceFacts{
+		Name:       printerName,
+		DriverName: driverName,
+		PortName:   portName,
+	}).IsVirtual
+}
+
+// classifySpoolerPrinter infers printer type and connection type from Windows
+// spooler metadata before the queue is persisted into the managed inventory.
+func classifySpoolerPrinter(portName, driverName, printerName string) (printerType, connectionType string) {
+	portLower := ""
+	if portName != "" {
+		if idx := spoolerIndexComma(portName); idx >= 0 {
+			portLower = spoolerToLowerTrim(portName[:idx])
+		} else {
+			portLower = spoolerToLowerTrim(portName)
+		}
+	}
+	driverLower := spoolerToLowerTrim(driverName)
+	nameLower := spoolerToLowerTrim(printerName)
+
+	switch {
+	case spoolerHasPrefix(portLower, "usb") || spoolerHasPrefix(portLower, "dot4"):
+		connectionType = "usb"
+	case spoolerHasPrefix(portLower, "wsd"):
+		connectionType = "network"
+	case portLower == "lpt1:" || portLower == "com1:" || spoolerHasPrefix(portLower, "lpt") || spoolerHasPrefix(portLower, "com"):
+		connectionType = "local"
+	case strings.Contains(portLower, "192.168.") || strings.Contains(portLower, "10.") || strings.Contains(portLower, ":9100") || spoolerHasPrefix(portLower, "tcp") || spoolerHasPrefix(portLower, "ip_"):
+		connectionType = "network"
+	case portLower != "":
+		if strings.Contains(portLower, ".") && (strings.Contains(portLower, ":") || spoolerHasPrefix(portLower, "hp") || spoolerHasPrefix(portLower, "canon") || spoolerHasPrefix(portLower, "epson")) {
+			connectionType = "network"
+		} else {
+			connectionType = "spooler"
+		}
+	default:
+		connectionType = "spooler"
+	}
+
+	switch {
+	case strings.Contains(driverLower, "thermal") || strings.Contains(nameLower, "thermal") || strings.Contains(nameLower, "receipt") || strings.Contains(nameLower, "pos") || strings.Contains(driverLower, "escpos") || strings.Contains(driverLower, "epson tm-") || strings.Contains(driverLower, "bixolon"):
+		printerType = "thermal"
+	case strings.Contains(driverLower, "label") || strings.Contains(nameLower, "label") || strings.Contains(driverLower, "zebra") || strings.Contains(driverLower, "zdesigner"):
+		printerType = "label"
+	case strings.Contains(driverLower, "laser") || strings.Contains(nameLower, "laserjet") || strings.Contains(driverLower, "laserjet"):
+		printerType = "laser"
+	case strings.Contains(driverLower, "inkjet") || strings.Contains(driverLower, "deskjet") || strings.Contains(driverLower, "officejet"):
+		printerType = "inkjet"
+	default:
+		printerType = "unknown"
+	}
+	return
+}
+
+// mapWindowsStatus converts Windows spooler status bits into the Gateway
+// status vocabulary, failing closed for unmodelled status bits.
+func mapWindowsStatus(status uint32, attributes uint32) string {
+	const (
+		PRINTER_STATUS_PAUSED            = 0x00000001
+		PRINTER_STATUS_ERROR             = 0x00000002
+		PRINTER_STATUS_PENDING_DELETION  = 0x00000004
+		PRINTER_STATUS_PAPER_JAM         = 0x00000008
+		PRINTER_STATUS_PAPER_OUT         = 0x00000010
+		PRINTER_STATUS_MANUAL_FEED       = 0x00000020
+		PRINTER_STATUS_PAPER_PROBLEM     = 0x00000040
+		PRINTER_STATUS_OFFLINE           = 0x00000080
+		PRINTER_STATUS_IO_ACTIVE         = 0x00000100
+		PRINTER_STATUS_BUSY              = 0x00000200
+		PRINTER_STATUS_PRINTING          = 0x00000400
+		PRINTER_STATUS_OUTPUT_BIN_FULL   = 0x00000800
+		PRINTER_STATUS_NOT_AVAILABLE     = 0x00001000
+		PRINTER_STATUS_WAITING           = 0x00002000
+		PRINTER_STATUS_PROCESSING        = 0x00004000
+		PRINTER_STATUS_INITIALIZING      = 0x00008000
+		PRINTER_STATUS_WARMING_UP       = 0x00010000
+		PRINTER_STATUS_TONER_LOW         = 0x00020000
+		PRINTER_STATUS_NO_TONER          = 0x00040000
+		PRINTER_STATUS_PAGE_PUNT         = 0x00080000
+		PRINTER_STATUS_USER_INTERVENTION = 0x00100000
+		PRINTER_STATUS_OUT_OF_MEMORY      = 0x00200000
+		PRINTER_STATUS_DOOR_OPEN         = 0x00400000
+		PRINTER_STATUS_SERVER_UNKNOWN     = 0x00800000
+		PRINTER_STATUS_POWER_SAVE         = 0x01000000
+	)
+	const PRINTER_ATTRIBUTE_WORK_OFFLINE = 0x00000400
+	if attributes&PRINTER_ATTRIBUTE_WORK_OFFLINE != 0 || status&PRINTER_STATUS_OFFLINE != 0 || status&PRINTER_STATUS_NOT_AVAILABLE != 0 || status&PRINTER_STATUS_SERVER_UNKNOWN != 0 {
+		return "offline"
+	}
+	if status&PRINTER_STATUS_ERROR != 0 || status&PRINTER_STATUS_PAPER_JAM != 0 || status&PRINTER_STATUS_PAPER_OUT != 0 || status&PRINTER_STATUS_PAPER_PROBLEM != 0 || status&PRINTER_STATUS_OUTPUT_BIN_FULL != 0 || status&PRINTER_STATUS_NO_TONER != 0 || status&PRINTER_STATUS_DOOR_OPEN != 0 || status&PRINTER_STATUS_USER_INTERVENTION != 0 {
+		return "error"
+	}
+	if status&PRINTER_STATUS_BUSY != 0 || status&PRINTER_STATUS_IO_ACTIVE != 0 || status&PRINTER_STATUS_PRINTING != 0 || status&PRINTER_STATUS_PROCESSING != 0 {
+		return "busy"
+	}
+	if status&PRINTER_STATUS_PAUSED != 0 {
+		return "offline"
+	}
+	if status&PRINTER_STATUS_INITIALIZING != 0 || status&PRINTER_STATUS_WARMING_UP != 0 {
+		return "busy"
+	}
+	const benignStatusBits = PRINTER_STATUS_PENDING_DELETION | PRINTER_STATUS_WAITING |
+		PRINTER_STATUS_TONER_LOW | PRINTER_STATUS_POWER_SAVE
+	if status&^benignStatusBits == 0 {
+		return "online"
+	}
+	return "unknown"
+}
+
 func spoolerToLowerTrim(s string) string {
 	start := 0
 	for start < len(s) && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
