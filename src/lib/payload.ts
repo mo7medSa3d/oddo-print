@@ -1,15 +1,21 @@
+import payloadContract from "../../contracts/print-payload-contract.json";
 import { z } from "zod";
 
-const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024;
+const MAX_PAYLOAD_BYTES = payloadContract.maxPayloadBytes;
+const PAYLOAD_TYPES = payloadContract.wireTypes as ["raw", "escpos", "pdf", "image"];
+const RAW_PROTOCOLS = payloadContract.rawProtocols as ["raw", "escpos", "zpl", "tspl"];
+const DRAWER_MODES = payloadContract.peripherals.drawer as ["pin2", "pin5", "none"];
+const CUTTER_MODES = payloadContract.peripherals.cutter as ["partial", "full", "none"];
+const BUZZER_MODES = payloadContract.peripherals.buzzer as ["epson_pulse", "star_bel", "none"];
 
 export const printJobPayloadSchema = z.object({
-  type: z.enum(["raw", "escpos", "pdf", "image"]),
+  type: z.enum(PAYLOAD_TYPES),
   encoding: z.literal("base64"),
-  protocol: z.enum(["escpos", "zpl", "tspl", "raw"]).optional(),
+  protocol: z.enum(RAW_PROTOCOLS).optional(),
   peripherals: z.object({
-    drawer: z.enum(["pin2", "pin5", "none"]).optional(),
-    cutter: z.enum(["partial", "full", "none"]).optional(),
-    buzzer: z.enum(["epson_pulse", "star_bel", "none"]).optional(),
+    drawer: z.enum(DRAWER_MODES).optional(),
+    cutter: z.enum(CUTTER_MODES).optional(),
+    buzzer: z.enum(BUZZER_MODES).optional(),
   }).optional(),
   data: z.string().min(1).refine((value) => {
     if (value.length > (MAX_PAYLOAD_BYTES / 3) * 4 + 8) return false;
@@ -179,7 +185,7 @@ export function buildTestPrintPayloadForPrinter(
   const supported = Array.isArray(capabilities?.supported_protocols)
     ? capabilities.supported_protocols.map((p) => String(p).toLowerCase().trim())
     : [];
-  const byteCandidates = ["escpos", "zpl", "tspl", "raw"] as const;
+  const byteCandidates = RAW_PROTOCOLS;
   const declaredByteProtocol = byteCandidates.includes(declared as (typeof byteCandidates)[number])
     ? declared as (typeof byteCandidates)[number]
     : null;
