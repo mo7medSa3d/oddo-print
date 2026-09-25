@@ -29,13 +29,13 @@ const CONFIG: Record<SessionKind, SessionKindConfig> = {
     sub: "manager",
     accessCookieName: "cust_session",
     refreshCookieName: "cust_refresh",
-    refreshCookiePath: "/api/auth/refresh",
+    refreshCookiePath: "/api/auth",
   },
   platform: {
     sub: "platform_owner",
     accessCookieName: "plt_session",
     refreshCookieName: "plt_refresh",
-    refreshCookiePath: "/api/platform/auth/refresh",
+    refreshCookiePath: "/api/platform/auth",
   },
 };
 
@@ -530,6 +530,22 @@ export async function rotateRefreshToken(
 
   const outcome = await db.transaction(async (tx) => {
     const result = await tx.execute(sql`
+      SELECT id, family_id AS "familyId", kind
+      FROM refresh_tokens
+      WHERE token_hash = ${tokenHash}
+    `);
+
+    const initial = result.rows[0] as {
+      id: string;
+      familyId: string;
+      kind: SessionKind;
+    } | undefined;
+
+    if (!initial || initial.kind !== kind) return { status: "invalid" as const };
+
+    await lockRefreshFamily(tx, initial.familyId);
+
+    const lockedRowResult = await tx.execute(sql`
       SELECT
         id,
         family_id AS "familyId",
@@ -545,11 +561,10 @@ export async function rotateRefreshToken(
         replaced_by AS "replacedBy",
         replaced_at AS "replacedAt"
       FROM refresh_tokens
-      WHERE token_hash = ${tokenHash}
+      WHERE id = ${initial.id}
       FOR UPDATE
     `);
-
-    const row = result.rows[0] as {
+    let row = lockedRowResult.rows[0] as {
       id: string;
       familyId: string;
       kind: SessionKind;
@@ -565,18 +580,9 @@ export async function rotateRefreshToken(
       replacedAt: Date | string | null;
     } | undefined;
 
-    if (!row || row.kind !== kind) return { status: "invalid" as const };
-
-    await lockRefreshFamily(tx, row.familyId);
-
-    const lockedRowResult = await tx.execute(sql`
-      SELECT revoked_at AS "revokedAt"
-      FROM refresh_tokens
-      WHERE id = ${row.id}
-      FOR UPDATE
-    `);
-    const lockedState = lockedRowResult.rows[0] as { revokedAt?: Date | string | null } | undefined;
-    if (lockedState?.revokedAt) return { status: "invalid" as const };
+    if (!row || row.kind !== kind || row.familyId !== initial.familyId || row.revokedAt) {
+      return { status: "invalid" as const };
+    }
 
     const nowMs = await dbNowMsInTransaction(tx);
     const familyCreatedAtMs = parseTimestampMs(row.familyCreatedAt);
