@@ -484,7 +484,7 @@ patch(PosStore.prototype, {
         }
 
         try {
-            const receipt = renderToElement("point_of_sale.pos_order_change_receipt", data);
+            const receipt = renderToElement("point_of_sale.OrderChangeReceipt", { data });
             const image = await elementToJpeg(receipt);
             const result = await this.data.call(
                 "pos.order",
