@@ -611,7 +611,7 @@ export async function rotateRefreshToken(
       const replacedAtMs = row.replacedAtMs === null ? null : Number(row.replacedAtMs);
       if (replacedAtMs !== null && Number.isFinite(replacedAtMs) && nowMs <= replacedAtMs + REFRESH_ROTATION_GRACE_MS) {
         try {
-          const pair = await rotateWithinFamily(tx, row, context, nowMs);
+          const pair = await rotateWithinFamily(tx, { ...row, familyCreatedAtMs: Number(row.familyCreatedAtMs) }, context, nowMs);
           return { status: "rotated" as const, pair };
         } catch (error) {
           if (error instanceof Error && error.message === "REFRESH_FAMILY_EXPIRED") return { status: "invalid" as const };
@@ -657,7 +657,7 @@ export async function rotateRefreshToken(
     }
 
     try {
-      const pair = await rotateWithinFamily(tx, row, context, nowMs);
+      const pair = await rotateWithinFamily(tx, { ...row, familyCreatedAtMs: Number(row.familyCreatedAtMs) }, context, nowMs);
       await tx.execute(sql`
         UPDATE refresh_tokens
         SET replaced_by = ${pair.refreshTokenId}, replaced_at = clock_timestamp()
