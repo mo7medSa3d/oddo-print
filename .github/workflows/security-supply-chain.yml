@@ -130,6 +130,19 @@ jobs:
           cargo install cargo-audit --version 0.22.2 --locked
           cargo audit
 
+      - name: Verify committed lockfiles and immutable build commands
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s package-lock.json
+          test -s agent/go.sum
+          test -s src-tauri/Cargo.lock
+          ! grep -RInE '(^|[[:space:]])npm install([[:space:]]|$)' Dockerfile .github/workflows/ci.yml .github/workflows/build-windows.yml .github/workflows/docker.yml
+          grep -RInE 'go (mod verify|build.*-mod=readonly|vet.*-mod=readonly|test -mod=readonly)' .github/workflows/ci.yml .github/workflows/build-windows.yml
+          grep -RInE 'cargo (build|check|test).*--locked' .github/workflows/build-windows.yml
+          echo "package-lock.json, agent/go.sum, and src-tauri/Cargo.lock are present."
+          echo "Build pipelines use npm ci, Go module verification/read-only mode, and Cargo --locked."
+
       - name: Verify all third-party GitHub Actions are SHA pinned
         shell: bash
         run: |
