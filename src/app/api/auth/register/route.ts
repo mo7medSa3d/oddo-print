@@ -21,7 +21,13 @@ export async function POST(req: Request) {
   const planId = typeof body.planId === "string" && body.planId.length <= 128 ? body.planId : "";
   if (!validEmail(email) || password.length < 12 || password.length > 4096) return NextResponse.json({ error: "Enter a valid email and a password of at least 12 characters." }, { status: 400 });
   const ip = clientIpFrom(req);
-  const rate = await reserveAuthAttempt(ip, email);
+  let rate: Awaited<ReturnType<typeof reserveAuthAttempt>>;
+  try {
+    rate = await reserveAuthAttempt(ip, email);
+  } catch (error) {
+    logError("auth.rate_limit.store_unavailable", { endpoint: "register", error: error instanceof Error ? error.message : "unknown" });
+    return NextResponse.json({ error: "Registration temporarily unavailable" }, { status: 503 });
+  }
   if (!rate.allowed) { const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 }); res.headers.set("Retry-After", String(rate.retryAfterSec)); return setRateLimitHeaders(res, rate); }
   const existing = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.email, email), columns: { id: true, emailVerifiedAt: true } });
   if (existing) return setRateLimitHeaders(NextResponse.json({ error: "An account with this email already exists. You can sign in instead.", code: "ACCOUNT_EXISTS" }, { status: 409 }), rate);
