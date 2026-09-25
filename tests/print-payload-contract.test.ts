@@ -7,11 +7,6 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-function quotedValues(source: string, pattern: RegExp): string[] {
-  const match = source.match(pattern);
-  if (!match) throw new Error(`pattern not found: ${pattern}`);
-  return [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-}
 
 describe("print payload wire contract", () => {
   it("uses one normative contract for TypeScript, Go and the database guard", () => {
