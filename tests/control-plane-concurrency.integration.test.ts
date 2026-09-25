@@ -14,8 +14,10 @@ import { requireManagerPermission } from "../src/lib/authorization";
 import { stripeRequest } from "../src/lib/stripe";
 import { applyMigrations, closePool, hasTestDatabase, truncateAll } from "./helpers/pg";
 
-vi.mock("../src/lib/manager-auth", () => ({
+vi.mock(import("../src/lib/manager-auth"), async (importOriginal) => ({
+  ...(await importOriginal()),
   validateManager: vi.fn(),
+  validateWorkspaceManager: vi.fn(),
 }));
 vi.mock("../src/lib/authorization", () => ({
   requireManagerPermission: vi.fn(),
