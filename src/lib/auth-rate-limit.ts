@@ -53,28 +53,40 @@ function warnUntrustedProxyOnce(): void {
   );
 }
 
-function progressiveLockDurationMs(failures: number): number {
-  if (failures < 5) return 0;
-  if (failures < 10) return 30_000;
-  if (failures < 15) return 5 * 60_000;
-  if (failures < 20) return 15 * 60_000;
-  return 60 * 60_000;
+const ACCOUNT_LOCK_THRESHOLDS = [5, 10, 15, 20] as const;
+const IP_LOCK_THRESHOLDS = [20, 30, 40, 50] as const;
+const LOCK_DURATIONS_MS = [0, 30_000, 5 * 60_000, 15 * 60_000, 60 * 60_000] as const;
+
+type RateLimitCurve = "account" | "ip";
+
+function thresholdsFor(curve: RateLimitCurve): readonly number[] {
+  return curve === "ip" ? IP_LOCK_THRESHOLDS : ACCOUNT_LOCK_THRESHOLDS;
 }
 
-const RATE_LIMIT_THRESHOLDS = [5, 10, 15, 20] as const;
+function lockDurationFor(curve: RateLimitCurve, failures: number): number {
+  const thresholds = thresholdsFor(curve);
+  for (let index = 0; index < thresholds.length; index += 1) {
+    if (failures < thresholds[index]!) return LOCK_DURATIONS_MS[index]!;
+  }
+  return LOCK_DURATIONS_MS[LOCK_DURATIONS_MS.length - 1]!;
+}
 
-function activeLimitFor(failures: number): number {
-  return RATE_LIMIT_THRESHOLDS.find((threshold) => failures <= threshold) ?? RATE_LIMIT_THRESHOLDS[RATE_LIMIT_THRESHOLDS.length - 1]!;
+function activeLimitFor(failures: number, curve: RateLimitCurve): number {
+  const thresholds = thresholdsFor(curve);
+  return thresholds.find((threshold) => failures <= threshold) ?? thresholds[thresholds.length - 1]!;
 }
 
 export function lockDurationMs(failures: number): number {
-  return progressiveLockDurationMs(failures);
+  return lockDurationFor("account", failures);
+}
+
+export function ipLockDurationMs(failures: number): number {
+  return lockDurationFor("ip", failures);
 }
 
 export function pairingLockDurationMs(failures: number): number {
-  // Pairing keeps the requested six-digit UX while using the same authoritative
-  // progressive lockout schedule as normal authentication.
-  return progressiveLockDurationMs(failures);
+  // Pairing remains on the account-style curve; its key is independently scoped.
+  return lockDurationMs(failures);
 }
 
 export function clientIpFrom(req: Request): string {
@@ -127,9 +139,10 @@ function snapshotBucket(
   lockedUntilMs: number | null,
   nowMs: number,
   windowMs: number,
+  curve: RateLimitCurve,
 ): RateLimitBucketSnapshot {
   const activeLock = lockedUntilMs !== null && lockedUntilMs > nowMs;
-  const limit = activeLimitFor(failures);
+  const limit = activeLimitFor(failures, curve);
   return {
     limit,
     remaining: activeLock ? 0 : Math.max(0, limit - failures),
@@ -191,7 +204,7 @@ export function setRateLimitHeaders<T extends Response>(response: T, decision: R
 async function reserveBucketAttempt(
   key: string,
   windowMs: number,
-  lockFn: (attempts: number) => number,
+  curve: RateLimitCurve,
 ): Promise<RateLimitDecision> {
   return db.transaction(async (tx) => {
     const clock = await tx.execute(sql`SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms`);
@@ -224,6 +237,7 @@ async function reserveBucketAttempt(
         existingLockMs,
         now.getTime(),
         windowMs,
+        curve,
       );
       return blockedDecision([snapshot], now.getTime());
     }
@@ -232,7 +246,7 @@ async function reserveBucketAttempt(
     const windowExpired = oldWindowMs < windowStartCutoff.getTime();
     const attempts = windowExpired ? 1 : Number(row.failures ?? 0) + 1;
     const newWindowStart = windowExpired ? now : new Date(oldWindowMs);
-    const lockMs = lockFn(attempts);
+    const lockMs = lockDurationFor(curve, attempts);
     const lockedUntil = lockMs > 0 ? new Date(now.getTime() + lockMs) : null;
 
     await tx.execute(sql`
@@ -251,13 +265,14 @@ async function reserveBucketAttempt(
         lockedUntil?.getTime() ?? null,
         now.getTime(),
         windowMs,
+        curve,
       ),
     ], now.getTime());
   });
 }
 
 export async function reservePairingAttempt(ip: string): Promise<RateLimitDecision> {
-  return reserveBucketAttempt(pairingIpKey(ip), PAIRING_RATE_WINDOW_MS, pairingLockDurationMs);
+  return reserveBucketAttempt(pairingIpKey(ip), PAIRING_RATE_WINDOW_MS, "account");
 }
 
 export async function reserveAuthAttempt(ip: string, username: string): Promise<RateLimitDecision> {
@@ -298,6 +313,7 @@ export async function reserveAuthAttempt(ip: string, username: string): Promise<
             parseDbTimeMs(rowCandidate.locked_until),
             now.getTime(),
             AUTH_RATE_WINDOW_MS,
+            candidate.key.startsWith("ip:") ? "ip" : "account",
           );
         }).filter((snapshot) => snapshot.lockedUntilMs !== null);
         return blockedDecision(snapshots, now.getTime());
@@ -310,7 +326,8 @@ export async function reserveAuthAttempt(ip: string, username: string): Promise<
       const windowExpired = oldWindowMs < windowStartCutoff.getTime();
       const attempts = windowExpired ? 1 : Number(raw.failures ?? 0) + 1;
       const newWindowStart = windowExpired ? now : new Date(oldWindowMs);
-      const lockMs = lockDurationMs(attempts);
+      const curve: RateLimitCurve = raw.key.startsWith("ip:") ? "ip" : "account";
+      const lockMs = lockDurationFor(curve, attempts);
       const lockedUntil = lockMs > 0 ? new Date(now.getTime() + lockMs) : null;
       await tx.execute(sql`
         UPDATE auth_rate_limits
@@ -326,6 +343,7 @@ export async function reserveAuthAttempt(ip: string, username: string): Promise<
         lockedUntil?.getTime() ?? null,
         now.getTime(),
         AUTH_RATE_WINDOW_MS,
+        curve,
       ));
     }
     return allowedDecision(snapshots, now.getTime());
