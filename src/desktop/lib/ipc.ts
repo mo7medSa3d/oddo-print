@@ -141,6 +141,7 @@ async function gatewayRequest(
       method,
       headers,
       body,
+      ...(path.endsWith("/refresh") ? { credentials: "include" as RequestCredentials } : {}),
     });
     return { status: response.status, body: await response.text() };
   }
@@ -189,6 +190,7 @@ export async function loginManager(
     ok?: boolean;
     expiresAt?: string;
     accessToken?: string;
+    refreshToken?: string;
     error?: string;
   };
   if (status < 200 || status >= 300 || !data.ok || (!isTauri && !data.accessToken)) {
@@ -201,23 +203,52 @@ export async function loginManager(
   return { authenticated: true, expiresAt: data.expiresAt };
 }
 
+export async function refreshManagerSession(gatewayUrl: string): Promise<ManagerSessionStatus> {
+  const base = normalizeGatewayUrl(gatewayUrl);
+  const headers: Record<string, string> = isTauri
+    ? { "X-Odoo-Print-Desktop": "1" }
+    : {};
+  const { status, body } = await gatewayRequest(base, "/api/auth/manager/refresh", "POST", headers);
+  const data = JSON.parse(body || "{}") as { ok?: boolean; expiresAt?: string; error?: string };
+  if (status < 200 || status >= 300 || !data.ok || typeof data.expiresAt !== "string") {
+    const err: Error & { status?: number } = new Error(data.error || `Manager session refresh failed (${status})`);
+    err.status = status;
+    throw err;
+  }
+  return { authenticated: true, expiresAt: data.expiresAt };
+}
+
 export async function getManagerSession(gatewayUrl: string): Promise<ManagerSessionStatus> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  if (!isTauri && !getBrowserManagerToken()) return { authenticated: false };
+  if (!isTauri && !getBrowserManagerToken()) {
+    try {
+      return await refreshManagerSession(base);
+    } catch {
+      return { authenticated: false };
+    }
+  }
 
   const headers: Record<string, string> = {};
   const browserToken = getBrowserManagerToken();
   if (browserToken) headers.Authorization = `Bearer ${browserToken}`;
   const { status, body } = await gatewayRequest(base, "/api/auth/manager/me", "GET", headers);
   if (status === 401 || status === 403) {
-    await clearManagerSession();
-    return { authenticated: false };
+    try {
+      return await refreshManagerSession(base);
+    } catch {
+      await clearManagerSession();
+      return { authenticated: false };
+    }
   }
   if (status < 200 || status >= 300) throw new Error(`Manager session check failed (${status})`);
   const data = JSON.parse(body) as { authenticated?: boolean; exp?: number };
   if (!data.authenticated || typeof data.exp !== "number") {
-    await clearManagerSession();
-    return { authenticated: false };
+    try {
+      return await refreshManagerSession(base);
+    } catch {
+      await clearManagerSession();
+      return { authenticated: false };
+    }
   }
   return { authenticated: true, expiresAt: new Date(data.exp * 1000).toISOString() };
 }
