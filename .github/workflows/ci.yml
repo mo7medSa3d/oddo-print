@@ -74,6 +74,27 @@ jobs:
         working-directory: agent
         run: go build ./...
 
+      - name: Go vulnerability scan
+        working-directory: agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
+      - name: Go U1000 dead-code scan (Linux)
+        working-directory: agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+          "$(go env GOPATH)/bin/staticcheck" -checks=U1000 ./...
+      - name: Go U1000 dead-code scan (Windows build tags)
+        working-directory: agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          GOOS=windows "$(go env GOPATH)/bin/staticcheck" -checks=U1000 ./...
+
       - name: Dead-code and unused-export scan
         run: npx --yes knip@6.31.0 --exports --include-entry-exports
       - name: Validate Odoo 19 addon XML conventions
