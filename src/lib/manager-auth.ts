@@ -19,7 +19,7 @@ import {
 } from "./session-tokens";
 
 const COOKIE_NAME = "mgr_session";
-const MAX_AGE_SECONDS = LEGACY_SESSION_MAX_AGE_SECONDS;
+const LEGACY_MAX_AGE_SECONDS = LEGACY_SESSION_MAX_AGE_SECONDS;
 
 function getSecret(): string {
   const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
@@ -89,7 +89,7 @@ function verifySignature(token: string): ManagerClaims | null {
       typeof claims.exp !== "number" ||
       !Number.isSafeInteger(claims.exp) ||
       claims.exp <= claims.iat ||
-      claims.exp - claims.iat > MAX_AGE_SECONDS ||
+      claims.exp - claims.iat > LEGACY_MAX_AGE_SECONDS ||
       typeof claims.role !== "string" ||
       !(["owner", "admin", "operator", "viewer", "integration_admin", "billing_admin"] as string[]).includes(claims.role) ||
       (claims.userId !== undefined && (typeof claims.userId !== "string" || claims.userId.length < 1 || claims.userId.length > 128))
