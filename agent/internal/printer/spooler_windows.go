@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"golang.org/x/sys/windows/registry"
 	"log"
 	"runtime"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 var (
@@ -404,7 +404,6 @@ func preFlightSpoolerCheck(spoolerName string) error {
 	}
 	return nil
 }
-
 
 // waitBeginSession acquires this printer's session slot with a bounded
 // waiting lock (15-second timeout), honoring ctx cancellation. Used by
