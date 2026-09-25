@@ -225,7 +225,7 @@ export async function authenticatePlatformOwner(
 export async function revokePlatformSession(jti: string): Promise<void> {
   await db
     .update(platformSessions)
-    .set({ revokedAt: sql`now()` })
+    .set({ revokedAt: sql`clock_timestamp()` })
     .where(eq(platformSessions.jti, jti));
 }
 
