@@ -25,20 +25,15 @@
 - Trusted-proxy IP failures use a separate NAT-tolerant 20/30/40/50 progressive curve, so a shared source address can absorb normal multi-user bursts without triggering the account-style lock too early.
 
 ### Manager Sessions
-### Shared session tokens
-- Access sessions use versioned HS256 JWTs with a 15-minute lifetime and explicit session kind, JTI, SID, and refresh-family identifiers.
-- Refresh sessions are opaque 256-bit secrets; PostgreSQL stores only SHA-256 token hashes. Refresh families have a 30-day absolute lifetime with a 5-second rotation grace window.
-- A refresh token used after the grace window revokes the entire family, records `auth.refresh.reuse_detected`, and attempts a security-notification email when a user email is available.
+- v2 access sessions use versioned HS256 JWTs with a 15-minute lifetime and explicit session kind, JTI, SID, and refresh-family identifiers. Access tokens are stateless and are not stored in the refresh-token ledger.
+- v2 refresh sessions are opaque random secrets; PostgreSQL stores only SHA-256 token hashes. Each family has a 30-day absolute lifetime with a 5-second rotation grace window.
+- A refresh token presented after the grace window is treated as reuse/replay: the entire family is revoked, `auth.refresh.reuse_detected` is audited, and a notification email is attempted when an account email is available.
 - Refresh rotation revalidates the live security principal (tenant lifecycle, tenant membership/role, verified customer email, or Platform Owner status) before minting a new access token.
 - Password reset revokes every refresh family for the affected user.
-- Browser refresh credentials are HttpOnly + SameSite=Strict cookies. The packaged desktop manager keeps the refresh credential only in Rust process memory; renderer-supplied refresh headers are rejected, and desktop token responses require a fixed Tauri origin.
-- Existing pre-v2 manager/customer/platform sessions remain on the legacy DB-backed validation path until their original session expiry; no blanket forced logout is introduced by this migration.
-- Session kinds are explicitly separated: manager APIs accept only v2 `kind=manager`; customer APIs accept only v2 `kind=customer`; a versioned token never falls through into legacy validation as a different session kind.
-
-- Server-side sessions in `manager_sessions` table
-- JWT with per-session JTI (JSON Token Identifier)
-- HttpOnly signed cookies
-- Session bound to `userId`, `tenantId`, and role at authentication time
+- Browser refresh credentials are HttpOnly + SameSite=Strict cookies. The packaged desktop manager keeps the refresh credential only in Rust process memory; renderer-supplied refresh headers are not accepted, and desktop token responses require a fixed Tauri origin.
+- Existing pre-v2 manager/customer/platform sessions remain on the legacy `manager_sessions`/`platform_sessions` validation path until their original 8-hour expiry; no blanket forced logout is introduced.
+- Session kinds are explicitly separated: manager APIs accept only v2 `kind=manager`, customer APIs only v2 `kind=customer`, and platform APIs only v2 `kind=platform`. A v2 token never falls through into legacy validation as a different session kind.
+- Legacy `manager_sessions`/`platform_sessions` rows remain only for compatibility and legacy-session revocation/validation during the migration window.
 
 ### Rate-limit failure mode
 Authentication-adjacent routes keep PostgreSQL-backed rate limiting fail-closed. If `reserveAuthAttempt` cannot obtain a decision because the limiter store is unavailable, the route returns HTTP 503 and does not attempt authentication without rate-limit protection. This prevents an attacker from deliberately disrupting the limiter store to manufacture a fail-open bypass.
