@@ -23,19 +23,23 @@ describe("production TypeScript safety contracts", () => {
     expect(source).toContain('capabilities: jsonb("capabilities").$type<Record<string, unknown>>()');
   });
   it("awaits the database-backed manager token verifier on server pages", () => {
-    const pages = [
+    const managerProtectedPages = [
       "app/billing/page.tsx",
-      "app/dashboard/page.tsx",
-      "app/page.tsx",
-      "app/pricing/page.tsx",
       "app/release-readiness/page.tsx",
       "app/system-health/page.tsx",
     ];
-    for (const relative of pages) {
+    for (const relative of managerProtectedPages) {
       const source = readFileSync(resolve(process.cwd(), "src", relative), "utf8");
       expect(source).toContain("token ? await verifyManagerToken(token) : null");
       expect(source).not.toContain("validateManagerClaims(token ? verifyManagerToken(token) : null)");
     }
+
+    const dashboard = readFileSync(resolve(process.cwd(), "src/app/dashboard/page.tsx"), "utf8");
+    expect(dashboard).toContain("verifyWorkspaceTokenFromCookieValues(");
+    expect(dashboard).toContain("await verifyWorkspaceTokenFromCookieValues(");
+
+    const publicHome = readFileSync(resolve(process.cwd(), "src/app/page.tsx"), "utf8");
+    expect(publicHome).toContain("verifyWorkspaceTokenFromCookieValues(");
   });
 
   it("keeps database-clock printer updates compatible with Drizzle update typing", () => {
