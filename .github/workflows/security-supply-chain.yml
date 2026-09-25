@@ -129,6 +129,16 @@ jobs:
           cargo install cargo-audit --version 0.22.2 --locked
           cargo audit
 
+      - name: Verify container image references are immutable
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE '(^[[:space:]]*image:[[:space:]]*|docker (pull|run)[[:space:]])[^#]*:[A-Za-z0-9._-]+([[:space:]]|$)' Dockerfile docker-compose.yml .github/workflows | grep -v '@sha256:'; then
+            echo 'Unpinned container image reference detected; pin every build/test image by digest.'
+            exit 1
+          fi
+          echo 'All Dockerfile/Compose/CI container image references are digest-pinned.'
+
       - name: Verify committed lockfiles and immutable build commands
         shell: bash
         run: |
