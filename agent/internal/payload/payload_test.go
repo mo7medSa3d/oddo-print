@@ -136,11 +136,11 @@ func TestParsePeripherals(t *testing.T) {
 
 func TestGatewayPayloadContractIsTheAgentContract(t *testing.T) {
 	type contract struct {
-		Encoding        string `json:"encoding"`
-		MaxPayloadBytes int    `json:"maxPayloadBytes"`
+		Encoding        string   `json:"encoding"`
+		MaxPayloadBytes int      `json:"maxPayloadBytes"`
 		WireTypes       []string `json:"wireTypes"`
 		RawProtocols    []string `json:"rawProtocols"`
-		EscposProtocol  string `json:"escposProtocol"`
+		EscposProtocol  string   `json:"escposProtocol"`
 		Peripherals     struct {
 			Drawer []string `json:"drawer"`
 			Cutter []string `json:"cutter"`
@@ -216,7 +216,7 @@ func TestGatewayPayloadContractIsTheAgentContract(t *testing.T) {
 		}
 		raw := map[string]interface{}{
 			"type": "escpos", "protocol": "escpos", "encoding": EncodingBase64,
-			"data": base64.StdEncoding.EncodeToString([]byte("contract")),
+			"data":        base64.StdEncoding.EncodeToString([]byte("contract")),
 			"peripherals": map[string]interface{}{"drawer": drawer},
 		}
 		if _, err := Parse(raw); err != nil {

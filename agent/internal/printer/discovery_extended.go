@@ -543,4 +543,3 @@ func parseMDNSHosts(data []byte) []mdnsHost {
 	}
 	return hosts
 }
-

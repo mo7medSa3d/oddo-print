@@ -104,7 +104,7 @@ func TestDiscoverySessionTimeoutUsesGatewayValue(t *testing.T) {
 func TestLoadDiscoverySessionByID(t *testing.T) {
 	response := &http.Response{
 		StatusCode: http.StatusOK,
-		Body: http.NoBody,
+		Body:       http.NoBody,
 	}
 	_ = response
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
