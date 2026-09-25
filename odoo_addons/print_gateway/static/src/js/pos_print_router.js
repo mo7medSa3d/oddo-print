@@ -272,7 +272,7 @@ patch(PosStore.prototype, {
         order,
         orderChange,
         reprint = false,
-        printers = this.models["pos.printer"].getAll()
+        printers = this.unwatched.printers
     ) {
         const sessionId = this.session?.id;
         const gatewayEnabled = sessionId
