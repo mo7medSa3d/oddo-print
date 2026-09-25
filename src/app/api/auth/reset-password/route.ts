@@ -2,7 +2,7 @@ import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { db } from "../../../../db";
-import { managerSessions, platformSessions, passwordResetTokens, tenantUsers, users } from "../../../../db/schema";
+import { managerSessions, platformSessions, passwordResetTokens, refreshTokens, tenantUsers, users } from "../../../../db/schema";
 import { and, eq, isNull, gt, sql } from "drizzle-orm";
 import { hashPassword, hashToken } from "../../../../lib/password";
 import { writeAuditEvent } from "../../../../lib/audit";
@@ -57,8 +57,16 @@ export async function POST(req: Request) {
       // Revoke all platform owner sessions for this user
       await tx
         .update(platformSessions)
-        .set({ revokedAt: sql`now()` })
+        .set({ revokedAt: sql`clock_timestamp()` })
         .where(and(eq(platformSessions.userId, row.userId), isNull(platformSessions.revokedAt)));
+
+      // Password reset is a session-boundary event: every refresh family for
+      // the account must be revoked so an attacker holding an old refresh token
+      // cannot mint a new access token after the password changes.
+      await tx
+        .update(refreshTokens)
+        .set({ revokedAt: sql`clock_timestamp()`, revokedReason: "password_reset" })
+        .where(and(eq(refreshTokens.userId, row.userId), isNull(refreshTokens.revokedAt)));
 
       const membership = await tx.query.tenantUsers.findFirst({
         where: eq(tenantUsers.userId, row.userId),
