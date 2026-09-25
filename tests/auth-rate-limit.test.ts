@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { lockDurationMs, pairingLockDurationMs, accountKey, ipKey, clientIpFrom, cleanupAuthRateLimits, setRateLimitHeaders } from "../src/lib/auth-rate-limit";
+import { lockDurationMs, ipLockDurationMs, pairingLockDurationMs, accountKey, ipKey, clientIpFrom, cleanupAuthRateLimits, setRateLimitHeaders } from "../src/lib/auth-rate-limit";
 import {
   hasTestDatabase,
   applyMigrations,
@@ -22,6 +22,15 @@ describe("auth rate limiter (pure)", () => {
     expect(lockDurationMs(10)).toBe(5 * 60_000);
     expect(lockDurationMs(15)).toBe(15 * 60_000);
     expect(lockDurationMs(20)).toBe(60 * 60_000);
+  });
+
+  it("uses a wider NAT-tolerant IP lock curve", () => {
+    expect(ipLockDurationMs(19)).toBe(0);
+    expect(ipLockDurationMs(20)).toBe(30_000);
+    expect(ipLockDurationMs(29)).toBe(30_000);
+    expect(ipLockDurationMs(30)).toBe(5 * 60_000);
+    expect(ipLockDurationMs(40)).toBe(15 * 60_000);
+    expect(ipLockDurationMs(50)).toBe(60 * 60_000);
   });
 
   it("sets the X-RateLimit compatibility headers from one decision", () => {
@@ -213,6 +222,22 @@ suite("manager login rate limiting", () => {
       expect([401, 429]).toContain(res.status);
     }
     const ok = await login(USER, PASS, "198.51.100.51");
+    expect(ok.status).toBe(200);
+  });
+
+  it("does not prematurely lock a shared NAT IP across different accounts", async () => {
+    for (let i = 0; i < 10; i++) {
+      const res = await login(`nat-user-${i}`, "wrong", "198.51.100.60");
+      expect(res.status).toBe(401);
+    }
+    const sharedIpRow = await pool().query(
+      `SELECT failures, locked_until FROM auth_rate_limits WHERE key = $1`,
+      ["ip:198.51.100.60"]
+    );
+    expect(Number(sharedIpRow.rows[0]?.failures ?? 0)).toBe(10);
+    expect(sharedIpRow.rows[0]?.locked_until).toBeNull();
+
+    const ok = await login(USER, PASS, "198.51.100.60");
     expect(ok.status).toBe(200);
   });
 
