@@ -6,7 +6,7 @@ import { generateOpaqueToken, hashToken, normalizeEmail, validEmail } from "../.
 import { nanoid } from "../../../../lib/nanoid";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
-import { clientIpFrom, reserveAuthAttempt } from "../../../../lib/auth-rate-limit";
+import { clientIpFrom, reserveAuthAttempt, setRateLimitHeaders } from "../../../../lib/auth-rate-limit";
 
 const GENERIC = { ok: true, message: "If the account exists and is unverified, a new verification link has been sent." };
 
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   if (!rate.allowed) {
     const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
     res.headers.set("Retry-After", String(rate.retryAfterSec));
-    return res;
+    return setRateLimitHeaders(res, rate);
   }
 
   const user = await db.query.users.findFirst({
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
   });
 
   if (!user || user.emailVerifiedAt) {
-    return NextResponse.json(GENERIC, { status: 202 });
+    return setRateLimitHeaders(NextResponse.json(GENERIC, { status: 202 }), rate);
   }
 
   const rawToken = generateOpaqueToken();
@@ -76,7 +76,7 @@ export async function POST(req: Request) {
       });
       return true;
     });
-    if (!persisted) return NextResponse.json(GENERIC, { status: 202 });
+    if (!persisted) return setRateLimitHeaders(NextResponse.json(GENERIC, { status: 202 }), rate);
   } catch {
     // Keep this endpoint enumeration-safe even when token persistence is
     // temporarily unavailable. No token is sent unless persistence succeeds.
@@ -96,5 +96,5 @@ export async function POST(req: Request) {
     // Suppress email delivery error in response to preserve anti-enumeration
   }
 
-  return NextResponse.json(GENERIC, { status: 202 });
+  return setRateLimitHeaders(NextResponse.json(GENERIC, { status: 202 }), rate);
 }

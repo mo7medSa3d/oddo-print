@@ -4,6 +4,7 @@ import {
   clientIpFrom,
   reserveAuthAttempt,
   recordAuthSuccess,
+  setRateLimitHeaders,
 } from "../../../../../lib/auth-rate-limit";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
 import { logWarn, logInfo, logError, requestIdFrom } from "../../../../../lib/log";
@@ -11,10 +12,10 @@ import { writeAuditEvent } from "../../../../../lib/audit";
 
 const INVALID = "Invalid credentials";
 
-function tooMany(retryAfterSec: number) {
+function tooMany(decision: Awaited<ReturnType<typeof reserveAuthAttempt>>) {
   const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
-  res.headers.set("Retry-After", String(retryAfterSec));
-  return res;
+  if (decision.retryAfterSec) res.headers.set("Retry-After", String(decision.retryAfterSec));
+  return setRateLimitHeaders(res, decision);
 }
 
 export async function POST(req: Request) {
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
     pre = await reserveAuthAttempt(ip, username);
     if (!pre.allowed) {
       logWarn("auth.login.rate_limited", { requestId, ip, retryAfterSec: pre.retryAfterSec });
-      return tooMany(pre.retryAfterSec);
+      return tooMany(pre);
     }
   } catch (e) {
     logWarn("auth.login.rate_limit_unavailable", { requestId, error: e instanceof Error ? e.message : "unknown" });
@@ -52,7 +53,7 @@ export async function POST(req: Request) {
 
   const tenantId = await resolveManagerTenantId(req);
   if (!tenantId) {
-    return NextResponse.json({ error: "Manager tenant is not configured for this hostname" }, { status: 503 });
+    return setRateLimitHeaders(NextResponse.json({ error: "Manager tenant is not configured for this hostname" }, { status: 503 }), pre);
   }
 
   let identity: { userId: string; role: import("../../../../../lib/manager-auth").ManagerRole } | null = null;
@@ -64,7 +65,7 @@ export async function POST(req: Request) {
       // credentials. Never fall through to the 401 path when the identity
       // lookup itself could not be completed.
       logError("auth.login.user_lookup_failed", { requestId, error: e instanceof Error ? e.message : "unknown" });
-      return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });
+      return setRateLimitHeaders(NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 }), pre);
     }
   }
   const legacyEnabled = process.env.NODE_ENV !== "production" && process.env.ALLOW_LEGACY_MANAGER_AUTH === "1";
@@ -73,8 +74,8 @@ export async function POST(req: Request) {
     : false;
   if (!identity && !legacyValid) {
     logWarn("auth.login.failed", { requestId, ip });
-    if (pre.retryAfterSec) return tooMany(pre.retryAfterSec);
-    return NextResponse.json({ error: INVALID }, { status: 401 });
+    if (pre.retryAfterSec) return tooMany(pre);
+    return setRateLimitHeaders(NextResponse.json({ error: INVALID }, { status: 401 }), pre);
   }
 
   try {
@@ -88,7 +89,7 @@ export async function POST(req: Request) {
     sess = await createManagerSession(tenantId, identity ? { userId: identity.userId, role: identity.role } : { role: "owner" });
   } catch (e) {
     logError("auth.login.session_failed", { requestId, error: e instanceof Error ? e.message : "unknown" });
-    return NextResponse.json({ error: "Sign-in is temporarily unavailable. Try again in a moment." }, { status: 500 });
+    return setRateLimitHeaders(NextResponse.json({ error: "Sign-in is temporarily unavailable. Try again in a moment." }, { status: 500 }), pre);
   }
 
   logInfo("auth.login.success", { requestId, ip });
@@ -105,5 +106,5 @@ export async function POST(req: Request) {
   const res = NextResponse.json(bodyOut);
   res.headers.set("Set-Cookie", managerCookieHeader(sess.token, sess.exp));
   res.headers.set("X-Request-Id", requestId);
-  return res;
+  return setRateLimitHeaders(res, pre);
 }
