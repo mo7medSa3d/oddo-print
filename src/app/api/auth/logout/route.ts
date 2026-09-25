@@ -1,7 +1,7 @@
 import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
-import { revokeManagerSession, revokeManagerSession as revokeLegacyManagerSession, clearManagerCookieHeader, clearManagerRefreshCookieHeader } from "../../../../lib/manager-auth";
-import { validateCustomer, validateManager } from "../../../../lib/customer-auth";
+import { revokeManagerSession as revokeLegacyManagerSession, clearManagerCookieHeader, clearManagerRefreshCookieHeader, validateManager } from "../../../../lib/manager-auth";
+import { validateCustomer } from "../../../../lib/customer-auth";
 import { clearCustomerRefreshCookie } from "../../../../lib/customer-auth";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { revokeSessionFamily } from "../../../../lib/session-tokens";
