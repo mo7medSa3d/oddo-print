@@ -35,7 +35,7 @@ export interface HealthCheck {
   critical?: boolean;
 }
 
-const CURRENT_SCHEMA_VERSION = Number(migrationJournal.entries.at(-1)?.tag?.slice(0, 4) ?? 0);
+export const CURRENT_SCHEMA_VERSION = Number(migrationJournal.entries.at(-1)?.tag?.slice(0, 4) ?? 0);
 
 export interface SystemHealth {
   overall: HealthState;
