@@ -78,16 +78,18 @@ describe("architecture hardening", () => {
 
   it("installs security headers without forcing HSTS on development HTTP", () => {
     const src = readFileSync("next.config.ts", "utf8");
+    const proxy = readFileSync("proxy.ts", "utf8");
     expect(src).toContain("X-Content-Type-Options");
     expect(src).toContain("strict-origin-when-cross-origin");
     expect(src).toContain("X-Frame-Options");
     expect(src).toContain("Permissions-Policy");
     expect(src).toContain("NODE_ENV === \"production\"");
     expect(src).toContain("Strict-Transport-Security");
-    expect(src).toContain("connect-src 'self';");
-    expect(src).not.toContain("connect-src 'self' wss:");
     expect(src).not.toContain("Content-Security-Policy");
     expect(src).not.toMatch(/script-src[^;]*unsafe-inline/);
+    expect(proxy).toContain("connect-src 'self';");
+    expect(proxy).not.toContain("connect-src 'self' wss:");
+    expect(proxy).not.toMatch(/script-src[^;]*unsafe-inline/);
   });
 
   it("uses a request-scoped CSP nonce for the only application inline script", () => {
