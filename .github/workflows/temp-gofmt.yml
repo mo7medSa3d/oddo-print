@@ -1,0 +1,46 @@
+name: TEMP Go Format Repair
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: "!contains(github.event.head_commit.message, 'TEMP gofmt repair')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.1
+        with:
+          go-version-file: agent/go.mod
+      - name: Apply gofmt only to files reported by CI
+        working-directory: agent
+        run: |
+          set -euo pipefail
+          files=(
+            internal/agent/discovery_manager_test.go
+            internal/payload/payload_test.go
+            internal/printer/classify.go
+            internal/printer/discovery_extended.go
+          )
+          gofmt -w "${files[@]}"
+          test -z "$(gofmt -l "${files[@]}")"
+      - name: Commit formatting repair and remove temporary workflow
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add agent/internal/agent/discovery_manager_test.go agent/internal/payload/payload_test.go agent/internal/printer/classify.go agent/internal/printer/discovery_extended.go .github/workflows/temp-gofmt.yml
+          git rm .github/workflows/temp-gofmt.yml
+          if git diff --cached --quiet; then
+            echo "No formatting changes required."
+            exit 0
+          fi
+          git commit -m "TEMP gofmt repair: format files reported by CI"
+          git push origin HEAD:main
