@@ -258,8 +258,13 @@ suite("shared refresh-token session rotation", () => {
       tenantId: "tenant_session_test",
       userId: "user_session_test",
       role: "admin",
-      email: "session@example.test",
     });
+
+    const persistedEmail = (await pool().query(
+      "SELECT email FROM refresh_tokens WHERE id = $1",
+      [first.refreshTokenId],
+    )).rows[0]?.email;
+    expect(persistedEmail).toBe("session@example.test");
 
     const rotated = await rotateRefreshToken("manager", first.refreshToken, {
       ipAddress: "198.51.100.23",
