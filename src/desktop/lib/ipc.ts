@@ -591,7 +591,6 @@ export async function fetchGatewayJobs(
   }
   const endpoint = `/api/jobs?${params.toString()}`;
   const headers: Record<string, string> = {};
-  if (browserToken) headers.Authorization = `Bearer ${browserToken}`;
   const { status, body } = await gatewayConsoleRequest(base, endpoint, "GET", headers);
   if (status === 401 || status === 403) {
     await clearManagerSession();
