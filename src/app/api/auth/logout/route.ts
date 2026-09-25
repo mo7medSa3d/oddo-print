@@ -8,23 +8,22 @@ import { getRefreshTokenFromRequest, revokeRefreshTokenFamily, revokeSessionFami
 
 export async function POST(req: Request) {
   const claims = await validateCustomer(req);
+  const refreshToken = getRefreshTokenFromRequest(req, "customer");
   let revokeFailed = false;
-  if (claims) {
-    try {
-      if (claims.familyId) {
-        await revokeSessionFamily(claims.familyId, "logout");
-      } else {
-        const refreshToken = getRefreshTokenFromRequest(req, "customer");
-        if (!(refreshToken && await revokeRefreshTokenFamily("customer", refreshToken, "logout"))) {
-          await revokeLegacyManagerSession(claims.jti);
-        }
-      }
-    } catch (error) {
-      revokeFailed = true;
-      logError("auth.logout.session_revoke_failed", { jti: claims.jti, familyId: claims.familyId, tenantId: claims.tenantId, error: error instanceof Error ? error.message : "unknown" });
+  try {
+    if (claims?.familyId) {
+      await revokeSessionFamily(claims.familyId, "logout");
+    } else if (refreshToken) {
+      await revokeRefreshTokenFamily("customer", refreshToken, "logout");
+    } else if (claims) {
+      await revokeLegacyManagerSession(claims.jti);
     }
+  } catch (error) {
+    revokeFailed = true;
+    logError("auth.logout.session_revoke_failed", { jti: claims?.jti, familyId: claims?.familyId, tenantId: claims?.tenantId, error: error instanceof Error ? error.message : "unknown" });
+  }
 
-    if (!revokeFailed) {
+  if (claims && !revokeFailed) {
       await writeAuditEvent({
         tenantId: claims.tenantId,
         actorType: claims.userId ? "user" : "system",
