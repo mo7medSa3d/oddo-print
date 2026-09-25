@@ -79,6 +79,8 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npm run lint
+      - name: Phase 0 architecture hardening test
+        run: npm run test tests/architecture-hardening.test.ts
 
       - name: Go vulnerability scan
         working-directory: agent
