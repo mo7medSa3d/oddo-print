@@ -87,9 +87,8 @@ describe("architecture hardening", () => {
     expect(src).toContain("Strict-Transport-Security");
     expect(src).not.toContain("Content-Security-Policy");
     expect(src).not.toMatch(/script-src[^;]*unsafe-inline/);
-    expect(proxy).toContain("connect-src 'self';");
-    expect(proxy).not.toContain("connect-src 'self' wss:");
     expect(proxy).not.toMatch(/script-src[^;]*unsafe-inline/);
+    expect(readFileSync("src/server/content-security-policy.ts", "utf8")).toContain("connect-src 'self';");
   });
 
   it("uses a request-scoped CSP nonce for the only application inline script", () => {
@@ -97,9 +96,10 @@ describe("architecture hardening", () => {
     const server = readFileSync("server.ts", "utf8");
     const csp = readFileSync("src/server/content-security-policy.ts", "utf8");
     const layout = readFileSync("src/app/layout.tsx", "utf8");
-    expect(proxy).toContain("crypto.randomUUID()");
-    expect(proxy).toContain("script-src 'self' 'nonce-\u0024{nonce}' 'strict-dynamic'");
-    expect(proxy).not.toMatch(/script-src[^;]*unsafe-inline/);
+    expect(csp).toContain("crypto.randomUUID()");
+    expect(csp).toContain("script-src 'self' 'nonce-");
+    expect(csp).toContain("'strict-dynamic'");
+    expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
     expect(proxy).toContain('requestHeaders.set("x-nonce", nonce)');
     expect(proxy).toContain('response.headers.set("Content-Security-Policy", policy)');
     expect(server).toContain("createRequestContentSecurityPolicy");
