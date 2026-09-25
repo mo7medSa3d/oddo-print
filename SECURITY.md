@@ -30,6 +30,11 @@
 - HttpOnly signed cookies
 - Session bound to `userId`, `tenantId`, and role at authentication time
 
+### Rate-limit failure mode
+Authentication-adjacent routes keep PostgreSQL-backed rate limiting fail-closed. If `reserveAuthAttempt` cannot obtain a decision because the limiter store is unavailable, the route returns HTTP 503 and does not attempt authentication without rate-limit protection. This prevents an attacker from deliberately disrupting the limiter store to manufacture a fail-open bypass.
+
+The availability tradeoff is intentional: legitimate login, registration, password-reset, and verification-resend requests can be temporarily blocked during a rate-limiter-specific PostgreSQL failure. PostgreSQL is already a hard dependency for Gateway authentication and most other Gateway operations, so a limiter-store outage is expected to correlate with a broader database availability problem in which authentication would not be reliably completable anyway. No narrowly-scoped fail-open exception is currently justified.
+
 ### Reverse Proxy Trust
 - `TRUST_PROXY_SECRET` header validated on every request
 - Minimum 32 characters, reject known placeholder values
