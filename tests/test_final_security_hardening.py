@@ -136,12 +136,15 @@ def test_tauri_manager_token_is_not_persisted_in_webview_storage():
 
 
 def test_nextjs_has_explicit_csp():
-    source = (ROOT / "next.config.ts").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "server" / "content-security-policy.ts").read_text(encoding="utf-8")
     for directive in ("default-src", "script-src", "style-src", "img-src", "connect-src", "font-src", "frame-ancestors", "object-src", "base-uri", "form-action"):
         assert directive in source
-    assert 'frame-ancestors \'none\'' in source
-    assert 'object-src \'none\'' in source
-    assert 'form-action \'self\'' in source
+    assert "frame-ancestors 'none'" in source
+    assert "object-src 'none'" in source
+    assert "form-action 'self'" in source
+    assert "script-src 'self' 'nonce-" in source
+    assert "'strict-dynamic'" in source
+    assert "script-src 'self' 'unsafe-inline'" not in source
 
 
 def test_manifest_declares_crypto_dependency_and_migration_version():
