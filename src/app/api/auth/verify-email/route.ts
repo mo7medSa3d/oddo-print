@@ -5,7 +5,8 @@ import { emailVerificationTokens, tenantUsers, tenants, users } from "../../../.
 import { and, eq, isNull, gt, sql } from "drizzle-orm";
 import { hashToken } from "../../../../lib/password";
 import { nanoid } from "../../../../lib/nanoid";
-import { issueCustomerSession, customerSessionCookie } from "../../../../lib/customer-auth";
+import { issueCustomerSession, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
+import { clientIpFrom } from "../../../../lib/auth-rate-limit";
 import { writeAuditEvent } from "../../../../lib/audit";
 
 export async function POST(req: Request) {
@@ -78,9 +79,21 @@ export async function POST(req: Request) {
     if (error instanceof Error && error.message === "USER_NOT_FOUND") return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
     throw error;
   }
-  const session = await issueCustomerSession(user.id, tenantId!, role);
+  const session = await issueCustomerSession(
+    user.id,
+    tenantId!,
+    role,
+    {
+      ipAddress: clientIpFrom(req),
+      userAgent: req.headers.get("user-agent"),
+    },
+    user.email,
+  );
   if (!session) {
     return NextResponse.json({ error: "Workspace is unavailable" }, { status: 403 });
   }
-  return NextResponse.json({ ok: true, next: "/onboarding" }, { headers: { "Set-Cookie": customerSessionCookie(session) } });
+  const response = NextResponse.json({ ok: true, next: "/onboarding" });
+  response.headers.set("Set-Cookie", customerSessionCookie(session));
+  response.headers.append("Set-Cookie", customerRefreshCookie(session));
+  return response;
 }
