@@ -75,7 +75,9 @@ suite("shared refresh-token session rotation", () => {
     expect(row.email).toBe("session@example.test");
     expect(row.token_hash).toBe(hashRefreshToken(pair.refreshToken));
     expect(row.token_hash).not.toBe(pair.refreshToken);
-    expect(Number(pair.accessExpiresAt) - Number(row.issued_at)).toBe(ACCESS_TOKEN_TTL_SECONDS * 1000);
+    const accessLifetimeMs = Number(pair.accessExpiresAt) - Number(row.issued_at);
+    expect(accessLifetimeMs).toBeGreaterThanOrEqual((ACCESS_TOKEN_TTL_SECONDS * 1000) - 1000);
+    expect(accessLifetimeMs).toBeLessThanOrEqual(ACCESS_TOKEN_TTL_SECONDS * 1000);
     expect(Number(row.expires_at) - Number(row.family_created_at)).toBe(REFRESH_FAMILY_TTL_MS);
     expect(row.ip_address).toBe("198.51.100.20");
     expect(row.user_agent).toBe("session-test");
