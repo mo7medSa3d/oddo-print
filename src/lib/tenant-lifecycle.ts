@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { tenants, managerSessions } from "../db/schema";
+import { tenants, managerSessions, refreshTokens } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { writeAuditEvent, type AuditActor } from "./audit";
 import { runtimeSecret } from "./runtime-secret";
@@ -123,6 +123,12 @@ export async function transitionTenantLifecycle(
 
     if (next === "suspended" || next === "deleted") {
       await tx.delete(managerSessions).where(eq(managerSessions.tenantId, tenantId));
+      await tx.execute(sql`
+        UPDATE refresh_tokens
+        SET revoked_at = clock_timestamp(),
+            revoked_reason = CASE WHEN ${next} = 'deleted' THEN 'tenant_deleted' ELSE 'tenant_suspended' END
+        WHERE tenant_id = ${tenantId} AND revoked_at IS NULL
+      `);
       await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ tenantId })})`);
     }
 
