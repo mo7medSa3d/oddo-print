@@ -250,9 +250,14 @@ patch(PosStore.prototype, {
                 }
             }
 
-            // Preserve the Odoo 19 core order-change lifecycle. This method
-            // exists on PosOrder; updateLastOrderChangeIfNoDevice() does not.
-            order.updateLastOrderChange(opts);
+            // Preserve the Odoo 19 core order-change lifecycle:
+            // consume the preparation change only after a Gateway print is
+            // accepted, or when there is no preparation printer to print to.
+            if (isPrinted) {
+                order.updateLastOrderChange();
+            } else {
+                this.updateLastOrderChangeIfNoDevice(order, opts);
+            }
         } finally {
             this.syncingOrders.delete(order.uuid);
         }
