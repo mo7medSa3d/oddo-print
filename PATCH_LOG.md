@@ -447,3 +447,12 @@
 - Root cause: the Linux U1000 cleanup removed a fixture that was required only by the Windows-specific PDFium test.
 - Fix: restored `rotatedPDF` beside the Windows-only test under `pdf_windows_test.go`; no production behavior changed.
 - Verification: pending on the new `main` commit.
+
+
+## 2026-09-25 — CI failure: Knip export-scope false positives
+- Failing run: CI `36091639852`, job `107935137168`, step `Dead-code and unused-export scan`.
+- Raw evidence: `npx --yes knip@6.31.0 --exports --include-entry-exports` reported `Unused exports (93)` and `Unused exported types (11)`.
+- Agent Phase 0 and Go static/dependency scans were already successful in the same job: build, vet, race tests, govulncheck, and both Linux/Windows U1000 checks all completed successfully.
+- Diagnosis: Knip was flagging exports that are used within their defining files, including examples such as `YasserGlyph`, `JOB_STATUSES`, and other shared same-file helpers/types. Knip documents `ignoreExportsUsedInFile` specifically for this case.
+- Fix: added `knip.json` with `ignoreExportsUsedInFile: true`. No production implementation was deleted or changed.
+- Verification: pending on the new `main` commit.
