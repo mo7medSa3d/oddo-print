@@ -382,15 +382,6 @@ async function refreshPrincipalStillValid(
   return true;
 }
 
-function parseTimestampMs(value: Date | string | null | undefined): number | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value.getTime();
-  const normalized = value.trim().replace(" ", "T");
-  const iso = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(normalized) ? normalized : `${normalized}Z`;
-  const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? ms : null;
-}
-
 async function rotateWithinFamily(
   tx: SessionTx,
   row: {
@@ -400,7 +391,7 @@ async function rotateWithinFamily(
     userId: string | null;
     role: string | null;
     email: string | null;
-    familyCreatedAt: Date | string;
+    familyCreatedAtMs: number;
   },
   context: SessionRequestContext | undefined,
   nowMs: number,
@@ -414,8 +405,8 @@ async function rotateWithinFamily(
   });
 
   const nowSec = Math.floor(nowMs / 1000);
-  const familyCreatedAtMs = parseTimestampMs(row.familyCreatedAt);
-  if (familyCreatedAtMs === null) throw new Error("Invalid persisted refresh family timestamp");
+  const familyCreatedAtMs = row.familyCreatedAtMs;
+  if (!Number.isFinite(familyCreatedAtMs)) throw new Error("Invalid persisted refresh family timestamp");
 
   const refreshExpiresAt = new Date(familyCreatedAtMs + REFRESH_FAMILY_TTL_MS);
   if (refreshExpiresAt.getTime() <= nowMs) throw new Error("REFRESH_FAMILY_EXPIRED");
@@ -560,12 +551,12 @@ export async function rotateRefreshToken(
         user_id AS "userId",
         role,
         email,
-        family_created_at AS "familyCreatedAt",
-        expires_at AS "expiresAt",
+        EXTRACT(EPOCH FROM family_created_at) * 1000 AS "familyCreatedAtMs",
+        EXTRACT(EPOCH FROM expires_at) * 1000 AS "expiresAtMs",
         revoked_at AS "revokedAt",
         revoked_reason AS "revokedReason",
         replaced_by AS "replacedBy",
-        replaced_at AS "replacedAt"
+        EXTRACT(EPOCH FROM replaced_at) * 1000 AS "replacedAtMs"
       FROM refresh_tokens
       WHERE id = ${initial.id}
       FOR UPDATE
@@ -578,12 +569,12 @@ export async function rotateRefreshToken(
       userId: string | null;
       role: string | null;
       email: string | null;
-      familyCreatedAt: Date | string;
-      expiresAt: Date | string;
+      familyCreatedAtMs: number | string;
+      expiresAtMs: number | string;
       revokedAt: Date | string | null;
       revokedReason: string | null;
       replacedBy: string | null;
-      replacedAt: Date | string | null;
+      replacedAtMs: number | string | null;
     } | undefined;
 
     if (!row || row.kind !== kind || row.familyId !== initial.familyId || row.revokedAt) {
@@ -591,9 +582,9 @@ export async function rotateRefreshToken(
     }
 
     const nowMs = await dbNowMsInTransaction(tx);
-    const familyCreatedAtMs = parseTimestampMs(row.familyCreatedAt);
-    const expiresAtMs = parseTimestampMs(row.expiresAt);
-    if (familyCreatedAtMs === null || expiresAtMs === null) throw new Error("Invalid persisted refresh timestamp");
+    const familyCreatedAtMs = Number(row.familyCreatedAtMs);
+    const expiresAtMs = Number(row.expiresAtMs);
+    if (!Number.isFinite(familyCreatedAtMs) || !Number.isFinite(expiresAtMs)) throw new Error("Invalid persisted refresh timestamp");
 
     if (nowMs >= familyCreatedAtMs + REFRESH_FAMILY_TTL_MS) {
       await tx.execute(sql`
@@ -617,8 +608,8 @@ export async function rotateRefreshToken(
     }
 
     if (row.replacedBy) {
-      const replacedAtMs = parseTimestampMs(row.replacedAt);
-      if (replacedAtMs !== null && nowMs <= replacedAtMs + REFRESH_ROTATION_GRACE_MS) {
+      const replacedAtMs = row.replacedAtMs === null ? null : Number(row.replacedAtMs);
+      if (replacedAtMs !== null && Number.isFinite(replacedAtMs) && nowMs <= replacedAtMs + REFRESH_ROTATION_GRACE_MS) {
         try {
           const pair = await rotateWithinFamily(tx, row, context, nowMs);
           return { status: "rotated" as const, pair };
