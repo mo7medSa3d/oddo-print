@@ -394,7 +394,7 @@ def test_manager_and_customer_v2_session_kinds_are_explicitly_separated():
     manager = read("src/lib/manager-auth.ts")
     customer = read("src/lib/customer-auth.ts")
     assert 'verifyAccessTokenSignature(token, "manager")' in manager
-    assert 'verifyAccessTokenSignature(token, ["customer", "manager", "platform"])' in customer
+    assert 'verifyAccessTokenSignature(token, "customer")' in customer
     assert 'kind: "customer"' in customer
 
 
@@ -405,3 +405,20 @@ def test_tenant_selection_issues_customer_kind_session():
     assert "customerRefreshCookie" in source
     assert 'revokedReason: "tenant_selection"' in source
     assert "isNull(refreshTokens.revokedAt)" in source
+
+
+def test_ownership_transfer_revokes_old_owner_refresh_sessions():
+    source = read("src/app/api/team/ownership/route.ts")
+    assert "refreshTokens" in source
+    assert "ownership_transferred" in source
+    assert "eq(refreshTokens.userId, currentUserId)" in source
+    assert "eq(refreshTokens.tenantId, claims.tenantId)" in source
+
+
+def test_legacy_session_storage_is_restricted_to_compatibility_paths():
+    manager = read("src/lib/manager-auth.ts")
+    platform = read("src/lib/platform-auth.ts")
+    assert "verifySignature(token)" in manager
+    assert "verifyLegacyPlatformTokenSignature(token)" in platform
+    assert "createManagerSession" in manager and "issueSessionPair" in manager
+    assert "createPlatformSession" in platform and "issueSessionPair" in platform
