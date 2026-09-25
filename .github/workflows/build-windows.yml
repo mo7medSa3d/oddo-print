@@ -179,8 +179,6 @@ jobs:
             Write-Host "OK icon $icon ($len bytes)"
           }
           Write-Host "All $($icons.Count) configured icons are present."
-      - name: Build desktop frontend
-        run: npm run desktop:vite:build
       - name: Rust unit tests (desktop)
         shell: pwsh
         run: |

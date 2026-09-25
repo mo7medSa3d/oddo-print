@@ -888,3 +888,10 @@
 - Tightened refresh-cookie Paths to the exact refresh endpoints: manager `/api/auth/manager/refresh`, customer `/api/auth/refresh`, platform `/api/platform/auth/refresh`.
 - Windows installer failure `E0425` was the missing Rust symbol above; the separate Tauri `frontendDist` error occurred because `cargo check` ran before `dist-desktop` was created. The Windows workflow now builds the desktop frontend before Rust validation.
 - No session architecture was rolled back to satisfy stale tests; the tests were updated to the implemented v2 design.
+
+
+## 2026-09-25 — Final legacy-contract cleanup
+- CI run `36181255654` reached the Python security-contract stage with only two stale assertions remaining: the password-reset test inspected the helper's internal implementation instead of its public transaction contract, and the Tauri test still expected the removed WebView browser-token storage helpers.
+- Updated those tests to verify the v2 boundaries actually enforced by the current source.
+- Removed the now-redundant second `npm run desktop:vite:build` from the Windows installer workflow after moving the required frontend build ahead of `cargo check`.
+- Corrected `SECURITY.md` to document the exact refresh-cookie Paths rather than the broader auth namespaces.

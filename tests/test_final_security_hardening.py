@@ -143,15 +143,15 @@ def test_tauri_renderer_cannot_supply_authorization_headers():
     assert 'request = request.bearer_auth(token)' in rust
 
 
-def test_tauri_manager_token_is_not_persisted_in_webview_storage():
+def test_tauri_manager_tokens_never_enter_webview_storage():
     ipc = (ROOT / "src" / "desktop" / "lib" / "ipc.ts").read_text(encoding="utf-8")
-    assert "function getBrowserManagerToken" in ipc
-    assert "if (isTauri || typeof window === \"undefined\") return null;" in ipc
-    assert "if (!isTauri && data.accessToken) setBrowserManagerToken(data.accessToken);" in ipc
+    rust = (ROOT / "src-tauri" / "src" / "commands.rs").read_text(encoding="utf-8")
     assert 'invoke("clear_manager_session")' in ipc
-    # Tauri path must not write the access token into sessionStorage.
-    assert "if (isTauri || typeof window === \"undefined\") return;\n  try {\n    window.sessionStorage.setItem" in ipc
-
+    assert "sessionStorage.setItem" not in ipc
+    assert "localStorage.setItem" not in ipc
+    assert "refreshToken?: string" in ipc
+    assert 'object.remove("accessToken")' in rust
+    assert 'object.remove("refreshToken")' in rust
 
 def test_nextjs_has_explicit_csp():
     source = (ROOT / "src" / "server" / "content-security-policy.ts").read_text(encoding="utf-8")
