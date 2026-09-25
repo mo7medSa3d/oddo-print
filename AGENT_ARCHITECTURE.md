@@ -14,7 +14,7 @@ agent/
 │   ├── agent/      # Service entry point (Windows SCM + standalone)
 │   └── cli/        # CLI commands (pair, gateway-request, printer management/cleanup)
 ├── internal/
-│   ├── agent/      # Core agent logic (1911 lines)
+│   ├── agent/      # Core agent logic
 │   ├── config/     # YAML configuration + registry paths
 │   ├── diag/       # Diagnostic test page generation
 │   ├── integration/# Integration tests
