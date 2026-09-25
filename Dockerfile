@@ -1,22 +1,22 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24.21.0-alpine AS deps
+FROM node:24.21.0-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
-FROM node:24.21.0-alpine AS build
+FROM node:24.21.0-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
-FROM node:24.21.0-alpine AS runtime-deps
+FROM node:24.21.0-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS runtime-deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
-FROM node:24.21.0-alpine AS runtime
+FROM node:24.21.0-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV TZ=UTC
