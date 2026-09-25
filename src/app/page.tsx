@@ -40,7 +40,11 @@ import { hasManagerPermission } from "../lib/authorization";
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
+  const cookieStore = await cookies();
+  const token =
+    cookieStore.get("cust_session")?.value ??
+    cookieStore.get(getManagerCookieName())?.value ??
+    null;
   const claims = token ? await verifyManagerToken(token) : null;
 
   if (claims) {
