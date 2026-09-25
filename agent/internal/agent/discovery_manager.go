@@ -46,8 +46,9 @@ func (a *Agent) pollDiscovery(ctx context.Context) {
 		// up on the next 30s poll tick — no goroutine pile-up.
 		select {
 		case a.discoverySem <- struct{}{}:
+			session := s
 			a.launchTracked(func() {
-				a.executeDiscoverySession(ctx, id)
+				a.executeDiscoverySession(ctx, id, session)
 			})
 		default:
 			// A skipped session must not linger as "running" on the
@@ -85,16 +86,47 @@ func runBoundedDiscovery(ctx context.Context, max time.Duration, discover func(c
 	}
 }
 
-func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string) {
+func discoverySessionTimeout(session map[string]interface{}) time.Duration {
+	config, ok := session["config"].(map[string]interface{})
+	if !ok {
+		return defaultDiscoveryTimeout
+	}
+	raw, ok := config["timeoutMs"]
+	if !ok {
+		return defaultDiscoveryTimeout
+	}
+	var ms int64
+	switch value := raw.(type) {
+	case float64:
+		ms = int64(value)
+	case int:
+		ms = int64(value)
+	case int64:
+		ms = value
+	default:
+		return defaultDiscoveryTimeout
+	}
+	if ms < int64(minDiscoveryTimeout/time.Millisecond) {
+		ms = int64(minDiscoveryTimeout / time.Millisecond)
+	}
+	if ms > int64(maxDiscoveryTimeout/time.Millisecond) {
+		ms = int64(maxDiscoveryTimeout / time.Millisecond)
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string, session map[string]interface{}) {
 	log.Printf("[discovery] executing session %s", discoveryID)
 
 	// Enforce a hard orchestration bound even though individual detectors have
 	// their own shorter network timeouts. The result channel is buffered so a
 	// detector that finishes just after cancellation cannot block forever.
-	discoveryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	discoveryTimeout := discoverySessionTimeout(session)
+	log.Printf("[discovery] session %s using Gateway timeout %s", discoveryID, discoveryTimeout)
+	discoveryCtx, cancel := context.WithTimeout(ctx, discoveryTimeout)
 	defer cancel()
 
-	result, completed, finishedCh := runBoundedDiscovery(discoveryCtx, 30*time.Second, func(scanCtx context.Context) printer.DiscoveryResult {
+	result, completed, finishedCh := runBoundedDiscovery(discoveryCtx, discoveryTimeout, func(scanCtx context.Context) printer.DiscoveryResult {
 		return printer.DiscoverWithContext(scanCtx, a.cfg, a.registryPath)
 	})
 	if !completed {
@@ -102,7 +134,7 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string)
 		if discoveryCtx.Err() == context.Canceled {
 			status = "cancelled"
 		}
-		log.Printf("[discovery] session %s exceeded 30s bound: %v", discoveryID, discoveryCtx.Err())
+		log.Printf("[discovery] session %s exceeded %s bound: %v", discoveryID, discoveryTimeout, discoveryCtx.Err())
 		a.reportDiscoveryResult(ctx, discoveryID, status, nil)
 		// Do not release the discovery semaphore until the underlying scan has
 		// actually returned. This matters on Windows because EnumPrintersW is
