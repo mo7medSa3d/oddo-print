@@ -919,8 +919,9 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 			// Trigger discovery immediately, don't wait for 10s poll
 			select {
 			case a.discoverySem <- struct{}{}:
+				session := a.loadDiscoverySession(ctx, discoveryID)
 				a.launchTracked(func() {
-					a.executeDiscoverySession(ctx, discoveryID)
+					a.executeDiscoverySession(ctx, discoveryID, session)
 				})
 			default:
 				log.Printf("[discovery] session %s deferred: a discovery session is already running", discoveryID)
