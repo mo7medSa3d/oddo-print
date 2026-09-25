@@ -27,7 +27,7 @@ const CONFIG: Record<SessionKind, SessionKindConfig> = {
   },
   customer: {
     sub: "manager",
-    accessCookieName: "mgr_session",
+    accessCookieName: "cust_session",
     refreshCookieName: "cust_refresh",
     refreshCookiePath: "/api/auth",
   },
