@@ -14,8 +14,7 @@ import {
   getAccessTokenFromRequest,
   issueSessionPair,
   refreshCookieHeader,
-  verifyAccessToken,
-  type SharedSessionClaims,
+  verifyAccessTokenSignature,
   type SessionRequestContext,
 } from "./session-tokens";
 
