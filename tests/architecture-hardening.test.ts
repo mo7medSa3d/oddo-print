@@ -86,8 +86,22 @@ describe("architecture hardening", () => {
     expect(src).toContain("Strict-Transport-Security");
     expect(src).toContain("connect-src 'self';");
     expect(src).not.toContain("connect-src 'self' wss:");
-    expect(src).toContain("script-src 'self' 'unsafe-inline'");
-    expect(src).toContain("style-src 'self' 'unsafe-inline'");
+    expect(src).not.toContain("Content-Security-Policy");
+    expect(src).not.toMatch(/script-src[^;]*unsafe-inline/);
+  });
+
+  it("uses a request-scoped CSP nonce for the only application inline script", () => {
+    const proxy = readFileSync("proxy.ts", "utf8");
+    const layout = readFileSync("src/app/layout.tsx", "utf8");
+    expect(proxy).toContain("crypto.randomUUID()");
+    expect(proxy).toContain("script-src 'self' 'nonce-\u0024{nonce}' 'strict-dynamic'");
+    expect(proxy).not.toMatch(/script-src[^;]*unsafe-inline/);
+    expect(proxy).toContain('requestHeaders.set("x-nonce", nonce)');
+    expect(proxy).toContain('response.headers.set("Content-Security-Policy", cspHeader)');
+    expect(layout).toContain("const THEME_INIT =");
+    expect(layout).toContain('const nonce = (await headers()).get("x-nonce")');
+    expect(layout).toContain("<script nonce={nonce}");
+    expect(layout).toContain('localStorage.getItem("theme")');
   });
 
   it("keeps agent lifecycle changes transactional in ONE shared implementation", () => {
