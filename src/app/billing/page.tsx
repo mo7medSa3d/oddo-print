@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "../../db";
 import { plans, tenantSubscriptions } from "../../db/schema";
 import { and, asc, eq } from "drizzle-orm";
-import { getManagerCookieName, verifyManagerToken } from "../../lib/manager-auth";
+import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../../lib/manager-auth";
 import { hasManagerPermission } from "../../lib/authorization";
 import { BillingActions } from "../../components/BillingActions";
 import { ArrowRight, AlertTriangle, CalendarDays, Check, CheckCircle2, CreditCard } from "lucide-react";
@@ -76,8 +76,11 @@ function planStatus(sub: SubscriptionRow) {
 }
 
 export default async function BillingPage({ searchParams }: { searchParams: SearchParams }) {
-  const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
-  const claims = token ? await verifyManagerToken(token) : null;
+  const cookieStore = await cookies();
+  const claims = await verifyWorkspaceTokenFromCookieValues(
+    cookieStore.get("cust_session")?.value ?? null,
+    cookieStore.get(getManagerCookieName())?.value ?? null,
+  );
   if (!claims) redirect("/login");
   if (!hasManagerPermission(claims, "billing.read")) redirect("/dashboard");
 
