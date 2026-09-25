@@ -2,7 +2,7 @@ import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, tenants, authRateLimits, managerSessions, refreshTokens } from "../../../../db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { validateManager } from "../../../../lib/manager-auth";
 import { verifyTenantSelectionToken, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
 import { issueSessionPairInTransaction } from "../../../../lib/session-tokens";
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
       if (claims?.familyId) {
         await tx.update(refreshTokens)
           .set({ revokedAt: sql`clock_timestamp()`, revokedReason: "tenant_selection" })
-          .where(and(eq(refreshTokens.familyId, claims.familyId), eq(refreshTokens.revokedAt, null)));
+          .where(and(eq(refreshTokens.familyId, claims.familyId), isNull(refreshTokens.revokedAt)));
       } else if (claims?.jti) {
         await tx.update(managerSessions)
           .set({ revokedAt: sql`clock_timestamp()` })
