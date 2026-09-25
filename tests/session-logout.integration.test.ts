@@ -63,6 +63,32 @@ suite("refresh-family logout", () => {
     expect(rows.rows.every((row) => row.revoked_at !== null && row.revoked_reason === "logout")).toBe(true);
   });
 
+  it("customer logout revokes the family using only the refresh cookie", async () => {
+    const first = await issueSessionPair({
+      kind: "customer",
+      tenantId: "tenant_logout_test",
+      userId: "user_logout_test",
+      role: "admin",
+      email: "logout@example.test",
+    });
+
+    const second = await rotateRefreshToken("customer", first.refreshToken);
+    expect(second.status).toBe("rotated");
+    if (second.status !== "rotated") return;
+
+    const response = await customerLogout(
+      requestWithCookie("cust_refresh", second.pair.refreshToken),
+    );
+    expect(response.status).toBe(200);
+
+    const rows = await pool().query(
+      "SELECT revoked_at, revoked_reason FROM refresh_tokens WHERE family_id = $1",
+      [first.familyId],
+    );
+    expect(rows.rows.length).toBe(3);
+    expect(rows.rows.every((row) => row.revoked_at !== null && row.revoked_reason === "logout")).toBe(true);
+  });
+
   it("customer logout revokes the entire customer refresh family", async () => {
     const first = await issueSessionPair({
       kind: "customer",
