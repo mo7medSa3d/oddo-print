@@ -4,6 +4,7 @@ import { passwordResetTokens, users } from "../../../../db/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { generateOpaqueToken, hashToken, normalizeEmail } from "../../../../lib/password";
 import { clientIpFrom, reserveAuthAttempt, setRateLimitHeaders } from "../../../../lib/auth-rate-limit";
+import { logError } from "../../../../lib/log";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
 import { nanoid } from "../../../../lib/nanoid";
@@ -13,7 +14,13 @@ export async function POST(req: Request) {
   let body: { email?: unknown }; try { body = await req.json(); } catch { return NextResponse.json(generic, { status: 202 }); }
   const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
   const ip = clientIpFrom(req);
-  const rate = await reserveAuthAttempt(ip, email);
+  let rate: Awaited<ReturnType<typeof reserveAuthAttempt>>;
+  try {
+    rate = await reserveAuthAttempt(ip, email);
+  } catch (error) {
+    logError("auth.rate_limit.store_unavailable", { endpoint: "forgot_password", error: error instanceof Error ? error.message : "unknown" });
+    return NextResponse.json(generic, { status: 503 });
+  }
   if (!rate.allowed) { const res = NextResponse.json(generic, { status: 202 }); res.headers.set("Retry-After", String(rate.retryAfterSec)); return setRateLimitHeaders(res, rate); }
   const user = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id:true,email:true } });
   if (!user) return setRateLimitHeaders(NextResponse.json(generic, { status: 202 }), rate);
