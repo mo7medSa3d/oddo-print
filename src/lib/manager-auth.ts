@@ -105,8 +105,9 @@ export function getManagerCookieName() {
 }
 
 export async function verifyManagerToken(token: string): Promise<ManagerClaims | null> {
-  const versioned = verifyAccessTokenSignature(token, ["manager", "customer"]);
+  const versioned = verifyAccessTokenSignature(token, "manager");
   if (versioned) {
+    if (versioned.kind !== "manager") return null;
     return validateManagerClaims({
       jti: versioned.jti,
       iat: versioned.iat,
@@ -116,7 +117,7 @@ export async function verifyManagerToken(token: string): Promise<ManagerClaims |
       role: versioned.role as ManagerRole,
       ...(versioned.userId ? { userId: versioned.userId } : {}),
       ver: 2,
-      kind: versioned.kind as "manager" | "customer",
+      kind: "manager",
       sid: versioned.sid,
       familyId: versioned.familyId,
     });
@@ -245,17 +246,12 @@ export async function createManagerSession(
 }
 
 export async function validateManager(req: Request): Promise<ManagerClaims | null> {
-  // Workspace APIs intentionally accept v2 manager and customer sessions.
-  // Platform sessions stay isolated in platform-auth.ts.
-  const managerToken = getAccessTokenFromRequest(req, "manager");
-  if (managerToken) return verifyManagerToken(managerToken);
-
-  const customerToken = getAccessTokenFromRequest(req, "customer");
-  return customerToken ? verifyManagerToken(customerToken) : null;
+  const token = getAccessTokenFromRequest(req, "manager");
+  return token ? verifyManagerToken(token) : null;
 }
 
-export async function verifyManagerOnlyToken(token: string): Promise<ManagerClaims | null> {
-  const versioned = verifyAccessTokenSignature(token, "manager");
+export async function verifyWorkspaceToken(token: string): Promise<ManagerClaims | null> {
+  const versioned = verifyAccessTokenSignature(token, ["manager", "customer"]);
   if (versioned) {
     return validateManagerClaims({
       jti: versioned.jti,
@@ -266,18 +262,30 @@ export async function verifyManagerOnlyToken(token: string): Promise<ManagerClai
       role: versioned.role as ManagerRole,
       ...(versioned.userId ? { userId: versioned.userId } : {}),
       ver: 2,
-      kind: "manager",
+      kind: versioned.kind as "manager" | "customer",
       sid: versioned.sid,
       familyId: versioned.familyId,
     });
   }
+
   const legacy = verifySignature(token);
   return legacy ? validateManagerClaims(legacy) : null;
 }
 
-export async function validateManagerOnly(req: Request): Promise<ManagerClaims | null> {
-  const token = getAccessTokenFromRequest(req, "manager");
-  return token ? verifyManagerOnlyToken(token) : null;
+export async function validateWorkspaceManager(req: Request): Promise<ManagerClaims | null> {
+  const managerToken = getAccessTokenFromRequest(req, "manager");
+  if (managerToken) return verifyManagerToken(managerToken);
+
+  const customerToken = getAccessTokenFromRequest(req, "customer");
+  return customerToken ? verifyWorkspaceToken(customerToken) : null;
+}
+
+export async function verifyWorkspaceTokenFromCookieValues(
+  customerToken: string | null,
+  managerToken: string | null,
+): Promise<ManagerClaims | null> {
+  const token = customerToken ?? managerToken;
+  return token ? verifyWorkspaceToken(token) : null;
 }
 
 export async function revokeManagerSession(jti: string) {
