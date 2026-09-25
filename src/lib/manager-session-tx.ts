@@ -3,21 +3,8 @@ import { managerSessions } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { issueSessionPairInTransaction, accessCookieHeader } from "./session-tokens";
 import type { ManagerRole } from "./manager-auth";
+
 type TxRunner = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-function b64urlEncode(value: Buffer | string): string {
-  return Buffer.from(value).toString("base64url");
-}
-
-function sign(claims: ManagerClaims): string {
-  const secret = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
-  if (secret.length < 32) throw new Error("GATEWAY_JWT_SECRET must be >=32 chars");
-  const header = b64urlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const payload = b64urlEncode(JSON.stringify(claims));
-  const data = `${header}.${payload}`;
-  const signature = createHmac("sha256", secret).update(data).digest("base64url");
-  return `${data}.${signature}`;
-}
 
 export async function createManagerSessionInTransaction(
   tx: TxRunner,
@@ -49,11 +36,12 @@ export async function createManagerSessionInTransaction(
   };
 }
 
-
 export async function revokeManagerSessionInTransaction(tx: TxRunner, jti: string): Promise<void> {
   await tx.update(managerSessions)
-    .set({ revokedAt: sql`now()` })
+    .set({ revokedAt: sql`clock_timestamp()` })
     .where(eq(managerSessions.jti, jti));
 }
 
-export { managerCookieHeader };
+export function managerCookieHeader(token: string, exp: Date): string {
+  return accessCookieHeader("manager", token, exp);
+}
