@@ -147,21 +147,28 @@ export async function validateCustomer(req: Request): Promise<ManagerClaims | nu
   const token = getAccessTokenFromRequest(req, "customer");
   if (!token) return null;
 
-  const fresh = await verifyAccessToken(token, "customer");
-  if (fresh) {
-    return {
-      jti: fresh.jti,
-      iat: fresh.iat,
-      exp: fresh.exp,
-      sub: "manager",
-      tenantId: fresh.tenantId!,
-      role: fresh.role as ManagerRole,
-      ...(fresh.userId ? { userId: fresh.userId } : {}),
-      ver: 2,
-      kind: "customer",
-      sid: fresh.sid,
-      familyId: fresh.familyId,
-    };
+  const versioned = verifyAccessTokenSignature(token, ["customer", "manager", "platform"]);
+  if (versioned) {
+    if (versioned.kind !== "customer") return null;
+    return validateManager({
+      url: req.url,
+      headers: new Headers(req.headers),
+    }).then(async () => {
+      const claims: ManagerClaims = {
+        jti: versioned.jti,
+        iat: versioned.iat,
+        exp: versioned.exp,
+        sub: "manager",
+        tenantId: versioned.tenantId!,
+        role: versioned.role as ManagerRole,
+        ...(versioned.userId ? { userId: versioned.userId } : {}),
+        ver: 2,
+        kind: "customer",
+        sid: versioned.sid,
+        familyId: versioned.familyId,
+      };
+      return claims;
+    });
   }
 
   // Legacy customer JWTs predate the explicit session kind. Preserve their
