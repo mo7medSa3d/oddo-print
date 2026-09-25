@@ -207,6 +207,17 @@ export async function authenticatePlatformOwner(
   return { userId: user.id, email: user.email };
 }
 
+type LegacyPlatformAuthTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export async function revokeLegacyPlatformSessionsForUserInTransaction(
+  tx: LegacyPlatformAuthTx,
+  userId: string,
+): Promise<void> {
+  await tx.update(platformSessions)
+    .set({ revokedAt: sql`clock_timestamp()` })
+    .where(and(eq(platformSessions.userId, userId), isNull(platformSessions.revokedAt)));
+}
+
 export async function revokePlatformSession(jti: string): Promise<void> {
   await db
     .update(platformSessions)
