@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { tenantUsers, authRateLimits } from "../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { authenticateCustomer, validateManager, type ManagerRole, type ManagerClaims } from "./manager-auth";
+import { authenticateCustomer, validateManager, validateManagerClaims, type ManagerRole, type ManagerClaims } from "./manager-auth";
 import { normalizeEmail } from "./password";
 import { createHmac, createHash, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
@@ -150,25 +150,20 @@ export async function validateCustomer(req: Request): Promise<ManagerClaims | nu
   const versioned = verifyAccessTokenSignature(token, ["customer", "manager", "platform"]);
   if (versioned) {
     if (versioned.kind !== "customer") return null;
-    return validateManager({
-      url: req.url,
-      headers: new Headers(req.headers),
-    }).then(async () => {
-      const claims: ManagerClaims = {
-        jti: versioned.jti,
-        iat: versioned.iat,
-        exp: versioned.exp,
-        sub: "manager",
-        tenantId: versioned.tenantId!,
-        role: versioned.role as ManagerRole,
-        ...(versioned.userId ? { userId: versioned.userId } : {}),
-        ver: 2,
-        kind: "customer",
-        sid: versioned.sid,
-        familyId: versioned.familyId,
-      };
-      return claims;
-    });
+    const claims: ManagerClaims = {
+      jti: versioned.jti,
+      iat: versioned.iat,
+      exp: versioned.exp,
+      sub: "manager",
+      tenantId: versioned.tenantId!,
+      role: versioned.role as ManagerRole,
+      ...(versioned.userId ? { userId: versioned.userId } : {}),
+      ver: 2,
+      kind: "customer",
+      sid: versioned.sid,
+      familyId: versioned.familyId,
+    };
+    return validateManagerClaims(claims);
   }
 
   // Legacy customer JWTs predate the explicit session kind. Preserve their
