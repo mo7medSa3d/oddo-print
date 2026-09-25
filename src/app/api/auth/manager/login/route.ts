@@ -47,7 +47,7 @@ export async function POST(req: Request) {
       return tooMany(pre);
     }
   } catch (e) {
-    logWarn("auth.login.rate_limit_unavailable", { requestId, error: e instanceof Error ? e.message : "unknown" });
+    logError("auth.rate_limit.store_unavailable", { endpoint: "manager_login", requestId, error: e instanceof Error ? e.message : "unknown" });
     return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });
   }
 
