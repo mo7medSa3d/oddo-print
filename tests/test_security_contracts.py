@@ -314,6 +314,7 @@ def test_auth_cookie_contract_separates_access_and_refresh_cookies():
     session = read("src/lib/session-tokens.ts")
     assert 'accessCookieName: "mgr_session"' in session
     assert 'refreshCookieName: "mgr_refresh"' in session
+    assert 'accessCookieName: "cust_session"' in session
     assert 'refreshCookieName: "cust_refresh"' in session
     assert 'accessCookieName: "plt_session"' in session
     assert 'refreshCookieName: "plt_refresh"' in session
@@ -375,11 +376,14 @@ def test_auth_login_paths_do_not_send_refresh_tokens_to_browser_renderers():
     assert 'tauri://localhost' in manager
     assert 'http://tauri.localhost' in manager
     assert "bodyOut.refreshToken = sess.refreshToken;" in manager
+    assert '"Cache-Control", "no-store"' in manager
     assert 'if (!desktopClient)' in manager
     platform = read("src/app/api/platform/auth/login/route.ts")
     assert "platformRefreshCookieHeader" in platform
+    assert '"Cache-Control", "no-store"' in platform
     customer = read("src/app/api/auth/login/route.ts")
     assert "customerRefreshCookie(session)" in customer
+    assert '"Cache-Control", "no-store"' in customer
 
 
 def test_password_reset_revokes_shared_refresh_families():
