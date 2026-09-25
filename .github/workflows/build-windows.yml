@@ -93,6 +93,14 @@ jobs:
         run: |
           go test -count=1 -race -p 2 ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Cargo dependency vulnerability audit
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo audit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Tauri cargo check
         working-directory: src-tauri
         shell: pwsh
