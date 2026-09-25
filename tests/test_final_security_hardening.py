@@ -204,12 +204,14 @@ def test_job_timeline_is_workspace_manager_scoped_not_agent_console_scoped():
     assert "const tenantId = auth.tenantId;" in route
 
 
-def test_tauri_manager_login_token_stays_inside_rust():
+def test_tauri_manager_login_tokens_stay_inside_rust_boundary():
     rust = read("src-tauri/src/commands.rs")
     ipc = read("src/desktop/lib/ipc.ts")
     assert 'object.remove("accessToken")' in rust
+    assert 'object.remove("refreshToken")' in rust
     assert 'path == "/api/auth/manager/login"' in rust
-    assert "(!isTauri && !data.accessToken)" in ipc
+    assert "(isTauri && !data.accessToken)" in ipc
+    assert 'X-Refresh-Token' not in ipc
 
 
 def test_odoo_activation_can_always_disable_but_enable_is_subscription_gated():

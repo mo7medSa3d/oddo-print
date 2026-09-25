@@ -401,7 +401,7 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     } else {
         None
     };
-    if is_manager_refresh_path(path) && manager_refresh_token.is_none() {
+    if uses_manager_refresh_credential(path) && manager_refresh_token.is_none() {
         return Ok(GatewayResponse {
             status: 401,
             body: "{\"error\":\"manager_refresh_authentication_required\"}".into(),

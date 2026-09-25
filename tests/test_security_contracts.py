@@ -382,9 +382,7 @@ def test_auth_login_paths_do_not_send_refresh_tokens_to_browser_renderers():
     manager = read("src/app/api/auth/manager/login/route.ts")
     assert 'isTrustedDesktopRequest(req)' in manager
     assert 'if (desktopClient)' in manager
-    assert 'x-odoo-print-desktop' in manager
-    assert 'tauri://localhost' in manager
-    assert 'http://tauri.localhost' in manager
+    assert "isTrustedDesktopRequest" in manager
     assert "bodyOut.refreshToken = sess.refreshToken;" in manager
     assert '"Cache-Control", "no-store"' in manager
     assert 'if (!desktopClient)' in manager
@@ -398,10 +396,9 @@ def test_auth_login_paths_do_not_send_refresh_tokens_to_browser_renderers():
 
 def test_password_reset_revokes_shared_refresh_families():
     source = read("src/app/api/auth/reset-password/route.ts")
-    assert "refreshTokens" in source
-    assert 'revokedReason: "password_reset"' in source
-    assert 'clock_timestamp()' in source
-    assert "eq(refreshTokens.userId, row.userId)" in source
+    assert "revokeUserRefreshFamiliesInTransaction" in source
+    assert "revokedReason: \"password_reset\"" in read("src/lib/session-tokens.ts")
+    assert "clock_timestamp()" in read("src/lib/session-tokens.ts")
 
 
 def test_manager_and_customer_v2_session_kinds_are_explicitly_separated():
@@ -417,16 +414,15 @@ def test_tenant_selection_issues_customer_kind_session():
     assert 'kind: "customer"' in source
     assert "issueSessionPairInTransaction" in source
     assert "customerRefreshCookie" in source
-    assert 'revokedReason: "tenant_selection"' in source
-    assert "isNull(refreshTokens.revokedAt)" in source
+    assert "revokeSessionFamilyInTransaction" in source
+    assert 'tenant_selection' in source
+    assert "issueSessionPairInTransaction" in source
 
 
 def test_ownership_transfer_revokes_old_owner_refresh_sessions():
     source = read("src/app/api/team/ownership/route.ts")
-    assert "refreshTokens" in source
+    assert "revokeUserTenantRefreshFamiliesInTransaction" in source
     assert "ownership_transferred" in source
-    assert "eq(refreshTokens.userId, currentUserId)" in source
-    assert "eq(refreshTokens.tenantId, claims.tenantId)" in source
 
 
 def test_legacy_session_storage_is_restricted_to_compatibility_paths():

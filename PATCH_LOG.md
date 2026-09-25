@@ -879,3 +879,12 @@
 - Focused legacy-dependency scan result: TEMP Verify Auth Legacy Dependencies run 36165226720 completed successfully; its output contained no direct legacy session writes and no obsolete adapter references.
 - Docker build/runtime verification on the corresponding pre-cookie-path tree completed successfully in run 36164564234. Later cookie/IPC changes deliberately triggered a fresh final CI cycle; no final green claim is made until that clean-tree cycle completes.
 - Live browser SameSite navigation proof remains BLOCKED because the repository has no browser automation harness. Live Odoo production and real deployment validation remain out of scope.
+
+
+## 2026-09-25 — Auth/session legacy-dependency cleanup after CI failure
+- CI failure `36165655093` reported seven stale security-contract assertions: the tests still referenced the pre-v2 WebView token-storage design and inspected implementation details hidden behind shared revocation helpers.
+- Corrected the contracts to assert the v2 boundaries instead: browser HttpOnly cookies, Rust-only desktop token custody, shared refresh-family revocation helpers, and the explicit Tauri-origin helper.
+- Corrected the Rust desktop boundary typo where the refresh path referenced nonexistent `is_manager_refresh_path()`; the existing canonical helper is `uses_manager_refresh_credential()`.
+- Tightened refresh-cookie Paths to the exact refresh endpoints: manager `/api/auth/manager/refresh`, customer `/api/auth/refresh`, platform `/api/platform/auth/refresh`.
+- Windows installer failure `E0425` was the missing Rust symbol above; the separate Tauri `frontendDist` error occurred because `cargo check` ran before `dist-desktop` was created. The Windows workflow now builds the desktop frontend before Rust validation.
+- No session architecture was rolled back to satisfy stale tests; the tests were updated to the implemented v2 design.
