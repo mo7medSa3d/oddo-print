@@ -48,7 +48,7 @@
 - **Print payloads**: Database CHECK constraint (`payloadContractCheck`)
 - **Protocol enforcement**: Printer capability gating prevents incompatible routing
 - **ZPL/TSPL/ESC/POS**: Character sanitization prevents command injection
-- **SQL**: Parameterized queries via Drizzle ORM (no raw string interpolation)
+- **SQL**: Value inputs remain parameterized; dynamic SQL identifiers are composed with `psycopg2.sql.Identifier()` and `SQL(...).format()`, never interpolated as raw identifiers.
 - **Report IDs**: Odoo-side report interception validates selected record IDs before routing; the native `/report/download` controller remains untouched
 
 ## Tenant Isolation
