@@ -341,7 +341,7 @@ export default function DashboardClient({
         if (response.ok) {
           const data = await response.json().catch(() => null) as { exp?: unknown } | null;
           if (typeof data?.exp === "number") {
-            scheduleFromExpiry(new Date(data.exp * 1000).toISOString());
+            scheduleRefresh();
             return;
           }
         }
