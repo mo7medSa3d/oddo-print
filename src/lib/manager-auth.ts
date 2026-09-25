@@ -13,7 +13,7 @@ import {
   clearRefreshCookieHeader,
   getAccessTokenFromRequest,
   issueSessionPair,
-  verifyAccessToken,
+  verifyAccessTokenSignature,
   refreshCookieHeader,
   type SessionRequestContext,
 } from "./session-tokens";
@@ -101,20 +101,21 @@ export function getManagerCookieName() {
 }
 
 export async function verifyManagerToken(token: string): Promise<ManagerClaims | null> {
-  const fresh = await verifyAccessToken(token, "manager");
-  if (fresh) {
+  const versioned = verifyAccessTokenSignature(token, ["manager", "customer"]);
+  if (versioned) {
+    if (versioned.kind !== "manager") return null;
     return validateManagerClaims({
-      jti: fresh.jti,
-      iat: fresh.iat,
-      exp: fresh.exp,
+      jti: versioned.jti,
+      iat: versioned.iat,
+      exp: versioned.exp,
       sub: "manager",
-      tenantId: fresh.tenantId!,
-      role: fresh.role as ManagerRole,
-      ...(fresh.userId ? { userId: fresh.userId } : {}),
+      tenantId: versioned.tenantId!,
+      role: versioned.role as ManagerRole,
+      ...(versioned.userId ? { userId: versioned.userId } : {}),
       ver: 2,
-      kind: fresh.kind as "manager" | "customer",
-      sid: fresh.sid,
-      familyId: fresh.familyId,
+      kind: "manager",
+      sid: versioned.sid,
+      familyId: versioned.familyId,
     });
   }
 
