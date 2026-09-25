@@ -17,7 +17,8 @@ export async function POST(req: Request) {
   let pre: Awaited<ReturnType<typeof reserveAuthAttempt>>;
   try {
     pre = await reserveAuthAttempt(ip, email);
-  } catch {
+  } catch (error) {
+    logError("auth.rate_limit.store_unavailable", { endpoint: "customer_login", error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });
   }
   if (!pre.allowed) {
