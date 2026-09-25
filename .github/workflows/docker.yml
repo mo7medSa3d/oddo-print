@@ -89,8 +89,10 @@ jobs:
           set -euo pipefail
           echo 'SERVED_SECURITY_HEADERS_BEGIN'
           docker compose exec -T gateway node --input-type=module -e '
+            const fs = await import("node:fs");
+            const proxySecret = fs.readFileSync("/run/secrets/trust_proxy_secret", "utf8").trim();
             const response = await fetch("http://127.0.0.1:3000/", {
-              headers: { "x-gateway-proxy-token": process.env.TRUST_PROXY_SECRET },
+              headers: { "x-gateway-proxy-token": proxySecret },
             });
             console.log("HTTP_STATUS=" + response.status);
             for (const [name, value] of response.headers) console.log(name + ": " + value);
