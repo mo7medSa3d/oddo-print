@@ -5,6 +5,9 @@ import { and, eq, sql } from "drizzle-orm";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { writeAuditEvent } from "../../../../lib/audit";
+import {
+  revokeUserTenantRefreshFamiliesInTransaction,
+} from "../../../../lib/session-tokens";
 
 const ASSIGNABLE_ROLES = ["admin", "operator", "viewer", "integration_admin", "billing_admin"] as const;
 
@@ -43,6 +46,13 @@ export async function PATCH(req: Request) {
         ))
         .returning({ userId: tenantUsers.userId });
       if (updated.length !== 1) throw new TeamMemberConflict("Member changed concurrently; refresh and try again", 409);
+
+      await revokeUserTenantRefreshFamiliesInTransaction(
+        tx,
+        userId,
+        claims.tenantId,
+        "role_changed",
+      );
 
       await writeAuditEvent({
         tenantId: claims.tenantId,
@@ -85,6 +95,13 @@ export async function DELETE(req: Request) {
         ))
         .returning({ userId: tenantUsers.userId });
       if (deleted.length !== 1) throw new TeamMemberConflict("Member changed concurrently; refresh and try again", 409);
+
+      await revokeUserTenantRefreshFamiliesInTransaction(
+        tx,
+        userId,
+        claims.tenantId,
+        "member_removed",
+      );
 
       await writeAuditEvent({
         tenantId: claims.tenantId,
