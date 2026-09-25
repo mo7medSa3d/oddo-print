@@ -29,7 +29,7 @@ const CONFIG: Record<SessionKind, SessionKindConfig> = {
     sub: "manager",
     accessCookieName: "cust_session",
     refreshCookieName: "cust_refresh",
-    refreshCookiePath: "/api/auth/refresh",
+    refreshCookiePath: "/api/auth",
   },
   platform: {
     sub: "platform_owner",
