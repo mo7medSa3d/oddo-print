@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../../../db";
 import { discoverySessions } from "../../../../../../../db/schema";
-import { validateManager } from "../../../../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../../../lib/authorization";
 import { eq, and, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string; discoveryId: string }> }) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "agents.disable"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   const { id: agentId, discoveryId } = await params;
