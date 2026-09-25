@@ -7,6 +7,7 @@ import { nanoid } from "../../../../lib/nanoid";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { clientIpFrom, reserveAuthAttempt, setRateLimitHeaders } from "../../../../lib/auth-rate-limit";
+import { logError } from "../../../../lib/log";
 
 const GENERIC = { ok: true, message: "If the account exists and is unverified, a new verification link has been sent." };
 
@@ -29,7 +30,13 @@ export async function POST(req: Request) {
   }
 
   const ip = clientIpFrom(req);
-  const rate = await reserveAuthAttempt(ip, email);
+  let rate: Awaited<ReturnType<typeof reserveAuthAttempt>>;
+  try {
+    rate = await reserveAuthAttempt(ip, email);
+  } catch (error) {
+    logError("auth.rate_limit.store_unavailable", { endpoint: "resend_verification", error: error instanceof Error ? error.message : "unknown" });
+    return NextResponse.json(GENERIC, { status: 503 });
+  }
   if (!rate.allowed) {
     const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
     res.headers.set("Retry-After", String(rate.retryAfterSec));
