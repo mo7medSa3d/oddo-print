@@ -112,7 +112,7 @@ export async function verifyManagerToken(token: string): Promise<ManagerClaims |
       role: fresh.role as ManagerRole,
       ...(fresh.userId ? { userId: fresh.userId } : {}),
       ver: 2,
-      kind: fresh.kind,
+      kind: fresh.kind as "manager" | "customer",
       sid: fresh.sid,
       familyId: fresh.familyId,
     });
