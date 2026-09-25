@@ -237,6 +237,7 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
 #[derive(Clone)]
 struct ManagerSession {
     access_token: String,
+    refresh_token: String,
 }
 
 static MANAGER_SESSION: OnceLock<Mutex<Option<ManagerSession>>> = OnceLock::new();
@@ -258,8 +259,21 @@ fn current_manager_token() -> Option<String> {
         .and_then(|guard| guard.as_ref().map(|s| s.access_token.clone()))
 }
 
+fn current_manager_refresh_token() -> Option<String> {
+    manager_session_store()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|s| s.refresh_token.clone()))
+}
+
 fn is_public_gateway_path(path: &str) -> bool {
-    path == "/api/health" || path == "/api/auth/manager/login"
+    path == "/api/health"
+        || path == "/api/auth/manager/login"
+        || path == "/api/auth/manager/refresh"
+}
+
+fn is_manager_refresh_path(path: &str) -> bool {
+    path == "/api/auth/manager/refresh"
 }
 
 #[tauri::command]
@@ -356,6 +370,7 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     for (name, value) in &args.headers {
         if name.eq_ignore_ascii_case("authorization")
             || name.eq_ignore_ascii_case("cookie")
+            || name.eq_ignore_ascii_case("x-refresh-token")
             || name.eq_ignore_ascii_case("host")
             || name.eq_ignore_ascii_case("content-length")
             || name.eq_ignore_ascii_case("transfer-encoding")
@@ -380,6 +395,17 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     } else {
         current_manager_token()
     };
+    let manager_refresh_token = if is_manager_refresh_path(path) {
+        current_manager_refresh_token()
+    } else {
+        None
+    };
+    if is_manager_refresh_path(path) && manager_refresh_token.is_none() {
+        return Ok(GatewayResponse {
+            status: 401,
+            body: "{\"error\":\"manager_refresh_authentication_required\"}".into(),
+        });
+    }
     if !is_public_gateway_path(path) && manager_token.is_none() {
         return Ok(GatewayResponse {
             status: 401,
@@ -404,6 +430,9 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     if let Some(token) = manager_token {
         request = request.bearer_auth(token);
     }
+    if let Some(refresh_token) = manager_refresh_token {
+        request = request.header("X-Refresh-Token", refresh_token);
+    }
     if let Some(body) = args.body {
         if body.len() > 8 * 1024 * 1024 {
             return Err("gateway request body exceeds 8 MiB".into());
@@ -416,22 +445,24 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
 
     if status == 401 || status == 403 {
         clear_manager_session_inner();
-    } else if path == "/api/auth/manager/login" && (200..300).contains(&status) {
+    } else if (path == "/api/auth/manager/login" || path == "/api/auth/manager/refresh") && (200..300).contains(&status) {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) {
-            let login_ok = value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
-            let token = value.get("accessToken").and_then(|v| v.as_str()).filter(|v| !v.is_empty());
-            if login_ok {
-                if let Some(access_token) = token {
+            let auth_ok = value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+            let access_token = value.get("accessToken").and_then(|v| v.as_str()).filter(|v| !v.is_empty());
+            let refresh_token = value.get("refreshToken").and_then(|v| v.as_str()).filter(|v| !v.is_empty());
+            if auth_ok {
+                if let (Some(access_token), Some(refresh_token)) = (access_token, refresh_token) {
                     if let Ok(mut guard) = manager_session_store().lock() {
                         *guard = Some(ManagerSession {
                             access_token: access_token.to_string(),
+                            refresh_token: refresh_token.to_string(),
                         });
                     }
                 }
             }
         }
     }
-    let safe_body = if path == "/api/auth/manager/login" && (200..300).contains(&status) {
+    let safe_body = if (path == "/api/auth/manager/login" || path == "/api/auth/manager/refresh") && (200..300).contains(&status) {
         // The manager access token is a Rust-only credential in the packaged
         // desktop app. Store it above, then strip it from the renderer-visible
         // response so JavaScript cannot read or persist the bearer token.
@@ -439,6 +470,7 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
             Ok(mut value) => {
                 if let Some(object) = value.as_object_mut() {
                     object.remove("accessToken");
+                    object.remove("refreshToken");
                 }
                 serde_json::to_string(&value).unwrap_or_else(|_| body.clone())
             }
@@ -1354,6 +1386,8 @@ mod security_tests {
     fn only_health_and_manager_login_are_public_gateway_paths() {
         assert!(is_public_gateway_path("/api/health"));
         assert!(is_public_gateway_path("/api/auth/manager/login"));
+        assert!(is_public_gateway_path("/api/auth/manager/refresh"));
+        assert!(is_manager_refresh_path("/api/auth/manager/refresh"));
         assert!(!is_public_gateway_path("/api/auth/manager/me"));
         assert!(!is_public_gateway_path("/api/jobs"));
     }
