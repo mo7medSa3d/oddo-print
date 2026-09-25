@@ -69,7 +69,7 @@ describe("print payload wire contract", () => {
 
   it("keeps signatures aligned with the normative contract", () => {
     const ts = read("src/lib/payload.ts");
-    expect(ts).toContain(`Buffer.from("${payloadContract.signatures.pdfPrefix}")`);
+    expect(ts).toContain("const pdfSignature = Buffer.from(payloadContract.signatures.pdfPrefix);");
     expect(ts).toContain("0xff");
     expect(ts).toContain("0xd8");
     expect(ts).toContain("0xff");
