@@ -258,3 +258,126 @@
   `odoo.tests.stats: print_gateway: 190 tests 62.20s 109206 queries`
   `odoo.tests.result: 0 failed, 0 error(s) of 176 tests when loading database 'odoo19_test'`
   Odoo static contract tests = `success`.
+
+## 2026-09-25 — Phase 0 runtime harness and service-order verification
+- Files: `.github/workflows/docker.yml`, `.github/workflows/ci.yml`
+- Problem: The existing Docker gate proved `/api/health` but did not exercise `/api/system/health` or the authenticated Agent WebSocket path. The Compose job also started the whole stack in one command rather than proving the requested dependency order.
+- Evidence:
+  - Before correction, the new smoke harness itself failed under Node 24.21.0 with:
+    `ReferenceError: Cannot determine intended module format because both 'require' and top-level await are present.`
+    `code: 'ERR_AMBIGUOUS_MODULE_SYNTAX'`
+  - After the harness correction, Docker run `36086260084` job `107918727596` completed successfully.
+- Fix:
+  - Stack startup is explicit: `docker compose up -d postgres` → `docker compose up migrate` → `docker compose up -d gateway` → `docker compose up -d caddy`.
+  - The smoke test uses ESM imports under Node 24 and seeds an authenticated manager session and Agent credential.
+  - It validates Caddy, calls `/api/system/health`, opens `/api/agent/ws`, and probes Caddy's public HTTP redirect.
+- Verification command output:
+  `migrate-1  | PostgreSQL migrations applied successfully`
+  `oddo-print-gateway-1 ... Up 5 seconds (healthy)`
+  `oddo-print-migrate-1 ... Exited (0)`
+  `oddo-print-postgres-1 ... Up 14 seconds (healthy)`
+  `Valid configuration`
+  `SYSTEM_HEALTH_HTTP_STATUS=200`
+  `"overall":"warn"`
+  `"gateway":{"state":"ok"... "nodeVersion":"v24.21.0"}`
+  `"database":{"state":"ok"...}`
+  `"queue":{"state":"ok"... "stuck":0}`
+  `"agents":{"state":"ok"... "1/1 agents online"...}`
+  `"printers":{"state":"warn"... "No printers registered"...}`
+  `"odoo":{"state":"unknown"... "Odoo health NOT VERIFIED"...}`
+  `"billing":{"state":"unknown"... "Billing health NOT VERIFIED"...}`
+  `AGENT_WS_CONNECTION=accepted`
+  `CADDY_HTTP_RESPONSE:`
+  `HTTP/1.1 308 Permanent Redirect`
+  `gateway-1 | > Ready on http://0.0.0.0:3000 (Agent WS at /api/agent/ws)`
+  `postgres-1 | database system is ready to accept connections`
+- Note: `migrate` is a one-shot service and therefore correctly reports `Exited (0)`; the Compose file does not give it a persistent health state.
+
+## 2026-09-25 — Phase 2 shared print-payload contract authority
+- Files: `contracts/print-payload-contract.json`, `src/lib/payload.ts`, `tests/print-payload-contract.test.ts`, `ARCHITECTURE.md`
+- Problem: Gateway TypeScript payload enums/limits and Agent payload enums/limits were independently maintained.
+- Evidence:
+  `contracts/print-payload-contract.json` now contains the normative values:
+  `maxPayloadBytes: 5242880`, wire types `raw, escpos, pdf, image`, raw protocols `raw, escpos, zpl, tspl`, and the three peripheral enumerations.
+  Agent source command output:
+  `TypeRaw    Type = "raw"`
+  `TypeESCPOS Type = "escpos"`
+  `TypePDF    Type = "pdf"`
+  `TypeImage  Type = "image"`
+  `const MaxPayloadBytes = 5 * 1024 * 1024`
+  `case "raw", "escpos", "zpl", "tspl":`
+  `case "pin2", "pin5", "none":`
+  `case "partial", "full", "none":`
+  `case "epson_pulse", "star_bel", "none":`
+- Fix: Gateway payload parsing, encoding, byte limit, and signatures now read the shared contract. A regression test compares the TypeScript schema, Agent source contract and database constraint against the same JSON contract.
+- Verification: The test is present in `tests/print-payload-contract.test.ts`. Final CI verification is intentionally still pending for this post-`0482ce...` code state; no successful final-run claim is made here.
+
+## 2026-09-25 — Phase 2 duplicated Gateway configuration logic
+- Files: `src/lib/session-config.ts`, `src/lib/manager-auth.ts`, `src/lib/platform-auth.ts`, `src/lib/trust-proxy-config.ts`, `src/lib/auth-rate-limit.ts`, `src/server/trusted-proxy.ts`, `src/lib/metrics.ts`, `src/app/api/agent/heartbeat/route.ts`, `tests/auth-rate-limit.test.ts`
+- Problem: Session age/security, trusted-proxy enablement, stale-agent threshold parsing, heartbeat printer connection types and printer protocols were repeated in separate modules.
+- Evidence:
+  `src/lib/session-config.ts` defines `SESSION_MAX_AGE_SECONDS` and `sessionCookieSecure()`.
+  `src/lib/trust-proxy-config.ts` defines `trustProxyEnabled()`.
+  `src/lib/agent-availability.ts` remains the stale-agent threshold authority; `src/lib/metrics.ts` now calls `agentStaleThresholdSeconds()`.
+  `src/lib/printer-model.ts` defines `CONNECTION_TYPES` and `PRINTER_PROTOCOLS`; heartbeat no longer defines parallel sets.
+- Fix: Consumers now call those shared authorities. The duplicated authentication lockout ladder was also collapsed to `progressiveLockDurationMs()`, with `lockDurationMs()` and `pairingLockDurationMs()` delegating to it.
+- Regression output added to the test suite:
+  `uses the same authoritative lockout schedule for pairing`.
+- Verification: These changes are included in the current `main`; final CI verification is still pending for this post-`0482ce...` code state.
+
+## 2026-09-25 — Phase 5 system-health schema-version drift
+- File: `src/lib/system-health.ts`, `tests/system-health.test.ts`
+- Problem: System Health returned hardcoded schema version `55` while the migration journal contains entries through `0072`.
+- Evidence command output:
+  `PGTABLE_DEFINITION_COUNT=24`
+  Migration journal entries include final tag `0072_tenant_scoped_printer_identity`.
+- Fix: `CURRENT_SCHEMA_VERSION` is derived from `drizzle/meta/_journal.json`; regression coverage expects the journal-derived value and `72`.
+- Verification: Final CI verification is still pending for this post-`0482ce...` code state.
+
+## 2026-09-25 — Phase 1 dependency currency triage
+- Evidence:
+  `package.json` records Next.js `16.3.6`, React `19.3.0`, Drizzle ORM `0.45.2`, PostgreSQL driver `8.23.0`, ws `8.21.3`, Zod `4.6.1`, Tailwind `4.3.3`, Vite `8.2.2`, Vitest `5.0.1`, ESLint `9.39.5`.
+  Official current release checks:
+  - Next.js `16.3.6` is the current stable release in the official release list and contains the `next/og` security fix. 
+  - React `19.3.0` is the current stable release in the official React release list.
+  - Drizzle ORM `0.45.3` is newer than the installed `0.45.2`; `0.45.2` contains the important `sql.identifier()`/`sql.as()` escaping fix.
+  - ws `8.21.3` is the latest 8.x release in the official repository.
+  - Zod `4.6.5` is newer than installed `4.6.1`; current Zod 4 guidance uses `z.enum()` rather than deprecated `z.nativeEnum()`.
+  - Tailwind `4.3.3` is the official latest 4.3.x release and its current setup uses CSS-first imports.
+  - Vite `8.3.1` is newer than installed `8.2.2`.
+  - Vitest `5.0.1` is the official current release.
+  - ESLint `9.39.5` is explicitly reported by npm as unsupported/EOL; the existing repository PATCH_LOG already records this as a maintenance residual, so no blind major bump was made.
+- npm audit output from the successful supply-chain workflow:
+  `found 0 vulnerabilities`
+  The same job's Go scan reported:
+  `No vulnerabilities found.`
+- Decision: No dependency version bump was performed without a lockfile-changing install and a compatibility test. The current patch-level currency residuals are documented rather than silently changed.
+
+## 2026-09-25 — Phase 3 dead-code tool gate
+- Problem: The repository had no unused-export/dead-code tool in its Gateway CI path.
+- Evidence: Official Knip documentation states that `--exports` reports exports/types/enum/namespace issues and that `--include-entry-exports` can include entry-file exports; the official Next.js plugin treats `src/**/{layout,page,route,...}` as framework entries.
+- Fix: `ci.yml` now runs:
+  `npx --yes knip@6.31.0 --exports --include-entry-exports`
+- Verification: The CI command is present in `main`; final execution output for this post-change commit is still pending, so no dead-code removal is claimed.
+
+## 2026-09-25 — Phase 4 API route consistency audit
+- Evidence:
+  Route tree inspection reports `73` Gateway API route files.
+  Context-specific auth helpers were found across manager, platform, agent, Odoo and console surfaces; public health/auth/billing-catalog endpoints are intentionally unauthenticated.
+  Print creation/reprint/test-print paths route through `print-job-service.ts` and idempotency handling.
+  The architecture documentation explicitly describes endpoint-specific Zod validation plus explicit type/length checks for simple probes and primitive inputs.
+- Findings: No authentication bypass or print-service bypass was identified by the route sweep. Several routes use explicit primitive/type/length validation rather than importing Zod locally; these are documented by the current architecture as the simple/fixed-input exception. No blanket refactor was made solely to satisfy a textual import pattern.
+- Verification: Existing CI on the pre-final code state had successful typecheck, lint, build, unit tests, migrations, integration tests and Odoo static tests. The newly added Knip/contract regressions still require the final run.
+
+## 2026-09-25 — Phase 5 documentation-vs-code review
+- Evidence command output:
+  `PGTABLE_DEFINITION_COUNT=24`
+  Current migration journal ends at `0072`; the repository contains `73` forward migrations `0000`–`0072`.
+  `ARCHITECTURE.md` already states `73 routes` and `73 forward-only migrations (0000–0072)`.
+  `TENANT_ISOLATION.md` already references tenant-scoped printer identity in migration `0072`.
+  `README.md` ownership states Odoo owns business truth/context and Gateway owns runtime agents/printers/queueing/execution.
+- Fix: Only `ARCHITECTURE.md` was amended to name `contracts/print-payload-contract.json` as the wire-contract authority. No unrelated documentation was rewritten.
+
+## 2026-09-25 — Final verification state
+- Current `main` before this append-only log commit: `a6519ac306fd1b8433d202d303cb635248938401`.
+- The final verification workflow must be triggered by this latest PATCH_LOG commit. Per the user's instruction, this log does not wait for that workflow to finish and does not label pending steps as passed.
