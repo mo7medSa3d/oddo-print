@@ -68,9 +68,6 @@ func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
 	return deduplicateWSD(allFound), nil
 }
 
-func buildWSDSOAPProbe() []byte {
-	return buildWSDProbeModern(generateUUID())
-}
 
 // buildWSDSOAPProbes emits the normative WS-Discovery 1.1 message and the
 // older Microsoft/WSD namespace variant still used by some Windows-era
