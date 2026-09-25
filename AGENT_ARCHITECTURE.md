@@ -89,10 +89,14 @@ Either way, the physical outcome is recorded as UNKNOWN.
    - Registry (printers.json) reload
 
 2. **Full discovery** (async, 2s after startup):
-   - Network scan (mDNS/DNS-SD, SNMP, raw port probe)
-   - IPP discovery
-   - USB enumeration
-   - Full LAN scan with bounded timeout
+   - Network TCP 9100 scan
+   - USB enumeration (Windows)
+   - IPP/TCP 631 discovery plus IPP mDNS
+   - LPR/LPD discovery-only probes (candidates are not registered because LPR execution is not supported)
+   - SNMP discovery
+   - WSD discovery
+   - Full mDNS discovery
+   - The Gateway can request a per-session timeout; the Agent clamps it to the Gateway contract range of 500 ms–30 s.
 
 3. **Periodic rediscovery** (every 30s, gateway-directed):
    - Processes pending discovery sessions from the gateway
