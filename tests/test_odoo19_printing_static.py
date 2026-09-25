@@ -268,6 +268,12 @@ def test_gateway_pos_receipt_keeps_nb_print_in_sync():
 
 
 
+def test_gateway_receipt_uses_odoo19_receipt_template():
+    source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+    assert 'renderToElement("point_of_sale.pos_order_receipt", props)' in source
+    assert 'renderToElement("point_of_sale.OrderReceipt"' not in source
+
+
 def test_gateway_kitchen_uses_odoo19_preparation_receipt_template():
     source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
     assert 'renderToElement("point_of_sale.pos_order_change_receipt", data)' in source
