@@ -2,15 +2,21 @@ import { NextResponse } from "next/server";
 import { validateManager, revokeManagerSession, managerRefreshCookieHeader, clearManagerCookieHeader, clearManagerRefreshCookieHeader } from "../../../../../lib/manager-auth";
 import { writeAuditEvent } from "../../../../../lib/audit";
 import { logError } from "../../../../../lib/log";
-import { revokeSessionFamily } from "../../../../../lib/session-tokens";
+import { getRefreshTokenFromRequest, revokeRefreshTokenFamily, revokeSessionFamily } from "../../../../../lib/session-tokens";
 
 export async function POST(req: Request) {
   const claims = await validateManager(req);
   let revokeFailed = false;
   if (claims) {
     try {
-      if (claims.familyId) await revokeSessionFamily(claims.familyId, "logout");
-      else await revokeManagerSession(claims.jti);
+      if (claims.familyId) {
+        await revokeSessionFamily(claims.familyId, "logout");
+      } else {
+        const refreshToken = getRefreshTokenFromRequest(req, "manager");
+        if (!(refreshToken && await revokeRefreshTokenFamily("manager", refreshToken, "logout"))) {
+          await revokeManagerSession(claims.jti);
+        }
+      }
     } catch (error) {
       revokeFailed = true;
       logError("auth.manager_logout.session_revoke_failed", { jti: claims.jti, familyId: claims.familyId, tenantId: claims.tenantId, error: error instanceof Error ? error.message : "unknown" });
