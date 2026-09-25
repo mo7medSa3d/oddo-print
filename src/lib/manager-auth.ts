@@ -254,6 +254,32 @@ export async function validateManager(req: Request): Promise<ManagerClaims | nul
   return customerToken ? verifyManagerToken(customerToken) : null;
 }
 
+export async function verifyManagerOnlyToken(token: string): Promise<ManagerClaims | null> {
+  const versioned = verifyAccessTokenSignature(token, "manager");
+  if (versioned) {
+    return validateManagerClaims({
+      jti: versioned.jti,
+      iat: versioned.iat,
+      exp: versioned.exp,
+      sub: "manager",
+      tenantId: versioned.tenantId!,
+      role: versioned.role as ManagerRole,
+      ...(versioned.userId ? { userId: versioned.userId } : {}),
+      ver: 2,
+      kind: "manager",
+      sid: versioned.sid,
+      familyId: versioned.familyId,
+    });
+  }
+  const legacy = verifySignature(token);
+  return legacy ? validateManagerClaims(legacy) : null;
+}
+
+export async function validateManagerOnly(req: Request): Promise<ManagerClaims | null> {
+  const token = getAccessTokenFromRequest(req, "manager");
+  return token ? verifyManagerOnlyToken(token) : null;
+}
+
 export async function revokeManagerSession(jti: string) {
   await db.update(managerSessions).set({ revokedAt: sql`clock_timestamp()` }).where(eq(managerSessions.jti, jti));
 }
