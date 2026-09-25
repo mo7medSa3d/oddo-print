@@ -12,6 +12,7 @@ export const integrationVitestTestFiles = [
   "tests/agent-registration.test.ts",
   "tests/architecture-pg.test.ts",
   "tests/auth-rate-limit.test.ts",
+  "tests/session-tokens.integration.test.ts",
   "tests/batch-status.test.ts",
   "tests/odoo-gateway-activation-sync.test.ts",
   "tests/odoo-configuration-billing-race.integration.test.ts",
