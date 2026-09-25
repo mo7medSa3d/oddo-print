@@ -43,7 +43,7 @@ def test_gateway_pos_receipt_and_kitchen_use_native_business_destinations():
     assert 'name="destination_pos_printer_id" string="Odoo Preparation Printer"' in view
     assert 'invisible="destination_type != \'pos_printer\'"' in view
     assert 'name="destination_pos_config_id" string="POS Shop"' in view
-    assert "printer in config.preparation_printer_ids" in pos
+    assert "printer in config.preparation_printer_ids" in binding
     assert "Odoo Preparation Printer must belong to an Odoo POS Preparation Printer configuration." in binding
     assert 'action_print_gateway_kitchen(self, image, reprint=False, operation_id=None, pos_printer_id=None)' in pos
     assert "def get_gateway_kitchen_routes(self):" in pos
