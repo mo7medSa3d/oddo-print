@@ -39,7 +39,13 @@ jobs:
         run: docker compose build --pull
 
       - name: Start stack
-        run: docker compose up -d
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose up -d postgres
+          docker compose up migrate
+          docker compose up -d gateway
+          docker compose up -d caddy
 
       - name: Verify migration and gateway health
         shell: bash
@@ -84,10 +90,10 @@ jobs:
           docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile
 
           docker compose exec -T gateway node <<'NODE'
-          const fs = require("node:fs");
-          const crypto = require("node:crypto");
-          const { Client } = require("pg");
-          const WebSocket = require("ws");
+          const fs = await import("node:fs");
+          const crypto = await import("node:crypto");
+          const { Client } = await import("pg");
+          const { default: WebSocket } = await import("ws");
 
           const sha256 = (v) => crypto.createHash("sha256").update(v).digest("hex");
           const b64url = (v) => Buffer.from(v).toString("base64url");
