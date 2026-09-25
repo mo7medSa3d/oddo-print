@@ -63,16 +63,22 @@ jobs:
           go-version-file: agent/go.mod
           cache: true
           cache-dependency-path: agent/go.sum
+      - name: Agent Phase 0 - Go build
+        working-directory: agent
+        run: go build ./...
+      - name: Agent Phase 0 - Go vet
+        working-directory: agent
+        run: go vet ./...
+      - name: Agent Phase 0 - Go race tests
+        working-directory: agent
+        run: go test ./... -race
+
       - name: Install dependencies
         run: npm ci
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
         run: npm run lint
-
-      - name: Go build
-        working-directory: agent
-        run: go build ./...
 
       - name: Go vulnerability scan
         working-directory: agent
@@ -306,15 +312,6 @@ jobs:
         working-directory: agent
         run: |
           test -z "$(gofmt -l .)" || { echo 'gofmt required on:'; gofmt -l .; exit 1; }
-      - name: Go vet
-        working-directory: agent
-        run: go vet ./...
-      - name: Go tests
-        working-directory: agent
-        run: go test -count=1 -p 2 ./...
-      - name: Go race tests
-        working-directory: agent
-        run: go test -count=1 -race -p 2 ./...
 
   odoo19:
     runs-on: ubuntu-latest
