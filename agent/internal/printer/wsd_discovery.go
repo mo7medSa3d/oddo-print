@@ -68,7 +68,6 @@ func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
 	return deduplicateWSD(allFound), nil
 }
 
-
 // buildWSDSOAPProbes emits the normative WS-Discovery 1.1 message and the
 // older Microsoft/WSD namespace variant still used by some Windows-era
 // devices. Both probes share the same MessageID as required when a multicast
@@ -84,15 +83,15 @@ func buildWSDSOAPProbes() [][]byte {
 func buildWSDProbeModern(msgUUID string) []byte {
 	msg := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope"
-               xmlns:wsa="http://www.w3.org/2005/08/addressing"
-               xmlns:wsd="http://docs.oasis-open.org/ws-dd/ns/discovery/2009/01">
+			   xmlns:wsa="http://www.w3.org/2005/08/addressing"
+			   xmlns:wsd="http://docs.oasis-open.org/ws-dd/ns/discovery/2009/01">
   <soap:Header>
-    <wsa:Action>http://docs.oasis-open.org/ws-dd/ns/discovery/2009/01/Probe</wsa:Action>
-    <wsa:MessageID>urn:uuid:%s</wsa:MessageID>
-    <wsa:To>urn:docs-oasis-open-org:ws-dd:ns:discovery:2009:01</wsa:To>
+	<wsa:Action>http://docs.oasis-open.org/ws-dd/ns/discovery/2009/01/Probe</wsa:Action>
+	<wsa:MessageID>urn:uuid:%s</wsa:MessageID>
+	<wsa:To>urn:docs-oasis-open-org:ws-dd:ns:discovery:2009:01</wsa:To>
   </soap:Header>
   <soap:Body>
-    <wsd:Probe/>
+	<wsd:Probe/>
   </soap:Body>
 </soap:Envelope>`, msgUUID)
 	return []byte(msg)
@@ -101,18 +100,18 @@ func buildWSDProbeModern(msgUUID string) []byte {
 func buildWSDProbeLegacy(msgUUID string) []byte {
 	msg := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope"
-               xmlns:wsa="http://schemas.xmlsoap.org/ws/2004/08/addressing"
-               xmlns:wsd="http://schemas.xmlsoap.org/ws/2005/04/discovery"
-               xmlns:wsdp="http://schemas.microsoft.com/windows/2006/08/wdp/print">
+			   xmlns:wsa="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+			   xmlns:wsd="http://schemas.xmlsoap.org/ws/2005/04/discovery"
+			   xmlns:wsdp="http://schemas.microsoft.com/windows/2006/08/wdp/print">
   <soap:Header>
-    <wsa:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</wsa:Action>
-    <wsa:MessageID>urn:uuid:%s</wsa:MessageID>
-    <wsa:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</wsa:To>
+	<wsa:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</wsa:Action>
+	<wsa:MessageID>urn:uuid:%s</wsa:MessageID>
+	<wsa:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</wsa:To>
   </soap:Header>
   <soap:Body>
-    <wsd:Probe>
-      <wsd:Types>wsdp:PrintDeviceType</wsd:Types>
-    </wsd:Probe>
+	<wsd:Probe>
+	  <wsd:Types>wsdp:PrintDeviceType</wsd:Types>
+	</wsd:Probe>
   </soap:Body>
 </soap:Envelope>`, msgUUID)
 	return []byte(msg)
