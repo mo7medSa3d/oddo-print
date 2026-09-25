@@ -413,3 +413,20 @@
 - Phase 4 documentation drift: PRINTERS.md was corrected from three to four Gateway wire payload kinds, corrected the Agent CLI executable name to yasser-agent-cli.exe, and aligned network protocol/image semantics. PRINTING_ARCHITECTURE.md was corrected so USB does not claim image support and the four top-level Gateway payload kinds are explicit. AGENT_ARCHITECTURE.md now lists the actual discovery sources and removes the stale 1911-line numeric claim. docs/WINDOWS_SERVICE_RECOVERY.md now matches the actual kardianos/service ownership and actual Tauri command surface; the graceful shutdown bound is documented as 25s.
 - Current source/diff state: main is ce878fc574d4c33ccb58e7fe3b162bd604774d92. Compare against baseline 2e83f7fbc41cf2aa8bc1057bd64d3d644d7f829a reports status=ahead, ahead_by=48, behind_by=0.
 - Final verification boundary: latest workflows for ce878fc574d4c33ccb58e7fe3b162bd604774d92 are CI 36089889495, Build Windows Installer 36089889489, Docker 36089889483, Security and Resilience Gates 36089889488, and Static Security Gates 36089889504. At the latest check they were pending/in_progress, not completed. Per the user's instruction not to wait for workflows, the final Phase 0 Go/Tauri command results are not claimed as passed.
+
+## 2026-09-25 — CI failure: incomplete Gateway discovery-session refactor
+- Failing runs on commit `96e7416bd9118e169888fa3ee3f8ddcaa01e46ed`:
+  - CI `36089942472`, job `107930129308`
+  - Build Windows Installer `36089942598`, job `107930056774`
+  - Security and Resilience Gates `36089942474`, supply-chain job `107930038401`
+- Raw failure evidence from Agent build:
+  `internal/agent/agent.go:923:37: not enough arguments in call to a.executeDiscoverySession; have (context.Context, string); want (context.Context, string, map[string]interface{})`
+  plus undefined `defaultDiscoveryTimeout`, `minDiscoveryTimeout`, and `maxDiscoveryTimeout` in `discovery_manager.go`.
+- The supply-chain Go vulnerability step failed while loading the same broken Agent package, with the identical compile diagnostics; `npm audit` in the same job reported `found 0 vulnerabilities`.
+- Fix:
+  - restored the discovery timeout constants in `agent/internal/agent/discovery_manager.go`;
+  - changed the WebSocket discovery trigger to fetch the matching Gateway discovery session and pass its configuration into `executeDiscoverySession`;
+  - added `loadDiscoverySessionByID` and regression coverage for session lookup;
+  - retained the Gateway `timeoutMs` 500..30000 contract and clamped Agent execution to that range.
+- The fix is source-only and does not weaken the discovery timeout boundary.
+- Verification state after the fix: GitHub Actions were triggered on the new commit, but were still pending at the latest check, so no final pass is claimed.
