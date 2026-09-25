@@ -49,9 +49,7 @@ jobs:
           pg_isready -h 127.0.0.1 -p 5432 -U postgres -d app_db
       - name: Run migrations
         run: npm run db:migrate
-      - name: Run auth-rate-limit unit tests
-        run: npm run test:unit -- tests/auth-rate-limit.test.ts
-      - name: Run auth-rate-limit integration tests
+      - name: Run auth-rate-limit suite
         run: npm run test:integration -- tests/auth-rate-limit.test.ts
       - name: Verify no host-clock calls in limiter
         run: |
