@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { printers, agents } from "../../../../../db/schema";
-import { validateManager } from "../../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
 import { nanoid } from "../../../../../lib/nanoid";
@@ -41,7 +41,7 @@ const CERTIFICATION_STEPS = [
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: printerId } = await params;
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
