@@ -247,7 +247,7 @@ export async function validateManager(req: Request): Promise<ManagerClaims | nul
 }
 
 export async function revokeManagerSession(jti: string) {
-  await db.update(managerSessions).set({ revokedAt: sql`now()` }).where(eq(managerSessions.jti, jti));
+  await db.update(managerSessions).set({ revokedAt: sql`clock_timestamp()` }).where(eq(managerSessions.jti, jti));
 }
 
 export async function cleanupExpiredManagerSessions(): Promise<number> {
