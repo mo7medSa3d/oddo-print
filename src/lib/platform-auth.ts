@@ -5,7 +5,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { verifyPassword, normalizeEmail } from "./password";
 import { verifyScryptPasswordHash } from "./manager-auth";
-import { SESSION_MAX_AGE_SECONDS, sessionCookieSecure } from "./session-config";
+import { LEGACY_SESSION_MAX_AGE_SECONDS, sessionCookieSecure } from "./session-config";
 import { databaseNowMs } from "./database-clock";
 import {
   accessCookieHeader,
@@ -19,7 +19,7 @@ import {
 } from "./session-tokens";
 
 const COOKIE_NAME = "plt_session";
-const MAX_AGE_SECONDS = SESSION_MAX_AGE_SECONDS;
+const MAX_AGE_SECONDS = LEGACY_SESSION_MAX_AGE_SECONDS;
 
 function getSecret(): string {
   const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
