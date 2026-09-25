@@ -275,6 +275,37 @@ export async function verifyWorkspaceTokenFromCookieValues(
   return token ? verifyWorkspaceToken(token) : null;
 }
 
+type LegacyManagerAuthTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export async function revokeLegacyManagerSessionInTransaction(
+  tx: LegacyManagerAuthTx,
+  jti: string,
+): Promise<void> {
+  await tx.update(managerSessions)
+    .set({ revokedAt: sql`clock_timestamp()` })
+    .where(eq(managerSessions.jti, jti));
+}
+
+export async function revokeLegacyManagerSessionsForUserInTransaction(
+  tx: LegacyManagerAuthTx,
+  userId: string,
+  tenantId?: string,
+): Promise<void> {
+  const predicates = tenantId
+    ? and(eq(managerSessions.userId, userId), eq(managerSessions.tenantId, tenantId))
+    : eq(managerSessions.userId, userId);
+  await tx.update(managerSessions)
+    .set({ revokedAt: sql`clock_timestamp()` })
+    .where(predicates);
+}
+
+export async function revokeLegacyManagerSessionsForTenantInTransaction(
+  tx: LegacyManagerAuthTx,
+  tenantId: string,
+): Promise<void> {
+  await tx.delete(managerSessions).where(eq(managerSessions.tenantId, tenantId));
+}
+
 export async function revokeManagerSession(jti: string) {
   await db.update(managerSessions).set({ revokedAt: sql`clock_timestamp()` }).where(eq(managerSessions.jti, jti));
 }
