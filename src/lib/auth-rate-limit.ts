@@ -313,7 +313,7 @@ export async function reserveAuthAttempt(ip: string, username: string): Promise<
             parseDbTimeMs(rowCandidate.locked_until),
             now.getTime(),
             AUTH_RATE_WINDOW_MS,
-            candidate.key.startsWith("ip:") ? "ip" : "account",
+            rowCandidate.key.startsWith("ip:") ? "ip" : "account",
           );
         }).filter((snapshot) => snapshot.lockedUntilMs !== null);
         return blockedDecision(snapshots, now.getTime());
