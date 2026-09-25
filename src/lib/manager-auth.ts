@@ -26,11 +26,6 @@ function getSecret(): string {
   if (s.length < 32) throw new Error("GATEWAY_JWT_SECRET must be >=32 chars");
   return s;
 }
-
-function b64urlEncode(buf: Buffer | string): string {
-  return Buffer.from(buf).toString("base64url");
-}
-
 function b64urlDecode(s: string): Buffer {
   return Buffer.from(s, "base64url");
 }
@@ -44,14 +39,6 @@ export type ManagerClaims = {
   sid?: string;
   familyId?: string;
 };
-
-function sign(claims: ManagerClaims): string {
-  const header = b64urlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const payload = b64urlEncode(JSON.stringify(claims));
-  const data = `${header}.${payload}`;
-  const sig = createHmac("sha256", getSecret()).update(data).digest("base64url");
-  return `${data}.${sig}`;
-}
 
 function verifySignature(token: string): ManagerClaims | null {
   if (typeof token !== "string" || token.length < 40 || token.length > 4096) return null;
