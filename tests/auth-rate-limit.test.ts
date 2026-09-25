@@ -155,8 +155,13 @@ suite("manager login rate limiting", () => {
   it("legacy credentials mint an owner session for the exact configured tenant", async () => {
     const res = await login(USER, PASS);
     expect(res.status).toBe(200);
-    const session = await pool().query(`SELECT tenant_id, user_id, role FROM manager_sessions`);
-    expect(session.rows).toEqual([{ tenant_id: "tenant_rate_limit_test", user_id: null, role: "owner" }]);
+    const session = await pool().query(`SELECT tenant_id, user_id, role, kind FROM refresh_tokens`);
+    expect(session.rows).toEqual([{
+      tenant_id: "tenant_rate_limit_test",
+      user_id: null,
+      role: "owner",
+      kind: "manager",
+    }]);
   });
 
   it("legacy credentials cannot mint a session for a hostname-resolved different tenant", async () => {
@@ -166,7 +171,7 @@ suite("manager login rate limiting", () => {
     const res = await login(USER, PASS, "198.51.100.12", "tenant-b.test");
     expect(res.status).toBe(401);
     expect(res.headers.get("set-cookie")).toBeNull();
-    expect((await pool().query(`SELECT count(*)::int AS count FROM manager_sessions`)).rows[0].count).toBe(0);
+    expect((await pool().query(`SELECT count(*)::int AS count FROM refresh_tokens`)).rows[0].count).toBe(0);
   });
 
   it("normal tenant identity login remains available on a different tenant hostname", async () => {
@@ -179,8 +184,13 @@ suite("manager login rate limiting", () => {
 
     const res = await login(email, password, "198.51.100.13", "tenant-b.test");
     expect(res.status).toBe(200);
-    const session = await pool().query(`SELECT tenant_id, user_id, role FROM manager_sessions`);
-    expect(session.rows).toEqual([{ tenant_id: "tenant_b", user_id: "user_b", role: "admin" }]);
+    const session = await pool().query(`SELECT tenant_id, user_id, role, kind FROM refresh_tokens`);
+    expect(session.rows).toEqual([{
+      tenant_id: "tenant_b",
+      user_id: "user_b",
+      role: "admin",
+      kind: "manager",
+    }]);
   });
 
   it("repeated failures then 429 with Retry-After", async () => {
