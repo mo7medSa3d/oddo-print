@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantSubscriptions } from "../../../../db/schema";
-import { validateManager } from "../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../../../../lib/entitlements";
 import { refreshClockSkew } from "../../../../lib/database-clock";
 import { eq } from "drizzle-orm";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  * return 403 SUBSCRIPTION_REQUIRED.
  */
 export async function GET(req: Request) {
-  const manager = await validateManager(req);
+  const manager = await validateWorkspaceManager(req);
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   await refreshClockSkew();
