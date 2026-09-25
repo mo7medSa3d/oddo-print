@@ -25,6 +25,15 @@
 - Trusted-proxy IP failures use a separate NAT-tolerant 20/30/40/50 progressive curve, so a shared source address can absorb normal multi-user bursts without triggering the account-style lock too early.
 
 ### Manager Sessions
+### Shared session tokens
+- Access sessions use versioned HS256 JWTs with a 15-minute lifetime and explicit session kind, JTI, SID, and refresh-family identifiers.
+- Refresh sessions are opaque 256-bit secrets; PostgreSQL stores only SHA-256 token hashes. Refresh families have a 30-day absolute lifetime with a 5-second rotation grace window.
+- A refresh token used after the grace window revokes the entire family, records `auth.refresh.reuse_detected`, and attempts a security-notification email when a user email is available.
+- Refresh rotation revalidates the live security principal (tenant lifecycle, tenant membership/role, verified customer email, or Platform Owner status) before minting a new access token.
+- Password reset revokes every refresh family for the affected user.
+- Browser refresh credentials are HttpOnly + SameSite=Strict cookies. The packaged desktop manager keeps the refresh credential only in Rust process memory; renderer-supplied refresh headers are rejected, and desktop token responses require a fixed Tauri origin.
+- Existing pre-v2 manager/customer/platform sessions remain on the legacy DB-backed validation path until their original session expiry; no blanket forced logout is introduced by this migration.
+
 - Server-side sessions in `manager_sessions` table
 - JWT with per-session JTI (JSON Token Identifier)
 - HttpOnly signed cookies

@@ -758,3 +758,17 @@
 - A4 verification output: temporary PostgreSQL workflow `36140928157` ran migrations and `npm run test:integration -- tests/session-tokens.integration.test.ts`; Vitest reported `Test Files 1 passed (1)`, `Tests 5 passed (5)`, `Duration 3.61s`. The suite covers issuance/hash storage, normal rotation, 5-second grace, replay after grace with family revocation/audit/notification, and Strict refresh-cookie policy.
 - A5 verification output: temporary PostgreSQL workflow `36141305678` ran migrations and `npm run test:integration -- tests/session-logout.integration.test.ts`; all 3 tests passed. The suite confirms manager, customer, and platform logout revoke every refresh token in the active family with reason `logout`.
 - A6 verification output: temporary focused workflow `36141530991` completed `npm ci`, `npm run typecheck`, and `npm run lint` successfully on the session-token/housekeeping tree. Refresh-token GC is integrated into the existing 5-minute Gateway housekeeping loop; no new scheduler was introduced.
+
+## 2026-09-25 — Part A session-token migration final verification
+- Shared session foundation added in `src/lib/session-tokens.ts` with versioned 15-minute access JWTs, 30-day refresh families, SHA-256 refresh-token storage, 5-second rotation grace, family-wide replay revocation, audit emission, notification attempt, and live-principal revalidation.
+- Database migration `drizzle/0073_refresh_tokens.sql` adds the tenant/user-scoped refresh-token family ledger and supporting indexes/constraints.
+- Manager, customer, and Platform Owner logins now issue the shared pair; browser clients receive HttpOnly cookies, while the packaged desktop path keeps access/refresh secrets inside Rust memory and requires a fixed Tauri origin before secrets are returned.
+- Logout revokes the complete refresh family. Password reset revokes every refresh family for the user.
+- Legacy authentication remains supported through the existing `manager_sessions`/`platform_sessions` validation path.
+- Current focused verification on `b049bd304d3a46eb0cb37679f8aeeaa9242a930f`:
+  - A4 refresh rotation suite: run `36143371725`, `6/6` tests passed, `5.63s`.
+  - A7 legacy fallback suite: run `36143371750`, `3/3` tests passed, `2.57s`.
+  - Earlier A0 baseline: manager `6/6`, platform `11/11`, customer-auth coverage `4/4`.
+- Full release gates on the same commit were still executing when this log entry was written. Verified completed results were: Static Security Gates PASS, Docker PASS, PostgreSQL failure-injection PASS, plus CodeQL Go/Python/JavaScript and Secret Scan PASS. CI, Odoo19, Windows Installer, and supply-chain remaining stages were still running.
+- Temporary A4/A7 workflows were used only for focused verification and are removed in this final cleanup commit.
+
