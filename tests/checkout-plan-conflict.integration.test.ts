@@ -4,6 +4,7 @@ import { db } from "../src/db";
 import { tenants, plans, tenantSubscriptions } from "../src/db/schema";
 import { nanoid } from "../src/lib/nanoid";
 import { POST as checkout } from "../src/app/api/billing/checkout/route";
+import { validateWorkspaceManager } from "../src/lib/manager-auth";
 import { applyMigrations, closePool, hasTestDatabase, truncateAll } from "./helpers/pg";
 
 vi.mock(import("../src/lib/manager-auth"), async (importOriginal) => ({
@@ -33,8 +34,7 @@ suite("billing checkout plan-conflict fence", () => {
   beforeAll(async () => { await applyMigrations(); });
   beforeEach(async () => {
     await truncateAll();
-    const { validateManager } = await import("../src/lib/manager-auth");
-    vi.mocked(validateManager).mockResolvedValue({
+    vi.mocked(validateWorkspaceManager).mockResolvedValue({
       jti: "test-manager-jti-1234567890",
       iat: Math.floor(Date.now() / 1000) - 10,
       exp: Math.floor(Date.now() / 1000) + 3600,
