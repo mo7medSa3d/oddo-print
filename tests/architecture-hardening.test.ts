@@ -94,12 +94,20 @@ describe("architecture hardening", () => {
 
   it("uses a request-scoped CSP nonce for the only application inline script", () => {
     const proxy = readFileSync("proxy.ts", "utf8");
+    const server = readFileSync("server.ts", "utf8");
+    const csp = readFileSync("src/server/content-security-policy.ts", "utf8");
     const layout = readFileSync("src/app/layout.tsx", "utf8");
     expect(proxy).toContain("crypto.randomUUID()");
     expect(proxy).toContain("script-src 'self' 'nonce-\u0024{nonce}' 'strict-dynamic'");
     expect(proxy).not.toMatch(/script-src[^;]*unsafe-inline/);
     expect(proxy).toContain('requestHeaders.set("x-nonce", nonce)');
-    expect(proxy).toContain('response.headers.set("Content-Security-Policy", cspHeader)');
+    expect(proxy).toContain('response.headers.set("Content-Security-Policy", policy)');
+    expect(server).toContain("createRequestContentSecurityPolicy");
+    expect(server).toContain('req.headers["x-nonce"] = nonce');
+    expect(server).toContain('res.setHeader("Content-Security-Policy", policy)');
+    expect(csp).toContain("crypto.randomUUID()");
+    expect(csp).toContain("script-src 'self' 'nonce-");
+    expect(csp).toContain("connect-src 'self';");
     expect(layout).toContain("const THEME_INIT =");
     expect(layout).toContain('const nonce = (await headers()).get("x-nonce")');
     expect(layout).toContain("<script nonce={nonce}");
