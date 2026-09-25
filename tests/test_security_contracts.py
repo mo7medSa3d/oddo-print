@@ -380,6 +380,7 @@ def test_refresh_endpoints_are_no_store_and_use_shared_rotation():
 
 def test_auth_login_paths_do_not_send_refresh_tokens_to_browser_renderers():
     manager = read("src/app/api/auth/manager/login/route.ts")
+    assert 'isTrustedDesktopRequest(req)' in manager
     assert 'if (desktopClient)' in manager
     assert 'x-odoo-print-desktop' in manager
     assert 'tauri://localhost' in manager
