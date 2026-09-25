@@ -325,7 +325,8 @@ def test_browser_manager_transport_uses_http_only_cookies_and_one_refresh_retry(
     assert 'credentials: "include"' in source
     assert 'path !== "/api/auth/manager/refresh"' in source
     assert 'return gatewayRequest(base, path, method, headers, body, false);' in source
-    assert 'X-Refresh-Token' not in source
+    assert 'X-Refresh-Token' in source
+    assert 'Origin", "tauri://localhost' in source
 
 
 def test_desktop_refresh_secret_stays_inside_rust_memory_boundary():
@@ -368,6 +369,9 @@ def test_refresh_endpoints_are_no_store_and_use_shared_rotation():
 def test_auth_login_paths_do_not_send_refresh_tokens_to_browser_renderers():
     manager = read("src/app/api/auth/manager/login/route.ts")
     assert 'if (desktopClient)' in manager
+    assert 'x-odoo-print-desktop' in manager
+    assert 'tauri://localhost' in manager
+    assert 'http://tauri.localhost' in manager
     assert "bodyOut.refreshToken = sess.refreshToken;" in manager
     assert 'if (!desktopClient)' in manager
     platform = read("src/app/api/platform/auth/login/route.ts")
