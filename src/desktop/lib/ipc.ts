@@ -134,20 +134,39 @@ async function gatewayRequest(
   method = "GET",
   headers: Record<string, string> = {},
   body?: string,
+  allowSessionRefresh = true,
 ): Promise<GatewayResponse> {
   const base = normalizeGatewayUrl(gatewayUrl);
+  let response: GatewayResponse;
   if (!isTauri) {
-    const response = await fetchWithTimeout(`${base}${path}`, {
+    const browserResponse = await fetchWithTimeout(`${base}${path}`, {
       method,
       headers,
       body,
       credentials: "include",
     });
-    return { status: response.status, body: await response.text() };
+    response = { status: browserResponse.status, body: await browserResponse.text() };
+  } else {
+    response = await invoke<GatewayResponse>("gateway_request", {
+      args: { path, method, headers, body: body ?? null },
+    });
   }
-  return invoke<GatewayResponse>("gateway_request", {
-    args: { path, method, headers, body: body ?? null },
-  });
+
+  if (
+    allowSessionRefresh &&
+    (response.status === 401 || response.status === 403) &&
+    path !== "/api/auth/manager/login" &&
+    path !== "/api/auth/manager/refresh"
+  ) {
+    try {
+      await refreshManagerSession(base);
+      return gatewayRequest(base, path, method, headers, body, false);
+    } catch {
+      await clearManagerSession();
+    }
+  }
+
+  return response;
 }
 
 async function gatewayConsoleRequest(
