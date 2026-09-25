@@ -3,7 +3,7 @@ import {
   clearManagerCookieHeader,
   clearManagerRefreshCookieHeader,
   revokeManagerSession,
-  validateManager,
+  validateManagerOnly,
 } from "../../../../../lib/manager-auth";
 import { writeAuditEvent } from "../../../../../lib/audit";
 import { logError } from "../../../../../lib/log";
