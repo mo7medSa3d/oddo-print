@@ -320,10 +320,13 @@ def test_auth_cookie_contract_separates_access_and_refresh_cookies():
     session = read("src/lib/session-tokens.ts")
     assert 'accessCookieName: "mgr_session"' in session
     assert 'refreshCookieName: "mgr_refresh"' in session
+    assert 'refreshCookiePath: "/api/auth/manager/refresh"' in session
     assert 'accessCookieName: "cust_session"' in session
     assert 'refreshCookieName: "cust_refresh"' in session
+    assert 'refreshCookiePath: "/api/auth/refresh"' in session
     assert 'accessCookieName: "plt_session"' in session
     assert 'refreshCookieName: "plt_refresh"' in session
+    assert 'refreshCookiePath: "/api/platform/auth/refresh"' in session
     assert "HttpOnly; SameSite=Lax" in session
     assert "HttpOnly; SameSite=Strict" in session
 
