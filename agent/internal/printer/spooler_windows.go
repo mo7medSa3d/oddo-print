@@ -726,14 +726,28 @@ func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 		offset := uintptr(i) * structSize
 		pi := (*printerInfo2)(unsafe.Pointer(uintptr(unsafe.Pointer(&buf[0])) + offset))
 		name := utf16PtrToString(pi.pPrinterName)
+		portName := utf16PtrToString(pi.pPortName)
+		driverName := utf16PtrToString(pi.pDriverName)
 		if name == "" {
 			continue
 		}
+		if isVirtualSpooler(portName, driverName, name) {
+			log.Printf("[discovery] hiding virtual Windows spooler queue %q (port=%q driver=%q)", name, portName, driverName)
+			continue
+		}
+		printerType, connectionType := classifySpoolerPrinter(portName, driverName, name)
 		out = append(out, DeviceInfo{
 			Name:           name,
 			Protocol:       "spooler",
-			ConnectionType: "spooler",
+			ConnectionType: connectionType,
+			PrinterType:    printerType,
 			Endpoint:       name,
+			SpoolerName:    name,
+			Status:         mapWindowsStatus(pi.Status, pi.Attributes),
+			Capabilities: map[string]interface{}{
+				"port_name":   portName,
+				"driver_name": driverName,
+			},
 		})
 	}
 	runtime.KeepAlive(buf)
