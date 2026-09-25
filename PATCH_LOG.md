@@ -479,3 +479,11 @@
 - Evidence: CI job `107942527275`, step `Go U1000 dead-code scan (Windows build tags)` reported `pdf_windows_test.go:6:2: "bytes" imported and not used` plus U1000 for `isVirtualSpooler`, `classifySpoolerPrinter`, `mapWindowsStatus`, `confidenceForDevice`, `containsDiscoverySource`, `isAllowedCIDR`, `tryBeginSession`, and `buildWSDSOAPProbe`.
 - Fix: removed only those statically unreachable helpers and the unused import; production call paths were not changed.
 - Verification: pending on the new `main` commit.
+
+
+## 2026-09-25 — Phase 0 test harness drift: CSP source moved to proxy
+- OWASP: A02 Security Misconfiguration (verification-test alignment only).
+- Problem: `tests/architecture-hardening.test.ts` expected the CSP `connect-src` directive inside `next.config.ts`, while the repository's actual request-scoped CSP implementation is in `proxy.ts`.
+- Evidence: the failing CI assertion was `expected ... next.config.ts ... to contain connect-src 'self';`; current `proxy.ts` contains the request-scoped CSP and `next.config.ts` does not contain a CSP header.
+- Fix: updated the test to inspect `proxy.ts` for CSP directives while retaining the negative `unsafe-inline` assertion.
+- Verification: pending on the next CI run.
