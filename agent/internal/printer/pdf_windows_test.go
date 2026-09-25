@@ -3,6 +3,9 @@
 package printer
 
 import (
+	"bytes"
+	"fmt"
+	"strconv"
 	"context"
 	"image"
 	"strings"
