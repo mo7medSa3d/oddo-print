@@ -3,7 +3,6 @@
 package printer
 
 import (
-	"bytes"
 	"context"
 	"image"
 	"strings"
