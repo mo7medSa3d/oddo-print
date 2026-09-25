@@ -311,6 +311,7 @@ suite("shared refresh-token session rotation", () => {
     expect(refresh).toContain("HttpOnly");
     expect(refresh).toContain("SameSite=Strict");
     expect(refresh).toContain("Secure");
+    expect(refresh).toContain("Path=/api/auth/manager");
 
     const access = accessCookieHeader("manager", "opaque-access-token", new Date("2026-09-25T00:15:00.000Z"));
     expect(access).toContain("HttpOnly");
