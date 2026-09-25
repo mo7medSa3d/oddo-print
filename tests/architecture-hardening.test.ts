@@ -113,6 +113,9 @@ describe("architecture hardening", () => {
     expect(layout).toContain('const nonce = (await headers()).get("x-nonce")');
     expect(layout).toContain("<script nonce={nonce}");
     expect(layout).toContain('localStorage.getItem("theme")');
+    expect(layout).not.toMatch(/THEME_INIT[\s\S]*\$\{/);
+    expect(layout).not.toContain("req.");
+    expect(layout).not.toContain("request.");
   });
 
   it("keeps agent lifecycle changes transactional in ONE shared implementation", () => {
