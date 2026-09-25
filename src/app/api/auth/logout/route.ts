@@ -1,6 +1,7 @@
 import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { validateManager, revokeManagerSession, clearManagerCookieHeader, clearManagerRefreshCookieHeader } from "../../../../lib/manager-auth";
+import { clearCustomerRefreshCookie } from "../../../../lib/customer-auth";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { revokeSessionFamily } from "../../../../lib/session-tokens";
 
@@ -33,6 +34,10 @@ export async function POST(req: Request) {
     { status: revokeFailed ? 503 : 200 },
   );
   res.headers.set("Set-Cookie", clearManagerCookieHeader());
-  res.headers.append("Set-Cookie", clearManagerRefreshCookieHeader());
+  if (claims?.kind === "customer") {
+    res.headers.append("Set-Cookie", clearCustomerRefreshCookie());
+  } else {
+    res.headers.append("Set-Cookie", clearManagerRefreshCookieHeader());
+  }
   return res;
 }
