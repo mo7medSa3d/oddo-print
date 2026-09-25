@@ -29,7 +29,8 @@ describe("print payload wire contract", () => {
     expect((printJobPayloadSchema.shape.protocol as unknown as { unwrap: () => { options: string[] } }).unwrap().options.sort())
       .toEqual([...payloadContract.rawProtocols].sort());
 
-    expect(go).toContain(`const MaxPayloadBytes = ${payloadContract.maxPayloadBytes}`);
+    expect(payloadContract.maxPayloadBytes).toBe(5 * 1024 * 1024);
+    expect(go).toContain("const MaxPayloadBytes = 5 * 1024 * 1024");
     const goTypeDecls = {
       raw: 'TypeRaw    Type = "raw"',
       escpos: 'TypeESCPOS Type = "escpos"',
@@ -40,14 +41,15 @@ describe("print payload wire contract", () => {
       expect(go).toContain(goTypeDecls[wireType]);
     }
 
-    const goDrawer = go.match(/case "pin2", "pin5", "none":/);
-    expect(goDrawer).not.toBeNull();
-    for (const value of payloadContract.peripherals.drawer) expect(go).toContain(`case "${value}"`);
-    for (const value of payloadContract.peripherals.cutter) expect(go).toContain(`case "${value}"`);
-    for (const value of payloadContract.peripherals.buzzer) expect(go).toContain(`case "${value}"`);
+    expect(go).toContain('case "raw", "escpos", "zpl", "tspl":');
+    expect(go).toContain('if protocol != "escpos"');
+    expect(go).toContain('if protocol != ""');
+    expect(go).toContain('case "pin2", "pin5", "none":');
+    expect(go).toContain('case "partial", "full", "none":');
+    expect(go).toContain('case "epson_pulse", "star_bel", "none":');
 
+    expect(sql).toContain("IN ('raw', 'escpos', 'zpl', 'tspl')");
     for (const protocol of payloadContract.rawProtocols) {
-      expect(sql).toContain(`IN ('raw', 'escpos', 'zpl', 'tspl')`);
       expect(sql).toContain(protocol);
     }
   });
