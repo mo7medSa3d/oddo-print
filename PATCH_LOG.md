@@ -772,3 +772,11 @@
 - Full release gates on the same commit were still executing when this log entry was written. Verified completed results were: Static Security Gates PASS, Docker PASS, PostgreSQL failure-injection PASS, plus CodeQL Go/Python/JavaScript and Secret Scan PASS. CI, Odoo19, Windows Installer, and supply-chain remaining stages were still running.
 - Temporary A4/A7 workflows were used only for focused verification and are removed in this final cleanup commit.
 
+
+
+## 2026-09-25 — Part A final session-kind verification
+- Final targeted workflow `36144315272` on `84ad85ae24b947f2460e8ba7f07dad905f8b2de8` completed migrations and the shared session suite with `Test Files 1 passed (1)`, `Tests 7 passed (7)`, `Duration 3.70s`.
+- The seven tests cover shared issuance/hash storage, manager/customer v2 kind isolation, normal rotation, principal invalidation, 5-second grace, post-grace family replay revocation/audit/notification, and cookie policy.
+- The targeted workflow exposed and enabled correction of the v2 kind fall-through bug: versioned customer tokens no longer enter legacy manager validation, and versioned manager/platform tokens no longer enter customer validation.
+- Temporary targeted workflow is removed in this cleanup commit. Runtime code remains unchanged after this cleanup.
+

@@ -33,6 +33,7 @@
 - Password reset revokes every refresh family for the affected user.
 - Browser refresh credentials are HttpOnly + SameSite=Strict cookies. The packaged desktop manager keeps the refresh credential only in Rust process memory; renderer-supplied refresh headers are rejected, and desktop token responses require a fixed Tauri origin.
 - Existing pre-v2 manager/customer/platform sessions remain on the legacy DB-backed validation path until their original session expiry; no blanket forced logout is introduced by this migration.
+- Session kinds are explicitly separated: manager APIs accept only v2 `kind=manager`; customer APIs accept only v2 `kind=customer`; a versioned token never falls through into legacy validation as a different session kind.
 
 - Server-side sessions in `manager_sessions` table
 - JWT with per-session JTI (JSON Token Identifier)
