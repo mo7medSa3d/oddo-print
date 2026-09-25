@@ -30,7 +30,7 @@
 - A refresh token presented after the grace window is treated as reuse/replay: the entire family is revoked, `auth.refresh.reuse_detected` is audited, and a notification email is attempted when an account email is available.
 - Refresh rotation revalidates the live security principal (tenant lifecycle, tenant membership/role, verified customer email, or Platform Owner status) before minting a new access token.
 - Password reset revokes every refresh family for the affected user.
-- Browser refresh credentials are HttpOnly + SameSite=Strict cookies. The packaged desktop manager keeps the refresh credential only in Rust process memory; renderer-supplied refresh headers are not accepted, and desktop token responses require a fixed Tauri origin.
+- Browser access cookies are HttpOnly + SameSite=Lax; browser refresh credentials are separate HttpOnly + SameSite=Strict cookies (`mgr_refresh`, `cust_refresh`, `plt_refresh`). The packaged desktop manager keeps the refresh credential only in Rust process memory; renderer-supplied refresh headers are not accepted, and desktop token responses require the Tauri local origin used by Tauri 2.
 - Existing pre-v2 manager/customer/platform sessions remain on the legacy `manager_sessions`/`platform_sessions` validation path until their original 8-hour expiry; no blanket forced logout is introduced.
 - Session kinds are explicitly separated: manager APIs accept only v2 `kind=manager`, customer APIs only v2 `kind=customer`, and platform APIs only v2 `kind=platform`. A v2 token never falls through into legacy validation as a different session kind.
 - Legacy `manager_sessions`/`platform_sessions` rows remain only for compatibility and legacy-session revocation/validation during the migration window.
