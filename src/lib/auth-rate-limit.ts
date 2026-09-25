@@ -249,7 +249,7 @@ async function reserveBucketAttempt(
 }
 
 export async function reservePairingAttempt(ip: string): Promise<RateLimitDecision> {
-  return reserveBucketAttempt(pairingIpKey(ip), PAIRING_RATE_WINDOW_MS, pairingLockDurationMs, "account");
+  return reserveBucketAttempt(pairingIpKey(ip), PAIRING_RATE_WINDOW_MS, pairingLockDurationMs);
 }
 
 export async function reserveAuthAttempt(ip: string, username: string): Promise<RateLimitDecision> {
