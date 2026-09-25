@@ -24,11 +24,6 @@ function getSecret(): string {
   if (s.length < 32) throw new Error("GATEWAY_JWT_SECRET must be >=32 chars");
   return s;
 }
-
-function b64urlEncode(value: Buffer | string): string {
-  return Buffer.from(value).toString("base64url");
-}
-
 function b64urlDecode(value: string): Buffer {
   return Buffer.from(value, "base64url");
 }
@@ -64,14 +59,6 @@ export class PlatformForbiddenError extends Error {
     super(message);
     this.name = "PlatformForbiddenError";
   }
-}
-
-function sign(claims: PlatformOwnerClaims): string {
-  const header = b64urlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const payload = b64urlEncode(JSON.stringify(claims));
-  const data = `${header}.${payload}`;
-  const sig = createHmac("sha256", getSecret()).update(data).digest("base64url");
-  return `${data}.${sig}`;
 }
 
 function verifyLegacyPlatformTokenSignature(token: string): PlatformOwnerClaims | null {
