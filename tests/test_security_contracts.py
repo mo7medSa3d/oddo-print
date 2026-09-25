@@ -432,3 +432,15 @@ def test_legacy_session_storage_is_restricted_to_compatibility_paths():
     assert "verifyLegacyPlatformTokenSignature(token)" in platform
     assert "createManagerSession" in manager and "issueSessionPair" in manager
     assert "createPlatformSession" in platform and "issueSessionPair" in platform
+
+
+def test_new_session_issuance_never_writes_legacy_session_tables():
+    for rel in (
+        "src/lib/manager-auth.ts",
+        "src/lib/platform-auth.ts",
+        "src/lib/customer-auth.ts",
+    ):
+        source = read(rel)
+        assert "issueSessionPair" in source
+        assert ".insert(managerSessions)" not in source
+        assert ".insert(platformSessions)" not in source
