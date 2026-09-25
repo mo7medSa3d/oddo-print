@@ -80,7 +80,6 @@ func TestReportDiscoveryResultDoesNotRetryTerminalGatewayErrors(t *testing.T) {
 	}
 }
 
-
 func TestDiscoverySessionTimeoutUsesGatewayValue(t *testing.T) {
 	if got := discoverySessionTimeout(map[string]interface{}{}); got != defaultDiscoveryTimeout {
 		t.Fatalf("missing timeoutMs = %s, want %s", got, defaultDiscoveryTimeout)
@@ -101,7 +100,6 @@ func TestDiscoverySessionTimeoutUsesGatewayValue(t *testing.T) {
 		t.Fatalf("too-large timeoutMs = %s, want maximum %s", got, maxDiscoveryTimeout)
 	}
 }
-
 
 func TestLoadDiscoverySessionByID(t *testing.T) {
 	response := &http.Response{
