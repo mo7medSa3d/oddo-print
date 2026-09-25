@@ -30,9 +30,14 @@ describe("production TypeScript safety contracts", () => {
     ];
     for (const relative of managerProtectedPages) {
       const source = readFileSync(resolve(process.cwd(), "src", relative), "utf8");
-      expect(source).toContain("const token = (await cookies()).get(getManagerCookieName())?.value ?? null;");
-      expect(source).toContain("const claims = token ? await verifyManagerToken(token) : null");
-      expect(source).not.toContain("validateManagerClaims(token ? verifyManagerToken(token) : null)");
+      if (relative === "app/billing/page.tsx") {
+        expect(source).toContain("await verifyWorkspaceTokenFromCookieValues(");
+        expect(source).not.toContain("validateManagerClaims(token ? verifyManagerToken(token) : null)");
+      } else {
+        expect(source).toContain("const token = (await cookies()).get(getManagerCookieName())?.value ?? null;");
+        expect(source).toContain("const claims = token ? await verifyManagerToken(token) : null");
+        expect(source).not.toContain("validateManagerClaims(token ? verifyManagerToken(token) : null)");
+      }
     }
 
     const dashboard = readFileSync(resolve(process.cwd(), "src/app/dashboard/page.tsx"), "utf8");
