@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { refreshTokens } from "../db/schema";
+import { refreshTokens, tenantUsers, tenants, users } from "../db/schema";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { sql } from "drizzle-orm";
 import { databaseNowMs } from "./database-clock";
@@ -325,6 +325,50 @@ export async function issueSessionPairInTransaction(
   return insertInitialPair(tx, principal, context);
 }
 
+async function refreshPrincipalStillValid(
+  tx: SessionTx,
+  row: {
+    kind: SessionKind;
+    tenantId: string | null;
+    userId: string | null;
+    role: string | null;
+    email: string | null;
+  },
+): Promise<boolean> {
+  if (row.kind === "platform") {
+    if (!row.userId || !row.email) return false;
+    const user = await tx.query.users.findFirst({
+      where: eq(users.id, row.userId),
+      columns: { id: true, email: true, isPlatformOwner: true, emailVerifiedAt: true },
+    });
+    return !!user && !!user.isPlatformOwner && !!user.emailVerifiedAt && user.email === row.email;
+  }
+
+  if (!row.tenantId || !row.role) return false;
+  const tenant = await tx.query.tenants.findFirst({
+    where: eq(tenants.id, row.tenantId),
+    columns: { id: true, lifecycle: true },
+  });
+  if (!tenant || tenant.lifecycle !== "active") return false;
+
+  if (!row.userId) return true;
+
+  const membership = await tx.query.tenantUsers.findFirst({
+    where: and(eq(tenantUsers.userId, row.userId), eq(tenantUsers.tenantId, row.tenantId)),
+    columns: { role: true },
+  });
+  if (!membership || membership.role !== row.role) return false;
+
+  const user = await tx.query.users.findFirst({
+    where: eq(users.id, row.userId),
+    columns: { id: true, email: true, emailVerifiedAt: true },
+  });
+  if (!user) return false;
+  if (row.email && user.email !== row.email) return false;
+  if (row.kind === "customer" && !user.emailVerifiedAt) return false;
+  return true;
+}
+
 function parseTimestampMs(value: Date | string | null | undefined): number | null {
   if (value == null) return null;
   if (value instanceof Date) return value.getTime();
@@ -525,6 +569,16 @@ export async function rotateRefreshToken(
     }
 
     if (nowMs >= expiresAtMs) return { status: "invalid" as const };
+
+    const principalValid = await refreshPrincipalStillValid(tx, row);
+    if (!principalValid) {
+      await tx.execute(sql`
+        UPDATE refresh_tokens
+        SET revoked_at = clock_timestamp(), revoked_reason = 'principal_invalid'
+        WHERE family_id = ${row.familyId} AND revoked_at IS NULL
+      `);
+      return { status: "invalid" as const };
+    }
 
     if (row.replacedBy) {
       const replacedAtMs = parseTimestampMs(row.replacedAt);
