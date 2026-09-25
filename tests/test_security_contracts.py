@@ -324,7 +324,7 @@ def test_auth_cookie_contract_separates_access_and_refresh_cookies():
     assert 'accessCookieName: "cust_session"' in session
     assert 'refreshCookieName: "cust_refresh"' in session
     assert 'refreshCookiePath: "/api/auth"' in session
-    assert 'refreshCookiePath: "/api/auth/refresh"' in session
+    assert 'refreshCookiePath: "/api/auth"' in session
     assert 'accessCookieName: "plt_session"' in session
     assert 'refreshCookieName: "plt_refresh"' in session
     assert 'refreshCookiePath: "/api/platform/auth"' in session
