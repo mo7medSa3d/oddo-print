@@ -6,9 +6,10 @@ import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
 import { databaseNowMs } from "./database-clock";
 import { hashPassword, verifyPassword, normalizeEmail } from "./password";
 import { requireActiveTenantOrNull } from "./tenant-guard";
+import { SESSION_MAX_AGE_SECONDS, sessionCookieSecure } from "./session-config";
 
 const COOKIE_NAME = "mgr_session";
-const MAX_AGE_SECONDS = 8 * 60 * 60;
+const MAX_AGE_SECONDS = SESSION_MAX_AGE_SECONDS;
 
 function getSecret(): string {
   const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
@@ -196,15 +197,8 @@ export async function cleanupExpiredManagerSessions(): Promise<number> {
   return result.rows.length;
 }
 
-function managerCookieSecure(): boolean {
-  const override = process.env.COOKIE_SECURE;
-  if (override === "1" || override === "true") return true;
-  if (override === "0" || override === "false") return false;
-  return process.env.NODE_ENV === "production";
-}
-
 export function managerCookieHeader(token: string, exp: Date): string {
-  const secure = managerCookieSecure() ? "; Secure" : "";
+  const secure = sessionCookieSecure() ? "; Secure" : "";
   return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax${secure}; Expires=${exp.toUTCString()}; Max-Age=${MAX_AGE_SECONDS}`;
 }
 
