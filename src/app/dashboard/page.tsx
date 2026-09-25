@@ -4,7 +4,7 @@ import { agents, printers, printJobs } from "../../db/schema";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { getManagerCookieName, verifyManagerToken } from "../../lib/manager-auth";
+import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../../lib/manager-auth";
 import DashboardClient from "./dashboard-client";
 import { JobCleanupButton } from "../../components/JobCleanupButton";
 import { isAgentAvailableForJob } from "../../lib/agent-availability";
@@ -13,11 +13,10 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const cookieStore = await cookies();
-  const token =
-    cookieStore.get("cust_session")?.value ??
-    cookieStore.get(getManagerCookieName())?.value ??
-    null;
-  const claims = token ? await verifyManagerToken(token) : null;
+  const claims = await verifyWorkspaceTokenFromCookieValues(
+    cookieStore.get("cust_session")?.value ?? null,
+    cookieStore.get(getManagerCookieName())?.value ?? null,
+  );
   if (!claims) redirect("/login");
 
   let allAgents: Array<{
