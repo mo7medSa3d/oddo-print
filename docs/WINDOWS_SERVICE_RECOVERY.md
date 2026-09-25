@@ -7,7 +7,7 @@ The Go agent and Tauri manager must survive crashes, restarts, and host reboots.
 - Microsoft SCM: https://learn.microsoft.com/en-us/windows/win32/services/service-control-manager
 - Failure actions: https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_failure_actionsa
 - Recovery actions: restart service, run program, restart computer
-- Tauri Windows service integration via `cargo` + NSSM or native SCM API (Go `golang.org/x/sys/windows/svc`)
+- The Go Agent owns Windows SCM registration/recovery through `github.com/kardianos/service`; the Tauri Manager supervises that service or an owned background `YasserAgent.exe` process and does not replace the Agent's SCM implementation.
 
 ## Service Definition
 - Service Name: `YasserAgent` (matches the `service.Config{Name: "YasserAgent"}` registration in `agent/cmd/agent/main.go` and the `SERVICE_NAME` constant in `src-tauri/src/agent.rs`)
@@ -46,17 +46,16 @@ Expose via `/api/agents/health` and Tauri manager UI:
   `service.Config{Name: "YasserAgent"}` — not the raw `golang.org/x/sys/windows/svc`
   handle. `program.Start/Stop` implement the service interface.
 - Handle `Stop`/`Shutdown` controls via the kardianos `service.Service` contract
-- On stop, graceful shutdown (bounded 27s): cancel context, drain queue, close WS, save state
+- On stop, graceful shutdown is bounded by the Agent's `shutdownGrace = 25s`; it cancels the runtime, drains/joins owned work, closes the local queue, and returns control to the service manager.
 - Recovery actions are applied automatically on install via `configureServiceRecovery`
   (shells to `sc.exe`, warn-only)
 - No separate heartbeat file / external watchdog exists; liveness is the Gateway
   heartbeat (`POST /api/agent/heartbeat`) plus SCM state.
 
 ## Implementation in Tauri (Desktop Manager)
-- Tauri command `get_service_status` returns SCM status via PowerShell `Get-Service` or Win32 API
-- UI shows: Running/Automatic/Restart on failure/Last restart/Failures/Exit code
-- Manager UI can trigger `Restart-Service` (requires admin)
-- Background process manager: spawn_persist_or_reconcile tracks PID + creation_time + image path to avoid PID reuse
+- Tauri exposes `get_agent_status` for local service/process state and `control_service` for install/uninstall/start/stop/restart operations.
+- `start_agent` / `stop_agent` / `restart_agent` run through the Tauri blocking pool so process and service control does not block the WebView UI thread.
+- Background process ownership is recorded by PID plus process creation time and canonical image path; stop refuses to kill an unowned or identity-mismatched PID.
 
 ## Kill → Restart → Reconnect Test
 Manual test for client demo:
