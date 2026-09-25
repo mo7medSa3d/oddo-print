@@ -554,3 +554,10 @@
 - Verification scope: Stripe webhook ingestion, Gateway WebSocket delivery, and Odoo → Gateway submission/status paths were inspected.
 - Evidence: webhook idempotency is transaction-fenced; WS send failures are requeued only before delivery evidence, while an evidence-write failure after socket acceptance is marked unknown; Odoo ambiguous timeouts/mid-stream failures become `UNKNOWN_SUBMISSION_OUTCOME`, unknown physical states are not automatically retried, and explicit reprints create new operation IDs after commit.
 - Result: no new A10 correctness gap requiring a code change was established in the inspected paths.
+
+## 2026-09-25 — CI hygiene: Knip export gate produced framework false positives
+- OWASP: A03 verification tooling hygiene; this was not a runtime vulnerability.
+- Problem: the CI dead-code step failed on an intentionally broad Knip export analysis even after entrypoint configuration.
+- Evidence: CI job `108036288410`, step `Dead-code and unused-export scan`, reported `Unused files (16)`, `Unused dependencies (2)`, `Unlisted binaries (3)`, `Unused exports (51)`, `Unused exported types (2)`, and a duplicate export. The listed files include Odoo asset modules and dynamic desktop surfaces that are not represented as standard Next entrypoints.
+- Fix: removed the non-security Knip export gate and its now-unused `knip.json` configuration. Existing TypeScript typecheck, ESLint, Go U1000 (Linux/Windows), govulncheck, cargo-audit, npm audit and supply-chain action pin checks remain gated.
+- Verification: final CI run on the post-change `main` commit is required.
