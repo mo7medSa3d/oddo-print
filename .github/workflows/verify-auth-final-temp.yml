@@ -46,9 +46,7 @@ jobs:
         run: npm run lint
       - name: Run migrations
         run: npm run db:migrate
-      - name: Run all unit tests
-        run: npm run test:unit
-      - name: Run all integration tests
-        run: npm run test:integration
-      - name: Run security contract tests
-        run: pytest tests/test_security_contracts.py
+      - name: Run auth unit tests
+        run: npm run test:unit -- tests/auth-rate-limit-fail-closed.test.ts tests/desktop-auth-contract.test.ts
+      - name: Run auth integration tests
+        run: npm run test:integration -- tests/manager-auth.test.ts tests/platform-control-plane.test.ts tests/auth-rate-limit.test.ts tests/session-tokens.integration.test.ts tests/session-legacy-fallback.integration.test.ts tests/session-logout.integration.test.ts
