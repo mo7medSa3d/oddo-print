@@ -754,3 +754,5 @@
 - Platform auth: `tests/platform-control-plane.test.ts (11 tests)`, `Test Files 1 passed (1)`, `Tests 11 passed (11)`, `Duration 6.28s`.
 - Customer auth has no dedicated `customer-auth` test file; the existing customer-route coverage ran `tests/auth-rate-limit.test.ts (20 tests)`, `Test Files 1 passed (1)`, `Tests 20 passed (20)`, `Duration 6.19s`.
 - Desktop manager auth contract: `tests/desktop-auth-contract.test.ts (5 tests)`, `Test Files 1 passed (1)`, `Tests 5 passed (5)`, `Duration 151ms`.
+
+- A4 verification output: temporary PostgreSQL workflow `36140928157` ran migrations and `npm run test:integration -- tests/session-tokens.integration.test.ts`; Vitest reported `Test Files 1 passed (1)`, `Tests 5 passed (5)`, `Duration 3.61s`. The suite covers issuance/hash storage, normal rotation, 5-second grace, replay after grace with family revocation/audit/notification, and Strict refresh-cookie policy.
