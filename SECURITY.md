@@ -21,7 +21,8 @@
 - Password reset with time-limited, single-use tokens (SHA-256 hashed)
 - Rate limiting on authentication-adjacent attempts uses the existing PostgreSQL dual-key reservation design (`auth_rate_limits`): account key always, trusted-proxy IP key when available.
 - Rate-limit responses after reservation expose `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and epoch-second `X-RateLimit-Reset`, with `Retry-After` on throttled responses.
-- The current lock curve remains the existing 5/10/15/20 failure progression; IP/account curve separation is deliberately deferred to the B3 decision.
+- Account-scoped failures keep the existing 5/10/15/20 progressive curve.
+- Trusted-proxy IP failures use a separate NAT-tolerant 20/30/40/50 progressive curve, so a shared source address can absorb normal multi-user bursts without triggering the account-style lock too early.
 
 ### Manager Sessions
 - Server-side sessions in `manager_sessions` table
