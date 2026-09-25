@@ -51,7 +51,7 @@ export async function POST(req: Request) {
       // Revoke all tenant manager sessions for this user
       await tx
         .update(managerSessions)
-        .set({ revokedAt: sql`now()` })
+        .set({ revokedAt: sql`clock_timestamp()` })
         .where(and(eq(managerSessions.userId, row.userId), isNull(managerSessions.revokedAt)));
 
       // Revoke all platform owner sessions for this user
