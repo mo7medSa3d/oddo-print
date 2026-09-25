@@ -78,3 +78,25 @@ func TestReportDiscoveryResultDoesNotRetryTerminalGatewayErrors(t *testing.T) {
 		t.Fatalf("terminal 409 must not be retried, got %d attempts", attempts)
 	}
 }
+
+
+func TestDiscoverySessionTimeoutUsesGatewayValue(t *testing.T) {
+	if got := discoverySessionTimeout(map[string]interface{}{}); got != defaultDiscoveryTimeout {
+		t.Fatalf("missing timeoutMs = %s, want %s", got, defaultDiscoveryTimeout)
+	}
+	if got := discoverySessionTimeout(map[string]interface{}{
+		"config": map[string]interface{}{"timeoutMs": float64(1500)},
+	}); got != 1500*time.Millisecond {
+		t.Fatalf("Gateway timeoutMs = %s, want 1.5s", got)
+	}
+	if got := discoverySessionTimeout(map[string]interface{}{
+		"config": map[string]interface{}{"timeoutMs": float64(100)},
+	}); got != minDiscoveryTimeout {
+		t.Fatalf("too-small timeoutMs = %s, want minimum %s", got, minDiscoveryTimeout)
+	}
+	if got := discoverySessionTimeout(map[string]interface{}{
+		"config": map[string]interface{}{"timeoutMs": float64(60000)},
+	}); got != maxDiscoveryTimeout {
+		t.Fatalf("too-large timeoutMs = %s, want maximum %s", got, maxDiscoveryTimeout)
+	}
+}
