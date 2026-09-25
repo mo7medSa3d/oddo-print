@@ -286,16 +286,29 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding._check_runtime_scope()
         binding._check_binding()
 
-    def test_gateway_kitchen_binding_rejects_receipt_printer_as_preparation_destination(self):
+    def _link_printer_as_preparation_destination(self, printer):
+        config = self.pos_config
+        if "preparation_printer_ids" in config._fields:
+            config.write({"preparation_printer_ids": [(4, printer.id)]})
+        else:
+            config.write({"printer_ids": [(4, printer.id)]})
+
+    def test_gateway_kitchen_binding_rejects_non_preparation_printer_destination(self):
         self._ensure_assignment("agent-a")
-        category = self.env["pos.category"].create({"name": "Receipt Printer Category"})
+        category = self.env["pos.category"].create({"name": "Non Preparation Category"})
         printer = self.env["pos.printer"].create({
-            "name": "Receipt Printer",
+            "name": "Non Preparation Printer",
             "company_id": self.company.id,
-            "pos_config_ids": [(6, 0, [self.pos_config.id])],
             "product_categories_ids": [(6, 0, [category.id])],
         })
-        self.pos_config.write({"receipt_printer_ids": [(4, printer.id)]})
+        config = self.pos_config
+        if "receipt_printer_ids" in config._fields:
+            config.write({"receipt_printer_ids": [(4, printer.id)]})
+        else:
+            # The Odoo 19 image used by CI (19.0-20260908) has the older
+            # combined printer relation. A printer not linked to the POS is
+            # therefore the equivalent invalid preparation destination.
+            config.write({"printer_ids": [(5, 0, 0)]})
         binding = self.env["print_gateway.binding"].new({
             "company_id": self.company.id,
             "branch_id": False,
@@ -322,7 +335,7 @@ class TestBranchRuntimeBinding(TransactionCase):
             "pos_config_ids": [(6, 0, [self.pos_config.id])],
             "product_categories_ids": [(6, 0, [category.id])],
         })
-        self.pos_config.write({"preparation_printer_ids": [(4, printer.id)]})
+        self._link_printer_as_preparation_destination(printer)
         binding = self.env["print_gateway.binding"].new({
             "company_id": self.company.id,
             "branch_id": False,
