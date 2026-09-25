@@ -6,6 +6,7 @@ import {
   hashRefreshToken,
   issueSessionPair,
   rotateRefreshToken,
+  accessCookieHeader,
   refreshCookieHeader,
 } from "../src/lib/session-tokens";
 import { applyMigrations, closePool, pool, truncateAll, hasTestDatabase } from "./helpers/pg";
@@ -197,7 +198,9 @@ suite("shared refresh-token session rotation", () => {
     expect(refresh).toContain("SameSite=Strict");
     expect(refresh).toContain("Secure");
 
-    const access = refreshCookieHeader("manager", "opaque-refresh-secret", new Date("2026-10-25T00:00:00.000Z"));
-    expect(access).toContain("SameSite=Strict");
+    const access = accessCookieHeader("manager", "opaque-access-token", new Date("2026-09-25T00:15:00.000Z"));
+    expect(access).toContain("HttpOnly");
+    expect(access).toContain("SameSite=Lax");
+    expect(access).toContain("Secure");
   });
 });
