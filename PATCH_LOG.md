@@ -717,3 +717,5 @@
 - Scope: manager login, platform owner login, customer login, forgot-password, register, and resend-verification now log a structured `auth.rate_limit.store_unavailable` event and return 503 when reservation cannot be completed.
 - No fail-open exception is introduced because no narrower storage error class was demonstrated to be independent of database availability.
 - Verification test added: `tests/auth-rate-limit-fail-closed.test.ts` covers all six routes and asserts the 503 fail-closed behavior.
+
+- B2 verification output: temporary focused workflow `36138053714` ran `npm run test:unit -- tests/auth-rate-limit-fail-closed.test.ts`; Vitest reported `Test Files 1 passed (1)`, `Tests 6 passed (6)`, `Duration 865ms`. The temporary workflow was deleted after verification.
