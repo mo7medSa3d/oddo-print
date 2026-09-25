@@ -101,7 +101,7 @@ export function getManagerCookieName() {
 }
 
 export async function verifyManagerToken(token: string): Promise<ManagerClaims | null> {
-  const fresh = await verifyAccessToken(token, ["manager", "customer"]);
+  const fresh = await verifyAccessToken(token, "manager");
   if (fresh) {
     return validateManagerClaims({
       jti: fresh.jti,
