@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createManagerSession, managerCookieHeader, managerRefreshCookieHeader, verifyManagerPassword, getManagerUsername, resolveManagerTenantId, authenticateManagerUser } from "../../../../../lib/manager-auth";
+import { isTrustedDesktopRequest } from "../../../../../lib/session-tokens";
 import {
   clientIpFrom,
   reserveAuthAttempt,
@@ -36,10 +37,7 @@ export async function POST(req: Request) {
 
   const expectedUser = getManagerUsername();
   const legacyTenantId = (process.env.MANAGER_TENANT_ID ?? "").trim();
-  const desktopOrigin = req.headers.get("origin") ?? "";
-  const desktopClient =
-    req.headers.get("x-odoo-print-desktop") === "1" &&
-    (desktopOrigin === "tauri://localhost" || desktopOrigin === "http://tauri.localhost");
+  const desktopClient = isTrustedDesktopRequest(req);
   const ip = clientIpFrom(req);
 
   let pre: Awaited<ReturnType<typeof reserveAuthAttempt>>;
