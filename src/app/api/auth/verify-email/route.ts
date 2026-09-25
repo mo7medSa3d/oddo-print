@@ -41,7 +41,7 @@ export async function POST(req: Request) {
       if (!currentUser?.id || !currentUser.email) throw new Error("USER_NOT_FOUND");
 
       const consumed = await tx.update(emailVerificationTokens)
-        .set({ consumedAt: sql`now()` })
+        .set({ consumedAt: sql`clock_timestamp()` })
         .where(and(
           eq(emailVerificationTokens.id, row.id),
           isNull(emailVerificationTokens.consumedAt),
