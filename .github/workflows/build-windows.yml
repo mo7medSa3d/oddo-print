@@ -69,6 +69,45 @@ jobs:
             Write-Host "Tauri CLI not found in cache; installing 2.11.4..."
             cargo install tauri-cli --version "=2.11.4" --locked
           }
+      - name: Agent Phase 0 - Go build
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Agent Phase 0 - Go vet
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Agent Phase 0 - Go race tests
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go test ./... -race
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Tauri Phase 0 - cargo audit
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo audit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Tauri Phase 0 - cargo check
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          cargo check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Tauri Phase 0 - cargo test
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          cargo test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Install dependencies
         run: npm ci
       - name: Typecheck frontend
@@ -107,13 +146,6 @@ jobs:
         run: |
           cargo check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Tauri cargo test
-        working-directory: src-tauri
-        shell: pwsh
-        run: |
-          cargo test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: Run Vitest suite
         run: npm run test -- --reporter=default --reporter=json --outputFile=vitest-results.json
       - name: Report skipped (DB-gated) tests explicitly
