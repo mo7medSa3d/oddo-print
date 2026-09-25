@@ -141,7 +141,7 @@ async function gatewayRequest(
       method,
       headers,
       body,
-      ...(path.endsWith("/refresh") ? { credentials: "include" as RequestCredentials } : {}),
+      credentials: "include",
     });
     return { status: response.status, body: await response.text() };
   }
