@@ -1,12 +1,19 @@
 import { db } from "../db";
 import { tenantUsers, authRateLimits } from "../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { authenticateCustomer, createManagerSession, managerCookieHeader, type ManagerRole } from "./manager-auth";
+import { authenticateCustomer, type ManagerRole } from "./manager-auth";
 import { normalizeEmail } from "./password";
-import { createHash, createHmac, timingSafeEqual } from "crypto";
+import { createHmac, createHash, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { nanoid } from "./nanoid";
 import { requireActiveTenantOrNull } from "./tenant-guard";
+import {
+  accessCookieHeader,
+  clearAccessCookieHeader,
+  clearRefreshCookieHeader,
+  issueSessionPair,
+  type SessionRequestContext,
+} from "./session-tokens";
 
 function getSecret(): string {
   const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
@@ -98,15 +105,39 @@ export async function verifyTenantSelectionToken(token: string): Promise<TenantS
   }
 }
 
-export async function issueCustomerSession(userId: string, tenantId: string, role: ManagerRole) {
+export async function issueCustomerSession(
+  userId: string,
+  tenantId: string,
+  role: ManagerRole,
+  context?: SessionRequestContext,
+  email?: string | null,
+) {
   const tenantLifecycle = await requireActiveTenantOrNull(tenantId);
   if (!tenantLifecycle) return null;
-  const session = await createManagerSession(tenantId, { userId, role });
-  return session;
+  return issueSessionPair({
+    kind: "customer",
+    userId,
+    tenantId,
+    role,
+    email: email ?? null,
+  }, context);
 }
 
-export function customerSessionCookie(session: { token: string; exp: Date }) {
-  return managerCookieHeader(session.token, session.exp);
+export function customerSessionCookie(session: { accessToken: string; accessExpiresAt: Date }) {
+  return accessCookieHeader("customer", session.accessToken, session.accessExpiresAt);
+}
+
+export function customerRefreshCookie(session: { refreshToken: string; refreshExpiresAt: Date }) {
+  const config = { refreshToken: session.refreshToken, refreshExpiresAt: session.refreshExpiresAt };
+  return `cust_refresh=${config.refreshToken}; Path=/api/auth; HttpOnly; SameSite=Strict; Secure; Expires=${config.refreshExpiresAt.toUTCString()}; Max-Age=${30 * 24 * 60 * 60}`;
+}
+
+export function clearCustomerSessionCookie() {
+  return clearAccessCookieHeader("customer");
+}
+
+export function clearCustomerRefreshCookie() {
+  return clearRefreshCookieHeader("customer");
 }
 
 export async function authenticateForTenant(email: string, password: string, tenantId?: string) {
