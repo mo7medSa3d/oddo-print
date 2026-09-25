@@ -8,6 +8,7 @@ import { verifyTenantSelectionToken, customerSessionCookie, customerRefreshCooki
 import { issueSessionPairInTransaction, revokeSessionFamilyInTransaction } from "../../../../lib/session-tokens";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
+import { clientIpFrom } from "../../../../lib/auth-rate-limit";
 
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 16 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
@@ -66,12 +67,19 @@ export async function POST(req: Request) {
         await revokeLegacyManagerSessionInTransaction(tx, claims.jti);
       }
 
-      const session = await issueSessionPairInTransaction(tx, {
-        kind: "customer",
-        tenantId: membership.tenantId,
-        userId: userId!,
-        role: membership.role as "owner" | "admin" | "operator" | "viewer" | "integration_admin" | "billing_admin",
-      });
+      const session = await issueSessionPairInTransaction(
+        tx,
+        {
+          kind: "customer",
+          tenantId: membership.tenantId,
+          userId: userId!,
+          role: membership.role as "owner" | "admin" | "operator" | "viewer" | "integration_admin" | "billing_admin",
+        },
+        {
+          ipAddress: clientIpFrom(req),
+          userAgent: req.headers.get("user-agent"),
+        },
+      );
 
       await writeAuditEvent({
         tenantId: membership.tenantId,
