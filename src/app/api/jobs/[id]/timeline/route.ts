@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { printJobs } from "../../../../../db/schema";
-import { validateManager } from "../../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { and, eq } from "drizzle-orm";
 import { getJobTimeline, buildTimelineFromJobRow } from "../../../../../lib/job-timeline";
 import { runWithCorrelation, generateRequestId } from "../../../../../server/correlation";
@@ -38,7 +38,7 @@ function redactClaimIdForTimeline(claimId?: string | null): string | undefined {
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const auth = await validateManager(req);
+  const auth = await validateWorkspaceManager(req);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const tenantId = auth.tenantId;
