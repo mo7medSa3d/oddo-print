@@ -123,5 +123,6 @@ export async function POST(req: Request) {
     res.headers.append("Set-Cookie", managerRefreshCookieHeader(sess.refreshToken, sess.refreshExpiresAt));
   }
   res.headers.set("X-Request-Id", requestId);
+  res.headers.set("Cache-Control", "no-store");
   return setRateLimitHeaders(res, pre);
 }
