@@ -513,3 +513,44 @@
 - Evidence: CI `36094817509`, job `107948959865`, step `Phase 0 architecture hardening test` failed with `expected ... next.config.ts ... to contain 'connect-src \'self\';'`; the same test's nonce case already reads the dedicated CSP source file.
 - Fix: bound the assertion to a local `csp` source read from `src/server/content-security-policy.ts`; no application behavior changed.
 - Verification: pending on the new `main` commit.
+
+## 2026-09-25 — AppSec supply-chain / CSP / SQL hardening pass
+
+### OWASP A02 — Security Misconfiguration: CSP verification
+- Problem: the historical baseline served `script-src 'self' 'unsafe-inline'`. Current application CSP generation is in `src/server/content-security-policy.ts` and request wiring is in root `proxy.ts`; the only inline application script is the static `THEME_INIT` constant in `src/app/layout.tsx`.
+- Evidence: existing architecture test now checks both CSP source and proxy/server wiring; the Docker runtime probe also extracts the response CSP nonce and HTML script nonce and requires them to match.
+- Fix/verification: no new CSP implementation was needed in this pass because the nonce implementation already exists; the verification gate was corrected and strengthened.
+- Final verification is deferred to the final CI/Docker run by user instruction.
+
+### OWASP A05 — Injection: dynamic SQL identifiers in Odoo
+- Problem: `gateway_config.py` and migration `19.0.2.3.0/post-migrate.py` built SQL identifiers with Python string formatting even though the table names are internal model metadata.
+- Evidence: source inspection showed `self._table` and `env["print_gateway.runtime_agent_assignment"]._table` as the identifier sources; value parameters remained separate `%s` placeholders.
+- Fix: replaced raw identifier interpolation with `psycopg2.sql.SQL(...).format(sql.Identifier(...))` while preserving value placeholders; added a static regression test scanning `odoo_addons/**/*.py` for raw table-name formatting.
+- Verification: final Odoo static-test run is part of the final CI rerun.
+
+### OWASP A03 — Software Supply Chain Failures: build reproducibility and audit gates
+- Problem: the supply-chain workflow used a moderate npm audit threshold; build paths were not uniformly enforcing Go module read-only mode / Cargo lock usage; Docker and CI service images used mutable tags without digest pinning.
+- Evidence: `security-supply-chain.yml`, `ci.yml`, `build-windows.yml`, `Dockerfile`, and `docker-compose.yml` were inspected directly. Current official Docker Hub data confirms the Node 24.21.0 Alpine alias and immutable digest; CI logs previously resolved the PostgreSQL images to concrete digests.
+- Fix: npm gate now uses `--audit-level=high`; added an expected-failure fixture using vulnerable `lodash@4.17.19`; added `go mod verify` and `-mod=readonly`; added Cargo `--locked` checks/builds; pinned Docker/Compose image references by digest; added explicit lockfile/build-mode verification.
+- Verification: final CI/security/Windows/Docker rerun must show the gate output and clean scans.
+
+### OWASP A04/A07 — Cryptographic Failures / Identification and Authentication Failures
+- Review: current manager/platform JWTs use a fixed HS256 profile, strict header/claim validation, constant-time signature comparison over fixed-size digests, and durable DB-backed session revocation/expiry.
+- Tradeoff: keeping the current implementation avoids a token-format migration and dependency change, but retains maintenance responsibility for bespoke JOSE parsing/validation. Migrating to `jose` would reduce bespoke protocol surface, but would add a dependency and require compatibility testing for existing signed tokens and the existing DB-session semantics.
+- Decision: keep the current implementation for this pass because the inspected implementation is narrowly scoped and no concrete authentication defect was established. No auth/crypto code was changed.
+
+### OWASP A08 — Software and Data Integrity Failures
+- Finding: `src-tauri/` currently contains no updater plugin, updater configuration, or updater runtime wiring. Therefore there is no implemented update path whose signature verification can honestly be marked PASS.
+- Evidence: `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `src-tauri/src/main.rs`, package-lock and the repository tree contain no updater wiring. `docs/RELEASE_READINESS.md` already marks the Tauri updater BLOCKED.
+- Fix: none; preserving the existing BLOCKED state is safer than claiming signed-update coverage that is not implemented.
+- Verification: added a regression contract that fails if an updater is later introduced without the expected explicit wiring being visible to the review.
+
+### OWASP A09 — Logging and Alerting Failures
+- Finding: `writeAuditEvent()` persists security events and `/api/platform/audit` reads them, but no real-time alerting consumer/sink for repeated auth failures, credential rotation, or tenant-isolation violations was found in the application source inspected.
+- Evidence: `src/lib/audit.ts` is a DB writer and `src/app/api/platform/audit/route.ts` is a query endpoint; repository source search did not identify an alerting consumer.
+- Fix: none in this pass; this remains an explicit operational finding rather than being mislabeled as solved by audit logging alone.
+
+### OWASP A10 — Mishandling of Exceptional Conditions
+- Verification scope: Stripe webhook ingestion, Gateway WebSocket delivery, and Odoo → Gateway submission/status paths were inspected.
+- Evidence: webhook idempotency is transaction-fenced; WS send failures are requeued only before delivery evidence, while an evidence-write failure after socket acceptance is marked unknown; Odoo ambiguous timeouts/mid-stream failures become `UNKNOWN_SUBMISSION_OUTCOME`, unknown physical states are not automatically retried, and explicit reprints create new operation IDs after commit.
+- Result: no new A10 correctness gap requiring a code change was established in the inspected paths.
