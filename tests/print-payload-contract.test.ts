@@ -70,12 +70,12 @@ describe("print payload wire contract", () => {
   it("keeps signatures aligned with the normative contract", () => {
     const ts = read("src/lib/payload.ts");
     expect(ts).toContain("const pdfSignature = Buffer.from(payloadContract.signatures.pdfPrefix);");
-    expect(ts).toContain("0xff");
-    expect(ts).toContain("0xd8");
-    expect(ts).toContain("0xff");
+    expect(ts).toContain('Buffer.from(payloadContract.signatures.jpegHexPrefix, "hex")');
+    expect(payloadContract.signatures.pdfPrefix).toBe("%PDF-");
+    expect(payloadContract.signatures.jpegHexPrefix).toBe("ffd8ff");
     const go = read("agent/internal/payload/payload.go");
     expect(go).toContain(`[]byte("${payloadContract.signatures.pdfPrefix}")`);
-    expect(go).toContain("0xff");
-    expect(go).toContain("0xd8");
+    expect(go).toContain("hex.DecodeString");
+    expect(go).toContain("EncodingBase64");
   });
 });
