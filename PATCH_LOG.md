@@ -816,3 +816,13 @@
 - No live Odoo 19 instance or production deployment was used or claimed.
 - Official-version check: package.json pins Next.js 16.3.6, Drizzle ORM 0.45.2, Drizzle Kit 0.31.10, Vitest 5.0.1, Node .nvmrc 24.21.0. Drizzle's current docs continue to define SQL migration generation/application via `drizzle-kit generate/migrate`. The IETF RateLimit header draft remains an Internet-Draft, not a final RFC, as of 2026-09-25. citeturn505484search0turn505484search1turn505484search2
 - The existing 5-minute Gateway housekeeping loop now includes `cleanupExpiredRefreshTokens()`; no new scheduler mechanism was introduced.
+
+
+## 2026-09-25 — Part A current final auth acceptance
+- Final focused workflow `36153447328` on runtime tree `9936a26c3000f67941a3d93b4e4e6c52b9f0bc9f` completed `npm ci`, `npm run typecheck`, `npm run lint`, PostgreSQL migration, the requested auth unit tests, and the requested auth integration tests.
+- Auth unit output: `Test Files 5 passed (5)`, `Tests 21 passed (21)`, `Duration 1.63s`.
+- Auth integration output: `Test Files 6 passed (6)`, `Tests 50 passed (50)`, `Duration 27.42s`.
+- The integration set covers manager auth, platform auth, customer/tenant-selection auth, rate limiting, refresh rotation/grace/replay, legacy fallback, and logout family revocation.
+- Runtime security corrections completed during this pass include: customer-kind issuance after tenant selection, transaction-local revocation during tenant selection, live-principal revalidation before refresh, refresh-family revocation on password reset, fixed Tauri-origin requirement for desktop token disclosure, browser cookie credentials, and CSP contract alignment.
+- Temporary verification workflow was deleted after the focused acceptance run.
+- Live Odoo 19 and real production deployment were not used; those validations remain BLOCKED/out of scope.
