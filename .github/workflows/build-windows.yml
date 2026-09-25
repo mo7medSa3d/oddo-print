@@ -102,6 +102,13 @@ jobs:
         run: |
           cargo check --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Tauri Phase 0 - cargo build --locked
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          cargo build --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Tauri Phase 0 - cargo test
         working-directory: src-tauri
         shell: pwsh
