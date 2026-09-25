@@ -268,6 +268,14 @@ def test_gateway_pos_receipt_keeps_nb_print_in_sync():
 
 
 
+def test_gateway_sale_details_uses_odoo19_generator_and_template():
+    source = (ADDON / "static/src/js/pos_sale_details_router.js").read_text(encoding="utf-8")
+    assert 'getGenerator({ models: this.pos.models })' in source
+    assert "generateSaleDetailsData(saleDetails)" in source
+    assert 'renderToElement(\n                "point_of_sale.pos_sale_details_receipt"' in source
+    assert "point_of_sale.SaleDetailsReport" not in source
+
+
 def test_gateway_receipt_uses_odoo19_receipt_template():
     source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
     assert 'renderToElement("point_of_sale.pos_order_receipt", props)' in source
