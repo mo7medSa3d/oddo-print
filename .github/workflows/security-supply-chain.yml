@@ -79,8 +79,7 @@ jobs:
           audit_output="$(cd "$fixture" && npm audit --audit-level=high 2>&1)"
           audit_status=$?
           set -e
-          printf '%s
-' "$audit_output"
+          printf '%s\n' "$audit_output"
           if [ "$audit_status" -eq 0 ]; then
             echo "Expected npm audit to fail for the known high-severity fixture."
             exit 1
