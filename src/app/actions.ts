@@ -29,7 +29,11 @@ import { isAgentAvailableForJob } from "../lib/agent-availability";
 import { gatewayNow } from "../lib/database-clock";
 
 async function requireManager() {
-  const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
+  const cookieStore = await cookies();
+  const token =
+    cookieStore.get("cust_session")?.value ??
+    cookieStore.get(getManagerCookieName())?.value ??
+    null;
   const claims = token ? await verifyManagerToken(token) : null;
   if (!claims) throw new ActionError("Your manager session has expired. Sign in again.", 401);
   return claims;
