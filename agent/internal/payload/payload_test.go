@@ -101,6 +101,27 @@ func TestParseInvalidCases(t *testing.T) {
 	}
 }
 
+func TestParseRejectsWrongTypedRequiredFields(t *testing.T) {
+	validData := base64.StdEncoding.EncodeToString([]byte("hello"))
+	cases := []struct {
+		name string
+		raw  map[string]interface{}
+	}{
+		{"type", map[string]interface{}{"type": 123, "encoding": "base64", "data": validData}},
+		{"protocol", map[string]interface{}{"type": "raw", "protocol": 123, "encoding": "base64", "data": validData}},
+		{"encoding", map[string]interface{}{"type": "raw", "protocol": "raw", "encoding": 123, "data": validData}},
+		{"data", map[string]interface{}{"type": "raw", "protocol": "raw", "encoding": "base64", "data": 123}},
+		{"pdf protocol wrong type", map[string]interface{}{"type": "pdf", "protocol": 123, "encoding": "base64", "data": base64.StdEncoding.EncodeToString([]byte("%PDF-1.4 fake"))}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Parse(tc.raw); err == nil {
+				t.Fatalf("wrong-typed field %q was silently accepted", tc.name)
+			}
+		})
+	}
+}
+
 func TestParseOversizedPrecheck(t *testing.T) {
 	// craft a base64 string that would decode to >5MiB
 	huge := strings.Repeat("A", (MaxPayloadBytes/3)*4+20)

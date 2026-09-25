@@ -50,8 +50,8 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
       setCertified(data.certified);
       setBlocked(data.blocked);
       setTimelineUrl(data.timelineUrl ?? (data.jobId ? `/api/jobs/${data.jobId}/timeline` : null));
-    } catch (e: any) {
-      setError(e.message ?? "Failed");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }

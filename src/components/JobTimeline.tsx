@@ -44,8 +44,8 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
         const data = await res.json();
         setEvents(data.timeline ?? []);
         setCorrelation(data.correlation ?? null);
-      } catch (e: any) {
-        setError(e.message ?? "Failed");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
       } finally {
         setLoading(false);
       }

@@ -1048,7 +1048,9 @@ func TestProcessJobCancellationBeforePrintingRefusesHardware(t *testing.T) {
 			return
 		}
 		var body map[string]interface{}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode PATCH body: %v", err)
+		}
 		if body["status"] == "printing" {
 			printingOnce.Do(func() { close(printingStarted) })
 			<-r.Context().Done()

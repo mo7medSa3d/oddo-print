@@ -135,6 +135,18 @@ def test_odoo_dynamic_table_identifiers_are_composed_safely():
         assert "psycopg2 import sql" in source
         assert "sql.Identifier(" in source
 
+def test_ci_carries_failing_supply_chain_gates():
+    workflow = read(".github/workflows/ci.yml")
+    assert "- name: npm supply-chain audit" in workflow
+    assert "          npm audit" in workflow
+    assert "go install golang.org/x/vuln/cmd/govulncheck@v1.8.0" in workflow
+    assert '"$(go env GOPATH)/bin/govulncheck" ./...' in workflow
+    assert "- name: Rust supply-chain audit" in workflow
+    assert "cargo install cargo-audit --version 0.22.2 --locked" in workflow
+    assert "          cargo audit" in workflow
+    assert "|| true" not in workflow[workflow.index("- name: npm supply-chain audit"):workflow.index("- name: Typecheck")]
+    assert "|| true" not in workflow[workflow.index("- name: Rust supply-chain audit"):workflow.index("- name: Typecheck")]
+
 def test_tauri_renderer_cannot_supply_authorization_headers():
     rust = (ROOT / "src-tauri" / "src" / "commands.rs").read_text(encoding="utf-8")
     assert 'name.eq_ignore_ascii_case("authorization")' in rust

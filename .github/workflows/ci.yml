@@ -77,6 +77,22 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+      - name: npm supply-chain audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit
+      - name: Install Rust toolchain for supply-chain audit
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.98.1
+        with:
+          toolchain: 1.98.1
+      - name: Rust supply-chain audit
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit
       - name: Typecheck
         run: npm run typecheck
       - name: Lint

@@ -121,8 +121,14 @@ func handleGatewayRequest(args []string, configPath string) {
 		fmt.Fprintf(os.Stderr, "encode Gateway response failed: %v\n", err)
 		os.Exit(1)
 	}
-	_, _ = os.Stdout.Write(encoded)
-	fmt.Fprintln(os.Stdout)
+	if _, err := os.Stdout.Write(encoded); err != nil {
+		fmt.Fprintf(os.Stderr, "write Gateway response failed: %v\n", err)
+		os.Exit(1)
+	}
+	if _, err := fmt.Fprintln(os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "write Gateway response newline failed: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func isAllowedJobsPath(path string) bool {

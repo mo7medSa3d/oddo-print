@@ -201,8 +201,13 @@ func handlePrintersList(configPath string, jsonOutput bool) {
 		log.Fatalf("List failed: %v", err)
 	}
 	if jsonOutput {
-		out, _ := json.Marshal(infos)
-		fmt.Println(string(out))
+		out, err := json.Marshal(infos)
+		if err != nil {
+			log.Fatalf("Failed to encode printer inventory: %v", err)
+		}
+		if _, err := fmt.Fprintln(os.Stdout, string(out)); err != nil {
+			log.Fatalf("Failed to write printer inventory: %v", err)
+		}
 		return
 	}
 	if len(infos) == 0 {
@@ -362,7 +367,6 @@ func handlePrintersAdd(configPath string, args []string) {
 	if strings.ToLower(info.ConnectionType) == "usb" && info.SpoolerName == "" {
 		fmt.Println("NOTE: direct USB uses the Windows device interface path from --endpoint; --vid/--pid identify the device but do not replace the required device path.")
 	}
-	_ = registryPath
 }
 
 func handlePrintersRemove(configPath, printerID string) {

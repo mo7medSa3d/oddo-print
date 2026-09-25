@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { db, queryWithTimeout } from "../db/client";
-import { jobEvents } from "../db/schema";
+import { jobEvents, printJobs } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "./nanoid";
 import { getCorrelationContext } from "../server/correlation";
@@ -84,7 +84,7 @@ export async function getJobTimeline(tenantId: string, jobId: string) {
   return events;
 }
 
-export function buildTimelineFromJobRow(job: any): { stage: JobTimelineStage; status: JobTimelineStatus; at?: Date; message?: string }[] {
+export function buildTimelineFromJobRow(job: typeof printJobs.$inferSelect): { stage: JobTimelineStage; status: JobTimelineStatus; at?: Date; message?: string }[] {
   const timeline: { stage: JobTimelineStage; status: JobTimelineStatus; at?: Date; message?: string }[] = [];
   if (job.createdAt) timeline.push({ stage: "created", status: "ok", at: job.createdAt, message: "Job created in Gateway" });
   if (job.status === "queued" || job.claimedAt || job.deliveredAt || job.ackedAt) {

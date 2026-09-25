@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -207,22 +209,152 @@ func claimedEnvelope(jobID, printerID string) map[string]interface{} {
 	}
 }
 
+type synchronizedLogBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *synchronizedLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *synchronizedLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
+
+func captureAgentLogs(t *testing.T) *synchronizedLogBuffer {
+	t.Helper()
+	buf := &synchronizedLogBuffer{}
+	oldWriter := log.Writer()
+	oldFlags := log.Flags()
+	log.SetFlags(0)
+	log.SetOutput(buf)
+	t.Cleanup(func() {
+		log.SetOutput(oldWriter)
+		log.SetFlags(oldFlags)
+	})
+	return buf
+}
+
 func TestExtractJobFromWSMessage(t *testing.T) {
 	env := claimedEnvelope("job_a", "p1")
-	job, ok := extractJobFromWSMessage(env)
-	if !ok || job["id"] != "job_a" || job["status"] != "claimed" {
-		t.Fatalf("envelope job not extracted correctly: %v %v", job, ok)
+	job, err := extractJobFromWSMessage(env)
+	if err != nil || job["id"] != "job_a" || job["status"] != "claimed" {
+		t.Fatalf("envelope job not extracted correctly: %v %v", job, err)
 	}
 	legacy := map[string]interface{}{"id": "job_b", "printerId": "p1"}
-	job, ok = extractJobFromWSMessage(legacy)
-	if !ok || job["id"] != "job_b" {
-		t.Fatalf("legacy bare job must still be accepted: %v %v", job, ok)
+	job, err = extractJobFromWSMessage(legacy)
+	if err != nil || job["id"] != "job_b" {
+		t.Fatalf("legacy bare job must still be accepted: %v %v", job, err)
 	}
-	if _, ok := extractJobFromWSMessage(map[string]interface{}{"type": "something_else"}); ok {
-		t.Fatal("unknown message types must be ignored")
+	if job, err = extractJobFromWSMessage(map[string]interface{}{"type": "something_else"}); err != nil || job != nil {
+		t.Fatalf("unknown message types must be ignored: %v %v", job, err)
 	}
-	if _, ok := extractJobFromWSMessage(map[string]interface{}{"type": "print_job"}); ok {
-		t.Fatal("print_job without a job body must be ignored")
+	if job, err = extractJobFromWSMessage(map[string]interface{}{"type": "print_job"}); err != nil || job != nil {
+		t.Fatalf("print_job without a job body must be ignored: %v %v", job, err)
+	}
+}
+
+func TestMalformedWSDiscoveryIsRejectedAndLogged(t *testing.T) {
+	logs := captureAgentLogs(t)
+	gateway := newRecordingGateway(t)
+	ag := newAgentAgainst(t, gateway.server.URL, "p1", &fakePrinter{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go ag.connectWebSocket(ctx)
+	waitFor(t, 5*time.Second, func() bool { return ag.getWSConn() != nil })
+
+	gateway.sendCh <- map[string]interface{}{"type": "discovery", "discoveryId": 12345}
+	gateway.sendCh <- map[string]interface{}{"type": "discovery"}
+	waitFor(t, 2*time.Second, func() bool { return strings.Count(logs.String(), `Malformed discovery WS message`) >= 2 })
+	if strings.Contains(logs.String(), `received instant WS trigger`) {
+		t.Fatalf("malformed discovery messages must be rejected before discovery starts; logs=%q", logs.String())
+	}
+}
+
+func TestMalformedWSJobFieldsAreRejectedAndLogged(t *testing.T) {
+	logs := captureAgentLogs(t)
+	gateway := newRecordingGateway(t)
+	p := &fakePrinter{}
+	ag := newAgentAgainst(t, gateway.server.URL, "p1", p)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go ag.connectWebSocket(ctx)
+	waitFor(t, 5*time.Second, func() bool { return ag.getWSConn() != nil })
+
+	badJobs := []map[string]interface{}{
+		{"agentId": "agt_test", "printerId": "p1", "status": "claimed", "payload": makeJobPayload("missing_id")},
+		{"id": 123, "agentId": "agt_test", "printerId": "p1", "status": "claimed", "payload": makeJobPayload("bad_id")},
+		{"id": "missing_printer", "agentId": "agt_test", "status": "claimed", "payload": makeJobPayload("missing_printer")},
+		{"id": "bad_printer", "agentId": "agt_test", "printerId": 123, "status": "claimed", "payload": makeJobPayload("bad_printer")},
+		{"id": "bad_agent", "agentId": 123, "printerId": "p1", "status": "claimed", "payload": makeJobPayload("bad_agent")},
+		{"id": "bad_status", "agentId": "agt_test", "printerId": "p1", "status": 123, "payload": makeJobPayload("bad_status")},
+		{"id": "bad_request", "agentId": "agt_test", "printerId": "p1", "status": "claimed", "requestId": 123, "payload": makeJobPayload("bad_request")},
+		{"id": "bad_claim", "agentId": "agt_test", "printerId": "p1", "status": "claimed", "claimToken": 123, "payload": makeJobPayload("bad_claim")},
+	}
+	for _, job := range badJobs {
+		gateway.sendCh <- map[string]interface{}{"type": "print_job", "job": job}
+	}
+	waitFor(t, 2*time.Second, func() bool { return strings.Count(logs.String(), `Malformed WS job message`) >= len(badJobs) })
+	if acks := gateway.Acks(); len(acks) != 0 {
+		t.Fatalf("malformed WS jobs must never be acknowledged, got %v", acks)
+	}
+	if p.Calls() != 0 {
+		t.Fatalf("malformed WS jobs must never reach the printer, got %d calls", p.Calls())
+	}
+}
+
+func TestDispatchRejectsMalformedJobFields(t *testing.T) {
+	logs := captureAgentLogs(t)
+	gw := newRecordingGateway(t)
+	ag := newAgentAgainst(t, gw.server.URL, "p1", &fakePrinter{})
+	badJobs := []map[string]interface{}{
+		{"printerId": "p1", "payload": makeJobPayload("dispatch_missing_id")},
+		{"id": 123, "printerId": "p1", "payload": makeJobPayload("dispatch_bad_id")},
+		{"id": "dispatch_missing_printer", "payload": makeJobPayload("dispatch_missing_printer")},
+		{"id": "dispatch_bad_printer", "printerId": 123, "payload": makeJobPayload("dispatch_bad_printer")},
+		{"id": "dispatch_bad_claim", "printerId": "p1", "claimToken": 123, "payload": makeJobPayload("dispatch_bad_claim")},
+	}
+	for _, job := range badJobs {
+		if accepted := ag.dispatchJob(context.Background(), job); accepted {
+			t.Fatalf("malformed dispatch job must not be admitted: %#v", job)
+		}
+	}
+	if count := strings.Count(logs.String(), `Received malformed job; rejecting execution:`); count != len(badJobs) {
+		t.Fatalf("each malformed dispatch job must produce one visible rejection log; count=%d logs=%q", count, logs.String())
+	}
+}
+
+func TestProcessJobRejectsMalformedDecisionFields(t *testing.T) {
+	logs := captureAgentLogs(t)
+	gw := newRecordingGateway(t)
+	p := &fakePrinter{}
+	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
+	cases := []struct {
+		name   string
+		mutate func(map[string]interface{})
+	}{
+		{"wrong_request_id", func(job map[string]interface{}) { job["requestId"] = 123 }},
+		{"missing_id", func(job map[string]interface{}) { delete(job, "id") }},
+		{"wrong_id", func(job map[string]interface{}) { job["id"] = 123 }},
+		{"missing_printer_id", func(job map[string]interface{}) { delete(job, "printerId") }},
+		{"wrong_printer_id", func(job map[string]interface{}) { job["printerId"] = 123 }},
+		{"wrong_claim_token", func(job map[string]interface{}) { job["claimToken"] = 123 }},
+	}
+	for _, tc := range cases {
+		job := map[string]interface{}{"id": "process_" + tc.name, "printerId": "p1", "payload": makeJobPayload(tc.name)}
+		tc.mutate(job)
+		ag.processJob(context.Background(), job)
+	}
+	if count := strings.Count(logs.String(), `Received malformed job; rejecting execution:`); count != len(cases) {
+		t.Fatalf("each malformed processJob input must produce one visible rejection log; count=%d logs=%q", count, logs.String())
+	}
+	if p.Calls() != 0 {
+		t.Fatalf("malformed processJob input must never reach the printer, got %d calls", p.Calls())
 	}
 }
 

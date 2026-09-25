@@ -35,7 +35,9 @@ func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
-	_ = conn.SetReadDeadline(deadline)
+	if err := conn.SetReadDeadline(deadline); err != nil {
+		return nil, fmt.Errorf("set WSD read deadline: %w", err)
+	}
 
 	buf := make([]byte, 65535)
 	var allFound []DeviceInfo

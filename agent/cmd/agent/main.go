@@ -50,7 +50,9 @@ func (p *program) Start(s service.Service) error {
 			if q, qerr := queue.New(dbPath); qerr != nil {
 				log.Printf("WARNING: durable queue unavailable at %s: %v", dbPath, qerr)
 			} else {
-				_ = q.Close()
+				if err := q.Close(); err != nil {
+					log.Printf("WARNING: durable queue close failed at %s: %v", dbPath, err)
+				}
 			}
 		}
 
@@ -332,7 +334,9 @@ func main() {
 	if err != nil {
 		log.Printf("Service run error: %v", err)
 		if logger != nil {
-			_ = logger.Error(err)
+			if logErr := logger.Error(err); logErr != nil {
+				log.Printf("service logger write failed: %v", logErr)
+			}
 		}
 	}
 }

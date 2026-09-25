@@ -135,7 +135,9 @@ func probeSNMPHost(ctx context.Context, host string, timeout time.Duration) *Dev
 	}
 	defer conn.Close()
 	deadline := time.Now().Add(timeout)
-	_ = conn.SetDeadline(deadline)
+	if err := conn.SetDeadline(deadline); err != nil {
+		return nil
+	}
 	if _, err := conn.Write(pkt); err != nil {
 		return nil
 	}
@@ -353,12 +355,19 @@ func probeLPRHost(ctx context.Context, host string, timeout time.Duration) *Devi
 		return nil
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return nil
+	}
 	// LPD: send Receive job query not supported, instead send queue status request: \x04queue\n
 	// Use queue "raw"
-	_, _ = conn.Write([]byte("\x04raw\n"))
+	if _, err := conn.Write([]byte("\x04raw\n")); err != nil {
+		return nil
+	}
 	buf := make([]byte, 256)
-	n, _ := conn.Read(buf)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return nil
+	}
 	if n == 0 {
 		// Open port but no LPD banner — still candidate but low confidence
 		return nil
@@ -401,14 +410,18 @@ func discoverFullMDNS(ctx context.Context) []DeviceInfo {
 		return nil
 	}
 	defer conn.Close()
-	_ = conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
+	if err := conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		return nil
+	}
 	if _, err := conn.Write(query); err != nil {
 		return nil
 	}
 	// also query _ipps._tcp and _printer._tcp
 	for _, svc := range []string{"_ipps._tcp.local", "_printer._tcp.local"} {
 		if q := buildMDNSQueryReal(svc); q != nil {
-			_, _ = conn.Write(q)
+			if _, err := conn.Write(q); err != nil {
+				log.Printf("mDNS discovery query write failed for %s: %v", svc, err)
+			}
 		}
 	}
 	buf := make([]byte, 8192)
@@ -416,7 +429,10 @@ func discoverFullMDNS(ctx context.Context) []DeviceInfo {
 	seenHostPort := make(map[string]bool)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		if err := conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+			log.Printf("mDNS discovery read deadline failed: %v", err)
+			return out
+		}
 		n, _, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {

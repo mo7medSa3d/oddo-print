@@ -104,7 +104,10 @@ func Register(serverURL, pairingCode, configPath string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 8192))
+		if readErr != nil {
+			return fmt.Errorf("registration failed (%d); failed to read error body: %w", resp.StatusCode, readErr)
+		}
 		return fmt.Errorf("registration failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 

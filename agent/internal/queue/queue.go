@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,10 +59,17 @@ func New(dbPath string) (*Queue, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	// Ensure WAL is actually on (some sqlite builds ignore dsn params).
-	// Non-fatal: the queue still works in rollback-journal mode.
-	_, _ = db.Exec(`PRAGMA journal_mode=WAL`)
-	_, _ = db.Exec(`PRAGMA synchronous=NORMAL`)
-	_, _ = db.Exec(`PRAGMA busy_timeout=5000`)
+	// Non-fatal: the queue still works in rollback-journal mode, but a failed
+	// PRAGMA must remain visible for diagnosis rather than becoming silent.
+	for _, pragma := range []string{
+		`PRAGMA journal_mode=WAL`,
+		`PRAGMA synchronous=NORMAL`,
+		`PRAGMA busy_timeout=5000`,
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			log.Printf("queue SQLite pragma failed (%s): %v", pragma, err)
+		}
+	}
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS print_jobs (
@@ -91,7 +99,12 @@ func New(dbPath string) (*Queue, error) {
 		`ALTER TABLE print_jobs ADD COLUMN claimed_at DATETIME`,
 		`ALTER TABLE print_jobs ADD COLUMN claim_token TEXT`,
 	} {
-		_, _ = db.Exec(col)
+		if _, err := db.Exec(col); err != nil {
+			message := strings.ToLower(err.Error())
+			if !strings.Contains(message, "duplicate column name") {
+				log.Printf("queue SQLite legacy migration failed (%s): %v", col, err)
+			}
+		}
 	}
 
 	return &Queue{db: db}, nil

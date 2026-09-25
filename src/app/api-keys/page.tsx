@@ -84,7 +84,7 @@ export default function ApiKeysPage() {
       if (!r.ok) throw new Error(b.error);
       setRawKey(b.apiKey);
       setKeys(await loadKeys());
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
 
   async function confirm() {
@@ -95,7 +95,7 @@ export default function ApiKeysPage() {
       const b = await r.json();
       if (!r.ok) throw new Error(b.error);
       setKeys(await loadKeys());
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
 
   const active = keys.filter(k => !k.revokedAt).length;

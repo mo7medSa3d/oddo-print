@@ -80,6 +80,37 @@ func TestReportDiscoveryResultDoesNotRetryTerminalGatewayErrors(t *testing.T) {
 	}
 }
 
+func TestLoadDiscoverySessionByIDRejectsWrongTypedIDs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[{"id":123},{"id":null},{"id":"disc-ok"}]`))
+	}))
+	defer server.Close()
+
+	session := loadDiscoverySessionByID(context.Background(), func(ctx context.Context) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+		if err != nil {
+			return nil, err
+		}
+		return server.Client().Do(req)
+	}, "disc-ok")
+	if session == nil {
+		t.Fatal("valid string discovery id was lost after malformed entries")
+	}
+
+	missing := loadDiscoverySessionByID(context.Background(), func(ctx context.Context) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+		if err != nil {
+			return nil, err
+		}
+		return server.Client().Do(req)
+	}, "not-present")
+	if missing != nil {
+		t.Fatalf("unexpected session for missing id: %#v", missing)
+	}
+}
+
 func TestDiscoverySessionTimeoutUsesGatewayValue(t *testing.T) {
 	if got := discoverySessionTimeout(map[string]interface{}{}); got != defaultDiscoveryTimeout {
 		t.Fatalf("missing timeoutMs = %s, want %s", got, defaultDiscoveryTimeout)

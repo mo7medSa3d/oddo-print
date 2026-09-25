@@ -93,7 +93,9 @@ func loadRegistryPartitionedLocked(registryPath string) (production, hidden []De
 	if removed > 0 {
 		// Rewrite the cleaned registry (best effort, not fatal). Hidden
 		// records are written back so nothing is destroyed.
-		_ = saveRegistryLocked(registryPath, concatDevices(production, hidden))
+		if err := saveRegistryLocked(registryPath, concatDevices(production, hidden)); err != nil {
+			log.Printf("printer registry cleanup rewrite failed: %v", err)
+		}
 	}
 	return production, hidden, removed, nil
 }

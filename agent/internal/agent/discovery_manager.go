@@ -39,11 +39,18 @@ func (a *Agent) pollDiscovery(ctx context.Context) {
 	}
 	var sessions []map[string]interface{}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxDiscoverySessionsBytes)).Decode(&sessions); err != nil {
+		log.Printf("[discovery] failed to decode pending sessions: %v", err)
 		return
 	}
-	for _, s := range sessions {
-		id, _ := s["id"].(string)
-		if id == "" {
+	for index, s := range sessions {
+		rawID, exists := s["id"]
+		if !exists || rawID == nil {
+			log.Printf("[discovery] rejecting session %d: missing id", index)
+			continue
+		}
+		id, ok := rawID.(string)
+		if !ok || strings.TrimSpace(id) == "" {
+			log.Printf("[discovery] rejecting session %d: id must be a non-empty string", index)
 			continue
 		}
 		// At most one discovery session runs at a time (full bounded LAN
@@ -84,10 +91,21 @@ func loadDiscoverySessionByID(ctx context.Context, doRequest func(context.Contex
 	}
 	var sessions []map[string]interface{}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxDiscoverySessionsBytes)).Decode(&sessions); err != nil {
+		log.Printf("[discovery] failed to decode session lookup response: %v", err)
 		return nil
 	}
-	for _, session := range sessions {
-		if id, _ := session["id"].(string); id == discoveryID {
+	for index, session := range sessions {
+		rawID, exists := session["id"]
+		if !exists || rawID == nil {
+			log.Printf("[discovery] rejecting session %d during lookup: missing id", index)
+			continue
+		}
+		id, ok := rawID.(string)
+		if !ok || strings.TrimSpace(id) == "" {
+			log.Printf("[discovery] rejecting session %d during lookup: id must be a non-empty string", index)
+			continue
+		}
+		if id == discoveryID {
 			return session
 		}
 	}
@@ -317,7 +335,9 @@ func (a *Agent) reportDiscoveryResult(ctx context.Context, discoveryID, status s
 		resp, err := a.client.Do(req)
 		if err == nil {
 			statusCode := resp.StatusCode
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8<<10))
+			if _, drainErr := io.Copy(io.Discard, io.LimitReader(resp.Body, 8<<10)); drainErr != nil {
+				log.Printf("[discovery] gateway response drain failed for %s: %v", discoveryID, drainErr)
+			}
 			_ = resp.Body.Close()
 			if statusCode >= 200 && statusCode < 300 {
 				log.Printf("[discovery] session %s completed: %d devices, status %s", discoveryID, len(devices), status)

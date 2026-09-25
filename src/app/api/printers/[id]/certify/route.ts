@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import type { InferSelectModel } from "drizzle-orm";
 import { db } from "../../../../../db";
-import { printers, agents } from "../../../../../db/schema";
+import { printJobs, printers, agents } from "../../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
@@ -37,7 +38,18 @@ const CERTIFICATION_STEPS = [
   { id: "physical", label: "Physical", description: "Physical paper verification (BLOCKED if no hardware)" },
   { id: "ack", label: "Ack", description: "Agent ack success — observed from job status" },
   { id: "final", label: "Final", description: "Certification complete" },
-];
+] as const;
+
+type CertificationStepStatus = "ok" | "error" | "blocked" | "pending" | "running";
+type CertificationStep = (typeof CERTIFICATION_STEPS)[number] & {
+  status: CertificationStepStatus;
+  at: string | null;
+  message: string;
+  evidence: string;
+};
+type PrintJobRow = InferSelectModel<typeof printJobs>;
+type AgentRow = InferSelectModel<typeof agents>;
+type PrinterRow = InferSelectModel<typeof printers>;
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: printerId } = await params;
@@ -50,7 +62,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const tenantId = claims.tenantId;
 
   return runWithCorrelation({ requestId, tenantId, printerId, attemptId } as any, async () => {
-    const steps: any[] = CERTIFICATION_STEPS.map(s => ({ ...s, status: "pending" as const, at: null as string | null, message: "", evidence: "" }));
+    const steps: CertificationStep[] = CERTIFICATION_STEPS.map(s => ({ ...s, status: "pending" as const, at: null, message: "", evidence: "" }));
     function setStep(id: string, status: "ok" | "error" | "blocked" | "pending" | "running", message: string, evidence?: string) {
       const st = steps.find(s => s.id === id);
       if (st) {
@@ -72,7 +84,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       setStep("auth", "error", "Printer not found or not owned by tenant", `printerId=${printerId} tenantId=${tenantId}`);
       return NextResponse.json({ printerId, requestId, steps, certified: false, blocked: false }, { headers: { "x-request-id": requestId } });
     }
-    const printer = printerRows[0] as any;
+    const printer: PrinterRow = printerRows[0];
     setStep("auth", "ok", `Printer ${printer.name} owned by tenant`, `printerId=${printerId} agentId=${printer.agentId}`);
 
     let capability;
@@ -190,10 +202,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     // Now derive state-driven steps from actual job row, not inferred
     // Fetch fresh job row
-    let freshJob: any = null;
+    let freshJob: PrintJobRow | null = null;
     let jobStateLookupFailed = false;
     try {
-      const { printJobs } = await import("../../../../../db/schema");
       const rows = await db.select().from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.id, jobId!))).limit(1);
       freshJob = rows[0] ?? null;
       if (freshJob) jobStatus = freshJob.status;
@@ -227,7 +238,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       setStep("agent", "pending", "Waiting for job row", `jobId=${jobId}`);
     } else if (freshJob.status === "queued") {
       // Check agent health but don't claim PASS — pending unless claimed
-      let agent: any = null;
+      let agent: AgentRow | null = null;
       let agentLookupFailed = false;
       try {
         const agentRows = await db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, printer.agentId))).limit(1);

@@ -114,7 +114,9 @@ func (a *Agent) loadDesiredState() error {
 
 		if row.Desired.Lifecycle == "active" && row.ApplyError == "" {
 			if err := a.applyDesiredPrinter(row); err != nil {
-				_ = a.recordDesiredError(row.Desired.ID, err)
+				if recordErr := a.recordDesiredError(row.Desired.ID, err); recordErr != nil {
+					log.Printf("failed to persist desired-state error for %s: %v", row.Desired.ID, recordErr)
+				}
 			} else {
 				row.AppliedDesiredRevision = row.Desired.DesiredRevision
 				row.ObservedDesiredRevision = 0
@@ -485,7 +487,9 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 		}
 
 		if err := a.applyDesiredPrinter(row); err != nil {
-			_ = a.recordDesiredError(id, err)
+			if recordErr := a.recordDesiredError(id, err); recordErr != nil {
+				log.Printf("failed to persist desired-state error for %s: %v", id, recordErr)
+			}
 			continue
 		}
 

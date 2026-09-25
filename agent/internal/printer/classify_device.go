@@ -425,7 +425,8 @@ func physicalEvidence(f DeviceFacts) (bool, string, string) {
 	if (conn == "network" || conn == "tcp") && strings.TrimSpace(f.NetworkAddress) != "" {
 		return true, "network-endpoint", "high"
 	}
-	switch kind, _ := portKind(f.PortName); kind {
+	kind, _ := portKind(f.PortName) // isVirtual is not relevant after virtual evidence was already evaluated.
+	switch kind {
 	case "usb", "wsd", "local", "network":
 		return true, "hardware-port:" + kind, "high"
 	case "other":
