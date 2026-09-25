@@ -120,10 +120,6 @@ jobs:
           }
           echo "Verified identical Odoo and desktop Yasser icons: $odoo_icon_sha"
 
-      - name: Run Odoo static contract tests (Python)
-        run: |
-          pip install pytest
-          pytest tests/test_odoo19_printing_static.py tests/test_security_contracts.py tests/test_final_security_hardening.py
       - name: Build Next.js
         run: npm run build
       - name: Run unit tests (no DB)
@@ -311,6 +307,11 @@ jobs:
         working-directory: agent
         run: |
           test -z "$(gofmt -l .)" || { echo 'gofmt required on:'; gofmt -l .; exit 1; }
+
+      - name: Run Odoo static contract tests (Python)
+        run: |
+          pip install pytest
+          pytest tests/test_odoo19_printing_static.py tests/test_security_contracts.py tests/test_final_security_hardening.py
 
       # Temporary verification ordering: run Gateway tests before the pre-existing
       # architecture-hardening assertion so the security patch can be exercised.

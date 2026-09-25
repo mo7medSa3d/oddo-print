@@ -673,3 +673,9 @@
 - Clock invariant: the limiter continues to derive the authoritative current time from PostgreSQL `clock_timestamp()`; the rate-limit cleanup test uses PostgreSQL time rather than host `Date.now()`.
 - IETF status decision: the current HTTPAPI RateLimit header specification remains an active Internet-Draft rather than a stable RFC as of 2026-09-25, so the repository keeps the requested `X-` compatibility names for now.
 - Verification: current CI had a pre-existing failure in `Phase 0 architecture hardening test` before the rate-limit test step. No rate-limit PASS is claimed from that run.
+
+
+## 2026-09-25 — Temporary CI verification ordering for B1
+- The existing CI job was temporarily reordered so Gateway unit/integration tests execute before two pre-existing non-Gateway gates that currently fail before those tests: Odoo static security contracts and the stale CSP assertion.
+- The Odoo manager-login contract assertion was updated only to recognize the B1 response-header wrapper; unrelated Odoo raw-SQL findings and CSP assertions remain unchanged.
+- This is verification scaffolding, not a production architecture change; the original workflow order will be restored after obtaining the requested Gateway test output.
