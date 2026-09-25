@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { db } from "../src/db";
 import { tenants } from "../src/db/schema";
 import { issueSessionPair } from "../src/lib/session-tokens";
@@ -20,10 +20,12 @@ async function createTestTenant(id: string, name = "Test Tenant") {
 
 suite("Tenant Lifecycle", () => {
   beforeAll(async () => {
+    vi.stubEnv("GATEWAY_JWT_SECRET", "tenant-lifecycle-test-secret-32-characters");
     await applyMigrations();
   });
 
   afterAll(async () => {
+    vi.unstubAllEnvs();
     await closePool();
   });
 
