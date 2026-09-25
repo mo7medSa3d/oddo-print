@@ -301,9 +301,25 @@ def test_gateway_kitchen_uses_native_order_change_lifecycle():
     end = source.index("async printChanges(", start)
     method = source[start:end]
 
-    assert "order.updateLastOrderChange(opts);" in method
-    assert "this.updateLastOrderChangeIfNoDevice(" not in method
+    assert "if (isPrinted)" in method
+    assert "order.updateLastOrderChange();" in method
+    assert "this.updateLastOrderChangeIfNoDevice(order, opts);" in method
+    assert method.index("if (isPrinted)") < method.index("order.updateLastOrderChange();")
 
+
+def test_gateway_kitchen_does_not_consume_failed_changes():
+    source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+    method_start = source.index("async sendOrderInPreparation(order, opts = {})")
+    method_end = source.index("async printChanges(", method_start)
+    method = source[method_start:method_end]
+
+    # Gateway failures return isPrinted=false. Odoo 19 must retain the change
+    # for retry/reconciliation; unconditional updateLastOrderChange() would
+    # silently mark an unprinted kitchen ticket as consumed.
+    assert "if (isPrinted)" in method
+    assert "order.updateLastOrderChange();" in method
+    assert "else {" in method
+    assert "this.updateLastOrderChangeIfNoDevice(order, opts);" in method
 
 def test_gateway_kitchen_preserves_odoo19_post_print_sync():
     source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
