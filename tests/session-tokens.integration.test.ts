@@ -221,6 +221,37 @@ suite("shared refresh-token session rotation", () => {
     expect(REFRESH_ROTATION_GRACE_MS).toBe(5_000);
   });
 
+  it("serializes concurrent post-grace reuse so one request revokes the whole family before the next can rotate", async () => {
+    const first = await issueSessionPair({
+      kind: "manager",
+      tenantId: "tenant_session_test",
+      userId: "user_session_test",
+      role: "admin",
+    });
+
+    const rotated = await rotateRefreshToken("manager", first.refreshToken);
+    expect(rotated.status).toBe("rotated");
+
+    await pool().query(
+      "UPDATE refresh_tokens SET replaced_at = clock_timestamp() - interval '6 seconds' WHERE id = $1",
+      [first.refreshTokenId],
+    );
+
+    const outcomes = await Promise.all([
+      rotateRefreshToken("manager", first.refreshToken),
+      rotateRefreshToken("manager", first.refreshToken),
+    ]);
+    expect(outcomes.filter((outcome) => outcome.status === "reused")).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "invalid")).toHaveLength(1);
+
+    const family = await pool().query(
+      "SELECT revoked_at FROM refresh_tokens WHERE family_id = $1",
+      [first.familyId],
+    );
+    expect(family.rows.length).toBeGreaterThanOrEqual(2);
+    expect(family.rows.every((row) => row.revoked_at !== null)).toBe(true);
+  });
+
   it("treats an old refresh token after grace as family reuse and sends a security notification", async () => {
     const first = await issueSessionPair({
       kind: "manager",
