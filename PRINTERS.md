@@ -10,14 +10,15 @@ Verification labels used below:
 
 ## 1. Payload types
 
-The job payload is one of three non-interchangeable kinds
-(`agent/internal/printer/document.go`):
+The job payload is one of four Gateway wire kinds (`raw`, `escpos`, `pdf`, `image`).
+`zpl` and `tspl` are printer-native protocols carried inside the `raw` wire kind rather than separate Gateway payload kinds (`agent/internal/printer/document.go`, `contracts/print-payload-contract.json`):
 
 | type | meaning | agent path |
 |---|---|---|
 | `raw` | opaque printer-native byte stream | written verbatim to the transport |
 | `escpos` | ESC/POS command stream (`ESC @` init … `GS V` cut) | written verbatim to the transport (ESC/POS is a payload dialect, not a transport) |
 | `pdf` | a real PDF document | PDF pipeline: validate → secure temp file → PDF-aware submission → wait → delete temp file |
+| `image` | JPEG raster payload | rasterized per backend; ESC/POS network printers convert JPEG to ESC/POS, spooler converts JPEG to PDF |
 
 **A PDF is never converted into RAW printer bytes, never renamed, and never "assumed
 supported because the printer accepts raw".** Sending PDF bytes to an ESC/POS byte-stream
@@ -100,8 +101,8 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Aspect | Detail |
 |---|---|
 | Protocol | Raw byte stream over TCP on canonical port 9100 (JetDirect/AppSocket). No document model, no acknowledgement |
-| Document kinds | `raw` ✅ · `escpos` ✅ · `pdf` ❌ → `CAPABILITY_MISMATCH` |
-| Configuration | `type: network` (alias `tcp`), `endpoint: <ip>:<port>`, `protocol: raw` or `escpos` |
+| Document kinds | `raw` ✅ · `escpos` ✅ · `image` ✅ only for `escpos` protocol · `pdf` ❌ → `CAPABILITY_MISMATCH` |
+| Configuration | `type: network` (alias `tcp`), `endpoint: <ip>:<port>`, `protocol: raw`, `escpos`, `zpl`, or `tspl` |
 | Capability reporting | Heartbeat reports `supported_protocols: [raw, escpos]` unless the operator pinned a list |
 | Error handling | `DialContext` with a 5 s dial timeout, deadline from the job context (else 15 s), short-write loop, refuses empty and > 5 MiB payloads. Dial/write errors are returned verbatim to the gateway |
 | Status probe | 2 s TCP dial → `online` / `offline` (a successful handshake, not paper) |
