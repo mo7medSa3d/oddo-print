@@ -119,6 +119,37 @@ export function verifyPlatformTokenSignature(token: string): PlatformOwnerClaims
   return verifyLegacyPlatformTokenSignature(token);
 }
 
+export async function createPlatformSession(
+  userId: string,
+  email: string,
+  context?: SessionRequestContext,
+): Promise<{
+  token: string;
+  jti: string;
+  exp: Date;
+  refreshToken: string;
+  refreshTokenId: string;
+  familyId: string;
+  refreshExpiresAt: Date;
+}> {
+  const pair = await issueSessionPair({
+    kind: "platform",
+    userId,
+    email,
+    tenantId: null,
+    role: null,
+  }, context);
+  return {
+    token: pair.accessToken,
+    jti: pair.accessJti,
+    exp: pair.accessExpiresAt,
+    refreshToken: pair.refreshToken,
+    refreshTokenId: pair.refreshTokenId,
+    familyId: pair.familyId,
+    refreshExpiresAt: pair.refreshExpiresAt,
+  };
+}
+
 export async function validatePlatformClaims(
   claims: PlatformOwnerClaims | null
 ): Promise<PlatformOwnerClaims | null> {
