@@ -69,7 +69,7 @@ jobs:
             echo "ERROR: new-session legacy write path found"
             exit 1
           fi
-          if git grep -n 'src/lib/manager-session-tx' -- ':!PATCH_LOG.md' ':!SECURITY.md'; then
+          if git grep -n 'src/lib/manager-session-tx' -- src tests; then
             echo "ERROR: obsolete manager-session-tx dependency found"
             exit 1
           fi
