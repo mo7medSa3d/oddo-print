@@ -59,7 +59,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
           const data = await res.json().catch(() => null) as { exp?: unknown } | null;
           setAuthenticated(true);
           if (typeof data?.exp === "number") {
-            scheduleRefresh(new Date(data.exp * 1000).toISOString());
+            scheduleRefresh();
           }
           return;
         }
