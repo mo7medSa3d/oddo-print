@@ -22,6 +22,7 @@
 
 import { db, queryWithTimeout } from "../db/client";
 import { sql } from "drizzle-orm";
+import migrationJournal from "../../drizzle/meta/_journal.json";
 
 export type HealthState = "ok" | "warn" | "error" | "unknown";
 
@@ -33,6 +34,8 @@ export interface HealthCheck {
   details?: Record<string, unknown>;
   critical?: boolean;
 }
+
+const CURRENT_SCHEMA_VERSION = Number(migrationJournal.entries.at(-1)?.tag?.slice(0, 4) ?? 0);
 
 export interface SystemHealth {
   overall: HealthState;
@@ -187,7 +190,7 @@ export async function getSystemHealth(tenantId?: string): Promise<SystemHealth> 
     printers,
     odoo,
     billing,
-    version: { gateway: process.env.npm_package_version ?? "unknown", schema: 55 },
+    version: { gateway: process.env.npm_package_version ?? "unknown", schema: CURRENT_SCHEMA_VERSION },
     checks,
     policy: "CRITICAL (Gateway,Database) ERROR→error, UNKNOWN→unknown; IMPORTANT (Queue,Agents,Printers) ERROR→error, UNKNOWN→unknown, WARN→warn; EXTERNAL (Odoo,Billing) UNKNOWN→unknown (prevents false OK); all healthy→ok",
   };
