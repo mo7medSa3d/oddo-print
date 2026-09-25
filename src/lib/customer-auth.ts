@@ -11,8 +11,11 @@ import {
   accessCookieHeader,
   clearAccessCookieHeader,
   clearRefreshCookieHeader,
+  getAccessTokenFromRequest,
   issueSessionPair,
   refreshCookieHeader,
+  verifyAccessToken,
+  type SharedSessionClaims,
   type SessionRequestContext,
 } from "./session-tokens";
 
@@ -141,6 +144,28 @@ export function clearCustomerRefreshCookie() {
 }
 
 export async function validateCustomer(req: Request): Promise<ManagerClaims | null> {
+  const token = getAccessTokenFromRequest(req, "customer");
+  if (!token) return null;
+
+  const fresh = await verifyAccessToken(token, "customer");
+  if (fresh) {
+    return {
+      jti: fresh.jti,
+      iat: fresh.iat,
+      exp: fresh.exp,
+      sub: "manager",
+      tenantId: fresh.tenantId!,
+      role: fresh.role as ManagerRole,
+      ...(fresh.userId ? { userId: fresh.userId } : {}),
+      ver: 2,
+      kind: "customer",
+      sid: fresh.sid,
+      familyId: fresh.familyId,
+    };
+  }
+
+  // Legacy customer JWTs predate the explicit session kind. Preserve their
+  // original DB-backed validation path during the migration window.
   return validateManager(req);
 }
 
