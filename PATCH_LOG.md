@@ -216,3 +216,19 @@
   `Assert the Odoo addon tests actually ran and passed: success`
   `odoo.tests.stats: print_gateway: 190 tests 87.94s 109206 queries`
   `odoo.tests.result: 0 failed, 0 error(s) of 176 tests when loading database 'odoo19_test'`.
+
+
+## 2026-09-25 — Odoo 19 POS printer-wrapper contract
+- File: `odoo_addons/print_gateway/static/src/js/pos_print_router.js`; static regression coverage in `tests/test_odoo19_printing_static.py`.
+- Problem: The Gateway override supplied raw `pos.printer` ORM records as the default fourth argument of `PosStore.printChanges()`. Odoo 19 core defaults this parameter to `this.unwatched.printers`, whose entries are hardware-printer wrapper objects created by `createPrinter()` and augmented with `config`.
+- Evidence before fix:
+  Odoo 19 core source:
+  `async printChanges(order, orderChange, reprint = false, printers = this.unwatched.printers)`.
+  Odoo 19 setup source builds `HWPrinter = this.createPrinter(printer)`, assigns `HWPrinter.config = printer`, then pushes it into `this.unwatched.printers`.
+  The Gateway source before fix used `printers = this.models["pos.printer"].getAll()`.
+- Fix:
+  Restored the native Odoo 19 default `printers = this.unwatched.printers`. Gateway category filtering and retry scoping operate on the same wrapper objects used by Odoo core.
+- Verification:
+  Odoo 19 CI job `107903737803`: `Install and test addon on Odoo 19 Community: success`; `Assert the Odoo addon tests actually ran and passed: success`.
+  The same job reported `print_gateway: 190 tests` and `0 failed, 0 error(s) of 176 tests when loading database 'odoo19_test'`.
+  Static Odoo contract tests completed successfully in the CI job.
