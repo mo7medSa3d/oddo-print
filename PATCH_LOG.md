@@ -626,3 +626,41 @@
 - Official-version evidence: current `jose` documentation provides `jwtVerify` for JWS signature and JWT Claims Set validation, and allows explicit algorithm allowlists; current project code instead enforces a single `HS256` profile plus DB-backed session validation.
 - Decision: retain the existing JWT implementation because no concrete defect was found and migration would add protocol-transition complexity without a demonstrated security benefit in this codebase.
 - Verification evidence already recorded in CI: manager/platform auth tests passed on the inspected `main` state; no authentication or cryptographic runtime code was changed in this phase.
+
+
+## 2026-09-25 — OWASP 2025 supply-chain/security hardening pass
+- OWASP: A02 Security Misconfiguration — CSP.
+  Problem: the previously served policy on the baseline container contained `script-src 'self' 'unsafe-inline'`.
+  Evidence: Docker runtime job `107942356820` logged `HTTP_STATUS=200` and the served CSP with `script-src 'self' 'unsafe-inline'`.
+  Fix: `src/server/content-security-policy.ts` now emits `script-src 'nonce-{request nonce}' 'strict-dynamic'`; `proxy.ts` threads the nonce through `x-nonce`, and `layout.tsx` applies it to the static `THEME_INIT` inline script. The architecture test contains a negative assertion against `unsafe-inline` in `script-src`.
+  Verification target: Docker's served-header probe now checks HTTP 200, extracts the CSP nonce, extracts an HTML script nonce, asserts `NONCE_MATCH=true`, and fails on `SCRIPT_SRC_UNSAFE_INLINE=true`.
+
+## 2026-09-25 — OWASP 2025 A03/A05 SQL identifier hardening verification
+- Problem: the audit scope required proof that Odoo table identifiers cannot regress to raw Python formatting.
+- Evidence: current `gateway_config.py` call sites use `sql.Identifier(self._table)`; the migration uses `sql.Identifier(table)` for both table and generated constraint/index names.
+- Fix: added an AST-based regression in `tests/test_security_contracts.py` that scans every `odoo_addons/**/*.py` file for SQL `%`, f-string, or `.format()` interpolation that contains an `_table` attribute.
+- Verification target: the Odoo security-contract test suite must report the new test passing.
+
+## 2026-09-25 — OWASP 2025 A03 Software Supply Chain gate verification
+- Evidence: the repository currently commits `package-lock.json`, `agent/go.sum`, and `src-tauri/Cargo.lock`; CI uses `npm ci`, `go mod verify` + `go build -mod=readonly`, and Cargo `--locked` commands.
+- Existing gate evidence: security job `107942413552` reported `found 0 vulnerabilities` for production npm dependencies, `found 0 vulnerabilities` for the full npm tree, `No vulnerabilities found.` for Go, and `cargo audit` completed with only 7 allowed warnings; the immutable GitHub Actions check also passed.
+- Known-vulnerable gate evidence: the same workflow contains a disposable `lodash@4.17.19` fixture and explicitly asserts that `npm audit --audit-level=high` exits non-zero before continuing; this is a gate self-test, not a production dependency.
+- Docker integrity: Docker Hub currently publishes the multi-platform `node:24.21.0-alpine` index digest as `sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1`; Dockerfile was refreshed to that digest for every `FROM` line. citeturn402612view0
+
+## 2026-09-25 — OWASP 2025 A04/A07 authentication/cryptography design decision
+- Current hand-rolled JWT behavior is bounded and explicitly selects HS256, validates the JWT type/algorithm, uses timing-safe signature comparison, and enforces strict claim bounds plus database-backed session state.
+- `jose` would reduce custom JOSE implementation maintenance and provides standards-based JWT verification/claim validation APIs, but it does not remove application responsibility for input limits and policy checks. citeturn543845search0turn543845search7
+- Decision: keep the current implementation for this pass because no cryptographic defect was demonstrated and a migration would add dependency/runtime surface without a verified behavioral-security gain. Existing manager-auth tests cover valid sessions, `alg=none` rejection, future-`iat` rejection, DB-clock anchoring, password verification, and plaintext-password rejection.
+
+## 2026-09-25 — OWASP 2025 A08 integrity/update pipeline
+- Evidence: `src-tauri/Cargo.toml` contains no `tauri-plugin-updater`; `src-tauri/tauri.conf.json` contains no `updater` configuration; `src-tauri/src/main.rs` contains no updater plugin initialization.
+- Finding: there is currently no Tauri auto-update path in this repository, so no updater-signature verification can be claimed. The repository's architecture test explicitly rejects an unsigned updater path.
+- Build integrity evidence: no `@latest` or `:latest` references were found in the inspected build/security paths; CI Action references are immutable SHAs.
+
+## 2026-09-25 — OWASP 2025 A09 logging/alerting boundary
+- Evidence: `src/lib/audit.ts` writes durable `audit_events`; `src/app/api/platform/audit/route.ts` and the Platform Audit UI consume the table for review.
+- Finding: no configured real-time alerting consumer was found. `SECURITY.md` already documents that audit logging is not equivalent to alerting and assigns high-severity operational alerting to deployment/infrastructure.
+
+## 2026-09-25 — OWASP 2025 A10 exceptional-condition review
+- Evidence: Stripe webhook processing is idempotent and returns 502 when current Stripe state cannot be verified; WebSocket delivery distinguishes requeue from explicit `delivery_unknown` after a successful socket write with failed evidence; Odoo print submission marks ambiguous post-dispatch outcomes as `UNKNOWN_SUBMISSION_OUTCOME` and pauses automatic retry, while proven pre-dispatch connection failures remain retryable/failover-safe.
+- Result: no additional exceptional-condition gap was identified in the reviewed webhook, WebSocket, and Odoo submission paths, so no production behavior change was made for A10.
