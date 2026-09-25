@@ -20,6 +20,12 @@ import (
 // session per agent, so this is a hard ceiling far above any real response.
 const maxDiscoverySessionsBytes = 8 << 20
 
+const (
+	defaultDiscoveryTimeout = 30 * time.Second
+	minDiscoveryTimeout     = 500 * time.Millisecond
+	maxDiscoveryTimeout     = 30 * time.Second
+)
+
 // pollDiscovery checks gateway for pending discovery sessions for this agent and executes them.
 func (a *Agent) pollDiscovery(ctx context.Context) {
 	reqURL := fmt.Sprintf("%s/api/agent/discovery", a.cfg.Server.URL)
@@ -62,6 +68,38 @@ func (a *Agent) pollDiscovery(ctx context.Context) {
 			})
 		}
 	}
+}
+
+func loadDiscoverySessionByID(ctx context.Context, doRequest func(context.Context) (*http.Response, error), discoveryID string) map[string]interface{} {
+	if discoveryID == "" {
+		return nil
+	}
+	resp, err := doRequest(ctx)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var sessions []map[string]interface{}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxDiscoverySessionsBytes)).Decode(&sessions); err != nil {
+		return nil
+	}
+	for _, session := range sessions {
+		if id, _ := session["id"].(string); id == discoveryID {
+			return session
+		}
+	}
+	return nil
+}
+
+func (a *Agent) loadDiscoverySession(ctx context.Context, discoveryID string) map[string]interface{} {
+	reqURL := fmt.Sprintf("%s/api/agent/discovery", a.cfg.Server.URL)
+	doRequest := func(callCtx context.Context) (*http.Response, error) {
+		return a.doAuthorizedRequest(callCtx, http.MethodGet, reqURL, nil)
+	}
+	return loadDiscoverySessionByID(ctx, doRequest, discoveryID)
 }
 
 // runBoundedDiscovery separates orchestration lifetime from an underlying
