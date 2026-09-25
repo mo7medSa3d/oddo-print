@@ -2,6 +2,7 @@ import { gatewayTestSigningKey } from "./helpers/test-secrets";
 import { createHmac } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { sql } from "drizzle-orm";
+import { LEGACY_SESSION_MAX_AGE_SECONDS } from "../src/lib/session-config";
 import {
   createPlatformSession,
   verifyPlatformTokenSignature,
@@ -126,7 +127,7 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
     const legacyPayload = Buffer.from(JSON.stringify({
       jti,
       iat: createdAt,
-      exp: createdAt + 8 * 60 * 60,
+      exp: createdAt + LEGACY_SESSION_MAX_AGE_SECONDS,
       sub: "platform_owner",
       userId: user.userId,
       email: user.email,
