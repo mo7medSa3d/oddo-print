@@ -305,11 +305,10 @@ export default function DashboardClient({
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const scheduleFromExpiry = (expiresAt: string) => {
-      const delay = Math.max(30_000, new Date(expiresAt).getTime() - Date.now() - 60_000);
+    const scheduleRefresh = () => {
       timer = setTimeout(() => {
         void refreshSession();
-      }, delay);
+      }, 13 * 60 * 1000);
     };
 
     async function refreshSession() {
