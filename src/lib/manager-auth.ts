@@ -74,6 +74,10 @@ function verifySignature(token: string): ManagerClaims | null {
     const claims = JSON.parse(b64urlDecode(p).toString("utf8")) as Partial<ManagerClaims>;
     if (
       claims.sub !== "manager" ||
+      claims.ver !== undefined ||
+      claims.kind !== undefined ||
+      claims.sid !== undefined ||
+      claims.familyId !== undefined ||
       typeof claims.tenantId !== "string" ||
       claims.tenantId.length < 1 ||
       claims.tenantId.length > 128 ||
