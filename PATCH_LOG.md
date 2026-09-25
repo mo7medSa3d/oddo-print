@@ -848,3 +848,12 @@
 - The focused run logs show integration auth tests `6 passed / 52 passed / 24.05s` and Python security contracts `36 passed in 0.24s`.
 - Browser-level SameSite=Strict proof remains BLOCKED because this repository has no browser automation harness. Live Odoo 19 and real production deployment remain BLOCKED/out of scope.
 - Temporary verification workflows were removed from the repository after the focused verification.
+
+
+## 2026-09-25 — Auth/session legacy-dependency closure verification
+- New session issuance is centralized in `src/lib/session-tokens.ts`; `manager_sessions` and `platform_sessions` remain only for the bounded legacy <=8-hour compatibility path, legacy revocation, and cleanup.
+- The unused `src/lib/manager-session-tx.ts` adapter is absent from the repository tree.
+- Refresh-family operations use PostgreSQL transaction-scoped advisory locking keyed by `family_id`; refresh revalidates the live principal before minting a new access token; password reset and tenant suspension/deletion revoke v2 refresh families.
+- Closure workflow `36161052764` on runtime tree `96d949ed9a2f9005ceef3eac0b88290ef8efe400` completed typecheck, lint, migrations, and the requested auth/session regressions: manager 7/7, platform 11/11, customer/tenant-selection 4/4, rate-limit 20/20, fail-closed limiter 6/6, refresh rotation 8/8, logout 4/4, legacy fallback 3/3, desktop auth contract 5/5, security contracts 37/37.
+- Browser-level SameSite=Strict proof remains BLOCKED because the repository has no browser automation harness. No live Odoo 19 or production deployment validation was used.
+- Temporary auth verification workflow has been removed from the repository tree.
