@@ -719,3 +719,15 @@
 - Verification test added: `tests/auth-rate-limit-fail-closed.test.ts` covers all six routes and asserts the 503 fail-closed behavior.
 
 - B2 verification output: temporary focused workflow `36138053714` ran `npm run test:unit -- tests/auth-rate-limit-fail-closed.test.ts`; Vitest reported `Test Files 1 passed (1)`, `Tests 6 passed (6)`, `Duration 865ms`. The temporary workflow was deleted after verification.
+
+
+## 2026-09-25 — Part B final verification (B0/B1/B2/B3/B4)
+- Baseline reference: pre-hardening Gateway commit `8af492ea0556423f7ef5df28fd58a37d3c272307`.
+- Baseline command: `npm run test:integration -- tests/auth-rate-limit.test.ts` after `npm ci` and `npm run db:migrate`.
+- Baseline output: `Test Files 1 passed (1)`, `Tests 17 passed (17)`, `Duration 5.68s`.
+- Functional final reference tested: `b1d08a0391207a9842f2f84a14e28dfd701ea34d`.
+- Final rate-limit output: `Test Files 1 passed (1)`, `Tests 20 passed (20)`, `Duration 5.69s`. This includes the B1 response-header assertions and B3 NAT/IP-curve assertions.
+- B2 fail-closed output: `tests/auth-rate-limit-fail-closed.test.ts`, `Test Files 1 passed (1)`, `Tests 6 passed (6)`, `Duration 865ms`.
+- B4 static coverage is included in `tests/auth-rate-limit.test.ts`: all six auth-adjacent routes must contain both `reserveAuthAttempt` and `setRateLimitHeaders`.
+- The focused temporary workflows were removed after verification; no scheduled-job mechanism or production deployment behavior was changed.
+- Full CI remains outside the Part B acceptance claim because unrelated existing Odoo/CSP contract failures exist in the repository and live Odoo/production validation is out of scope.
