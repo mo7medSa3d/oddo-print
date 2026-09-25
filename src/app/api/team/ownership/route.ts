@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
-import { tenantUsers, managerSessions } from "../../../../db/schema";
+import { tenantUsers, managerSessions, refreshTokens } from "../../../../db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { clearManagerCookieHeader, validateManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
@@ -62,8 +62,16 @@ export async function POST(req: Request) {
       if (promoted.length !== 1) throw new OwnershipConflict("Target membership changed concurrently; no ownership change was committed.");
 
       await tx.update(managerSessions)
-        .set({ revokedAt: sql`now()` })
+        .set({ revokedAt: sql`clock_timestamp()` })
         .where(and(eq(managerSessions.userId, currentUserId), eq(managerSessions.tenantId, claims.tenantId)));
+
+      await tx.update(refreshTokens)
+        .set({ revokedAt: sql`clock_timestamp()`, revokedReason: "ownership_transferred" })
+        .where(and(
+          eq(refreshTokens.userId, currentUserId),
+          eq(refreshTokens.tenantId, claims.tenantId),
+          sql`refresh_tokens.revoked_at IS NULL`,
+        ));
 
       await writeAuditEvent(
         {
