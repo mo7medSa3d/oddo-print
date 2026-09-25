@@ -80,17 +80,18 @@ describe("auth rate limiter (pure)", () => {
 describe("atomic rate-limit reservation contract", () => {
   it("uses atomic reservation for all public authentication entrypoints", async () => {
     const { readFile } = await import("node:fs/promises");
-    const authFiles = [
-      "src/app/api/auth/login/route.ts",
-      "src/app/api/auth/manager/login/route.ts",
-      "src/app/api/platform/auth/login/route.ts",
-      "src/app/api/auth/register/route.ts",
-      "src/app/api/auth/forgot-password/route.ts",
-      "src/app/api/auth/resend-verification/route.ts",
-    ];
-    for (const file of authFiles) {
+    const authContracts = [
+      ["src/app/api/auth/login/route.ts", "const ip = clientIpFrom(req);", "reserveAuthAttempt(ip, email)"],
+      ["src/app/api/auth/manager/login/route.ts", "const ip = clientIpFrom(req);", "reserveAuthAttempt(ip, username)"],
+      ["src/app/api/platform/auth/login/route.ts", "const clientIp = clientIpFrom(req);", "reserveAuthAttempt(clientIp, email)"],
+      ["src/app/api/auth/register/route.ts", "const ip = clientIpFrom(req);", "reserveAuthAttempt(ip, email)"],
+      ["src/app/api/auth/forgot-password/route.ts", "const ip = clientIpFrom(req);", "reserveAuthAttempt(ip, email)"],
+      ["src/app/api/auth/resend-verification/route.ts", "const ip = clientIpFrom(req);", "reserveAuthAttempt(ip, email)"],
+    ] as const;
+    for (const [file, ipExpression, reservationExpression] of authContracts) {
       const source = await readFile(file, "utf8");
-      expect(source).toContain("reserveAuthAttempt");
+      expect(source).toContain(ipExpression);
+      expect(source).toContain(reservationExpression);
       expect(source).toContain("setRateLimitHeaders");
     }
     // Agent pairing has its own brute-force budget independent of the
