@@ -901,3 +901,14 @@
 - Final cookie-path decision: manager `mgr_refresh` uses `/api/auth/manager`; customer `cust_refresh` uses `/api/auth`; platform `plt_refresh` uses `/api/platform/auth`.
 - Reason: the refresh cookie must reach the corresponding logout route so the server can revoke the full refresh family even when the short-lived access JWT has already expired. The cookie remains HttpOnly + SameSite=Strict and never leaves the browser/Rust credential boundary.
 - The static security contract was updated to assert these namespace paths.
+
+
+## 2026-09-25 — Legacy session dependency closure final verification
+- Focused closure workflow 36185544612 on runtime commit 5355bfe4d2d9e33bcbbea0ae909b7edca8e7795d completed: Node setup, npm ci, typecheck, lint, PostgreSQL migrations, auth/session integration, unit contracts, Python security contracts, and repository-wide legacy-session inventory.
+- Auth/session integration output: Test Files 6 passed (6), Tests 54 passed (54), Duration 25.94s.
+- Auth/session unit-contract output: Test Files 2 passed (2), Tests 9 passed (9), Duration 180ms.
+- Python security-contract output: 40 passed in 0.28s.
+- Legacy inventory output: LEGACY INVENTORY: no forbidden legacy-write/adapter/host-clock dependency found.
+- The inventory still lists manager_sessions/platform_sessions in schema, legacy tests, and compatibility cleanup; those are intentionally bounded to the <=8-hour pre-v2 compatibility path. No new-session INSERT/CREATE path remains, and the obsolete manager-session-tx adapter is absent.
+- Real source dependency repairs completed in this closure pass: tenant-member role change and member removal now revoke v2 refresh families; stale auth/page/desktop test contracts were updated to the shared v2 design; customer refresh-cookie path contract matches logout delivery; browser and Tauri token custody contracts were aligned.
+- The temporary closure workflow was removed after verification. Full production deployment and real-browser SameSite proof remain outside repository CI; the latter is already documented as BLOCKED because no browser automation harness exists in this repo.
