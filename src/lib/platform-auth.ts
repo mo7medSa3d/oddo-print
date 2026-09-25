@@ -27,6 +27,14 @@ function getSecret(): string {
   return s;
 }
 
+function b64urlEncode(value: Buffer | string): string {
+  return Buffer.from(value).toString("base64url");
+}
+
+function b64urlDecode(value: string): Buffer {
+  return Buffer.from(value, "base64url");
+}
+
 function compareStringsSafe(a: string, b: string): boolean {
   const digestA = createHash("sha256").update(a, "utf8").digest();
   const digestB = createHash("sha256").update(b, "utf8").digest();
