@@ -739,3 +739,11 @@
 - B4 coverage check was strengthened from generic symbol presence to exact route contracts: each of the six auth-adjacent routes must extract the client IP and call `reserveAuthAttempt(ip/clientIp, account identifier)`, then apply `setRateLimitHeaders`.
 - Direct source verification confirmed all six route contracts are present.
 - The temporary Part B verification workflow was deleted after the final run.
+
+
+## 2026-09-25 — Part A0 authentication baseline
+- Pre-change auth suites were run on the Part B-complete tree after `npm ci` and PostgreSQL migrations.
+- Manager suite: `tests/manager-auth.test.ts` — `Test Files 1 passed (1)`, `Tests 6 passed (6)`, `Duration 3.72s`.
+- Platform suite: `tests/platform-control-plane.test.ts` — `Test Files 1 passed (1)`, `Tests 11 passed (11)`, `Duration 6.06s`.
+- Customer-auth module coverage: no dedicated customer-auth suite exists; `tests/multi-tenant-selection.test.ts` exercises `src/lib/customer-auth.ts` — `Test Files 1 passed (1)`, `Tests 4 passed (4)`, `Duration 637ms`.
+- The temporary A0 verification workflow was removed after the baseline run.
