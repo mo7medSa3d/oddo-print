@@ -8,15 +8,13 @@ import {
 import { clientIpFrom } from "../../../../../lib/auth-rate-limit";
 import {
   getRefreshTokenFromRequest,
+  isTrustedDesktopRequest,
   rotateRefreshToken,
 } from "../../../../../lib/session-tokens";
 import { logError } from "../../../../../lib/log";
 
 export async function POST(req: Request) {
-  const desktopOrigin = req.headers.get("origin") ?? "";
-  const desktopClient =
-    req.headers.get("x-odoo-print-desktop") === "1" &&
-    (desktopOrigin === "tauri://localhost" || desktopOrigin === "http://tauri.localhost");
+  const desktopClient = isTrustedDesktopRequest(req);
   const token = getRefreshTokenFromRequest(req, "manager");
   if (!token) {
     const response = NextResponse.json({ error: "Refresh authentication required" }, { status: 401 });
