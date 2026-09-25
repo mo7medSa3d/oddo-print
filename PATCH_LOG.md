@@ -561,3 +561,11 @@
 - Evidence: CI job `108036288410`, step `Dead-code and unused-export scan`, reported `Unused files (16)`, `Unused dependencies (2)`, `Unlisted binaries (3)`, `Unused exports (51)`, `Unused exported types (2)`, and a duplicate export. The listed files include Odoo asset modules and dynamic desktop surfaces that are not represented as standard Next entrypoints.
 - Fix: removed the non-security Knip export gate and its now-unused `knip.json` configuration. Existing TypeScript typecheck, ESLint, Go U1000 (Linux/Windows), govulncheck, cargo-audit, npm audit and supply-chain action pin checks remain gated.
 - Verification: final CI run on the post-change `main` commit is required.
+
+
+## 2026-09-25 — CI baseline test drift: CSP moved to canonical policy module
+- OWASP: A02 Security Misconfiguration / verification hygiene.
+- Problem: CI's Odoo/static contract suite still asserted CSP directives inside `next.config.ts`, although the runtime policy is now generated per request in `src/server/content-security-policy.ts`.
+- Evidence: CI run `36124939396`, job `108038774217`, step `Run Odoo static contract tests (Python)` failed with `assert 'default-src' in '... next.config.ts ...'` at `tests/test_final_security_hardening.py:141`.
+- Fix: updated the existing Python contract test to inspect `src/server/content-security-policy.ts`, assert nonce + `strict-dynamic`, and explicitly reject `script-src 'self' 'unsafe-inline'`.
+- Verification: pending on the new `main` commit.
