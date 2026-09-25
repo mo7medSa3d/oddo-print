@@ -89,7 +89,9 @@ jobs:
           set -euo pipefail
           echo 'SERVED_SECURITY_HEADERS_BEGIN'
           docker compose exec -T gateway node --input-type=module -e '
-            const response = await fetch("http://127.0.0.1:3000/");
+            const response = await fetch("http://127.0.0.1:3000/", {
+              headers: { "x-gateway-proxy-token": process.env.TRUST_PROXY_SECRET },
+            });
             console.log("HTTP_STATUS=" + response.status);
             for (const [name, value] of response.headers) console.log(name + ": " + value);
             console.log("BODY_BYTES=" + Buffer.byteLength(await response.text(), "utf8"));
