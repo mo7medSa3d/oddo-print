@@ -6,7 +6,7 @@ import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
 import { databaseNowMs } from "./database-clock";
 import { hashPassword, verifyPassword, normalizeEmail } from "./password";
 import { requireActiveTenantOrNull } from "./tenant-guard";
-import { SESSION_MAX_AGE_SECONDS } from "./session-config";
+import { LEGACY_SESSION_MAX_AGE_SECONDS } from "./session-config";
 import {
   accessCookieHeader,
   clearAccessCookieHeader,
@@ -19,7 +19,7 @@ import {
 } from "./session-tokens";
 
 const COOKIE_NAME = "mgr_session";
-const MAX_AGE_SECONDS = SESSION_MAX_AGE_SECONDS;
+const MAX_AGE_SECONDS = LEGACY_SESSION_MAX_AGE_SECONDS;
 
 function getSecret(): string {
   const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
