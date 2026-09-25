@@ -41,29 +41,7 @@ const (
 
 // confidence helpers
 
-func confidenceForDevice(sources []string, verification string, manufacturer, model string) string {
-	hasVerified := verification == "verified"
-	sourceCount := len(sources)
-	hasHighSignal := hasVerified && (containsDiscoverySource(sources, SourceIPP) || containsDiscoverySource(sources, SourceIPPS) || containsDiscoverySource(sources, SourceSpooler))
-	hasMultiple := sourceCount >= 2
-	hasModel := model != "" && manufacturer != ""
-	if hasHighSignal || (hasMultiple && hasModel) {
-		return "high"
-	}
-	if hasVerified || hasMultiple || hasModel {
-		return "medium"
-	}
-	return "low"
-}
 
-func containsDiscoverySource(a []string, s string) bool {
-	for _, v := range a {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
 
 // Deduplication: stable identity priority as per spec:
 // 1. UUID, 2. serial+manufacturer/model, 3. MAC, 4. IP+URI, 5. hostname+port
@@ -568,27 +546,3 @@ func parseMDNSHosts(data []byte) []mdnsHost {
 	return hosts
 }
 
-// CIDR validation per spec — reject public, loopback, malformed
-func isAllowedCIDR(cidr string) bool {
-	if cidr == "" {
-		return false
-	}
-	_, ipnet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return false
-	}
-	if !ipnet.IP.IsPrivate() {
-		return false
-	}
-	if ipnet.IP.IsLoopback() {
-		return false
-	}
-	ones, bits := ipnet.Mask.Size()
-	if bits != 32 {
-		return false
-	}
-	if ones < 16 || ones > 30 {
-		return false
-	}
-	return true
-}
