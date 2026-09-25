@@ -134,7 +134,6 @@ func TestParsePeripherals(t *testing.T) {
 	}
 }
 
-
 func TestGatewayPayloadContractIsTheAgentContract(t *testing.T) {
 	type contract struct {
 		Encoding        string `json:"encoding"`
