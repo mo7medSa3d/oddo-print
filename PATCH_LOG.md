@@ -577,3 +577,34 @@
 - Evidence: CI run `36125659948`, job `108041475853`, step `Run unit tests (no DB)` failed with `expected ... to contain '0xff'` in `tests/print-payload-contract.test.ts`.
 - Fix: updated the test to assert the TypeScript contract-based signature conversion and the actual Go byte checks (`0xff, 0xd8, 0xff`). No runtime payload behavior changed.
 - Verification: pending on the new `main` commit.
+
+
+## 2026-09-25 — A03 Software Supply Chain: Odoo CI image made immutable
+- OWASP: A03 Software Supply Chain Failures.
+- Problem: the Odoo 19 CI test path used the floating `odoo:19.0` tag for both `docker pull` and `docker run`.
+- Evidence: official Docker Hub currently lists `odoo:19.0` with index digest `sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c`; repository CI previously referenced the tag without that digest. citeturn104164search1turn104164search4
+- Fix: changed both CI references to `odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c`; added an immutable-container-reference gate covering Dockerfile/Compose/CI image references.
+- Verification output from the existing supply-chain run: `package-lock.json, agent/go.sum, and src-tauri/Cargo.lock are present.`; `Build pipelines use npm ci, Go module verification/read-only mode, and Cargo --locked.`; `All third-party workflow action references are immutable SHA pins.`
+- Final re-run on this newest digest-only commit remains pending; no PASS claim is made for that new run.
+
+## 2026-09-25 — A04/A07 Cryptographic & Authentication review: retain the existing JWT implementation
+- Scope: `src/lib/manager-auth.ts` and `src/lib/platform-auth.ts`.
+- Existing evidence: fixed `HS256` header enforcement, bounded token length, fixed-length SHA-256 digest comparison with `timingSafeEqual`, strict claim bounds, database-backed JTI/session validation, and tenant/role binding are implemented in both modules.
+- Comparison: `jose` would reduce custom JOSE parsing/claims-maintenance risk and provides `jwtVerify` for signature + Claims Set validation; however, the current code deliberately supports only one symmetric algorithm and binds every token to a durable server-side session, so migrating now would add a dependency and token-transition complexity without an established runtime defect. Current upstream `jose` releases include v6.2.12. citeturn104164search3turn913762search1
+- Decision: retain the current implementation; no auth/crypto code was changed in this phase.
+- Verification output: CI unit tests on commit `2414db961a3bb66bfa6ab9be642396cad15ffd56` completed `Run unit tests (no DB)=success`; the existing manager-auth suite covers rejection of `alg:none`, future-`iat` tokens, valid sessions, and password verification.
+
+## 2026-09-25 — A08 Software and Data Integrity: Tauri auto-updater is not enabled
+- Evidence: `src-tauri/Cargo.toml` contains no `tauri-plugin-updater`; `src-tauri/Cargo.lock` contains no `tauri-plugin-updater`; `src-tauri/tauri.conf.json` contains no `updater` configuration; repository tree contains no updater-related path.
+- Result: there is no auto-update application path in the current desktop shell for which a signature check can be claimed. This is not an unsigned-updater vulnerability; it is an explicit absence of the feature.
+- Verification output: `Cargo.lock tauri-plugin-updater present=false`; `tauri.conf updater key present=false`.
+
+## 2026-09-25 — A09 Security Logging & Alerting: audit_events has no real-time alert consumer in the inspected Gateway
+- Evidence: `src/db/schema.ts` defines `audit_events`; `src/lib/audit.ts` only implements durable writes; `src/app/api/platform/audit/route.ts` only reads the feed for platform review; the inspected source tree contains no alert/notification consumer tied to audit events.
+- Finding: audit storage and the platform audit UI exist, but no repository-local real-time alerting consumer was established for repeated auth failures, credential rotation, or tenant-isolation violations.
+- Result: logging is not treated as equivalent to alerting; no fictitious alerting pass is claimed. No code change was made because no alerting backend/provider is present to wire safely within this scoped pass.
+
+## 2026-09-25 — A10 Mishandling of Exceptional Conditions: external-failure re-audit
+- Evidence: Stripe webhook processing is idempotency-fenced with `ON CONFLICT (event_id) DO NOTHING` and returns 502 when current Stripe subscription state cannot be verified; Gateway WebSocket delivery requeues only before delivery evidence and marks delivery unknown when socket acceptance is followed by evidence-write failure; Odoo submission/status paths use `UNKNOWN_SUBMISSION_OUTCOME`, reconciliation states, and explicit operator reprint paths rather than blind automatic retries.
+- Verification: `tests/test_security_contracts.py` and `tests/test_odoo19_printing_static.py` contain explicit regression assertions for these failure-state contracts; the Odoo static contract suite completed successfully in CI on the inspected state.
+- Result: no additional A10 code defect was established in the inspected Stripe/WebSocket/Odoo paths, so no speculative behavioral change was introduced.
