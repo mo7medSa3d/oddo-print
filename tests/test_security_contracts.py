@@ -393,5 +393,5 @@ def test_manager_and_customer_v2_session_kinds_are_explicitly_separated():
     manager = read("src/lib/manager-auth.ts")
     customer = read("src/lib/customer-auth.ts")
     assert 'verifyAccessTokenSignature(token, "manager")' in manager
-    assert 'verifyAccessToken(token, "customer")' in customer
+    assert 'verifyAccessTokenSignature(token, ["customer", "manager", "platform"])' in customer
     assert 'kind: "customer"' in customer
