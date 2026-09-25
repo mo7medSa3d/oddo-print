@@ -731,3 +731,11 @@
 - B4 static coverage is included in `tests/auth-rate-limit.test.ts`: all six auth-adjacent routes must contain both `reserveAuthAttempt` and `setRateLimitHeaders`.
 - The focused temporary workflows were removed after verification; no scheduled-job mechanism or production deployment behavior was changed.
 - Full CI remains outside the Part B acceptance claim because unrelated existing Odoo/CSP contract failures exist in the repository and live Odoo/production validation is out of scope.
+
+
+## 2026-09-25 — B3/B4 final verification completed
+- Focused final Part B workflow `36138424151` passed `npm ci`, `npm run typecheck`, `npm run lint`, PostgreSQL migration, and `npm run test:integration -- tests/auth-rate-limit.test.ts`.
+- Final rate-limit regression output: `tests/auth-rate-limit.test.ts (20 tests)`, `Test Files 1 passed (1)`, `Tests 20 passed (20)`, `Duration 5.24s`.
+- B4 coverage check was strengthened from generic symbol presence to exact route contracts: each of the six auth-adjacent routes must extract the client IP and call `reserveAuthAttempt(ip/clientIp, account identifier)`, then apply `setRateLimitHeaders`.
+- Direct source verification confirmed all six route contracts are present.
+- The temporary Part B verification workflow was deleted after the final run.
