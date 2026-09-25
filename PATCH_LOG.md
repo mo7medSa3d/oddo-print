@@ -912,3 +912,9 @@
 - The inventory still lists manager_sessions/platform_sessions in schema, legacy tests, and compatibility cleanup; those are intentionally bounded to the <=8-hour pre-v2 compatibility path. No new-session INSERT/CREATE path remains, and the obsolete manager-session-tx adapter is absent.
 - Real source dependency repairs completed in this closure pass: tenant-member role change and member removal now revoke v2 refresh families; stale auth/page/desktop test contracts were updated to the shared v2 design; customer refresh-cookie path contract matches logout delivery; browser and Tauri token custody contracts were aligned.
 - The temporary closure workflow was removed after verification. Full production deployment and real-browser SameSite proof remain outside repository CI; the latter is already documented as BLOCKED because no browser automation harness exists in this repo.
+
+
+## 2026-09-25 — Go formatting regression repair
+- CI run 36188085186 passed Gateway integration and the exact requested Gateway verification commands, then failed only the agent Go formatting gate.
+- The formatter reported exactly four files: `agent/internal/agent/discovery_manager_test.go`, `agent/internal/payload/payload_test.go`, `agent/internal/printer/classify.go`, and `agent/internal/printer/discovery_extended.go`.
+- A temporary GitHub Actions formatter applied `gofmt -w` to exactly those four files, verified `gofmt -l` returned no files, committed the formatting-only repair, and removed the temporary workflow.
