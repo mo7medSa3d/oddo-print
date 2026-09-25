@@ -26,8 +26,18 @@ export default function LoginPage() {
   useEffect(() => {
     let cancelled = false;
     fetch("/api/auth/me", { credentials: "include", cache: "no-store" })
-      .then((res) => {
-        if (!cancelled && res.ok) router.replace(postAuthDestination());
+      .then(async (res) => {
+        if (cancelled) return;
+        if (res.ok) {
+          router.replace(postAuthDestination());
+          return;
+        }
+        const refresh = await fetch("/api/auth/refresh", {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!cancelled && refresh.ok) router.replace(postAuthDestination());
       })
       .catch(() => undefined)
       .finally(() => {
