@@ -836,3 +836,15 @@
 - Removed obsolete duplicate legacy JWT signing helpers and unused tenant-selection session adapter imports.
 - Auth login responses now emit Cache-Control: no-store because desktop manager login legitimately carries opaque access/refresh secrets in the Rust-bound response.
 - Official version checks were performed against package.json. Drizzle's current migration docs document custom SQL migrations and migrate-based application; Tauri 2.11.5 documentation confirms the Windows production local origin is http://tauri.localhost unless useHttpsScheme is enabled.
+
+## 2026-09-25 — Part A legacy-dependency closure verification
+- Final repository-wide legacy-session scan workflow `36159157288` completed successfully on the pre-cleanup tree.
+- Scan result: no live INSERT/CREATE path writes to `manager_sessions` or `platform_sessions`; remaining references are legacy validation/revocation/cleanup only. No external callers remain for `manager-session-tx.ts`, so that dead adapter was removed.
+- Session lifetime scan found only the explicitly named `LEGACY_SESSION_MAX_AGE_SECONDS` compatibility constant and legacy fallback tests; no generic 8-hour lifetime remains in new-session code.
+- Host-clock scan over Gateway auth/session source found no `Date.now()` or `new Date()` usage in security-relevant expiry/rotation paths.
+- Compatibility scan found and fixed one real admission dependency: `request-guard.ts` now recognizes the v2 customer `cust_session` cookie alongside manager/platform cookies.
+- Tenant lifecycle shutdown now revokes v2 refresh families with database-clock timestamps; regression coverage verifies tenant suspension revocation.
+- Final focused auth workflow `36159157274` on runtime tree `3622a2b3721fc02db6b734c615dca9f0b30afc20` completed successfully after the last legacy-cleanup corrections were folded in: migrations PASS, typecheck PASS, lint PASS, unit auth suites PASS (`2 files / 10 tests`), integration auth suites PASS (`6 files / 52 tests`), Python security contracts PASS (`36 passed`).
+- The focused run logs show integration auth tests `6 passed / 52 passed / 24.05s` and Python security contracts `36 passed in 0.24s`.
+- Browser-level SameSite=Strict proof remains BLOCKED because this repository has no browser automation harness. Live Odoo 19 and real production deployment remain BLOCKED/out of scope.
+- Temporary verification workflows were removed from the repository after the focused verification.
