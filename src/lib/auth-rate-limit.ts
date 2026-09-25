@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { isIP } from "node:net";
+import { trustProxyEnabled } from "./trust-proxy-config";
 
 /**
  * Database-backed authentication rate limiter.
@@ -42,10 +43,6 @@ function parseDbTimeMs(value: Date | string | null | undefined): number | null {
 }
 
 let warnedUntrustedProxy = false;
-
-function trustProxyEnabled(): boolean {
-  return process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true";
-}
 
 function warnUntrustedProxyOnce(): void {
   if (warnedUntrustedProxy || process.env.NODE_ENV !== "production") return;
