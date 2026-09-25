@@ -695,3 +695,10 @@
 - Reasoning: fail-open would allow an attacker to turn a rate-limiter storage outage into a brute-force bypass. The cost is temporary blocking of legitimate authentication traffic during PostgreSQL rate-limit-store failure, which is acceptable because PostgreSQL is already a hard Gateway dependency and a storage outage is expected to correlate with broader authentication unavailability.
 - Structured event: `auth.rate_limit.store_unavailable` records the affected endpoint and operational error without logging credentials.
 - Verification test added: `tests/auth-rate-limit-fail-closed.test.ts` mocks `reserveAuthAttempt` to reject and asserts HTTP 503 for manager login, platform login, customer login, forgot-password, register, and resend-verification.
+
+
+## 2026-09-25 — B2 verification completed
+- Focused GitHub Actions run `36137703454` passed the relevant validation stages: `npm ci`, `npm run typecheck`, `npm run lint`, PostgreSQL migration, the fail-closed unit test, and the existing rate-limit integration suite.
+- Fail-closed test output: `tests/auth-rate-limit-fail-closed.test.ts (6 tests)`, `Test Files 1 passed (1)`, `Tests 6 passed (6)`, `Duration 758ms`.
+- Existing rate-limit regression output in the same run: `tests/auth-rate-limit.test.ts (18 tests)`, `Test Files 1 passed (1)`, `Tests 18 passed (18)`, `Duration 5.16s`.
+- Temporary verification workflow was used only to bypass unrelated full-CI gates and was removed after these results.
