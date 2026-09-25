@@ -669,6 +669,31 @@ export async function rotateRefreshToken(
   return outcome;
 }
 
+export async function revokeRefreshTokenFamily(
+  kind: SessionKind,
+  token: string,
+  reason = "logout",
+): Promise<boolean> {
+  const tokenHash = hashRefreshToken(token);
+  const result = await db.transaction(async (tx) => {
+    const found = await tx.execute(sql`
+      SELECT family_id AS "familyId"
+      FROM refresh_tokens
+      WHERE token_hash = ${tokenHash} AND kind = ${kind}
+      FOR UPDATE
+    `);
+    const familyId = (found.rows[0] as { familyId?: string } | undefined)?.familyId;
+    if (!familyId) return false;
+    await tx.execute(sql`
+      UPDATE refresh_tokens
+      SET revoked_at = clock_timestamp(), revoked_reason = ${reason}
+      WHERE family_id = ${familyId} AND revoked_at IS NULL
+    `);
+    return true;
+  });
+  return result;
+}
+
 export async function revokeSessionFamily(familyId: string, reason = "logout"): Promise<void> {
   if (!/^[0-9a-f]{32}$/.test(familyId)) throw new Error("Invalid session family id");
   await db.execute(sql`
