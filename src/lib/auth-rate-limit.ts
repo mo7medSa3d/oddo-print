@@ -53,6 +53,11 @@ function warnUntrustedProxyOnce(): void {
   );
 }
 
+const ACCOUNT_LOCK_THRESHOLDS = [5, 10, 15, 20] as const;
+const IP_LOCK_THRESHOLDS = [20, 30, 40, 50] as const;
+
+type RateLimitCurve = "account" | "ip";
+
 function progressiveLockDurationMs(failures: number): number {
   if (failures < 5) return 0;
   if (failures < 10) return 30_000;
@@ -61,13 +66,37 @@ function progressiveLockDurationMs(failures: number): number {
   return 60 * 60_000;
 }
 
+function progressiveIpLockDurationMs(failures: number): number {
+  if (failures < 20) return 0;
+  if (failures < 30) return 30_000;
+  if (failures < 40) return 5 * 60_000;
+  if (failures < 50) return 15 * 60_000;
+  return 60 * 60_000;
+}
+
+function thresholdsFor(curve: RateLimitCurve): readonly number[] {
+  return curve === "ip" ? IP_LOCK_THRESHOLDS : ACCOUNT_LOCK_THRESHOLDS;
+}
+
+function lockDurationFor(curve: RateLimitCurve, failures: number): number {
+  return curve === "ip" ? progressiveIpLockDurationMs(failures) : progressiveLockDurationMs(failures);
+}
+
+function activeLimitFor(failures: number, curve: RateLimitCurve): number {
+  const thresholds = thresholdsFor(curve);
+  return thresholds.find((threshold) => failures <= threshold) ?? thresholds[thresholds.length - 1]!;
+}
+
 export function lockDurationMs(failures: number): number {
   return progressiveLockDurationMs(failures);
 }
 
+export function ipLockDurationMs(failures: number): number {
+  return progressiveIpLockDurationMs(failures);
+}
+
 export function pairingLockDurationMs(failures: number): number {
-  // Pairing keeps the requested six-digit UX while using the same authoritative
-  // progressive lockout schedule as normal authentication.
+  // Pairing keeps its existing authoritative progressive lockout schedule.
   return progressiveLockDurationMs(failures);
 }
 
@@ -100,14 +129,94 @@ function pairingIpKey(ip: string): string {
   return `pairing-ip:${ip.slice(0, 128)}`;
 }
 
-export type RateLimitDecision =
-  | { allowed: true; retryAfterSec?: number }
-  | { allowed: false; retryAfterSec: number };
+type RateLimitBucketSnapshot = {
+  limit: number;
+  remaining: number;
+  resetAtMs: number;
+  lockedUntilMs: number | null;
+};
+
+export type RateLimitDecision = {
+  allowed: boolean;
+  retryAfterSec?: number;
+  limit: number;
+  remaining: number;
+  resetAtEpochSec: number;
+};
+
+function snapshotBucket(
+  failures: number,
+  windowStartMs: number,
+  lockedUntilMs: number | null,
+  nowMs: number,
+  windowMs: number,
+  curve: RateLimitCurve,
+): RateLimitBucketSnapshot {
+  const activeLock = lockedUntilMs !== null && lockedUntilMs > nowMs;
+  const limit = activeLimitFor(failures, curve);
+  return {
+    limit,
+    remaining: activeLock ? 0 : Math.max(0, limit - failures),
+    resetAtMs: activeLock ? lockedUntilMs : windowStartMs + windowMs,
+    lockedUntilMs: activeLock ? lockedUntilMs : null,
+  };
+}
+
+function effectiveSnapshot(snapshots: RateLimitBucketSnapshot[]): RateLimitBucketSnapshot {
+  return snapshots.reduce((best, current) => {
+    const bestRatio = best.limit > 0 ? best.remaining / best.limit : 0;
+    const currentRatio = current.limit > 0 ? current.remaining / current.limit : 0;
+    return currentRatio < bestRatio ? current : best;
+  });
+}
+
+function blockedDecision(snapshots: RateLimitBucketSnapshot[], nowMs: number): RateLimitDecision {
+  const locked = snapshots.filter((snapshot) => snapshot.lockedUntilMs !== null);
+  const latestLockMs = Math.max(...locked.map((snapshot) => snapshot.lockedUntilMs as number));
+  const limiting = locked.find((snapshot) => snapshot.resetAtMs === latestLockMs) ?? locked[0]!;
+  return {
+    allowed: false,
+    retryAfterSec: Math.max(1, Math.ceil((latestLockMs - nowMs) / 1000)),
+    limit: limiting.limit,
+    remaining: 0,
+    resetAtEpochSec: Math.ceil(latestLockMs / 1000),
+  };
+}
+
+function allowedDecision(snapshots: RateLimitBucketSnapshot[], nowMs: number): RateLimitDecision {
+  const locked = snapshots.filter((snapshot) => snapshot.lockedUntilMs !== null);
+  if (locked.length > 0) {
+    const latestLockMs = Math.max(...locked.map((snapshot) => snapshot.lockedUntilMs as number));
+    const limiting = locked.find((snapshot) => snapshot.resetAtMs === latestLockMs) ?? locked[0]!;
+    return {
+      allowed: true,
+      retryAfterSec: Math.max(1, Math.ceil((latestLockMs - nowMs) / 1000)),
+      limit: limiting.limit,
+      remaining: 0,
+      resetAtEpochSec: Math.ceil(latestLockMs / 1000),
+    };
+  }
+  const snapshot = effectiveSnapshot(snapshots);
+  return {
+    allowed: true,
+    limit: snapshot.limit,
+    remaining: snapshot.remaining,
+    resetAtEpochSec: Math.ceil(snapshot.resetAtMs / 1000),
+  };
+}
+
+export function setRateLimitHeaders<T extends Response>(response: T, decision: RateLimitDecision): T {
+  response.headers.set("X-RateLimit-Limit", String(decision.limit));
+  response.headers.set("X-RateLimit-Remaining", String(decision.remaining));
+  response.headers.set("X-RateLimit-Reset", String(decision.resetAtEpochSec));
+  return response;
+}
 
 async function reserveBucketAttempt(
   key: string,
   windowMs: number,
   lockFn: (attempts: number) => number,
+  curve: RateLimitCurve = "account",
 ): Promise<RateLimitDecision> {
   return db.transaction(async (tx) => {
     const clock = await tx.execute(sql`SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms`);
@@ -134,7 +243,15 @@ async function reserveBucketAttempt(
 
     const existingLockMs = parseDbTimeMs(row.locked_until);
     if (existingLockMs !== null && existingLockMs > now.getTime()) {
-      return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((existingLockMs - now.getTime()) / 1000)) };
+      const snapshot = snapshotBucket(
+        Number(row.failures ?? 0),
+        parseDbTimeMs(row.window_started_at ?? now) ?? now.getTime(),
+        existingLockMs,
+        now.getTime(),
+        windowMs,
+        curve,
+      );
+      return blockedDecision([snapshot], now.getTime());
     }
 
     const oldWindowMs = parseDbTimeMs(row.window_started_at ?? now) ?? now.getTime();
@@ -153,14 +270,21 @@ async function reserveBucketAttempt(
       WHERE key = ${key}
     `);
 
-    return lockedUntil
-      ? { allowed: true, retryAfterSec: Math.max(1, Math.ceil((lockedUntil.getTime() - now.getTime()) / 1000)) }
-      : { allowed: true };
+    return allowedDecision([
+      snapshotBucket(
+        attempts,
+        newWindowStart.getTime(),
+        lockedUntil?.getTime() ?? null,
+        now.getTime(),
+        windowMs,
+        curve,
+      ),
+    ], now.getTime());
   });
 }
 
 export async function reservePairingAttempt(ip: string): Promise<RateLimitDecision> {
-  return reserveBucketAttempt(pairingIpKey(ip), PAIRING_RATE_WINDOW_MS, pairingLockDurationMs);
+  return reserveBucketAttempt(pairingIpKey(ip), PAIRING_RATE_WINDOW_MS, pairingLockDurationMs, "account");
 }
 
 export async function reserveAuthAttempt(ip: string, username: string): Promise<RateLimitDecision> {
@@ -190,22 +314,34 @@ export async function reserveAuthAttempt(ip: string, username: string): Promise<
       FOR UPDATE
     `);
 
-    for (const raw of rows.rows as Array<{ failures?: number | string; window_started_at?: Date | string; locked_until?: Date | string | null }>) {
+    for (const raw of rows.rows as Array<{ key: string; failures?: number | string; window_started_at?: Date | string; locked_until?: Date | string | null }>) {
       const lockedUntilMs = parseDbTimeMs(raw.locked_until);
       if (lockedUntilMs !== null && lockedUntilMs > now.getTime()) {
-        return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((lockedUntilMs - now.getTime()) / 1000)) };
+        const snapshots = rows.rows.map((candidate) => {
+          const rowCandidate = candidate as { key: string; failures?: number | string; window_started_at?: Date | string; locked_until?: Date | string | null };
+          const curve: RateLimitCurve = rowCandidate.key.startsWith("ip:") ? "ip" : "account";
+          return snapshotBucket(
+            Number(rowCandidate.failures ?? 0),
+            parseDbTimeMs(rowCandidate.window_started_at ?? now) ?? now.getTime(),
+            parseDbTimeMs(rowCandidate.locked_until),
+            now.getTime(),
+            AUTH_RATE_WINDOW_MS,
+            curve,
+          );
+        }).filter((snapshot) => snapshot.lockedUntilMs !== null);
+        return blockedDecision(snapshots, now.getTime());
       }
     }
 
-    const exhaustedLocks: number[] = [];
+    const snapshots: RateLimitBucketSnapshot[] = [];
     for (const raw of rows.rows as Array<{ key: string; failures?: number | string; window_started_at?: Date | string }>) {
       const oldWindowMs = parseDbTimeMs(raw.window_started_at ?? now) ?? now.getTime();
       const windowExpired = oldWindowMs < windowStartCutoff.getTime();
       const attempts = windowExpired ? 1 : Number(raw.failures ?? 0) + 1;
       const newWindowStart = windowExpired ? now : new Date(oldWindowMs);
-      const lockMs = lockDurationMs(attempts);
+      const curve: RateLimitCurve = raw.key.startsWith("ip:") ? "ip" : "account";
+      const lockMs = lockDurationFor(curve, attempts);
       const lockedUntil = lockMs > 0 ? new Date(now.getTime() + lockMs) : null;
-      if (lockedUntil) exhaustedLocks.push(lockedUntil.getTime());
       await tx.execute(sql`
         UPDATE auth_rate_limits
         SET failures = ${attempts},
@@ -214,10 +350,16 @@ export async function reserveAuthAttempt(ip: string, username: string): Promise<
             updated_at = ${now}
         WHERE key = ${raw.key}
       `);
+      snapshots.push(snapshotBucket(
+        attempts,
+        newWindowStart.getTime(),
+        lockedUntil?.getTime() ?? null,
+        now.getTime(),
+        AUTH_RATE_WINDOW_MS,
+        curve,
+      ));
     }
-    return exhaustedLocks.length > 0
-      ? { allowed: true, retryAfterSec: Math.max(1, Math.ceil((Math.max(...exhaustedLocks) - now.getTime()) / 1000)) }
-      : { allowed: true };
+    return allowedDecision(snapshots, now.getTime());
   });
 }
 
