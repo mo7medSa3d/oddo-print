@@ -84,9 +84,13 @@ jobs:
             exit "$audit_status"
           done
 
-      - name: Go vulnerability scan
+      - name: Go vulnerability scan (pinned)
         working-directory: agent
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.5.0 ./...
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
 
       - name: Rust vulnerability scan
         working-directory: src-tauri
