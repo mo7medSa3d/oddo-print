@@ -1,35 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-
-function createNonce(): string {
-  return Buffer.from(crypto.randomUUID()).toString("base64");
-}
-
-function buildContentSecurityPolicy(nonce: string, isDev: boolean): string {
-  const cspHeader = `
-    default-src 'self';
-    base-uri 'self';
-    object-src 'none';
-    frame-ancestors 'none';
-    form-action 'self';
-    script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""};
-    style-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-inline'" : ""};
-    img-src 'self' data: blob:;
-    font-src 'self' data:;
-    connect-src 'self';
-    worker-src 'self' blob:;
-    manifest-src 'self';
-  `;
-
-  return cspHeader.replace(/\\s{2,}/g, " ").trim();
-}
+import {
+  createRequestContentSecurityPolicy,
+} from "./src/server/content-security-policy";
 
 export function proxy(request: NextRequest): NextResponse {
-  const nonce = createNonce();
-  const cspHeader = buildContentSecurityPolicy(nonce, process.env.NODE_ENV === "development");
+  const { nonce, policy } = createRequestContentSecurityPolicy();
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
-  requestHeaders.set("Content-Security-Policy", cspHeader);
+  requestHeaders.set("Content-Security-Policy", policy);
 
   const response = NextResponse.next({
     request: {
@@ -37,7 +16,7 @@ export function proxy(request: NextRequest): NextResponse {
     },
   });
 
-  response.headers.set("Content-Security-Policy", cspHeader);
+  response.headers.set("Content-Security-Policy", policy);
   return response;
 }
 
