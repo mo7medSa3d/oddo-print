@@ -272,8 +272,8 @@ fn is_public_gateway_path(path: &str) -> bool {
         || path == "/api/auth/manager/refresh"
 }
 
-fn is_manager_refresh_path(path: &str) -> bool {
-    path == "/api/auth/manager/refresh"
+fn uses_manager_refresh_credential(path: &str) -> bool {
+    path == "/api/auth/manager/refresh" || path == "/api/auth/manager/logout"
 }
 
 #[tauri::command]
@@ -395,7 +395,7 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     } else {
         current_manager_token()
     };
-    let manager_refresh_token = if is_manager_refresh_path(path) {
+    let manager_refresh_token = if uses_manager_refresh_credential(path) {
         current_manager_refresh_token()
     } else {
         None
@@ -444,7 +444,7 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     let status = response.status().as_u16();
     let body = read_response_body_limited(response, 8 * 1024 * 1024).await?;
 
-    if is_manager_refresh_path(path) && (status == 401 || status == 403) {
+    if path == "/api/auth/manager/refresh" && (status == 401 || status == 403) {
         clear_manager_session_inner();
     } else if (path == "/api/auth/manager/login" || path == "/api/auth/manager/refresh") && (200..300).contains(&status) {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) {
@@ -1388,7 +1388,7 @@ mod security_tests {
         assert!(is_public_gateway_path("/api/health"));
         assert!(is_public_gateway_path("/api/auth/manager/login"));
         assert!(is_public_gateway_path("/api/auth/manager/refresh"));
-        assert!(is_manager_refresh_path("/api/auth/manager/refresh"));
+        assert!(uses_manager_refresh_credential("/api/auth/manager/refresh"));
         assert!(!is_public_gateway_path("/api/auth/manager/me"));
         assert!(!is_public_gateway_path("/api/jobs"));
     }
