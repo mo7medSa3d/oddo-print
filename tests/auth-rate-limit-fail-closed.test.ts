@@ -1,13 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 
-const rateLimitStoreError = new Error("postgres rate-limit store unavailable");
-
-vi.mock("../src/lib/auth-rate-limit", () => ({
+vi.mock("../src/lib/auth-rate-limit", () => {
+  const rateLimitStoreError = new Error("postgres rate-limit store unavailable");
+  return {
   clientIpFrom: vi.fn(() => "198.51.100.10"),
   reserveAuthAttempt: vi.fn().mockRejectedValue(rateLimitStoreError),
   recordAuthSuccess: vi.fn(),
   setRateLimitHeaders: vi.fn((response: Response) => response),
-}));
+  };
+});
 
 import { POST as managerLogin } from "../src/app/api/auth/manager/login/route";
 import { POST as platformLogin } from "../src/app/api/platform/auth/login/route";
