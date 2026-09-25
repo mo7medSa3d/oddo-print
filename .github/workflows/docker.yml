@@ -77,6 +77,117 @@ jobs:
           fi
           docker compose exec -T gateway node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>r.text()).then(console.log)"
 
+      - name: Verify system health and authenticated WebSocket
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile
+
+          docker compose exec -T gateway node <<'NODE'
+          const fs = require("node:fs");
+          const crypto = require("node:crypto");
+          const { Client } = require("pg");
+          const WebSocket = require("ws");
+
+          const sha256 = (v) => crypto.createHash("sha256").update(v).digest("hex");
+          const b64url = (v) => Buffer.from(v).toString("base64url");
+          const signJwt = (secret, claims) => {
+            const header = b64url(JSON.stringify({alg:"HS256",typ:"JWT"}));
+            const payload = b64url(JSON.stringify(claims));
+            const data = header + "." + payload;
+            const sig = crypto.createHmac("sha256", secret).update(data).digest("base64url");
+            return data + "." + sig;
+          };
+
+          const pgPassword = fs.readFileSync("/run/secrets/postgres_password", "utf8").trim();
+          const jwtSecret = fs.readFileSync("/run/secrets/gateway_jwt_secret", "utf8").trim();
+          const proxySecret = fs.readFileSync("/run/secrets/trust_proxy_secret", "utf8").trim();
+          const suffix = crypto.randomBytes(8).toString("hex");
+          const tenantId = "phase0_tenant_" + suffix;
+          const agentId = "phase0_agent_" + suffix;
+          const agentSecret = "phase0_secret_" + crypto.randomBytes(18).toString("base64url");
+          const jti = "phase0_jti_" + crypto.randomBytes(16).toString("hex");
+          const now = Math.floor(Date.now() / 1000);
+          const exp = now + 3600;
+
+          const client = new Client({
+            host: process.env.PGHOST,
+            port: Number(process.env.PGPORT),
+            database: process.env.PGDATABASE,
+            user: process.env.PGUSER,
+            password: pgPassword,
+          });
+          await client.connect();
+          try {
+            await client.query("BEGIN");
+            await client.query(
+              "INSERT INTO tenants (id, name) VALUES ($1, $2)",
+              [tenantId, "Phase 0 smoke tenant"],
+            );
+            await client.query(
+              "INSERT INTO agents (id, tenant_id, name, secret, status, lifecycle, last_seen_at) VALUES ($1,$2,$3,$4,'online','active',clock_timestamp())",
+              [agentId, tenantId, "Phase 0 smoke agent", sha256(agentSecret)],
+            );
+            await client.query(
+              "INSERT INTO manager_sessions (jti, tenant_id, role, expires_at) VALUES ($1,$2,'admin',to_timestamp($3))",
+              [jti, tenantId, exp],
+            );
+            await client.query("COMMIT");
+          } catch (e) {
+            await client.query("ROLLBACK");
+            throw e;
+          } finally {
+            await client.end();
+          }
+
+          const managerToken = signJwt(jwtSecret, {
+            jti, iat: now, exp, sub: "manager", tenantId, role: "admin",
+          });
+
+          const health = await fetch("http://127.0.0.1:3000/api/system/health", {
+            headers: {
+              authorization: "Bearer " + managerToken,
+              "x-gateway-proxy-token": proxySecret,
+              origin: "https://print.example.com",
+            },
+          });
+          console.log("SYSTEM_HEALTH_HTTP_STATUS=" + health.status);
+          console.log(await health.text());
+          if (!health.ok) process.exit(10);
+
+          await new Promise((resolve, reject) => {
+            const ws = new WebSocket("ws://127.0.0.1:3000/api/agent/ws", {
+              headers: {
+                Authorization: "Bearer " + agentId + ":" + agentSecret,
+                "X-Gateway-Proxy-Token": proxySecret,
+              },
+            });
+            const timer = setTimeout(() => {
+              try { ws.terminate(); } catch {}
+              reject(new Error("WebSocket connection timeout"));
+            }, 5000);
+            ws.once("open", () => {
+              clearTimeout(timer);
+              console.log("AGENT_WS_CONNECTION=accepted");
+              ws.close(1000, "phase-0 smoke test");
+              resolve();
+            });
+            ws.once("error", (error) => {
+              clearTimeout(timer);
+              reject(error);
+            });
+          });
+          NODE
+
+          echo "CADDY_HTTP_RESPONSE:"
+          curl --silent --show-error --head --max-time 10             -H 'Host: print.example.com'             http://127.0.0.1/api/live
+
+      - name: Show service readiness logs
+        shell: bash
+        run: |
+          docker compose logs --no-color postgres migrate gateway caddy
+
+
       - name: Show logs on failure
         if: failure()
         run: docker compose logs --no-color
