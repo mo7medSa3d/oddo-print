@@ -443,7 +443,7 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     let status = response.status().as_u16();
     let body = read_response_body_limited(response, 8 * 1024 * 1024).await?;
 
-    if status == 401 || status == 403 {
+    if is_manager_refresh_path(path) && (status == 401 || status == 403) {
         clear_manager_session_inner();
     } else if (path == "/api/auth/manager/login" || path == "/api/auth/manager/refresh") && (200..300).contains(&status) {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) {
