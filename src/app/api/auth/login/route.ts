@@ -1,6 +1,6 @@
 import { logError, logWarn } from "../../../../lib/log";
 import { NextResponse } from "next/server";
-import { authenticateForTenant, customerSessionCookie } from "../../../../lib/customer-auth";
+import { authenticateForTenant, issueCustomerSession, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
 import { reserveAuthAttempt, clientIpFrom, recordAuthSuccess, setRateLimitHeaders } from "../../../../lib/auth-rate-limit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { writeAuditEvent } from "../../../../lib/audit";
@@ -50,12 +50,22 @@ export async function POST(req: Request) {
     }, { status: 409 }), pre);
   }
   if (!("tenantId" in identity) || !identity.tenantId || !identity.role) return setRateLimitHeaders(NextResponse.json({ error: "Workspace setup is incomplete" }, { status: 409 }), pre);
-  const session = await (await import("../../../../lib/customer-auth")).issueCustomerSession(identity.userId, identity.tenantId, identity.role);
+  const session = await issueCustomerSession(
+    identity.userId,
+    identity.tenantId,
+    identity.role,
+    {
+      ipAddress: ip,
+      userAgent: req.headers.get("user-agent"),
+    },
+    email,
+  );
   if (!session) {
     return setRateLimitHeaders(NextResponse.json({ error: "Workspace is unavailable" }, { status: 403 }), pre);
   }
-  const res = NextResponse.json({ ok: true, expiresAt: session.exp.toISOString(), tenantId: identity.tenantId, role: identity.role });
+  const res = NextResponse.json({ ok: true, expiresAt: session.accessExpiresAt.toISOString(), tenantId: identity.tenantId, role: identity.role });
   res.headers.set("Set-Cookie", customerSessionCookie(session));
+  res.headers.append("Set-Cookie", customerRefreshCookie(session));
   await writeAuditEvent({ tenantId: identity.tenantId, actorType: "user", actorId: identity.userId, action: "user.login.success" }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   return setRateLimitHeaders(res, pre);
 }
