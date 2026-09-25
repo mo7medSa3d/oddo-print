@@ -37,7 +37,9 @@ jobs:
           cache-dependency-path: agent/go.sum
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.98.1
+        with:
+          toolchain: 1.98.1
 
       - name: Install Node dependencies
         run: npm ci
@@ -55,6 +57,35 @@ jobs:
         run: |
           set -euo pipefail
           npm audit
+
+      - name: Verify npm high-severity audit gate with known vulnerable fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture="$(mktemp -d)"
+          trap 'rm -rf "$fixture"' EXIT
+          cat > "$fixture/package.json" <<'EOF'
+          {
+            "name": "yasser-audit-gate-fixture",
+            "version": "1.0.0",
+            "private": true,
+            "dependencies": {
+              "lodash": "4.17.19"
+            }
+          }
+          EOF
+          (cd "$fixture" && npm install --package-lock-only --ignore-scripts >/dev/null)
+          set +e
+          audit_output="$(cd "$fixture" && npm audit --audit-level=high 2>&1)"
+          audit_status=$?
+          set -e
+          printf '%s
+' "$audit_output"
+          if [ "$audit_status" -eq 0 ]; then
+            echo "Expected npm audit to fail for the known high-severity fixture."
+            exit 1
+          fi
+          echo "Known vulnerable fixture correctly caused npm audit --audit-level=high to fail."
 
       - name: npm audit
         shell: bash
