@@ -67,5 +67,6 @@ export async function POST(req: Request) {
   res.headers.set("Set-Cookie", customerSessionCookie(session));
   res.headers.append("Set-Cookie", customerRefreshCookie(session));
   await writeAuditEvent({ tenantId: identity.tenantId, actorType: "user", actorId: identity.userId, action: "user.login.success" }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
+  res.headers.set("Cache-Control", "no-store");
   return setRateLimitHeaders(res, pre);
 }
