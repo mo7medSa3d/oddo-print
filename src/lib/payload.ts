@@ -10,7 +10,7 @@ const BUZZER_MODES = payloadContract.peripherals.buzzer as ["epson_pulse", "star
 
 export const printJobPayloadSchema = z.object({
   type: z.enum(PAYLOAD_TYPES),
-  encoding: z.literal("base64"),
+  encoding: z.literal(payloadContract.encoding),
   protocol: z.enum(RAW_PROTOCOLS).optional(),
   peripherals: z.object({
     drawer: z.enum(DRAWER_MODES).optional(),
@@ -29,8 +29,8 @@ export const printJobPayloadSchema = z.object({
   }, { message: `payload.data must be valid base64 and decode to 1..${MAX_PAYLOAD_BYTES} bytes` }),
 }).superRefine((payload, ctx) => {
   const decoded = Buffer.from(payload.data, "base64");
-  const pdfSignature = Buffer.from("%PDF-");
-  const jpegSignature = decoded.length >= 3 && decoded[0] === 0xff && decoded[1] === 0xd8 && decoded[2] === 0xff;
+  const pdfSignature = Buffer.from(payloadContract.signatures.pdfPrefix);
+  const jpegSignature = decoded.length >= 3 && decoded.subarray(0, 3).equals(Buffer.from(payloadContract.signatures.jpegHexPrefix, "hex"));
   const looksLikePdf = decoded.length >= pdfSignature.length && decoded.subarray(0, pdfSignature.length).equals(pdfSignature);
 
   if (payload.type === "pdf" && !looksLikePdf) {
