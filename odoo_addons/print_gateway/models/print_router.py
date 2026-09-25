@@ -474,7 +474,7 @@ class PrintGatewayRouter(models.AbstractModel):
         explicit_destination = order.config_id
         if pos_printer:
             pos_printer.ensure_one()
-            if pos_printer not in order.config_id.preparation_printer_ids:
+            if pos_printer not in order.config_id.printer_ids:
                 raise ValidationError(_("The selected Odoo Preparation Printer does not belong to this POS."))
             explicit_destination = pos_printer
         route = self.resolve_binding(
