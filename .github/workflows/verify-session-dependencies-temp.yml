@@ -1,0 +1,30 @@
+name: TEMP Verify Session Dependencies
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Inventory legacy session dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "== legacy session symbols =="
+          git grep -nE 'createManagerSession|createPlatformSession|managerCookieHeader|platformCookieHeader|managerSessions|platformSessions|manager-session-tx|SESSION_MAX_AGE_SECONDS|LEGACY_SESSION_MAX_AGE_SECONDS|(^|[^[:alnum:]_])(mgr_session|plt_session)([^[:alnum:]_]|$)' -- src tests scripts || true
+          echo "== refresh symbols =="
+          git grep -nE 'refreshTokens|refreshCookieHeader|rotateRefreshToken|issueSessionPair|revokeSessionFamily' -- src tests scripts || true
+          echo "== auth timing =="
+          git grep -nE 'Date\.now\(\)|new Date\(\)' -- src/lib src/app/api src-tauri/src tests | grep -E 'auth|session|login|logout|refresh|password|verify|tenant|manager|platform|customer|rate-limit|commands' || true
+          echo "== hardcoded 8h auth windows =="
+          git grep -nE '8 ?\* ?60 ?\* ?60|28800|28_800|8 hours|8-hour' -- src tests scripts SECURITY.md OPERATIONS.md DEPLOYMENT.md || true
