@@ -57,12 +57,12 @@ The architecture enforces strict separation between **how bytes are delivered** 
 
 | Connection Type | Supported Protocols | Valid Payload Types | Typical Target |
 | :--- | :--- | :--- | :--- |
-| `network` | `raw`, `escpos`, `zpl`, `tspl` | `raw`, `escpos`, `image` (JPEG raster) | Network Thermal / Label Printers (Port 9100) |
-| `spooler` | `spooler`, `raw`, `escpos`, `zpl` | `pdf`, `raw`, `escpos`, `image` | Windows Spooler Queues, Laser/Inkjet Drivers |
-| `usb` | `escpos`, `zpl`, `tspl`, `raw` | `raw`, `escpos`, `image` | Direct USB Thermal / Label Printers |
+| `network` | `raw`, `escpos`, `zpl`, `tspl` | `raw`, `escpos`, `image*` | Network Thermal / Label Printers (Port 9100) |
+| `spooler` | `spooler`, `raw`, `escpos` | `pdf`, `raw`, `escpos`, `image` | Windows Spooler Queues, Laser/Inkjet Drivers |
+| `usb` | `raw`, `escpos` | `raw`, `escpos` | Direct USB Thermal / Label Printers |
 | `ipp` / `ipps` | `ipp`, `ipps` | `pdf` | Modern Network Office Printers / CUPS (default Port 631) |
 
-Printer destinations are canonicalized and validated at both control-plane and agent boundaries. Network printers use the private/link-local `config.ip` plus the protocol-approved port; a conflicting legacy `config.address` is rejected. IPP/IPPS URLs must resolve to an allowed private/link-local destination, and `ipp://` or `ipps://` without an explicit port defaults to 631.
+`image*` is supported by the network backend only when its declared protocol is `escpos`; ZPL/TSPL are native printer protocols carried inside the `raw` wire payload rather than separate top-level Gateway payload types. Printer destinations are canonicalized and validated at both control-plane and agent boundaries. Network printers use the private/link-local `config.ip` plus the protocol-approved port; a conflicting legacy `config.address` is rejected. IPP/IPPS URLs must resolve to an allowed private/link-local destination, and `ipp://` or `ipps://` without an explicit port defaults to 631.
 
 ---
 
@@ -126,4 +126,6 @@ To prevent transport mismatches and uncaught UI exceptions (such as React #441),
 * **`tspl`**: Label formatted with `SIZE 75 mm, 50 mm... PRINT 1,1`.
 * **`raw`**: Plaintext ASCII banner test.
 * **`spooler` / `ipp` / `ipps`**: Programmatically generated valid PDF 1.4 document containing text streams (`%PDF-1.4...`).
+
+The Gateway wire contract has four top-level payload kinds: `raw`, `escpos`, `pdf`, and `image`.
 * **Unsupported / Unknown**: Structured `422 Unprocessable Entity` with `code: "CAPABILITY_MISMATCH"`, gracefully rendered in UI toasts without exception propagation.
