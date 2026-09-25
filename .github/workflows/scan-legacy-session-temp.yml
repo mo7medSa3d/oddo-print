@@ -38,6 +38,9 @@ jobs:
 
           echo "=== Refresh implementation ==="
           git grep -nE 'rotateRefreshToken|revokeSessionFamily|cleanupExpiredRefreshTokens|refreshPrincipalStillValid' -- src
+          echo "=== Legacy helper callers ==="
+          git grep -nE 'manager-session-tx|createManagerSessionInTransaction|revokeManagerSessionInTransaction' -- src
+
 
           echo "=== TEMP workflow names ==="
           find .github/workflows -maxdepth 1 -type f -iname '*temp*' -print
