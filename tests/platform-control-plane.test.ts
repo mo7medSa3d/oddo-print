@@ -119,7 +119,9 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
       INSERT INTO platform_sessions (jti, user_id, expires_at)
       VALUES (${jti}, ${user.userId}, clock_timestamp() + interval '8 hours')
     `);
-    const createdAt = Math.floor(Date.now() / 1000);
+    const createdAt = Number((await db.execute(
+      sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`,
+    )).rows[0]?.now_sec);
     const legacyHeader = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
     const legacyPayload = Buffer.from(JSON.stringify({
       jti,
