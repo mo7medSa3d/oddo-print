@@ -10,6 +10,7 @@ import { applyApiCacheControlDefault } from "./src/server/api-defaults";
 import { sweepPrintJobs } from "./src/lib/job-maintenance";
 import { cleanupAuthRateLimits } from "./src/lib/auth-rate-limit";
 import { cleanupExpiredManagerSessions } from "./src/lib/manager-auth";
+import { cleanupExpiredRefreshTokens } from "./src/lib/session-tokens";
 import { applyApiCors, handleApiCorsPreflight } from "./src/server/cors";
 import { isTrustedProxyRequest, trustProxyEnabled } from "./src/server/trusted-proxy";
 import { runtimeSecret } from "./src/lib/runtime-secret";
@@ -200,6 +201,7 @@ app.prepare().then(() => {
     Promise.all([
       cleanupAuthRateLimits(),
       cleanupExpiredManagerSessions(),
+      cleanupExpiredRefreshTokens(),
     ]).catch((error) => {
       logError("[auth-maintenance] cleanup failed", { error: error });
     });
