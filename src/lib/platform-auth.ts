@@ -19,8 +19,6 @@ import {
 } from "./session-tokens";
 
 const COOKIE_NAME = "plt_session";
-const MAX_AGE_SECONDS = LEGACY_SESSION_MAX_AGE_SECONDS;
-
 function getSecret(): string {
   const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
   if (s.length < 32) throw new Error("GATEWAY_JWT_SECRET must be >=32 chars");
