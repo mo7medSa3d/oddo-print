@@ -74,5 +74,6 @@ export async function POST(req: Request) {
     }
   );
   response.headers.append("Set-Cookie", platformRefreshCookieHeader(session.refreshToken, session.refreshExpiresAt));
+  response.headers.set("Cache-Control", "no-store");
   return setRateLimitHeaders(response, decision);
 }
