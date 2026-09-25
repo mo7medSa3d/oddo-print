@@ -75,7 +75,9 @@ describe("print payload wire contract", () => {
     expect(payloadContract.signatures.jpegHexPrefix).toBe("ffd8ff");
     const go = read("agent/internal/payload/payload.go");
     expect(go).toContain(`[]byte("${payloadContract.signatures.pdfPrefix}")`);
-    expect(go).toContain("hex.DecodeString");
+    expect(go).toContain("decoded[0] == 0xff");
+    expect(go).toContain("decoded[1] == 0xd8");
+    expect(go).toContain("decoded[2] == 0xff");
     expect(go).toContain("EncodingBase64");
   });
 });
