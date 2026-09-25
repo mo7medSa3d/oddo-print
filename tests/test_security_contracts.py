@@ -74,7 +74,8 @@ def test_manager_login_does_not_mask_identity_lookup_failures_as_invalid_credent
     # generic INVALID credentials response.
     catch_start = block.index("catch")
     catch_end = block.index("}\n", catch_start) + 2
-    assert "return NextResponse.json" in block[catch_start:catch_end]
+    assert "NextResponse.json" in block[catch_start:catch_end]
+    assert "setRateLimitHeaders" in block[catch_start:catch_end]
 
 
 
