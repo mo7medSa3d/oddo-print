@@ -83,6 +83,14 @@ jobs:
           fi
           docker compose exec -T gateway node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>r.text()).then(console.log)"
 
+      - name: Phase 0 served security headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'SERVED_SECURITY_HEADERS_BEGIN'
+          curl --silent --show-error --include --max-time 10 http://127.0.0.1:3000/
+          echo 'SERVED_SECURITY_HEADERS_END'
+
       - name: Verify system health and authenticated WebSocket
         shell: bash
         run: |
