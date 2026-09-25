@@ -9,6 +9,8 @@ import {
   accessCookieHeader,
   refreshCookieHeader,
 } from "../src/lib/session-tokens";
+import { validateManager } from "../src/lib/manager-auth";
+import { validateCustomer } from "../src/lib/customer-auth";
 import { applyMigrations, closePool, pool, truncateAll, hasTestDatabase } from "./helpers/pg";
 
 const sentEmails: Array<{ to: string; subject: string }> = [];
@@ -44,6 +46,28 @@ suite("shared refresh-token session rotation", () => {
 
   afterAll(async () => {
     await closePool();
+  });
+
+  it("keeps manager and customer v2 access-token kinds isolated", async () => {
+    const customer = await issueSessionPair({
+      kind: "customer",
+      tenantId: "tenant_session_test",
+      userId: "user_session_test",
+      role: "admin",
+      email: "session@example.test",
+    });
+
+    const request = new Request("http://gateway.test/api/auth/me", {
+      headers: { cookie: "mgr_session=" + customer.accessToken },
+    });
+
+    const managerClaims = await validateManager(request);
+    expect(managerClaims).toBeNull();
+
+    const customerClaims = await validateCustomer(request);
+    expect(customerClaims).not.toBeNull();
+    expect(customerClaims?.kind).toBe("customer");
+    expect(customerClaims?.tenantId).toBe("tenant_session_test");
   });
 
   it("issues a 15-minute access token and hashed 30-day refresh family", async () => {
