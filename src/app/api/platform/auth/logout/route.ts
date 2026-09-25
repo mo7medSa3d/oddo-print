@@ -7,14 +7,17 @@ import {
 } from "../../../../../lib/platform-auth";
 import { writeAuditEvent } from "../../../../../lib/audit";
 import { logError } from "../../../../../lib/log";
-import { revokeSessionFamily } from "../../../../../lib/session-tokens";
+import { getRefreshTokenFromRequest, revokeRefreshTokenFamily, revokeSessionFamily } from "../../../../../lib/session-tokens";
 
 export async function POST(req: Request) {
   const claims = await validatePlatformOwner(req);
   if (claims) {
+    const refreshToken = getRefreshTokenFromRequest(req, "platform");
     await (claims.familyId
       ? revokeSessionFamily(claims.familyId, "logout")
-      : revokePlatformSession(claims.jti)
+      : refreshToken
+        ? revokeRefreshTokenFamily("platform", refreshToken, "logout")
+        : revokePlatformSession(claims.jti)
     ).catch((err) =>
       logError("platform_logout_session_revoke_failed", {
         jti: claims.jti,
