@@ -65,8 +65,9 @@ jobs:
           cache-dependency-path: agent/go.sum
       - name: Agent Phase 0 - Go build
         working-directory: agent
-        run: go mod verify
-go build -mod=readonly ./...
+        run: |
+          go mod verify
+          go build -mod=readonly ./...
       - name: Agent Phase 0 - Go vet
         working-directory: agent
         run: go vet -mod=readonly ./...
@@ -105,7 +106,7 @@ go build -mod=readonly ./...
           GOOS=windows "$(go env GOPATH)/bin/staticcheck" -checks=U1000 ./...
 
       - name: Dead-code and unused-export scan
-        run: npx --yes knip@6.31.0 --exports
+        run: npx --yes knip@6.31.0
       - name: Validate Odoo 19 addon XML conventions
         run: |
           if grep -R -nE '<tree([[:space:]>])|attrs=|states=' odoo_addons/print_gateway/views; then
