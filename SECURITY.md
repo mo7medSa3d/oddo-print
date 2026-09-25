@@ -40,6 +40,7 @@
 |-------|-----------|------------|
 | Auth-adjacent endpoints | PostgreSQL dual-key reservation | Account key always; trusted-proxy IP key when available; 15-minute window |
 | Auth response metadata | Compatibility response headers | `X-RateLimit-Limit`, `X-RateLimit-Remaining`, epoch-second `X-RateLimit-Reset`, plus `Retry-After` when throttled |
+| Rate-limit storage failure | Fail closed | Authentication-adjacent requests return HTTP 503 rather than bypassing the limiter; no fail-open exception |
 | WebSocket upgrade | Per-IP rate check | At upgrade time |
 | WebSocket messages | Per-agent token bucket | 20 capacity, 5 refill/s |
 | Print job admission | Atomic tenant plan entitlements | `max_jobs_per_minute` and `max_concurrent_jobs` are enforced inside the PostgreSQL transaction that creates/claims work; billing-period print credits are reserved atomically |
@@ -101,3 +102,6 @@ Missing or invalid key material must fail closed during credential migration or 
 
 ### Alerting boundary
 The `audit_events` table is a durable audit trail, not an alerting system. The current repository exposes the audit feed to Platform Owners, but does not include a configured real-time alert sink/provider. Operational alerting for high-severity security events remains an explicit deployment/infrastructure responsibility; it must not be inferred from audit writes alone.
+
+### Rate-limit storage failure policy
+The Gateway deliberately keeps authentication rate limiting fail-closed. If the PostgreSQL reservation operation fails, the affected authentication-adjacent request returns HTTP 503 rather than proceeding without an authoritative limiter decision. This prevents an attacker from attempting to bypass brute-force protection by disrupting the limiter store. The tradeoff is that legitimate authentication traffic can be temporarily blocked during a limiter-specific PostgreSQL failure. PostgreSQL is already a hard dependency for Gateway authentication and most other control-plane operations, so a limiter-storage outage is expected to correlate with a broader database availability problem where authentication cannot be completed reliably anyway. No narrowly-scoped fail-open exception is justified by the current architecture.
