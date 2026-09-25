@@ -143,12 +143,6 @@ jobs:
           if ($skipped -gt 0) {
             Write-Host "No Postgres service on this runner — $skipped integration test(s) were skipped in the Windows build. Full integration coverage runs in the CI workflow (.github/workflows/ci.yml)."
           }
-      - name: Build Go Agent
-        working-directory: agent
-        shell: pwsh
-        run: |
-          go build -mod=readonly -trimpath -ldflags="-s -w" -o YasserAgent.exe ./cmd/agent
-          go build -mod=readonly -trimpath -ldflags="-s -w" -o yasser-agent-cli.exe ./cmd/cli
       - name: Verify Go binaries
         shell: pwsh
         run: |
