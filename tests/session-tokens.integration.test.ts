@@ -64,6 +64,19 @@ suite("shared refresh-token session rotation", () => {
     const managerClaims = await validateManager(request);
     expect(managerClaims).toBeNull();
 
+    const customerPair = await issueSessionPair({
+      kind: "manager",
+      tenantId: "tenant_session_test",
+      userId: "user_session_test",
+      role: "admin",
+      email: "session@example.test",
+    });
+    const customerRequest = new Request("http://gateway.test/api/auth/me", {
+      headers: { cookie: "mgr_session=" + customerPair.accessToken },
+    });
+    const customerRejectsManager = await validateCustomer(customerRequest);
+    expect(customerRejectsManager).toBeNull();
+
     const customerClaims = await validateCustomer(request);
     expect(customerClaims).not.toBeNull();
     expect(customerClaims?.kind).toBe("customer");
