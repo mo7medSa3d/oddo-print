@@ -780,3 +780,20 @@
 - The targeted workflow exposed and enabled correction of the v2 kind fall-through bug: versioned customer tokens no longer enter legacy manager validation, and versioned manager/platform tokens no longer enter customer validation.
 - Temporary targeted workflow is removed in this cleanup commit. Runtime code remains unchanged after this cleanup.
 
+
+
+## 2026-09-25 — Part A final auth acceptance rerun
+- Runtime fixes after the first combined auth run:
+  - Customer logout now validates the `customer` session kind before family revocation; the prior route incorrectly used the manager validator.
+  - Existing manager/rate-limit tests were updated to assert the v2 `refresh_tokens` ledger instead of the legacy `manager_sessions` table for newly-issued sessions.
+  - Manager clock-skew coverage now asserts v2 access-token verification remains anchored to PostgreSQL time while the host clock is skewed; v2 access expiry is stateless and no longer depends on legacy `manager_sessions.expires_at`.
+  - Legacy Platform Owner session-revocation coverage remains explicit for the v1 `platform_sessions` path.
+  - Desktop-auth contract tests were updated to distinguish browser `credentials: "include"` from the Rust-only refresh-secret boundary.
+- Final focused workflow: `TEMP Verify Final Auth`, run `36146681629`, on runtime/test commit `34b7b4c54784f9deb1d10071514be4776232d5ea`.
+- Verification output: `npm ci` PASS, `npm run typecheck` PASS, `npm run lint` PASS, PostgreSQL migrations PASS.
+- Final auth integration output: `Test Files 6 passed (6)`, `Tests 50 passed (50)`, `Duration 26.30s`.
+- Final auth unit output: `Test Files 2 passed (2)`, `Tests 11 passed (11)`, `Duration 906ms`.
+- The integration set includes manager auth, platform control-plane auth, customer/tenant selection, rate limiting, refresh rotation, legacy fallback, and family logout. Unit coverage includes fail-closed limiter behavior and desktop auth transport contracts.
+- Earlier focused session gates also passed on the same runtime line: A4 rotation `6/6` and A7 legacy fallback `3/3`.
+- No live Odoo instance or production deployment was used; those validations remain BLOCKED/out of scope as required.
+- Temporary session-verification workflows were removed from the final repository tree after acceptance.
