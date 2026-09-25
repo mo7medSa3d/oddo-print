@@ -8,6 +8,7 @@ import {
   rotateRefreshToken,
   accessCookieHeader,
   refreshCookieHeader,
+  verifyAccessTokenSignature,
 } from "../src/lib/session-tokens";
 import { validateManager } from "../src/lib/manager-auth";
 import { validateCustomer } from "../src/lib/customer-auth";
@@ -60,6 +61,16 @@ suite("shared refresh-token session rotation", () => {
     const request = new Request("http://gateway.test/api/auth/me", {
       headers: { cookie: "mgr_session=" + customer.accessToken },
     });
+
+    const payload = JSON.parse(Buffer.from(customer.accessToken.split(".")[1], "base64url").toString("utf8")) as {
+      ver?: unknown;
+      kind?: unknown;
+      sub?: unknown;
+    };
+    expect(payload.ver).toBe(2);
+    expect(payload.kind).toBe("customer");
+    expect(payload.sub).toBe("manager");
+    expect(verifyAccessTokenSignature(customer.accessToken, "manager")).toBeNull();
 
     const managerClaims = await validateManager(request);
     expect(managerClaims).toBeNull();
