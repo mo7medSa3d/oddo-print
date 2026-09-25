@@ -323,6 +323,7 @@ def test_auth_cookie_contract_separates_access_and_refresh_cookies():
     assert 'refreshCookiePath: "/api/auth/manager"' in session
     assert 'accessCookieName: "cust_session"' in session
     assert 'refreshCookieName: "cust_refresh"' in session
+    assert 'refreshCookiePath: "/api/auth"' in session
     assert 'refreshCookiePath: "/api/auth/refresh"' in session
     assert 'accessCookieName: "plt_session"' in session
     assert 'refreshCookieName: "plt_refresh"' in session
@@ -419,6 +420,13 @@ def test_tenant_selection_issues_customer_kind_session():
     assert "revokeSessionFamilyInTransaction" in source
     assert 'tenant_selection' in source
     assert "issueSessionPairInTransaction" in source
+
+
+def test_team_member_role_change_and_removal_revoke_refresh_families():
+    source = read("src/app/api/team/members/route.ts")
+    assert "revokeUserTenantRefreshFamiliesInTransaction" in source
+    assert '"role_changed"' in source
+    assert '"member_removed"' in source
 
 
 def test_ownership_transfer_revokes_old_owner_refresh_sessions():
