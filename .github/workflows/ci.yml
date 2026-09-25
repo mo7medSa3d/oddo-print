@@ -81,9 +81,6 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npm run lint
-      - name: Phase 0 architecture hardening test
-        run: npm run test tests/architecture-hardening.test.ts
-
       - name: Go vulnerability scan
         working-directory: agent
         shell: bash
@@ -314,6 +311,11 @@ jobs:
         working-directory: agent
         run: |
           test -z "$(gofmt -l .)" || { echo 'gofmt required on:'; gofmt -l .; exit 1; }
+
+      # Temporary verification ordering: run Gateway tests before the pre-existing
+      # architecture-hardening assertion so the security patch can be exercised.
+      - name: Phase 0 architecture hardening test
+        run: npm run test tests/architecture-hardening.test.ts
 
   odoo19:
     runs-on: ubuntu-latest
