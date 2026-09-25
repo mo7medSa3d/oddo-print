@@ -296,3 +296,81 @@ def test_odoo_sql_identifiers_never_use_raw_table_name_formatting():
                     violations.append(f"{path}:{node.lineno}: .format() interpolates _table")
 
     assert not violations, "Raw SQL table-name formatting found:\\n" + "\\n".join(violations)
+
+
+def test_shared_session_tokens_use_short_access_and_long_refresh_lifetimes():
+    source = read("src/lib/session-tokens.ts")
+    assert "ACCESS_TOKEN_TTL_SECONDS = 15 * 60" in source
+    assert "REFRESH_FAMILY_TTL_MS = 30 * 24 * 60 * 60 * 1000" in source
+    assert 'createHash("sha256").update(token' in source
+    assert 'tokenHash: hashRefreshToken(refreshToken)' in source
+    assert "REFRESH_ROTATION_GRACE_MS = 5_000" in source
+    assert 'revoked_reason = \'refresh_reuse_detected\'' in source
+    assert 'auth.refresh.reuse_detected' in source
+
+
+def test_auth_cookie_contract_separates_access_and_refresh_cookies():
+    session = read("src/lib/session-tokens.ts")
+    assert 'accessCookieName: "mgr_session"' in session
+    assert 'refreshCookieName: "mgr_refresh"' in session
+    assert 'refreshCookieName: "cust_refresh"' in session
+    assert 'accessCookieName: "plt_session"' in session
+    assert 'refreshCookieName: "plt_refresh"' in session
+    assert "HttpOnly; SameSite=Lax" in session
+    assert "HttpOnly; SameSite=Strict" in session
+
+
+def test_browser_manager_transport_uses_http_only_cookies_and_one_refresh_retry():
+    source = read("src/desktop/lib/ipc.ts")
+    assert 'credentials: "include"' in source
+    assert 'path !== "/api/auth/manager/refresh"' in source
+    assert 'return gatewayRequest(base, path, method, headers, body, false);' in source
+    assert 'X-Refresh-Token' not in source
+
+
+def test_desktop_refresh_secret_stays_inside_rust_memory_boundary():
+    source = read("src-tauri/src/commands.rs")
+    assert "refresh_token: String" in source
+    assert "current_manager_refresh_token" in source
+    assert 'request.header("X-Refresh-Token", refresh_token)' in source
+    assert 'object.remove("accessToken");' in source
+    assert 'object.remove("refreshToken");' in source
+    assert "is_manager_refresh_path(path) && (status == 401 || status == 403)" in source
+    assert "if status == 401 || status == 403" not in source
+
+
+def test_new_logout_paths_revoke_refresh_family_and_clear_matching_cookie():
+    for rel in (
+        "src/app/api/auth/manager/logout/route.ts",
+        "src/app/api/auth/logout/route.ts",
+        "src/app/api/platform/auth/logout/route.ts",
+    ):
+        source = read(rel)
+        assert "revokeSessionFamily" in source
+    assert "clearManagerRefreshCookieHeader" in read("src/app/api/auth/manager/logout/route.ts")
+    assert "clearCustomerRefreshCookie" in read("src/app/api/auth/logout/route.ts")
+    assert "clearPlatformRefreshCookieHeader" in read("src/app/api/platform/auth/logout/route.ts")
+
+
+def test_refresh_endpoints_are_no_store_and_use_shared_rotation():
+    routes = (
+        "src/app/api/auth/refresh/route.ts",
+        "src/app/api/auth/manager/refresh/route.ts",
+        "src/app/api/platform/auth/refresh/route.ts",
+    )
+    for rel in routes:
+        source = read(rel)
+        assert "rotateRefreshToken" in source
+        assert 'Cache-Control", "no-store"' in source
+        assert "Refresh token is invalid or expired" in source
+
+
+def test_auth_login_paths_do_not_send_refresh_tokens_to_browser_renderers():
+    manager = read("src/app/api/auth/manager/login/route.ts")
+    assert 'if (desktopClient)' in manager
+    assert "bodyOut.refreshToken = sess.refreshToken;" in manager
+    assert 'if (!desktopClient)' in manager
+    platform = read("src/app/api/platform/auth/login/route.ts")
+    assert "platformRefreshCookieHeader" in platform
+    customer = read("src/app/api/auth/login/route.ts")
+    assert "customerRefreshCookie(session)" in customer
