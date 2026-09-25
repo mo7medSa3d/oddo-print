@@ -177,3 +177,24 @@
 - Regression test: `test_gateway_kitchen_preserves_odoo19_post_print_sync` verifies the synchronization call exists after the local syncing lock is released and is scoped to the current order.
 - Verification command/output:
   `odoo_addons/print_gateway/tests/test_odoo19_printing_static.py::test_gateway_kitchen_preserves_odoo19_post_print_sync` added to the Odoo 19 static contract suite; final CI verification is required before this entry is considered closed.
+
+## 2026-09-25 — Odoo 19 Kitchen receipt template contract
+- File: `odoo_addons/print_gateway/static/src/js/pos_print_router.js`
+- Problem: The Gateway override of `PosStore.printOrderChanges()` rendered `point_of_sale.pos_order_change_receipt` with the legacy template/data shape instead of the Odoo 19 `OrderChangeReceipt` component shape.
+- Evidence before fix:
+  Odoo 19 core `pos_store.js` output:
+  `const receipt = renderToElement("point_of_sale.OrderChangeReceipt", { data });`
+  Yasser source output before fix:
+  `const receipt = renderToElement("point_of_sale.pos_order_change_receipt", data);`
+- Fix:
+  Replaced the Gateway renderer call with the Odoo 19 component contract:
+  `const receipt = renderToElement("point_of_sale.OrderChangeReceipt", { data });`
+  Updated the Odoo 19 static regression assertion to require the current contract and reject the legacy call.
+- Verification:
+  Current source output after fix:
+  `487: const receipt = renderToElement("point_of_sale.OrderChangeReceipt", { data });`
+  Odoo 19 CI job `107903737803` = `success`.
+  Odoo test summary:
+  `odoo.tests.stats: print_gateway: 190 tests 87.94s 109206 queries`
+  `odoo.tests.result: 0 failed, 0 error(s) of 176 tests when loading database 'odoo19_test'`
+  Static contract test step = `success`.
