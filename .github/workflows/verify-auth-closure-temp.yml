@@ -58,4 +58,25 @@ jobs:
         run: python -m pip install --disable-pip-version-check pytest
       - name: Python security contracts
         run: pytest tests/test_security_contracts.py
+      - name: Repository legacy-session inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "== legacy session references =="
+          git grep -nE 'managerSessions|platformSessions|manager_sessions|platform_sessions|LEGACY_SESSION_MAX_AGE_SECONDS|SESSION_MAX_AGE_SECONDS|createManagerSession|createPlatformSession|issueCustomerSession|mgr_session|cust_session|plt_session|mgr_refresh|cust_refresh|plt_refresh' -- src tests || true
+          echo "== forbidden new-write patterns =="
+          if git grep -nE 'insert\((managerSessions|platformSessions)\)|INSERT INTO (manager_sessions|platform_sessions)' -- src; then
+            echo "ERROR: new-session legacy write path found"
+            exit 1
+          fi
+          if git grep -n 'src/lib/manager-session-tx' -- ':!PATCH_LOG.md' ':!SECURITY.md'; then
+            echo "ERROR: obsolete manager-session-tx dependency found"
+            exit 1
+          fi
+          echo "== host-clock calls in session security source =="
+          if git grep -nE 'Date\.now\(\)|new Date\(\)' -- src/lib/session-tokens.ts src/app/api/auth/manager src/app/api/platform/auth src/app/api/auth/refresh src/app/api/auth/login src/app/api/auth/logout; then
+            echo "ERROR: host-clock timing call found in security session paths"
+            exit 1
+          fi
+          echo "LEGACY INVENTORY: no forbidden legacy-write/adapter/host-clock dependency found."
 
