@@ -1,11 +1,11 @@
 import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
-import { tenantUsers, tenants, authRateLimits } from "../../../../db/schema";
+import { tenantUsers, tenants, authRateLimits, managerSessions, refreshTokens } from "../../../../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { validateManager, revokeManagerSession } from "../../../../lib/manager-auth";
+import { validateManager } from "../../../../lib/manager-auth";
 import { verifyTenantSelectionToken, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
-import { issueSessionPairInTransaction, revokeSessionFamily } from "../../../../lib/session-tokens";
+import { issueSessionPairInTransaction } from "../../../../lib/session-tokens";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { createManagerSessionInTransaction, revokeManagerSessionInTransaction } from "../../../../lib/manager-session-tx";
@@ -62,9 +62,13 @@ export async function POST(req: Request) {
       if (!tenant || tenant.lifecycle !== "active") throw new Error("Workspace is suspended or unavailable");
 
       if (claims?.familyId) {
-        await revokeSessionFamily(claims.familyId, "tenant_selection");
+        await tx.update(refreshTokens)
+          .set({ revokedAt: sql`clock_timestamp()`, revokedReason: "tenant_selection" })
+          .where(and(eq(refreshTokens.familyId, claims.familyId), eq(refreshTokens.revokedAt, null)));
       } else if (claims?.jti) {
-        await revokeManagerSession(claims.jti);
+        await tx.update(managerSessions)
+          .set({ revokedAt: sql`clock_timestamp()` })
+          .where(eq(managerSessions.jti, claims.jti));
       }
 
       const session = await issueSessionPairInTransaction(tx, {
