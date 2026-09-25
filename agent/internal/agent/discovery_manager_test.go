@@ -101,3 +101,40 @@ func TestDiscoverySessionTimeoutUsesGatewayValue(t *testing.T) {
 		t.Fatalf("too-large timeoutMs = %s, want maximum %s", got, maxDiscoveryTimeout)
 	}
 }
+
+
+func TestLoadDiscoverySessionByID(t *testing.T) {
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: http.NoBody,
+	}
+	_ = response
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"disc-1","config":{"timeoutMs":1500}},{"id":"disc-2","config":{"timeoutMs":5000}}]`))
+	}))
+	defer server.Close()
+
+	client := server.Client()
+	session := loadDiscoverySessionByID(context.Background(), func(ctx context.Context) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+		if err != nil {
+			return nil, err
+		}
+		return client.Do(req)
+	}, "disc-2")
+	if got := discoverySessionTimeout(session); got != 5*time.Second {
+		t.Fatalf("loaded session timeout = %s, want 5s", got)
+	}
+
+	missing := loadDiscoverySessionByID(context.Background(), func(ctx context.Context) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+		if err != nil {
+			return nil, err
+		}
+		return client.Do(req)
+	}, "missing")
+	if missing != nil {
+		t.Fatalf("missing discovery session should return nil, got %#v", missing)
+	}
+}
