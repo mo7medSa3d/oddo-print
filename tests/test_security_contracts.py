@@ -447,3 +447,39 @@ def test_new_session_issuance_never_writes_legacy_session_tables():
         assert "issueSessionPair" in source
         assert ".insert(managerSessions)" not in source
         assert ".insert(platformSessions)" not in source
+
+
+def test_legacy_session_tables_are_isolated_to_compatibility_adapters():
+    from pathlib import Path
+
+    allowed_manager = {"src/lib/manager-auth.ts", "src/db/schema.ts"}
+    allowed_platform = {"src/lib/platform-auth.ts", "src/db/schema.ts"}
+    for path in Path("src").rglob("*.ts"):
+        relative = path.as_posix()
+        source = path.read_text(encoding="utf-8")
+        if "managerSessions" in source:
+            assert relative in allowed_manager, f"managerSessions leaked outside legacy adapter: {relative}"
+        if "platformSessions" in source:
+            assert relative in allowed_platform, f"platformSessions leaked outside legacy adapter: {relative}"
+
+    for path in Path("src").rglob("*.tsx"):
+        relative = path.as_posix()
+        source = path.read_text(encoding="utf-8")
+        assert "managerSessions" not in source, f"legacy manager session dependency in page: {relative}"
+        assert "platformSessions" not in source, f"legacy platform session dependency in page: {relative}"
+
+    source = Path("src/lib/session-tokens.ts").read_text(encoding="utf-8")
+    assert "Date.now(" not in source
+    assert "new Date()" not in source
+    assert "clock_timestamp()" in source
+
+
+def test_new_session_creation_has_no_legacy_table_insert_path():
+    from pathlib import Path
+
+    for path in Path("src").rglob("*.ts"):
+        source = path.read_text(encoding="utf-8")
+        assert ".insert(managerSessions)" not in source
+        assert ".insert(platformSessions)" not in source
+        assert "INSERT INTO manager_sessions" not in source
+        assert "INSERT INTO platform_sessions" not in source
