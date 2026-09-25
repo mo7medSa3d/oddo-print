@@ -1,12 +1,8 @@
-import { createHmac, randomBytes } from "crypto";
 import { db } from "../db";
 import { managerSessions } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
-import { requiredRuntimeSecret } from "./runtime-secret";
-import { managerCookieHeader, type ManagerClaims, type ManagerRole } from "./manager-auth";
-
-const MAX_AGE_SECONDS = 8 * 60 * 60;
-
+import { issueSessionPairInTransaction, accessCookieHeader } from "./session-tokens";
+import type { ManagerRole } from "./manager-auth";
 type TxRunner = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 function b64urlEncode(value: Buffer | string): string {
@@ -27,34 +23,32 @@ export async function createManagerSessionInTransaction(
   tx: TxRunner,
   tenantId: string,
   identity: { userId?: string; role: ManagerRole },
-): Promise<{ token: string; jti: string; exp: Date }> {
-  const jti = randomBytes(16).toString("hex");
-  const clock = await tx.execute(sql`SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms`);
-  const nowMs = Number(clock.rows[0]?.now_ms);
-  if (!Number.isFinite(nowMs)) throw new Error("Database clock is unavailable");
-  const now = Math.floor(nowMs / 1000);
-  const exp = new Date((now + MAX_AGE_SECONDS) * 1000);
-  const claims: ManagerClaims = {
-    jti,
-    iat: now,
-    exp: now + MAX_AGE_SECONDS,
-    sub: "manager",
-    tenantId,
-    role: identity.role,
-    ...(identity.userId ? { userId: identity.userId } : {}),
-  };
-  const token = sign(claims);
-
-  await tx.insert(managerSessions).values({
-    jti,
+): Promise<{
+  token: string;
+  jti: string;
+  exp: Date;
+  refreshToken: string;
+  refreshTokenId: string;
+  familyId: string;
+  refreshExpiresAt: Date;
+}> {
+  const pair = await issueSessionPairInTransaction(tx, {
+    kind: "manager",
     tenantId,
     userId: identity.userId ?? null,
     role: identity.role,
-    expiresAt: exp,
   });
-
-  return { token, jti, exp };
+  return {
+    token: pair.accessToken,
+    jti: pair.accessJti,
+    exp: pair.accessExpiresAt,
+    refreshToken: pair.refreshToken,
+    refreshTokenId: pair.refreshTokenId,
+    familyId: pair.familyId,
+    refreshExpiresAt: pair.refreshExpiresAt,
+  };
 }
+
 
 export async function revokeManagerSessionInTransaction(tx: TxRunner, jti: string): Promise<void> {
   await tx.update(managerSessions)
