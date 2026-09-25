@@ -45,7 +45,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         const data = await refresh.json().catch(() => null) as { expiresAt?: unknown } | null;
         if (!cancelled && typeof data?.expiresAt === "string") {
           setAuthenticated(true);
-          scheduleRefresh(data.expiresAt);
+          scheduleRefresh();
         }
       } catch {
         if (!cancelled) router.replace("/platform/login");
