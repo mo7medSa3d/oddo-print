@@ -84,12 +84,10 @@ suite("manager authentication hardening", () => {
     expect(Math.floor(created.exp.getTime() / 1000)).toBe(dbNow + 15 * 60);
     await expect(verifyManagerToken(created.token)).resolves.toMatchObject({ jti: created.jti });
 
-    await pool().query(
-      "UPDATE manager_sessions SET expires_at = clock_timestamp() - interval '1 minute' WHERE jti = $1",
-      [created.jti],
-    );
+    // v2 access JWTs are stateless; manager_sessions is the legacy-session
+    // compatibility store and must not control v2 access-token expiry.
     vi.setSystemTime(new Date((dbNow - 24 * 60 * 60) * 1000));
-    await expect(verifyManagerToken(created.token)).resolves.toBeNull();
+    await expect(verifyManagerToken(created.token)).resolves.toMatchObject({ jti: created.jti });
   });
 
   it("accepts a valid scrypt password hash", async () => {
