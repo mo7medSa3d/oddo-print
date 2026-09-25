@@ -272,7 +272,7 @@ patch(PosStore.prototype, {
         order,
         orderChange,
         reprint = false,
-        printers = this.unwatched.printers
+        printers = this.models["pos.printer"].getAll()
     ) {
         const sessionId = this.session?.id;
         const gatewayEnabled = sessionId
@@ -308,7 +308,7 @@ patch(PosStore.prototype, {
             const missingRoutes = Array.isArray(kitchenRoutes.missing_routes)
                 ? kitchenRoutes.missing_routes
                 : [];
-            const retryAttempt = printers !== this.unwatched.printers;
+            const retryAttempt = printers instanceof Set;
             const requestedPrinterIds = retryAttempt
                 ? new Set(Array.from(printers || []).map((printer) => printer?.id).filter(Boolean))
                 : null;
