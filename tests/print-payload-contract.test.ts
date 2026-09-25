@@ -1,0 +1,77 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import payloadContract from "../contracts/print-payload-contract.json";
+import { printJobPayloadSchema, validatePrintJobPayload } from "../src/lib/payload";
+
+function read(path: string): string {
+  return readFileSync(path, "utf8");
+}
+
+function quotedValues(source: string, pattern: RegExp): string[] {
+  const match = source.match(pattern);
+  if (!match) throw new Error(`pattern not found: ${pattern}`);
+  return [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+}
+
+describe("print payload wire contract", () => {
+  it("uses one normative contract for TypeScript, Go and the database guard", () => {
+    const ts = read("src/lib/payload.ts");
+    const go = read("agent/internal/payload/payload.go");
+    const sql = read("drizzle/0024_claim_fencing_and_payload_contract.sql");
+
+    expect(ts).toContain('payloadContract.maxPayloadBytes');
+    expect(ts).toContain('payloadContract.wireTypes');
+    expect(ts).toContain('payloadContract.rawProtocols');
+    expect(ts).toContain('payloadContract.peripherals');
+
+    const tsTypes = (printJobPayloadSchema.shape.type as unknown as { options: string[] }).options;
+    expect([...tsTypes].sort()).toEqual([...payloadContract.wireTypes].sort());
+    expect((printJobPayloadSchema.shape.protocol as unknown as { unwrap: () => { options: string[] } }).unwrap().options.sort())
+      .toEqual([...payloadContract.rawProtocols].sort());
+
+    expect(go).toMatch(new RegExp(`const MaxPayloadBytes = ${payloadContract.maxPayloadBytes}\\b`));
+    expect(quotedValues(go, /case TypeRaw, TypeESCPOS, TypePDF, TypeImage,[\\s\\S]*?\tdefault:[\\s\\S]*?expected ([^\\n]+)/))
+      .toEqual(expect.arrayContaining(payloadContract.wireTypes));
+
+    const goDrawer = go.match(/case "pin2", "pin5", "none":/);
+    expect(goDrawer).not.toBeNull();
+    for (const value of payloadContract.peripherals.drawer) expect(go).toContain(`case "${value}"`);
+    for (const value of payloadContract.peripherals.cutter) expect(go).toContain(`case "${value}"`);
+    for (const value of payloadContract.peripherals.buzzer) expect(go).toContain(`case "${value}"`);
+
+    for (const protocol of payloadContract.rawProtocols) {
+      expect(sql).toContain(`IN ('raw', 'escpos', 'zpl', 'tspl')`);
+      expect(sql).toContain(protocol);
+    }
+  });
+
+  it("enforces the normative byte limit at the Gateway boundary", () => {
+    const exact = Buffer.alloc(payloadContract.maxPayloadBytes, 0x41).toString("base64");
+    expect(validatePrintJobPayload({
+      type: "raw",
+      protocol: "raw",
+      encoding: payloadContract.encoding,
+      data: exact,
+    }).data).toBe(exact);
+
+    const over = Buffer.alloc(payloadContract.maxPayloadBytes + 1, 0x41).toString("base64");
+    expect(() => validatePrintJobPayload({
+      type: "raw",
+      protocol: "raw",
+      encoding: payloadContract.encoding,
+      data: over,
+    })).toThrow();
+  });
+
+  it("keeps signatures aligned with the normative contract", () => {
+    const ts = read("src/lib/payload.ts");
+    expect(ts).toContain(`Buffer.from("${payloadContract.signatures.pdfPrefix}")`);
+    expect(ts).toContain("0xff");
+    expect(ts).toContain("0xd8");
+    expect(ts).toContain("0xff");
+    const go = read("agent/internal/payload/payload.go");
+    expect(go).toContain(`[]byte("${payloadContract.signatures.pdfPrefix}")`);
+    expect(go).toContain("0xff");
+    expect(go).toContain("0xd8");
+  });
+});
