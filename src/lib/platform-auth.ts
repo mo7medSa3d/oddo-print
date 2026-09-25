@@ -84,7 +84,7 @@ function verifyLegacyPlatformTokenSignature(token: string): PlatformOwnerClaims 
       typeof claims.jti !== "string" || claims.jti.length < 16 ||
       typeof claims.iat !== "number" || !Number.isSafeInteger(claims.iat) ||
       typeof claims.exp !== "number" || !Number.isSafeInteger(claims.exp) ||
-      claims.exp <= claims.iat || claims.exp - claims.iat > LEGACY_MAX_AGE_SECONDS
+      claims.exp <= claims.iat || claims.exp - claims.iat > LEGACY_SESSION_MAX_AGE_SECONDS
     ) return null;
     return claims as PlatformOwnerClaims;
   } catch {
