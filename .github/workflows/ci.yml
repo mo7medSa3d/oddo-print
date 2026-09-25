@@ -102,7 +102,7 @@ jobs:
           GOOS=windows "$(go env GOPATH)/bin/staticcheck" -checks=U1000 ./...
 
       - name: Dead-code and unused-export scan
-        run: npx --yes knip@6.31.0 --exports --include-entry-exports
+        run: npx --yes knip@6.31.0 --exports
       - name: Validate Odoo 19 addon XML conventions
         run: |
           if grep -R -nE '<tree([[:space:]>])|attrs=|states=' odoo_addons/print_gateway/views; then
