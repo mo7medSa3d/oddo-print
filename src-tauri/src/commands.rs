@@ -371,6 +371,7 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
         if name.eq_ignore_ascii_case("authorization")
             || name.eq_ignore_ascii_case("cookie")
             || name.eq_ignore_ascii_case("x-refresh-token")
+            || name.eq_ignore_ascii_case("origin")
             || name.eq_ignore_ascii_case("host")
             || name.eq_ignore_ascii_case("content-length")
             || name.eq_ignore_ascii_case("transfer-encoding")
