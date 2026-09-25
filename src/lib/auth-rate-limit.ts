@@ -53,7 +53,7 @@ function warnUntrustedProxyOnce(): void {
   );
 }
 
-export function lockDurationMs(failures: number): number {
+function progressiveLockDurationMs(failures: number): number {
   if (failures < 5) return 0;
   if (failures < 10) return 30_000;
   if (failures < 15) return 5 * 60_000;
@@ -61,15 +61,14 @@ export function lockDurationMs(failures: number): number {
   return 60 * 60_000;
 }
 
+export function lockDurationMs(failures: number): number {
+  return progressiveLockDurationMs(failures);
+}
+
 export function pairingLockDurationMs(failures: number): number {
-  // Pairing keeps the requested six-digit UX. The progressively stronger
-  // lockout prevents rotating through different six-digit values from
-  // becoming an online brute-force oracle.
-  if (failures < 5) return 0;
-  if (failures < 10) return 30_000;
-  if (failures < 15) return 5 * 60_000;
-  if (failures < 20) return 15 * 60_000;
-  return 60 * 60_000;
+  // Pairing keeps the requested six-digit UX while using the same authoritative
+  // progressive lockout schedule as normal authentication.
+  return progressiveLockDurationMs(failures);
 }
 
 export function clientIpFrom(req: Request): string {
