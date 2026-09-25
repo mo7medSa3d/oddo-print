@@ -32,7 +32,7 @@ describe("print payload wire contract", () => {
       pdf: 'TypePDF    Type = "pdf"',
       image: 'TypeImage  Type = "image"',
     } as const;
-    for (const wireType of payloadContract.wireTypes) {
+    for (const wireType of payloadContract.wireTypes as Array<keyof typeof goTypeDecls>) {
       expect(go).toContain(goTypeDecls[wireType]);
     }
 
