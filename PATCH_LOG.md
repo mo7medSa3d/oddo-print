@@ -679,3 +679,11 @@
 - The existing CI job was temporarily reordered so Gateway unit/integration tests execute before two pre-existing non-Gateway gates that currently fail before those tests: Odoo static security contracts and the stale CSP assertion.
 - The Odoo manager-login contract assertion was updated only to recognize the B1 response-header wrapper; unrelated Odoo raw-SQL findings and CSP assertions remain unchanged.
 - This is verification scaffolding, not a production architecture change; the original workflow order will be restored after obtaining the requested Gateway test output.
+
+
+## 2026-09-25 — B1 verification completed
+- Focused GitHub Actions verification run `36137131216` used the repository's PostgreSQL 16.15 service, Node `.nvmrc` (24.21.0), `npm ci`, `npm run db:migrate`, then `npm run test:integration -- tests/auth-rate-limit.test.ts`.
+- Test output: `tests/auth-rate-limit.test.ts (18 tests)`, `Test Files 1 passed (1)`, `Tests 18 passed (18)`, `Duration 5.64s`.
+- The same run's clock guard passed and printed the three `clock_timestamp()` call sites in `src/lib/auth-rate-limit.ts`; no `Date.now()`/host-clock match was accepted by the guard.
+- The repository's broader CI remained blocked by unrelated existing Odoo/CSP contract failures; those were not changed as part of B1 except for the manager-login contract string needed to recognize the new response wrapper.
+- Temporary verification workflow ordering was restored to the repository's original CI order, and the focused temporary workflow is being removed after verification.
