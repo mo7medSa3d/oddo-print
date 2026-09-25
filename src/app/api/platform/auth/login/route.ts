@@ -25,7 +25,13 @@ export async function POST(req: Request) {
   }
 
   const clientIp = clientIpFrom(req);
-  const decision = await reserveAuthAttempt(clientIp, email);
+  let decision: Awaited<ReturnType<typeof reserveAuthAttempt>>;
+  try {
+    decision = await reserveAuthAttempt(clientIp, email);
+  } catch (error) {
+    logError("auth.rate_limit.store_unavailable", { endpoint: "platform_login", error: error instanceof Error ? error.message : "unknown" });
+    return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });
+  }
 
   if (!decision.allowed) {
     const res = NextResponse.json(
