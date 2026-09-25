@@ -229,6 +229,15 @@ export async function revokePlatformSession(jti: string): Promise<void> {
     .where(eq(platformSessions.jti, jti));
 }
 
+export async function cleanupExpiredPlatformSessions(): Promise<number> {
+  const result = await db.execute(sql`
+    DELETE FROM platform_sessions
+    WHERE expires_at <= clock_timestamp()
+    RETURNING jti
+  `);
+  return result.rows.length;
+}
+
 export function platformCookieHeader(token: string, exp: Date): string {
   return accessCookieHeader("platform", token, exp);
 }
