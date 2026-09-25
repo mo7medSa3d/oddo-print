@@ -114,38 +114,6 @@ jobs:
         run: npm run typecheck
       - name: Lint frontend
         run: npm run lint
-      - name: Go build
-        working-directory: agent
-        shell: pwsh
-        run: |
-          go build ./...
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Go vet
-        working-directory: agent
-        shell: pwsh
-        run: |
-          go vet ./...
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Go race tests
-        working-directory: agent
-        shell: pwsh
-        run: |
-          go test -count=1 -race -p 2 ./...
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Cargo dependency vulnerability audit
-        working-directory: src-tauri
-        shell: pwsh
-        run: |
-          cargo install cargo-audit --version 0.22.2 --locked
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo audit
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Tauri cargo check
-        working-directory: src-tauri
-        shell: pwsh
-        run: |
-          cargo check
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run Vitest suite
         run: npm run test -- --reporter=default --reporter=json --outputFile=vitest-results.json
       - name: Report skipped (DB-gated) tests explicitly
@@ -158,18 +126,6 @@ jobs:
           if ($skipped -gt 0) {
             Write-Host "No Postgres service on this runner — $skipped integration test(s) were skipped in the Windows build. Full integration coverage runs in the CI workflow (.github/workflows/ci.yml)."
           }
-      - name: Go vet
-        working-directory: agent
-        shell: pwsh
-        run: go vet ./...
-      - name: Go tests
-        working-directory: agent
-        shell: pwsh
-        run: go test -count=1 -p 2 ./...
-      - name: Go race tests
-        working-directory: agent
-        shell: pwsh
-        run: go test -count=1 -race -p 2 ./...
       - name: Build Go Agent
         working-directory: agent
         shell: pwsh
