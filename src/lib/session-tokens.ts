@@ -189,6 +189,16 @@ function verifySignatureShape(token: string): SharedSessionClaims | null {
   }
 }
 
+export function verifyAccessTokenSignature(
+  token: string,
+  expectedKinds: SessionKind | readonly SessionKind[],
+): SharedSessionClaims | null {
+  const claims = verifySignatureShape(token);
+  if (!claims) return null;
+  const allowed = Array.isArray(expectedKinds) ? expectedKinds : [expectedKinds];
+  return allowed.includes(claims.kind) ? claims : null;
+}
+
 export async function verifyAccessToken(
   token: string,
   expectedKinds: SessionKind | readonly SessionKind[],
