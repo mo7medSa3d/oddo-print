@@ -512,6 +512,13 @@
       "when": 1790574863004,
       "tag": "0072_tenant_scoped_printer_identity",
       "breakpoints": false
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1790440000073,
+      "tag": "0073_refresh_tokens",
+      "breakpoints": false
     }
   ]
 }

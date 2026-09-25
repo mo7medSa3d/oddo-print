@@ -51,6 +51,42 @@ export const platformSessions = pgTable("platform_sessions", {
   userIdx: index("platform_sessions_user_idx").on(table.userId),
 }));
 
+export const refreshTokens = pgTable("refresh_tokens", {
+  id: text("id").primaryKey(),
+  familyId: text("family_id").notNull(),
+  kind: text("kind").notNull(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+  role: text("role"),
+  email: text("email"),
+  tokenHash: text("token_hash").notNull().unique(),
+  issuedAt: timestamp("issued_at").notNull(),
+  familyCreatedAt: timestamp("family_created_at").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+  revokedReason: text("revoked_reason"),
+  replacedBy: text("replaced_by"),
+  replacedAt: timestamp("replaced_at"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+}, (table) => ({
+  familyIdx: index("refresh_tokens_family_idx").on(table.familyId),
+  expiresIdx: index("refresh_tokens_expires_idx").on(table.expiresAt),
+  userIdx: index("refresh_tokens_user_idx").on(table.userId),
+  replacedByIdx: index("refresh_tokens_replaced_by_idx").on(table.replacedBy),
+  replacedByFk: foreignKey({
+    name: "refresh_tokens_replaced_by_fk",
+    columns: [table.replacedBy],
+    foreignColumns: [table.id],
+  }).onDelete("set null"),
+  kindScopeCheck: check("refresh_tokens_kind_scope_check", sql`
+    (${table.kind} = 'platform' AND ${table.tenantId} IS NULL AND ${table.userId} IS NOT NULL AND ${table.role} IS NULL)
+    OR
+    (${table.kind} IN ('manager', 'customer') AND ${table.tenantId} IS NOT NULL AND ${table.role} IS NOT NULL)
+  `),
+  timeOrderCheck: check("refresh_tokens_time_order_check", sql`${table.familyCreatedAt} <= ${table.issuedAt} AND ${table.issuedAt} <= ${table.expiresAt}`),
+}));
+
 export const tenantUsers = pgTable("tenant_users", {
   userId: text("user_id").references(() => users.id).notNull(),
   tenantId: text("tenant_id").references(() => tenants.id).notNull(),
