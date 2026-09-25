@@ -857,3 +857,12 @@
 - Closure workflow `36161052764` on runtime tree `96d949ed9a2f9005ceef3eac0b88290ef8efe400` completed typecheck, lint, migrations, and the requested auth/session regressions: manager 7/7, platform 11/11, customer/tenant-selection 4/4, rate-limit 20/20, fail-closed limiter 6/6, refresh rotation 8/8, logout 4/4, legacy fallback 3/3, desktop auth contract 5/5, security contracts 37/37.
 - Browser-level SameSite=Strict proof remains BLOCKED because the repository has no browser automation harness. No live Odoo 19 or production deployment validation was used.
 - Temporary auth verification workflow has been removed from the repository tree.
+
+## 2026-09-25 — Part A final dependency cleanup and verification
+- CI failure root cause fixed: the pre-existing `test_job_timeline_is_manager_scoped_not_agent_console_scoped` contract still expected the retired `validateManager` import while the route correctly uses `validateWorkspaceManager`. The contract was aligned to the current authorization boundary.
+- Repository-wide exact inventory was executed in GitHub Actions. Remaining `managerSessions`/`platformSessions` references are limited to legacy validation/revocation/cleanup paths and legacy tests; no `manager-session-tx` references remain.
+- Exact inventory of new session writes found no `db.insert(managerSessions)`, `tx.insert(managerSessions)`, `db.insert(platformSessions)`, or `tx.insert(platformSessions)` path under `src`.
+- Final focused closure run `36161481863` completed successfully on `74dcbd6aad5b2fc12d494935ba8a3af4349dff0c`: migrations and Drizzle consistency check passed; TypeScript typecheck and lint passed; `test_final_security_hardening.py` reported `19 passed in 0.55s`.
+- Auth verification in the same run passed: manager `7/7`, platform `11/11`, customer/tenant-selection `4/4`, rate-limit `20/20`, rate-limit fail-closed `6/6`, session rotation `8/8`, session logout `4/4`, legacy fallback `3/3`, desktop auth contract `5/5`.
+- Browser-level SameSite navigation proof remains BLOCKED because the repository has no browser automation harness; route-level and cookie-contract checks pass.
+- Temporary final verification workflow was intentionally removed after collecting the evidence; it was not part of the production codebase.
