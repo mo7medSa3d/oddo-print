@@ -1,18 +1,23 @@
 import { NextResponse } from "next/server";
 import {
-  validatePlatformOwner,
-  revokePlatformSession,
   clearPlatformCookieHeader,
   clearPlatformRefreshCookieHeader,
+  revokePlatformSession,
+  validatePlatformOwner,
 } from "../../../../../lib/platform-auth";
 import { writeAuditEvent } from "../../../../../lib/audit";
 import { logError } from "../../../../../lib/log";
-import { getRefreshTokenFromRequest, revokeRefreshTokenFamily, revokeSessionFamily } from "../../../../../lib/session-tokens";
+import {
+  getRefreshTokenFromRequest,
+  revokeRefreshTokenFamily,
+  revokeSessionFamily,
+} from "../../../../../lib/session-tokens";
 
 export async function POST(req: Request) {
   const claims = await validatePlatformOwner(req);
   const refreshToken = getRefreshTokenFromRequest(req, "platform");
   let revokeFailed = false;
+
   try {
     if (claims?.familyId) {
       await revokeSessionFamily(claims.familyId, "logout");
@@ -21,9 +26,13 @@ export async function POST(req: Request) {
     } else if (claims) {
       await revokePlatformSession(claims.jti);
     }
-  } catch (err) {
+  } catch (error) {
     revokeFailed = true;
-    logError("platform_logout_session_revoke_failed", { jti: claims?.jti, familyId: claims?.familyId, error: err instanceof Error ? err.message : "unknown" });
+    logError("platform_logout_session_revoke_failed", {
+      jti: claims?.jti,
+      familyId: claims?.familyId,
+      error: error instanceof Error ? error.message : "unknown",
+    });
   }
 
   if (claims && !revokeFailed) {
@@ -32,37 +41,25 @@ export async function POST(req: Request) {
       actorType: "platform",
       actorId: claims.userId,
       action: "platform.logout",
-      resourceType: "platform_owner",
-      resourceId: claims.userId,
-    }).catch((err) => logError("audit_write_failed", { error: err?.message ?? String(err) }));
+      resourceType: claims.familyId ? "refresh_token_family" : "platform_owner",
+      resourceId: claims.familyId ?? claims.userId,
+    }).catch((err) => logError("audit_write_failed", {
+      error: err?.message ?? String(err),
+    }));
   }
 
-  if (revokeFailed) {
-    return NextResponse.json({ ok: false, error: "Logout temporarily unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } });
-  }
-      logError("platform_logout_session_revoke_failed", {
-        jti: claims.jti,
-        familyId: claims.familyId,
-        error: err?.message ?? String(err),
-      })
-    );
-
-    void writeAuditEvent({
-      tenantId: null,
-      actorType: "platform",
-      actorId: claims.userId,
-      action: "platform.logout",
-      resourceType: "platform_owner",
-      resourceId: claims.userId,
-    }).catch((err) => logError("audit_write_failed", { error: err?.message ?? String(err) }));
-  }
-
-  const response = NextResponse.json({ ok: true }, {
-    headers: {
-      "Set-Cookie": clearPlatformCookieHeader(),
+  const response = NextResponse.json(
+    revokeFailed
+      ? { ok: false, error: "Logout temporarily unavailable" }
+      : { ok: true },
+    {
+      status: revokeFailed ? 503 : 200,
+      headers: {
+        "Set-Cookie": clearPlatformCookieHeader(),
+        "Cache-Control": "no-store",
+      },
     },
-  });
+  );
   response.headers.append("Set-Cookie", clearPlatformRefreshCookieHeader());
-  response.headers.set("Cache-Control", "no-store");
   return response;
 }
