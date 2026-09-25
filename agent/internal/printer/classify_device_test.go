@@ -23,6 +23,14 @@ import (
    IPP and Windows spooler hardware survives the filter.
    ============================================================ */
 
+func isVirtualSpooler(portName, driverName, printerName string) bool {
+	return ClassifyDevice(DeviceFacts{
+		Name:       printerName,
+		DriverName: driverName,
+		PortName:   portName,
+	}).IsVirtual
+}
+
 func caps(pairs ...string) map[string]interface{} {
 	out := map[string]interface{}{}
 	for i := 0; i+1 < len(pairs); i += 2 {
