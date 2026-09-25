@@ -41,3 +41,4 @@ export async function POST(req: Request) {
   response.headers.append("Set-Cookie", clearPlatformRefreshCookieHeader());
   response.headers.set("Cache-Control", "no-store");
   return response;
+}
