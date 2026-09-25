@@ -487,3 +487,13 @@
 - Evidence: the failing CI assertion was `expected ... next.config.ts ... to contain connect-src 'self';`; current `proxy.ts` contains the request-scoped CSP and `next.config.ts` does not contain a CSP header.
 - Fix: updated the test to inspect `proxy.ts` for CSP directives while retaining the negative `unsafe-inline` assertion.
 - Verification: pending on the next CI run.
+
+
+## 2026-09-25 — A02 CSP enforcement gap in the custom Next server
+- OWASP: A02 Security Misconfiguration.
+- Problem: request-time CSP nonce generation existed in `proxy.ts`, but production starts Next through the custom `server.ts` request handler. The real served page therefore had no CSP header/nonce.
+- Evidence: Docker served-header probe on commit `92625083ecdb188a02a13f0ebe657a4e9534d6c6` returned `HTTP_STATUS=200`, but `CSP_SCRIPT_NONCE=`, `HTML_SCRIPT_NONCE=`, and `NONCE_MATCH=false`; the same log shows `server.ts` starts Next with `app.getRequestHandler()`.
+- Official-version check: Next.js 16.3.6 is the repository dependency; current Next.js documentation recommends request-scoped nonces generated in Proxy/middleware and reading the nonce from request headers in Server Components. citeturn104164search0turn543845search0
+- Fix: centralized request-scoped CSP creation in `src/server/content-security-policy.ts`; `proxy.ts` and the custom `server.ts` both use it. The custom server sets `x-nonce` on the request and the CSP on the response for page routes only.
+- Regression: `tests/architecture-hardening.test.ts` now requires the custom server to invoke the shared CSP helper and keeps the negative `unsafe-inline` assertion.
+- Verification: pending on the new CI/Docker run.
