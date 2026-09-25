@@ -5,9 +5,10 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { verifyPassword, normalizeEmail } from "./password";
 import { verifyScryptPasswordHash } from "./manager-auth";
+import { SESSION_MAX_AGE_SECONDS, sessionCookieSecure } from "./session-config";
 
 const COOKIE_NAME = "plt_session";
-const MAX_AGE_SECONDS = 8 * 60 * 60;
+const MAX_AGE_SECONDS = SESSION_MAX_AGE_SECONDS;
 
 function getSecret(): string {
   const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
@@ -211,15 +212,8 @@ export async function revokePlatformSession(jti: string): Promise<void> {
     .where(eq(platformSessions.jti, jti));
 }
 
-function platformCookieSecure(): boolean {
-  const override = process.env.COOKIE_SECURE;
-  if (override === "1" || override === "true") return true;
-  if (override === "0" || override === "false") return false;
-  return process.env.NODE_ENV === "production";
-}
-
 export function platformCookieHeader(token: string, exp: Date): string {
-  const secure = platformCookieSecure() ? "; Secure" : "";
+  const secure = sessionCookieSecure() ? "; Secure" : "";
   return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax${secure}; Expires=${exp.toUTCString()}; Max-Age=${MAX_AGE_SECONDS}`;
 }
 
