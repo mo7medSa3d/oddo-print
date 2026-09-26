@@ -101,10 +101,23 @@ MANAGER_PASSWORD_HASH=
 Generate secrets instead of inventing them:
 
 ```bash
+# GATEWAY_JWT_SECRET (random secret — any base64 string ≥ 32 chars)
 openssl rand -base64 48
+
+# TRUST_PROXY_SECRET (random secret — any base64 string ≥ 32 chars)
 openssl rand -base64 48
-openssl rand -base64 48
+
+# MANAGER_PASSWORD_HASH (MUST be a valid Argon2id hash, NOT a random string).
+# Choose your manager password, then hash it:
+node -e "const argon2 = require('argon2'); argon2.hash(process.argv[1]).then(h => console.log(h))" 'YOUR_MANAGER_PASSWORD'
+# Paste the resulting $argon2id$... string as the value of MANAGER_PASSWORD_HASH.
 ```
+
+> **Warning**: `MANAGER_PASSWORD_HASH` must be an Argon2id hash (starting with
+> `$argon2id$`). A random base64 string will permanently lock you out of the
+> manager login. If you don't have the `argon2` npm package available locally,
+> run `npx argon2-cli 'YOUR_MANAGER_PASSWORD'` or use Docker:
+> `docker run --rm node:24-slim node -e "require('argon2').hash(process.argv[1]).then(h=>console.log(h))" 'YOUR_PASSWORD'`
 
 Do not commit `.env`.
 
