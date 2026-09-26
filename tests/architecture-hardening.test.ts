@@ -15,6 +15,16 @@ describe("architecture hardening", () => {
     expect(body).toContain("createAgentSchema");
   });
 
+  it("uses the workspace-aware auth contract for browser onboarding", () => {
+    const src = readFileSync("src/app/api/onboarding/route.ts", "utf8");
+    const postStart = src.indexOf("export async function POST(req: Request)");
+    expect(postStart).toBeGreaterThanOrEqual(0);
+    const post = src.slice(postStart);
+    expect(src).toContain("validateWorkspaceManager");
+    expect(post).toContain("const claims = await validateWorkspaceManager(req);");
+    expect(post).not.toContain("const claims = await validateManager(req);");
+  });
+
   it("enforces terminal retired lifecycle", () => {
     expect(canTransitionLifecycle("active", "disabled")).toBe(true);
     expect(canTransitionLifecycle("disabled", "active")).toBe(true);
