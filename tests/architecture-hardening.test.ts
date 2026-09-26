@@ -15,6 +15,15 @@ describe("architecture hardening", () => {
     expect(body).toContain("createAgentSchema");
   });
 
+  it("enforces refresh-family revocation for v2 access-token validation", () => {
+    const sessionTokens = readFileSync("src/lib/session-tokens.ts", "utf8");
+    const managerAuth = readFileSync("src/lib/manager-auth.ts", "utf8");
+    expect(sessionTokens).toContain("export async function isSessionFamilyActive(");
+    expect(sessionTokens).toContain('eq(refreshTokens.revokedAt, null)');
+    expect(sessionTokens).toContain("clock_timestamp()");
+    expect(managerAuth).toContain("isSessionFamilyActive");
+    expect(managerAuth).toContain("claims.familyId");
+  });
   it("passes the CSP to Next through request headers for automatic script nonces", () => {
     const src = readFileSync("server.ts", "utf8");
     expect(src).toContain('req.headers["content-security-policy"] = policy');
