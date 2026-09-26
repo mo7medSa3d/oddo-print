@@ -391,10 +391,9 @@ suite("WS claim-before-delivery", () => {
     const messages: any[] = [];
     ws.on("message", (data) => messages.push(JSON.parse(data.toString())));
     await insertQueuedJob(f, "job_ws_post_send_ambiguous");
-
     const originalSend = WebSocket.prototype.send;
     (WebSocket.prototype as any).send = function (this: WebSocket, data: any) {
-      originalSend.call(this, data);
+      (originalSend as any).call(this, data);
       throw new Error("simulated post-send WebSocket failure");
     };
     try {

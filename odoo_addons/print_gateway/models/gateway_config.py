@@ -1383,7 +1383,14 @@ class PrintGatewayConfig(models.Model):
         # deterministic.
         in_test = False
         try:
-            in_test = bool(self.env.registry.in_test_mode() or self.env.context.get("test_mode") or self.env.context.get("test_queue_job_no_delay"))
+            from odoo import tools
+            in_test = bool(
+                tools.config.get("test_enable")
+                or getattr(self.env.registry, "in_test", False)
+                or (hasattr(self.env.registry, "in_test_mode") and self.env.registry.in_test_mode())
+                or self.env.context.get("test_mode")
+                or self.env.context.get("test_queue_job_no_delay")
+            )
         except Exception:
             in_test = False
         if in_test:

@@ -584,15 +584,16 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
   const claimStartedAt = Date.now();
   const claimed = await claimJobForDelivery(job.id, job.agentId, { markDeliveryEvidencePending: true });
   const claimLatencyMs = Date.now() - claimStartedAt;
-  if (!claimed) {
+  if (!claimed || !claimed.claimToken) {
     logInfo("print.trace.gateway_claim", { jobId: job.id, agentId: job.agentId, claimLatencyMs, outcome: "not_claimable" });
     return "not_claimable";
   }
+  const claimToken = claimed.claimToken;
   const sendStartedAt = Date.now();
   const sendOutcome = sendJobToAgent(job.agentId, buildJobEnvelope(claimed));
   const sendLatencyMs = Date.now() - sendStartedAt;
   if (sendOutcome === "not_sent") {
-    const outcome = await releaseUndeliveredClaim(job.id, claimed.tenantId, job.agentId, claimed.claimToken, "websocket delivery failed before send; job requeued for redelivery");
+    const outcome = await releaseUndeliveredClaim(job.id, claimed.tenantId, job.agentId, claimToken, "websocket delivery failed before send; job requeued for redelivery");
     logWarn("print.trace.gateway_send", { jobId: job.id, agentId: job.agentId, claimLatencyMs, sendLatencyMs, totalLatencyMs: Date.now() - startedAt, outcome: outcome === "failed" ? "failed" : "requeued" });
     return outcome === "failed" ? "failed" : "requeued";
   }
@@ -601,7 +602,7 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
       job.id,
       claimed.tenantId,
       job.agentId,
-      claimed.claimToken,
+      claimToken,
     );
     logWarn("print.trace.gateway_send", {
       jobId: job.id,
@@ -619,7 +620,7 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
   // misses (row expired, terminal, or reclaimed mid-send) falls back to the
   // undelivered-release path instead of stranding a phantom delivery.
   const evidenceStartedAt = Date.now();
-  const evidenced = await markJobDelivered(job.id, claimed.tenantId, job.agentId, claimed.claimToken);
+  const evidenced = await markJobDelivered(job.id, claimed.tenantId, job.agentId, claimToken);
   const evidenceLatencyMs = Date.now() - evidenceStartedAt;
   if (!evidenced) {
     // The socket accepted the frame, so a failed evidence write is ambiguous:
@@ -632,7 +633,7 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
       job.id,
       claimed.tenantId,
       job.agentId,
-      claimed.claimToken,
+      claimToken,
     );
     logWarn("print.trace.gateway_delivery", {
       jobId: job.id,

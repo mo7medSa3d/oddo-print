@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { lockDurationMs, ipLockDurationMs, pairingLockDurationMs, accountKey, ipKey, clientIpFrom, cleanupAuthRateLimits, setRateLimitHeaders } from "../src/lib/auth-rate-limit";
 import {
   hasTestDatabase,

@@ -3,7 +3,7 @@ import { printJobs } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { isJobStatus, canTransition, isTerminal, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, AGENT_REPRINT_AFTER_CRASH_REASON, LATE_SUCCESS_POST_EXPIRATION_MARKER, type JobStatus } from "../../../../lib/job-status";
+import { isJobStatus, canTransition, isTerminal, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, AGENT_REPRINT_AFTER_CRASH_REASON, LATE_SUCCESS_POST_EXPIRATION_MARKER, LATE_SUCCESS_ERROR_MARKERS, type JobStatus } from "../../../../lib/job-status";
 import { logInfo, logWarn, requestIdFrom } from "../../../../lib/log";
 import { incrementMetric } from "../../../../lib/metrics";
 import { STALE_CLAIM_SECONDS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "../../../../lib/job-maintenance";
