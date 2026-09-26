@@ -15,6 +15,11 @@ describe("architecture hardening", () => {
     expect(body).toContain("createAgentSchema");
   });
 
+  it("uses the Webpack production build path for CSP nonce compatibility", () => {
+    const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { scripts?: { build?: string } };
+    expect(pkg.scripts?.build).toBe("next build --webpack");
+  });
+
   it("uses the workspace-aware auth contract for browser onboarding", () => {
     const src = readFileSync("src/app/api/onboarding/route.ts", "utf8");
     const postStart = src.indexOf("export async function POST(req: Request)");
