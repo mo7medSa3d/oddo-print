@@ -10,7 +10,9 @@ import (
 
 // TestHeartbeatPrinterStatusEmitsGatewayClassEnums pins the fix for the defect
 // found in the live Gateway<->Agent run: every heartbeat was rejected with
-//   {"skippedPrinters":[{"reason":"invalid_device_class_or_printer_type"}]}
+//
+//	{"skippedPrinters":[{"reason":"invalid_device_class_or_printer_type"}]}
+//
 // because the payload put the printer class ("physical") into the deviceClass
 // field. The Gateway validates printerType and deviceClass against two
 // different enums and drops the whole entry when either is out of range.

@@ -48,7 +48,7 @@ The Gateway is a Next.js 16.3.6 application with a **custom HTTP server** (`serv
 - Enforces trusted proxy authentication (Caddy → Gateway)
 - Rejects known placeholder secrets in production mode
 
-**API Route Structure** (73 routes):
+**API Route Structure** (76 routes):
 - `/api/agent/*` — Agent data plane (heartbeat, jobs, register, discovery)
 - `/api/agents/*` — Agent management (CRUD, discovery sessions)
 - `/api/odoo/*` — Odoo integration endpoints (agents, printers, keys, health)
@@ -176,8 +176,8 @@ claimed → queued (fenced rejection / lease timeout)
 
 ### PostgreSQL + Drizzle ORM
 
-**Schema**: 24 tables defined in `src/db/schema.ts`
-**Migrations**: 73 forward-only migrations (`0000`–`0072`) in `drizzle/`
+**Schema**: 25 tables defined in `src/db/schema.ts`
+**Migrations**: 74 forward-only migrations (`0000`–`0073`) in `drizzle/`
 **Driver**: `pg` 8.23.0 with connection pool
 
 ### Key Design Patterns

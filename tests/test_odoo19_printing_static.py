@@ -479,3 +479,29 @@ def test_dynamic_sql_identifiers_are_composed_with_psycopg2_identifier():
             if " % table" in line and "sql.Identifier" not in line:
                 offenders.append(f"{path.relative_to(ROOT)}:{line_no}:{line.strip()}")
     assert not offenders, "raw SQL identifier formatting remains:\n" + "\n".join(offenders)
+
+
+def test_odoo_js_device_class_filter_uses_only_canonical_gateway_values():
+    """
+    Cross-boundary consistency regression: the Odoo JS runtime_printer_field.js uses
+    deviceClass values to filter printer suggestions. Those values must be a subset of
+    the canonical DEVICE_CLASSES from src/lib/printer-model.ts. The Gateway schema
+    rejects any other value, so phantom values like 'barcode' are dead-code filters
+    that silently drift from the contract.
+    """
+    import re
+    ts_source = (ROOT / "src" / "lib" / "printer-model.ts").read_text(encoding="utf-8")
+    m = re.search(r'DEVICE_CLASSES\s*=\s*\[([^\]]+)\]', ts_source)
+    assert m, "DEVICE_CLASSES not found in src/lib/printer-model.ts"
+    canonical = {v.strip().strip('"') for v in m.group(1).split(",")}
+    assert canonical == {"thermal", "laser", "inkjet", "label", "other", "unknown"}
+
+    js_source = (ROOT / "odoo_addons" / "print_gateway" / "static" / "src" / "components" / "runtime_printer_field.js").read_text(encoding="utf-8")
+    filter_arrays = re.findall(r'\[([^\]]+)\]\.includes\(\(p\.deviceClass', js_source)
+    for arr_src in filter_arrays:
+        used = {v.strip().strip('"\'') for v in arr_src.split(",")}
+        non_canonical = used - canonical
+        assert not non_canonical, (
+            f"runtime_printer_field.js deviceClass filter uses non-canonical values: {non_canonical}. "
+            f"The API rejects these; remove them so the filter stays in sync with DEVICE_CLASSES."
+        )

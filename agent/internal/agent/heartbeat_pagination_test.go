@@ -307,7 +307,9 @@ func formatTestIndex(i int) string {
 // called cancel() immediately after doAuthorizedRequest returned and only then
 // read the response body, so the read was aborted by the canceled context. The
 // observed symptom was a repeating
-//   "Heartbeat page 1/1 response read failed: context canceled"
+//
+//	"Heartbeat page 1/1 response read failed: context canceled"
+//
 // and an early return that skipped desired-state reconciliation and the
 // SkippedPrinters feedback.
 //

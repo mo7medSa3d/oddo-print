@@ -3279,3 +3279,157 @@ processes.
 
 - Removed the previously recorded credential value from the current `PATCH_LOG.md` content and rewrote the PR branch history so the sanitized tree is the only history presented by the PR branch.
 - No credential value is reproduced here. Rotate/revoke the affected credential if it was real rather than a test fixture.
+
+---
+
+## 2026-09-26 — Full correctness and consistency audit (section-by-section pass)
+
+### Phase 0 — Baseline (all toolchains)
+
+| Tool | Result |
+| --- | --- |
+| `npm ci` (Node v22.23.1, --engine-strict=false) | exit 0 · 469 packages · 0 vulnerabilities |
+| `npm run typecheck` (`tsc --noEmit`) | exit 0 |
+| `npm run lint` (`eslint .`) | exit 0 |
+| `npm run test` (vitest unit) | exit 0 · 84 passed \| 43 skipped (127 files) · 608 passed \| 313 skipped (922 tests) |
+| `npm run test:odoo:static` (pytest) | exit 0 · 37 passed |
+| `npm run test:e2e` | exit 0 · 4 skipped (no DB present) |
+| `cd agent && CGO_ENABLED=1 go build ./...` | exit 0 |
+| `cd agent && CGO_ENABLED=1 go vet ./...` | exit 0 |
+| `cd agent && CGO_ENABLED=1 go test ./...` | exit 1 · `TestNetworkPrinterPartialDelivery` flaked (pre-existing TCP RST timing race; documented in prior TRUST STATUS table) |
+| `cd agent && CGO_ENABLED=1 go test ./... -race` | exit 0 · all packages ok |
+| `gofmt -l agent/` | 2 test files needed formatting (`device_class_test.go`, `heartbeat_pagination_test.go`) — applied `gofmt -w`; re-run: exit 0, no files listed |
+| `cd src-tauri && cargo check` | exit 101 · build scripts for GTK/glib/cairo/webkit/soup3 pkg-config fail on this Linux host (expected: Tauri targets Windows; missing Linux GUI system libraries). No Rust source errors (`error[E…]` count: 0). STILL-UNVERIFIED for native Rust compilation. |
+
+**Note on Node version**: system has Node v22.23.1 but `package.json` requires `>=24.15.0`; `npm ci` requires `--engine-strict=false`. Node 24 confirmed as the intended target. This is a local-environment constraint, not a code defect.
+
+---
+
+### Phase 1 — Cross-boundary consistency sweep
+
+#### P1-A: `deviceClass` vocabulary — DRIFT FOUND AND FIXED
+
+- **Gateway** `src/lib/printer-model.ts`: `DEVICE_CLASSES = ["thermal", "laser", "inkjet", "label", "other", "unknown"]`
+- **Agent** `agent/internal/agent/device_class.go`: `gatewayDeviceClasses` maps exactly these 6 values.
+- **Odoo JS** `odoo_addons/print_gateway/static/src/components/runtime_printer_field.js` line 87:
+  ```js
+  // BEFORE (drift)
+  ["label", "thermal", "unknown", "other", "barcode"].includes(...)
+  // AFTER (fixed)
+  ["label", "thermal", "unknown", "other"].includes(...)
+  ```
+  `"barcode"` is **not** in `DEVICE_CLASSES`; the Gateway schema rejects it on the way in, so no printer record can ever carry it. The filter was dead code and inconsistent with the contract.
+- **Fix**: removed `"barcode"` from the picking-type filter.
+- **Regression test added**: `tests/test_odoo19_printing_static.py::test_odoo_js_device_class_filter_uses_only_canonical_gateway_values` — reads both files, extracts `DEVICE_CLASSES` via regex, and asserts every deviceClass value in the JS filter is a member of the canonical set. Would have caught this drift at test time.
+- **Verification**: `pytest tests/test_odoo19_printing_static.py` → 38 passed (was 37), exit 0.
+
+#### P1-B: `printerType` vocabulary — NO DRIFT
+
+Gateway `PRINTER_TYPES = ["physical", "virtual", "redirected"]`. Agent `normalizePrinterType()` maps to the same 3 values. Odoo migration `1.1.0/pre-migrate.py` maps to these values. Consistent.
+
+#### P1-C: Job status vocabulary — NO DRIFT (by design)
+
+- **Gateway** `src/lib/job-status.ts`: `JOB_STATUSES = ["queued", "claimed", "printing", "success", "failed", "expired"]`
+- **Odoo** `models/print_job.py`: extends with `"submitted"` (Odoo-side staging), `"partial"` (operator-visible attention state), and `"unknown"` (physical uncertainty). These are intentional Odoo-local states — the `print_job.py` comment on line 38 explicitly documents the extension. Gateway-facing `"expired"` is mapped to `"submitted"/"failed"` by Odoo. Confirmed by code review: no drift, documented design.
+
+#### P1-D: Payload wire types — NO DRIFT
+
+Contract JSON: `"wireTypes": ["raw", "escpos", "pdf", "image"]`. Gateway `src/lib/payload.ts` reads from the contract file. Agent `agent/internal/payload/payload.go` defines `TypeRaw/TypeESCPOS/TypePDF/TypeImage`. All consistent.
+
+#### P1-E: Print routing logic — NO DRIFT
+
+`print_router.py` (Python backend routing) and `pos_print_router.js` (POS-client routing) both use `preparation_printer_ids`/`printer_ids` fallback, `idempotency_key`, and `missing_routes` fail-closed semantics. No discrepancy detected.
+
+#### P1-F: User-facing error message consistency — NO ACTIONABLE DRIFT
+
+Dashboard uses `"Queued"`, `"Failed"`, `"Success"` to label job statuses. API responses use lowercase `"queued"`, `"failed"`, `"success"` in JSON. This is correct — display vs wire format, not drift.
+
+---
+
+### Phase 2 — Per-area correctness walk
+
+#### P2-A: Gateway API routes — auth audit
+
+Public routes (no auth imported, all intentional):
+- `/api/live` — liveness probe, always public by design
+- `/api/health` — liveness/readiness for load balancers, documented as intentionally unauthenticated
+- `/api/auth/register`, `/api/auth/forgot-password`, `/api/auth/resend-verification` — pre-auth flows
+- `/api/billing/plans` — public plan listing
+- `/api/billing/webhook` — Stripe webhook (uses `runtimeSecret` + `verifyStripeSignature`, not manager session)
+- `/api/team/invitations/accept` — token-authenticated (invite token validated inside handler, not a session)
+
+All 8 confirmed appropriate. No route skips auth that shouldn't.
+
+Print job service usage: routes that write print jobs (`/api/print/jobs/route.ts`, `/api/jobs/[id]/reprint`, `/api/printers/[id]/test-print`, `/api/printers/[id]/certify`) all go through `print-job-service.ts`. Agent-facing routes (`/api/agent/jobs`, `/api/agent/heartbeat`) read jobs, not create them — no bypass.
+
+#### P2-B: `gofmt` formatting regression (source-code correctness)
+
+`gofmt -l agent/` reported two test files needing formatting at baseline:
+- `agent/internal/agent/device_class_test.go`
+- `agent/internal/agent/heartbeat_pagination_test.go`
+
+Applied `gofmt -w` to both. Re-check: `gofmt -l agent/` → no output, exit 0.
+
+#### P2-C: Agent — no new dead code found
+
+`go build` and `go vet` both pass. `go test -race` passes (all packages ok). Manual reachability spot-check on exported symbols: all exported functions in `agent/internal/` are referenced either by `cmd/agent/main.go`, `cmd/cli/`, or test files. No staticcheck installed (proxy blocked), but `go vet` is clean.
+
+#### P2-D: Desktop (Tauri) — STILL-UNVERIFIED on Linux
+
+`cargo check` exits 101 on this host due to missing GTK/glib/cairo/webkit/soup3 system libraries. This is expected for a Windows-target desktop application. No Rust source-level errors (`error[E...]`) were emitted. `cargo test` similarly fails at the build-script stage. The Rust business logic in `src-tauri/src/commands.rs` was reviewed statically in prior passes (REAL-VERIFIED entries in the previous TRUST STATUS table remain valid — those were text-level checks confirmed by prior CI).
+
+#### P2-E: Odoo addon dead code — none found
+
+Odoo Python helpers reviewed: all functions in `models/` are referenced by routes, XML views, or tests. The JS `runtime_printer_field.js` `"barcode"` dead value was the only unreachable branch found and is fixed above (P1-A).
+
+#### P2-F: Docs vs code
+
+| Document | Claim | Actual | Action |
+| --- | --- | --- | --- |
+| `ARCHITECTURE.md` | 73 API routes | 76 | Fixed → 76 |
+| `ARCHITECTURE.md` | 24 schema tables | 25 (`refresh_tokens` added in migration 0073) | Fixed → 25 |
+| `ARCHITECTURE.md` | 73 migrations (0000–0072) | 74 migrations (0000–0073) | Fixed → 74 / 0073 |
+| `AGENT_ARCHITECTURE.md` | `maxConcurrentJobs=8`, `maxPendingJobs=64`, polling intervals | Confirmed correct vs `agent.go` constants | No change needed |
+| `README.md` | Architecture description | Confirmed accurate | No change needed |
+| `PRINTERS.md` | Protocol/port details | Confirmed accurate vs `network.go`, contract JSON | No change needed |
+
+---
+
+### Phase 3 — Final consolidated verification
+
+```
+npm ci                            → exit 0, 469 packages, 0 vulnerabilities
+npm run typecheck                 → exit 0 (tsc --noEmit)
+npm run lint                      → exit 0 (eslint .)
+npm run test                      → exit 0, 84 passed | 43 skipped, 608 passed | 313 skipped
+pytest tests/                     → exit 0, 105 passed (was 104; +1 new test)
+cd agent && CGO_ENABLED=1 go build ./...  → exit 0
+cd agent && CGO_ENABLED=1 go vet ./...    → exit 0
+cd agent && CGO_ENABLED=1 go test -race ./...  → exit 0, all packages ok
+gofmt -l agent/                   → exit 0, no files listed (2 test files reformatted)
+```
+
+---
+
+## TRUST STATUS (2026-09-26 full audit pass)
+
+| Claim | Status | Basis |
+| --- | --- | --- |
+| `npm ci` | **REAL-VERIFIED** | exit 0, 469 packages, 0 vulnerabilities (this pass) |
+| `npm run typecheck` | **REAL-VERIFIED** | `tsc --noEmit` exit 0 (before + after changes) |
+| `npm run lint` | **REAL-VERIFIED** | `eslint .` exit 0 (before + after changes) |
+| Vitest unit suite | **REAL-VERIFIED** | 608 passed \| 313 skipped, exit 0 |
+| All pytest suites | **REAL-VERIFIED** | 105 passed, exit 0 (this pass; +1 new cross-boundary test) |
+| `gofmt` | **REAL-VERIFIED** | exit 0, 0 files; 2 test files reformatted at baseline |
+| Go `build` / `vet` / `test -race` | **REAL-VERIFIED** | all packages ok, exit 0; `go test` (no -race) has 1 pre-existing flaky test (`TestNetworkPrinterPartialDelivery`, TCP RST timing); -race run passed |
+| `deviceClass` cross-boundary consistency | **REAL-VERIFIED — FIXED** | `"barcode"` removed from Odoo JS filter; regression test added; `pytest` confirms |
+| ARCHITECTURE.md route/table/migration counts | **REAL-VERIFIED — FIXED** | 73→76 routes, 24→25 tables, 73→74 migrations, 0072→0073 latest |
+| Job status vocabulary cross-boundary | **REAL-VERIFIED — NO DRIFT** | Odoo extension states documented and intentional |
+| Payload wire types cross-boundary | **REAL-VERIFIED — NO DRIFT** | contract JSON → TS → Go all consistent |
+| API auth coverage | **REAL-VERIFIED** | 8 public routes confirmed intentional; all others use appropriate auth helpers |
+| Agent ARCHITECTURE.md constants | **REAL-VERIFIED** | `maxConcurrentJobs=8`, `maxPendingJobs=64`, polling intervals match code |
+| **Rust** `cargo check` / `cargo test` | **STILL-UNVERIFIED** | exit 101 due to missing GTK/glib/cairo system libs on this Linux host; Windows-target app, no source-level errors; prior CI passes on Windows |
+| Docker Compose full topology | **STILL-UNVERIFIED** | no docker binary; registries blocked |
+| Windows Agent build/smoke | **STILL-UNVERIFIED** | no Windows host |
+| Live Odoo 19 instance | **STILL-UNVERIFIED (out of scope)** | no instance available |
+| Physical printer output | **STILL-UNVERIFIED (out of scope)** | by design |

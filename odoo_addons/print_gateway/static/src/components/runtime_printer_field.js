@@ -84,7 +84,7 @@ export class RuntimePrinterField extends Component {
             return thermal.length ? thermal : this.state.printers;
         }
         if (dest === "picking_type") {
-            const labels = this.state.printers.filter(p => ["label", "thermal", "unknown", "other", "barcode"].includes((p.deviceClass || "").toLowerCase()));
+            const labels = this.state.printers.filter(p => ["label", "thermal", "unknown", "other"].includes((p.deviceClass || "").toLowerCase()));
             return labels.length ? labels : this.state.printers;
         }
         return this.state.printers;
