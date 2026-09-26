@@ -809,7 +809,7 @@ func (a *Agent) recoverInterruptedJobs(ctx context.Context) {
 				log.Printf("Job %s: cannot request crash requeue without the preserved claim token; leaving the local unknown outcome terminal", job.ID)
 				continue
 			}
-			if err := a.updateJobStatus(ctx, job.ID, "queued", "AGENT_RESTART_DURING_PRINT: operator-enabled at-least-once crash recovery", job.ClaimToken); err != nil {
+			if err := a.updateJobStatus(ctx, job.ID, "queued", "AGENT_RESTART_DURING_PRINT: operator-enabled at-least-once crash recovery", job.ClaimToken, "agent_reprint_after_crash"); err != nil {
 				log.Printf("Job %s: Gateway rejected crash-requeue request; lease/recovery remains authoritative: %v", job.ID, err)
 				continue
 			}
@@ -2635,7 +2635,7 @@ func (a *Agent) currentClaimToken(jobID string) string {
 	return a.inFlightTokens[jobID]
 }
 
-func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken string) error {
+func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken string, reason ...string) error {
 	if live := a.currentClaimToken(jobID); live != "" {
 		claimToken = live
 	}
@@ -2647,6 +2647,9 @@ func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, clai
 	}
 	if claimToken != "" {
 		body["claimToken"] = claimToken
+	}
+	if len(reason) > 0 && reason[0] != "" {
+		body["reason"] = reason[0]
 	}
 	resp, err := a.doAuthorizedRequest(ctx, "PATCH", reqURL, body)
 	if err != nil {

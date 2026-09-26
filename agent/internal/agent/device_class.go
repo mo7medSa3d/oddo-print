@@ -1,6 +1,9 @@
 package agent
 
-import "strings"
+import (
+	"log"
+	"strings"
+)
 
 // gatewayDeviceClasses mirrors DEVICE_CLASSES in the Gateway's
 // src/lib/printer-model.ts.
@@ -36,12 +39,18 @@ func normalizeDeviceClass(raw string) string {
 // canonical printer-type vocabulary. Legacy device classes are still treated as
 // physical printers, while virtual and redirected remain semantically distinct.
 func normalizePrinterType(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	switch normalized {
 	case "virtual":
 		return "virtual"
 	case "redirected":
 		return "redirected"
+	case "physical":
+		return "physical"
 	default:
+		if normalized != "" {
+			log.Printf("normalizePrinterType: unclassified printer type %q coerced to physical", raw)
+		}
 		return "physical"
 	}
 }

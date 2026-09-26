@@ -415,13 +415,15 @@ func (q *Queue) MarkInterrupted() ([]InterruptedJob, error) {
 	}
 	rows.Close()
 
+	var marked []InterruptedJob
 	for _, j := range found {
 		msg := InterruptedMarker + ": the agent stopped while this job was printing; the physical output is unknown (it may have printed fully, partially, or not at all)"
 		if err := q.UpdateStatusWithError(j.ID, "failed", msg); err != nil {
-			return found, err
+			return marked, err
 		}
+		marked = append(marked, j)
 	}
-	return found, nil
+	return marked, nil
 }
 
 // UnknownOutcomeMarkers lists the local last_error prefixes whose physical
