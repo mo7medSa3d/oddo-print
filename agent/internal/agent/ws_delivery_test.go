@@ -743,11 +743,8 @@ func TestReprintAfterCrashPolicy(t *testing.T) {
 		if !ag.cfg.ReprintAfterCrashEnabled() {
 			t.Fatal("explicit true must enable at-least-once crash reprinting")
 		}
-		if err := ag.queue.Push("job_crashed", "p1", []byte("bytes")); err != nil {
-			t.Fatalf("Push: %v", err)
-		}
-		if err := ag.queue.UpdateStatus("job_crashed", "printing"); err != nil {
-			t.Fatalf("UpdateStatus: %v", err)
+		if err := ag.queue.BeginPrint("job_crashed", "p1", []byte("bytes"), "claim-before-restart", false); err != nil {
+			t.Fatalf("BeginPrint: %v", err)
 		}
 		ag.recoverInterruptedJobs(context.Background())
 		updates := gw.Updates()

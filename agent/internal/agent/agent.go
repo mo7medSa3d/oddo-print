@@ -1141,22 +1141,22 @@ func decodeJobFields(job map[string]interface{}) (jobWireFields, error) {
 	if err != nil {
 		return jobWireFields{}, err
 	}
-	agentID, err := readStringField(job, "agentId", true, false)
+	agentID, err := readStringField(job, "agentId", false, false)
 	if err != nil {
 		return jobWireFields{}, err
 	}
-	status, err := readStringField(job, "status", true, false)
+	status, err := readStringField(job, "status", false, false)
 	if err != nil {
 		return jobWireFields{}, err
 	}
-	if status != "claimed" {
+	if status != "" && status != "claimed" {
 		return jobWireFields{}, fmt.Errorf("field %q has invalid state %q; expected claimed", "status", status)
 	}
 	requestID, err := readStringField(job, "requestId", false, true)
 	if err != nil {
 		return jobWireFields{}, err
 	}
-	claimToken, err := readStringField(job, "claimToken", true, false)
+	claimToken, err := readStringField(job, "claimToken", false, true)
 	if err != nil {
 		return jobWireFields{}, err
 	}

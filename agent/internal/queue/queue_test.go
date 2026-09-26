@@ -353,7 +353,11 @@ func TestBeginPrintCannotReopenTerminalOrUnknownStates(t *testing.T) {
 				}
 				return
 			}
-			if err != nil {
+			if tc.id == "bp_printing" {
+				if !errors.Is(err, ErrAlreadyPrinting) {
+					t.Fatalf("BeginPrint error = %v, want ErrAlreadyPrinting", err)
+				}
+			} else if err != nil {
 				t.Fatalf("BeginPrint: unexpected error %v", err)
 			}
 			if _, status, _, err := q.Get(tc.id); err != nil || status != "printing" {
