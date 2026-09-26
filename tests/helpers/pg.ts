@@ -88,11 +88,34 @@ export async function truncateAll(): Promise<void> {
       await client.query("BEGIN");
       // Use DELETE instead of TRUNCATE CASCADE to avoid heavy DataFileImmediateSync I/O stalls on test environments
       const orderedTables = [
-        "billing_events", "tenant_subscriptions", "audit_events", 
-        "print_jobs", "printers", "discovered_devices", "discovery_sessions", 
-        "manager_sessions", "refresh_tokens", "auth_rate_limits", 
-        "api_keys", "agents", "print_usage_periods", "tenant_domains", 
-        "applications", "tenant_users", "tenants", "users", "plans"
+        // Delete child tables before their referenced parent rows. This keeps
+        // the cheaper DELETE-based cleanup semantically equivalent to the
+        // previous TRUNCATE ... CASCADE isolation without requiring CASCADE.
+        "job_events",
+        "discovered_devices",
+        "print_jobs",
+        "printers",
+        "discovery_sessions",
+        "manager_sessions",
+        "refresh_tokens",
+        "email_verification_tokens",
+        "password_reset_tokens",
+        "tenant_invitations",
+        "platform_sessions",
+        "tenant_subscriptions",
+        "print_usage_periods",
+        "billing_events",
+        "audit_events",
+        "api_keys",
+        "applications",
+        "tenant_users",
+        "tenant_domains",
+        "agents",
+        "auth_rate_limits",
+        "users",
+        "tenants",
+        "plans",
+        "gateway_metrics",
       ];
       for (const table of orderedTables) {
         try { await client.query(`DELETE FROM ${quoteIdent(table)}`); } catch (error: any) { if (error?.code !== "42P01") throw error; }
