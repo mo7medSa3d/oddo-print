@@ -1393,15 +1393,15 @@ class PrintGatewayConfig(models.Model):
             )
         except Exception:
             in_test = False
-        if in_test:
-            return super().unlink()
-
         # Remote shutdown is irreversible from Odoo's transaction perspective:
         # HTTP cannot be rolled back if the later ORM delete fails. Keep the
         # local transaction as the durable authority by proving the deletion
         # itself is possible BEFORE any Gateway side effect. A parent-row lock
         # also serializes concurrent print-job FK inserts, so the dependency
         # check cannot become stale between the check and super().unlink().
+        # These local checks run in test mode too (the test cursor sees its
+        # own uncommitted rows); only the remote shutdown network calls below
+        # are skipped so fixture cleanup stays deterministic.
         if len(self) != 1:
             raise ValidationError(
                 _("Delete Gateway configurations one at a time so a remote shutdown failure cannot leave a partially-disabled recordset.")
@@ -1420,6 +1420,8 @@ class PrintGatewayConfig(models.Model):
             raise ValidationError(
                 _("This Gateway configuration cannot be deleted while print jobs still reference it. Reconcile or remove those jobs first.")
             )
+        if in_test:
+            return super().unlink()
 
         for record in self:
             if not record.gateway_url:

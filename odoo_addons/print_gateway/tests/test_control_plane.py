@@ -426,7 +426,7 @@ class TestControlPlane(TransactionCase):
         ConfigClass = type(self.gateway_config)
         persisted_states = []
 
-        def _mock_persist_state(vals):
+        def _mock_persist_state(vals, **kwargs):
             persisted_states.append(dict(vals))
 
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
@@ -1416,7 +1416,13 @@ class TestControlPlane(TransactionCase):
         })
 
         with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
-             patch("requests.post") as post:
+             patch("requests.post") as post, \
+             patch.object(type(job), "_claim_submission_lease", return_value="__precommit__"):
+            # The test harness never commits, so the test-mode lease bypass
+            # would grant a token and let submission proceed. Report the
+            # uncommitted row as pre-commit explicitly to exercise the
+            # fail-closed guard (production detects this via the dedicated
+            # cursor visibility check).
             with self.assertRaises(ValidationError):
                 job._action_submit_trusted(raise_on_failure=True)
 

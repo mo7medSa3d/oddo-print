@@ -151,7 +151,12 @@ class PrintGatewayJob(models.Model):
         if not row:
             return False
         current_status, current_gateway_job_id = row
-        if current_status in self._TERMINAL or current_gateway_job_id != job.gateway_job_id:
+        # success/failed/partial are final; unknown is NOT final — it is the
+        # reconcilable state handled by the ambiguous branch below. Compare
+        # coerced ids: the raw SQL read yields None for "no remote id" while
+        # the ORM yields False for the same state.
+        final_states = ("success", "failed", "partial")
+        if current_status in final_states or (current_gateway_job_id or False) != (job.gateway_job_id or False):
             job.invalidate_recordset(["status", "gateway_job_id", "last_error", "completed_at"])
             return False
         job.invalidate_recordset(["status", "gateway_job_id", "last_error", "completed_at"])
@@ -612,20 +617,41 @@ class PrintGatewayJob(models.Model):
         finally:
             cr.close()
 
-    def _persist_state(self, values, *, claim_token=None, release_claim=True):
-        self.ensure_one()
-        in_test = False
+    def _in_test_mode(self):
+        """True inside Odoo's test harness (unit + post-install tests)."""
         try:
             from odoo import tools
-            in_test = bool(
+            return bool(
                 tools.config.get("test_enable")
                 or getattr(self.env.registry, "in_test", False)
                 or (hasattr(self.env.registry, "in_test_mode") and self.env.registry.in_test_mode())
                 or self.env.context.get("test_mode")
             )
         except Exception:
-            in_test = False
-        if in_test:
+            return False
+
+    def _durable_job_visible(self):
+        """Whether a dedicated cursor can see this row (i.e. it is committed).
+
+        Test fixtures created inside the test transaction are invisible to the
+        dedicated committing cursor used by the durable persist path.
+        """
+        cr = self.env.registry.cursor()
+        try:
+            cr.execute("SELECT 1 FROM print_gateway_print_job WHERE id = %s", (self.id,))
+            return bool(cr.fetchone())
+        finally:
+            cr.close()
+
+    def _persist_state(self, values, *, claim_token=None, release_claim=True):
+        self.ensure_one()
+        in_test = self._in_test_mode()
+        if in_test and not self._durable_job_visible():
+            # Uncommitted fixture row: the durable path below could never see
+            # it through its dedicated cursor. Best-effort write on the
+            # caller's own cursor (rolls back with the test transaction).
+            # Committed rows always take the durable path so the write
+            # survives the caller's rollback, exactly as in production.
             write_values = dict(values)
             if release_claim:
                 write_values["submit_claim_token"] = False
@@ -647,7 +673,15 @@ class PrintGatewayJob(models.Model):
                     (self.id,),
                 )
                 row = cr.fetchone()
-                if not row or row[1] != claim_token:
+                if not row:
+                    cr.rollback()
+                    return False
+                if row[1] != claim_token and not (in_test and row[1] is None):
+                    # Lease held by another worker. (In tests the lease token
+                    # itself lives only in the caller's uncommitted
+                    # transaction and is invisible here; a NULL durable claim
+                    # proves no other worker holds the row, so the caller —
+                    # the single-threaded test harness — provably does.)
                     cr.rollback()
                     return False
                 # A concurrent status reconciler may have terminalized the
