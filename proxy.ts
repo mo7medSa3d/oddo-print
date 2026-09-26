@@ -1,23 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  createRequestContentSecurityPolicy,
-} from "./src/server/content-security-policy";
 
-export function proxy(request: NextRequest): NextResponse {
-  const { nonce, policy } = createRequestContentSecurityPolicy();
-
-  const requestHeaders = new Headers(request.headers);
-  requestHeaders.set("x-nonce", nonce);
-  requestHeaders.set("Content-Security-Policy", policy);
-
-  const response = NextResponse.next({
-    request: {
-      headers: requestHeaders,
-    },
-  });
-
-  response.headers.set("Content-Security-Policy", policy);
-  return response;
+/**
+ * The application is served through the repository's custom Node server
+ * (server.ts), which owns the request-scoped CSP nonce. Keep this proxy as a
+ * transparent pass-through so a second CSP/nonce cannot be minted if Next.js
+ * evaluates the file in another hosting mode.
+ */
+export function proxy(_request: NextRequest): NextResponse {
+  return NextResponse.next();
 }
 
 export const config = {
