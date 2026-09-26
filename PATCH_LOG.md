@@ -1334,3 +1334,1948 @@ EXIT=0
 ```
 - Note: the combined-run helper's broad inventory section reports `128/35/93`; the exact assignment-form inventory recorded above in the dedicated Phase-4 recheck is `122/33/89`. The latter is the authoritative count for the user's specified `_ = expr` / `_, _ :=` scope.
 - No final ZIP was created.
+
+---
+
+# 2026-09-26 — SIXTH PASS: FIRST REAL-TOOLCHAIN VERIFICATION
+
+## Method and labelling rules for this entry
+
+For five prior passes every "PASS" came from grep/regex scripts written by the agent itself,
+because this project's real tools never executed (`npm ci` failed on the Node engine gate, no
+Go toolchain, no Docker, no Cargo, no pytest). This pass changes that: real `tsc`, real
+`eslint`, real `vitest`, real `pytest`, real `npm audit`, real PostgreSQL 16.2, and a real
+running Gateway process were executed. Raw outputs are quoted verbatim with exit codes.
+
+Labelling rules applied below:
+
+- **REAL TOOL OUTPUT** — command output from `tsc` / `eslint` / `vitest` / `pytest` / `npm` /
+  `psql` / the actual gateway process. These are the only outputs that support a PASS.
+- **CUSTOM CHECK, NOT THE REAL TOOL** — any grep/regex/python helper written during this pass
+  (`/tmp/diag*.py`, `/tmp/attr*.py`, `scripts/count-ignored-results.sh`). These locate things;
+  they never certify behaviour and are never quoted as a PASS.
+
+Two prior claims turned out to be **WRONG** when the real tools ran, and are corrected in this
+entry with a fix (not a relabel):
+
+1. **"typecheck clean" was false at commit `a439f4b`.** `tsc --noEmit` exited **2** with 8
+   errors. Fixed; `tsc` now exits **0**.
+2. **"contract suites green" was false at commit `a439f4b`.** `npm run test` exited **1** with
+   2 failing tests. Fixed; the suite now exits **0** (905 passed).
+
+A third claim was **not reproducible**: the ignored-result inventory numbers `33` / `35`.
+
+---
+
+## PHASE 0 — environment reality (verbatim)
+
+```text
+$ getent hosts registry.npmjs.org proxy.golang.org nodejs.org deb.debian.org sh.rustup.rs
+2606:4700::6810:922 registry.npmjs.org
+2606:4700::6810:722 registry.npmjs.org
+2607:f8b0:400e:c02::8d proxy.golang.org
+2606:4700::6810:d483 nodejs.org
+2a04:4e42:600::644 debian.map.fastlydns.net deb.debian.org
+2600:9000:2377:8000:0:9a61:7540:93a1 dks7yomi95k2d.cloudfront.net sh.rustup.rs
+getent_exit=0
+
+$ curl -sI https://registry.npmjs.org/ | head -1
+HTTP/2 200
+curl_exit=0
+```
+
+DNS resolution works here (unlike the prior sandbox). Egress, however, is a **TLS-SNI
+allowlist**, not an open network. Measured reachability:
+
+```text
+$ curl -4 -s -o /dev/null -w "npm-v4 http=%{http_code}\n" https://registry.npmjs.org/
+npm-v4 http=200
+$ curl -6 -s -o /dev/null -w "npm-v6 http=%{http_code}\n" https://registry.npmjs.org/
+npm-v6 http=000
+$ curl -s -o /dev/null -w "http=%{http_code}\n" https://proxy.golang.org/...
+http=000          # also 000 for go.dev, dl.google.com, storage.googleapis.com
+$ curl -s -o /dev/null -w "http=%{http_code}\n" https://static.crates.io
+http=000          # also 000 for index.crates.io, static.rust-lang.org, sh.rustup.rs
+$ curl -s -o /dev/null -w "http=%{http_code}\n" https://github.com
+http=200
+$ curl -s -o /dev/null -w "http=%{http_code}\n" https://api.github.com
+http=200
+$ curl -s -o /dev/null -w "http=%{http_code}\n" https://pypi.org
+http=200
+$ curl -s -o /dev/null -w "http=%{http_code}\n" https://deb.debian.org
+http=000          # also 000: archive.ubuntu.com, dl-cdn.alpinelinux.org, all Docker/ghcr hosts
+```
+
+GitHub **release assets are blocked** (they redirect to `objects.githubusercontent.com`):
+
+```text
+$ curl -sIL https://github.com/golangci/golangci-lint/releases/download/v1.62.2/golangci-lint-1.62.2-checksums.txt
+asset http=302 size=0
+$ curl -sv https://objects.githubusercontent.com/
+*   Trying 185.199.108.133:443... * Connected ... * OpenSSL SSL_connect: SSL_ERROR_SYSCALL
+```
+
+GitHub **source tarballs via codeload work**:
+
+```text
+$ curl -s -o /dev/null -w "codeload http=%{http_code} size=%{size_download}\n" \
+    "https://codeload.github.com/golang/go/tar.gz/refs/tags/go1.4"
+codeload http=200 size=10968312
+```
+
+Consequence: npm, PyPI and GitHub *source* work; Go module proxy, crates.io, Debian, Docker
+registries and GitHub *binaries* do not. That single fact determines which tools below can
+give a real verdict and which remain blocked.
+
+---
+
+## PHASE 1 — real baseline (verbatim)
+
+### 1.1 Environment remediation that was required first
+
+The system Node is v22.22.3 and the repo is `engine-strict` with `engines.node >= 24.15.0`
+(`.nvmrc` = 24.21.0):
+
+```text
+$ node --version && npm --version
+v22.22.3
+10.9.8
+
+$ npm ci
+npm error code EBADENGINE
+npm error notsup Required: {"node":">=24.15.0"}
+npm error notsup Actual:   {"npm":"10.9.8","node":"v22.22.3"}
+NPM_CI_EXIT=1
+```
+
+nodejs.org is blocked, but the npm package `node-linux-x64@24.21.0` (exactly the `.nvmrc`
+version, 184,843,434 bytes unpacked) bundles the real runtime. Installed from the reachable npm
+registry — **not** from nodejs.org:
+
+```text
+$ npm install node-linux-x64@24.21.0        # into /tmp/node24
+added 1 package in 5s
+$ PATH=/tmp/node24/node_modules/node-linux-x64/bin:$PATH node -v
+v24.21.0
+```
+
+pytest is also absent and `pip install --user` is blocked by PEP 668, so a venv was used:
+
+```text
+$ python3 -m venv /tmp/venv && /tmp/venv/bin/pip install pytest
+$ /tmp/venv/bin/pytest --version
+pytest 9.1.1
+```
+
+PostgreSQL 16.2 came from the PyPI wheel `pgserver` (no Docker, no apt). It is a real server,
+not an emulation:
+
+```text
+$ .../pgserver/pginstall/bin/postgres --version
+postgres (PostgreSQL) 16.2
+$ psql -h 127.0.0.1 -p 5433 -U postgres -c "SELECT version();"
+ PostgreSQL 16.2 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 10.2.1 20210130, 64-bit
+```
+
+### 1.2 Real results — every command and exit code
+
+**REAL TOOL OUTPUT.**
+
+```text
+$ npm ci
+added 469 packages, and audited 470 packages in 15s
+found 0 vulnerabilities
+NPM_CI_EXIT=0
+```
+
+```text
+$ npm run typecheck          # tsc --noEmit, BEFORE the fix in the Diffs section
+src/lib/job-timeline.ts(97,54): error TS2322: Type 'Date | null' is not assignable to type 'Date | undefined'.
+src/lib/job-timeline.ts(103,59): error TS2322: Type 'Date | null' is not assignable to type 'Date | undefined'.
+src/lib/job-timeline.ts(106,54): error TS2322: Type 'Date | null' is not assignable to type 'Date | undefined'.
+src/lib/job-timeline.ts(107,53): error TS2322: Type 'Date | null' is not assignable to type 'Date | undefined'.
+tests/job-timeline.test.ts(23,46): error TS2345: ... is missing the following properties from type ...: tenantId, expiresAt, payload, apiKeyId, and 5 more.
+tests/job-timeline.test.ts(51,46): error TS2345: ... missing ...: tenantId, expiresAt, payload, apiKeyId, and 6 more.
+tests/job-timeline.test.ts(68,46): error TS2345: ... missing ...: requestId, tenantId, attemptId, spoolerJobId, and 12 more.
+tests/job-timeline.test.ts(82,46): error TS2345: ... missing ...: requestId, tenantId, attemptId, spoolerJobId, and 13 more.
+TYPECHECK_EXIT=2                      <-- "typecheck clean" claim was FALSE at this commit
+
+$ npm run typecheck          # after the fix
+TSC_EXIT=0
+```
+
+```text
+$ npm run lint
+> eslint .
+LINT_EXIT=0                           # genuine pass, real eslint
+
+$ npm run test               # BEFORE the fix
+ FAIL  tests/debugging-robustness.contract.test.ts > ... > keeps the concrete Phase 4 operational failures checked
+      tests/debugging-robustness.contract.test.ts:60:45
+ FAIL  tests/production-fixes-contract.test.ts > ... > Go agent: size-aware print budget with fenced pre-execution rejection
+      tests/production-fixes-contract.test.ts:86:19
+ Test Files  2 failed | 82 passed | 42 skipped (126)
+      Tests  2 failed | 602 passed | 309 skipped (914)
+   Duration  62.79s
+TEST_EXIT=1                           <-- contract suites were NOT green at this commit
+
+$ npm run test               # AFTER the fix, with real PostgreSQL reachable
+ Test Files  124 passed | 2 skipped (126)
+      Tests  905 passed | 8 skipped (914)
+   Duration  347.45s
+EXIT=0
+
+$ npm run test:unit
+ Test Files  81 passed | 1 skipped (82)
+      Tests  588 passed | 6 skipped (595)
+   Duration  35.34s
+UNIT_EXIT=0
+```
+
+```text
+$ npm run test:integration    # no DATABASE_URL
+ ↓ tests/agent-deletion.test.ts (12 tests | 12 skipped)  ... 24 files fully skipped
+ ❯ tests/ci-tripwire.check.ts (2 tests | 2 failed)
+     × refuses to run without a real PostgreSQL database
+     AssertionError: DATABASE_URL is not set - the CI run has NO database coverage.
+INTEGRATION_EXIT=1                    # the tripwire works as designed
+
+$ export DATABASE_URL="postgresql://postgres@127.0.0.1:5433/print_gateway"
+$ npm run db:migrate
+PostgreSQL migrations applied successfully
+MIGRATE_EXIT=0
+
+$ npm run test:integration    # real PostgreSQL 16.2
+ ✓ tests/e2e-job-flow.test.ts (4 tests) 3060ms
+ ✓ tests/ws-claim-delivery.test.ts (40 tests) 24836ms
+ ✓ tests/lifecycle-delivery.test.ts (5 tests) 3563ms
+ ... (44 files)
+ Test Files  44 passed | 1 skipped (45)
+      Tests  319 passed | 2 skipped (321)
+   Duration  206.80s
+INTEGRATION_REAL_EXIT=0
+
+$ npm run test:e2e            # no DB: exits 0 while testing nothing (vacuous)
+ Test Files  1 skipped (1) | Tests  4 skipped (4) | E2E_EXIT=0
+
+$ npm run test:e2e            # with real PostgreSQL: non-vacuous
+ ✓ tests/e2e-job-flow.test.ts (4 tests) 3902ms
+   ✓ accepts a PDF job and delivers it to the connected agent 761ms
+   ✓ rejects a PDF for an ESC/POS-only printer 612ms
+   ✓ keeps a job queued when no agent socket is connected 1280ms
+   ✓ supports polling claims and explicit job ACK 632ms
+ Test Files  1 passed (1) | Tests  4 passed (4) | Duration 4.99s
+E2E_REAL_EXIT=0
+
+$ npm run test:odoo:static
+platform linux -- Python 3.11.2, pytest-9.1.1, pluggy-1.6.0
+tests/test_odoo19_printing_static.py ................................... [ 94%]
+..                                                                       [100%]
+============================== 37 passed in 0.13s ==============================
+ODOO_STATIC_EXIT=0
+```
+
+### 1.3 Blocked toolchains — evidence, not assertion
+
+**REAL TOOL OUTPUT.** These are the true reasons the remaining gates cannot pass here; they are
+environment failures, and are *not* counted as passes:
+
+```text
+$ go version                                           exit=127  /bin/bash: line 1: go: command not found
+$ go build ./...                                       exit=127  /bin/bash: line 1: go: command not found
+$ go vet ./...                                         exit=127  /bin/bash: line 1: go: command not found
+$ go test ./... -race                                  exit=127  /bin/bash: line 1: go: command not found
+$ staticcheck ./...                                    exit=127  /bin/bash: line 1: staticcheck: command not found
+$ cargo check --manifest-path src-tauri/Cargo.toml     exit=127  /bin/bash: line 1: cargo: command not found
+$ cargo test                                           exit=127  /bin/bash: line 1: cargo: command not found
+$ docker compose config                                exit=127  /bin/bash: line 1: docker: command not found
+```
+
+A genuine attempt was made to *build* a Go toolchain from officially reachable source
+(codeload → `golang/go` tag `go1.4` → `make.bash`). It failed at the C bootstrap stage on a
+modern-GCC warning-as-error, and the retry with a compiler wrapper was not completed before
+this entry was written:
+
+```text
+# Building C bootstrap tool.
+/tmp/goboot/go1.4/include/u.h:86:42: error: expression does not compute the number of elements in this array;
+  element type is 'struct __jmp_buf_tag', not 'long int' [-Werror=sizeof-array-div]
+   86 | typedef long p9jmp_buf[sizeof(sigjmp_buf)/sizeof(long)];
+MAKE_BASH_EXIT=1
+GO14_VERSION_EXIT=127                 # no ./go binary was produced
+```
+
+So: **no Go toolchain → no real `go build` / `go vet` / `go test -race` / `staticcheck`, and no
+real Go Agent binary for Phase 4.** `cargo` and `docker` are equally unavailable and their
+hosts are blocked, so no amount of retrying reaches them in this sandbox.
+
+---
+
+## PHASE 2 — every major prior claim, cross-verified against the real results
+
+| # | Prior claim (source entry) | Verdict | Real evidence |
+| --- | --- | --- | --- |
+| 1 | Front-end/TS toolchain is clean (`Final verification state`, `Final-main verification boundary`) | **CONTRADICTED → FIXED** | `tsc --noEmit` exit 2, 8 errors; `npm run test` exit 1, 2 failures. Both fixed this pass; now exit 0 / 0 |
+| 2 | Phase 2 `any`-removal holds (`Phase 2 decision points free of any`) | **CONFIRMED** | `tests/debugging-robustness.contract.test.ts` ran under real vitest and passed (905 passed) |
+| 3 | Contract suites green (`CI hygiene`, `test-gap closure`) | **CONTRADICTED → FIXED** | 2 failing contract tests at HEAD; assertions fixed, suite exit 0 |
+| 4 | npm dependency tree installs (`Phase 1 dependency currency triage`) | **CONFIRMED** | `npm ci` → 469 packages, 0 vulnerabilities, exit 0 |
+| 5 | ESLint runs (`ESLint 9 maintenance status` residual risk) | **CONFIRMED** | `eslint .` exit 0. Note: `npm ci` warns `eslint@9.39.5: This version is no longer supported` — the residual-risk entry is accurate |
+| 6 | Odoo static suite passes | **CONFIRMED** | pytest 9.1.1 → 37 passed in 0.13s, exit 0 |
+| 7 | DB-backed suites / WS claim-delivery verified (`Phase 4`, `B1–B4`) | **CONFIRMED** | with real PostgreSQL: 319 passed incl. `ws-claim-delivery` (40), `auth-rate-limit` (20), `auth-rate-limit-fail-closed` (6) |
+| 8 | `test:e2e` proves the job flow | **PARTLY CONTRADICTED → NOW REAL** | without a DB it exits 0 while skipping all 4 tests (vacuous). With real PostgreSQL: 4/4 passed |
+| 9 | Go build/vet/test/-race pass (`Agent/Tauri hardening`, `Phase 1 Agent validation`) | **STILL UNVERIFIED** | no Go toolchain; exit 127 for every command. The log's own `Phase 5` entry admitted this — that admission is confirmed accurate |
+| 10 | `gofmt` clean / 109 Go files parse | **STILL UNVERIFIED** | `gofmt` ships with the Go toolchain, which is absent; a parse check is not `go vet` |
+| 11 | `staticcheck` / `govulncheck` gates (`A03 supply chain`) | **STILL UNVERIFIED** | binary absent; `go install` needs the blocked module proxy |
+| 12 | `cargo check` / `cargo test` / `cargo audit` (`Tauri Phase 0`) | **STILL UNVERIFIED** | cargo absent (exit 127); crates.io blocked |
+| 13 | Supply-chain CI gates actually execute (`A03`, `OWASP 2025 A03`) | **CONFIRMED for the executable gates** | npm audit prod + full + `--audit-level=high` all exit 0 with 0 vulnerabilities; the workflow's own **negative-control fixture** (lodash 4.17.19) correctly fails with `1 high severity vulnerability`; digest-pinning, lockfile and SHA-pinning gates run and pass; `scripts/pg-notify-failure-injection.ts` passed against real PostgreSQL. `govulncheck`/`cargo audit` steps **cannot** execute here |
+| 14 | CSP enforcement (`A02`, CSP fixture entries) | **CONFIRMED (to the repo's own tests)** | `deployment-security-contract` (4), `discovery-security` (3), `printer-destination-security` (9), `security-credential-response` (1) all passed under real vitest. No third-party CSP scanner was run |
+| 15 | A05 SQL-identifier guard (`A05`, `OWASP 2025 A05`) | **CONFIRMED (to the repo's own tests)** | the guard/regression suites passed in the 905-test run; the guard itself is a repo test, not an external scanner |
+| 16 | PostgreSQL LISTEN reconnect resilience | **CONFIRMED** | failure injection forced backend disconnect, listener reconnected (`reconnecting in 906ms`), proof passed, exit 0 |
+| 17 | Ignored-result inventory `33` / `35` (`Phase 4 re-verification`, consolidated run) | **CONTRADICTED** | not reproducible under any definition; canonical count is **50 production / 107 test** — see Phase 3 |
+| 18 | Real Agent↔Gateway live E2E was blocked (`Phase 5 real Gateway-Agent E2E boundary`) | **CONFIRMED as an honest blocker** | that entry is accurate and is the right call; this pass still cannot build the Go agent, and says so again |
+| 19 | Docker Compose + Caddy topology | **STILL UNVERIFIED** | no docker binary; registry hosts blocked. Fallback topology exercised instead (Phase 4) |
+| 20 | Live Odoo 19 / physical printer behaviour | **STILL UNVERIFIED (out of scope)** | no Odoo 19 instance and no printer; unchanged from prior passes |
+| 21 | Docs drift fixes (`ARCHITECTURE.md`, `SECURITY.md`, `API.md`, migration counts) | **STILL UNVERIFIED** | documentation review is not tool-verifiable; not re-audited in this pass |
+
+### 2.1 The two wrong claims, in detail, and what was actually wrong
+
+**(a) `tsc` was not clean.** Four of the eight errors were real product-code type bugs: the
+Drizzle row type for `print_jobs` exposes `claimedAt/deliveredAt/ackedAt` as `Date | null`,
+while `buildTimelineFromJobRow` declares `at?: Date`. Four more were test-side: the fixtures
+passed partial object literals where the full row type is required. The "Phase 2 typings"
+claim therefore covered only the `any`-removal dimension, not compilation.
+
+**(b) Two contract tests were failing, and three of their stale assertions demanded *worse*
+code than exists.** This matters, because these are the same "source contract" style checks the
+earlier passes relied on:
+
+| Stale assertion | What the code actually does now |
+| --- | --- |
+| `main.go` must contain `"failed to close queue"` | real error handling: `if err := p.agent.Close(); err != nil { return fmt.Errorf("close local queue: %w", err) }` |
+| `registry.go` must contain `saveRegistryLocked(registryPath, all)` | real code: `if err := saveRegistryLocked(registryPath, concatDevices(production, hidden)); err != nil` |
+| `agent.go` must contain `enqueueReject(..., jobClaimToken(job), "pending_full")` | real code: `enqueueReject(..., fields.ClaimToken, "pending_full")` — same fenced semantics, renamed accessor |
+| `network.go` must contain `_ = conn.SetWriteDeadline(...)` | **the ignored result was removed**: `if err := conn.SetWriteDeadline(...); err != nil { return fmt.Errorf("set printer write deadline: %w", err) }` |
+
+So the failing tests were stale, and one of them was actively asserting that an error must
+continue to be discarded. The assertions were updated to assert the **stronger** behaviour that
+now exists (see Diffs). This is a fix to the underlying issue, not a relabel: the contract tests
+now fail if that error handling is ever regressed.
+
+Caveat recorded honestly: because there is no Go toolchain, the Go-side semantics of those
+contracts are **read-verified only**. The TypeScript side is compiler-verified.
+
+---
+
+## PHASE 3 — the 50 / 33 / 35 ignored-result discrepancy: root cause and fix
+
+**Root cause: the metric was never defined by a committed script.** Four different ad-hoc
+definitions were used across passes, and the counting command itself was never committed, so
+the numbers cannot be reproduced from the repository. Measured on the *current* tree
+(**CUSTOM CHECK, NOT THE REAL TOOL** — grep/python text metric, `/tmp/attr2.py`):
+
+| Definition (line-based) | PRODUCTION | TEST | TOTAL |
+| --- | --- | --- | --- |
+| line-start-anchored only: `^\s*(_ = \|_, _ := \|_, _ = )` | 20 | 75 | 95 |
+| `_ = ` anywhere on the line | 25 | 89 | 114 |
+| `, _ :=` anywhere on the line | 25 | 18 | 43 |
+| **`_ = ` ∪ `, _ :=` anywhere** | **50** | **107** | **157** |
+| `_ = ` ∪ `, _ :=` excluding `*_windows.go` | 22 | 107 | 129 |
+| `_ = ` ∪ `, _ :=` excluding `testutil/` | 49 | 107 | 156 |
+
+The fourth row reproduces the log's earlier `FINAL_IGNORED_INVENTORY TOTAL=157 PRODUCTION=50
+TEST=107` exactly, which proves the tree did not change between that run and this one — so the
+variance was **definitional, not code drift**. Specifically:
+
+- `157/50/107` = any line containing `_ = ` or `, _ :=`.
+- `122/33/89` and `128/35/93` are **not reproducible by any definition tried**, including
+  anchoring, Windows-file exclusion, `testutil/` exclusion, occurrence-counting and
+  comment/string filtering. The log's own last two runs (`122/33/89` and `128/35/93`) disagree
+  with *each other* on the same tree, which is the signature of two divergent uncommitted
+  scripts — exactly the failure mode the user suspected.
+- The earlier "exact" number undercounted because it dropped legitimate mid-line forms such as
+  `kind, _ := portKind(...)`, `r, g, b, _ := c.RGBA()`, `ret, _, _ := proc....Call(...)` and
+  `defer func() { _ = tx.Rollback() }()`. 25 production lines match **only** the `, _ :=` form.
+- The "double-counting multi-line statements" hypothesis is **not** a factor: the largest
+  production file by far is `agent/internal/printer/usb_windows.go` (24 matches), and no
+  comment/string false positives exist (0 in production, 0 in test).
+
+**The fix — one committed, deterministic definition.**
+`scripts/count-ignored-results.sh` (new, in Diffs) implements exactly one definition, documents
+it in-header, separates production from test, and excludes comment lines:
+
+```text
+$ ./scripts/count-ignored-results.sh
+IGNORED_RESULTS PRODUCTION=50 TEST=107 TOTAL=157
+EXIT=0
+```
+
+**The one correct number for the requested scope (`_ = expr` / `_, _ :=` under `agent/`)
+as this part was being written: production = 50, test = 107, total = 157** — produced by
+`scripts/count-ignored-results.sh` (exact command above). ⚠️ **Superseded:** the
+three source fixes in part 2 remove one production site each, giving **50 → 47**, and
+the new test files take TEST **107 → 116**. See the reconciliation table in part 2 §4.1
+for the final numbers and the measurement against pristine `HEAD` that attributes the
+movement. This is a **text metric**, i.e. a
+CUSTOM CHECK, NOT THE REAL TOOL: it counts patterns, it does not prove that any of those 50
+ignores is acceptable. Categorising them (as prior passes attempted) still requires review, and
+`go vet`/compiler verification of these lines remains blocked.
+
+---
+
+## PHASE 4 — real Gateway ↔ agent E2E: the topology actually exercised
+
+**Topology exercised: Gateway + native PostgreSQL only.**
+- **Real** production entry point: `npm run dev` → `tsx server.ts`, bound `0.0.0.0:3000`,
+  logging `> Ready on http://0.0.0.0:3000 (Agent WS at /api/agent/ws)`.
+- **Real** PostgreSQL 16.2 on `127.0.0.1:5433`, migrated with the repo's own `npm run db:migrate`
+  (exit 0), same database the Gateway used.
+- **Real** WebSocket over `ws://` to `/api/agent/ws` with agent credentials from the repo's own
+  `tests/helpers/pg.ts` fixture, driving create → claim → ack → printing → success.
+- **NOT** exercised: Docker Compose, Caddy, and the Go Agent binary with
+  `agent/internal/testutil`'s mock printer. Docker is absent (exit 127) and there is no Go
+  toolchain, so the agent-side peer was a **CUSTOM DRIVER, NOT THE REAL GO AGENT**
+  (`/tmp/phase4/driver.ts`, explicitly header-labelled). It must not be read as equivalent to
+  the requested Go-agent proof.
+
+### 4.1 Both sides — verbatim
+
+Agent-side (custom driver) output:
+
+```text
+[agent-sim] seeded tenant=tenant_7b368c82185da470 agent=agt_7b368c82185da470 printer=printer_7b368c82185da470
+[agent-sim] WS OPEN -> ws://127.0.0.1:3000/api/agent/ws (real gateway)
+[agent-sim] HTTP POST /api/print/jobs -> 201 {"jobId":"job_uiI9ZzLQE5Qf","status":"queued",...}
+[agent-sim] WS <- {"type":"print_job","job":{"id":"job_uiI9ZzLQE5Qf","status":"claimed","payload":{...}}}
+[agent-sim] CLAIM envelope: status=claimed claimToken=fd7c848b...
+[agent-sim] WS -> job_ack (claimToken attached)
+[agent-sim] HTTP PATCH /api/agent/jobs status=printing -> 200
+[agent-sim] HTTP PATCH /api/agent/jobs status=success  -> 409      <-- stale token rejected (fencing)
+[agent-sim] HTTP PATCH /api/agent/jobs status=success  -> 200
+[agent-sim] HTTP GET /api/print/jobs?id=... -> 200 {"status":"success",...}
+[agent-sim] DB row: status=success acked_at=Sat Sep 26 2026 00:15:41 GMT+0000 delivered_at=Sat Sep 26 2026 00:15:41 GMT+0000
+PHASE4_RESULT {"jobId":"job_uiI9ZzLQE5Qf","createdStatus":"queued","finalStatus":"success",
+               "staleTokenRejectedWith":409,"acked":true,"delivered":true}
+DRIVER_EXIT=0
+```
+
+Gateway-side (real server process) output for the same job:
+
+```text
+> Ready on http://0.0.0.0:3000 (Agent WS at /api/agent/ws)
+{"event":"print.trace.gateway_enqueue","jobId":"job_uiI9ZzLQE5Qf","agentId":"agt_7b368c82185da470","enqueueLatencyMs":21,"reused":false}
+{"event":"job_timeline_event","jobId":"job_uiI9ZzLQE5Qf","stage":"created","status":"ok"}
+{"event":"job_timeline_event","jobId":"job_uiI9ZzLQE5Qf","stage":"queued","status":"ok"}
+ POST /api/print/jobs 201 in 1446ms
+{"event":"print.trace.gateway_delivery","jobId":"job_uiI9ZzLQE5Qf","claimLatencyMs":8,"sendLatencyMs":1,"evidenceLatencyMs":12,"outcome":"delivered"}
+{"event":"print.job.dispatch_boundary","dispatchOutcome":"delivered"}
+{"event":"print.job.printing","jobId":"job_uiI9ZzLQE5Qf","physicalOutcome":"not_printed","spoolerJobId":null}
+ PATCH /api/agent/jobs 200 in 286ms
+{"level":"warn","event":"job.status.stale_claim","jobId":"job_uiI9ZzLQE5Qf","agentId":"agt_7b368c82185da470"}
+ PATCH /api/agent/jobs 409 in 15ms
+{"event":"print.job.success","jobId":"job_uiI9ZzLQE5Qf","physicalOutcome":"unknown","spoolerJobId":null}
+{"event":"job_timeline_event","jobId":"job_uiI9ZzLQE5Qf","stage":"success","status":"ok"}
+ PATCH /api/agent/jobs 200 in 17ms
+ GET /api/print/jobs?id=job_uiI9ZzLQE5Qf 200 in 12ms
+```
+
+Lifecycle: create (201 queued) → WS claim envelope (`claimed` + `claimToken`) → `job_ack`
+(acked_at stamped) → `printing` (200) → forged/stale token (409, logged as `stale_claim`) →
+real token `success` (200) → status `success` with `acked_at` and `delivered_at` set. Note the
+Gateway's own honest `physicalOutcome: "not_printed" / "unknown"` on the timeline — no physical
+printer was involved, and the log does not pretend otherwise.
+
+---
+
+## PHASE 5 — TRUST STATUS
+
+| Claim | Status | Basis |
+| --- | --- | --- |
+| npm dependency install (`npm ci`) | **REAL-VERIFIED** | 469 packages, 0 vulnerabilities, exit 0 |
+| ESLint (`npm run lint`) | **REAL-VERIFIED** | `eslint .` exit 0 |
+| TypeScript compile (`tsc --noEmit`) | **REAL-VERIFIED after fix** | was exit 2/8 errors at HEAD (claim contradicted), now exit 0 |
+| Vitest unit + contract suites | **REAL-VERIFIED after fix** | was exit 1/2 failures, now 905 passed | 8 skipped, exit 0 |
+| DB-backed integration suites | **REAL-VERIFIED** | real PostgreSQL 16.2: 319 passed, exit 0 |
+| Odoo-static pytest suite | **REAL-VERIFIED** | 37 passed in 0.13s, exit 0 |
+| `test:e2e` job flow | **REAL-VERIFIED** (non-vacuous only with DB) | 4/4 passed with real PostgreSQL; skips silently without it |
+| npm audit (prod, full, high) + negative control | **REAL-VERIFIED** | 0 vulnerabilities; known-vulnerable fixture correctly fails the gate |
+| Supply-chain CI shell gates (digests, lockfiles, SHA pins) | **REAL-VERIFIED** | run verbatim from the workflow, all pass |
+| PostgreSQL LISTEN reconnect failure injection | **REAL-VERIFIED** | forced disconnect → reconnect in 906ms → proof passed |
+| CSP / SQL-identifier / auth rate-limit guards | **REAL-VERIFIED (repo's own suites)** | ran under real vitest; no external scanner used |
+| Ignored-result inventory | **REAL-VERIFIED (text metric) after correction** | canonical `PRODUCTION=50 TEST=107 TOTAL=157`; prior 33/35 unreproducible |
+| **Go** `build`/`vet`/`test -race` | **STILL-UNVERIFIED** | no Go toolchain (exit 127); source bootstrap failed at go1.4 C stage |
+| `staticcheck` / `govulncheck` / `go mod verify` | **STILL-UNVERIFIED** | tools absent; module proxy blocked |
+| `gofmt` / Go parse claims | **STILL-UNVERIFIED** | `gofmt` absent; parsing ≠ vetting |
+| **Rust** `cargo check`/`test`/`audit` | **STILL-UNVERIFIED** | cargo absent (exit 127); crates.io blocked |
+| Real **Go Agent binary** ↔ Gateway live E2E | **STILL-UNVERIFIED** | agent cannot be built; Gateway+PG+WS exercised with a labelled TS harness instead |
+| Docker Compose → Caddy full topology | **STILL-UNVERIFIED** | no docker binary; registries blocked |
+| Live Odoo 19 instance / physical printer behaviour | **STILL-UNVERIFIED (out of scope)** | no such instance available |
+| Documentation-drift fixes | **STILL-UNVERIFIED** | not tool-verifiable; not re-audited here |
+
+---
+
+## Diffs applied by this pass
+
+```text
+ src/lib/job-timeline.ts                     |  8 ++--     (4 null -> undefined coercions)
+ tests/job-timeline.test.ts                  | 72 ++++++++++++++++++-----------  (typed fixture helper)
+ tests/debugging-robustness.contract.test.ts |  5 +-       (2 stale assertions -> stronger ones)
+ tests/production-fixes-contract.test.ts     |  9 ++--     (3 stale assertions -> stronger ones)
+ scripts/count-ignored-results.sh            | new        (canonical ignored-result counter)
+ 5 files changed, 59 insertions(+), 39 deletions(-)
+```
+
+1. `src/lib/job-timeline.ts` — `at: job.deliveredAt ?? job.claimedAt ?? undefined`, and
+   `?? undefined` for `deliveredAt`/`ackedAt` at lines 103/106/107. The declared `at?: Date`
+   contract is unchanged; `Date | null` from Drizzle is coerced to `undefined`.
+2. `tests/job-timeline.test.ts` — fixtures now build through
+   `makeJob(overrides: Partial<Parameters<typeof buildTimelineFromJobRow>[0]>)`, so every
+   required `print_jobs` column is present and typed. All four original assertions retained.
+3. `tests/debugging-robustness.contract.test.ts` — `"failed to close queue"` replaced by the
+   real propagated error `return fmt.Errorf("close local queue: %w", err)`; the registry
+   assertion updated to `saveRegistryLocked(registryPath, concatDevices(production, hidden))`.
+4. `tests/production-fixes-contract.test.ts` — `jobClaimToken(job)` → `fields.ClaimToken`
+   (two assertions), and the `_ = conn.SetWriteDeadline(...)` assertion replaced by the real
+   error-handling form, so the contract now fails if the deadline error is ever ignored again.
+5. `scripts/count-ignored-results.sh` — new canonical definition for the Phase 3 metric.
+
+Nothing in `agent/`, `src-tauri/`, `drizzle/` or the workflows was modified by this pass.
+
+### Custom checks used in this pass (NOT the real tool)
+
+`/tmp/diag_contracts.py`, `/tmp/diag2.py`, `/tmp/attr.py`, `/tmp/attr2.py`,
+`/tmp/count_ignored.sh` and the committed `scripts/count-ignored-results.sh` are all grep/regex
+text scans. They were used only to *locate* candidates (e.g. which contract assertions were
+stale, which lines contain ignored results). Every verdict above attributed to a real tool came
+from `tsc`, `eslint`, `vitest`, `pytest`, `npm audit`, `psql` or the running Gateway process.
+Note also that `/tmp/diag_contracts.py` produced one false positive (a Go escape-sequence
+mangling), which is precisely why its output was never treated as a verdict.
+
+---
+
+# 2026-09-26 — SEVENTH PASS: FOCUSED DEBUGGING AND ROBUSTNESS (part 1 of 2)
+
+This pass covered the six requested phases (Go type-assertion hardening, the named
+`any` decision points, the `src/server/ws.ts` catch audit, the ignored-Go-result
+inventory, a real Agent↔Gateway E2E, and test-gap closure) plus anything the real
+toolchain exposed while doing so. The labelling rule is unchanged and was applied
+strictly: **every number below is a verbatim paste from a command that actually ran
+in this session on the real tool.** Where a helper script produced a number, the
+output is labelled as a custom check, not a tool verdict.
+
+Part 1 (this section) carries the environment situation and the two phases whose
+evidence is entirely TypeScript/grep-verifiable. Part 2 carries the Go phases, the
+E2E, the two defects the live run exposed, the `CGO_ENABLED` build-pipeline finding,
+the final consolidated Phase 0 re-run and the TRUST STATUS table.
+
+## Environment reality at the start of this pass (verbatim)
+
+The sandbox was reset between turns: `/tmp` is not part of the captured workspace
+snapshot, and no background process survives a turn boundary. The Gateway, the Go
+toolchain, the Node 24 install, PostgreSQL and every scratch tree from earlier in
+this session were gone:
+
+```text
+=== postgres? ===
+PG DOWN
+=== node_modules present? ===
+no
+=== .next build present? ===
+no
+=== go toolchain ===
+NO GO
+=== node24 ===
+no node24
+=== pytest venv ===
+```
+
+Everything was therefore rebuilt. Reachability was re-tested rather than assumed
+(an earlier note in this session claimed `registry.npmjs.org` was unreachable; in
+this instance it is not):
+
+```text
+registry.npmjs.org           http=200
+codeload.github.com          http=301
+github.com                   http=200
+api.github.com               http=200
+pypi.org                     http=200
+files.pythonhosted.org       http=404
+proxy.golang.org             http=000
+deb.debian.org               http=000
+```
+
+Rebuilt and verified:
+
+```text
+node --version                  v24.21.0        (npm package node-linux-x64@24.21.0; the
+                                                 package's `latest` tag is 22.x, so the
+                                                 version must be pinned explicitly)
+npm ci                          exit 0 — "added 469 packages, and audited 470 packages",
+                                "found 0 vulnerabilities"
+PostgreSQL                      PostgreSQL 16.2 on x86_64-pc-linux-gnu  (pgserver, TCP
+                                127.0.0.1:5433, database print_gateway)
+npm run db:migrate              "PostgreSQL migrations applied successfully", exit 0
+Gateway (tsx server.ts)         "Ready on http://0.0.0.0:3000 (Agent WS at /api/agent/ws)"
+GET /api/health                 {"ok":true}
+pytest / pgserver               pytest 9.1.1
+```
+
+The Go 1.26 toolchain is rebuilt from the official source tags via
+`codeload.github.com` (the self-bootstrap chain `go1.4 → go1.17.13 → go1.20.14 →
+go1.22.12 → go1.24.6 → go1.26.0`), because `proxy.golang.org`, `golang.org`,
+`sum.golang.org` and `storage.googleapis.com` are all TLS-blocked here (curl 000) and
+the official `goX.Y.Z.linux-amd64.tar.gz` is served from `storage.googleapis.com`.
+Its results are in part 2 of this entry.
+
+---
+
+## PHASE 2 — the four named `any` decision points: COMPLETE
+
+**Problem.** Four named decision points were reported to carry `: any` / `as any`
+escapes that suppress type checking exactly where the code makes a decision:
+`api/auth/verify-email` (role), `api/printers/[id]/certify` (freshJob / agent /
+steps), `lib/job-timeline.ts` + `api/jobs/[id]/timeline`, and the client
+`catch (e: any)` sites in `JobTimeline.tsx`, `PrintCertificationWizard.tsx`,
+`api-keys/page.tsx` and `system-health-client.tsx`.
+
+**Evidence.**
+```text
+$ for f in <the 8 named files>; do grep -c 'as any' "$f"; grep -cE ':\s*any\b' "$f"; done
+src/app/api/auth/verify-email/route.ts               as-any=0 :any=0
+src/app/api/printers/[id]/certify/route.ts           as-any=0 :any=0
+src/lib/job-timeline.ts                              as-any=0 :any=0
+src/app/api/jobs/[id]/timeline/route.ts              as-any=0 :any=0
+src/components/JobTimeline.tsx                       as-any=0 :any=0
+src/components/PrintCertificationWizard.tsx          as-any=0 :any=0
+src/app/api-keys/page.tsx                            as-any=0 :any=0
+src/app/system-health/system-health-client.tsx       as-any=0 :any=0
+
+$ npx tsc --noEmit
+TSC_EXIT=0
+```
+
+The client-side `catch (e: any)` conversions and the `api/auth/verify-email` role
+typed as a literal union were already in place from the earlier pass in this
+session. What remained, and was fixed **in this pass**, are the server-side casts
+below — they were still present when this pass re-read the files, so the earlier
+"Phase 2 complete" note was premature for these three files. Corrected here rather
+than relabelled.
+
+**Fix (verbatim diff lines).**
+```diff
+--- a/src/app/api/printers/[id]/certify/route.ts
+-  const requestId = requestIdFrom(req as any) || generateRequestId();
++  const requestId = requestIdFrom(req) || generateRequestId();
+-  return runWithCorrelation({ requestId, tenantId, printerId, attemptId } as any, async () => {
++  return runWithCorrelation({ requestId, tenantId, printerId, attemptId }, async () => {
+-            protocol: (printer.protocol === "unknown" ? "raw" : printer.protocol) as any,
++            protocol: printer.protocol === "unknown" ? ("raw" as const) : printer.protocol,   (x2)
+-        setStep("queue", "error", e.message, `code=${(e as any).code}`);
+-        return NextResponse.json({ error: (e as any).message, code: (e as any).code, ... });
++        // Both classes declare a literal `readonly code`, so the union narrowed
++        // by these two instanceof checks exposes `code`/`message` directly.
++        setStep("queue", "error", e.message, `code=${e.code}`);
++        return NextResponse.json({ error: e.message, code: e.code, ... });
+-      if ((e as any)?.code === "IDEMPOTENCY_CONFLICT") {
++      if (e instanceof Error && (e as Error & { code?: string }).code === "IDEMPOTENCY_CONFLICT") {
+
+--- a/src/app/api/jobs/[id]/timeline/route.ts
+-  const requestId = requestIdFrom(req as any) || generateRequestId();
++  const requestId = requestIdFrom(req) || generateRequestId();
+-  return runWithCorrelation(correlation as any, async () => {
++  return runWithCorrelation(correlation, async () => {
+
+--- a/src/lib/job-timeline.ts
+-      db.insert(jobEvents).values(event as any),
++      db.insert(jobEvents).values(event),
+```
+
+Removing each cast forced the compiler to check the real types instead of accepting
+anything, and **`npx tsc --noEmit` still exits 0** — so every one of these was a
+pure escape hatch with no underlying mismatch. The one cast that could not simply be
+deleted (`protocol`) is a literal-narrowing problem, solved with `"raw" as const`
+rather than by widening the value.
+
+**EXTERNALLY VISIBLE BEHAVIOUR CHANGE — called out explicitly.** The
+`IDEMPOTENCY_CONFLICT` check narrowed from `(e as any)?.code === "..."` to
+`e instanceof Error && (e as Error & { code?: string }).code === "..."`. This is
+deliberately stricter: a non-`Error` object carrying a `code` property would no
+longer be mapped to HTTP 409. It is safe because the producer always throws a real
+`Error`:
+
+```text
+src/lib/print-job-service.ts:223:        const conflictErr = new Error("IDEMPOTENCY_CONFLICT");
+src/lib/print-job-service.ts:224:        Object.assign(conflictErr, { code: "IDEMPOTENCY_CONFLICT" });
+```
+
+and because the new form is the **same idiom the sibling route already used and is
+already covered by an end-to-end test**:
+
+```text
+src/app/api/print/jobs/route.ts:191:    if (error instanceof Error && (error as Error & { code?: string }).code === "IDEMPOTENCY_CONFLICT" && parsed.data.idempotencyKey) {
+tests/print-idempotency.test.ts:129:    expect(await conflicting.json()).toMatchObject({ code: "IDEMPOTENCY_CONFLICT", retryable: false });
+tests/print-idempotency.test.ts:139:    expect(await conflicting.json()).toMatchObject({ code: "IDEMPOTENCY_CONFLICT", retryable: false });
+```
+
+**Pinned by a test** (added to the certify suite, which is a contract suite that
+already scans this file, so the pin lives where its siblings live):
+
+```text
+$ npx vitest run --config vitest.config.mts --run tests/print-certification.test.ts tests/debugging-robustness.contract.test.ts
+ ✓ tests/debugging-robustness.contract.test.ts (6 tests) 1167ms
+ ✓ tests/print-certification.test.ts (9 tests) 21ms
+ Test Files  2 passed (2)
+      Tests  15 passed (15)
+```
+
+The new case asserts `(e as any)?.code` is gone, asserts the typed narrowing is
+present, and asserts the producer still throws an `Error` carrying the code — so the
+narrowing cannot silently start rejecting real conflicts.
+
+**Verification.** `npx tsc --noEmit` → exit 0 (before and after). Certify suite went
+from 8 to 9 tests, all passing.
+
+---
+
+## PHASE 3 — `src/server/ws.ts` catch audit: COMPLETE, 0 silent
+
+**Problem.** The pass was asked to audit 20+ `catch {}` blocks in
+`src/server/ws.ts` to decide which are legitimate best-effort teardown and which
+hide bugs.
+
+**Method (custom check, NOT a real tool).** A line-window grep produced false
+positives — several handlers that DO log (`logUpgradeError`) or rethrow fell outside
+a 5-line window. The audit was therefore redone with a brace-matching script that
+extracts each `catch` block's full body and classifies it as handled only if the
+body contains a log-level call or a `throw`:
+
+```text
+=== PHASE 3: brace-accurate catch audit ===
+total catch blocks in src/server/ws.ts: 35
+catch blocks with no log call and no rethrow: 0
+--- bare 'catch {}' count ---
+0
+```
+
+**Evidence that the audit is not vacuous** — the two genuinely silent sites found
+earlier in this session and fixed, with the fixes still in the tree:
+
+```diff
+ export async function handleAgentMessage(agentId: string, tenantId: string, raw: string): Promise<void> {
+   let msg: unknown;
+-  try { msg = JSON.parse(raw); } catch { return; }
++  try {
++    msg = JSON.parse(raw);
++  } catch (error) {
++    // A malformed frame here drops an inbound agent message (e.g. a job_ack)
++    // with no trace at all. Nothing can be recovered from unparseable JSON, so
++    // this stays a return, but it is no longer silent: a debugging session can
++    // see the agent id and the parse failure at debug level.
++    logDebug("[ws] discarded unparseable agent message", {
++      agentId, tenantId, bytes: raw.length,
++      error: error instanceof Error ? error.message : String(error),
++    });
++    return;
++  }
+
+@@ function writeWsHttpError(...)
+   try {
+     socket.end(response);
+-  } catch {
+-    try { socket.destroy(); } catch (error) { logDebug("[ws] HTTP socket destroy cleanup failed", ...); }
++  } catch (error) {
++    // Best-effort teardown of a rejected upgrade: the caller already knows the
++    // outcome (the HTTP error response it just wrote), so this stays swallowed,
++    // but both halves are now visible at debug level.
++    logDebug("[ws] HTTP socket end failed during rejected upgrade", { ... });
++    try { socket.destroy(); } catch (destroyError) { logDebug("[ws] HTTP socket destroy cleanup failed", ...); }
+   }
+```
+
+**Verdict.** All 35 blocks are legitimate: 33 are best-effort teardown/release
+(`ws.terminate`, `client.release`, `ROLLBACK`, `UNLISTEN`, `wss.close`, `ping`) whose
+failure cannot change the caller's outcome, and 2 are the newly-logged sites above.
+**Nothing was classified as bug-hiding.** No behavioural change was made, so no new
+pinning test is required beyond the 2 already added for the logging itself.
+
+**Verification.**
+```text
+$ npx vitest run --config vitest.config.mts --run tests/debugging-robustness.contract.test.ts
+ ✓ tests/debugging-robustness.contract.test.ts (6 tests)
+   ✓ agent message drop is observable (2)
+     ✓ logs at debug level when an unparseable agent frame is discarded 1142ms
+```
+
+The second of those two tests covers the `writeWsHttpError` change; both fail if the
+logging is removed.
+
+---
+
+# 2026-09-26 — SEVENTH PASS, PART 2: GO PHASES, E2E, BUILD-PIPELINE FINDING
+
+This is the continuation of the entry above and covers the Go toolchain work, the
+real end-to-end run, the two defects the live run exposed, the build-pipeline
+question, the final consolidated command run and the TRUST STATUS table.
+
+## Go toolchain: rebuilt from official source, and what that cost
+
+`proxy.golang.org`, `golang.org`, `sum.golang.org` and `storage.googleapis.com` are
+TLS-blocked here (curl 000) and the official `goX.Y.Z.linux-amd64.tar.gz` is served
+from `storage.googleapis.com`. `codeload.github.com` is reachable, so the toolchain
+was built from the official `golang/go` source tags via the classic self-bootstrap
+chain:
+
+```text
+[01:31:22] STAGE go1.4 bootstrap=none
+go version go1.4 linux/amd64
+[01:32:02] STAGE go1.17.13 bootstrap=/tmp/goboot2/go-go1.4
+go version go1.17.13 linux/amd64
+[01:34:49] STAGE go1.20.14 bootstrap=/tmp/goboot2/go-go1.17.13
+go version go1.20.14 linux/amd64
+[01:38:14] STAGE go1.22.12 bootstrap=/tmp/goboot2/go-go1.20.14
+go version go1.22.12 linux/amd64
+[01:42:26] STAGE go1.24.6 bootstrap=/tmp/goboot2/go-go1.22.12
+go version go1.24.6 linux/amd64
+[01:47:15] STAGE go1.26.0 bootstrap=/tmp/goboot2/go-go1.24.6
+go version go1.26.0 linux/amd64
+[01:52:27] CHAIN COMPLETE
+go version go1.26.0 linux/amd64
+```
+
+Dependencies come from a **locally built `file://` module proxy**: the six modules
+whose canonical hosts are blocked (`golang.org/x/{sys,crypto,net,text}`,
+`gopkg.in/yaml.v3`, `gopkg.in/natefinch/lumberjack.v2`) are fetched from their GitHub
+mirrors at the exact tags, pruned of nested modules, and written in the
+`<module>@<version>/` zip layout:
+
+```text
+OK golang.org/x/sys@v0.47.0 (9651226 bytes, 0 nested module dirs pruned)
+OK golang.org/x/text@v0.40.0 (29658113 bytes, 0 nested module dirs pruned)
+OK gopkg.in/natefinch/lumberjack.v2@v2.2.1 (52231 bytes, 0 nested module dirs pruned)
+OK gopkg.in/yaml.v3@v3.0.1 (466503 bytes, 0 nested module dirs pruned)
+```
+
+**Disclosure.** The reconstructed zips are **not byte-identical** to the official
+artifacts, so their `go.sum` hashes cannot match. All Go commands therefore run in a
+scratch copy that drops exactly those `go.sum` lines. To keep that from being a
+hidden edit, every sync prints a checksum of the source tree and the copy:
+
+```text
+$ /tmp/gosync.sh /tmp/work2
+scratch go.sum: dropped 0 lines; kept 49 (github.com deps keep their real hashes)
+source identity: repo=53603e45b5a5328a scratch=53603e45b5a5328a MATCH
+```
+
+(`dropped 0 lines` is literal: the script filters the six blocked-host modules but the
+committed `go.sum` contains no lines for them, because `go mod tidy` never ran in this
+environment. The 49 lines it keeps are real.)
+
+The `github.com` dependencies keep their real published hashes and are verified
+normally: 49 `go.sum` lines covering 24 unique `github.com` modules, of which 11 are
+direct requires in `agent/go.mod`. Only the six blocked-host modules are unverified,
+and they carry no `go.sum` entry to drop.
+
+**The identity hash is the guarantee, and it is not decorative.** It is a sha256 over
+every `*.go` file under `agent/`, so any source difference between the repository and
+the tree that was compiled — including a file added for convenience — breaks the
+`MATCH`. That is what caught the `/tmp/work1` harness artefact described in the final
+run section below, and it is why the final numbers are quoted from a fresh tree that
+prints `MATCH`.
+
+`CGO_ENABLED=1` is required (see the build-pipeline finding below); `go env
+CGO_ENABLED` in the source-built toolchain reports `0` because `make.bash` was run
+with cgo off. Without it, `internal/queue` fails with
+`Binary was compiled with 'CGO_ENABLED=0', go-sqlite3 requires cgo to work. This is a stub`.
+
+---
+
+## STEP 2 (CGO_ENABLED): **NO BUG — the pipeline builds correctly**
+
+**Question.** The locally-built toolchain defaults to `CGO_ENABLED=0`, which breaks
+the go-sqlite3-backed queue package. Does the repository's own build pipeline set
+`CGO_ENABLED` explicitly, and to what value?
+
+**Evidence — every place the agent is built:**
+
+```text
+$ grep -rn "CGO_ENABLED" . --include='*' | grep -v node_modules | grep -v "^./.git/"
+./agent/Makefile:9:# on a Windows host (or with a mingw cross toolchain), never with CGO_ENABLED=0.
+./agent/Makefile:36:	CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -o odoo-agent-linux-arm64 ./cmd/agent
+```
+
+`CGO_ENABLED` appears in exactly two places, both in `agent/Makefile`, and both are
+correct: the comment warns against `CGO_ENABLED=0`, and the only cross-compile target
+sets `CGO_ENABLED=1` together with an explicit `CC`.
+
+**No workflow sets it — so what actually happens?** `CGO_ENABLED` is unset in every
+workflow, which means Go's **default applies, and that default is `1` whenever a C
+compiler is present and `GOOS` equals the host**. The shipping Windows build runs on
+`windows-latest`:
+
+```text
+$ grep -n -A 8 "Build Go Agent resources for Tauri" .github/workflows/build-windows.yml
+      - name: Build Go Agent resources for Tauri
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go build -mod=readonly -trimpath -ldflags="-s -w" -o YasserAgent.exe ./cmd/agent
+          go build -mod=readonly -trimpath -ldflags="-s -w" -o yasser-agent-cli.exe ./cmd/cli
+```
+
+The load-bearing assumption is that that runner has a C toolchain. Verified against
+the upstream runner image manifest rather than assumed:
+
+```text
+$ curl -s "https://api.github.com/repos/actions/runner-images/contents/images/windows/Windows2022-Readme.md" | ...
+--- compiler-related lines ---
+- gcc 14.2.0
+| msys2bash.cmd | C:\msys64\usr\bin\bash.exe        |
+Location: C:\msys64
+```
+
+`windows-latest` (Windows Server 2022 image) ships **gcc 14.2.0** via msys2, so cgo is
+available and `CGO_ENABLED` defaults to `1`. The Linux CI steps (`ci.yml`) run
+`go build -mod=readonly ./...`, `go vet` and `go test ./... -race` on a Linux runner
+with gcc present, so the same default applies there.
+
+**Verdict: confirmed, no bug.** The build is never invoked with `CGO_ENABLED=0` in
+either CI or release packaging, and the one cross-compile path is the only place that
+needs the value to be explicit — where it already is, with a working `CC`. Nothing in
+the build pipeline was changed.
+
+**Residual risk worth recording (not a defect):** the correctness here depends on the
+runner image continuing to provide a C compiler. If a future runner drops gcc, all
+three `go build` steps fall back to `CGO_ENABLED=0` and the queue silently becomes the
+sqlite stub at runtime rather than failing the build — the queue constructor's
+`PRAGMA` calls would log `queue SQLite pragma failed ... This is a stub` (observed in
+this session when I first ran the suite without cgo) and every queue-backed test
+fails. That failure mode is loud in tests but quiet in a shipped binary. No action
+taken, per the instruction not to modify the build pipeline without understanding the
+library choice first; flagged here so it is a decision, not an accident.
+
+---
+
+## PHASE 1 — Go comma-ok type assertions: COMPLETE, 0 findings
+
+**Problem.** The pass asked for ~10+ sites in `agent/internal/agent/agent.go` shaped
+like `jobID, _ := job["id"].(string)`, where a wrong-typed field silently yields the
+zero value.
+
+**Evidence — the pattern does not exist in this repo, at HEAD or now:**
+
+```text
+$ grep -rnE ',[[:space:]]*_[[:space:]]*:=[[:space:]]*[^=]*\.\([a-zA-Z\[\]]+\)' agent/ --include='*.go' | grep -v '_test.go' | wc -l
+0
+$ git show HEAD:agent/internal/agent/agent.go | grep -cE ',[[:space:]]*_[[:space:]]*:=[[:space:]]*.*\.\([a-zA-Z]'
+0
+$ grep -rnE '[a-zA-Z_.\[\]]+ := [a-zA-Z_][a-zA-Z0-9_.\[\]"]*\.\([a-zA-Z\[\]*.]+\)' agent/ --include='*.go' | grep -v '_test.go' | wc -l
+0
+```
+
+The second pattern is the single-value assertion, which panics rather than
+zero-values; it is also absent. Inbound fields already go through validating helpers
+that return errors, so the requested hardening is present structurally rather than as
+per-call-site fixes:
+
+```text
+agent/internal/agent/agent.go:1058:			return "", fmt.Errorf("field %q is missing", field)
+agent/internal/agent/agent.go:1066:		return "", fmt.Errorf("field %q has invalid type null; expected string", field)
+agent/internal/agent/agent.go:1070:		return "", fmt.Errorf("field %q has invalid type %T; expected string", field, raw)
+agent/internal/agent/agent.go:1190:		log.Printf("Received malformed job; rejecting execution: %v", err)
+```
+
+**Verification — the rejection paths are actually exercised** (real Go 1.26.0):
+
+```text
+$ go test ./internal/agent/ ./internal/payload/ -run 'TestMalformedWSDiscoveryIsRejectedAndLogged|TestMalformedWSJobFieldsAreRejectedAndLogged|TestDispatchRejectsMalformedJobFields|TestProcessJobRejectsMalformedDecisionFields|TestLoadDiscoverySessionByIDRejectsWrongTypedIDs|TestParseRejectsWrongTypedRequiredFields' -v -count=1
+=== RUN   TestLoadDiscoverySessionByIDRejectsWrongTypedIDs
+2026/09/26 02:15:56 [discovery] rejecting session 0 during lookup: id must be a non-empty string
+2026/09/26 02:15:56 [discovery] rejecting session 1 during lookup: missing id
+2026/09/26 02:15:56 [discovery] rejecting session 0 during lookup: id must be a non-empty string
+2026/09/26 02:15:56 [discovery] rejecting session 1 during lookup: missing id
+--- PASS: TestLoadDiscoverySessionByIDRejectsWrongTypedIDs (0.00s)
+=== RUN   TestMalformedWSDiscoveryIsRejectedAndLogged
+--- PASS: TestMalformedWSDiscoveryIsRejectedAndLogged (0.05s)
+=== RUN   TestMalformedWSJobFieldsAreRejectedAndLogged
+--- PASS: TestMalformedWSJobFieldsAreRejectedAndLogged (0.05s)
+=== RUN   TestDispatchRejectsMalformedJobFields
+--- PASS: TestDispatchRejectsMalformedJobFields (0.00s)
+=== RUN   TestProcessJobRejectsMalformedDecisionFields
+--- PASS: TestProcessJobRejectsMalformedDecisionFields (0.00s)
+PASS
+ok  	github.com/yasser-agent/agent/internal/agent	0.112s
+=== RUN   TestParseRejectsWrongTypedRequiredFields
+=== RUN   TestParseRejectsWrongTypedRequiredFields/type
+=== RUN   TestParseRejectsWrongTypedRequiredFields/protocol
+=== RUN   TestParseRejectsWrongTypedRequiredFields/encoding
+=== RUN   TestParseRejectsWrongTypedRequiredFields/data
+=== RUN   TestParseRejectsWrongTypedRequiredFields/pdf_protocol_wrong_type
+--- PASS: TestParseRejectsWrongTypedRequiredFields (0.00s)
+    --- PASS: TestParseRejectsWrongTypedRequiredFields/type (0.00s)
+    --- PASS: TestParseRejectsWrongTypedRequiredFields/protocol (0.00s)
+    --- PASS: TestParseRejectsWrongTypedRequiredFields/encoding (0.00s)
+    --- PASS: TestParseRejectsWrongTypedRequiredFields/data (0.00s)
+    --- PASS: TestParseRejectsWrongTypedRequiredFields/pdf_protocol_wrong_type (0.00s)
+PASS
+ok  	github.com/yasser-agent/agent/internal/payload	0.003s
+PHASE1_EXIT=0
+```
+
+(The discovery rejection pair appears twice because two different tests drive the same
+lookup path; it is not a retry.)
+
+`TestMalformedWSJobFieldsAreRejectedAndLogged` drives **eight** distinct malformed job
+frames through the real WebSocket path and asserts both that the agent logs a
+rejection for each and that **none of them is acknowledged or reaches the printer**
+(`agent/internal/agent/ws_delivery_test.go:289-308`, quoted from the file):
+
+```text
+badJobs := []map[string]interface{}{
+    {"agentId": "agt_test", "printerId": "p1", "status": "claimed", "payload": makeJobPayload("missing_id")},
+    {"id": 123, ...},                                          // id
+    {"id": "missing_printer", ...},                            // printerId missing
+    {"id": "bad_printer", "printerId": 123, ...},              // printerId
+    {"id": "bad_agent", "agentId": 123, ...},                  // agentId
+    {"id": "bad_status", "status": 123, ...},                  // status
+    {"id": "bad_request", "requestId": 123, ...},              // requestId
+    {"id": "bad_claim", "claimToken": 123, ...},               // claimToken
+}
+...
+if acks := gateway.Acks(); len(acks) != 0 { t.Fatalf("malformed WS jobs must never be acknowledged, got %v", acks) }
+if p.Calls() != 0 { t.Fatalf("malformed WS jobs must never reach the printer, got %d calls", p.Calls()) }
+```
+
+**Verdict: the requested fix is already in place and is verified, not merely
+asserted — but it was not introduced by this pass, and the claimed "~10+ sites" never
+existed in this repository.** Recorded as 0 findings rather than as new work.
+
+---
+
+## PHASE 4 — ignored Go results: 3 sites fixed, inventory self-consistency repaired
+
+**Problem.** ~106 `_ = expr` / `_, _ :=` sites were to be categorised as legitimate
+best-effort (leave) or should-be-checked (fix), with a file:line → category → action
+table.
+
+### 4.1 The counter introduced earlier in this pass disagreed with its own listing
+
+`scripts/count-ignored-results.sh` is **new in this pass** (part 1 wrote it; it is not
+in `HEAD` — `git cat-file -e HEAD:scripts/count-ignored-results.sh` fails). So this is a
+defect in this pass's own tooling, not in pre-existing repository code, and it is
+recorded for the same reason as everything else here: the number it printed was being
+quoted as evidence.
+
+Its `count()` function filtered out comment lines, but its `--list` branch did not, so
+the summary and the evidence disagreed:
+
+```text
+$ bash scripts/count-ignored-results.sh            # before the fix
+IGNORED_RESULTS PRODUCTION=48 TEST=114 TOTAL=162
+$ bash scripts/count-ignored-results.sh --list | sed -n '/^production matches:/,$p' | grep -c "^  agent/"
+49
+```
+
+The extra line was a **comment** in `ipp.go` that quotes the old code
+(`// be a bare \`_ = recover()\`, so a parser panic left no trace at all.`). A tool whose
+summary and evidence disagree is worse than no tool, so the listing was brought under
+the same filter as the count:
+
+```diff
+   echo "production matches:"
+-  grep -nE "$PATTERNS" $prod_files | sed 's/^/  /'
++  # Same comment filter as count(), applied to the `file:line:content` form so
++  # the listing can never disagree with PRODUCTION (it did: --list showed 49
++  # while PRODUCTION said 48, because a line whose *content* is a comment
++  # mentioning `_ = recover()` was listed but not counted).
++  grep -nE "$PATTERNS" $prod_files | grep -vE ':[0-9]+:[[:space:]]*//' | sed 's/^/  /'
+```
+
+After that fix, the summary and the evidence can no longer disagree. Measured against
+the final tree, and against a pristine `HEAD` checkout using **the same counter with the
+same definition**, so the movement is attributable:
+
+```text
+$ rm -rf /tmp/headrepo && mkdir -p /tmp/headrepo && git archive HEAD | tar x -C /tmp/headrepo
+$ mkdir -p /tmp/headrepo/scripts
+$ sed 's#/home/user/oddo-print#/tmp/headrepo#g' scripts/count-ignored-results.sh > /tmp/headrepo/scripts/count-ignored-results.sh
+$ bash /tmp/headrepo/scripts/count-ignored-results.sh          # pristine HEAD
+IGNORED_RESULTS PRODUCTION=50 TEST=107 TOTAL=157
+$ bash /tmp/headrepo/scripts/count-ignored-results.sh --list | sed -n '/^production matches:/,$p' | grep -c "^  agent/"
+50
+$ bash scripts/count-ignored-results.sh                        # working tree, after this pass
+IGNORED_RESULTS PRODUCTION=47 TEST=116 TOTAL=163
+$ bash scripts/count-ignored-results.sh --list | sed -n '/^production matches:/,$p' | grep -c "^  agent/"
+47
+```
+
+Reconciliation — production went **50 → 47**, exactly one removal per source fix, and
+test went **107 → 116** from the new test files:
+
+| Tree | PRODUCTION | TEST | Note |
+| --- | --- | --- | --- |
+| pristine `HEAD` | 50 | 107 | `--list` agrees (50): no `_ = recover()` comment exists yet |
+| after part 1 (counter written, `ipp.go` fix) | 49 | 107 | `ipp.go` guard fix removes one site; the new comment quoting `_ = recover()` makes `--list` show 50 while `PRODUCTION` said 49 — the bug |
+| mid part 2 (counter fixed, `--list` filter) | 48 | 114 | `cli/main.go` alias fix removes one site |
+| final tree | 47 | 116 | `mock_printer.go` read-error fix removes `data, _ := io.ReadAll(conn)` |
+
+The part-1 statement of "production = 50" was correct for the tree as it stood when
+part 1 was written, but it is superseded by the table above; 50 was never the
+post-fix number, and a reader should take **47** as the current one.
+
+The `TEST` movement is not incidental: the new and expanded test files
+(`heartbeat_pagination_test.go`, `device_class_test.go`, `mock_printer_test.go`,
+`printers_add_alias_test.go`, `ipp_test.go`) are what the +9 consists of, i.e. the
+counter's test column grew because this pass added tests, which is the intended
+direction.
+
+### 4.2 The three should-be-checked sites, and why the other 44 are legitimate
+
+| # | file:line | category | action |
+| --- | --- | --- | --- |
+| 1 | `agent/internal/printer/ipp.go:411` (pre-fix) | **(b) should be checked** — `defer func() { _ = recover() }()` discarded a recovered panic with no trace | **fixed** → logs `WARNING: recovered from malformed IPP attributes (len=%d): %v` |
+| 2 | `agent/internal/testutil/mock_printer.go:79` (pre-fix) | **(b) should be checked** — `data, _ := io.ReadAll(conn)` made a failed/truncated capture indistinguishable from a legitimately short payload | **fixed** → logs `mock printer: read from %s failed after %d bytes: %v`; captured bytes unchanged |
+| 3 | `agent/cmd/cli/main.go:305` (pre-fix) | **(b) should be checked** — `_ = fs.String("connection-type", ...)` registered a flag whose value was read by a hand-rolled scan that missed `--flag=value` | **fixed** → alias read from the parsed flag set (see 4.3) |
+
+The remaining 44 production sites were each read and are **(a) legitimate best-effort**.
+They fall into three shapes, all of which already treat errors as secondary:
+
+- **Error-path cleanup where the real error is already returned.** `pdf.go`
+  (`_ = f.Close()` ×3), `desired_state.go` (×3), `registry.go`, `storage/secure.go`
+  (×2), `config.go` (×2) all sit immediately after a failed `Write`/`Sync`/`Chmod`
+  where the function is about to return the *primary* error. The success path is
+  error-checked (`if err := tmp.Close(); err != nil { return err }`), which is the
+  part that matters.
+- **Deliberate temp-file removal during unwind.** `_ = os.Remove(tmp)` after an
+  `os.Rename` or ACL failure — the caller already reports a more specific error.
+- **Win32 syscall returns that carry no usable error.** The 24 sites in
+  `usb_windows.go` plus `pdf_windows.go` ignore the `error` return of
+  `procX.Call(...)`; `syscall.Errno` there is the "no error" sentinel (`ERROR_SUCCESS`)
+  on success and is not the API's error channel (the APIs report via `GetLastError`).
+  Changing these would be cargo-culting, not hardening.
+
+Full listing regenerable on demand: `bash scripts/count-ignored-results.sh --list`
+(custom check — a grep-based text metric, **not** a compiler/vet/linter verdict; it is
+the right tool for counting a text pattern and nothing more).
+
+### 4.3 Finding 3 in detail — the CLI alias bug (behaviour-changing, pinned by test)
+
+`handlePrintersAdd` registered the `--connection-type` alias and then recovered its
+value by scanning the raw argument slice for the literal token `"--connection-type"`.
+Go's `flag` package also accepts `--flag=value`, so the `=` form parsed cleanly, was
+never read, and the printer was stored with the `--type` default. Exit status 0, no
+warning: a silent wrong configuration.
+
+Before/after, driving the **real CLI binary** exactly as an operator would:
+
+```text
+=== PRE-FIX binary ===
+$ cli printers add --name "Alias Space"  --connection-type  spooler --spooler-name QUEUE_SPACE  --protocol spooler --id alias_space
+Printer registered: Alias Space (alias_space) type=unknown conn=spooler enabled=true      <- control: space form worked
+$ cli printers add --name "Alias Equals" --connection-type=spooler --spooler-name QUEUE_EQUALS --protocol spooler --id alias_equals
+Printer registered: Alias Equals (alias_equals) type=unknown conn=network enabled=true    <- BUG: silently ignored
+
+=== POST-FIX binary ===
+$ cli printers add --name "Alias Space"  --connection-type  spooler ...
+Printer registered: Alias Space (alias_space) type=unknown conn=spooler enabled=true
+$ cli printers add --name "Alias Equals" --connection-type=spooler ...
+Printer registered: Alias Equals (alias_equals) type=unknown conn=spooler enabled=true    <- fixed
+```
+
+**Behaviour change, called out:** the `=` form now takes effect. Nothing that
+previously worked changes; an input that was previously *silently accepted and
+discarded* now does what it says. Pinned by
+`agent/cmd/cli/printers_add_alias_test.go`, which builds the real binary and compares
+both spellings — and **fails on the pre-fix code**, measured:
+
+```text
+$ go test ./cmd/cli/ -run TestPrintersAddAppliesConnectionTypeAliasInBothForms -v -count=1   # fix reverted in scratch copy
+=== RUN   TestPrintersAddAppliesConnectionTypeAliasInBothForms
+    printers_add_alias_test.go:61: --connection-type=<value> was silently ignored (the bug): Printer registered: Alias Equals (alias_equals) type=unknown conn=network enabled=true
+--- FAIL: TestPrintersAddAppliesConnectionTypeAliasInBothForms (2.67s)
+FAIL	github.com/yasser-agent/agent/cmd/cli	2.695s
+```
+
+### 4.4 Fix 1 verification — and an honest correction to the test I first wrote
+
+Fix 2 (`mock_printer`) is pinned behaviourally and **does** fail on revert:
+
+```text
+$ go test ./internal/testutil/ -run TestMockPrinterReportsReadFailure -v -count=1   # pre-fix code
+    mock_printer_test.go:61: expected a read-failure log line, got ""
+--- FAIL: TestMockPrinterReportsReadFailure (2.03s)
+```
+
+Fix 1 (`ipp.go`) was **not** correctly pinned the first time. I wrote a test that
+calls the extracted reporter helper directly, and claimed in a comment that it "would
+fail on the pre-fix code". Measurement proved the claim false — the test passes on the
+reverted code because it never touches `parseIPPAttributes`:
+
+```text
+$ go test ./internal/printer/ -run TestLogRecoveredIPPParseReportsPanic -v -count=1   # pre-fix guard restored
+--- PASS: TestLogRecoveredIPPParseReportsPanic (0.00s)
+```
+
+The comment was wrong, so the comment was fixed rather than the claim reworded: a new
+`TestIPPParseGuardReportsRecoveredPanics` asserts the **guard** (not the helper) still
+inspects and reports the recovered value. It fails on revert with all three of its
+assertions:
+
+```text
+$ go test ./internal/printer/ -run TestIPPParseGuardReportsRecoveredPanics -v -count=1   # reverted
+    ipp_test.go:493: parseIPPAttributes no longer inspects the recovered value; a bare recover() makes parser panics invisible again
+    ipp_test.go:496: the recovered panic is not reported by logRecoveredIPPParse; recovery is silent again
+    ipp_test.go:499: the bare `_ = recover()` form is back, which discards the panic without a trace
+--- FAIL: TestIPPParseGuardReportsRecoveredPanics (0.00s)
+```
+
+It is a source contract rather than a behavioural test, and says so, because the panic
+path is **currently unreachable**: every slice in `parseIPPAttributes` and
+`decodeIPPValue` is length-checked before use, so even the truncated/lying-length
+inputs in `TestParseIPPAttributesNeverPanicsOnMalformedInput` return cleanly. The guard
+is defensive hardening for bytes straight off the network; the contract test pins that
+it still *reports* if it ever fires. That limitation is stated in the test's own
+comment so nobody mistakes it for runtime coverage.
+
+---
+
+# 2026-09-26 — TWO NEW DEFECTS FOUND BY THE LIVE RUN (not part of the original six phases)
+
+Neither of these was in the phase list. Both were found only because a real compiled
+Agent was run against the real Gateway; neither is reachable from a static read of
+either side alone. They are listed separately so they are not mistaken for
+phase work.
+
+## NEW DEFECT 1 — heartbeat response body was read after its context was cancelled
+
+**File.** `agent/internal/agent/agent.go`, `sendHeartbeatContext` (~line 2077).
+
+**Problem.** The per-page request context was cancelled immediately after the HTTP
+call returned and **before** the response body was read. Cancelling the context aborts
+the body read, so every heartbeat page failed with `context canceled` and the function
+returned early — skipping desired-state reconciliation and the `SkippedPrinters`
+feedback entirely. The heartbeat *looked* like it worked (the agent stayed online), so
+nothing surfaced it; the visible symptom was a log line repeating every 30 seconds.
+
+**Evidence (pre-fix, real run against the real Gateway).** Reproduced deliberately for
+this log with a binary built from a scratch tree in which **only** this fix is
+reverted (`cancel()` back to immediately after the request, `agent.go:2088`), run
+against the live Gateway on a freshly seeded fixture. One occurrence per heartbeat
+cycle, for as long as the agent runs:
+
+```text
+$ grep -n "response read failed" /tmp/phase5/run4/logs/agent.log
+7:2026/09/26 02:08:34 agent.go:2097: Heartbeat page 1/1 response read failed: context canceled
+26:2026/09/26 02:09:04 agent.go:2097: Heartbeat page 1/1 response read failed: context canceled
+27:2026/09/26 02:09:34 agent.go:2097: Heartbeat page 1/1 response read failed: context canceled
+28:2026/09/26 02:10:04 agent.go:2097: Heartbeat page 1/1 response read failed: context canceled
+$ grep -c "response read failed" /tmp/phase5/run4/logs/agent.log
+5
+```
+
+(`agent.go:2097` is the pre-fix line number of that log statement; in the fixed tree
+the same statement sits at a different line because of the added comment.) The log was
+copied to `/tmp/ev/prefix-heartbeat.log` before the fixture was reused for the control
+run, and the fixed binary's log to `/tmp/ev/postfix-heartbeat.log`.
+
+The bug is one line's position:
+
+```diff
+ 		resp, err := a.doAuthorizedRequest(heartbeatCtx, "POST", reqURL, payload)
+-		cancel()
+ 		if err != nil {
++			cancel()
+ 			log.Printf("Heartbeat page %d/%d failed: %v", pageIndex+1, len(pages), err)
+ 			return
+ 		}
+ 
++		// The response body must be read BEFORE the request context is canceled.
++		// Cancelling first aborted the body read, which produced
++		// "response read failed: context canceled" on every cycle and returned
++		// early — skipping desired-state reconciliation and the SkippedPrinters
++		// feedback entirely. The 15s budget still bounds request + body read.
+ 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxHeartbeatBytes))
++		cancel()
+ 		_ = resp.Body.Close()
+```
+
+The 15-second timeout still bounds request **plus** body read, so the fix does not
+weaken the deadline.
+
+**Evidence it was reachable, not theoretical.** The `SkippedPrinters` handler that the
+early return skipped is a real, reachable code path — it printed on the first
+heartbeat of the fixed run:
+
+```text
+2026/09/26 00:56:56 agent.go:2149: [heartbeat] printer "printer_db0e95b368c2331d" rejected by gateway: invalid_device_class_or_printer_type
+```
+
+That line is produced by `for _, sp := range hbResp.SkippedPrinters`, i.e. by the code
+after the `readErr` return — **unreachable before the fix**.
+
+**Verification — unit, with the failing direction measured.** The regression test
+delays the response body (status line flushed, body written 150 ms later), which is
+irrelevant with the fix and fatal without it:
+
+```text
+$ go test ./internal/agent/ -run TestHeartbeatResponseBodyIsReadBeforeContextCancel -v -count=1
+# A) with the fix
+--- PASS: TestHeartbeatResponseBodyIsReadBeforeContextCancel (0.16s)
+ok  	github.com/yasser-agent/agent/internal/agent	0.162s
+
+# B) only this fix reverted in a scratch copy
+--- FAIL: TestHeartbeatResponseBodyIsReadBeforeContextCancel (0.16s)
+    heartbeat_pagination_test.go:363: heartbeat body read was aborted (the pre-fix bug): 2026/09/26 00:52:55 INFO: no printers configured yet; run discovery or add manually. Jobs will be queued until a printer is available.
+        2026/09/26 00:52:55 Heartbeat page 1/1 response read failed: context canceled
+FAIL	github.com/yasser-agent/agent/internal/agent	0.164s
+```
+
+**Verification — live, against the running Gateway, same fixture, two binaries
+differing only in this hunk.** The pre-fix run above (`/tmp/ev/prefix-heartbeat.log`)
+and the fixed binary run on the same freshly re-seeded fixture:
+
+```text
+=== POST-FIX, same fixture, 4 heartbeat cycles elapsed ===
+response read failed count: 0
+rejected by gateway count: 0
+=== was the agent still talking to the Gateway for the whole window? ===
+agt_e70cfeecd13c396e|online|2026-09-26 02:12:59.587159
+```
+
+The post-fix agent started at 02:10:59 and `last_seen_at` had reached 02:12:59 — four
+30-second cycles, zero failed reads.
+
+**Correction to an over-claim I made while measuring this.** I had written that an
+advancing `last_seen_at` proves "the response was accepted". Measurement refutes it:
+the **pre-fix** agent's `last_seen_at` advanced just as reliably
+(`…|online|2026-09-26 02:10:34.289703`) while every single heartbeat was failing to
+read its response. The route writes `lastSeenAt` while handling the request
+(`src/app/api/agent/heartbeat/route.ts:214`), which happens *before* the response body
+is streamed, so it cannot witness the client-side read. `last_seen_at` proves delivery
+of the request and nothing more. The load-bearing evidence for this fix is the
+occurrence count above (5 → 0), not the timestamp.
+
+**Reachability of the skipped code, shown rather than asserted.** The early return
+skipped the `SkippedPrinters` handler. That handler demonstrably runs once the read
+succeeds — the same binary with the *heartbeat* fix present and only the `deviceClass`
+defect reverted printed the line at `agent.go:2159`, which is downstream of the read:
+
+```text
+2026/09/26 02:01:14 agent.go:2159: [heartbeat] printer "printer_f13730b67f3d7c30" rejected by gateway: invalid_device_class_or_printer_type
+```
+
+Before the fix that path was unreachable by construction (`return` on every page), so
+a rejected printer could never be reported back to the operator; after it, it is.
+
+*Line-number note:* the `agent.go:NNNN` in a Go log line is the line in the tree that
+binary was compiled from, and the reverted trees differ in length from the working
+tree. That statement is at `agent.go:2159` in `/tmp/work1dc` (the binary that printed
+it) and at `agent.go:2155` in the working tree. Likewise the pre-fix
+`response read failed` line above is `2097` in the reverted tree and `2099` here.
+Comparing a captured log line against the fixed source without accounting for this
+makes correct evidence look inconsistent — the mismatch is arithmetic, not a different
+build.
+
+## NEW DEFECT 2 — `deviceClass` carried the printer class, so the Gateway dropped the printer
+
+**Files.** `agent/internal/agent/agent.go` (`printerStatusPayload`), plus a new
+`agent/internal/agent/device_class.go`.
+
+**Problem.** The Agent sent its `printer_type` value in the `deviceClass` wire field.
+The Gateway validates the two fields against **two different enums** and rejects the
+whole printer entry when either is out of range:
+
+```text
+src/lib/printer-model.ts:4:export const PRINTER_TYPES = ["physical", "virtual", "redirected"] as const;
+src/lib/printer-model.ts:5:export const DEVICE_CLASSES = ["thermal", "laser", "inkjet", "label", "other", "unknown"] as const;
+src/app/api/agent/heartbeat/route.ts:89:  if (!(PRINTER_TYPES as readonly string[]).includes(printerType) || !(DEVICE_CLASSES as readonly string[]).includes(deviceClass)) return { ok: false, reason: "invalid_device_class_or_printer_type" };
+```
+
+`printer_type: physical` — the ordinary operator value, and the value the repository's
+own CLI *defaults* to for a device class — produced `deviceClass: "physical"`, which is
+not in `DEVICE_CLASSES`. Every heartbeat carrying that printer was rejected.
+
+```diff
+-		deviceClass := pc.PrinterType
+-		if deviceClass == "" {
+-			deviceClass = "unknown"
+-		}
++		// printer_type historically held either a printer class
++		// (physical|virtual|redirected) or a device class
++		// (thermal|laser|inkjet|label|other). The Gateway validates the two
++		// wire fields against separate enums, so a device class is only
++		// reported when the configured value really is one; otherwise the
++		// Gateway rejected the entire entry with
++		// invalid_device_class_or_printer_type and the inventory never
++		// converged (every printer_type: physical printer was dropped on every
++		// heartbeat). normalizeDeviceClass is the same normalization discovery
++		// already applies to its payload.
++		deviceClass := normalizeDeviceClass(pc.PrinterType)
+ 		printerType := "physical"
+-		if deviceClass == "virtual" {
++		if isVirtualPrinterType(pc.PrinterType) {
+ 			printerType = "virtual"
+-			deviceClass = "unknown"
+ 		}
+```
+
+The fix reuses the **existing** normalization that discovery already applied
+(`discovery_manager.go` had the identical switch inline), so both payloads now share
+one definition instead of two copies:
+
+```diff
+-		deviceClass := strings.ToLower(strings.TrimSpace(di.PrinterType))
+-		switch deviceClass {
+-		case "thermal", "laser", "inkjet", "label", "other", "unknown":
+-		default:
+-			deviceClass = "unknown"
+-		}
++		deviceClass := normalizeDeviceClass(di.PrinterType)
+```
+
+`normalizeDeviceClass` fails closed to `"unknown"`, which is a member of the Gateway's
+enum and therefore always accepted. A legacy config that put a real device class
+(`thermal`, `laser`, …) in `printer_type` keeps reporting it — that is why the change
+is not simply "always send unknown".
+
+**Evidence — live, before and after, on the same fixture.** The comparison uses one
+fixture and two binaries differing only in this fix. The fixture printer is set to
+`management_source='manager'` because agent-owned printers are refreshed by discovery
+and would mask the defect:
+
+```text
+$ psql -c "update printers set management_source='manager', device_class='laser' where id='printer_f13730b67f3d7c30'"
+printer_f13730b67f3d7c30|manager|physical|laser
+```
+
+PRE-FIX binary — rejected on every heartbeat, forever:
+
+```text
+2026/09/26 02:01:14 agent.go:2159: [heartbeat] printer "printer_f13730b67f3d7c30" rejected by gateway: invalid_device_class_or_printer_type
+2026/09/26 02:01:18 agent.go:535: [discovery] async discovery completed: 0 printers
+2026/09/26 02:01:44 agent.go:2159: [heartbeat] printer "printer_f13730b67f3d7c30" rejected by gateway: invalid_device_class_or_printer_type
+2026/09/26 02:02:14 agent.go:2159: [heartbeat] printer "printer_f13730b67f3d7c30" rejected by gateway: invalid_device_class_or_printer_type
+2026/09/26 02:02:44 agent.go:2159: [heartbeat] printer "printer_f13730b67f3d7c30" rejected by gateway: invalid_device_class_or_printer_type
+```
+
+POST-FIX binary, same fixture re-seeded and re-marked manager-owned — zero rejections,
+heartbeats still arriving:
+
+```text
+=== POST-FIX run: rejections (expect 0) ===
+0
+=== are heartbeats still arriving? (t0) ===
+agt_95c9bd4f1dcbd784|online|2026-09-26 02:06:03.943127
+=== 40s later ===
+agt_95c9bd4f1dcbd784|online|2026-09-26 02:06:33.940148
+=== printer row: manager-owned, device_class NOT stomped ===
+printer_95c9bd4f1dcbd784|manager|physical|laser|unknown
+=== rejections now (expect 0) ===
+0
+```
+
+The last line matters twice over: the heartbeat is **accepted** (`observed_device_class`
+is written, `last_seen_at` advances) and the authoritative `device_class` is **not
+overwritten** with the Agent's `unknown`. That is by design in the Gateway — the
+heartbeat upsert applies `observedUpdateSet` only for manager-owned printers:
+
+```text
+src/app/api/agent/heartbeat/route.ts:334:          const updateSet = existing.managementSource === "agent"
+src/app/api/agent/heartbeat/route.ts:344:            : observedUpdateSet;
+```
+
+so the fix cannot damage manager-owned configuration. **Checked because it is
+load-bearing, not assumed.**
+
+**A nuance found while measuring, recorded because it changes the blast radius.**
+For an **agent-owned** printer the defect self-heals: the next discovery sweep
+overwrites `PrinterType` with the device fact `unknown`, which normalizes to a valid
+class, and the rejections stop. Measured on the first (agent-owned) fixture — exactly
+one rejection, then silence:
+
+```text
+2026/09/26 01:58:25 agent.go:2159: [heartbeat] printer "printer_0fda25b6a0190437" rejected by gateway: invalid_device_class_or_printer_type
+2026/09/26 01:58:29 agent.go:329: printer "printer_0fda25b6a0190437" re-registered with changed configuration; refreshing runtime backend and facts
+$ grep -c "rejected by gateway" /tmp/phase5/run2/logs/agent.log
+1
+```
+
+For a **manager-owned** printer the ownership fence blocks that refresh
+(`addPrinter` returns early for Gateway-owned ids:
+`if _, gatewayManaged := a.gatewayOwned[id]; gatewayManaged { return false }`), so the
+bad value persists on every heartbeat indefinitely — which is the case demonstrated
+above. So: transient one-cycle inventory gap for agent-owned printers, permanent for
+manager-owned ones.
+
+**Verification — unit, with the failing direction measured.** The pre-fix code fails
+the new test on six of the fourteen declared values:
+
+```text
+$ go test ./internal/agent/ -run TestHeartbeatPrinterStatusEmitsGatewayClassEnums -v -count=1   # PRE-FIX code
+    device_class_test.go:76: printer_type="physical" emitted invalid deviceClass "physical" (Gateway DEVICE_CLASSES = thermal|laser|inkjet|label|other|unknown) — this is the payload the Gateway rejects
+    device_class_test.go:76: printer_type="redirected" emitted invalid deviceClass "redirected" (...)
+    device_class_test.go:76: printer_type="Physical" emitted invalid deviceClass "Physical" (...)
+    device_class_test.go:76: printer_type="Virtual" emitted invalid deviceClass "Virtual" (...)
+    device_class_test.go:76: printer_type="bogus" emitted invalid deviceClass "bogus" (...)
+    device_class_test.go:76: printer_type="  physical  " emitted invalid deviceClass "  physical  " (...)
+    device_class_test.go:83: printer_type=physical => printerType=physical deviceClass=physical, want physical/unknown
+    device_class_test.go:99: printer_type=Virtual => printerType=physical deviceClass=Virtual, want virtual/unknown
+    device_class_test.go:104: printer_type=redirected => deviceClass=redirected, want unknown
+--- FAIL: TestHeartbeatPrinterStatusEmitsGatewayClassEnums (0.01s)
+```
+
+The test enumerates fourteen declared values (including empty, mixed case, padded and
+bogus) and asserts both wire fields against **copies of the Gateway's own enums**, with
+a comment stating they are copied from `src/lib/printer-model.ts` so a Gateway
+vocabulary change forces this test to change too.
+
+---
+
+## PHASE 5 — real end-to-end lifecycle, all three sides
+
+**Topology actually exercised:** real Gateway (`tsx server.ts`, Next.js + the custom
+WebSocket server), **native PostgreSQL 16.2** (pgserver, 127.0.0.1:5433), the real
+compiled Go Agent (`cmd/agent`, 16,953,344 bytes, go1.26.0 linux/amd64), and the
+repository's own `agent/internal/testutil.MockTCPPrinter` behind a small harness
+`main` so its captured bytes are observable. **No Docker and no Caddy** — no docker
+binary is available in this sandbox and the registries are blocked, so the
+compose+Caddy edge was not exercised. Stated explicitly rather than glossed.
+
+**Fixture.** Seeded through the repository's own `tests/helpers/pg.ts`, so the tenant,
+plan, subscription, agent, printer and API key all come from the same code the test
+suite uses. The printer is created with `printer_type='physical'` and
+`device_class='other'`, then switched to `connection_type='network', protocol='raw'`
+(network printer, canonical port 9100, link-local address) because a real Agent prints
+over RAW TCP. A fresh run directory was used so no sealed secret store from an earlier
+attempt could override the config:
+
+```text
+SEEDED {"tenantId":"tenant_3572b61922257921","agentId":"agt_3572b61922257921",
+        "printerId":"printer_3572b61922257921","destination":"POS 3572b61922257921",
+        "odooKey":"[REDACTED]"}
+```
+
+**Agent side — connects, and the FIRST heartbeat is already accepted:**
+
+```text
+2026/09/26 01:55:39 agent.go:446: Agent initialized with 1 printer(s) (config + registry)
+2026/09/26 01:55:39 agent.go:644: Agent Phase5 Agent starting (ID: agt_3572b61922257921, 1 printer(s) configured)
+2026/09/26 01:55:39 agent.go:814: Connecting to WebSocket: ws://127.0.0.1:3000/api/agent/ws
+2026/09/26 01:55:39 agent.go:840: WebSocket connected.
+
+$ grep -c "rejected by gateway" /tmp/phase5/run2/logs/agent.log
+0
+```
+
+**Gateway side — the heartbeat that carried `printer_type: physical` was accepted, and
+the row shows the normalized device class:**
+
+```text
+agt_3572b61922257921|online|2026-09-26 01:55:41.642718
+printer_3572b61922257921|physical|unknown|unknown|network|raw|2026-09-26 01:55:41.642718
+                                      ^         ^
+                                      |         observed_device_class, written by the Agent's payload
+                                      device_class: normalized, and IN the Gateway enum
+```
+
+**Job lifecycle — created and printed:**
+
+```text
+$ npx tsx phase5-enqueue.ts
+CREATE -> 201 {"jobId":"job__yxhMcxmcngz","status":"queued","printerId":"printer_3572b61922257921","agentId":"agt_3572b61922257921","destination":"POS 3572b61922257921","documentType":"receipt"}
+POLL[0] status=success error=null ackedAt=2026-09-26T01:56:13.207Z deliveredAt=2026-09-26T01:56:13.203Z
+TERMINAL {"jobId":"job__yxhMcxmcngz","status":"success", ... "error":null, "updatedAt":"2026-09-26T01:56:13.247Z"}
+```
+
+**Agent trace for that job** (every stage, with the request id the Gateway generated):
+
+```text
+2026/09/26 01:56:13 agent.go:2213: print.trace agent_receive request_id=req_muhqnj5i_znlpj7p4 job_id=job__yxhMcxmcngz printer_id=printer_3572b61922257921 queue_wait_ms=0 received_unix_ms=1790387773200
+2026/09/26 01:56:13 agent.go:2306: print.trace local_ledger_ready request_id=req_muhqnj5i_znlpj7p4 job_id=job__yxhMcxmcngz printer_id=printer_3572b61922257921 ledger_latency_ms=1
+2026/09/26 01:56:13 agent.go:2334: print.trace printing_report request_id=req_muhqnj5i_znlpj7p4 job_id=job__yxhMcxmcngz printer_id=printer_3572b61922257921 report_latency_ms=31
+2026/09/26 01:56:13 agent.go:2437: print.trace render_transport_start request_id=req_muhqnj5i_znlpj7p4 job_id=job__yxhMcxmcngz printer_id=printer_3572b61922257921 local_execution_ms=33 payload_bytes=34 kind=raw
+2026/09/26 01:56:13 network.go:60: print.trace network_connect address=169.254.0.21:9100 latency_ms=0
+2026/09/26 01:56:13 network.go:124: print.trace network_write address=169.254.0.21:9100 bytes=34 latency_ms=0
+2026/09/26 01:56:13 agent.go:2439: print.trace transport_complete request_id=req_muhqnj5i_znlpj7p4 job_id=job__yxhMcxmcngz printer_id=printer_3572b61922257921 transport_latency_ms=0 success=true
+2026/09/26 01:56:13 agent.go:2468: Job job__yxhMcxmcngz: payload transmitted successfully to printer printer_3572b61922257921
+```
+
+**Printer side — the bytes the mock device actually received:**
+
+```text
+MOCK_PRINTER_LISTENING 169.254.0.21:9100
+MOCK_PRINTER_CAPTURE#5 len=34 bytes="PHASE5 REAL AGENT PRINT\n\x1b@HELLO\x1dV\x01"
+```
+
+`len=34` matches `payload_bytes=34` in the Agent trace, and the capture is byte-for-byte
+the harness's marker string. (Captures #1–#4 are `len=0` — the Agent's pre-flight probes,
+which open and close a connection without writing application bytes.)
+
+**Gateway side — the same `jobId` and `requestId` end to end:**
+
+```text
+{"event":"print.trace.gateway_enqueue","requestId":"req_muhqnj5i_znlpj7p4","jobId":"job__yxhMcxmcngz","agentId":"agt_3572b61922257921","printerId":"printer_3572b61922257921","enqueueLatencyMs":22,"reused":false}
+{"event":"job_timeline_event","jobId":"job__yxhMcxmcngz","stage":"created","status":"ok"}
+{"event":"job_timeline_event","jobId":"job__yxhMcxmcngz","stage":"queued","status":"ok"}
+ POST /api/print/jobs 201 in 354ms
+{"event":"print.trace.gateway_delivery","jobId":"job__yxhMcxmcngz","agentId":"agt_3572b61922257921","printerId":"printer_3572b61922257921","requestId":"req_muhqnj5i_znlpj7p4","claimLatencyMs":31,"sendLatencyMs":1,"evidenceLatencyMs":8,"totalLatencyMs":40,"outcome":"delivered"}
+{"event":"print.job.dispatch_boundary","requestId":null,"jobId":"job__yxhMcxmcngz","agentId":"agt_3572b61922257921","dispatchOutcome":"delivered"}
+{"event":"print.trace.gateway_claim","jobId":"job__yxhMcxmcngz","agentId":"agt_3572b61922257921","claimLatencyMs":41,"outcome":"not_claimable"}
+{"event":"print.job.printing","requestId":"req_muhqnj8i_3ekci4or","jobId":"job__yxhMcxmcngz","agentId":"agt_3572b61922257921","physicalOutcome":"not_printed","spoolerJobId":null,"attemptId":null,"transport":null}
+{"event":"job_timeline_event","jobId":"job__yxhMcxmcngz","stage":"printing","status":"ok"}
+ PATCH /api/agent/jobs 200 in 23ms
+{"event":"print.job.success","requestId":"req_muhqnj95_tp0nnnfo","jobId":"job__yxhMcxmcngz","agentId":"agt_3572b61922257921","physicalOutcome":"unknown","spoolerJobId":null,"attemptId":null,"transport":null}
+{"event":"job_timeline_event","jobId":"job__yxhMcxmcngz","stage":"success","status":"ok"}
+ PATCH /api/agent/jobs 200 in 16ms
+ POST /api/print/jobs/batch-status 200 in 226ms
+```
+
+Together with the agent-side trace, the full path is proven with one correlation id:
+`print/jobs` → `gateway_enqueue` (14–22 ms) → `gateway_delivery outcome=delivered` →
+`PATCH printing` → agent `agent_receive` → `network_write 34 bytes` → mock printer
+capture → `PATCH success` → `print.job.success` + timeline rows.
+
+**What this does NOT prove.** `physicalOutcome` is `not_printed`/`unknown` throughout:
+nothing verified paper. That is the documented, out-of-scope physical-verification
+boundary, and the Gateway says so in its own timeline message
+(`physical paper output is not independently verified`). No physical printer and no
+Windows host were involved.
+
+**Reproducing this run** (the two drivers were temporary and have been deleted, so the
+recipe is recorded here instead of the files): apply migrations with
+`npm run db:migrate`, then `truncateAll()` + `seedFixture()` from
+`tests/helpers/pg` (the same helpers the vitest suite uses), then
+`UPDATE printers SET connection_type='network', protocol='raw' WHERE id=$1`, then write
+`agent.yaml` with `server.url`, the returned `agentId` + `agentSecret`, and the printer
+entry (`type: network`, `endpoint: <link-local ip>:9100`, `protocol: raw`,
+`connection_type: network`, `printer_type: physical`). Start the Gateway with
+`DATABASE_URL=… npm run dev`, start the mock printer wrapper on the link-local address,
+start the agent with `YASSER_AGENT_ALLOW_INSECURE_HTTP=1`, then POST
+`/api/print/jobs` with `{printerId, destination, documentType, payload, idempotencyKey}`
+and `Authorization: Bearer <odooKey>`, and poll `/api/print/jobs/batch-status`. A fresh
+run directory per attempt is essential: a sealed secret store from a previous attempt
+silently overrides a new config and the handshake fails with 401.
+
+**Harness note.** The E2E used two temporary TypeScript drivers (`phase5-seed.ts`,
+`phase5-enqueue.ts`) plus a scratch-only Go `cmd/mockprinter` `main` wrapper around the
+repository's `testutil` mock printer. None of these are production code or committed
+tests; the drivers were removed from the repository once the run was captured. The Go
+wrapper lived only in the scratch sync tree. The two evidence logs quoted in the
+NEW DEFECT 1 entry were copied to `/tmp/ev/` before their run directories were reused,
+which is exactly why the pre-fix symptom was re-derived on demand rather than quoted
+from a log that no longer existed.
+
+---
+
+## PHASE 6 — test-gap closure for every file changed
+
+| Changed file | Covered by | Evidence |
+| --- | --- | --- |
+| `agent/internal/agent/agent.go` — heartbeat cancel | new `TestHeartbeatResponseBodyIsReadBeforeContextCancel` | fails on revert (above) |
+| `agent/internal/agent/agent.go` — deviceClass | new `TestHeartbeatPrinterStatusEmitsGatewayClassEnums` | fails on revert ×9 assertions (above) |
+| `agent/internal/agent/device_class.go` (new) | new `TestNormalizeDeviceClassFailsClosed` (11 cases) | passes; the fail-closed table |
+| `agent/internal/agent/discovery_manager.go` | `discovery_manager_test.go` (existing) + the same normalizer | `internal/agent ok 27.4s` |
+| `agent/cmd/cli/main.go` | new `TestPrintersAddAppliesConnectionTypeAliasInBothForms` | fails on revert (above) |
+| `agent/internal/printer/ipp.go` | new `TestIPPParseGuardReportsRecoveredPanics`, `TestLogRecoveredIPPParseReportsPanic`, `TestParseIPPAttributesNeverPanicsOnMalformedInput` | guard test fails on revert (above) |
+| `agent/internal/testutil/mock_printer.go` | new `TestMockPrinterReportsReadFailure` (forces a real TCP RST) | fails on revert (above) |
+| `src/lib/agent-health.ts` | new `tests/agent-health-db.test.ts` (4 DB-gated tests) | registered in `vitest.test-groups.mts` as required by the classification contract |
+| `src/server/ws.ts` | `tests/debugging-robustness.contract.test.ts` (2 tests, pre-existing suite extended this session) | `6 tests` pass; both fail if the logging is removed |
+| `src/app/api/printers/[id]/certify/route.ts` | new pin in `tests/print-certification.test.ts` **plus** the existing end-to-end `tests/print-idempotency.test.ts` | certify suite 8 → 9 tests, all pass |
+| `src/app/api/jobs/[id]/timeline/route.ts`, `src/lib/job-timeline.ts` | `tests/job-timeline.test.ts` (existing, typed fixtures) | part of the 912-test run |
+| `scripts/count-ignored-results.sh` | itself: summary and `--list` now agree (47 = 47) | pasted in 4.1 |
+
+Where the existing suite already exercised the changed line, nothing was added. Where
+it did not, the minimal test above was added — and for every new test the failing
+direction was **measured by reverting the fix in a scratch copy**, not assumed. The one
+case where that measurement disproved my own comment (the IPP helper test) is recorded
+in 4.4 rather than quietly fixed.
+
+---
+
+## Flaky test: `TestNetworkPrinterPartialDelivery` (pre-existing, NOT caused by this pass)
+
+`go test ./... -race` failed once on this test, so it was investigated rather than
+re-run until green.
+
+**Is it ours?** No — neither the test nor the implementation is touched by this pass:
+
+```text
+$ git diff HEAD --stat -- agent/internal/printer/network.go agent/internal/printer/network_test.go
+(empty)
+```
+
+**Measured flake rate.** The test writes 2 MB to a socket whose peer has already
+closed with `SO_LINGER=0` (RST) and asserts that the write errors. Whether the error
+surfaces depends on kernel buffer timing:
+
+```text
+$ for i in 1..6; do go test ./internal/printer/ -run TestNetworkPrinterPartialDelivery -count=1; done
+pass=5 fail=1
+$ for i in 1..6; do go test ./internal/printer/ -race -run TestNetworkPrinterPartialDelivery -count=1; done
+pass=6 fail=0
+$ for i in 1..6; do <same test on a pristine git-archive copy of HEAD>; done
+run 1: FAIL ... run 6: FAIL
+PRISTINE_HEAD_FAILURES=6/6
+```
+
+**Root cause.** When the kernel accepts all 2 MB into the socket buffer before the RST
+is processed, every `conn.Write` succeeds, the loop completes, `CloseWrite` succeeds,
+and `Print` correctly returns `nil` — "all bytes handed to the kernel and no error
+observed". The production code cannot detect this case without a protocol-level
+acknowledgement, which RAW TCP printing does not have. The code already returns
+`UNKNOWN_PARTIAL_DELIVERY` on every observable failure (short write, write error,
+cancellation after `written > 0`, `CloseWrite` failure).
+
+**Conclusion and action.** The test asserts more than the transport can guarantee; the
+assertion is timing-dependent, not a product defect. **Not "fixed"** beyond this
+documentation, per instruction. The two full-suite runs used for the final result both
+passed (`internal/printer ok 10.516s` without race, `ok 12.123s` with race). Making it
+deterministic would require either a protocol ack in the printer backend or a
+different assertion (e.g. "either an error or all bytes accepted"), both of which are
+behaviour/contract decisions rather than test hygiene — flagged for an explicit call.
+
+---
+
+## Final consolidated Phase 0 re-run (verbatim)
+
+Environment as discovered/required by this pass: Node 24.21.0, `DATABASE_URL` pointed
+at the real PostgreSQL, `/tmp/venv/bin` on `PATH` for pytest, and **`CGO_ENABLED=1`**
+for Go (see the STEP 2 finding for why that is correct rather than a workaround). Go
+commands run in the checksum-verified scratch copy described above.
+
+```text
+### node v24.21.0 / npm 10.9.8 / pytest pytest 9.1.1
+### git HEAD a439f4b (working tree, uncommitted)
+
+########## npm ci ##########
+169 packages are looking for funding
+found 0 vulnerabilities
+NPM_CI_EXIT=0
+
+########## npm run typecheck ##########
+> tsc --noEmit
+TYPECHECK_EXIT=0
+
+########## npm run lint ##########
+> eslint .
+LINT_EXIT=0
+
+########## npm run test ##########
+ Test Files  125 passed | 2 skipped (127)
+      Tests  912 passed | 8 skipped (921)
+TEST_EXIT=0
+
+########## npm run test:integration ##########
+ ↓ tests/multi-instance-gateway.test.ts (2 tests | 2 skipped)
+ Test Files  45 passed | 1 skipped (46)
+      Tests  323 passed | 2 skipped (325)
+INTEGRATION_EXIT=0
+
+########## npm run test:e2e ##########
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+E2E_EXIT=0
+
+########## npm run test:odoo:static ##########
+collected 37 items
+tests/test_odoo19_printing_static.py ................................... [ 94%]
+..                                                                       [100%]
+============================== 37 passed in 0.17s ==============================
+ODOO_EXIT=0
+```
+
+```text
+### 2026-09-26 02:14:10  GOROOT=/tmp/goboot2/go-go1.26.0  CGO_ENABLED=1
+go version go1.26.0 linux/amd64
+scratch go.sum: dropped 0 lines; kept 49 (github.com deps keep their real hashes)
+source identity: repo=53603e45b5a5328a scratch=53603e45b5a5328a MATCH
+
+===== go build ./... =====
+real	0m2.586s
+GO_BUILD_EXIT=0
+===== go vet ./... =====
+real	0m0.664s
+GO_VET_EXIT=0
+===== go test ./... -count=1 =====
+?   	github.com/yasser-agent/agent/cmd/agent	[no test files]
+ok  	github.com/yasser-agent/agent/cmd/cli	3.144s
+ok  	github.com/yasser-agent/agent/internal/agent	27.416s
+ok  	github.com/yasser-agent/agent/internal/config	0.007s
+ok  	github.com/yasser-agent/agent/internal/diag	0.002s
+ok  	github.com/yasser-agent/agent/internal/integration	0.183s
+ok  	github.com/yasser-agent/agent/internal/payload	0.011s
+ok  	github.com/yasser-agent/agent/internal/printer	10.511s
+ok  	github.com/yasser-agent/agent/internal/queue	0.085s
+ok  	github.com/yasser-agent/agent/internal/storage	0.002s
+ok  	github.com/yasser-agent/agent/internal/testutil	0.024s
+real	0m29.670s
+GO_TEST_EXIT=0
+===== go test ./... -race -count=1 =====
+?   	github.com/yasser-agent/agent/cmd/agent	[no test files]
+ok  	github.com/yasser-agent/agent/cmd/cli	4.117s
+ok  	github.com/yasser-agent/agent/internal/agent	28.733s
+ok  	github.com/yasser-agent/agent/internal/config	1.019s
+ok  	github.com/yasser-agent/agent/internal/diag	1.012s
+ok  	github.com/yasser-agent/agent/internal/integration	1.135s
+ok  	github.com/yasser-agent/agent/internal/payload	1.037s
+ok  	github.com/yasser-agent/agent/internal/printer	12.131s
+ok  	github.com/yasser-agent/agent/internal/queue	1.114s
+ok  	github.com/yasser-agent/agent/internal/storage	1.015s
+ok  	github.com/yasser-agent/agent/internal/testutil	1.033s
+real	0m33.082s
+GO_TEST_RACE_EXIT=0
+```
+
+Cold-cache note: `build` and `vet` show 2.6 s / 0.66 s here only because the build
+cache was warm from the earlier run; that first cold run took 1m27s and 4.8s
+respectively, also exit 0. Neither number is a benchmark claim.
+
+**Provenance of this exact run (and a mismatch I had to chase down).** The first
+attempt at this final Go run reused a scratch tree (`/tmp/work1`) that later received a
+scratch-only `cmd/mockprinter` harness wrapping the repository's `testutil` mock
+printer. Re-running the sync printed `MISMATCH` against the repo, because the identity
+hash covers every `*.go` file and the harness added one — so it was a discrepancy in
+the *harness*, not in the sources under test. It also showed the IPP guard test had
+been edited after that earlier suite had started. Rather than reason about which
+compilation had picked up which file, the suite was re-run from scratch in a fresh
+harness-free tree (`/tmp/work2`), which prints `MATCH`, and the numbers above are that
+run. The named new tests were then run explicitly, so their presence in the green run
+is not an inference:
+
+```text
+=== RUN   TestParseIPPAttributesNeverPanicsOnMalformedInput
+--- PASS: (0.00s)
+=== RUN   TestLogRecoveredIPPParseReportsPanic
+--- PASS: (0.00s)
+=== RUN   TestIPPParseGuardReportsRecoveredPanics
+--- PASS: (0.00s)
+PASS   ok github.com/yasser-agent/agent/internal/printer	0.009s          IPP_TESTS_EXIT=0
+
+=== RUN   TestHeartbeatPrinterStatusEmitsGatewayClassEnums
+--- PASS: (0.01s)
+=== RUN   TestNormalizeDeviceClassFailsClosed
+--- PASS: (0.00s)
+=== RUN   TestHeartbeatResponseBodyIsReadBeforeContextCancel
+--- PASS: (0.16s)
+PASS   ok github.com/yasser-agent/agent/internal/agent	0.171s            AGENT_TESTS_EXIT=0
+
+=== RUN   TestMockPrinterReportsReadFailure
+--- PASS: (0.02s)
+PASS   ok github.com/yasser-agent/agent/internal/testutil	0.025s         MOCK_PRINTER_TEST_EXIT=0
+
+=== RUN   TestPrintersAddAppliesConnectionTypeAliasInBothForms
+--- PASS: (1.44s)
+PASS   ok github.com/yasser-agent/agent/cmd/cli	1.449s                  CLI_TEST_EXIT=0
+```
+
+`internal/queue` is the package that requires `CGO_ENABLED=1`; with the toolchain's
+baked-in `CGO_ENABLED=0` it fails with
+`Binary was compiled with 'CGO_ENABLED=0', go-sqlite3 requires cgo to work. This is a stub`
+on all 7 of its tests. That is a property of the locally-built toolchain, not of the
+repository — see the STEP 2 finding.
+
+`cargo check` / `cargo test` remain **STILL-UNVERIFIED**: no `cargo`/`rustc` binary is
+present in this sandbox and `static.crates.io` is unreachable, so there is nothing to
+run. No claim is made about the Rust side.
+
+---
+
+## Diffs applied by this pass (both parts)
+
+```text
+$ git diff --cached --stat
+ PATCH_LOG.md                                      | 1886 +++++++++++++++++++++
+ agent/cmd/cli/main.go                             |   16 +-   --connection-type=<v> alias fix
+ agent/cmd/cli/printers_add_alias_test.go          |   63 +    regression test (fails on revert)
+ agent/internal/agent/agent.go                     |   26 +-   heartbeat cancel-before-read; deviceClass
+ agent/internal/agent/device_class.go              |   41 +    normalizeDeviceClass / isVirtualPrinterType
+ agent/internal/agent/device_class_test.go         |  120 +    enum conformance + fail-closed table
+ agent/internal/agent/discovery_manager.go         |    7 +-   reuse the shared normalizer
+ agent/internal/agent/heartbeat_pagination_test.go |   78 +    heartbeat body-read regression test
+ agent/internal/printer/ipp.go                     |   15 +-   logged recovery
+ agent/internal/printer/ipp_test.go                |   95 +    guard contract + never-panic + reporter tests
+ agent/internal/testutil/mock_printer.go           |   11 +-   logged read failure
+ agent/internal/testutil/mock_printer_test.go      |   62 +    RST-based read-failure test
+ scripts/count-ignored-results.sh                  |   59 +    --list now matches count() (file is new to git)
+ src/app/api/jobs/[id]/timeline/route.ts           |    4 +-   dropped as any casts
+ src/app/api/printers/[id]/certify/route.ts        |   18 +-   dropped as any casts; typed conflict narrowing
+ src/lib/agent-health.ts                           |   21 +-   3 as any removed; lastOk widened
+ src/lib/job-timeline.ts                           |   10 +-   dropped as any cast; null->undefined
+ src/server/ws.ts                                  |   24 +-   2 silent catches now log at debug
+ tests/agent-health-db.test.ts                     |   75 +    4 DB-gated tests for agent-health
+ tests/debugging-robustness.contract.test.ts       |   34 +-   pinned ws.ts logging
+ tests/job-timeline.test.ts                        |   72 +-   typed fixtures
+ tests/print-certification.test.ts                 |   16 +    pinned IDEMPOTENCY_CONFLICT narrowing
+ tests/production-fixes-contract.test.ts           |    9 +-   stale assertions -> real forms
+ vitest.test-groups.mts                            |    1 +    register agent-health-db
+ 24 files changed, 2686 insertions(+), 77 deletions(-)
+```
+
+**One correction about `scripts/count-ignored-results.sh`.** An earlier section of this
+entry implied the counter was an existing committed script that was amended
+(`--list` brought under the comment filter). The diffstat shows it as a new file:
+`git status` reports it untracked before this pass, i.e. the counter itself was written
+during this hardening effort. Only its self-consistency fix discussed above is a change
+to prior work; the script as a whole is new to the repository in this pass. It is a
+custom grep-based check and is labelled as such throughout.
+
+Nothing in `src-tauri/`, `drizzle/`, `odoo_addons/`, the Dockerfile or the workflows was
+modified by this pass.
+
+### Custom checks used in this pass (NOT the real tool)
+
+- `scripts/count-ignored-results.sh` — grep-based text counter for `_ = expr` /
+  `_, _ :=`. Correct for counting a text pattern; **not** a compiler, vet or linter
+  verdict, and it says so in its own header.
+- The Phase 3 catch audit (brace-matching Python script) — used to classify catch
+  blocks after a line-window grep produced false positives. Its output is a text
+  scan; the *behavioural* claims it supports are backed by the vitest suite.
+- `/tmp/gosync.sh` — copies `agent/` + `contracts/` into a scratch tree and drops the
+  six blocked-host `go.sum` lines. It prints a sha256 of the source tree for both
+  copies, so the compiled sources are provably the repository's.
+- `/tmp/mkproxy.py` — builds the `file://` module proxy from GitHub mirrors; its
+  output is explicitly **not** byte-identical to the official artifacts.
+
+Every verdict attributed to a real tool above came from `tsc`, `eslint`, `vitest`,
+`pytest`, `go` (1.26.0), `psql`/PostgreSQL 16.2, or the running Gateway and Agent
+processes.
+
+---
+
+## TRUST STATUS (whole hardening effort, end of this pass)
+
+| Claim | Status | Basis |
+| --- | --- | --- |
+| npm dependency install (`npm ci`) | **REAL-VERIFIED** | 469 packages, 0 vulnerabilities, exit 0 (this pass) |
+| `npm run typecheck` | **REAL-VERIFIED** | `tsc --noEmit` exit 0, twice (before and after the Phase 2 edits) |
+| `npm run lint` | **REAL-VERIFIED** | `eslint .` exit 0 |
+| Vitest unit + contract suites | **REAL-VERIFIED** | 125 passed \| 2 skipped files, 912 passed \| 8 skipped tests, exit 0 |
+| DB-backed integration suites | **REAL-VERIFIED** | real PostgreSQL 16.2: 45 passed \| 1 skipped files, 323 passed, exit 0 |
+| `test:e2e` job flow | **REAL-VERIFIED** | 4/4 passed, exit 0 (non-vacuous: DB present) |
+| Odoo-static pytest suite | **REAL-VERIFIED** | 37 passed in 0.17s, exit 0 |
+| **Go** `build` / `vet` / `test` / `test -race` | **REAL-VERIFIED** | go1.26.0; all 10 packages `ok`, `GO_BUILD_EXIT=0 GO_VET_EXIT=0 GO_TEST_EXIT=0 GO_TEST_RACE_EXIT=0` |
+| Go source-tree identity for those runs | **REAL-VERIFIED** | sha256 of `agent/**/*.go` identical between repo and scratch copy |
+| Real Go Agent binary ↔ live Gateway E2E | **REAL-VERIFIED** | 201 queued → success; 34-byte capture; one correlation id across all three logs |
+| Heartbeat body-read defect | **REAL-VERIFIED FIXED** | deliberate pre-fix repro on the live Gateway (5 occurrences, one per cycle) vs 0 for the fixed binary on the same fixture; unit test fails on revert |
+| `last_seen_at` as evidence of a *successful* heartbeat | **REFUTED — do not use** | the pre-fix agent's `last_seen_at` advanced on every cycle while all reads failed; the column is written before the body is streamed |
+| deviceClass/printerType enum defect | **REAL-VERIFIED FIXED** | unit test fails on revert ×9; live before 4 rejections / after 0 on the same fixture |
+| Manager-owned `device_class` not stomped by heartbeats | **REAL-VERIFIED** | row still `laser` with `observed_device_class=unknown` after accepted heartbeats; Gateway applies `observedUpdateSet` only |
+| Phase 1 (Go comma-ok assertions) | **REAL-VERIFIED — 0 findings** | 0 matches repo-wide at HEAD and now; 6 rejection tests pass with real output |
+| Phase 2 (named `any` decision points) | **REAL-VERIFIED** | 8 named files at 0 `as any`/`: any`; `tsc` exit 0 |
+| Phase 3 (`ws.ts` catch audit) | **REAL-VERIFIED — 0 silent** | 35 catch blocks, 0 without log-or-rethrow; 2 bugs found earlier, pinned by tests |
+| Phase 4 (ignored Go results) | **REAL-VERIFIED** | 47 production sites; 3 fixed with before/after proof; counter self-consistency repaired (47 = 47) |
+| Phase 5 (real E2E) | **REAL-VERIFIED** | all three sides' logs pasted above |
+| Phase 6 (test coverage for changed lines) | **REAL-VERIFIED** | table above; every new test's failing direction measured |
+| `CGO_ENABLED` in the real build pipeline | **REAL-VERIFIED — no bug** | 2 occurrences, both correct; workflows rely on the Go default; `windows-latest` ships gcc 14.2.0 (upstream manifest) |
+| `TestNetworkPrinterPartialDelivery` flake | **REAL-VERIFIED pre-existing** | untouched by this pass; 1/6 and 1/6 fail measurement; pristine HEAD 6/6; root-caused to TCP RST timing |
+| `staticcheck` / `govulncheck` / `go mod verify` | **STILL-UNVERIFIED** | tools not installed; `proxy.golang.org`/`sum.golang.org` blocked so `go mod verify` cannot run |
+| `gofmt` claims | **STILL-UNVERIFIED** | not run in this pass |
+| **Rust** `cargo check` / `test` / `audit` | **STILL-UNVERIFIED** | no `cargo`/`rustc` binary (exit 127); `static.crates.io` blocked |
+| Docker Compose → Caddy full topology | **STILL-UNVERIFIED** | no docker binary; registries blocked. E2E used Gateway + native PostgreSQL |
+| Windows Agent build/smoke test | **STILL-UNVERIFIED** | no Windows host; `build-windows.yml` inspected statically only |
+| Live Odoo 19 instance | **STILL-UNVERIFIED (out of scope)** | no such instance available |
+| Physical printer output | **STILL-UNVERIFIED (out of scope)** | `physicalOutcome` is `not_printed`/`unknown` by design; no paper involved |
+
+
+## PR #78 history sanitization follow-up (2026-09-26)
+
+- Removed the previously recorded credential value from the current `PATCH_LOG.md` content and rewrote the PR branch history so the sanitized tree is the only history presented by the PR branch.
+- No credential value is reproduced here. Rotate/revoke the affected credential if it was real rather than a test fixture.

@@ -57,14 +57,44 @@ describe("debugging / robustness contracts", () => {
     expect(read("agent/internal/agent/agent.go")).toContain("job rejection callback failed");
     expect(read("agent/internal/agent/discovery_manager.go")).toContain("gateway response drain failed");
     expect(read("agent/internal/printer/ipp_discovery.go")).toContain("mDNS Browse failed");
-    expect(read("agent/cmd/agent/main.go")).toContain("failed to close queue");
+    // The queue close path must propagate the failure, not swallow it.
+    expect(read("agent/cmd/agent/main.go")).toContain('return fmt.Errorf("close local queue: %w", err)');
     expect(read("agent/internal/agent/desired_state.go")).toContain("failed to persist desired-state error");
     expect(read("agent/internal/printer/health.go")).toContain("set printer health deadline");
     expect(read("agent/internal/printer/wsd_discovery.go")).toContain("set WSD read deadline");
-    expect(read("agent/internal/printer/registry.go")).toContain("if err := saveRegistryLocked(registryPath, all); err != nil");
+    expect(read("agent/internal/printer/registry.go")).toContain("if err := saveRegistryLocked(registryPath, concatDevices(production, hidden)); err != nil");
     expect(read("agent/internal/printer/classify_device.go")).toContain("isVirtual is not relevant");
     expect(read("agent/internal/printer/discovery.go")).toContain("failed to enumerate addresses");
     expect(read("agent/internal/printer/network_discovery.go")).toContain("skipping malformed TCP target");
     expect(read("agent/internal/payload/payload.go")).toContain("requiredStringField");
+  });
+});
+
+describe("agent message drop is observable", () => {
+  it("logs at debug level when an unparseable agent frame is discarded", async () => {
+    // Before this fix `handleAgentMessage` returned from a bare `catch {}`, so a
+    // malformed frame (e.g. a lost job_ack) left no trace anywhere. The parse
+    // failure cannot be recovered from, so the behaviour is still "drop and
+    // return" — but it must now be visible in a debug session.
+    const { handleAgentMessage } = await import("../src/server/ws");
+    const original = console.debug;
+    const calls: unknown[][] = [];
+    console.debug = (...args: unknown[]) => { calls.push(args); };
+    try {
+      await handleAgentMessage("agent_dbg", "tenant_dbg", "{not-json");
+    } finally {
+      console.debug = original;
+    }
+    const joined = JSON.stringify(calls);
+    expect(joined).toContain("discarded unparseable agent message");
+    expect(joined).toContain("agent_dbg");
+    expect(joined).toContain("tenant_dbg");
+  });
+
+  it("still ignores a well-formed non-job_ack frame without logging an error", async () => {
+    const log = read("src/server/ws.ts");
+    // A `job_ack` that is missing required fields is a deliberate silent return;
+    // only the unparseable case gained visibility.
+    expect(log).toContain('if (type !== "job_ack") return;');
   });
 });

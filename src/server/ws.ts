@@ -329,8 +329,12 @@ function writeWsHttpError(socket: WritableSocket, status: number, body: string, 
 
   try {
     socket.end(response);
-  } catch {
-    try { socket.destroy(); } catch (error) { logDebug("[ws] HTTP socket destroy cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
+  } catch (error) {
+    // Best-effort teardown of a rejected upgrade: the caller already knows the
+    // outcome (the HTTP error response it just wrote), so this stays swallowed,
+    // but both halves are now visible at debug level.
+    logDebug("[ws] HTTP socket end failed during rejected upgrade", { error: error instanceof Error ? error.message : String(error) });
+    try { socket.destroy(); } catch (destroyError) { logDebug("[ws] HTTP socket destroy cleanup failed", { error: destroyError instanceof Error ? destroyError.message : String(destroyError) }); }
   }
 }
 
@@ -618,7 +622,21 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
 
 export async function handleAgentMessage(agentId: string, tenantId: string, raw: string): Promise<void> {
   let msg: unknown;
-  try { msg = JSON.parse(raw); } catch { return; }
+  try {
+    msg = JSON.parse(raw);
+  } catch (error) {
+    // A malformed frame here drops an inbound agent message (e.g. a job_ack)
+    // with no trace at all. Nothing can be recovered from unparseable JSON, so
+    // this stays a return, but it is no longer silent: a debugging session can
+    // see the agent id and the parse failure at debug level.
+    logDebug("[ws] discarded unparseable agent message", {
+      agentId,
+      tenantId,
+      bytes: raw.length,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
   if (!msg || typeof msg !== "object") return;
   const { type, jobId, claimToken } = msg as { type?: unknown; jobId?: unknown; claimToken?: unknown };
   if (type !== "job_ack") return;

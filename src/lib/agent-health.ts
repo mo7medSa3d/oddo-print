@@ -21,7 +21,11 @@ export type HealthCheckResult = {
   status: "ok" | "warn" | "error" | "unknown";
   message: string;
   observed: boolean;
-  lastOk?: Date;
+  // `null` is a real runtime value here: an agent that has never been seen has
+  // agents.last_seen_at IS NULL, and that null is passed through to lastOk and
+  // serialized in the API response. The previous `as any` hid this mismatch;
+  // widening the declaration keeps the emitted JSON byte-identical.
+  lastOk?: Date | null;
   details?: Record<string, unknown>;
 };
 
@@ -67,7 +71,11 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
     "getAgentHealth"
   );
   if (agentRows.length === 0) return null;
-  const agent = agentRows[0] as any;
+  // Typed row from the Drizzle select above. The previous `as any` erased the
+  // row type on the health-classification decision below, so a renamed/absent
+  // column would have silently degraded to STATUS "OFFLINE" instead of failing
+  // to compile.
+  const agent = agentRows[0];
 
   const now = gatewayNow();
   const baseStatus = computeAgentHealthStatus(agent.lastSeenAt, agent.createdAt, now);
@@ -158,8 +166,10 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
     details: { source: "printers", unavailable: true },
   });
 
-  // Observed: Version from metadata
-  const meta = agent.metadata as any;
+  // Observed: Version from metadata. `agents.metadata` is declared as
+  // jsonb().$type<{ hostname?, os?, osVersion?, version? }>() in src/db/schema.ts,
+  // so the cast to `any` was discarding a precise type that already existed.
+  const meta = agent.metadata;
   checks.push({
     name: "Version",
     status: meta?.version ? "ok" : "unknown",
@@ -192,13 +202,14 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
 }
 
 export async function getAllAgentsHealth(tenantId: string): Promise<AgentHealth[]> {
+  // `db.select().from(agents)` is already typed; the cast only disabled checking.
   const allAgents = await queryWithTimeout(
     db.select().from(agents).where(eq(agents.tenantId, tenantId)),
     3000,
     "getAllAgentsHealth"
   );
   const results: AgentHealth[] = [];
-  for (const a of allAgents as any[]) {
+  for (const a of allAgents) {
     const h = await getAgentHealth(tenantId, a.id);
     if (h) results.push(h);
   }

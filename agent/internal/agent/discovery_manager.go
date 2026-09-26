@@ -218,12 +218,7 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string,
 			sources = append(sources, di.Protocol)
 		}
 
-		deviceClass := strings.ToLower(strings.TrimSpace(di.PrinterType))
-		switch deviceClass {
-		case "thermal", "laser", "inkjet", "label", "other", "unknown":
-		default:
-			deviceClass = "unknown"
-		}
+		deviceClass := normalizeDeviceClass(di.PrinterType)
 
 		confidence := "low"
 		if verification == "verified" && len(sources) >= 1 {

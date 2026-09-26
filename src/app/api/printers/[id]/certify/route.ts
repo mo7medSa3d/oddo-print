@@ -57,11 +57,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
-  const requestId = requestIdFrom(req as any) || generateRequestId();
+  const requestId = requestIdFrom(req) || generateRequestId();
   const attemptId = generateAttemptId();
   const tenantId = claims.tenantId;
 
-  return runWithCorrelation({ requestId, tenantId, printerId, attemptId } as any, async () => {
+  return runWithCorrelation({ requestId, tenantId, printerId, attemptId }, async () => {
     const steps: CertificationStep[] = CERTIFICATION_STEPS.map(s => ({ ...s, status: "pending" as const, at: null, message: "", evidence: "" }));
     function setStep(id: string, status: "ok" | "error" | "blocked" | "pending" | "running", message: string, evidence?: string) {
       const st = steps.find(s => s.id === id);
@@ -124,14 +124,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const payload = testPage
         ? {
             type: "raw" as const,
-            protocol: (printer.protocol === "unknown" ? "raw" : printer.protocol) as any,
+            protocol: printer.protocol === "unknown" ? ("raw" as const) : printer.protocol,
             data: Buffer.from(
               `YASSER TEST PAGE\nPrinter: ${printer.name}\nTenant: ${tenantId}\nJob: ${idempotencyKey}\nRequest: ${requestId}\nTime: ${new Date().toISOString()}\nTransport: ${printer.connectionType}/${printer.protocol}\n\nThis is a diagnostic test page for certification.\nNo credentials are printed.\n`.repeat(2)
             ).toString("base64"),
           }
         : {
             type: "raw" as const,
-            protocol: (printer.protocol === "unknown" ? "raw" : printer.protocol) as any,
+            protocol: printer.protocol === "unknown" ? ("raw" as const) : printer.protocol,
             data: Buffer.from(`CERTIFICATION ${idempotencyKey} ${requestId}`).toString("base64"),
           };
 
@@ -176,8 +176,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return NextResponse.json({ error: e.message, code: e.code, steps, capability }, { status: 429, headers: { "x-request-id": requestId, "Retry-After": "60" } });
       }
       if (e instanceof TenantSubscriptionRequiredError || e instanceof TenantEntitlementConfigError) {
-        setStep("queue", "error", e.message, `code=${(e as any).code}`);
-        return NextResponse.json({ error: (e as any).message, code: (e as any).code, steps, capability }, { status: 403, headers: { "x-request-id": requestId } });
+        // Both classes declare a literal `readonly code`, so the union narrowed
+        // by these two instanceof checks exposes `code`/`message` directly.
+        setStep("queue", "error", e.message, `code=${e.code}`);
+        return NextResponse.json({ error: e.message, code: e.code, steps, capability }, { status: 403, headers: { "x-request-id": requestId } });
       }
       if (e instanceof AgentQueueFullError || e instanceof AgentQueuedJobsFullError) {
         setStep("queue", "blocked", `Agent queue full: ${e.message}`, `agentId=${e.agentId} limit=${MAX_AGENT_IN_FLIGHT_JOBS}`);
@@ -191,7 +193,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         setStep("queue", "error", e.message, `code=${e.code}`);
         return NextResponse.json({ error: e.message, code: e.code, steps, capability }, { status: e.status, headers: { "x-request-id": requestId } });
       }
-      if ((e as any)?.code === "IDEMPOTENCY_CONFLICT") {
+      // Same typed-unknown idiom as api/print/jobs/route.ts: the conflict is a
+      // plain Error carrying a `code` property, so narrow before reading it.
+      if (e instanceof Error && (e as Error & { code?: string }).code === "IDEMPOTENCY_CONFLICT") {
         setStep("queue", "error", "Idempotency conflict: same key but different payload", `key conflict`);
         return NextResponse.json({ error: "Idempotency conflict", code: "IDEMPOTENCY_CONFLICT", steps, capability }, { status: 409, headers: { "x-request-id": requestId } });
       }

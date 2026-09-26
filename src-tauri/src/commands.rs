@@ -1382,7 +1382,7 @@ mod agent_console_path_tests {
 }
 #[cfg(test)]
 mod security_tests {
-    use super::{is_public_gateway_path, is_valid_code, normalize_gateway_url};
+    use super::{is_public_gateway_path, is_valid_code, normalize_gateway_url, uses_manager_refresh_credential};
 
     #[test]
     fn only_health_and_manager_login_are_public_gateway_paths() {

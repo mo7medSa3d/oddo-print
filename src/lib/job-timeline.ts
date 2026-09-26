@@ -64,7 +64,7 @@ export async function recordJobEvent(input: RecordJobEventInput): Promise<void> 
   };
   try {
     await queryWithTimeout(
-      db.insert(jobEvents).values(event as any),
+      db.insert(jobEvents).values(event),
       3000,
       "recordJobEvent"
     );
@@ -84,8 +84,8 @@ export async function getJobTimeline(tenantId: string, jobId: string) {
   return events;
 }
 
-export function buildTimelineFromJobRow(job: typeof printJobs.$inferSelect): { stage: JobTimelineStage; status: JobTimelineStatus; at?: Date; message?: string }[] {
-  const timeline: { stage: JobTimelineStage; status: JobTimelineStatus; at?: Date; message?: string }[] = [];
+export function buildTimelineFromJobRow(job: typeof printJobs.$inferSelect): { stage: JobTimelineStage; status: JobTimelineStatus; at?: Date | null; message?: string }[] {
+  const timeline: { stage: JobTimelineStage; status: JobTimelineStatus; at?: Date | null; message?: string }[] = [];
   if (job.createdAt) timeline.push({ stage: "created", status: "ok", at: job.createdAt, message: "Job created in Gateway" });
   if (job.status === "queued" || job.claimedAt || job.deliveredAt || job.ackedAt) {
     timeline.push({ stage: "queued", status: "ok", at: job.createdAt, message: `Queued for agent ${job.agentId}` });

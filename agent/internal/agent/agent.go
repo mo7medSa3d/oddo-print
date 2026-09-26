@@ -1763,15 +1763,18 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 		// An undeclared protocol reports honestly as "unknown" (never a
 		// default "raw"); the gateway capability model will not route to it.
 		proto := pc.NormalizedProtocolOrUnknown()
-		deviceClass := pc.PrinterType
-		if deviceClass == "" {
-			deviceClass = "unknown"
-		}
-		printerType := "physical"
-		if deviceClass == "virtual" {
-			printerType = "virtual"
-			deviceClass = "unknown"
-		}
+		// printer_type historically held either a printer class
+		// (physical|virtual|redirected) or a device class
+		// (thermal|laser|inkjet|label|other). The Gateway validates the two
+		// wire fields against separate enums, so a device class is only
+		// reported when the configured value really is one; otherwise the
+		// Gateway rejected the entire entry with
+		// invalid_device_class_or_printer_type and the inventory never
+		// converged (every printer_type: physical printer was dropped on every
+		// heartbeat). normalizeDeviceClass is the same normalization discovery
+		// already applies to its payload.
+		deviceClass := normalizeDeviceClass(pc.PrinterType)
+		printerType := normalizePrinterType(pc.PrinterType)
 		// Build payload with all required fields for Gateway inventory
 		entry := map[string]interface{}{
 			"id":             id,
@@ -2075,13 +2078,19 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 
 		heartbeatCtx, cancel := context.WithTimeout(parent, 15*time.Second)
 		resp, err := a.doAuthorizedRequest(heartbeatCtx, "POST", reqURL, payload)
-		cancel()
 		if err != nil {
+			cancel()
 			log.Printf("Heartbeat page %d/%d failed: %v", pageIndex+1, len(pages), err)
 			return
 		}
 
+		// The response body must be read BEFORE the request context is canceled.
+		// Cancelling first aborted the body read, which produced
+		// "response read failed: context canceled" on every cycle and returned
+		// early — skipping desired-state reconciliation and the SkippedPrinters
+		// feedback entirely. The 15s budget still bounds request + body read.
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxHeartbeatBytes))
+		cancel()
 		_ = resp.Body.Close()
 		if readErr != nil {
 			log.Printf("Heartbeat page %d/%d response read failed: %v", pageIndex+1, len(pages), readErr)
