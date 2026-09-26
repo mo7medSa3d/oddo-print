@@ -45,8 +45,13 @@ func TestHeartbeatPrinterStatusEmitsGatewayClassEnums(t *testing.T) {
 		ids = append(ids, id)
 		ag.printers[id] = &fakePrinter{}
 		ag.printerConfigs[id] = config.PrinterConfig{
-			ID: id, Name: id, Type: "network", Endpoint: "127.0.0.1:9100",
-			Protocol: "raw", ConnectionType: "network", PrinterType: pt,
+			ID:             id,
+			Name:           id,
+			Type:           "network",
+			Endpoint:       "127.0.0.1:9100",
+			Protocol:       "raw",
+			ConnectionType: "network",
+			PrinterType:    pt,
 		}
 	}
 
