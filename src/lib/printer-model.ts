@@ -5,7 +5,7 @@ export const PRINTER_TYPES = ["physical", "virtual", "redirected"] as const;
 export const DEVICE_CLASSES = ["thermal", "laser", "inkjet", "label", "other", "unknown"] as const;
 export const CONNECTION_TYPES = ["network", "usb", "spooler", "ipp", "ipps"] as const;
 // "unknown" means "not declared": the capability model never routes to it.
-export const PRINTER_PROTOCOLS = ["raw", "escpos", "zpl", "tspl", "ipp", "ipps", "spooler", "unknown"] as const;
+export const PRINTER_PROTOCOLS = ["raw", "escpos", "zpl", "tspl", "ipp", "ipps", "spooler", "windows_spooler", "unknown"] as const;
 
 export const printerInputSchema = z.object({
   id: z.string().regex(/^[a-z0-9_][a-z0-9_-]*$/).max(120).optional(),
