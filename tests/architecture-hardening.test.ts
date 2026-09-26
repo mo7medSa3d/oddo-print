@@ -121,12 +121,15 @@ describe("architecture hardening", () => {
     // The custom Node server must not mint a second nonce: Proxy is the
     // single request-scoped CSP/nonce boundary and Next.js consumes its
     // forwarded request header during rendering.
-    expect(proxy).toContain("createRequestContentSecurityPolicy");
-    expect(proxy).toContain('requestHeaders.set("x-nonce", nonce)');
-    expect(proxy).toContain('requestHeaders.set("Content-Security-Policy", policy)');
-    expect(server).not.toContain("createRequestContentSecurityPolicy");
-    expect(server).not.toContain('req.headers["x-nonce"] = nonce');
-    expect(server).not.toContain('res.setHeader("Content-Security-Policy", policy)');
+    // The repository's custom server is the actual HTTP entrypoint, so it owns
+    // the single request-scoped nonce and response CSP header. Proxy must remain
+    // a transparent pass-through to avoid a second nonce source.
+    expect(server).toContain("createRequestContentSecurityPolicy");
+    expect(server).toContain('req.headers["x-nonce"] = nonce');
+    expect(server).toContain('res.setHeader("Content-Security-Policy", policy)');
+    expect(proxy).not.toContain("createRequestContentSecurityPolicy");
+    expect(proxy).not.toContain('requestHeaders.set("x-nonce", nonce)');
+    expect(proxy).not.toContain('response.headers.set("Content-Security-Policy", policy)');
     expect(csp).toContain("crypto.randomUUID()");
     expect(csp).toContain("script-src 'self' 'nonce-");
     expect(csp).toContain("connect-src 'self';");
