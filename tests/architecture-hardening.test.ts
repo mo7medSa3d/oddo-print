@@ -15,6 +15,12 @@ describe("architecture hardening", () => {
     expect(body).toContain("createAgentSchema");
   });
 
+  it("passes the CSP to Next through request headers for automatic script nonces", () => {
+    const src = readFileSync("server.ts", "utf8");
+    expect(src).toContain('req.headers["content-security-policy"] = policy');
+    expect(src).toContain('req.headers["x-nonce"] = nonce');
+    expect(src).toContain('res.setHeader("Content-Security-Policy", policy)');
+  });
   it("uses the Webpack production build path for CSP nonce compatibility", () => {
     const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { scripts?: { build?: string } };
     expect(pkg.scripts?.build).toBe("next build --webpack");
