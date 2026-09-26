@@ -3548,3 +3548,10 @@ All interconnected pieces behave as intended. Phase 5 is fully verified.
 - **Evidence**: CI run `36220777637`, job `108345503805`, compiler error at `src\agent.rs:101:6`: `expected ';', found keyword 'if'`.
 - **Fix**: Added the required semicolon terminating the loop expression.
 - **Verification**: Windows CI must rerun on the resulting commit; the previous failure occurred during Rust compilation before packaging.
+
+    
+### Phase 9: Go formatting gate
+- **Problem**: CI run `36222350797`, job `108349857445`, failed the Go formatting gate for `internal/printer/stable_id.go` and `internal/testutil/mock_printer.go`.
+- **Evidence**: The job output explicitly reported `gofmt required on:` followed by both files and exited with code 1.
+- **Fix**: Normalized the affected whitespace to the gofmt form without changing behavior.
+- **Verification**: Changes are now committed on `main`; the CI workflow must complete on the new head to prove the formatting gate passes.
