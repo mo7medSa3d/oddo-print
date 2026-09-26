@@ -98,7 +98,7 @@ pub(crate) fn run_bounded_command(
                 return Err(format!("wait for command failed: {e}"));
             }
         };
-    }
+    };
 
     if overflow.load(Ordering::Acquire) {
         let _ = out_thread.join();
