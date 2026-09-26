@@ -2,6 +2,7 @@ import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { isIP } from "node:net";
 import { trustProxyEnabled } from "./trust-proxy-config";
+import { logWarn } from "./log";
 
 /**
  * Database-backed authentication rate limiter.
@@ -47,10 +48,9 @@ let warnedUntrustedProxy = false;
 function warnUntrustedProxyOnce(): void {
   if (warnedUntrustedProxy || process.env.NODE_ENV !== "production") return;
   warnedUntrustedProxy = true;
-  console.warn(
-    "[auth-rate-limit] TRUST_PROXY is not enabled in production; IP-scoped auth rate limiting is disabled. " +
-    "Set TRUST_PROXY only when the deployment is behind a trusted proxy that sanitizes forwarding headers."
-  );
+  logWarn("auth.rate_limit.untrusted_proxy", {
+    message: "TRUST_PROXY is not enabled in production; IP-scoped auth rate limiting is disabled. Set TRUST_PROXY only when the deployment is behind a trusted proxy that sanitizes forwarding headers.",
+  });
 }
 
 const ACCOUNT_LOCK_THRESHOLDS = [5, 10, 15, 20] as const;

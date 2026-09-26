@@ -190,7 +190,7 @@ export async function getSystemHealth(tenantId?: string): Promise<SystemHealth> 
     printers,
     odoo,
     billing,
-    version: { gateway: process.env.npm_package_version ?? "unknown", schema: CURRENT_SCHEMA_VERSION },
+    version: { gateway: process.env.npm_package_version ?? "1.0.0", schema: CURRENT_SCHEMA_VERSION },
     checks,
     policy: "CRITICAL (Gateway,Database) ERROR→error, UNKNOWN→unknown; IMPORTANT (Queue,Agents,Printers) ERROR→error, UNKNOWN→unknown, WARN→warn; EXTERNAL (Odoo,Billing) UNKNOWN→unknown (prevents false OK); all healthy→ok",
   };

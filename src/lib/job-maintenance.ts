@@ -16,7 +16,8 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
   // of rows in a single statement, causing >30s statement timeouts and
   // cascading failures. Remaining rows are processed in subsequent sweep ticks
   // without contention (SKIP LOCKED prevents worker pile-up).
-  const SWEEP_BATCH = Number(process.env.MAINTENANCE_SWEEP_LIMIT ?? 200);
+  const parsedLimit = Number(process.env.MAINTENANCE_SWEEP_LIMIT);
+  const SWEEP_BATCH = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 200;
 
   const expired = await db.execute(sql`
     WITH candidates AS (
