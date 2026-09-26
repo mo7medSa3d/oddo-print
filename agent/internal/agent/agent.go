@@ -173,6 +173,8 @@ type Agent struct {
 	// printers probing at 2s, slow gateway) must never let ticks pile up.
 	hbMu   sync.Mutex
 	pollMu sync.Mutex
+	// terminalReportMu prevents concurrent terminal-status reporting goroutines.
+	terminalReportMu sync.Mutex
 
 	// discoverySem bounds concurrent gateway-directed discovery sessions to
 	// one: each session is a full bounded LAN scan (30s bound), and piling
