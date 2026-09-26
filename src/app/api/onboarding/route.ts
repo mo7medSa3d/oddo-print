@@ -23,9 +23,10 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
-  // Email verification issues the browser-scoped customer session
-  // (cust_session). Onboarding must accept that workspace session as well as
-  // an explicit manager session; the permission check remains authoritative.
+  // The browser onboarding flow reaches this endpoint immediately after email
+  // verification, which issues the scoped customer session (`cust_session`).
+  // Accept the workspace-authorized customer session as well as a manager
+  // session; the permission check below remains the authoritative mutation gate.
   const claims = await validateWorkspaceManager(req);
   if (!claims?.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!hasManagerPermission(claims, "tenant.update")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
