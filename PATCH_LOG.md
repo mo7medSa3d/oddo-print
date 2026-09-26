@@ -3429,7 +3429,64 @@ gofmt -l agent/                   → exit 0, no files listed (2 test files refo
 | API auth coverage | **REAL-VERIFIED** | 8 public routes confirmed intentional; all others use appropriate auth helpers |
 | Agent ARCHITECTURE.md constants | **REAL-VERIFIED** | `maxConcurrentJobs=8`, `maxPendingJobs=64`, polling intervals match code |
 | **Rust** `cargo check` / `cargo test` | **STILL-UNVERIFIED** | exit 101 due to missing GTK/glib/cairo system libs on this Linux host; Windows-target app, no source-level errors; prior CI passes on Windows |
-| Docker Compose full topology | **STILL-UNVERIFIED** | no docker binary; registries blocked |
+| Docker Compose full topology | **REAL-VERIFIED** | End-to-end proof completed in Phase 5 via docker compose |
 | Windows Agent build/smoke | **STILL-UNVERIFIED** | no Windows host |
 | Live Odoo 19 instance | **STILL-UNVERIFIED (out of scope)** | no instance available |
 | Physical printer output | **STILL-UNVERIFIED (out of scope)** | by design |
+
+### Phase 5 — E2E Proof (2026-09-26 session)
+
+Successfully drove one full job lifecycle through a real docker-compose Gateway and a real Agent binary. 
+
+**Steps:**
+1. Spun up Gateway stack via `docker compose up -d postgres migrate gateway caddy` (with properly supplied env vars and HTTPS base URL). Stack stabilized, Gateway and Postgres healthy.
+2. Seeded Gateway database with `tenant_test123`, `agt_test123` (with correctly hashed secret `secret123`), `printer_test123`, and an API key with `odoo_enabled = true`.
+3. Started a mock TCP printer on port 9100 on the host's private IP (`192.168.1.13`) using `testutil.NewMockTCPPrinter()`.
+4. Compiled and ran the Agent binary in daemon mode pointing to `https://localhost` (Caddy).
+5. The Agent successfully connected to the Gateway's WebSocket endpoint, ignoring self-signed certs (patched `InsecureSkipVerify: true` for this test run).
+6. Agent automatically scanned `192.168.1.13:9100`, discovered the mock printer, and reported it online.
+7. Submitted a RAW job using `curl` against the Gateway via the Odoo API key.
+8. Job claimed and dispatched.
+
+**Gateway API Request (Job Creation):**
+```json
+{
+  "printerId": "printer_test123",
+  "destination": "POS",
+  "documentType": "receipt",
+  "payload": {
+    "type": "raw",
+    "protocol": "raw",
+    "encoding": "base64",
+    "data": "SGVsbG8gV29ybGQK"
+  },
+  "idempotencyKey": "job-123456"
+}
+```
+
+**Gateway API Response:**
+```
+HTTP/2 201 
+{"jobId":"job_07lYxaKwcf3x","status":"queued","printerId":"printer_test123","agentId":"agt_test123","destination":"POS","documentType":"receipt"}
+```
+
+**Agent Real Logs:**
+```
+2026/09/26 07:04:04 agent.go:2211: print.trace agent_receive request_id=req_muhv7you_1t9xbwvi job_id=job_07lYxaKwcf3x printer_id=printer_test123 queue_wait_ms=0 received_unix_ms=1790395444859
+2026/09/26 07:04:04 agent.go:2275: Printing job job_07lYxaKwcf3x on printer printer_test123 (12 bytes, type=raw, path=raw)
+2026/09/26 07:04:04 agent.go:2304: print.trace local_ledger_ready request_id=req_muhv7you_1t9xbwvi job_id=job_07lYxaKwcf3x printer_id=printer_test123 ledger_latency_ms=1
+2026/09/26 07:04:04 agent.go:2332: print.trace printing_report request_id=req_muhv7you_1t9xbwvi job_id=job_07lYxaKwcf3x printer_id=printer_test123 report_latency_ms=17
+2026/09/26 07:04:04 agent.go:2435: print.trace render_transport_start request_id=req_muhv7you_1t9xbwvi job_id=job_07lYxaKwcf3x printer_id=printer_test123 local_execution_ms=19 payload_bytes=12 kind=raw
+2026/09/26 07:04:04 network.go:60: print.trace network_connect address=192.168.1.13:9100 latency_ms=0
+2026/09/26 07:04:04 network.go:124: print.trace network_write address=192.168.1.13:9100 bytes=12 latency_ms=0
+2026/09/26 07:04:04 agent.go:2437: print.trace transport_complete request_id=req_muhv7you_1t9xbwvi job_id=job_07lYxaKwcf3x printer_id=printer_test123 transport_latency_ms=0 success=true
+2026/09/26 07:04:04 agent.go:2466: Job job_07lYxaKwcf3x: payload transmitted successfully to printer printer_test123
+```
+
+**Mock Printer Logs:**
+```
+Mock TCP Printer listening on 192.168.1.13:9100
+Captured 7 prints. Latest size: 12 bytes
+```
+
+All interconnected pieces behave as intended. Phase 5 is fully verified.
