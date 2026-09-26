@@ -145,7 +145,11 @@ app.prepare().then(() => {
     // browser. The separate proxy.ts CSP path is intentionally not used here.
     if (shouldApplyPageContentSecurityPolicy(req.url)) {
       const { nonce, policy } = createRequestContentSecurityPolicy();
+      // Next derives its automatic script nonces from the request CSP header.
+      // Keep the custom x-nonce too so application Server Components can read
+      // the same value; both are generated once for this request.
       req.headers["x-nonce"] = nonce;
+      req.headers["content-security-policy"] = policy;
       res.setHeader("Content-Security-Policy", policy);
     }
 
