@@ -29,7 +29,7 @@
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:e2e": "vitest run --config vitest.integration.config.mts --run tests/e2e-job-flow.test.ts",
     "test:odoo:static": "pytest tests/test_odoo19_printing_static.py",
-    "build": "next build",
+    "build": "next build --webpack",
     "db:provision-plans": "tsx scripts/provision-plans.ts",
     "platform:bootstrap": "tsx scripts/bootstrap-platform-owner.ts"
   },
