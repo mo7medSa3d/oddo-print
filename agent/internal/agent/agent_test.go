@@ -235,12 +235,15 @@ func TestPerPrinterSerialization(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			<-start
-			job := map[string]interface{}{
-				"id":        fmt.Sprintf("serial_%d", n),
-				"printerId": "printer_1",
-				"payload":   makeJobPayload(fmt.Sprintf("serial_%d", n)),
-				"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
-			}
+		job := map[string]interface{}{
+			"id":         fmt.Sprintf("serial_%d", n),
+			"agentId":    "agt_test",
+			"printerId":  "printer_1",
+			"status":     "claimed",
+			"claimToken": fmt.Sprintf("claim-serial-%d", n),
+			"payload":    makeJobPayload(fmt.Sprintf("serial_%d", n)),
+			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+		}
 			ag.processJob(ctx, job)
 		}(i)
 	}
@@ -343,12 +346,15 @@ func TestSameJobIDAcrossTenConcurrentDispatches(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			job := map[string]interface{}{
-				"id":        "same_job_10",
-				"printerId": "printer_1",
-				"payload":   makeJobPayload("same_job_10"),
-				"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
-			}
+		job := map[string]interface{}{
+			"id":         "same_job_10",
+			"agentId":    "agt_test",
+			"printerId":  "printer_1",
+			"status":     "claimed",
+			"claimToken": "claim-same-job-10",
+			"payload":    makeJobPayload("same_job_10"),
+			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+		}
 			ag.dispatchJob(ctx, job)
 		}()
 	}
@@ -373,12 +379,15 @@ func TestSameJobIDAcrossHundredConcurrentDispatches(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			job := map[string]interface{}{
-				"id":        "same_job_100",
-				"printerId": "printer_1",
-				"payload":   makeJobPayload("same_job_100"),
-				"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
-			}
+		job := map[string]interface{}{
+			"id":         "same_job_100",
+			"agentId":    "agt_test",
+			"printerId":  "printer_1",
+			"status":     "claimed",
+			"claimToken": "claim-same-job-100",
+			"payload":    makeJobPayload("same_job_100"),
+			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+		}
 			ag.dispatchJob(ctx, job)
 		}()
 	}
@@ -402,12 +411,15 @@ func TestWSAndPollingDuplicateDeliverySameJobID(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			job := map[string]interface{}{
-				"id":        "ws_poll_same_job",
-				"printerId": "printer_1",
-				"payload":   makeJobPayload("ws_poll_same_job"),
-				"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
-			}
+		job := map[string]interface{}{
+			"id":         "ws_poll_same_job",
+			"agentId":    "agt_test",
+			"printerId":  "printer_1",
+			"status":     "claimed",
+			"claimToken": "claim-ws-poll-same-job",
+			"payload":    makeJobPayload("ws_poll_same_job"),
+			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+		}
 			ag.dispatchJob(ctx, job)
 		}()
 	}
@@ -432,12 +444,15 @@ func TestDifferentJobsSamePrinterSerialized(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			<-start
-			job := map[string]interface{}{
-				"id":        fmt.Sprintf("same_printer_%d", i),
-				"printerId": "printer_1",
-				"payload":   makeJobPayload(fmt.Sprintf("same_printer_%d", i)),
-				"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
-			}
+		job := map[string]interface{}{
+			"id":         fmt.Sprintf("same_printer_%d", i),
+			"agentId":    "agt_test",
+			"printerId":  "printer_1",
+			"status":     "claimed",
+			"claimToken": fmt.Sprintf("claim-same-printer-%d", i),
+			"payload":    makeJobPayload(fmt.Sprintf("same_printer_%d", i)),
+			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+		}
 			ag.dispatchJob(ctx, job)
 		}(i)
 	}
@@ -494,12 +509,15 @@ func TestDifferentJobsAcrossThreePrintersConcurrent(t *testing.T) {
 			case 2:
 				printerID = "p3"
 			}
-			job := map[string]interface{}{
-				"id":        fmt.Sprintf("multi_%d", i),
-				"printerId": printerID,
-				"payload":   makeJobPayload(fmt.Sprintf("multi_%d", i)),
-				"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
-			}
+		job := map[string]interface{}{
+			"id":         fmt.Sprintf("multi_%d", i),
+			"agentId":    "agt_test",
+			"printerId":  printerID,
+			"status":     "claimed",
+			"claimToken": fmt.Sprintf("claim-multi-%d", i),
+			"payload":    makeJobPayload(fmt.Sprintf("multi_%d", i)),
+			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+		}
 			ag.dispatchJob(ctx, job)
 		}(i)
 	}
@@ -520,10 +538,13 @@ func TestPrintFailureThenRetry(t *testing.T) {
 	ag := newTestAgent(t, "printer_1", p)
 	ctx := context.Background()
 	job := map[string]interface{}{
-		"id":        "retry_job",
-		"printerId": "printer_1",
-		"payload":   makeJobPayload("retry_job"),
-		"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+		"id":         "retry_job",
+		"agentId":    "agt_test",
+		"printerId":  "printer_1",
+		"status":     "claimed",
+		"claimToken": "claim-retry-job",
+		"payload":    makeJobPayload("retry_job"),
+		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 	}
 	ag.processJob(ctx, job)
 	if got := p.attemptsByJob["retry_job"]; got != 1 {
@@ -547,9 +568,11 @@ func TestGatewayOwnsJobExpiryEnforcement(t *testing.T) {
 	ag := newTestAgent(t, "p1", p)
 	ctx := context.Background()
 	job := map[string]interface{}{
-		"id": "gateway-expiry-job", "printerId": "p1",
-		"payload":   makeJobPayload("gateway-expiry-job"),
-		"expiresAt": time.Now().Add(-time.Minute).Format(time.RFC3339),
+		"id": "gateway-expiry-job", "agentId": "agt_test", "printerId": "p1",
+		"status":     "claimed",
+		"claimToken": "claim-gateway-expiry",
+		"payload":    makeJobPayload("gateway-expiry-job"),
+		"expiresAt":  time.Now().Add(-time.Minute).Format(time.RFC3339),
 	}
 	// The Agent deliberately does not enforce expiresAt using its local wall
 	// clock. Gateway time is authoritative; the Agent only applies its local
@@ -565,9 +588,11 @@ func TestDuplicateSkippedAfterSuccess(t *testing.T) {
 	ag := newTestAgent(t, "p1", p)
 	ctx := context.Background()
 	job := map[string]interface{}{
-		"id": "dup_job", "printerId": "p1",
-		"payload":   makeJobPayload("dup_job"),
-		"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+		"id": "dup_job", "agentId": "agt_test", "printerId": "p1",
+		"status":     "claimed",
+		"claimToken": "claim-dup-job",
+		"payload":    makeJobPayload("dup_job"),
+		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 	}
 	ag.processJob(ctx, job)
 	if p.calls != 1 {
@@ -611,7 +636,9 @@ func TestKeepAliveEchoesClaimTokens(t *testing.T) {
 	defer cancel()
 	job := map[string]interface{}{
 		"id":         "job-ka-1",
+		"agentId":    "agt_test",
 		"printerId":  "p1",
+		"status":     "claimed",
 		"payload":    makeJobPayload("job-ka-1"),
 		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 		"claimToken": "tok-live-9",
@@ -699,7 +726,9 @@ func TestStaleTransportFailureHaltsBeforeHardware(t *testing.T) {
 	ag.inFlightMu.Unlock()
 	ag.processJob(context.Background(), map[string]interface{}{
 		"id":         jobID,
+		"agentId":    "agt_test",
 		"printerId":  "p1",
+		"status":     "claimed",
 		"payload":    makeJobPayload(jobID),
 		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 		"claimToken": "tok-old-1",
@@ -737,7 +766,9 @@ func TestFreshTransportFailureStillPrints(t *testing.T) {
 	jobID := "job-fresh-transport"
 	ag.dispatchJob(context.Background(), map[string]interface{}{
 		"id":         jobID,
+		"agentId":    "agt_test",
 		"printerId":  "p1",
+		"status":     "claimed",
 		"payload":    makeJobPayload(jobID),
 		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 		"claimToken": "tok-fresh-1",
@@ -1009,7 +1040,9 @@ func TestPollJobsDispatchesBoundedBatch(t *testing.T) {
 		// The fake printer reads the job id out of the payload data itself.
 		job, _ := json.Marshal([]interface{}{map[string]interface{}{
 			"id":         "job-bounded-1",
+			"agentId":    "agt_poll_dispatch",
 			"printerId":  "prt-bounded",
+			"status":     "claimed",
 			"claimToken": "tok",
 			"payload":    makeJobPayload("job-bounded-1"),
 		}})
@@ -1216,6 +1249,7 @@ func TestCancelledBeforeExecutionSlotAbortsLocalPrintingLedger(t *testing.T) {
 	cancel()
 	job := dispatchTestJob("cancel_before_exec_slot", "p1")
 	job["agentId"] = ag.cfg.Agent.ID
+	job["status"] = "claimed"
 	job["claimToken"] = "claim-cancel"
 	ag.processJob(ctx, job)
 
@@ -1235,6 +1269,7 @@ func TestDrawerSideEffectMakesLaterPlainPrintFailureUnknown(t *testing.T) {
 	ag.printerConfigs["p1"] = config.PrinterConfig{ID: "p1", Name: "Test", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "escpos"}
 	job := dispatchTestJob("drawer_then_print_failure", "p1")
 	job["agentId"] = ag.cfg.Agent.ID
+	job["status"] = "claimed"
 	job["claimToken"] = "claim-drawer"
 	payload := job["payload"].(map[string]interface{})
 	payload["protocol"] = "escpos"

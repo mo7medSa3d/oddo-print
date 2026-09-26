@@ -120,11 +120,19 @@ func TestRedeliveryAdoptsLiveClaimTokenForReports(t *testing.T) {
 }
 
 func dispatchTestJob(id, printerID string) map[string]interface{} {
+	// Realistic Gateway wire shape: claimed deliveries always carry the
+	// agent identity, claimed status, and fencing claim token (see
+	// CLAIM_RETURNING in src/lib/job-delivery.ts and buildJobEnvelope in
+	// src/server/ws.ts). Tests that need other shapes override fields
+	// explicitly after calling this helper.
 	return map[string]interface{}{
-		"id":        id,
-		"printerId": printerID,
-		"payload":   makeJobPayload(id),
-		"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+		"id":         id,
+		"agentId":    "agt_test",
+		"printerId":  printerID,
+		"status":     "claimed",
+		"claimToken": "claim-" + id,
+		"payload":    makeJobPayload(id),
+		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 	}
 }
 

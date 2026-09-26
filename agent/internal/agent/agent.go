@@ -1141,22 +1141,22 @@ func decodeJobFields(job map[string]interface{}) (jobWireFields, error) {
 	if err != nil {
 		return jobWireFields{}, err
 	}
-	agentID, err := readStringField(job, "agentId", false, false)
+	agentID, err := readStringField(job, "agentId", true, false)
 	if err != nil {
 		return jobWireFields{}, err
 	}
-	status, err := readStringField(job, "status", false, false)
+	status, err := readStringField(job, "status", true, false)
 	if err != nil {
 		return jobWireFields{}, err
 	}
-	if status != "" && status != "claimed" {
+	if status != "claimed" {
 		return jobWireFields{}, fmt.Errorf("field %q has invalid state %q; expected claimed", "status", status)
 	}
 	requestID, err := readStringField(job, "requestId", false, true)
 	if err != nil {
 		return jobWireFields{}, err
 	}
-	claimToken, err := readStringField(job, "claimToken", false, true)
+	claimToken, err := readStringField(job, "claimToken", true, false)
 	if err != nil {
 		return jobWireFields{}, err
 	}
@@ -2309,7 +2309,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	}
 	log.Printf("print.trace agent_receive request_id=%s job_id=%s printer_id=%s queue_wait_ms=%d received_unix_ms=%d", requestID, jobID, printerID, time.Since(receivedAt).Milliseconds(), receivedAt.UnixMilli())
 	claimToken := fields.ClaimToken
-	if fields.AgentID != "" && fields.AgentID != a.cfg.Agent.ID {
+	if fields.AgentID != a.cfg.Agent.ID {
 		log.Printf("Received job %s for agent %s on agent %s; rejecting before execution", jobID, fields.AgentID, a.cfg.Agent.ID)
 		return
 	}

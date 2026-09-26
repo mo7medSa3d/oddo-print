@@ -262,7 +262,9 @@ func TestTerminalOutcomeOutboxReplaysWithoutPhysicalReprint(t *testing.T) {
 
 	job := map[string]interface{}{
 		"id":         "job-terminal-outbox",
+		"agentId":    "agt_test",
 		"printerId":  "p1",
+		"status":     "claimed",
 		"payload":    makeJobPayload("job-terminal-outbox"),
 		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 		"claimToken": "claim-terminal-outbox",
@@ -615,10 +617,13 @@ func TestTerminalJobIsNotPrintedTwice(t *testing.T) {
 	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
 	ctx := context.Background()
 	job := map[string]interface{}{
-		"id":        "job_terminal",
-		"printerId": "p1",
-		"payload":   makeJobPayload("job_terminal"),
-		"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+		"id":         "job_terminal",
+		"agentId":    "agt_test",
+		"printerId":  "p1",
+		"status":     "claimed",
+		"claimToken": "claim-job-terminal",
+		"payload":    makeJobPayload("job_terminal"),
+		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 	}
 	ag.processJob(ctx, job)
 	ag.processJob(ctx, job)
@@ -633,10 +638,13 @@ func TestCapabilityMismatchIsReportedToGateway(t *testing.T) {
 	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
 	pdf := base64.StdEncoding.EncodeToString([]byte("%PDF-1.4\ntrailer<<>>\n%%EOF\n"))
 	job := map[string]interface{}{
-		"id":        "job_pdf_mismatch",
-		"printerId": "p1",
-		"payload":   map[string]interface{}{"type": "pdf", "encoding": "base64", "data": pdf},
-		"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+		"id":         "job_pdf_mismatch",
+		"agentId":    "agt_test",
+		"printerId":  "p1",
+		"status":     "claimed",
+		"claimToken": "claim-job-pdf-mismatch",
+		"payload":    map[string]interface{}{"type": "pdf", "encoding": "base64", "data": pdf},
+		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 	}
 	ag.processJob(context.Background(), job)
 	if p.calls != 0 {
@@ -703,10 +711,13 @@ func TestInterruptedJobIsReportedAtStartup(t *testing.T) {
 
 func TestReprintAfterCrashPolicy(t *testing.T) {
 	job := map[string]interface{}{
-		"id":        "job_crashed",
-		"printerId": "p1",
-		"payload":   makeJobPayload("job_crashed"),
-		"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+		"id":         "job_crashed",
+		"agentId":    "agt_test",
+		"printerId":  "p1",
+		"status":     "claimed",
+		"claimToken": "claim-job-crashed",
+		"payload":    makeJobPayload("job_crashed"),
+		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 	}
 
 	t.Run("disabled: never reprints, reports the interruption", func(t *testing.T) {
@@ -824,7 +835,9 @@ func TestLedgerWriteFailureBlocksDispatch(t *testing.T) {
 	}
 	job := map[string]interface{}{
 		"id":         "job_no_ledger",
+		"agentId":    "agt_test",
 		"printerId":  "p1",
+		"status":     "claimed",
 		"payload":    makeJobPayload("job_no_ledger"),
 		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 		"claimToken": "claim-ledger-x",
@@ -864,7 +877,9 @@ func TestStalePrintingFenceHaltsBeforeHardware(t *testing.T) {
 	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
 	job := map[string]interface{}{
 		"id":         "job_stale_fence",
+		"agentId":    "agt_test",
 		"printerId":  "p1",
+		"status":     "claimed",
 		"payload":    makeJobPayload("job_stale_fence"),
 		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 		"claimToken": "claim-superseded-1",
@@ -903,7 +918,9 @@ func TestExpiredTimestampDoesNotAuthorizeLocalExpiryDecision(t *testing.T) {
 	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
 	job := map[string]interface{}{
 		"id":         "job_local_expiry_defense",
+		"agentId":    "agt_test",
 		"printerId":  "p1",
+		"status":     "claimed",
 		"payload":    makeJobPayload("job_local_expiry_defense"),
 		"expiresAt":  "2000-01-01T00:00:00Z",
 		"claimToken": "claim-local-expiry",
