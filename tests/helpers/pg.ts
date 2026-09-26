@@ -86,8 +86,16 @@ export async function truncateAll(): Promise<void> {
     try {
       if (schema) await client.query(`SET search_path TO ${quoteIdent(schema)}, public`);
       await client.query("BEGIN");
-      for (const table of ["billing_events", "tenant_subscriptions", "plans", "audit_events", "agents", "api_keys", "auth_rate_limits", "refresh_tokens", "discovered_devices", "discovery_sessions", "manager_sessions", "printers", "print_jobs", "print_usage_periods", "tenant_domains", "applications", "tenant_users", "users", "tenants"]) {
-        try { await client.query(`TRUNCATE TABLE ${quoteIdent(table)} RESTART IDENTITY CASCADE`); } catch (error: any) { if (error?.code !== "42P01") throw error; }
+      // Use DELETE instead of TRUNCATE CASCADE to avoid heavy DataFileImmediateSync I/O stalls on test environments
+      const orderedTables = [
+        "billing_events", "tenant_subscriptions", "audit_events", 
+        "print_jobs", "printers", "discovered_devices", "discovery_sessions", 
+        "manager_sessions", "refresh_tokens", "auth_rate_limits", 
+        "api_keys", "agents", "print_usage_periods", "tenant_domains", 
+        "applications", "tenant_users", "tenants", "users", "plans"
+      ];
+      for (const table of orderedTables) {
+        try { await client.query(`DELETE FROM ${quoteIdent(table)}`); } catch (error: any) { if (error?.code !== "42P01") throw error; }
       }
       await client.query("COMMIT");
     } catch (error) { try { await client.query("ROLLBACK"); } catch {} throw error; }
