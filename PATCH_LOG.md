@@ -3273,3 +3273,9 @@ processes.
 | Windows Agent build/smoke test | **STILL-UNVERIFIED** | no Windows host; `build-windows.yml` inspected statically only |
 | Live Odoo 19 instance | **STILL-UNVERIFIED (out of scope)** | no such instance available |
 | Physical printer output | **STILL-UNVERIFIED (out of scope)** | `physicalOutcome` is `not_printed`/`unknown` by design; no paper involved |
+
+
+## PR #78 history sanitization follow-up (2026-09-26)
+
+- Removed the previously recorded credential value from the current `PATCH_LOG.md` content and rewrote the PR branch history so the sanitized tree is the only history presented by the PR branch.
+- No credential value is reproduced here. Rotate/revoke the affected credential if it was real rather than a test fixture.
