@@ -88,11 +88,22 @@ MANAGER_TOKEN="$(grep -Eo '"accessToken":"[^"]+"' "$TMP_DIR/manager-login.json" 
 [[ -n "$MANAGER_TOKEN" ]]
 curl -fsS --max-time 10 -H "Authorization: Bearer $MANAGER_TOKEN" "$BASE/api/auth/manager/me" | grep -q '"authenticated":true'
 echo "[8/9] Manager logout + bearer revocation"
-curl -fsS --max-time 10 -H "Authorization: Bearer $MANAGER_TOKEN" -X POST "$BASE/api/auth/manager/logout" >/dev/null
-MANAGER_AFTER_LOGOUT_STATUS="$(
-  curl -sS --max-time 10 -o "$TMP_DIR/manager-me-after-logout.json" -w '%{http_code}'     -H "Authorization: Bearer $MANAGER_TOKEN"     "$BASE/api/auth/manager/me"
+MANAGER_LOGOUT_STATUS="$(
+  curl -sS --max-time 10 -o "$TMP_DIR/manager-logout.json" -w '%{http_code}' -H "Authorization: Bearer $MANAGER_TOKEN" -X POST "$BASE/api/auth/manager/logout"
 )"
-[[ "$MANAGER_AFTER_LOGOUT_STATUS" == "401" ]]
+if [[ "$MANAGER_LOGOUT_STATUS" != "200" ]]; then
+  echo "ERROR: Manager logout returned HTTP $MANAGER_LOGOUT_STATUS"
+  cat "$TMP_DIR/manager-logout.json"
+  exit 1
+fi
+MANAGER_AFTER_LOGOUT_STATUS="$(
+  curl -sS --max-time 10 -o "$TMP_DIR/manager-me-after-logout.json" -w '%{http_code}' -H "Authorization: Bearer $MANAGER_TOKEN" "$BASE/api/auth/manager/me"
+)"
+if [[ "$MANAGER_AFTER_LOGOUT_STATUS" != "401" ]]; then
+  echo "ERROR: Manager bearer remained valid after logout (HTTP $MANAGER_AFTER_LOGOUT_STATUS)"
+  cat "$TMP_DIR/manager-me-after-logout.json"
+  exit 1
+fi
 
 echo "[9/9] customer logout + session revocation"
 curl -fsS --max-time 10 "${BROWSER_HEADERS[@]}" -b "$COOKIE_JAR" -X POST "$BASE/api/auth/logout" >/dev/null
