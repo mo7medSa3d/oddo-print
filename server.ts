@@ -17,6 +17,7 @@ import { isTrustedProxyRequest, trustProxyEnabled } from "./src/server/trusted-p
 import { runtimeSecret } from "./src/lib/runtime-secret";
 import { pool } from "./src/db";
 import { sweepStaleAgentPresence, AGENT_PRESENCE_SWEEP_INTERVAL_MS } from "./src/lib/agent-presence-maintenance";
+import { createRequestContentSecurityPolicy, shouldApplyPageContentSecurityPolicy } from "./src/server/content-security-policy";
 
 const dev = process.env.NODE_ENV !== "production";
 const port = parseInt(process.env.PORT ?? "3000", 10);
@@ -138,6 +139,16 @@ const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {
+    // This repository uses the custom Node server as the actual HTTP entrypoint.
+    // Generate exactly one request-scoped nonce here, expose it to the Next
+    // renderer through the request headers, and send the same policy to the
+    // browser. The separate proxy.ts CSP path is intentionally not used here.
+    if (shouldApplyPageContentSecurityPolicy(req.url)) {
+      const { nonce, policy } = createRequestContentSecurityPolicy();
+      req.headers["x-nonce"] = nonce;
+      res.setHeader("Content-Security-Policy", policy);
+    }
+
     applyApiCacheControlDefault(req, res);
     if (trustProxyEnabled() && req.url !== "/api/health" && req.url !== "/api/live") {
       const headers = new Headers();
