@@ -54,7 +54,7 @@
 
 **Cause**: `TRUST_PROXY_SECRET` is not set or is a known placeholder.
 
-**Resolution**: Set a random string ≥ 32 characters. Configure your reverse proxy to send it in the `X-Trust-Proxy-Secret` header.
+**Resolution**: Set a random string ≥ 32 characters. Configure your reverse proxy to send it in the `X-Gateway-Proxy-Token` header.
 
 ### Migration fails with "no unique constraint matching given keys"
 

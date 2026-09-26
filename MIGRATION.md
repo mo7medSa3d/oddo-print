@@ -44,8 +44,10 @@ This runs `scripts/db-migrate.ts` which applies all pending migrations from `dri
 | 0060–0069 | 10 | Billing, usage, time authority, key rotation, job-event hardening, and claim-id redaction |
 | 0070 | 1 | Durable discovered-device identity for per-Agent sync convergence |
 | 0071 | 1 | Remove obsolete print-job rate-limit table |
+| 0072 | 1 | Tenant-scoped printer identity and discovered devices |
+| 0073 | 1 | Refresh tokens table for auth session management |
 
-**Total**: 72 migrations (0000–0071)
+**Total**: 74 migrations (0000–0073)
 
 ## Migration Policy
 

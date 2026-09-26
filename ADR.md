@@ -101,7 +101,7 @@
 ## ADR-009: WebSocket Primary Channel + HTTP Polling Fallback
 
 * **Context**: Low-latency print delivery is essential for POS counters, but WebSockets can be dropped by NAT firewalls, proxies, or network switches.
-* **Decision**: Use **WebSocket** (`/api/agent/ws`) as the primary real-time push transport, backed by an autonomous **HTTP Polling** loop (every 10s when offline, safety poll every 30s when online).
+* **Decision**: Use **WebSocket** (`/api/agent/ws`) as the primary real-time push transport, backed by an autonomous **HTTP Polling** loop (every 5s when offline, safety poll every 30s when online).
 * **Rationale**:
   * Sub-100ms real-time delivery during normal operation.
   * 100% reliable job delivery even under hostile corporate firewalls that terminate long-lived WebSocket connections.
