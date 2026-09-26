@@ -59,7 +59,11 @@ func TestHeartbeatStatusProbesUseBoundedConcurrency(t *testing.T) {
 		id := "probe-" + formatTestIndex(i)
 		ag.printers[id] = p
 		ag.printerConfigs[id] = config.PrinterConfig{
-			ID: id, Name: id, Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw",
+			ID:       id,
+			Name:     id,
+			Type:     "network",
+			Endpoint: "127.0.0.1:9100",
+			Protocol: "raw",
 		}
 		probes = append(probes, p)
 	}
@@ -144,7 +148,11 @@ func TestHeartbeatPaginationPreservesFullInventoryAndOwnershipFence(t *testing.T
 		id := "printer-" + formatTestIndex(i)
 		ag.printers[id] = &fakePrinter{}
 		ag.printerConfigs[id] = config.PrinterConfig{
-			ID: id, Name: id, Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw",
+			ID:       id,
+			Name:     id,
+			Type:     "network",
+			Endpoint: "127.0.0.1:9100",
+			Protocol: "raw",
 		}
 	}
 	// A Gateway-owned stale local entry must remain fenced even when its
@@ -348,7 +356,13 @@ func TestHeartbeatResponseBodyIsReadBeforeContextCancel(t *testing.T) {
 
 	ag.printers = map[string]printer.Printer{"printer-1": &fakePrinter{}}
 	ag.printerConfigs = map[string]config.PrinterConfig{
-		"printer-1": {ID: "printer-1", Name: "printer-1", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
+		"printer-1": {
+			ID:       "printer-1",
+			Name:     "printer-1",
+			Type:     "network",
+			Endpoint: "127.0.0.1:9100",
+			Protocol: "raw",
+		},
 	}
 	ag.sendHeartbeat()
 
