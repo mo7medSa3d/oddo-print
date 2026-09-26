@@ -97,6 +97,29 @@ describe("payload", () => {
     expect(tspl.match(/PRINT 1,1/g)).toHaveLength(1);
   });
 
+  it("refuses a conflicting explicit protocol capability instead of inventing another byte language", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    expect(() => buildTestPrintPayloadForPrinter("RAW", "Agent", {
+      connectionType: "network",
+      protocol: "raw",
+      capabilities: { supported_protocols: ["zpl"] },
+    })).toThrow(/no supported test ticket format/i);
+    expect(() => buildTestPrintPayloadForPrinter("Zebra", "Agent", {
+      connectionType: "network",
+      protocol: "zpl",
+      capabilities: { supported_protocols: ["escpos"] },
+    })).toThrow(/no supported test ticket format/i);
+  });
+
+  it("keeps unknown byte-stream printers dark even when capabilities name a language", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    expect(() => buildTestPrintPayloadForPrinter("Unknown", "Agent", {
+      connectionType: "network",
+      protocol: "unknown",
+      capabilities: { supported_protocols: ["zpl"] },
+    })).toThrow(/no supported test ticket format/i);
+  });
+
   it("does not fabricate a document test for a byte-stream printer with PDF-only capabilities", async () => {
     const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
     expect(() => buildTestPrintPayloadForPrinter("RAW", "Agent", {

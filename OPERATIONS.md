@@ -20,7 +20,11 @@ credentials promptly after the grace window ends.
 Run migrations before starting the application. Migration `0029` intentionally stops when it detects ambiguous legacy ownership. Migration `0032` intentionally stops when two pending pairing codes share one hash — regenerate the affected codes (disable/re-enable the agent) and re-run; collisions are never resolved automatically.
 
 ## Session invalidation
-Migration `0030` deletes manager sessions. All operators must sign in again once after the migration.
+Migration `0030` was the historical manager-session reset used when the legacy session store was introduced; it is not the refresh-token cutover mechanism.
+
+The current session migration is gradual. New logins issue a 15-minute access JWT plus a rotating refresh-token family with a 30-day absolute cap. Existing pre-v2 `manager_sessions`/`platform_sessions` sessions remain valid through their original 8-hour expiry and are verified through the legacy fallback path. No blanket logout is performed by the refresh-token migration.
+
+The Gateway's existing 5-minute housekeeping loop removes expired legacy manager/platform sessions and expired refresh-token rows.
 
 ## Runtime truth
 A configured printer may remain configured while an Agent is offline/stale. Runtime availability and physical print outcome are distinct states.

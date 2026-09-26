@@ -13,6 +13,7 @@ import {
   verifyManagerToken,
   verifyManagerPassword,
   validateManagerClaims,
+  validateWorkspaceManager,
 } from "../src/lib/manager-auth";
 
 const suite = describe.skipIf(!hasTestDatabase);
@@ -41,13 +42,52 @@ suite("manager authentication hardening", () => {
     vi.useRealTimers();
   });
 
-  it("creates a session that verifies and is backed by a DB session", async () => {
+  it("creates a v2 session pair that verifies against the refresh-token ledger", async () => {
     const created = await createManagerSession("tenant_manager_test");
     const claims = await verifyManagerToken(created.token);
     expect(claims).not.toBeNull();
     expect(claims?.jti).toBe(created.jti);
     expect(claims?.sub).toBe("manager");
+    expect(claims?.ver).toBe(2);
+    expect(claims?.familyId).toBe(created.familyId);
+
+    const row = (await pool().query(
+      "SELECT token_hash, family_id, expires_at FROM refresh_tokens WHERE id = $1",
+      [created.refreshTokenId],
+    )).rows[0];
+    expect(row.family_id).toBe(created.familyId);
+    expect(row.token_hash).toHaveLength(64);
+    expect(row.token_hash).not.toBe(created.refreshToken);
+    expect(new Date(row.expires_at).getTime()).toBe(created.refreshExpiresAt.getTime());
     await expect(validateManagerClaims(claims)).resolves.not.toBeNull();
+  });
+
+  it("accepts a customer v2 session in workspace auth while manager-only validation stays separate", async () => {
+    await pool().query(
+      "INSERT INTO users (id, email, password_hash, email_verified_at) VALUES ($1, $2, $3, clock_timestamp())",
+      ["user_workspace_test", "workspace@example.test", "unused"],
+    );
+    await pool().query(
+      "INSERT INTO tenant_users (user_id, tenant_id, role) VALUES ($1, $2, $3)",
+      ["user_workspace_test", "tenant_manager_test", "admin"],
+    );
+
+    const session = await (await import("../src/lib/session-tokens")).issueSessionPair({
+      kind: "customer",
+      tenantId: "tenant_manager_test",
+      userId: "user_workspace_test",
+      role: "admin",
+      email: "workspace@example.test",
+    });
+
+    const request = new Request("http://gateway.test/api/agents", {
+      headers: { cookie: "cust_session=" + session.accessToken },
+    });
+    await expect(validateWorkspaceManager(request)).resolves.toMatchObject({
+      userId: "user_workspace_test",
+      tenantId: "tenant_manager_test",
+      kind: "customer",
+    });
   });
 
   it("rejects a token signed with a different JWT header", async () => {
@@ -72,7 +112,7 @@ suite("manager authentication hardening", () => {
     await expect(verifyManagerToken(`${data}.${signature}`)).resolves.toBeNull();
   });
 
-  it("anchors session creation and verification to PostgreSQL when the host clock is skewed", async () => {
+  it("anchors v2 session creation and verification to PostgreSQL when the host clock is skewed", async () => {
     const dbNow = Number((await pool().query(
       "SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec",
     )).rows[0].now_sec);
@@ -81,15 +121,13 @@ suite("manager authentication hardening", () => {
     vi.setSystemTime(new Date((dbNow + 24 * 60 * 60) * 1000));
     const created = await createManagerSession("tenant_manager_test");
 
-    expect(Math.floor(created.exp.getTime() / 1000)).toBe(dbNow + 8 * 60 * 60);
+    expect(Math.floor(created.exp.getTime() / 1000)).toBe(dbNow + 15 * 60);
     await expect(verifyManagerToken(created.token)).resolves.toMatchObject({ jti: created.jti });
 
-    await pool().query(
-      "UPDATE manager_sessions SET expires_at = clock_timestamp() - interval '1 minute' WHERE jti = $1",
-      [created.jti],
-    );
+    // v2 access JWTs are stateless; manager_sessions is the legacy-session
+    // compatibility store and must not control v2 access-token expiry.
     vi.setSystemTime(new Date((dbNow - 24 * 60 * 60) * 1000));
-    await expect(verifyManagerToken(created.token)).resolves.toBeNull();
+    await expect(verifyManagerToken(created.token)).resolves.toMatchObject({ jti: created.jti });
   });
 
   it("accepts a valid scrypt password hash", async () => {

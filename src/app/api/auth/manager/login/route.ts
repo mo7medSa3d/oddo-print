@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import { createManagerSession, managerCookieHeader, verifyManagerPassword, getManagerUsername, resolveManagerTenantId, authenticateManagerUser } from "../../../../../lib/manager-auth";
+import { createManagerSession, managerCookieHeader, managerRefreshCookieHeader, verifyManagerPassword, getManagerUsername, resolveManagerTenantId, authenticateManagerUser } from "../../../../../lib/manager-auth";
+import { isTrustedDesktopRequest } from "../../../../../lib/session-tokens";
 import {
   clientIpFrom,
   reserveAuthAttempt,
   recordAuthSuccess,
+  setRateLimitHeaders,
 } from "../../../../../lib/auth-rate-limit";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
 import { logWarn, logInfo, logError, requestIdFrom } from "../../../../../lib/log";
@@ -11,10 +13,10 @@ import { writeAuditEvent } from "../../../../../lib/audit";
 
 const INVALID = "Invalid credentials";
 
-function tooMany(retryAfterSec: number) {
+function tooMany(decision: Awaited<ReturnType<typeof reserveAuthAttempt>>) {
   const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
-  res.headers.set("Retry-After", String(retryAfterSec));
-  return res;
+  if (decision.retryAfterSec) res.headers.set("Retry-After", String(decision.retryAfterSec));
+  return setRateLimitHeaders(res, decision);
 }
 
 export async function POST(req: Request) {
@@ -35,7 +37,7 @@ export async function POST(req: Request) {
 
   const expectedUser = getManagerUsername();
   const legacyTenantId = (process.env.MANAGER_TENANT_ID ?? "").trim();
-  const desktopClient = req.headers.get("x-odoo-print-desktop") === "1";
+  const desktopClient = isTrustedDesktopRequest(req);
   const ip = clientIpFrom(req);
 
   let pre: Awaited<ReturnType<typeof reserveAuthAttempt>>;
@@ -43,16 +45,16 @@ export async function POST(req: Request) {
     pre = await reserveAuthAttempt(ip, username);
     if (!pre.allowed) {
       logWarn("auth.login.rate_limited", { requestId, ip, retryAfterSec: pre.retryAfterSec });
-      return tooMany(pre.retryAfterSec);
+      return tooMany(pre);
     }
   } catch (e) {
-    logWarn("auth.login.rate_limit_unavailable", { requestId, error: e instanceof Error ? e.message : "unknown" });
+    logError("auth.rate_limit.store_unavailable", { endpoint: "manager_login", requestId, error: e instanceof Error ? e.message : "unknown" });
     return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });
   }
 
   const tenantId = await resolveManagerTenantId(req, username);
   if (!tenantId) {
-    return NextResponse.json({ error: "Manager tenant is not configured for this hostname" }, { status: 503 });
+    return setRateLimitHeaders(NextResponse.json({ error: "Manager tenant is not configured for this hostname" }, { status: 503 }), pre);
   }
 
   let identity: { userId: string; role: import("../../../../../lib/manager-auth").ManagerRole } | null = null;
@@ -64,7 +66,7 @@ export async function POST(req: Request) {
       // credentials. Never fall through to the 401 path when the identity
       // lookup itself could not be completed.
       logError("auth.login.user_lookup_failed", { requestId, error: e instanceof Error ? e.message : "unknown" });
-      return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });
+      return setRateLimitHeaders(NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 }), pre);
     }
   }
   const legacyEnabled = process.env.NODE_ENV !== "production" && process.env.ALLOW_LEGACY_MANAGER_AUTH === "1";
@@ -73,8 +75,8 @@ export async function POST(req: Request) {
     : false;
   if (!identity && !legacyValid) {
     logWarn("auth.login.failed", { requestId, ip });
-    if (pre.retryAfterSec) return tooMany(pre.retryAfterSec);
-    return NextResponse.json({ error: INVALID }, { status: 401 });
+    if (pre.retryAfterSec) return tooMany(pre);
+    return setRateLimitHeaders(NextResponse.json({ error: INVALID }, { status: 401 }), pre);
   }
 
   try {
@@ -85,25 +87,40 @@ export async function POST(req: Request) {
 
   let sess;
   try {
-    sess = await createManagerSession(tenantId, identity ? { userId: identity.userId, role: identity.role } : { role: "owner" });
+    sess = await createManagerSession(
+      tenantId,
+      identity ? { userId: identity.userId, role: identity.role } : { role: "owner" },
+      {
+        ipAddress: ip,
+        userAgent: req.headers.get("user-agent"),
+        email: username.includes("@") ? username : null,
+      },
+    );
   } catch (e) {
     logError("auth.login.session_failed", { requestId, error: e instanceof Error ? e.message : "unknown" });
-    return NextResponse.json({ error: "Sign-in is temporarily unavailable. Try again in a moment." }, { status: 500 });
+    return setRateLimitHeaders(NextResponse.json({ error: "Sign-in is temporarily unavailable. Try again in a moment." }, { status: 500 }), pre);
   }
 
   logInfo("auth.login.success", { requestId, ip });
   await writeAuditEvent({ tenantId, actorType: identity ? "user" : "system", actorId: identity?.userId ?? "legacy-manager", action: "user.login.success", requestId, metadata: { desktopClient } }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
-  const bodyOut: { ok: true; expiresAt: string; accessToken?: string } = {
+  const bodyOut: { ok: true; expiresAt: string; accessToken?: string; refreshToken?: string } = {
     ok: true,
     expiresAt: sess.exp.toISOString(),
   };
   // The desktop shell cannot rely on cross-site HttpOnly cookies. Give only
   // the explicitly identified desktop client the short-lived bearer token;
   // browser login remains cookie-only and the cookie is still HttpOnly.
-  if (desktopClient) bodyOut.accessToken = sess.token;
+  if (desktopClient) {
+    bodyOut.accessToken = sess.token;
+    bodyOut.refreshToken = sess.refreshToken;
+  }
 
   const res = NextResponse.json(bodyOut);
-  res.headers.set("Set-Cookie", managerCookieHeader(sess.token, sess.exp));
+  if (!desktopClient) {
+    res.headers.set("Set-Cookie", managerCookieHeader(sess.token, sess.exp));
+    res.headers.append("Set-Cookie", managerRefreshCookieHeader(sess.refreshToken, sess.refreshExpiresAt));
+  }
   res.headers.set("X-Request-Id", requestId);
-  return res;
+  res.headers.set("Cache-Control", "no-store");
+  return setRateLimitHeaders(res, pre);
 }

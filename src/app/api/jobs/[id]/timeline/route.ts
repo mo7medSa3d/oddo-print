@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
-import { printJobs } from "../../../../../db/schema";
-import { validateManager } from "../../../../../lib/manager-auth";
+import { jobEvents, printJobs } from "../../../../../db/schema";
+import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { and, eq } from "drizzle-orm";
 import { getJobTimeline, buildTimelineFromJobRow } from "../../../../../lib/job-timeline";
 import { runWithCorrelation, generateRequestId } from "../../../../../server/correlation";
@@ -9,6 +9,24 @@ import { requestIdFrom, logWarn } from "../../../../../lib/log";
 import { createHash } from "crypto";
 
 export const dynamic = "force-dynamic";
+
+type JobRow = typeof printJobs.$inferSelect;
+type JobEventRow = typeof jobEvents.$inferSelect;
+type TimelineEntry = {
+  id: string;
+  stage: string;
+  status: string;
+  at?: Date | null;
+  message?: string | null;
+  errorCode?: string | null;
+  attemptId?: string | null;
+  claimId?: string;
+  spoolerJobId?: string | null;
+  agentId?: string | null;
+  printerId?: string | null;
+  requestId?: string | null;
+  metadata?: Record<string, unknown>;
+};
 
 function redactClaimToken(token?: string | null): string | undefined {
   if (!token) return undefined;
@@ -38,22 +56,22 @@ function redactClaimIdForTimeline(claimId?: string | null): string | undefined {
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const auth = await validateManager(req);
+  const auth = await validateWorkspaceManager(req);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const tenantId = auth.tenantId;
 
-  const requestId = requestIdFrom(req as any) || generateRequestId();
+  const requestId = requestIdFrom(req) || generateRequestId();
   const correlation = { requestId, tenantId, jobId: id };
 
-  return runWithCorrelation(correlation as any, async () => {
+  return runWithCorrelation(correlation, async () => {
     const rows = await db.select().from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.id, id))).limit(1);
     if (rows.length === 0) {
       return NextResponse.json({ error: "Not found" }, { status: 404, headers: { "x-request-id": requestId } });
     }
-    const job = rows[0] as any;
+    const job: JobRow = rows[0];
 
-    let events: any[] = [];
+    let events: JobEventRow[] = [];
     try {
       events = await getJobTimeline(tenantId, id);
     } catch (error) {
@@ -63,9 +81,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       events = [];
     }
 
-    let timeline: any[];
+    let timeline: TimelineEntry[];
     if (events.length > 0) {
-      timeline = events.map((e: any) => ({
+      timeline = events.map((e: JobEventRow) => ({
         id: e.id,
         stage: e.stage,
         status: e.status,

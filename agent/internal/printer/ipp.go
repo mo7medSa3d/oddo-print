@@ -407,9 +407,22 @@ func parseIPPStatus(data []byte) (uint16, string) {
 	return status, ""
 }
 
+// logRecoveredIPPParse reports a panic recovered while parsing IPP attribute
+// bytes taken straight off the network. The recovery itself is deliberate
+// hardening — a malformed packet must not take down discovery — but it used to
+// be a bare `_ = recover()`, so a parser panic left no trace at all. Extracted
+// from the deferred closure so the reporting behaviour is directly testable.
+func logRecoveredIPPParse(dataLen int, recovered interface{}) {
+	log.Printf("WARNING: recovered from malformed IPP attributes (len=%d): %v", dataLen, recovered)
+}
+
 func parseIPPAttributes(data []byte) map[string]string {
 	out := make(map[string]string)
-	defer func() { _ = recover() }()
+	defer func() {
+		if r := recover(); r != nil {
+			logRecoveredIPPParse(len(data), r)
+		}
+	}()
 	if len(data) < 8 {
 		return out
 	}

@@ -301,6 +301,63 @@ export default function DashboardClient({
   const [jobsLoading, setJobsLoading] = useState(false);
   const router = useRouter();
 
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleRefresh = () => {
+      timer = setTimeout(() => {
+        void refreshSession();
+      }, 13 * 60 * 1000);
+    };
+
+    async function refreshSession() {
+      try {
+        const response = await fetch("/api/auth/refresh", {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          if (!cancelled) router.push("/login");
+          return;
+        }
+        const data = await response.json().catch(() => null) as { expiresAt?: unknown } | null;
+        if (!cancelled && typeof data?.expiresAt === "string") {
+          scheduleRefresh();
+        }
+      } catch {
+        if (!cancelled) router.push("/login");
+      }
+    }
+
+    async function bootstrap() {
+      try {
+        const response = await fetch("/api/auth/me", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (cancelled) return;
+        if (response.ok) {
+          const data = await response.json().catch(() => null) as { exp?: unknown } | null;
+          if (typeof data?.exp === "number") {
+            scheduleRefresh();
+            return;
+          }
+        }
+        await refreshSession();
+      } catch {
+        if (!cancelled) router.push("/login");
+      }
+    }
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [router]);
+
   const [prevAgents, setPrevAgents] = useState(initialAgents);
   if (prevAgents !== initialAgents) {
     setPrevAgents(initialAgents);

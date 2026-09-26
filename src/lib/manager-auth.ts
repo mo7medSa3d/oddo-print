@@ -1,25 +1,31 @@
 import { db } from "../db";
 import { managerSessions, tenants, tenantDomains, tenantUsers, users } from "../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "crypto";
+import { createHash, createHmac, scrypt, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
 import { databaseNowMs } from "./database-clock";
 import { hashPassword, verifyPassword, normalizeEmail } from "./password";
 import { requireActiveTenantOrNull } from "./tenant-guard";
+import { LEGACY_SESSION_MAX_AGE_SECONDS } from "./session-config";
+import {
+  accessCookieHeader,
+  clearAccessCookieHeader,
+  clearRefreshCookieHeader,
+  getAccessTokenFromRequest,
+  issueSessionPair,
+  verifyAccessTokenSignature,
+  refreshCookieHeader,
+  type SessionRequestContext,
+} from "./session-tokens";
 
 const COOKIE_NAME = "mgr_session";
-const MAX_AGE_SECONDS = 8 * 60 * 60;
+const LEGACY_MAX_AGE_SECONDS = LEGACY_SESSION_MAX_AGE_SECONDS;
 
 function getSecret(): string {
   const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
   if (s.length < 32) throw new Error("GATEWAY_JWT_SECRET must be >=32 chars");
   return s;
 }
-
-function b64urlEncode(buf: Buffer | string): string {
-  return Buffer.from(buf).toString("base64url");
-}
-
 function b64urlDecode(s: string): Buffer {
   return Buffer.from(s, "base64url");
 }
@@ -28,15 +34,11 @@ export type ManagerRole = "owner" | "admin" | "operator" | "viewer" | "integrati
 export type ManagerClaims = {
   jti: string; iat: number; exp: number; sub: "manager"; tenantId: string;
   userId?: string; role: ManagerRole;
+  ver?: 2;
+  kind?: "manager" | "customer";
+  sid?: string;
+  familyId?: string;
 };
-
-function sign(claims: ManagerClaims): string {
-  const header = b64urlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const payload = b64urlEncode(JSON.stringify(claims));
-  const data = `${header}.${payload}`;
-  const sig = createHmac("sha256", getSecret()).update(data).digest("base64url");
-  return `${data}.${sig}`;
-}
 
 function verifySignature(token: string): ManagerClaims | null {
   if (typeof token !== "string" || token.length < 40 || token.length > 4096) return null;
@@ -59,6 +61,10 @@ function verifySignature(token: string): ManagerClaims | null {
     const claims = JSON.parse(b64urlDecode(p).toString("utf8")) as Partial<ManagerClaims>;
     if (
       claims.sub !== "manager" ||
+      claims.ver !== undefined ||
+      claims.kind !== undefined ||
+      claims.sid !== undefined ||
+      claims.familyId !== undefined ||
       typeof claims.tenantId !== "string" ||
       claims.tenantId.length < 1 ||
       claims.tenantId.length > 128 ||
@@ -70,7 +76,7 @@ function verifySignature(token: string): ManagerClaims | null {
       typeof claims.exp !== "number" ||
       !Number.isSafeInteger(claims.exp) ||
       claims.exp <= claims.iat ||
-      claims.exp - claims.iat > MAX_AGE_SECONDS ||
+      claims.exp - claims.iat > LEGACY_MAX_AGE_SECONDS ||
       typeof claims.role !== "string" ||
       !(["owner", "admin", "operator", "viewer", "integration_admin", "billing_admin"] as string[]).includes(claims.role) ||
       (claims.userId !== undefined && (typeof claims.userId !== "string" || claims.userId.length < 1 || claims.userId.length > 128))
@@ -86,12 +92,55 @@ export function getManagerCookieName() {
 }
 
 export async function verifyManagerToken(token: string): Promise<ManagerClaims | null> {
-  const claims = verifySignature(token);
-  return claims ? validateManagerClaims(claims) : null;
+  const versioned = verifyAccessTokenSignature(token, "manager");
+  if (versioned) {
+    if (versioned.kind !== "manager") return null;
+    return validateManagerClaims({
+      jti: versioned.jti,
+      iat: versioned.iat,
+      exp: versioned.exp,
+      sub: "manager",
+      tenantId: versioned.tenantId!,
+      role: versioned.role as ManagerRole,
+      ...(versioned.userId ? { userId: versioned.userId } : {}),
+      ver: 2,
+      kind: "manager",
+      sid: versioned.sid,
+      familyId: versioned.familyId,
+    });
+  }
+
+  const legacy = verifySignature(token);
+  return legacy ? validateManagerClaims(legacy) : null;
 }
 
 export async function validateManagerClaims(claims: ManagerClaims | null): Promise<ManagerClaims | null> {
   if (!claims) return null;
+
+  if (claims.ver === 2 && (claims.kind === "manager" || claims.kind === "customer")) {
+    let nowMs: number;
+    try {
+      nowMs = await databaseNowMs();
+    } catch {
+      return null;
+    }
+    const nowSec = Math.floor(nowMs / 1000);
+    if (claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.exp - claims.iat !== 15 * 60) return null;
+    if (!claims.tenantId || !claims.role) return null;
+
+    if (claims.userId) {
+      const membership = await db.query.tenantUsers.findFirst({
+        where: and(eq(tenantUsers.userId, claims.userId), eq(tenantUsers.tenantId, claims.tenantId)),
+        columns: { role: true },
+      });
+      if (!membership || membership.role !== claims.role) return null;
+    }
+
+    const tenantLifecycle = await requireActiveTenantOrNull(claims.tenantId);
+    if (!tenantLifecycle) return null;
+    return claims;
+  }
+
   const row = await db.query.managerSessions.findFirst({
     where: and(
       eq(managerSessions.jti, claims.jti),
@@ -179,39 +228,113 @@ export async function resolveManagerTenantId(req: Request, username?: string): P
   return null;
 }
 
-export async function createManagerSession(tenantId: string, identity?: { userId?: string; role?: ManagerRole }): Promise<{ token: string; jti: string; exp: Date }> {
-  const jti = randomBytes(16).toString("hex");
-  const nowMs = await databaseNowMs();
-  const now = Math.floor(nowMs / 1000);
-  const exp = now + MAX_AGE_SECONDS;
-  const role = identity?.role ?? "owner";
-  const claims: ManagerClaims = { jti, iat: now, exp, sub: "manager", tenantId, role, ...(identity?.userId ? { userId: identity.userId } : {}) };
-  const token = sign(claims);
-  await db.insert(managerSessions).values({ jti, tenantId, userId: identity?.userId ?? null, role, expiresAt: new Date(exp * 1000) });
-  return { token, jti, exp: new Date(exp * 1000) };
+export async function createManagerSession(
+  tenantId: string,
+  identity?: { userId?: string; role?: ManagerRole },
+  context?: SessionRequestContext & { email?: string | null },
+): Promise<{
+  token: string;
+  jti: string;
+  exp: Date;
+  refreshToken: string;
+  refreshTokenId: string;
+  familyId: string;
+  refreshExpiresAt: Date;
+}> {
+  const pair = await issueSessionPair({
+    kind: "manager",
+    tenantId,
+    userId: identity?.userId ?? null,
+    role: identity?.role ?? "owner",
+    email: context?.email ?? null,
+  }, context);
+  return {
+    token: pair.accessToken,
+    jti: pair.accessJti,
+    exp: pair.accessExpiresAt,
+    refreshToken: pair.refreshToken,
+    refreshTokenId: pair.refreshTokenId,
+    familyId: pair.familyId,
+    refreshExpiresAt: pair.refreshExpiresAt,
+  };
 }
 
 export async function validateManager(req: Request): Promise<ManagerClaims | null> {
-  let token: string | null = null;
-  const cookieHeader = req.headers.get("cookie") ?? "";
-  for (const part of cookieHeader.split(";")) {
-    const [k, ...rest] = part.trim().split("=");
-    if (k === COOKIE_NAME) {
-      token = rest.join("=").trim();
-      if (token.startsWith('"') && token.endsWith('"')) token = token.slice(1, -1);
-      break;
-    }
+  const token = getAccessTokenFromRequest(req, "manager");
+  return token ? verifyManagerToken(token) : null;
+}
+
+export async function verifyWorkspaceToken(token: string): Promise<ManagerClaims | null> {
+  const versioned = verifyAccessTokenSignature(token, ["manager", "customer"]);
+  if (versioned) {
+    return validateManagerClaims({
+      jti: versioned.jti,
+      iat: versioned.iat,
+      exp: versioned.exp,
+      sub: "manager",
+      tenantId: versioned.tenantId!,
+      role: versioned.role as ManagerRole,
+      ...(versioned.userId ? { userId: versioned.userId } : {}),
+      ver: 2,
+      kind: versioned.kind as "manager" | "customer",
+      sid: versioned.sid,
+      familyId: versioned.familyId,
+    });
   }
-  if (!token) {
-    const auth = req.headers.get("authorization");
-    if (auth?.startsWith("Bearer ")) token = auth.slice(7).trim();
-  }
-  if (!token) return null;
-  return verifyManagerToken(token);
+
+  const legacy = verifySignature(token);
+  return legacy ? validateManagerClaims(legacy) : null;
+}
+
+export async function validateWorkspaceManager(req: Request): Promise<ManagerClaims | null> {
+  const managerToken = getAccessTokenFromRequest(req, "manager");
+  if (managerToken) return verifyManagerToken(managerToken);
+
+  const customerToken = getAccessTokenFromRequest(req, "customer");
+  return customerToken ? verifyWorkspaceToken(customerToken) : null;
+}
+
+export async function verifyWorkspaceTokenFromCookieValues(
+  customerToken: string | null,
+  managerToken: string | null,
+): Promise<ManagerClaims | null> {
+  const token = customerToken ?? managerToken;
+  return token ? verifyWorkspaceToken(token) : null;
+}
+
+type LegacyManagerAuthTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export async function revokeLegacyManagerSessionInTransaction(
+  tx: LegacyManagerAuthTx,
+  jti: string,
+): Promise<void> {
+  await tx.update(managerSessions)
+    .set({ revokedAt: sql`clock_timestamp()` })
+    .where(eq(managerSessions.jti, jti));
+}
+
+export async function revokeLegacyManagerSessionsForUserInTransaction(
+  tx: LegacyManagerAuthTx,
+  userId: string,
+  tenantId?: string,
+): Promise<void> {
+  const predicates = tenantId
+    ? and(eq(managerSessions.userId, userId), eq(managerSessions.tenantId, tenantId))
+    : eq(managerSessions.userId, userId);
+  await tx.update(managerSessions)
+    .set({ revokedAt: sql`clock_timestamp()` })
+    .where(predicates);
+}
+
+export async function revokeLegacyManagerSessionsForTenantInTransaction(
+  tx: LegacyManagerAuthTx,
+  tenantId: string,
+): Promise<void> {
+  await tx.delete(managerSessions).where(eq(managerSessions.tenantId, tenantId));
 }
 
 export async function revokeManagerSession(jti: string) {
-  await db.update(managerSessions).set({ revokedAt: sql`now()` }).where(eq(managerSessions.jti, jti));
+  await db.update(managerSessions).set({ revokedAt: sql`clock_timestamp()` }).where(eq(managerSessions.jti, jti));
 }
 
 export async function cleanupExpiredManagerSessions(): Promise<number> {
@@ -223,20 +346,20 @@ export async function cleanupExpiredManagerSessions(): Promise<number> {
   return result.rows.length;
 }
 
-function managerCookieSecure(): boolean {
-  const override = process.env.COOKIE_SECURE;
-  if (override === "1" || override === "true") return true;
-  if (override === "0" || override === "false") return false;
-  return process.env.NODE_ENV === "production";
+export function managerCookieHeader(token: string, exp: Date): string {
+  return accessCookieHeader("manager", token, exp);
 }
 
-export function managerCookieHeader(token: string, exp: Date): string {
-  const secure = managerCookieSecure() ? "; Secure" : "";
-  return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax${secure}; Expires=${exp.toUTCString()}; Max-Age=${MAX_AGE_SECONDS}`;
+export function managerRefreshCookieHeader(token: string, exp: Date): string {
+  return refreshCookieHeader("manager", token, exp);
 }
 
 export function clearManagerCookieHeader(): string {
-  return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0`;
+  return clearAccessCookieHeader("manager");
+}
+
+export function clearManagerRefreshCookieHeader(): string {
+  return clearRefreshCookieHeader("manager");
 }
 
 function compareStringsSafe(a: string, b: string): boolean {

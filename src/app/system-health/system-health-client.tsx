@@ -46,8 +46,8 @@ export default function SystemHealthClient() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setHealth(data);
-    } catch (e: any) {
-      setError(e.message ?? "Failed to fetch");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }

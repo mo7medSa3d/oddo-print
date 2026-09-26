@@ -24,6 +24,7 @@ vi.mock("../src/lib/password", () => ({
 vi.mock("../src/lib/auth-rate-limit", () => ({
   clientIpFrom: () => "127.0.0.1",
   reserveAuthAttempt: (...args: unknown[]) => reserveAuthAttempt(...args),
+  setRateLimitHeaders: (response: Response) => response,
 }));
 
 import { POST } from "../src/app/api/auth/register/route";

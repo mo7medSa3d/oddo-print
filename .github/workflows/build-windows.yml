@@ -69,8 +69,67 @@ jobs:
             Write-Host "Tauri CLI not found in cache; installing 2.11.4..."
             cargo install tauri-cli --version "=2.11.4" --locked
           }
-      - name: Install dependencies
+      - name: Agent Phase 0 - Go build
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go mod verify
+          go build -mod=readonly ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Agent Phase 0 - Go vet
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go vet -mod=readonly ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Agent Phase 0 - Go race tests
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go test -mod=readonly ./... -race
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Tauri Phase 0 - cargo audit
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo audit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build Go Agent resources for Tauri
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go build -mod=readonly -trimpath -ldflags="-s -w" -o YasserAgent.exe ./cmd/agent
+          go build -mod=readonly -trimpath -ldflags="-s -w" -o yasser-agent-cli.exe ./cmd/cli
+          if (-not (Test-Path .\YasserAgent.exe)) { throw "Missing agent/YasserAgent.exe" }
+          if (-not (Test-Path .\yasser-agent-cli.exe)) { throw "Missing agent/yasser-agent-cli.exe" }
+
+      - name: Install frontend dependencies
         run: npm ci
+      - name: Build desktop frontend before Rust validation
+        run: npm run desktop:vite:build
+
+      - name: Tauri Phase 0 - cargo check
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          cargo check --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Tauri Phase 0 - cargo build --locked
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          cargo build --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Tauri Phase 0 - cargo test
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          cargo test --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Typecheck frontend
         run: npm run typecheck
       - name: Lint frontend
@@ -87,24 +146,6 @@ jobs:
           if ($skipped -gt 0) {
             Write-Host "No Postgres service on this runner — $skipped integration test(s) were skipped in the Windows build. Full integration coverage runs in the CI workflow (.github/workflows/ci.yml)."
           }
-      - name: Go vet
-        working-directory: agent
-        shell: pwsh
-        run: go vet ./...
-      - name: Go tests
-        working-directory: agent
-        shell: pwsh
-        run: go test -count=1 -p 2 ./...
-      - name: Go race tests
-        working-directory: agent
-        shell: pwsh
-        run: go test -count=1 -race -p 2 ./...
-      - name: Build Go Agent
-        working-directory: agent
-        shell: pwsh
-        run: |
-          go build -trimpath -ldflags="-s -w" -o YasserAgent.exe ./cmd/agent
-          go build -trimpath -ldflags="-s -w" -o yasser-agent-cli.exe ./cmd/cli
       - name: Verify Go binaries
         shell: pwsh
         run: |
@@ -138,8 +179,6 @@ jobs:
             Write-Host "OK icon $icon ($len bytes)"
           }
           Write-Host "All $($icons.Count) configured icons are present."
-      - name: Build desktop frontend
-        run: npm run desktop:vite:build
       - name: Rust unit tests (desktop)
         shell: pwsh
         run: |

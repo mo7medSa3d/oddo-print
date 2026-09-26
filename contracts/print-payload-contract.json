@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "encoding": "base64",
+  "maxPayloadBytes": 5242880,
+  "wireTypes": ["raw", "escpos", "pdf", "image"],
+  "rawProtocols": ["raw", "escpos", "zpl", "tspl"],
+  "escposProtocol": "escpos",
+  "peripherals": {
+    "drawer": ["pin2", "pin5", "none"],
+    "cutter": ["partial", "full", "none"],
+    "buzzer": ["epson_pulse", "star_bel", "none"]
+  },
+  "signatures": {
+    "pdfPrefix": "%PDF-",
+    "jpegHexPrefix": "ffd8ff"
+  }
+}

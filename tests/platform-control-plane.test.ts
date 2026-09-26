@@ -1,5 +1,8 @@
 import { gatewayTestSigningKey } from "./helpers/test-secrets";
+import { createHmac } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { sql } from "drizzle-orm";
+import { LEGACY_SESSION_MAX_AGE_SECONDS } from "../src/lib/session-config";
 import {
   createPlatformSession,
   verifyPlatformTokenSignature,
@@ -110,14 +113,34 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
     expect(invalidAuth).toBeNull();
   });
 
-  it("revokes platform session and invalidates claims", async () => {
+  it("revokes legacy platform session and invalidates legacy claims", async () => {
     const user = await createTestUser({ isPlatformOwner: true });
-    const session = await createPlatformSession(user.userId, user.email);
-    let validated = await validatePlatformClaims(verifyPlatformTokenSignature(session.token));
+    const jti = `legacy_platform_${nanoid(18)}`;
+    await db.execute(sql`
+      INSERT INTO platform_sessions (jti, user_id, expires_at)
+      VALUES (${jti}, ${user.userId}, clock_timestamp() + interval '8 hours')
+    `);
+    const createdAt = Number((await db.execute(
+      sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`,
+    )).rows[0]?.now_sec);
+    const legacyHeader = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+    const legacyPayload = Buffer.from(JSON.stringify({
+      jti,
+      iat: createdAt,
+      exp: createdAt + LEGACY_SESSION_MAX_AGE_SECONDS,
+      sub: "platform_owner",
+      userId: user.userId,
+      email: user.email,
+    })).toString("base64url");
+    const data = `${legacyHeader}.${legacyPayload}`;
+    const signature = createHmac("sha256", process.env.GATEWAY_JWT_SECRET!).update(data).digest("base64url");
+    const token = `${data}.${signature}`;
+
+    let validated = await validatePlatformClaims(verifyPlatformTokenSignature(token));
     expect(validated).not.toBeNull();
 
-    await revokePlatformSession(session.jti);
-    validated = await validatePlatformClaims(verifyPlatformTokenSignature(session.token));
+    await revokePlatformSession(jti);
+    validated = await validatePlatformClaims(verifyPlatformTokenSignature(token));
     expect(validated).toBeNull();
   });
 

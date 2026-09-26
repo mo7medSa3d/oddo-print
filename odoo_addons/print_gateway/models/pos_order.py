@@ -14,33 +14,109 @@ class PosOrderGatewayPrinting(models.Model):
 
     def action_print_gateway_receipt(self, image):
         self.ensure_one()
-        # The rendered receipt leaves the database perimeter (Gateway +
-        # paper), so the caller must be allowed to read the order itself,
-        # mirroring the report path's read check.
         self.check_access("read")
         if not image:
             raise ValidationError(_("The rendered POS receipt image is required."))
         return self.env["print_gateway.print_router"].route_pos_receipt(self, image)
 
-    def has_gateway_kitchen_binding(self):
+    def has_gateway_kitchen_binding(self, pos_printer_id=None):
         self.ensure_one()
         self.check_access("read")
+        destination = self.config_id
+        if pos_printer_id:
+            destination = self.env["pos.printer"].browse(pos_printer_id).exists()
+            if not destination:
+                return False
+            preparation_printers = getattr(self.config_id, "preparation_printer_ids", None)
+            if preparation_printers is None:
+                preparation_printers = self.config_id.printer_ids
+            if destination not in preparation_printers:
+                return False
         route = self.env["print_gateway.print_router"].resolve_binding(
             record=self,
             company=self.config_id.company_id or self.company_id,
             document_type="kitchen",
-            explicit_destination=self.config_id,
+            explicit_destination=destination,
             raise_if_not_found=False,
         )
         return bool(route.get("binding"))
 
-    def action_print_gateway_kitchen(self, image, reprint=False, operation_id=None):
+    def get_gateway_kitchen_routes(self):
+        """Return category-aware Gateway routes using Odoo native preparation printers.
+
+        Odoo 19 defines kitchen routing on pos.printer.product_categories_ids.
+        Gateway owns the physical printer, while Odoo still owns the business
+        destination/category mapping. A POS-level Gateway binding remains a
+        backwards-compatible fallback when no native-printer bindings exist.
+        Missing bindings are returned explicitly so the frontend can fail closed
+        instead of silently dropping a kitchen station.
+        """
+        self.ensure_one()
+        self.check_access("read")
+        router = self.env["print_gateway.print_router"]
+        company = self.config_id.company_id or self.company_id
+        preparation_printers = getattr(self.config_id, "preparation_printer_ids", None)
+        if preparation_printers is None:
+            preparation_printers = self.config_id.printer_ids
+        preparation_printers = preparation_printers.filtered(lambda p: p.product_categories_ids)
+        routes = []
+        missing = []
+        for pos_printer in preparation_printers:
+            route = router.resolve_binding(
+                record=self,
+                company=company,
+                document_type="kitchen",
+                explicit_destination=pos_printer,
+                raise_if_not_found=False,
+            )
+            route_info = {
+                "pos_printer_id": pos_printer.id,
+                "category_ids": pos_printer.product_categories_ids.ids,
+            }
+            if route.get("binding"):
+                routes.append(route_info)
+            else:
+                missing.append(route_info)
+        if routes or missing:
+            return {
+                "mode": "preparation_printers",
+                "routes": routes,
+                "missing_routes": missing,
+            }
+
+        fallback = router.resolve_binding(
+            record=self,
+            company=company,
+            document_type="kitchen",
+            explicit_destination=self.config_id,
+            raise_if_not_found=False,
+        )
+        if fallback.get("binding"):
+            return {
+                "mode": "pos_fallback",
+                "routes": [{"pos_printer_id": False, "category_ids": []}],
+                "missing_routes": [],
+            }
+        return {"mode": "missing", "routes": [], "missing_routes": []}
+
+    def action_print_gateway_kitchen(self, image, reprint=False, operation_id=None, pos_printer_id=None):
         self.ensure_one()
         self.check_access("read")
         if not image:
             raise ValidationError(_("The rendered POS Kitchen / Preparation image is required."))
+        pos_printer = False
+        if pos_printer_id:
+            pos_printer = self.env["pos.printer"].browse(pos_printer_id).exists()
+            if not pos_printer:
+                raise ValidationError(_("The selected Odoo Preparation Printer does not belong to this POS."))
+            preparation_printers = getattr(self.config_id, "preparation_printer_ids", None)
+            if preparation_printers is None:
+                preparation_printers = self.config_id.printer_ids
+            if pos_printer not in preparation_printers:
+                raise ValidationError(_("The selected Odoo Preparation Printer does not belong to this POS."))
         return self.env["print_gateway.print_router"].route_kitchen_print(
             self, image, reprint=bool(reprint), idempotency_key=operation_id,
+            pos_printer=pos_printer,
         )
 
     def is_gateway_printing_enabled(self):
@@ -63,7 +139,6 @@ class PosOrderGatewayPrinting(models.Model):
                         order.id,
                     )
             except Exception as exc:
-                # Scheduling must never break order finalization.
                 _logger.error("Failed to schedule automated print intents for POS order %s: %s", order.id, exc)
 
 
@@ -72,4 +147,3 @@ class PosOrderGatewayPrinting(models.Model):
         if not draft:
             self._action_trigger_print_policies()
         return res
-

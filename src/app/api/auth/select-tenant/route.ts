@@ -2,12 +2,13 @@ import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, tenants, authRateLimits } from "../../../../db/schema";
-import { and, eq, sql } from "drizzle-orm";
-import { validateManager, managerCookieHeader } from "../../../../lib/manager-auth";
-import { verifyTenantSelectionToken } from "../../../../lib/customer-auth";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { validateManager, revokeLegacyManagerSessionInTransaction } from "../../../../lib/manager-auth";
+import { verifyTenantSelectionToken, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
+import { issueSessionPairInTransaction, revokeSessionFamilyInTransaction } from "../../../../lib/session-tokens";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
-import { createManagerSessionInTransaction, revokeManagerSessionInTransaction } from "../../../../lib/manager-session-tx";
+import { clientIpFrom } from "../../../../lib/auth-rate-limit";
 
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 16 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
@@ -60,12 +61,25 @@ export async function POST(req: Request) {
       });
       if (!tenant || tenant.lifecycle !== "active") throw new Error("Workspace is suspended or unavailable");
 
-      if (claims?.jti) await revokeManagerSessionInTransaction(tx, claims.jti);
+      if (claims?.familyId) {
+        await revokeSessionFamilyInTransaction(tx, claims.familyId, "tenant_selection");
+      } else if (claims?.jti) {
+        await revokeLegacyManagerSessionInTransaction(tx, claims.jti);
+      }
 
-      const session = await createManagerSessionInTransaction(tx, membership.tenantId, {
-        userId: userId!,
-        role: membership.role as Parameters<typeof createManagerSessionInTransaction>[2]["role"],
-      });
+      const session = await issueSessionPairInTransaction(
+        tx,
+        {
+          kind: "customer",
+          tenantId: membership.tenantId,
+          userId: userId!,
+          role: membership.role as "owner" | "admin" | "operator" | "viewer" | "integration_admin" | "billing_admin",
+        },
+        {
+          ipAddress: clientIpFrom(req),
+          userAgent: req.headers.get("user-agent"),
+        },
+      );
 
       await writeAuditEvent({
         tenantId: membership.tenantId,
@@ -78,7 +92,8 @@ export async function POST(req: Request) {
     });
 
     const res = NextResponse.json({ ok: true, tenantId: result.membership.tenantId, role: result.membership.role });
-    res.headers.set("Set-Cookie", managerCookieHeader(result.session.token, result.session.exp));
+    res.headers.set("Set-Cookie", customerSessionCookie(result.session));
+    res.headers.append("Set-Cookie", customerRefreshCookie(result.session));
     return res;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Workspace selection failed";

@@ -451,7 +451,11 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 
 // ListPrinters returns the current discovered/configured printer inventory.
 func (a *Agent) ListPrinters() []printer.DeviceInfo {
-	infos, _ := printer.ListPrinters(a.cfg, a.registryPath)
+	infos, err := printer.ListPrinters(a.cfg, a.registryPath)
+	if err != nil {
+		log.Printf("[printer] failed to list printers: %v", err)
+		return nil
+	}
 	return infos
 }
 
@@ -676,7 +680,9 @@ func (a *Agent) Run(ctx context.Context) error {
 			log.Println("Agent stopping...")
 			a.beginShutdown()
 			if c := a.getWSConn(); c != nil {
-				_ = c.Close()
+				if err := c.Close(); err != nil {
+					log.Printf("WebSocket shutdown close failed: %v", err)
+				}
 			}
 			a.runtimeWG.Wait()
 			if !a.waitForJobs() {
@@ -843,7 +849,9 @@ func (a *Agent) connectWebSocket(ctx context.Context) {
 			a.launchTracked(func() {
 				select {
 				case <-sessionCtx.Done():
-					_ = c.Close()
+					if err := c.Close(); err != nil {
+						log.Printf("WebSocket session cancellation close failed: %v", err)
+					}
 				case <-sessionDone:
 				}
 			})
@@ -855,7 +863,9 @@ func (a *Agent) connectWebSocket(ctx context.Context) {
 			close(sessionDone)
 			sessionCancel()
 			a.setWSConn(nil)
-			_ = c.Close()
+			if closeErr := c.Close(); closeErr != nil {
+				log.Printf("WebSocket connection close cleanup failed: %v", closeErr)
+			}
 			if err != nil {
 				log.Printf("WebSocket connection lost: %v. Reconnecting...", err)
 			}
@@ -880,9 +890,13 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 		return fmt.Errorf("connection closed")
 	}
 	conn.SetReadLimit(maxWSFrameBytes)
-	_ = conn.SetReadDeadline(time.Now().Add(wsIdleTimeout))
+	if err := conn.SetReadDeadline(time.Now().Add(wsIdleTimeout)); err != nil {
+		return fmt.Errorf("set initial WebSocket read deadline: %w", err)
+	}
 	conn.SetPingHandler(func(data string) error {
-		_ = conn.SetReadDeadline(time.Now().Add(wsIdleTimeout))
+		if err := conn.SetReadDeadline(time.Now().Add(wsIdleTimeout)); err != nil {
+			return fmt.Errorf("refresh WebSocket read deadline on ping: %w", err)
+		}
 		// WriteControl has its own internal control-frame mutex and may
 		// interleave with wsWriteMu-serialized data writes, as documented.
 		return conn.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(10*time.Second))
@@ -908,19 +922,26 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 			continue
 		}
 
+		typ, err := readStringField(envelope, "type", false, false)
+		if err != nil {
+			log.Printf("Malformed WS message: %v", err)
+			continue
+		}
+
 		// Handle discovery trigger (instant push, 10-50ms) — manager started a discovery session
-		if typ, _ := envelope["type"].(string); typ == "discovery" {
-			discoveryID, _ := envelope["discoveryId"].(string)
-			if discoveryID == "" {
-				log.Printf("Ignoring discovery message without discoveryId")
+		if typ == "discovery" {
+			discoveryID, err := readStringField(envelope, "discoveryId", true, false)
+			if err != nil {
+				log.Printf("Malformed discovery WS message: %v", err)
 				continue
 			}
 			log.Printf("[discovery] received instant WS trigger for session %s", discoveryID)
 			// Trigger discovery immediately, don't wait for 10s poll
 			select {
 			case a.discoverySem <- struct{}{}:
+				session := a.loadDiscoverySession(ctx, discoveryID)
 				a.launchTracked(func() {
-					a.executeDiscoverySession(ctx, discoveryID)
+					a.executeDiscoverySession(ctx, discoveryID, session)
 				})
 			default:
 				log.Printf("[discovery] session %s deferred: a discovery session is already running", discoveryID)
@@ -931,26 +952,31 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 			continue
 		}
 
-		job, ok := extractJobFromWSMessage(envelope)
-		if !ok {
-			log.Printf("Ignoring WS message without a print job: %v", envelope["type"])
+		job, err := extractJobFromWSMessage(envelope)
+		if err != nil {
+			log.Printf("Malformed WS job message: %v", err)
+			continue
+		}
+		if job == nil {
+			log.Printf("Ignoring WS message without a print job: %v", typ)
 			continue
 		}
 
-		jobID, _ := job["id"].(string)
-		if jobID == "" {
-			log.Printf("Ignoring WS job without an id (type=%v)", envelope["type"])
+		fields, err := decodeJobFields(job)
+		if err != nil {
+			log.Printf("Malformed WS job message: %v", err)
 			continue
 		}
+		jobID := fields.ID
 		// Validate the delivery is addressed to THIS agent and is a live
 		// claim. A replayed or mis-routed frame (gateway restart, backlog
 		// re-push, stale instance) must never print.
-		if agentID, _ := job["agentId"].(string); agentID != "" && agentID != a.cfg.Agent.ID {
+		if fields.AgentID != "" && fields.AgentID != a.cfg.Agent.ID {
 			log.Printf("Job %s: WS delivery addressed to a different agent; ignoring", jobID)
 			continue
 		}
-		if status, _ := job["status"].(string); status != "" && status != "claimed" {
-			log.Printf("Job %s: WS delivery carries non-claimed status %q; ignoring", jobID, status)
+		if fields.Status != "" && fields.Status != "claimed" {
+			log.Printf("Job %s: WS delivery carries non-claimed status %q; ignoring", jobID, fields.Status)
 			continue
 		}
 
@@ -960,7 +986,7 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 		// this prevents the Gateway from mistaking a pre-execution rejection for
 		// a locally accepted job.
 		if a.dispatchJobWithContexts(ctx, sessionCtx, job) {
-			if err := a.enqueueJobAck(sessionCtx, ackQueue, jobID, jobClaimToken(job)); err != nil {
+			if err := a.enqueueJobAck(sessionCtx, ackQueue, jobID, fields.ClaimToken); err != nil {
 				log.Printf("Job %s: failed to queue job_ack after local admission: %v", jobID, err)
 			}
 		}
@@ -973,28 +999,115 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 //
 // and the legacy bare-job message ({"id":...,"printerId":...}) so an agent
 // still works against an older gateway build.
-func extractJobFromWSMessage(msg map[string]interface{}) (map[string]interface{}, bool) {
+func extractJobFromWSMessage(msg map[string]interface{}) (map[string]interface{}, error) {
 	if msg == nil {
-		return nil, false
+		return nil, nil
 	}
-	switch t, _ := msg["type"].(string); t {
+	t, err := readStringField(msg, "type", false, false)
+	if err != nil {
+		return nil, err
+	}
+	switch t {
 	case "print_job":
-		if job, ok := msg["job"].(map[string]interface{}); ok {
-			return job, true
+		if rawJob, exists := msg["job"]; exists {
+			if job, ok := rawJob.(map[string]interface{}); ok {
+				return job, nil
+			}
+			return nil, fmt.Errorf("field %q has invalid type %T; expected JSON object", "job", rawJob)
 		}
 		// Envelope with flat aliases only.
-		if _, ok := msg["id"].(string); ok {
-			return msg, true
+		if _, exists := msg["id"]; exists {
+			if _, err := readStringField(msg, "id", true, false); err != nil {
+				return nil, err
+			}
+			return msg, nil
 		}
-		return nil, false
+		return nil, nil
 	case "":
-		if _, ok := msg["id"].(string); ok {
-			return msg, true
+		if _, exists := msg["id"]; exists {
+			if _, err := readStringField(msg, "id", true, false); err != nil {
+				return nil, err
+			}
+			return msg, nil
 		}
-		return nil, false
+		return nil, nil
 	default:
-		return nil, false
+		return nil, nil
 	}
+}
+
+// jobWireFields is the strict subset of the Gateway job contract that the
+// Agent reads directly. Payload decoding remains owned by payload.Parse, while
+// these runtime decision fields must never silently collapse to zero values.
+type jobWireFields struct {
+	ID         string
+	AgentID    string
+	PrinterID  string
+	Status     string
+	RequestID  string
+	ClaimToken string
+}
+
+func readStringField(m map[string]interface{}, field string, required, nullable bool) (string, error) {
+	if m == nil {
+		return "", fmt.Errorf("field %q cannot be read from a nil object", field)
+	}
+	raw, exists := m[field]
+	if !exists {
+		if required {
+			return "", fmt.Errorf("field %q is missing", field)
+		}
+		return "", nil
+	}
+	if raw == nil {
+		if nullable {
+			return "", nil
+		}
+		return "", fmt.Errorf("field %q has invalid type null; expected string", field)
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("field %q has invalid type %T; expected string", field, raw)
+	}
+	if required && value == "" {
+		return "", fmt.Errorf("field %q is empty", field)
+	}
+	return value, nil
+}
+
+func decodeJobFields(job map[string]interface{}) (jobWireFields, error) {
+	id, err := readStringField(job, "id", true, false)
+	if err != nil {
+		return jobWireFields{}, err
+	}
+	printerID, err := readStringField(job, "printerId", true, false)
+	if err != nil {
+		return jobWireFields{}, err
+	}
+	agentID, err := readStringField(job, "agentId", false, false)
+	if err != nil {
+		return jobWireFields{}, err
+	}
+	status, err := readStringField(job, "status", false, false)
+	if err != nil {
+		return jobWireFields{}, err
+	}
+	requestID, err := readStringField(job, "requestId", false, true)
+	if err != nil {
+		return jobWireFields{}, err
+	}
+	claimToken, err := readStringField(job, "claimToken", false, true)
+	if err != nil {
+		return jobWireFields{}, err
+	}
+	return jobWireFields{
+		ID:         id,
+		AgentID:    agentID,
+		PrinterID:  printerID,
+		Status:     status,
+		RequestID:  requestID,
+		ClaimToken: claimToken,
+	}, nil
 }
 
 // enqueueJobAck serializes ACK writes away from the WebSocket reader.
@@ -1072,11 +1185,12 @@ func (a *Agent) dispatchJob(ctx context.Context, job map[string]interface{}) boo
 // must survive a WS reconnect; only Agent shutdown cancels physical execution.
 // Rejection/ACK side effects remain tied to the originating WS session.
 func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context, job map[string]interface{}) bool {
-	jobID, _ := job["id"].(string)
-	if jobID == "" {
-		log.Printf("Received malformed job (missing id); ignoring")
+	fields, err := decodeJobFields(job)
+	if err != nil {
+		log.Printf("Received malformed job; rejecting execution: %v", err)
 		return false
 	}
+	jobID := fields.ID
 
 	// The shutdown check, dedupe insert, and WaitGroup Add must be atomic with
 	// respect to each other: Run begins its Wait only after the shutdownCh is
@@ -1094,7 +1208,7 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 		// PATCH fails (network down), the undelivered-claim sweep remains
 		// the safe backstop: it only re-queues claims that never showed
 		// delivery evidence.
-		a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "agent_shutting_down")
+		a.enqueueReject(sessionCtx, jobID, fields.ClaimToken, "agent_shutting_down")
 		return false
 	default:
 	}
@@ -1110,15 +1224,12 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 		log.Printf("Job %s is already in flight; duplicate delivery ignored without changing the active claim token.", jobID)
 		return false
 	}
-	pendingPrinter := ""
-	if rawPrinter, ok := job["printerId"].(string); ok {
-		pendingPrinter = rawPrinter
-	}
+	pendingPrinter := fields.PrinterID
 	if pendingPrinter != "" && a.pendingByPrinter[pendingPrinter] >= maxPendingJobsPerPrinter {
 		a.inFlightMu.Unlock()
 		a.shutdownGate.RUnlock()
 		log.Printf("Job %s dropped: printer %s has reached the per-printer pending ceiling (%d); handing it back to the gateway queue.", jobID, pendingPrinter, maxPendingJobsPerPrinter)
-		a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "printer_pending_full")
+		a.enqueueReject(sessionCtx, jobID, fields.ClaimToken, "printer_pending_full")
 		return false
 	}
 	a.inFlight[jobID] = struct{}{}
@@ -1134,7 +1245,7 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 	if pendingPrinter != "" {
 		a.pendingByPrinter[pendingPrinter]++
 	}
-	a.inFlightTokens[jobID] = jobClaimToken(job)
+	a.inFlightTokens[jobID] = fields.ClaimToken
 	a.inFlightPrinters[jobID] = pendingPrinter
 	a.inFlightReceived[jobID] = time.Now()
 	a.wg.Add(1)
@@ -1154,7 +1265,7 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 		// agent holding a big backlog cannot burn jobs into a delivery-budget
 		// failure (see the reject gate in src/app/api/agent/jobs).
 		// Best-effort: the lease reclaim is the backstop if this PATCH fails.
-		a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "pending_full")
+		a.enqueueReject(sessionCtx, jobID, fields.ClaimToken, "pending_full")
 		return false
 	}
 
@@ -1167,7 +1278,7 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("PANIC while executing job %s: %v", jobID, r)
-				a.updateJobStatus(executionCtx, jobID, "failed", fmt.Sprintf("AGENT_PANIC: %v", r), jobClaimToken(job))
+				a.updateJobStatus(executionCtx, jobID, "failed", fmt.Sprintf("AGENT_PANIC: %v", r), fields.ClaimToken)
 			}
 		}()
 
@@ -1221,13 +1332,6 @@ func authorizeDispatchAfterReportFailure(receivedAt time.Time, now time.Time, re
 // reads the delivery receipt time tracked at dispatch acceptance.
 func (a *Agent) authorizeDispatchAfterReportFailure(jobID string, reportErr error) (bool, string) {
 	return authorizeDispatchAfterReportFailure(a.deliveryReceivedAt(jobID), time.Now(), reportErr)
-}
-
-func jobClaimToken(job map[string]interface{}) string {
-	if token, ok := job["claimToken"].(string); ok {
-		return token
-	}
-	return ""
 }
 
 func (a *Agent) forgetJob(id string) {
@@ -1316,7 +1420,10 @@ func (a *Agent) rejectJobExact(ctx context.Context, jobID, token, reason string)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes))
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes))
+		if readErr != nil {
+			log.Printf("Job %s: failed to read gateway rejection body: %v", jobID, readErr)
+		}
 		log.Printf("Job %s: server rejected the pre-execution rejection (%d): %s", jobID, resp.StatusCode, string(respBody))
 		return fmt.Errorf("gateway rejected job hand-back: HTTP %d", resp.StatusCode)
 	}
@@ -1369,7 +1476,9 @@ func (a *Agent) runRejectWorker(ctx context.Context) {
 			return
 		case work := <-a.rejectQueue:
 			if err := work.ctx.Err(); err == nil {
-				_ = a.rejectJobExact(work.ctx, work.jobID, work.claimToken, work.reason)
+				if err := a.rejectJobExact(work.ctx, work.jobID, work.claimToken, work.reason); err != nil {
+					log.Printf("job rejection callback failed for %s: %v", work.jobID, err)
+				}
 			}
 			a.rejectMu.Lock()
 			delete(a.rejectPending, work.key)
@@ -1455,9 +1564,6 @@ func (a *Agent) getPrinterLock(printerID string) *sync.Mutex {
 // sendHeartbeatGuarded makes heartbeat ticks non-reentrant: if the previous
 // heartbeat is still running (slow gateway, many offline printers) the tick
 // is skipped instead of queueing up duplicate probes and HTTP calls.
-func (a *Agent) sendHeartbeatGuarded() {
-	a.sendHeartbeatGuardedContext(context.Background())
-}
 
 // sendHeartbeatGuardedContext makes production heartbeat ticks cancellable by
 // the Agent lifecycle while preserving the background-context helper used by
@@ -1657,15 +1763,18 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 		// An undeclared protocol reports honestly as "unknown" (never a
 		// default "raw"); the gateway capability model will not route to it.
 		proto := pc.NormalizedProtocolOrUnknown()
-		deviceClass := pc.PrinterType
-		if deviceClass == "" {
-			deviceClass = "unknown"
-		}
-		printerType := "physical"
-		if deviceClass == "virtual" {
-			printerType = "virtual"
-			deviceClass = "unknown"
-		}
+		// printer_type historically held either a printer class
+		// (physical|virtual|redirected) or a device class
+		// (thermal|laser|inkjet|label|other). The Gateway validates the two
+		// wire fields against separate enums, so a device class is only
+		// reported when the configured value really is one; otherwise the
+		// Gateway rejected the entire entry with
+		// invalid_device_class_or_printer_type and the inventory never
+		// converged (every printer_type: physical printer was dropped on every
+		// heartbeat). normalizeDeviceClass is the same normalization discovery
+		// already applies to its payload.
+		deviceClass := normalizeDeviceClass(pc.PrinterType)
+		printerType := normalizePrinterType(pc.PrinterType)
 		// Build payload with all required fields for Gateway inventory
 		entry := map[string]interface{}{
 			"id":             id,
@@ -1730,7 +1839,10 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 		for k, v := range pc.Capabilities {
 			caps[k] = v
 		}
-		facts, _ := a.deviceFacts(id)
+		facts, found := a.deviceFacts(id)
+		if !found {
+			log.Printf("[printer] device facts unavailable for %s; using unknown transport capabilities", id)
+		}
 		if _, ok := caps["supported_protocols"]; !ok {
 			// Derive the honest protocol list from the declared transport
 			// (mirrors the canonical capability table); never invent
@@ -1966,14 +2078,24 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 
 		heartbeatCtx, cancel := context.WithTimeout(parent, 15*time.Second)
 		resp, err := a.doAuthorizedRequest(heartbeatCtx, "POST", reqURL, payload)
-		cancel()
 		if err != nil {
+			cancel()
 			log.Printf("Heartbeat page %d/%d failed: %v", pageIndex+1, len(pages), err)
 			return
 		}
 
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxHeartbeatBytes))
+		// The response body must be read BEFORE the request context is canceled.
+		// Cancelling first aborted the body read, which produced
+		// "response read failed: context canceled" on every cycle and returned
+		// early — skipping desired-state reconciliation and the SkippedPrinters
+		// feedback entirely. The 15s budget still bounds request + body read.
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxHeartbeatBytes))
+		cancel()
 		_ = resp.Body.Close()
+		if readErr != nil {
+			log.Printf("Heartbeat page %d/%d response read failed: %v", pageIndex+1, len(pages), readErr)
+			return
+		}
 		if resp.StatusCode >= 300 {
 			log.Printf("Heartbeat page %d/%d rejected (%d): %s", pageIndex+1, len(pages), resp.StatusCode, string(body))
 			return
@@ -2043,7 +2165,10 @@ func (a *Agent) pollJobs(ctx context.Context) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes))
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes))
+		if readErr != nil {
+			log.Printf("Poll rejected (%d); failed to read error body: %v", resp.StatusCode, readErr)
+		}
 		log.Printf("Poll rejected (%d): %s", resp.StatusCode, string(body))
 		return
 	}
@@ -2070,15 +2195,20 @@ func (a *Agent) pollJobs(ctx context.Context) {
 // Callers should normally schedule it through dispatchJob; the tests drive
 // it directly.
 func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
-	requestID, _ := job["requestId"].(string)
-	jobID, _ := job["id"].(string)
-	printerID, _ := job["printerId"].(string)
+	fields, err := decodeJobFields(job)
+	if err != nil {
+		log.Printf("Received malformed job; rejecting execution: %v", err)
+		return
+	}
+	requestID := fields.RequestID
+	jobID := fields.ID
+	printerID := fields.PrinterID
 	receivedAt := a.deliveryReceivedAt(jobID)
 	if receivedAt.IsZero() {
 		receivedAt = time.Now()
 	}
 	log.Printf("print.trace agent_receive request_id=%s job_id=%s printer_id=%s queue_wait_ms=%d received_unix_ms=%d", requestID, jobID, printerID, time.Since(receivedAt).Milliseconds(), receivedAt.UnixMilli())
-	claimToken := jobClaimToken(job)
+	claimToken := fields.ClaimToken
 
 	if jobID == "" || printerID == "" {
 		// Never log the job map: it can embed the full print payload
@@ -2150,7 +2280,12 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	if err := a.queue.BeginPrint(jobID, printerID, pl.Data, claimToken, a.cfg.ReprintAfterCrashEnabled()); err != nil {
 		if errors.Is(err, queue.ErrTerminalState) {
 			log.Printf("Job %s: local ledger is terminal; refusing dispatch and re-reporting stored outcome", jobID)
-			if _, storedStatus, found, _ := a.queue.Get(jobID); found && storedStatus == "success" {
+			_, storedStatus, found, getErr := a.queue.Get(jobID)
+			if getErr != nil {
+				log.Printf("Job %s: failed to read local terminal state: %v", jobID, getErr)
+				found = false
+			}
+			if found && storedStatus == "success" {
 				a.updateJobStatus(ctx, jobID, "success", "", claimToken)
 			} else {
 				marker := "UNKNOWN_PARTIAL_DELIVERY"
@@ -2206,7 +2341,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 
 	if !a.isPrinterExecutionAllowed(printerID) {
 		a.queue.AbortPrint(jobID, "printer_not_at_desired_state")
-		a.rejectJob(ctx, jobID, jobClaimToken(job), "printer_not_at_desired_state")
+		a.rejectJob(ctx, jobID, claimToken, "printer_not_at_desired_state")
 		return
 	}
 	p, ok := a.getPrinter(printerID)
@@ -2247,7 +2382,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	case a.execSem <- struct{}{}:
 		defer func() { <-a.execSem }()
 	case <-ctx.Done():
-		a.rejectJob(ctx, jobID, jobClaimToken(job), "agent_shutting_down")
+		a.rejectJob(ctx, jobID, claimToken, "agent_shutting_down")
 		return
 	}
 
@@ -2373,7 +2508,10 @@ func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, clai
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes))
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes))
+		if readErr != nil {
+			log.Printf("Job %s: failed to read status rejection body: %v", jobID, readErr)
+		}
 		log.Printf("Job %s: server rejected status update to %q (%d): %s", jobID, status, resp.StatusCode, string(respBody))
 		// Fence rejection: the gateway no longer recognizes this claim
 		// (expired and reassigned, or never valid). Callers MUST treat this

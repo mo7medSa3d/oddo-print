@@ -70,8 +70,7 @@ pub(crate) fn run_bounded_command(
     });
 
     let deadline = std::time::Instant::now() + timeout;
-    let mut status = None;
-    loop {
+    let status = loop {
         if overflow.load(Ordering::Acquire) {
             let _ = child.kill();
             let _ = child.wait();
@@ -80,10 +79,7 @@ pub(crate) fn run_bounded_command(
             return Err(format!("command output exceeded the {} byte stream budget", max_stdout.max(max_stderr)));
         }
         match child.try_wait() {
-            Ok(Some(s)) => {
-                status = Some(s);
-                break;
-            }
+            Ok(Some(status)) => break status,
             Ok(None) => {
                 if std::time::Instant::now() >= deadline {
                     let _ = child.kill();
@@ -101,8 +97,8 @@ pub(crate) fn run_bounded_command(
                 let _ = err_thread.join();
                 return Err(format!("wait for command failed: {e}"));
             }
-        }
-    }
+        };
+    };
 
     if overflow.load(Ordering::Acquire) {
         let _ = out_thread.join();
@@ -113,7 +109,7 @@ pub(crate) fn run_bounded_command(
     let stdout = out_thread.join().map_err(|_| "stdout reader thread panicked".to_string())?;
     let stderr = err_thread.join().map_err(|_| "stderr reader thread panicked".to_string())?;
     Ok(std::process::Output {
-        status: status.expect("status set before reader join"),
+        status,
         stdout,
         stderr,
     })

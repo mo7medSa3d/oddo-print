@@ -57,6 +57,22 @@ func TestPDFiumEmbeddedRendererSmoke(t *testing.T) {
 	}
 }
 
+func rotatedPDF() []byte {
+	// Same minimal PDF with a valid /Rotate 90 page entry and corrected xref offsets.
+	return []byte("%PDF-1.4\n" +
+		"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
+		"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n" +
+		"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Rotate 90 /Resources << >> /Contents 4 0 R >>\nendobj\n" +
+		"4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n" +
+		"xref\n0 5\n0000000000 65535 f \n" +
+		"0000000009 00000 n \n" +
+		"0000000058 00000 n \n" +
+		"0000000115 00000 n \n" +
+		"0000000230 00000 n \n" +
+		"trailer\n<< /Size 5 /Root 1 0 R >>\n" +
+		"startxref\n279\n%%EOF\n")
+}
+
 func TestPDFiumRendersRotatedPage(t *testing.T) {
 	data := rotatedPDF()
 	pool, err := getPDFiumPool()

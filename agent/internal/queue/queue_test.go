@@ -143,7 +143,10 @@ func TestQueueUpdateWithError(t *testing.T) {
 	if err := q.UpdateStatusWithError("j1", "failed", "dial timeout"); err != nil {
 		t.Fatalf("UpdateStatusWithError: %v", err)
 	}
-	_, status, _, _ := q.Get("j1")
+	_, status, _, err := q.Get("j1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
 	if status != "failed" {
 		t.Fatalf("expected failed, got %s", status)
 	}

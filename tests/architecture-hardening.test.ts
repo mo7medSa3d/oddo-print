@@ -78,16 +78,44 @@ describe("architecture hardening", () => {
 
   it("installs security headers without forcing HSTS on development HTTP", () => {
     const src = readFileSync("next.config.ts", "utf8");
+    const proxy = readFileSync("proxy.ts", "utf8");
     expect(src).toContain("X-Content-Type-Options");
     expect(src).toContain("strict-origin-when-cross-origin");
     expect(src).toContain("X-Frame-Options");
     expect(src).toContain("Permissions-Policy");
     expect(src).toContain("NODE_ENV === \"production\"");
     expect(src).toContain("Strict-Transport-Security");
-    expect(src).toContain("connect-src 'self';");
-    expect(src).not.toContain("connect-src 'self' wss:");
-    expect(src).toContain("script-src 'self' 'unsafe-inline'");
-    expect(src).toContain("style-src 'self' 'unsafe-inline'");
+    expect(src).not.toContain("Content-Security-Policy");
+    expect(src).not.toMatch(/script-src[^;]*unsafe-inline/);
+    expect(proxy).not.toMatch(/script-src[^;]*unsafe-inline/);
+    const csp = readFileSync("src/server/content-security-policy.ts", "utf8");
+    expect(csp).toContain("connect-src 'self';");
+  });
+
+  it("uses a request-scoped CSP nonce for the only application inline script", () => {
+    const proxy = readFileSync("proxy.ts", "utf8");
+    const server = readFileSync("server.ts", "utf8");
+    const csp = readFileSync("src/server/content-security-policy.ts", "utf8");
+    const layout = readFileSync("src/app/layout.tsx", "utf8");
+    expect(csp).toContain("crypto.randomUUID()");
+    expect(csp).toContain("script-src 'self' 'nonce-\${nonce}' 'strict-dynamic'");
+    expect(csp).toContain("'strict-dynamic'");
+    expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
+    expect(proxy).toContain('requestHeaders.set("x-nonce", nonce)');
+    expect(proxy).toContain('response.headers.set("Content-Security-Policy", policy)');
+    expect(server).toContain("createRequestContentSecurityPolicy");
+    expect(server).toContain('req.headers["x-nonce"] = nonce');
+    expect(server).toContain('res.setHeader("Content-Security-Policy", policy)');
+    expect(csp).toContain("crypto.randomUUID()");
+    expect(csp).toContain("script-src 'self' 'nonce-");
+    expect(csp).toContain("connect-src 'self';");
+    expect(layout).toContain("const THEME_INIT =");
+    expect(layout).toContain('const nonce = (await headers()).get("x-nonce")');
+    expect(layout).toContain("<script nonce={nonce}");
+    expect(layout).toContain('localStorage.getItem("theme")');
+    expect(layout).not.toMatch(/THEME_INIT[\s\S]*\$\{/);
+    expect(layout).not.toContain("req.");
+    expect(layout).not.toContain("request.");
   });
 
   it("keeps agent lifecycle changes transactional in ONE shared implementation", () => {
@@ -119,4 +147,35 @@ describe("architecture hardening", () => {
     expect(block).toContain("tx.delete(agents)");
     expect(block).toContain("pg_notify('print_gateway_agent_sessions'");
   });
+  it("does not introduce an unsigned Tauri updater path", () => {
+    const cargo = readFileSync("src-tauri/Cargo.toml", "utf8");
+    const config = readFileSync("src-tauri/tauri.conf.json", "utf8");
+    const main = readFileSync("src-tauri/src/main.rs", "utf8");
+    expect(cargo).not.toContain("tauri-plugin-updater");
+    expect(main).not.toContain("tauri_plugin_updater");
+    expect(config).not.toMatch(/"updater"\s*:/);
+  });
+
+  it("keeps external failure outcomes explicit instead of assuming success", () => {
+    const webhook = readFileSync("src/app/api/billing/webhook/route.ts", "utf8");
+    expect(webhook).toContain("ON CONFLICT (event_id) DO NOTHING");
+    expect(webhook).toContain("Unable to verify current Stripe subscription state");
+    expect(webhook).toContain("return NextResponse.json({ error: \"Unable to verify current Stripe subscription state\" }, { status: 502 });");
+
+    const ws = readFileSync("src/server/ws.ts", "utf8");
+    expect(ws).toContain("releaseUndeliveredClaim");
+    expect(ws).toContain("markJobDeliveryUnknown");
+    const evidenceStart = ws.indexOf("const evidenced = await markJobDelivered");
+    const evidenceEnd = ws.indexOf('return markedUnknown ? "delivery_unknown" : "not_claimable";', evidenceStart);
+    expect(evidenceStart).toBeGreaterThanOrEqual(0);
+    expect(evidenceEnd).toBeGreaterThan(evidenceStart);
+    expect(ws.slice(evidenceStart, evidenceEnd)).toContain("markJobDeliveryUnknown");
+
+    const odoo = readFileSync("odoo_addons/print_gateway/models/print_job.py", "utf8");
+    expect(odoo).toContain("UNKNOWN_SUBMISSION_OUTCOME:");
+    expect(odoo).toContain("Automated retries are paused to prevent duplicate prints.");
+    expect(odoo).toContain('failed_jobs = self.filtered(lambda row: row.status == "failed" and row.physical_outcome == "not_printed")');
+    expect(odoo).toContain("GATEWAY_JOB_NOT_FOUND:");
+  });
+
 });

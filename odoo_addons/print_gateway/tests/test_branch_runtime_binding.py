@@ -286,6 +286,78 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding._check_runtime_scope()
         binding._check_binding()
 
+    def _link_printer_as_preparation_destination(self, printer):
+        config = self.pos_config
+        if "preparation_printer_ids" in config._fields:
+            config.write({"preparation_printer_ids": [(4, printer.id)]})
+        else:
+            config.write({"printer_ids": [(4, printer.id)]})
+
+    def test_gateway_kitchen_binding_rejects_non_preparation_printer_destination(self):
+        self._ensure_assignment("agent-a")
+        category = self.env["pos.category"].create({"name": "Non Preparation Category"})
+        printer = self.env["pos.printer"].create({
+            "name": "Non Preparation Printer",
+            "company_id": self.company.id,
+            "product_categories_ids": [(6, 0, [category.id])],
+        })
+        config = self.pos_config
+        if "receipt_printer_ids" in config._fields:
+            config.write({"receipt_printer_ids": [(4, printer.id)]})
+        else:
+            # The Odoo 19 image used by CI (19.0-20260908) has the older
+            # combined printer relation. A printer not linked to the POS is
+            # therefore the equivalent invalid preparation destination.
+            config.write({"printer_ids": [(5, 0, 0)]})
+        binding = self.env["print_gateway.binding"].new({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "destination_type": "pos_printer",
+            "destination_pos_config_id": False,
+            "destination_pos_printer_id": printer,
+            "report_id": False,
+            "runtime_agent_id": "agent-a",
+            "printer_id": "printer-a",
+            "printer_protocol": "escpos",
+            "enabled": True,
+            "priority": 92,
+        })
+        binding._compute_destination_ref()
+        with self.assertRaisesRegex(ValidationError, "must belong to an Odoo POS Preparation Printer"):
+            binding._check_binding()
+
+    def test_gateway_kitchen_binding_can_target_native_preparation_printer(self):
+        self._ensure_assignment("agent-a")
+        category = self.env["pos.category"].create({"name": "Gateway Kitchen Category"})
+        printer = self.env["pos.printer"].create({
+            "name": "Gateway Preparation Printer",
+            "company_id": self.company.id,
+            "pos_config_ids": [(6, 0, [self.pos_config.id])],
+            "product_categories_ids": [(6, 0, [category.id])],
+        })
+        self._link_printer_as_preparation_destination(printer)
+        binding = self.env["print_gateway.binding"].new({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "destination_type": "pos_printer",
+            "destination_pos_config_id": False,
+            "destination_pos_printer_id": printer,
+            "report_id": False,
+            "runtime_agent_id": "agent-a",
+            "printer_id": "printer-a",
+            "printer_protocol": "escpos",
+            "enabled": True,
+            "priority": 91,
+        })
+        binding._compute_destination_ref()
+        binding._compute_document_type()
+        self.assertEqual(binding.document_type, "kitchen")
+        self.assertEqual(binding.destination_ref._name, "pos.printer")
+        self.assertEqual(binding.destination_ref.id, printer.id)
+        binding._check_company_hierarchy()
+        binding._check_runtime_scope()
+        binding._check_binding()
+
     def test_gateway_kitchen_binding_does_not_require_odoo_kitchen_printer(self):
         self._ensure_assignment("agent-a")
         binding = self.env["print_gateway.binding"].new({

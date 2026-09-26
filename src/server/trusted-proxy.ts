@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { runtimeSecret } from "../lib/runtime-secret";
+import { trustProxyEnabled } from "../lib/trust-proxy-config";
 
 function configuredProxySecret(): string | null {
   const value = runtimeSecret("TRUST_PROXY_SECRET")?.trim();
@@ -14,9 +15,7 @@ function safeEqual(left: string, right: string): boolean {
   return timingSafeEqual(digestA, digestB);
 }
 
-export function trustProxyEnabled(): boolean {
-  return process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true";
-}
+export { trustProxyEnabled } from "../lib/trust-proxy-config";
 
 
 function normalizedOrigin(value: string): string | null {

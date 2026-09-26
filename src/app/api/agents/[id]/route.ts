@@ -1,7 +1,8 @@
+import { ActionError } from "../../../../lib/action-error";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { agents, printers, printJobs } from "../../../../db/schema";
-import { validateManager } from "../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { eq, count, desc, and } from "drizzle-orm";
 import { z } from "zod";
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 const patchSchema = z.object({ lifecycle: z.enum(["active", "disabled", "retired"]) }).strict();
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "agents.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   const { id } = await params;
@@ -32,8 +33,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const claims = await validateManager(req);
-  if (claims) { try { requireManagerPermission(claims, "agents.disable"); } catch { return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { "content-type": "application/json" } }); } }
+  const claims = await validateWorkspaceManager(req);
+  if (claims) { try { requireManagerPermission(claims, "agents.disable"); } catch { const e = new ActionError("Forbidden", 403, "FORBIDDEN"); return NextResponse.json({ error: e.message, code: e.code, ...(e.details ?? {}) }, { status: e.status }); } }
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
   let body: unknown; try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }

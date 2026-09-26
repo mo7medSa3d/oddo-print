@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { validateManager } from "../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { runBillingOperation } from "../../../../lib/billing-operation";
 
 export async function POST(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "billing.manage")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

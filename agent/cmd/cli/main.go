@@ -201,8 +201,13 @@ func handlePrintersList(configPath string, jsonOutput bool) {
 		log.Fatalf("List failed: %v", err)
 	}
 	if jsonOutput {
-		out, _ := json.Marshal(infos)
-		fmt.Println(string(out))
+		out, err := json.Marshal(infos)
+		if err != nil {
+			log.Fatalf("Failed to encode printer inventory: %v", err)
+		}
+		if _, err := fmt.Fprintln(os.Stdout, string(out)); err != nil {
+			log.Fatalf("Failed to write printer inventory: %v", err)
+		}
 		return
 	}
 	if len(infos) == 0 {
@@ -297,16 +302,20 @@ func handlePrintersAdd(configPath string, args []string) {
 	serial := fs.String("serial", "", "USB serial number")
 	enabledStr := fs.String("enabled", "true", "Enabled true/false")
 	capsJSON := fs.String("capabilities", "", "Capabilities JSON e.g., '{\"paper_widths\":[58,80]}'")
-	_ = fs.String("connection-type", "", "Alias for --type")
+	connectionTypeAlias := fs.String("connection-type", "", "Alias for --type")
 	fs.Parse(args)
 
+	// Both alias flags are read from the parsed flag set. The connection-type
+	// alias used to be handled by scanning the raw argument slice for the exact
+	// token "--connection-type", which silently ignored the equally valid
+	// "--connection-type=spooler" form: the flag was registered (so Parse
+	// accepted it and no error was raised) but its value was never applied, and
+	// the printer was stored with the --type default instead.
+	if *connectionTypeAlias != "" {
+		*typ = *connectionTypeAlias
+	}
 	if *printerTypeAlias != "" && (*printerType == "unknown" || *printerType == "") {
 		*printerType = *printerTypeAlias
-	}
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--connection-type" && i+1 < len(args) {
-			*typ = args[i+1]
-		}
 	}
 	if strings.TrimSpace(*name) == "" {
 		log.Fatal("--name is required for printers add")
@@ -362,7 +371,6 @@ func handlePrintersAdd(configPath string, args []string) {
 	if strings.ToLower(info.ConnectionType) == "usb" && info.SpoolerName == "" {
 		fmt.Println("NOTE: direct USB uses the Windows device interface path from --endpoint; --vid/--pid identify the device but do not replace the required device path.")
 	}
-	_ = registryPath
 }
 
 func handlePrintersRemove(configPath, printerID string) {

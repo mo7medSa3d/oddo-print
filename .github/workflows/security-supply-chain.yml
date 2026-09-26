@@ -37,10 +37,54 @@ jobs:
           cache-dependency-path: agent/go.sum
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.98.1
+        with:
+          toolchain: 1.98.1
 
       - name: Install Node dependencies
         run: npm ci
+
+      - name: Phase 0 npm audit (production dependencies)
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev
+
+      - name: Phase 0 npm audit (full dependency tree)
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit
+
+      - name: Verify npm high-severity audit gate with known vulnerable fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture="$(mktemp -d)"
+          trap 'rm -rf "$fixture"' EXIT
+          cat > "$fixture/package.json" <<'EOF'
+          {
+            "name": "yasser-audit-gate-fixture",
+            "version": "1.0.0",
+            "private": true,
+            "dependencies": {
+              "lodash": "4.17.19"
+            }
+          }
+          EOF
+          (cd "$fixture" && npm install --package-lock-only --ignore-scripts >/dev/null)
+          set +e
+          audit_output="$(cd "$fixture" && npm audit --audit-level=high 2>&1)"
+          audit_status=$?
+          set -e
+          printf '%s\n' "$audit_output"
+          if [ "$audit_status" -eq 0 ]; then
+            echo "Expected npm audit to fail for the known high-severity fixture."
+            exit 1
+          fi
+          echo "Known vulnerable fixture correctly caused npm audit --audit-level=high to fail."
 
       - name: npm audit
         shell: bash
@@ -48,7 +92,7 @@ jobs:
           set -euo pipefail
           for attempt in 1 2 3; do
             set +e
-            audit_output="$(npm audit --audit-level=moderate 2>&1)"
+            audit_output="$(npm audit --audit-level=high 2>&1)"
             audit_status=$?
             set -e
             printf '%s\n' "$audit_output"
@@ -70,15 +114,43 @@ jobs:
             exit "$audit_status"
           done
 
-      - name: Go vulnerability scan
+      - name: Go vulnerability scan (pinned)
         working-directory: agent
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.5.0 ./...
+        shell: bash
+        run: |
+          set -euo pipefail
+          go mod verify
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
 
       - name: Rust vulnerability scan
         working-directory: src-tauri
         run: |
           cargo install cargo-audit --version 0.22.2 --locked
           cargo audit
+
+      - name: Verify container image references are immutable
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE '(^[[:space:]]*image:[[:space:]]*|docker (pull|run)[[:space:]])[^#]*:[A-Za-z0-9._-]+([[:space:]]|$)' Dockerfile docker-compose.yml .github/workflows | grep -v '@sha256:'; then
+            echo 'Unpinned container image reference detected; pin every build/test image by digest.'
+            exit 1
+          fi
+          echo 'All Dockerfile/Compose/CI container image references are digest-pinned.'
+
+      - name: Verify committed lockfiles and immutable build commands
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s package-lock.json
+          test -s agent/go.sum
+          test -s src-tauri/Cargo.lock
+          ! grep -RInE '(^|[[:space:]])npm install([[:space:]]|$)' Dockerfile .github/workflows/ci.yml .github/workflows/build-windows.yml .github/workflows/docker.yml
+          grep -RInE 'go (mod verify|build.*-mod=readonly|vet.*-mod=readonly|test -mod=readonly)' .github/workflows/ci.yml .github/workflows/build-windows.yml
+          grep -RInE 'cargo (build|check|test).*--locked' .github/workflows/build-windows.yml
+          echo "package-lock.json, agent/go.sum, and src-tauri/Cargo.lock are present."
+          echo "Build pipelines use npm ci, Go module verification/read-only mode, and Cargo --locked."
 
       - name: Verify all third-party GitHub Actions are SHA pinned
         shell: bash
@@ -95,7 +167,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

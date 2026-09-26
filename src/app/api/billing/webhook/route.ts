@@ -70,7 +70,9 @@ export async function POST(req: Request) {
   try { event = JSON.parse(raw) as StripeEvent; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const eventId = typeof event.id === "string" ? event.id : "";
   const eventType = typeof event.type === "string" ? event.type : "";
-  if (!eventId || !eventType) return NextResponse.json({ error: "Invalid event" }, { status: 400 });
+  if (!eventId || !eventType || !Number.isSafeInteger(event.created) || Number(event.created) < 0) {
+    return NextResponse.json({ error: "Invalid event" }, { status: 400 });
+  }
 
   // Duplicate deliveries are normal. Once an event is durably processed,
   // acknowledge it without depending on Stripe API availability. The
@@ -89,7 +91,7 @@ export async function POST(req: Request) {
   // depends on it. Stripe explicitly does not guarantee webhook ordering and
   // snapshot event timestamps are only second-resolution.
   const obj = event.data?.object ?? {};
-  const eventCreatedAt = typeof event.created === "number" ? new Date(event.created * 1000) : new Date();
+  const eventCreatedAt = new Date(Number(event.created) * 1000);
   const eventCreatedUnix = Math.floor(eventCreatedAt.getTime() / 1000);
 
   // Subscription lifecycle events are authoritative for access state. For all

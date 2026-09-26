@@ -131,7 +131,11 @@ func discoverIPPviaTCP(ctx context.Context) ([]DeviceInfo, error) {
 					return
 				default:
 				}
-				host, portStr, _ := net.SplitHostPort(target)
+				host, portStr, err := net.SplitHostPort(target)
+				if err != nil {
+					log.Printf("[discovery] skipping malformed IPP target %q: %v", target, err)
+					continue
+				}
 				d := net.Dialer{Timeout: perHostTimeout}
 				connCtx, cancel := context.WithTimeout(ctx, perHostTimeout)
 				conn, err := d.DialContext(connCtx, "tcp", target)
@@ -266,7 +270,9 @@ func discoverMDNSPrinters(ctx context.Context) []DeviceInfo {
 				}
 			}()
 
-			_ = resolver.Browse(browseCtx, s, "local.", ch)
+			if err := resolver.Browse(browseCtx, s, "local.", ch); err != nil {
+				log.Printf("mDNS Browse failed for %s: %v", s, err)
+			}
 			<-doneCh
 		}(svc)
 	}

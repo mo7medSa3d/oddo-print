@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { getManagerCookieName, verifyManagerToken, validateManagerClaims } from "../../lib/manager-auth";
+import { getManagerCookieName, verifyManagerToken } from "../../lib/manager-auth";
 import ReleaseReadinessClient from "./release-readiness-client";
 
 export const dynamic = "force-dynamic";

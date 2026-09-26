@@ -49,6 +49,7 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 
 		addrs, err := iface.Addrs()
 		if err != nil {
+			log.Printf("[discovery] failed to enumerate addresses for %s: %v", iface.Name, err)
 			continue
 		}
 		for _, addr := range addrs {
@@ -145,7 +146,11 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 						return
 					default:
 					}
-					host, portStr, _ := net.SplitHostPort(target)
+					host, portStr, err := net.SplitHostPort(target)
+					if err != nil {
+						log.Printf("[discovery] skipping malformed TCP target %q: %v", target, err)
+						continue
+					}
 					d := net.Dialer{Timeout: perHostTimeout}
 					connCtx, cancel := context.WithTimeout(ctx, perHostTimeout)
 					conn, err := d.DialContext(connCtx, "tcp", target)

@@ -10,11 +10,17 @@ import { applyApiCacheControlDefault } from "./src/server/api-defaults";
 import { sweepPrintJobs } from "./src/lib/job-maintenance";
 import { cleanupAuthRateLimits } from "./src/lib/auth-rate-limit";
 import { cleanupExpiredManagerSessions } from "./src/lib/manager-auth";
+import { cleanupExpiredPlatformSessions } from "./src/lib/platform-auth";
+import { cleanupExpiredRefreshTokens } from "./src/lib/session-tokens";
 import { applyApiCors, handleApiCorsPreflight } from "./src/server/cors";
 import { isTrustedProxyRequest, trustProxyEnabled } from "./src/server/trusted-proxy";
 import { runtimeSecret } from "./src/lib/runtime-secret";
 import { pool } from "./src/db";
 import { sweepStaleAgentPresence, AGENT_PRESENCE_SWEEP_INTERVAL_MS } from "./src/lib/agent-presence-maintenance";
+import {
+  createRequestContentSecurityPolicy,
+  shouldApplyPageContentSecurityPolicy,
+} from "./src/server/content-security-policy";
 
 const dev = process.env.NODE_ENV !== "production";
 const port = parseInt(process.env.PORT ?? "3000", 10);
@@ -153,6 +159,12 @@ const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {
+    if (shouldApplyPageContentSecurityPolicy(req.url)) {
+      const { nonce, policy } = createRequestContentSecurityPolicy();
+      req.headers["x-nonce"] = nonce;
+      res.setHeader("Content-Security-Policy", policy);
+    }
+
     applyApiCacheControlDefault(req, res);
     if (trustProxyEnabled() && req.url !== "/api/health" && req.url !== "/api/live") {
       const headers = new Headers();
@@ -207,6 +219,8 @@ app.prepare().then(() => {
     Promise.all([
       cleanupAuthRateLimits(),
       cleanupExpiredManagerSessions(),
+      cleanupExpiredPlatformSessions(),
+      cleanupExpiredRefreshTokens(),
     ]).catch((error) => {
       logError("[auth-maintenance] cleanup failed", { error: error });
     });

@@ -1,8 +1,10 @@
 import { db } from "../db";
-import { tenants, managerSessions } from "../db/schema";
+import { tenants } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { writeAuditEvent, type AuditActor } from "./audit";
 import { runtimeSecret } from "./runtime-secret";
+import { revokeLegacyManagerSessionsForTenantInTransaction } from "./manager-auth";
+import { revokeTenantRefreshFamiliesInTransaction } from "./session-tokens";
 
 export type TenantLifecycleState = "active" | "suspended" | "deleted";
 
@@ -122,7 +124,13 @@ export async function transitionTenantLifecycle(
     }
 
     if (next === "suspended" || next === "deleted") {
-      await tx.delete(managerSessions).where(eq(managerSessions.tenantId, tenantId));
+      // Legacy manager rows are revoked/removed only for the bounded migration path.
+      await revokeLegacyManagerSessionsForTenantInTransaction(tx, tenantId);
+      await revokeTenantRefreshFamiliesInTransaction(
+        tx,
+        tenantId,
+        next === "deleted" ? "tenant_deleted" : "tenant_suspended",
+      );
       await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ tenantId })})`);
     }
 

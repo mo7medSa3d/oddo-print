@@ -1,26 +1,31 @@
 import { db } from "../db";
 import { platformSessions, users } from "../db/schema";
-import { eq, and, gt, sql } from "drizzle-orm";
+import { eq, and, gt, isNull, sql } from "drizzle-orm";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { verifyPassword, normalizeEmail } from "./password";
 import { verifyScryptPasswordHash } from "./manager-auth";
+import { LEGACY_SESSION_MAX_AGE_SECONDS, sessionCookieSecure } from "./session-config";
+import { databaseNowMs } from "./database-clock";
+import {
+  accessCookieHeader,
+  clearAccessCookieHeader,
+  clearRefreshCookieHeader,
+  getAccessTokenFromRequest,
+  issueSessionPair,
+  verifyAccessTokenSignature,
+  refreshCookieHeader,
+  type SessionRequestContext,
+} from "./session-tokens";
 
 const COOKIE_NAME = "plt_session";
-const MAX_AGE_SECONDS = 8 * 60 * 60;
-
 function getSecret(): string {
   const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
   if (s.length < 32) throw new Error("GATEWAY_JWT_SECRET must be >=32 chars");
   return s;
 }
-
-function b64urlEncode(buf: Buffer | string): string {
-  return Buffer.from(buf).toString("base64url");
-}
-
-function b64urlDecode(s: string): Buffer {
-  return Buffer.from(s, "base64url");
+function b64urlDecode(value: string): Buffer {
+  return Buffer.from(value, "base64url");
 }
 
 function compareStringsSafe(a: string, b: string): boolean {
@@ -36,6 +41,10 @@ export type PlatformOwnerClaims = {
   sub: "platform_owner";
   userId: string;
   email: string;
+  ver?: 2;
+  kind?: "platform";
+  sid?: string;
+  familyId?: string;
 };
 
 export class PlatformUnauthorizedError extends Error {
@@ -52,90 +61,97 @@ export class PlatformForbiddenError extends Error {
   }
 }
 
-function sign(claims: PlatformOwnerClaims): string {
-  const header = b64urlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const payload = b64urlEncode(JSON.stringify(claims));
-  const data = `${header}.${payload}`;
-  const sig = createHmac("sha256", getSecret()).update(data).digest("base64url");
-  return `${data}.${sig}`;
-}
-
-export function verifyPlatformTokenSignature(token: string): PlatformOwnerClaims | null {
+function verifyLegacyPlatformTokenSignature(token: string): PlatformOwnerClaims | null {
   if (typeof token !== "string" || token.length < 40 || token.length > 4096) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
-  const [h, p, s] = parts;
-
+  const [h, p, signature] = parts;
   try {
     const header = JSON.parse(b64urlDecode(h).toString("utf8")) as { alg?: unknown; typ?: unknown };
     if (header.alg !== "HS256" || header.typ !== "JWT") return null;
   } catch {
     return null;
   }
-
-  const data = `${h}.${p}`;
+  const data = h + "." + p;
   const expected = createHmac("sha256", getSecret()).update(data).digest("base64url");
-  if (!compareStringsSafe(s, expected)) return null;
-
+  if (!compareStringsSafe(signature, expected)) return null;
   try {
     const claims = JSON.parse(b64urlDecode(p).toString("utf8")) as Partial<PlatformOwnerClaims>;
     if (
       claims.sub !== "platform_owner" ||
-      typeof claims.userId !== "string" ||
-      claims.userId.length < 1 ||
-      typeof claims.email !== "string" ||
-      claims.email.length < 3 ||
-      typeof claims.jti !== "string" ||
-      claims.jti.length < 16 ||
-      typeof claims.iat !== "number" ||
-      !Number.isSafeInteger(claims.iat) ||
-      typeof claims.exp !== "number" ||
-      !Number.isSafeInteger(claims.exp) ||
-      claims.exp <= claims.iat ||
-      claims.exp - claims.iat > MAX_AGE_SECONDS
-    ) {
-      return null;
-    }
+      typeof claims.userId !== "string" || claims.userId.length < 1 ||
+      typeof claims.email !== "string" || claims.email.length < 3 ||
+      typeof claims.jti !== "string" || claims.jti.length < 16 ||
+      typeof claims.iat !== "number" || !Number.isSafeInteger(claims.iat) ||
+      typeof claims.exp !== "number" || !Number.isSafeInteger(claims.exp) ||
+      claims.exp <= claims.iat || claims.exp - claims.iat > LEGACY_SESSION_MAX_AGE_SECONDS
+    ) return null;
     return claims as PlatformOwnerClaims;
   } catch {
     return null;
   }
 }
 
-export function getPlatformCookieName(): string {
-  return COOKIE_NAME;
+export function verifyPlatformTokenSignature(token: string): PlatformOwnerClaims | null {
+  const fresh = verifyAccessTokenSignature(token, "platform");
+  if (fresh) {
+    return {
+      jti: fresh.jti, iat: fresh.iat, exp: fresh.exp, sub: "platform_owner",
+      userId: fresh.userId!, email: fresh.email!, ver: 2, kind: "platform",
+      sid: fresh.sid, familyId: fresh.familyId,
+    };
+  }
+  return verifyLegacyPlatformTokenSignature(token);
 }
 
 export async function createPlatformSession(
   userId: string,
-  email: string
-): Promise<{ token: string; jti: string; exp: Date }> {
-  const jti = randomBytes(16).toString("hex");
-  const clock = await db.execute(sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`);
-  const now = Number(clock.rows[0]?.now_sec);
-  if (!Number.isSafeInteger(now)) throw new Error("Database clock is unavailable");
-  const exp = now + MAX_AGE_SECONDS;
-  const claims: PlatformOwnerClaims = {
-    jti,
-    iat: now,
-    exp,
-    sub: "platform_owner",
+  email: string,
+  context?: SessionRequestContext,
+): Promise<{
+  token: string;
+  jti: string;
+  exp: Date;
+  refreshToken: string;
+  refreshTokenId: string;
+  familyId: string;
+  refreshExpiresAt: Date;
+}> {
+  const pair = await issueSessionPair({
+    kind: "platform",
     userId,
     email,
+    tenantId: null,
+    role: null,
+  }, context);
+  return {
+    token: pair.accessToken,
+    jti: pair.accessJti,
+    exp: pair.accessExpiresAt,
+    refreshToken: pair.refreshToken,
+    refreshTokenId: pair.refreshTokenId,
+    familyId: pair.familyId,
+    refreshExpiresAt: pair.refreshExpiresAt,
   };
-  const token = sign(claims);
-  await db.insert(platformSessions).values({
-    jti,
-    userId,
-    expiresAt: new Date(exp * 1000),
-  });
-  return { token, jti, exp: new Date(exp * 1000) };
 }
 
 export async function validatePlatformClaims(
   claims: PlatformOwnerClaims | null
 ): Promise<PlatformOwnerClaims | null> {
   if (!claims) return null;
+
+  if (claims.ver === 2 && claims.kind === "platform") {
+    const nowMs = await databaseNowMs().catch(() => null);
+    if (nowMs === null) return null;
+    const nowSec = Math.floor(nowMs / 1000);
+    if (claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.exp - claims.iat !== 15 * 60) return null;
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, claims.userId),
+      columns: { id: true, email: true, isPlatformOwner: true, emailVerifiedAt: true },
+    });
+    if (!user || !user.isPlatformOwner || !user.emailVerifiedAt || user.email !== claims.email) return null;
+    return claims;
+  }
   const session = await db.query.platformSessions.findFirst({
     where: and(
       eq(platformSessions.jti, claims.jti),
@@ -156,20 +172,7 @@ export async function validatePlatformClaims(
 }
 
 export async function validatePlatformOwner(req: Request): Promise<PlatformOwnerClaims | null> {
-  let token: string | null = null;
-  const cookieHeader = req.headers.get("cookie") ?? "";
-  for (const part of cookieHeader.split(";")) {
-    const [k, ...rest] = part.trim().split("=");
-    if (k === COOKIE_NAME) {
-      token = rest.join("=").trim();
-      if (token.startsWith('"') && token.endsWith('"')) token = token.slice(1, -1);
-      break;
-    }
-  }
-  if (!token) {
-    const auth = req.headers.get("authorization");
-    if (auth?.startsWith("Bearer ")) token = auth.slice(7).trim();
-  }
+  const token = getAccessTokenFromRequest(req, "platform");
   if (!token) return null;
   const claims = verifyPlatformTokenSignature(token);
   return claims ? validatePlatformClaims(claims) : null;
@@ -204,25 +207,45 @@ export async function authenticatePlatformOwner(
   return { userId: user.id, email: user.email };
 }
 
+type LegacyPlatformAuthTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export async function revokeLegacyPlatformSessionsForUserInTransaction(
+  tx: LegacyPlatformAuthTx,
+  userId: string,
+): Promise<void> {
+  await tx.update(platformSessions)
+    .set({ revokedAt: sql`clock_timestamp()` })
+    .where(and(eq(platformSessions.userId, userId), isNull(platformSessions.revokedAt)));
+}
+
 export async function revokePlatformSession(jti: string): Promise<void> {
   await db
     .update(platformSessions)
-    .set({ revokedAt: sql`now()` })
+    .set({ revokedAt: sql`clock_timestamp()` })
     .where(eq(platformSessions.jti, jti));
 }
 
-function platformCookieSecure(): boolean {
-  const override = process.env.COOKIE_SECURE;
-  if (override === "1" || override === "true") return true;
-  if (override === "0" || override === "false") return false;
-  return process.env.NODE_ENV === "production";
+export async function cleanupExpiredPlatformSessions(): Promise<number> {
+  const result = await db.execute(sql`
+    DELETE FROM platform_sessions
+    WHERE expires_at <= clock_timestamp()
+    RETURNING jti
+  `);
+  return result.rows.length;
 }
 
 export function platformCookieHeader(token: string, exp: Date): string {
-  const secure = platformCookieSecure() ? "; Secure" : "";
-  return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax${secure}; Expires=${exp.toUTCString()}; Max-Age=${MAX_AGE_SECONDS}`;
+  return accessCookieHeader("platform", token, exp);
+}
+
+export function platformRefreshCookieHeader(token: string, exp: Date): string {
+  return refreshCookieHeader("platform", token, exp);
 }
 
 export function clearPlatformCookieHeader(): string {
-  return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0`;
+  return clearAccessCookieHeader("platform");
+}
+
+export function clearPlatformRefreshCookieHeader(): string {
+  return clearRefreshCookieHeader("platform");
 }

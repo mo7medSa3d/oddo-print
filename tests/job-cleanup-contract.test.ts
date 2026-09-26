@@ -8,7 +8,7 @@ describe("print-job cleanup contract", () => {
   it("protects active Gateway jobs and requires manager authentication", () => {
     const src = read("src/app/api/jobs/route.ts");
     expect(src).toContain("export async function DELETE(req: Request)");
-    expect(src).toContain("const claims = await validateManager(req)");
+    expect(src).toContain("const claims = await validateWorkspaceManager(req)");
     expect(src).toContain('["success", "failed", "expired"]');
     expect(src).toContain("inArray(printJobs.status");
     expect(src).not.toContain(".delete(printJobs)\n    .where(inArray(printJobs.status");

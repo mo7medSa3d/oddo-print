@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { tenants, users } from "../../../db/schema";
 import { eq, sql } from "drizzle-orm";
-import { validateManager } from "../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../lib/authorization";
 import { writeAuditEvent } from "../../../lib/audit";
 
 export async function GET(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "tenant.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const [tenant, user] = await Promise.all([
     db.query.tenants.findFirst({ where: eq(tenants.id, claims.tenantId), columns: { id: true, name: true, createdAt: true, updatedAt: true } }),
@@ -18,7 +18,7 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "tenant.update")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let body: { name?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }

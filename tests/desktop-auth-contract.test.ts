@@ -8,17 +8,25 @@ const read = (file: string) => readFileSync(join(root, file), "utf8");
 describe("desktop manager authentication contract", () => {
   it("login issues a bearer token only to the explicitly identified desktop client", () => {
     const source = read("src/app/api/auth/manager/login/route.ts");
-    expect(source).toContain('req.headers.get("x-odoo-print-desktop") === "1"');
-    expect(source).toContain("if (desktopClient) bodyOut.accessToken = sess.token;");
+    expect(source).toContain("isTrustedDesktopRequest(req)");
+    expect(source).toContain("if (desktopClient)");
+    expect(source).toContain("bodyOut.accessToken = sess.token;");
+    expect(source).toContain("bodyOut.refreshToken = sess.refreshToken;");
+    expect(source).toContain("if (!desktopClient)");
     expect(source).not.toContain("accessToken: sess.token");
   });
 
-  it("desktop IPC uses Authorization bearer instead of cross-site credentials", () => {
+  it("desktop IPC keeps bearer authentication in Rust while browser fetch uses cookies", () => {
     const source = read("src/desktop/lib/ipc.ts");
-    expect(source).toContain("Authorization");
-    expect(source).toContain("Bearer ${");
+    const rust = read("src-tauri/src/commands.rs");
     expect(source).toContain('"X-Odoo-Print-Desktop": "1"');
-    expect(source).not.toContain('credentials: "include"');
+    expect(source).toContain('credentials: "include"');
+    expect(source).not.toContain('"X-Refresh-Token"');
+    expect(source).not.toContain("sessionStorage");
+    expect(source).not.toContain("localStorage");
+    expect(rust).toContain('request.bearer_auth(token)');
+    expect(rust).toContain('request.header("X-Refresh-Token", refresh_token)');
+    expect(rust).toContain('request = request.header("Origin", "tauri://localhost")');
   });
 
   it("enforces the branch-specific Gateway transport contract", () => {

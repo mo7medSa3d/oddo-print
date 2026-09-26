@@ -11,8 +11,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 export const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-const MANAGER_TOKEN_KEY = "odoo-print-manager-session";
 const MANAGER_AUTH_EVENT = "odoo-print-manager-auth-changed";
+let browserManagerAuthenticated = false;
 const REQUEST_TIMEOUT_MS = 10_000;
 
 export interface AgentStatus {
@@ -57,35 +57,11 @@ export function normalizeGatewayUrl(raw: string): string {
   }
 }
 
-function getBrowserManagerToken(): string | null {
-  if (isTauri || typeof window === "undefined") return null;
-  try {
-    const token = window.sessionStorage.getItem(MANAGER_TOKEN_KEY);
-    return token && token.length > 0 ? token : null;
-  } catch {
-    return null;
-  }
-}
-
-function setBrowserManagerToken(token: string): void {
-  if (isTauri || typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(MANAGER_TOKEN_KEY, token);
-    window.dispatchEvent(new Event(MANAGER_AUTH_EVENT));
-  } catch {
-    throw new Error("Unable to store the manager session in this application session");
-  }
-}
-
 async function clearManagerSession(): Promise<void> {
   if (isTauri) {
     await invoke("clear_manager_session");
-  } else if (typeof window !== "undefined") {
-    try {
-      window.sessionStorage.removeItem(MANAGER_TOKEN_KEY);
-    } catch {
-      // Best effort during logout / expiry recovery.
-    }
+  } else {
+    browserManagerAuthenticated = false;
   }
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(MANAGER_AUTH_EVENT));
@@ -93,12 +69,10 @@ async function clearManagerSession(): Promise<void> {
 }
 
 export function clearManagerToken(): void {
-  if (isTauri || typeof window === "undefined") return;
-  try {
-    window.sessionStorage.removeItem(MANAGER_TOKEN_KEY);
+  if (isTauri) return;
+  browserManagerAuthenticated = false;
+  if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(MANAGER_AUTH_EVENT));
-  } catch {
-    // Best effort during logout / expiry recovery.
   }
 }
 
@@ -134,19 +108,39 @@ async function gatewayRequest(
   method = "GET",
   headers: Record<string, string> = {},
   body?: string,
+  allowSessionRefresh = true,
 ): Promise<GatewayResponse> {
   const base = normalizeGatewayUrl(gatewayUrl);
+  let response: GatewayResponse;
   if (!isTauri) {
-    const response = await fetchWithTimeout(`${base}${path}`, {
+    const browserResponse = await fetchWithTimeout(`${base}${path}`, {
       method,
       headers,
       body,
+      credentials: "include",
     });
-    return { status: response.status, body: await response.text() };
+    response = { status: browserResponse.status, body: await browserResponse.text() };
+  } else {
+    response = await invoke<GatewayResponse>("gateway_request", {
+      args: { path, method, headers, body: body ?? null },
+    });
   }
-  return invoke<GatewayResponse>("gateway_request", {
-    args: { path, method, headers, body: body ?? null },
-  });
+
+  if (
+    allowSessionRefresh &&
+    (response.status === 401 || response.status === 403) &&
+    path !== "/api/auth/manager/login" &&
+    path !== "/api/auth/manager/refresh"
+  ) {
+    try {
+      await refreshManagerSession(base);
+      return gatewayRequest(base, path, method, headers, body, false);
+    } catch {
+      await clearManagerSession();
+    }
+  }
+
+  return response;
 }
 
 async function gatewayConsoleRequest(
@@ -189,35 +183,54 @@ export async function loginManager(
     ok?: boolean;
     expiresAt?: string;
     accessToken?: string;
+    refreshToken?: string;
     error?: string;
   };
-  if (status < 200 || status >= 300 || !data.ok || (!isTauri && !data.accessToken)) {
+  if (status < 200 || status >= 300 || !data.ok || (isTauri && !data.accessToken)) {
     const err: Error & { status?: number } = new Error(data.error || `Manager login failed (${status})`);
     err.status = status;
     throw err;
   }
-  if (!isTauri && data.accessToken) setBrowserManagerToken(data.accessToken);
+  if (!isTauri) browserManagerAuthenticated = true;
   if (typeof window !== "undefined") window.dispatchEvent(new Event(MANAGER_AUTH_EVENT));
+  return { authenticated: true, expiresAt: data.expiresAt };
+}
+
+export async function refreshManagerSession(gatewayUrl: string): Promise<ManagerSessionStatus> {
+  const base = normalizeGatewayUrl(gatewayUrl);
+  const headers: Record<string, string> = isTauri
+    ? { "X-Odoo-Print-Desktop": "1" }
+    : {};
+  const { status, body } = await gatewayRequest(base, "/api/auth/manager/refresh", "POST", headers);
+  const data = JSON.parse(body || "{}") as { ok?: boolean; expiresAt?: string; error?: string };
+  if (status < 200 || status >= 300 || !data.ok || typeof data.expiresAt !== "string") {
+    const err: Error & { status?: number } = new Error(data.error || `Manager session refresh failed (${status})`);
+    err.status = status;
+    throw err;
+  }
   return { authenticated: true, expiresAt: data.expiresAt };
 }
 
 export async function getManagerSession(gatewayUrl: string): Promise<ManagerSessionStatus> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  if (!isTauri && !getBrowserManagerToken()) return { authenticated: false };
-
-  const headers: Record<string, string> = {};
-  const browserToken = getBrowserManagerToken();
-  if (browserToken) headers.Authorization = `Bearer ${browserToken}`;
-  const { status, body } = await gatewayRequest(base, "/api/auth/manager/me", "GET", headers);
+  const { status, body } = await gatewayRequest(base, "/api/auth/manager/me", "GET");
   if (status === 401 || status === 403) {
-    await clearManagerSession();
-    return { authenticated: false };
+    try {
+      return await refreshManagerSession(base);
+    } catch {
+      await clearManagerSession();
+      return { authenticated: false };
+    }
   }
   if (status < 200 || status >= 300) throw new Error(`Manager session check failed (${status})`);
   const data = JSON.parse(body) as { authenticated?: boolean; exp?: number };
   if (!data.authenticated || typeof data.exp !== "number") {
-    await clearManagerSession();
-    return { authenticated: false };
+    try {
+      return await refreshManagerSession(base);
+    } catch {
+      await clearManagerSession();
+      return { authenticated: false };
+    }
   }
   return { authenticated: true, expiresAt: new Date(data.exp * 1000).toISOString() };
 }
@@ -225,10 +238,7 @@ export async function getManagerSession(gatewayUrl: string): Promise<ManagerSess
 export async function logoutManager(gatewayUrl: string): Promise<void> {
   const base = normalizeGatewayUrl(gatewayUrl);
   try {
-    const headers: Record<string, string> = {};
-    const browserToken = getBrowserManagerToken();
-    if (browserToken) headers.Authorization = `Bearer ${browserToken}`;
-    await gatewayRequest(base, "/api/auth/manager/logout", "POST", headers);
+    await gatewayRequest(base, "/api/auth/manager/logout", "POST");
   } finally {
     await clearManagerSession();
   }
@@ -236,7 +246,7 @@ export async function logoutManager(gatewayUrl: string): Promise<void> {
 
 export async function isManagerAuthenticated(): Promise<boolean> {
   if (isTauri) return invoke<boolean>("has_manager_session");
-  return !!getBrowserManagerToken();
+  return browserManagerAuthenticated;
 }
 
 export function onManagerAuthChanged(handler: () => void): () => void {
@@ -351,10 +361,7 @@ export interface PrinterInfo {
 
 
 async function managerGatewayHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {};
-  const token = getBrowserManagerToken();
-  if (token) headers.Authorization = "Bearer " + token;
-  return headers;
+  return {};
 }
 
 export async function fetchGatewayAgents(
@@ -574,12 +581,6 @@ export async function fetchGatewayJobs(
   options?: { status?: string; search?: string; limit?: number }
 ): Promise<Record<string, unknown>[]> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  const browserToken = getBrowserManagerToken();
-  if (!isTauri && !browserToken) {
-    const err: Error & { status?: number } = new Error("Manager authentication required");
-    err.status = 401;
-    throw err;
-  }
   const params = new URLSearchParams();
   params.set("limit", String(options?.limit ?? 50));
   if (options?.status && options.status !== "all") {
@@ -590,7 +591,6 @@ export async function fetchGatewayJobs(
   }
   const endpoint = `/api/jobs?${params.toString()}`;
   const headers: Record<string, string> = {};
-  if (browserToken) headers.Authorization = `Bearer ${browserToken}`;
   const { status, body } = await gatewayConsoleRequest(base, endpoint, "GET", headers);
   if (status === 401 || status === 403) {
     await clearManagerSession();

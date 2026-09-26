@@ -5,8 +5,10 @@ import { emailVerificationTokens, tenantUsers, tenants, users } from "../../../.
 import { and, eq, isNull, gt, sql } from "drizzle-orm";
 import { hashToken } from "../../../../lib/password";
 import { nanoid } from "../../../../lib/nanoid";
-import { issueCustomerSession, customerSessionCookie } from "../../../../lib/customer-auth";
+import { issueCustomerSession, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
+import { clientIpFrom } from "../../../../lib/auth-rate-limit";
 import { writeAuditEvent } from "../../../../lib/audit";
+import type { ManagerRole } from "../../../../lib/manager-auth";
 
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 16 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
@@ -25,7 +27,14 @@ export async function POST(req: Request) {
   const user = await db.query.users.findFirst({ where: eq(users.id, row.userId), columns: { id: true, emailVerifiedAt: true, email: true } });
   if (!user) return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
   let tenantId: string;
-  let role: any = "owner";
+  let role: ManagerRole = "owner";
+  const isManagerRole = (value: string): value is ManagerRole =>
+    value === "owner" ||
+    value === "admin" ||
+    value === "operator" ||
+    value === "viewer" ||
+    value === "integration_admin" ||
+    value === "billing_admin";
   try {
     await db.transaction(async (tx) => {
       // Serialize all verification flows for this user before deciding whether
@@ -40,7 +49,7 @@ export async function POST(req: Request) {
       if (!currentUser?.id || !currentUser.email) throw new Error("USER_NOT_FOUND");
 
       const consumed = await tx.update(emailVerificationTokens)
-        .set({ consumedAt: sql`now()` })
+        .set({ consumedAt: sql`clock_timestamp()` })
         .where(and(
           eq(emailVerificationTokens.id, row.id),
           isNull(emailVerificationTokens.consumedAt),
@@ -59,6 +68,7 @@ export async function POST(req: Request) {
         .limit(1);
       if (existing[0]) {
         tenantId = existing[0].tenantId;
+        if (!isManagerRole(existing[0].role)) throw new Error("INVALID_TENANT_ROLE");
         role = existing[0].role;
       } else {
         tenantId = `ten_${nanoid(18)}`;
@@ -76,11 +86,24 @@ export async function POST(req: Request) {
   } catch (error) {
     if (error instanceof Error && error.message === "Verification token already consumed") return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
     if (error instanceof Error && error.message === "USER_NOT_FOUND") return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
+    if (error instanceof Error && error.message === "INVALID_TENANT_ROLE") return NextResponse.json({ error: "Workspace is unavailable" }, { status: 403 });
     throw error;
   }
-  const session = await issueCustomerSession(user.id, tenantId!, role);
+  const session = await issueCustomerSession(
+    user.id,
+    tenantId!,
+    role,
+    {
+      ipAddress: clientIpFrom(req),
+      userAgent: req.headers.get("user-agent"),
+    },
+    user.email,
+  );
   if (!session) {
     return NextResponse.json({ error: "Workspace is unavailable" }, { status: 403 });
   }
-  return NextResponse.json({ ok: true, next: "/onboarding" }, { headers: { "Set-Cookie": customerSessionCookie(session) } });
+  const response = NextResponse.json({ ok: true, next: "/onboarding" });
+  response.headers.set("Set-Cookie", customerSessionCookie(session));
+  response.headers.append("Set-Cookie", customerRefreshCookie(session));
+  return response;
 }

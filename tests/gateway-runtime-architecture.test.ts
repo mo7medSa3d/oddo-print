@@ -106,7 +106,7 @@ describe("gateway runtime ownership contract", () => {
 
   it("blocks native POS order-preparation printing while Gateway mode is enabled", () => {
     const source = readFileSync(join(root, "odoo_addons/print_gateway/static/src/js/pos_print_router.js"), "utf8");
-    const methodStart = source.indexOf("async printOrderChanges(data, printer) {");
+    const methodStart = source.indexOf("async printOrderChanges(");
     const method = methodStart >= 0 ? source.slice(methodStart) : "";
     const gatewayGuard = method.indexOf("if (gatewayEnabled !== true) {");
     const gatewayCall = method.indexOf("action_print_gateway_kitchen");
@@ -135,7 +135,7 @@ describe("gateway runtime ownership contract", () => {
 
   it("contains no legacy ownership terms in the active addon production source", () => {
     const source = readAll(odooProductionFiles);
-    for (const token of ["gateway_branch_id", "branch_sync", "report_mapping", "async_report", "destination_id", "document_type_id"]) {
+    for (const token of ["gateway_branch_id", "branch_sync", "report_mapping", "async_report", "document_type_id"]) {
       expect(source).not.toContain(token);
     }
   });

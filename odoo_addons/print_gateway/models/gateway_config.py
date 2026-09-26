@@ -7,6 +7,8 @@ import logging
 import os
 import requests
 
+from psycopg2 import sql
+
 from ..runtime_clock import db_now_utc
 
 from .crypto import (
@@ -743,7 +745,7 @@ class PrintGatewayConfig(models.Model):
                 cr.rollback()
                 return {"kind": "stale_local"}
             cr.execute(
-                "SELECT enabled, enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE" % self._table,
+                sql.SQL("SELECT enabled, enabled_sync_revision FROM {} WHERE id = %s FOR UPDATE").format(sql.Identifier(self._table)),
                 [self.id],
             )
             row = cr.fetchone()
@@ -961,7 +963,7 @@ class PrintGatewayConfig(models.Model):
                 )
                 if guard_revision is not None:
                     cr.execute(
-                        "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE" % self._table,
+                        sql.SQL("SELECT enabled_sync_revision FROM {} WHERE id = %s FOR UPDATE").format(sql.Identifier(self._table)),
                         [self.id],
                     )
                     row = cr.fetchone()
@@ -1059,7 +1061,7 @@ class PrintGatewayConfig(models.Model):
         if self.ids:
             self.flush_recordset()
             self.env.cr.execute(
-                f"SELECT id FROM {self._table} WHERE id IN %s FOR UPDATE",
+                sql.SQL("SELECT id FROM {} WHERE id IN %s FOR UPDATE").format(sql.Identifier(self._table)),
                 [tuple(self.ids)],
             )
             self.invalidate_recordset([
@@ -1651,7 +1653,7 @@ class PrintGatewayConfig(models.Model):
                 return False
 
             cr.execute(
-                "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE NOWAIT" % self._table,
+                sql.SQL("SELECT enabled_sync_revision FROM {} WHERE id = %s FOR UPDATE NOWAIT").format(sql.Identifier(self._table)),
                 [self.id],
             )
             row = cr.fetchone()

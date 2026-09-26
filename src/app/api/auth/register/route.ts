@@ -7,7 +7,7 @@ import { emailVerificationTokens } from "../../../../db/schema";
 import { nanoid } from "../../../../lib/nanoid";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
-import { clientIpFrom, reserveAuthAttempt } from "../../../../lib/auth-rate-limit";
+import { clientIpFrom, reserveAuthAttempt, setRateLimitHeaders } from "../../../../lib/auth-rate-limit";
 import { sql } from "drizzle-orm";
 
 const GENERIC = { ok: true, message: "If the account can be created, a verification email will be sent." };
@@ -21,10 +21,16 @@ export async function POST(req: Request) {
   const planId = typeof body.planId === "string" && body.planId.length <= 128 ? body.planId : "";
   if (!validEmail(email) || password.length < 12 || password.length > 4096) return NextResponse.json({ error: "Enter a valid email and a password of at least 12 characters." }, { status: 400 });
   const ip = clientIpFrom(req);
-  const rate = await reserveAuthAttempt(ip, email);
-  if (!rate.allowed) { const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 }); res.headers.set("Retry-After", String(rate.retryAfterSec)); return res; }
+  let rate: Awaited<ReturnType<typeof reserveAuthAttempt>>;
+  try {
+    rate = await reserveAuthAttempt(ip, email);
+  } catch (error) {
+    logError("auth.rate_limit.store_unavailable", { endpoint: "register", error: error instanceof Error ? error.message : "unknown" });
+    return NextResponse.json({ error: "Registration temporarily unavailable" }, { status: 503 });
+  }
+  if (!rate.allowed) { const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 }); res.headers.set("Retry-After", String(rate.retryAfterSec)); return setRateLimitHeaders(res, rate); }
   const existing = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.email, email), columns: { id: true, emailVerifiedAt: true } });
-  if (existing) return NextResponse.json({ error: "An account with this email already exists. You can sign in instead.", code: "ACCOUNT_EXISTS" }, { status: 409 });
+  if (existing) return setRateLimitHeaders(NextResponse.json({ error: "An account with this email already exists. You can sign in instead.", code: "ACCOUNT_EXISTS" }, { status: 409 }), rate);
   const userId = `usr_${nanoid(18)}`;
   const rawToken = generateOpaqueToken();
   const expiresAt = sql`clock_timestamp() + interval '30 minutes'`;
@@ -32,7 +38,7 @@ export async function POST(req: Request) {
   try {
     passwordHash = await hashPassword(password);
   } catch {
-    return NextResponse.json({ error: "Registration temporarily unavailable" }, { status: 503 });
+    return setRateLimitHeaders(NextResponse.json({ error: "Registration temporarily unavailable" }, { status: 503 }), rate);
   }
   try {
     await db.transaction(async (tx) => {
@@ -40,8 +46,8 @@ export async function POST(req: Request) {
       await tx.insert(emailVerificationTokens).values({ id: `evt_${nanoid(18)}`, userId, tokenHash: await hashToken(rawToken), expiresAt });
     });
   } catch (error) {
-    if (error instanceof Error && /duplicate|unique/i.test(error.message)) return NextResponse.json(GENERIC, { status: 202 });
-    return NextResponse.json({ error: "Registration temporarily unavailable" }, { status: 503 });
+    if (error instanceof Error && /duplicate|unique/i.test(error.message)) return setRateLimitHeaders(NextResponse.json(GENERIC, { status: 202 }), rate);
+    return setRateLimitHeaders(NextResponse.json({ error: "Registration temporarily unavailable" }, { status: 503 }), rate);
   }
 
   try {
@@ -63,5 +69,5 @@ export async function POST(req: Request) {
   }
   // Registration success must not clear the authentication limiter; otherwise
   // an attacker could recycle the limiter with disposable account creations.
-  return NextResponse.json(GENERIC, { status: 202 });
+  return setRateLimitHeaders(NextResponse.json(GENERIC, { status: 202 }), rate);
 }

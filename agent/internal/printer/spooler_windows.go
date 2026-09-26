@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"golang.org/x/sys/windows/registry"
 	"log"
 	"runtime"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 var (
@@ -405,21 +405,6 @@ func preFlightSpoolerCheck(spoolerName string) error {
 	return nil
 }
 
-// Print writes raw byte data directly to the Windows Spooler.
-// Win32 WritePrinter is inherently synchronous: a wedged call blocks until
-// Win32 returns, so caller-side timeouts isolate the CALLER (see the select
-// below) while the per-printer session mutex isolates OTHER printers.
-// tryBeginSession acquires this printer's session slot WITHOUT waiting:
-// it is a pure try-lock. Contention is refused immediately as a plain
-// pre-dispatch failure (no document bytes were ever submitted), so rapid
-// overlap can never accumulate waiters behind a wedged session.
-func (p *SpoolerPrinter) tryBeginSession() error {
-	if p.sessionMu.TryLock() {
-		return nil
-	}
-	return fmt.Errorf("%w: spooler session for %q is already in progress", ErrPrinterNotReady, p.SpoolerName)
-}
-
 // waitBeginSession acquires this printer's session slot with a bounded
 // waiting lock (15-second timeout), honoring ctx cancellation. Used by
 // Print to serialize full sessions per printer.
@@ -740,14 +725,28 @@ func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 		offset := uintptr(i) * structSize
 		pi := (*printerInfo2)(unsafe.Pointer(uintptr(unsafe.Pointer(&buf[0])) + offset))
 		name := utf16PtrToString(pi.pPrinterName)
+		portName := utf16PtrToString(pi.pPortName)
+		driverName := utf16PtrToString(pi.pDriverName)
 		if name == "" {
 			continue
 		}
+		if isVirtualSpooler(portName, driverName, name) {
+			log.Printf("[discovery] hiding virtual Windows spooler queue %q (port=%q driver=%q)", name, portName, driverName)
+			continue
+		}
+		printerType, connectionType := classifySpoolerPrinter(portName, driverName, name)
 		out = append(out, DeviceInfo{
 			Name:           name,
 			Protocol:       "spooler",
-			ConnectionType: "spooler",
+			ConnectionType: connectionType,
+			PrinterType:    printerType,
 			Endpoint:       name,
+			SpoolerName:    name,
+			Status:         mapWindowsStatus(pi.Status, pi.Attributes),
+			Capabilities: map[string]interface{}{
+				"port_name":   portName,
+				"driver_name": driverName,
+			},
 		})
 	}
 	runtime.KeepAlive(buf)

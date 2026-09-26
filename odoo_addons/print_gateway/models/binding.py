@@ -28,7 +28,7 @@ def _assert_report_usage_access(env, report):
     if env.is_superuser:
         return report
     allowed_group_ids = set(report.group_ids.ids)
-    if allowed_group_ids and not allowed_group_ids.intersection(env.user.groups_id.ids):
+    if allowed_group_ids and not allowed_group_ids.intersection(env.user.all_group_ids.ids):
         raise AccessError(_("You are not allowed to view or use this report."))
     return report
 
@@ -83,9 +83,9 @@ class PrintGatewayBinding(models.Model):
         help="Logical POS destination. The physical printer is selected from the Gateway Runtime Printer below.",
     )
     destination_pos_printer_id = fields.Many2one(
-        "pos.printer", string="Legacy Odoo Kitchen Printer", ondelete="restrict", check_company=True,
+        "pos.printer", string="Odoo Preparation Printer", ondelete="restrict", check_company=True,
         domain="['|', ('company_id', '=', False), ('company_id', '=', effective_company_id)]",
-        help="Legacy compatibility only. New Gateway Kitchen bindings must select the POS Shop and Gateway Runtime Printer instead.",
+        help="Native Odoo 19 preparation-printer identity. Its product categories determine which kitchen lines this Gateway binding receives.",
     )
     destination_picking_type_id = fields.Many2one(
         "stock.picking.type", string="Operation Type", ondelete="restrict", check_company=True,
@@ -202,17 +202,27 @@ class PrintGatewayBinding(models.Model):
     def _compute_destination_ref(self):
         for record in self:
             destination = False
-            if record.destination_type in ("pos", "pos_printer"):
-                # New POS Kitchen bindings target the POS Shop directly. Keep
-                # the native Odoo printer fallback only for legacy records.
-                destination = record.destination_pos_config_id or record.destination_pos_printer_id
+            if record.destination_type == "pos":
+                destination = record.destination_pos_config_id
+            elif record.destination_type == "pos_printer":
+                # Native Odoo preparation-printer routing is the authoritative
+                # category-aware destination. Keep the POS Shop form as a
+                # compatibility fallback for existing Gateway-only bindings.
+                destination = record.destination_pos_printer_id or record.destination_pos_config_id
             elif record.destination_type == "picking_type":
                 destination = record.destination_picking_type_id
             elif record.destination_type == "report":
                 # report_id is the single operator-facing report selector. Keep
                 # destination_report_id as a legacy compatibility field only.
                 destination = record.report_id or record.destination_report_id
-            record.destination_ref = "%s,%s" % (destination._name, destination.id) if destination else False
+            destination_id = getattr(destination, "id", False) if destination else False
+            # Odoo 19 form/onchange records can carry a NewId pseudo-identifier.
+            # fields.Reference cannot convert that placeholder to an integer, so
+            # keep the computed reference empty until the destination is saved.
+            if destination and isinstance(destination_id, int) and destination_id > 0:
+                record.destination_ref = "%s,%s" % (destination._name, destination_id)
+            else:
+                record.destination_ref = False
 
     @api.depends(
         "report_id", "report_id.model", "report_id.report_name",
@@ -413,16 +423,22 @@ class PrintGatewayBinding(models.Model):
                 if record.report_id:
                     raise ValidationError(_("POS Receipt bindings must not select an Odoo Report; the receipt is rendered by the POS client."))
             elif record.destination_type == "pos_printer":
-                if record.destination_pos_config_id and record.destination_pos_printer_id:
-                    raise ValidationError(_("POS Kitchen / Preparation bindings must not select an Odoo Kitchen Printer; choose the POS Shop and Gateway Runtime Printer."))
                 if not record.destination_pos_config_id and not record.destination_pos_printer_id:
-                    raise ValidationError(_("A POS Shop is required for a POS Kitchen / Preparation binding."))
+                    raise ValidationError(_("An Odoo Preparation Printer or POS Shop is required for a POS Kitchen / Preparation binding."))
                 if record.destination_pos_printer_id:
-                    # Legacy binding compatibility: old records may still point
-                    # at a native Odoo printer and remain readable.
-                    printer_configs = record.destination_pos_printer_id.pos_config_ids
+                    printer = record.destination_pos_printer_id
+                    printer_configs = printer.pos_config_ids
+                    preparation_configs = printer_configs.filtered(
+                        lambda config: printer in (
+                            getattr(config, "preparation_printer_ids", None)
+                            if getattr(config, "preparation_printer_ids", None) is not None
+                            else config.printer_ids
+                        )
+                    )
+                    if not preparation_configs:
+                        raise ValidationError(_("Odoo Preparation Printer must belong to an Odoo POS Preparation Printer configuration."))
                     if printer_configs and expected_company not in printer_configs.mapped("company_id"):
-                        raise ValidationError(_("Legacy Odoo Kitchen Printer is not available to the selected Odoo Branch."))
+                        raise ValidationError(_("Odoo Preparation Printer is not available to the selected Odoo Branch."))
                 if record.report_id:
                     raise ValidationError(_("POS Kitchen / Preparation bindings must not select an Odoo Report."))
             elif record.destination_type == "report":
@@ -627,7 +643,7 @@ class PrintGatewayBinding(models.Model):
             return {"dispatched": False, "has_binding": False, "success": False}
 
         try:
-            route = router.route_report(report, records, data=data)
+            route = router.route_report(report, records, data=data, explicit_binding=binding)
             if route.get("native"):
                 return {"dispatched": False, "has_binding": False, "success": False}
 

@@ -83,8 +83,8 @@ describe("production fixes contracts (2026-09)", () => {
     expect(doc).toContain("if _, hasDeadline := parent.Deadline(); hasDeadline {");
     // executor saturation / shutdown reject the job FENCED with the claim
     // token instead of silently dropping delivered work.
-    expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "pending_full")');
-    expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "agent_shutting_down")');
+    expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, fields.ClaimToken, "pending_full")');
+    expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, fields.ClaimToken, "agent_shutting_down")');
     expect(agent).toContain("func (a *Agent) runRejectWorker(ctx context.Context)");
     expect(agent).toContain("maxRejectQueue = 32");
     expect(agent).toContain("func (a *Agent) rejectJobExact(ctx context.Context, jobID, token, reason string) error");
@@ -93,7 +93,10 @@ describe("production fixes contracts (2026-09)", () => {
     // 2025-09-21: reduced from 10s to 5s for faster offline feedback (POS best practice)
     expect(net).toMatch(/dialTimeout\s*=\s*5\s*\*\s*time\.Second/);
     expect(net).toMatch(/writeStallTimeout\s*=\s*60\s*\*\s*time\.Second/);
-    expect(net).toContain("_ = conn.SetWriteDeadline(time.Now().Add(writeStallTimeout))");
+    // Write-deadline failures used to be discarded (`_ = conn.SetWriteDeadline`).
+    // They must now surface as an error so a stalled printer is reported.
+    expect(net).toContain("if err := conn.SetWriteDeadline(time.Now().Add(writeStallTimeout)); err != nil {");
+    expect(net).toContain('return fmt.Errorf("set printer write deadline: %w", err)');
   });
 
   it("print quota applies at logical job admission and does not make Agent discovery the enforcement point", () => {

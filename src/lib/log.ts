@@ -46,7 +46,7 @@ function sanitize(fields: LogFields): LogFields {
   return out;
 }
 
-function emit(level: "info" | "warn" | "error", event: string, fields: LogFields): void {
+function emit(level: "debug" | "info" | "warn" | "error", event: string, fields: LogFields): void {
   let correlation: Record<string, unknown> = {};
   try {
     // Avoid hard import cycle: correlation lives in server/, log lives in lib/
@@ -82,6 +82,7 @@ function emit(level: "info" | "warn" | "error", event: string, fields: LogFields
   const text = JSON.stringify(line);
   if (level === "error") console.error(text);
   else if (level === "warn") console.warn(text);
+  else if (level === "debug") console.debug(text);
   else console.info(text);
 }
 
@@ -95,4 +96,8 @@ export function logWarn(event: string, fields: LogFields = {}): void {
 
 export function logError(event: string, fields: LogFields = {}): void {
   emit("error", event, fields);
+}
+
+export function logDebug(event: string, fields: LogFields = {}): void {
+  emit("debug", event, fields);
 }

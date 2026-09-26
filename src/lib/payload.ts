@@ -1,15 +1,21 @@
+import payloadContract from "../../contracts/print-payload-contract.json";
 import { z } from "zod";
 
-const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024;
+const MAX_PAYLOAD_BYTES = payloadContract.maxPayloadBytes;
+const PAYLOAD_TYPES = payloadContract.wireTypes as ["raw", "escpos", "pdf", "image"];
+const RAW_PROTOCOLS = payloadContract.rawProtocols as ["raw", "escpos", "zpl", "tspl"];
+const DRAWER_MODES = payloadContract.peripherals.drawer as ["pin2", "pin5", "none"];
+const CUTTER_MODES = payloadContract.peripherals.cutter as ["partial", "full", "none"];
+const BUZZER_MODES = payloadContract.peripherals.buzzer as ["epson_pulse", "star_bel", "none"];
 
 export const printJobPayloadSchema = z.object({
-  type: z.enum(["raw", "escpos", "pdf", "image"]),
-  encoding: z.literal("base64"),
-  protocol: z.enum(["escpos", "zpl", "tspl", "raw"]).optional(),
+  type: z.enum(PAYLOAD_TYPES),
+  encoding: z.literal(payloadContract.encoding),
+  protocol: z.enum(RAW_PROTOCOLS).optional(),
   peripherals: z.object({
-    drawer: z.enum(["pin2", "pin5", "none"]).optional(),
-    cutter: z.enum(["partial", "full", "none"]).optional(),
-    buzzer: z.enum(["epson_pulse", "star_bel", "none"]).optional(),
+    drawer: z.enum(DRAWER_MODES).optional(),
+    cutter: z.enum(CUTTER_MODES).optional(),
+    buzzer: z.enum(BUZZER_MODES).optional(),
   }).optional(),
   data: z.string().min(1).refine((value) => {
     if (value.length > (MAX_PAYLOAD_BYTES / 3) * 4 + 8) return false;
@@ -23,8 +29,8 @@ export const printJobPayloadSchema = z.object({
   }, { message: `payload.data must be valid base64 and decode to 1..${MAX_PAYLOAD_BYTES} bytes` }),
 }).superRefine((payload, ctx) => {
   const decoded = Buffer.from(payload.data, "base64");
-  const pdfSignature = Buffer.from("%PDF-");
-  const jpegSignature = decoded.length >= 3 && decoded[0] === 0xff && decoded[1] === 0xd8 && decoded[2] === 0xff;
+  const pdfSignature = Buffer.from(payloadContract.signatures.pdfPrefix);
+  const jpegSignature = decoded.length >= 3 && decoded.subarray(0, 3).equals(Buffer.from(payloadContract.signatures.jpegHexPrefix, "hex"));
   const looksLikePdf = decoded.length >= pdfSignature.length && decoded.subarray(0, pdfSignature.length).equals(pdfSignature);
 
   if (payload.type === "pdf" && !looksLikePdf) {
@@ -179,17 +185,17 @@ export function buildTestPrintPayloadForPrinter(
   const supported = Array.isArray(capabilities?.supported_protocols)
     ? capabilities.supported_protocols.map((p) => String(p).toLowerCase().trim())
     : [];
-  const byteCandidates = ["escpos", "zpl", "tspl", "raw"] as const;
+  const byteCandidates = RAW_PROTOCOLS;
   const declaredByteProtocol = byteCandidates.includes(declared as (typeof byteCandidates)[number])
     ? declared as (typeof byteCandidates)[number]
     : null;
   const allows = (candidate: string) => !hasExplicitCaps || supported.includes(candidate);
-  const byteTransportEligible =
-    conn === "usb" ||
-    (conn === "network" && declared !== "ipp" && declared !== "ipps");
+  // For a declared byte protocol, explicit capabilities can only confirm
+  // that protocol; they cannot replace it with another language. The Gateway
+  // routing contract fences physical byte transports to the declared protocol.
+  // Unknown byte transports remain dark until a protocol is explicitly declared.
   const byteProto =
     (declaredByteProtocol && allows(declaredByteProtocol) ? declaredByteProtocol : null) ??
-    (byteTransportEligible && hasExplicitCaps ? byteCandidates.find((candidate) => allows(candidate)) : null) ??
     "";
   const plainName = safeTestText(printerName);
   const plainAgent = safeTestText(agentName);

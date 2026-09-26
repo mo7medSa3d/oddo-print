@@ -23,15 +23,47 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
   useEffect(() => {
     if (isLoginPage) return;
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    function scheduleRefresh() {
+      timer = setTimeout(() => {
+        void refreshSession();
+      }, 13 * 60 * 1000);
+    }
+
+    async function refreshSession() {
+      try {
+        const refresh = await fetch("/api/platform/auth/refresh", {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!refresh.ok) {
+          if (!cancelled) router.replace("/platform/login");
+          return;
+        }
+        const data = await refresh.json().catch(() => null) as { expiresAt?: unknown } | null;
+        if (!cancelled && typeof data?.expiresAt === "string") {
+          setAuthenticated(true);
+          scheduleRefresh();
+        }
+      } catch {
+        if (!cancelled) router.replace("/platform/login");
+      }
+    }
 
     fetch("/api/platform/auth/me", { credentials: "include", cache: "no-store" })
-      .then((res) => {
+      .then(async (res) => {
         if (cancelled) return;
         if (res.ok) {
+          const data = await res.json().catch(() => null) as { exp?: unknown } | null;
           setAuthenticated(true);
-        } else {
-          router.replace("/platform/login");
+          if (typeof data?.exp === "number") {
+            scheduleRefresh();
+          }
+          return;
         }
+        await refreshSession();
       })
       .catch(() => {
         if (!cancelled) setAuthenticated(false);
@@ -39,6 +71,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
 
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [isLoginPage, router]);
 

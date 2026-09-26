@@ -90,13 +90,14 @@ describe("deep production review contracts", () => {
 
   it("keeps Manager session lifetime on PostgreSQL time", () => {
     const manager = read("src/lib/manager-auth.ts");
-    const tx = read("src/lib/manager-session-tx.ts");
+    const session = read("src/lib/session-tokens.ts");
     expect(manager).toContain("databaseNowMs");
     expect(manager).toContain("clock_timestamp()");
-    expect(manager).toContain("EXTRACT(EPOCH FROM clock_timestamp())");
     expect(manager).not.toContain("gatewayNowMs()");
     expect(manager).not.toContain("refreshClockSkew()");
-    expect(tx).toContain("SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms");
+    expect(session).toContain("SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms");
+    expect(session).toContain("clock_timestamp()");
+    expect(session).toContain("REFRESH_ROTATION_GRACE_MS = 5_000");
   });
 
   it("requires printer freshness and active billing entitlement at every delivery boundary", async () => {

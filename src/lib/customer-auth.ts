@@ -1,12 +1,22 @@
 import { db } from "../db";
 import { tenantUsers, authRateLimits } from "../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { authenticateCustomer, createManagerSession, managerCookieHeader, type ManagerRole } from "./manager-auth";
+import { authenticateCustomer, validateManager, validateManagerClaims, type ManagerRole, type ManagerClaims } from "./manager-auth";
 import { normalizeEmail } from "./password";
-import { createHash, createHmac, timingSafeEqual } from "crypto";
+import { createHmac, createHash, timingSafeEqual } from "crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { nanoid } from "./nanoid";
 import { requireActiveTenantOrNull } from "./tenant-guard";
+import {
+  accessCookieHeader,
+  clearAccessCookieHeader,
+  clearRefreshCookieHeader,
+  getAccessTokenFromRequest,
+  issueSessionPair,
+  refreshCookieHeader,
+  verifyAccessTokenSignature,
+  type SessionRequestContext,
+} from "./session-tokens";
 
 function getSecret(): string {
   const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
@@ -98,15 +108,70 @@ export async function verifyTenantSelectionToken(token: string): Promise<TenantS
   }
 }
 
-export async function issueCustomerSession(userId: string, tenantId: string, role: ManagerRole) {
+export async function issueCustomerSession(
+  userId: string,
+  tenantId: string,
+  role: ManagerRole,
+  context?: SessionRequestContext,
+  email?: string | null,
+) {
   const tenantLifecycle = await requireActiveTenantOrNull(tenantId);
   if (!tenantLifecycle) return null;
-  const session = await createManagerSession(tenantId, { userId, role });
-  return session;
+  return issueSessionPair({
+    kind: "customer",
+    userId,
+    tenantId,
+    role,
+    email: email ?? null,
+  }, context);
 }
 
-export function customerSessionCookie(session: { token: string; exp: Date }) {
-  return managerCookieHeader(session.token, session.exp);
+export function customerSessionCookie(session: { accessToken: string; accessExpiresAt: Date }) {
+  return accessCookieHeader("customer", session.accessToken, session.accessExpiresAt);
+}
+
+export function customerRefreshCookie(session: { refreshToken: string; refreshExpiresAt: Date }) {
+  return refreshCookieHeader("customer", session.refreshToken, session.refreshExpiresAt);
+}
+
+export function clearCustomerSessionCookie() {
+  return clearAccessCookieHeader("customer");
+}
+
+export function clearCustomerRefreshCookie() {
+  return clearRefreshCookieHeader("customer");
+}
+
+export async function validateCustomer(req: Request): Promise<ManagerClaims | null> {
+  const customerToken = getAccessTokenFromRequest(req, "customer");
+  if (customerToken) {
+    const versioned = verifyAccessTokenSignature(customerToken, "customer");
+    if (!versioned) return null;
+
+    const claims: ManagerClaims = {
+      jti: versioned.jti,
+      iat: versioned.iat,
+      exp: versioned.exp,
+      sub: "manager",
+      tenantId: versioned.tenantId!,
+      role: versioned.role as ManagerRole,
+      ...(versioned.userId ? { userId: versioned.userId } : {}),
+      ver: 2,
+      kind: "customer",
+      sid: versioned.sid,
+      familyId: versioned.familyId,
+    };
+    return validateManagerClaims(claims);
+  }
+
+  // Legacy customer JWTs predate the explicit session kind and lived in the
+  // historical manager cookie/session table. Only a legacy token may use this
+  // compatibility path; a v2 manager/customer token in the wrong cookie is
+  // rejected rather than being silently cross-accepted.
+  const managerToken = getAccessTokenFromRequest(req, "manager");
+  if (!managerToken) return null;
+  if (verifyAccessTokenSignature(managerToken, ["manager", "customer"])) return null;
+  return validateManager(req);
 }
 
 export async function authenticateForTenant(email: string, password: string, tenantId?: string) {

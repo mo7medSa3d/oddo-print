@@ -17,7 +17,7 @@ import {
   releaseUndeliveredClaim,
   type ClaimedJobRow,
 } from "../lib/job-delivery";
-import { logInfo, logWarn } from "../lib/log";
+import { logDebug, logInfo, logWarn } from "../lib/log";
 
 type AgentSocket = WebSocket & {
   agentId?: string;
@@ -241,12 +241,12 @@ async function verifyAndTrackAgentSocket(
     return true;
   } catch (error) {
     if (transactionOpen) {
-      try { await client.query("ROLLBACK"); } catch { /* preserve the original error */ }
+      try { await client.query("ROLLBACK"); } catch (error) { logDebug("[ws] rollback cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
     }
     // The close listener removes the map entry and corrects the global count.
     // Do not leave a registration behind if the transaction could not commit.
     if (tracked) {
-      try { ws.terminate(); } catch {}
+      try { ws.terminate(); } catch (error) { logDebug("[ws] socket terminate cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
     }
     throw error;
   } finally {
@@ -266,8 +266,9 @@ export function closeAgentSockets(agentId: string, lifecycleRevision: number): v
     }
     try {
       ws.close(4001, "agent deactivated");
-    } catch {
-      try { ws.terminate(); } catch {}
+    } catch (error) {
+      logDebug("[ws] deactivated-agent close failed", { error: error instanceof Error ? error.message : String(error) });
+      try { ws.terminate(); } catch (terminateError) { logDebug("[ws] deactivated-agent terminate cleanup failed", { error: terminateError instanceof Error ? terminateError.message : String(terminateError) }); }
     }
   }
 }
@@ -276,7 +277,7 @@ export function closeTenantSockets(tenantId: string): void {
   for (const [, set] of agentSockets) {
     for (const ws of set) {
       if (ws.tenantId === tenantId) {
-        try { ws.close(4001, "tenant suspended"); } catch { try { ws.terminate(); } catch {} }
+        try { ws.close(4001, "tenant suspended"); } catch (error) { logDebug("[ws] tenant-suspend close failed", { error: error instanceof Error ? error.message : String(error) }); try { ws.terminate(); } catch (terminateError) { logDebug("[ws] tenant-suspend terminate cleanup failed", { error: terminateError instanceof Error ? terminateError.message : String(terminateError) }); } }
       }
     }
   }
@@ -287,7 +288,7 @@ export async function publishAgentSessionClose(agentId: string): Promise<void> {
   try {
     await client.query("SELECT pg_notify($1, $2)", [PG_SESSIONS_CHANNEL, JSON.stringify({ agentId })]);
   } finally {
-    try { client.release(); } catch {}
+    try { client.release(); } catch (error) { logDebug("[ws] pool client release failed", { error: error instanceof Error ? error.message : String(error) }); }
   }
 }
 
@@ -296,7 +297,7 @@ export async function publishTenantSessionClose(tenantId: string): Promise<void>
   try {
     await client.query("SELECT pg_notify($1, $2)", [PG_SESSIONS_CHANNEL, JSON.stringify({ tenantId })]);
   } finally {
-    try { client.release(); } catch {}
+    try { client.release(); } catch (error) { logDebug("[ws] pool client release failed", { error: error instanceof Error ? error.message : String(error) }); }
   }
 }
 
@@ -328,8 +329,12 @@ function writeWsHttpError(socket: WritableSocket, status: number, body: string, 
 
   try {
     socket.end(response);
-  } catch {
-    try { socket.destroy(); } catch {}
+  } catch (error) {
+    // Best-effort teardown of a rejected upgrade: the caller already knows the
+    // outcome (the HTTP error response it just wrote), so this stays swallowed,
+    // but both halves are now visible at debug level.
+    logDebug("[ws] HTTP socket end failed during rejected upgrade", { error: error instanceof Error ? error.message : String(error) });
+    try { socket.destroy(); } catch (destroyError) { logDebug("[ws] HTTP socket destroy cleanup failed", { error: destroyError instanceof Error ? destroyError.message : String(destroyError) }); }
   }
 }
 
@@ -437,7 +442,7 @@ function trackAgentSocket(agentId: string, ws: AgentSocket) {
     const oldest = set.values().next().value as AgentSocket | undefined;
     if (!oldest) break;
     uncountAgentSocket(oldest);
-    try { oldest.terminate(); } catch {}
+    try { oldest.terminate(); } catch (error) { logDebug("[ws] oldest socket terminate cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
     set.delete(oldest);
   }
   set.add(ws);
@@ -486,7 +491,7 @@ export function sendToAgent(agentId: string, message: unknown): boolean {
       logWarn(`[ws] send to agent ${agentId} failed; removing socket:`, { error: e });
       set.delete(target);
       uncountAgentSocket(target);
-      try { target.terminate(); } catch {}
+      try { target.terminate(); } catch (error) { logDebug("[ws] failed-send socket terminate cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
     }
   }
   if (set.size === 0) agentSockets.delete(agentId);
@@ -617,7 +622,21 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
 
 export async function handleAgentMessage(agentId: string, tenantId: string, raw: string): Promise<void> {
   let msg: unknown;
-  try { msg = JSON.parse(raw); } catch { return; }
+  try {
+    msg = JSON.parse(raw);
+  } catch (error) {
+    // A malformed frame here drops an inbound agent message (e.g. a job_ack)
+    // with no trace at all. Nothing can be recovered from unparseable JSON, so
+    // this stays a return, but it is no longer silent: a debugging session can
+    // see the agent id and the parse failure at debug level.
+    logDebug("[ws] discarded unparseable agent message", {
+      agentId,
+      tenantId,
+      bytes: raw.length,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
   if (!msg || typeof msg !== "object") return;
   const { type, jobId, claimToken } = msg as { type?: unknown; jobId?: unknown; claimToken?: unknown };
   if (type !== "job_ack") return;
@@ -730,7 +749,7 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
     if (activeClient !== client) return;
     activeClient = null;
     notificationListenerPid = null;
-    try { client.release(true); } catch {}
+    try { client.release(true); } catch (error) { logDebug("[ws] listener client release failed", { error: error instanceof Error ? error.message : String(error) }); }
     if (!stopped) scheduleReconnect();
   };
 
@@ -759,15 +778,15 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
         // the mid-setup 'error' handler above no-ops for the same reason).
         // Without this release the pool slot leaks; without the rethrow
         // below no reconnect is scheduled and push delivery dies silently.
-        try { client.release(true); } catch {}
+        try { client.release(true); } catch (error) { logDebug("[ws] listener client release failed", { error: error instanceof Error ? error.message : String(error) }); }
         throw listenError;
       }
       if (stopped) {
         // Startup raced shutdown between LISTEN and adoption: release
         // cleanly instead of leaking a live listener nobody owns.
-        try { await client.query(`UNLISTEN ${PG_NOTIFY_CHANNEL}`); } catch {}
-        try { await client.query(`UNLISTEN ${PG_SESSIONS_CHANNEL}`); } catch {}
-        try { await client.query(`UNLISTEN ${PG_DISCOVERY_CHANNEL}`); } catch {}
+        try { await client.query(`UNLISTEN ${PG_NOTIFY_CHANNEL}`); } catch (error) { logDebug("[ws] UNLISTEN jobs cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
+        try { await client.query(`UNLISTEN ${PG_SESSIONS_CHANNEL}`); } catch (error) { logDebug("[ws] UNLISTEN sessions cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
+        try { await client.query(`UNLISTEN ${PG_DISCOVERY_CHANNEL}`); } catch (error) { logDebug("[ws] UNLISTEN discovery cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
         client.release();
         return;
       }
@@ -801,10 +820,10 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
     activeClient = null;
     notificationListenerPid = null;
     if (!client) return;
-    try { await client.query(`UNLISTEN ${PG_NOTIFY_CHANNEL}`); } catch {}
-    try { await client.query(`UNLISTEN ${PG_SESSIONS_CHANNEL}`); } catch {}
-    try { await client.query(`UNLISTEN ${PG_DISCOVERY_CHANNEL}`); } catch {}
-    try { client.release(); } catch {}
+    try { await client.query(`UNLISTEN ${PG_NOTIFY_CHANNEL}`); } catch (error) { logDebug("[ws] UNLISTEN jobs cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
+    try { await client.query(`UNLISTEN ${PG_SESSIONS_CHANNEL}`); } catch (error) { logDebug("[ws] UNLISTEN sessions cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
+    try { await client.query(`UNLISTEN ${PG_DISCOVERY_CHANNEL}`); } catch (error) { logDebug("[ws] UNLISTEN discovery cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
+    try { client.release(); } catch (error) { logDebug("[ws] pool client release failed", { error: error instanceof Error ? error.message : String(error) }); }
   };
 }
 
@@ -821,7 +840,7 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
       const a = ws as AgentSocket;
       if (a.isAlive === false) { a.terminate(); return; }
       a.isAlive = false;
-      try { a.ping(); } catch {}
+      try { a.ping(); } catch (error) { logDebug("[ws] ping failed during heartbeat", { error: error instanceof Error ? error.message : String(error) }); }
     });
   }, 30_000);
   wss.on("close", () => clearInterval(interval));
@@ -851,9 +870,9 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
   server.once("close", () => {
     stopped = true;
     for (const ws of wss.clients) {
-      try { ws.terminate(); } catch {}
+      try { ws.terminate(); } catch (error) { logDebug("[ws] socket terminate cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
     }
-    try { wss.close(); } catch {}
+    try { wss.close(); } catch (error) { logDebug("[ws] WSS close cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
     void stopNotificationListener?.();
   });
 
@@ -967,8 +986,9 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
               if (!accepted) {
                 try {
                   ws.close(4001, "agent lifecycle changed during WebSocket upgrade");
-                } catch {
-                  try { ws.terminate(); } catch {}
+                } catch (error) {
+                  logDebug("[ws] lifecycle-change close failed", { error: error instanceof Error ? error.message : String(error) });
+                  try { ws.terminate(); } catch (terminateError) { logDebug("[ws] lifecycle-change terminate cleanup failed", { error: terminateError instanceof Error ? terminateError.message : String(terminateError) }); }
                 }
                 return;
               }
@@ -983,8 +1003,9 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
               logUpgradeError(error);
               try {
                 ws.close(1011, "agent lifecycle verification failed");
-              } catch {
-                try { ws.terminate(); } catch {}
+              } catch (closeError) {
+                logDebug("[ws] lifecycle-verification close failed", { error: closeError instanceof Error ? closeError.message : String(closeError) });
+                try { ws.terminate(); } catch (terminateError) { logDebug("[ws] lifecycle-verification terminate cleanup failed", { error: terminateError instanceof Error ? terminateError.message : String(terminateError) }); }
               }
             }
           })();
@@ -999,7 +1020,7 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
       if (!socket.destroyed && !socket.writableEnded) {
           writeWsHttpError(socket, 500, "WebSocket upgrade failed");
         } else {
-          try { socket.destroy(); } catch {}
+          try { socket.destroy(); } catch (error) { logDebug("[ws] HTTP socket destroy cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
         }
       }
   });
@@ -1013,13 +1034,13 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
       const bucket = getBucketForAgent(agentId);
       if (!bucket.consume()) {
         void incrementMetric("websocket_messages_rate_limited_total");
-        try { ws.close(4429, "message rate limit exceeded"); } catch {}
+        try { ws.close(4429, "message rate limit exceeded"); } catch (error) { logDebug("[ws] rate-limit close failed", { error: error instanceof Error ? error.message : String(error) }); }
         return;
       }
       const inFlight = wsMessageInFlightByAgentId.get(agentId) ?? 0;
       if (inFlight >= MAX_WS_INFLIGHT_MESSAGES_PER_AGENT) {
         void incrementMetric("websocket_messages_inflight_limited_total");
-        try { ws.close(4429, "too many messages in flight"); } catch {}
+        try { ws.close(4429, "too many messages in flight"); } catch (error) { logDebug("[ws] inflight-limit close failed", { error: error instanceof Error ? error.message : String(error) }); }
         return;
       }
       wsMessageInFlightByAgentId.set(agentId, inFlight + 1);
@@ -1031,7 +1052,7 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
           else wsMessageInFlightByAgentId.set(agentId, remaining);
         });
     });
-    ws.on("error", () => { try { ws.close(); } catch {} });
+    ws.on("error", () => { try { ws.close(); } catch (error) { logDebug("[ws] error-handler close cleanup failed", { error: error instanceof Error ? error.message : String(error) }); } });
   });
 
   return wss;

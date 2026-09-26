@@ -14,7 +14,7 @@ export const MAX_UNAUTHENTICATED_CONCURRENT_BYTES = 8 * 1024 * 1024;
 export const MAX_CONCURRENT_CHUNKED_BYTES = MAX_AUTHENTICATED_CONCURRENT_BYTES;
 
 const MUTATING_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
-const SESSION_COOKIE_RE = /(?:^|;\s*)(?:mgr_session|plt_session)=/;
+const SESSION_COOKIE_RE = /(?:^|;\s*)(?:(?:mgr_session|cust_session|plt_session))=/;
 let reservedAuthBytes = 0;
 let reservedUnauthBytes = 0;
 
@@ -185,7 +185,7 @@ export function isLikelyAuthenticated(req: IncomingMessage): boolean {
   const cookie = headers["cookie"];
   const cookieHeader = typeof cookie === "string" ? cookie : Array.isArray(cookie) ? cookie[0] : "";
   if (cookieHeader) {
-    const match = /(?:mgr_session|plt_session)=([^;]+)/.exec(cookieHeader);
+    const match = /(?:(?:mgr_session|cust_session|plt_session))=([^;]+)/.exec(cookieHeader);
     if (match && match[1] && verifyJwtQuick(match[1].trim())) {
       return true;
     }

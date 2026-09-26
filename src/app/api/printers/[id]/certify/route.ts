@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import type { InferSelectModel } from "drizzle-orm";
 import { db } from "../../../../../db";
-import { printers, agents } from "../../../../../db/schema";
-import { validateManager } from "../../../../../lib/manager-auth";
+import { printJobs, printers, agents } from "../../../../../db/schema";
+import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
 import { nanoid } from "../../../../../lib/nanoid";
@@ -37,20 +38,31 @@ const CERTIFICATION_STEPS = [
   { id: "physical", label: "Physical", description: "Physical paper verification (BLOCKED if no hardware)" },
   { id: "ack", label: "Ack", description: "Agent ack success — observed from job status" },
   { id: "final", label: "Final", description: "Certification complete" },
-];
+] as const;
+
+type CertificationStepStatus = "ok" | "error" | "blocked" | "pending" | "running";
+type CertificationStep = (typeof CERTIFICATION_STEPS)[number] & {
+  status: CertificationStepStatus;
+  at: string | null;
+  message: string;
+  evidence: string;
+};
+type PrintJobRow = InferSelectModel<typeof printJobs>;
+type AgentRow = InferSelectModel<typeof agents>;
+type PrinterRow = InferSelectModel<typeof printers>;
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: printerId } = await params;
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
-  const requestId = requestIdFrom(req as any) || generateRequestId();
+  const requestId = requestIdFrom(req) || generateRequestId();
   const attemptId = generateAttemptId();
   const tenantId = claims.tenantId;
 
-  return runWithCorrelation({ requestId, tenantId, printerId, attemptId } as any, async () => {
-    const steps: any[] = CERTIFICATION_STEPS.map(s => ({ ...s, status: "pending" as const, at: null as string | null, message: "", evidence: "" }));
+  return runWithCorrelation({ requestId, tenantId, printerId, attemptId }, async () => {
+    const steps: CertificationStep[] = CERTIFICATION_STEPS.map(s => ({ ...s, status: "pending" as const, at: null, message: "", evidence: "" }));
     function setStep(id: string, status: "ok" | "error" | "blocked" | "pending" | "running", message: string, evidence?: string) {
       const st = steps.find(s => s.id === id);
       if (st) {
@@ -72,7 +84,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       setStep("auth", "error", "Printer not found or not owned by tenant", `printerId=${printerId} tenantId=${tenantId}`);
       return NextResponse.json({ printerId, requestId, steps, certified: false, blocked: false }, { headers: { "x-request-id": requestId } });
     }
-    const printer = printerRows[0] as any;
+    const printer: PrinterRow = printerRows[0];
     setStep("auth", "ok", `Printer ${printer.name} owned by tenant`, `printerId=${printerId} agentId=${printer.agentId}`);
 
     let capability;
@@ -112,14 +124,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const payload = testPage
         ? {
             type: "raw" as const,
-            protocol: (printer.protocol === "unknown" ? "raw" : printer.protocol) as any,
+            protocol: printer.protocol === "unknown" ? ("raw" as const) : printer.protocol,
             data: Buffer.from(
               `YASSER TEST PAGE\nPrinter: ${printer.name}\nTenant: ${tenantId}\nJob: ${idempotencyKey}\nRequest: ${requestId}\nTime: ${new Date().toISOString()}\nTransport: ${printer.connectionType}/${printer.protocol}\n\nThis is a diagnostic test page for certification.\nNo credentials are printed.\n`.repeat(2)
             ).toString("base64"),
           }
         : {
             type: "raw" as const,
-            protocol: (printer.protocol === "unknown" ? "raw" : printer.protocol) as any,
+            protocol: printer.protocol === "unknown" ? ("raw" as const) : printer.protocol,
             data: Buffer.from(`CERTIFICATION ${idempotencyKey} ${requestId}`).toString("base64"),
           };
 
@@ -164,8 +176,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return NextResponse.json({ error: e.message, code: e.code, steps, capability }, { status: 429, headers: { "x-request-id": requestId, "Retry-After": "60" } });
       }
       if (e instanceof TenantSubscriptionRequiredError || e instanceof TenantEntitlementConfigError) {
-        setStep("queue", "error", e.message, `code=${(e as any).code}`);
-        return NextResponse.json({ error: (e as any).message, code: (e as any).code, steps, capability }, { status: 403, headers: { "x-request-id": requestId } });
+        // Both classes declare a literal `readonly code`, so the union narrowed
+        // by these two instanceof checks exposes `code`/`message` directly.
+        setStep("queue", "error", e.message, `code=${e.code}`);
+        return NextResponse.json({ error: e.message, code: e.code, steps, capability }, { status: 403, headers: { "x-request-id": requestId } });
       }
       if (e instanceof AgentQueueFullError || e instanceof AgentQueuedJobsFullError) {
         setStep("queue", "blocked", `Agent queue full: ${e.message}`, `agentId=${e.agentId} limit=${MAX_AGENT_IN_FLIGHT_JOBS}`);
@@ -179,7 +193,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         setStep("queue", "error", e.message, `code=${e.code}`);
         return NextResponse.json({ error: e.message, code: e.code, steps, capability }, { status: e.status, headers: { "x-request-id": requestId } });
       }
-      if ((e as any)?.code === "IDEMPOTENCY_CONFLICT") {
+      // Same typed-unknown idiom as api/print/jobs/route.ts: the conflict is a
+      // plain Error carrying a `code` property, so narrow before reading it.
+      if (e instanceof Error && (e as Error & { code?: string }).code === "IDEMPOTENCY_CONFLICT") {
         setStep("queue", "error", "Idempotency conflict: same key but different payload", `key conflict`);
         return NextResponse.json({ error: "Idempotency conflict", code: "IDEMPOTENCY_CONFLICT", steps, capability }, { status: 409, headers: { "x-request-id": requestId } });
       }
@@ -190,10 +206,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     // Now derive state-driven steps from actual job row, not inferred
     // Fetch fresh job row
-    let freshJob: any = null;
+    let freshJob: PrintJobRow | null = null;
     let jobStateLookupFailed = false;
     try {
-      const { printJobs } = await import("../../../../../db/schema");
       const rows = await db.select().from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.id, jobId!))).limit(1);
       freshJob = rows[0] ?? null;
       if (freshJob) jobStatus = freshJob.status;
@@ -227,7 +242,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       setStep("agent", "pending", "Waiting for job row", `jobId=${jobId}`);
     } else if (freshJob.status === "queued") {
       // Check agent health but don't claim PASS — pending unless claimed
-      let agent: any = null;
+      let agent: AgentRow | null = null;
       let agentLookupFailed = false;
       try {
         const agentRows = await db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, printer.agentId))).limit(1);

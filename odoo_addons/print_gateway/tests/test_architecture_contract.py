@@ -100,6 +100,8 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn('widget="gateway_runtime_printer"', source)
         # Verbose legacy labels must stay out of the simplified form.
         self.assertNotIn("Hardware Print Binding", source)
+        self.assertIn('string="Odoo Preparation Printer"', source)
+        self.assertIn("Gateway Runtime Printer remains the physical target", source)
 
     def test_database_utc_clock_is_the_shared_scheduler_clock(self):
         clock = (ADDON / "runtime_clock.py").read_text(encoding="utf-8")
@@ -295,6 +297,47 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         prefix = source[max(0, method_idx - 80):method_idx]
         self.assertIn("@api.private", prefix)
 
+    def test_kitchen_gateway_preserves_odoo19_preparation_category_scope(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("const gatewayCategories = this.config.printerCategories;", source)
+        self.assertNotIn('this.models["product.product"].getAll()', source)
+
+    def test_kitchen_gateway_fails_closed_on_missing_station_binding(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("missing_routes", source)
+        self.assertIn("uncovered", source)
+        self.assertIn("Printing was cancelled to prevent silently losing kitchen tickets.", source)
+        model_source = (MODELS / "pos_order.py").read_text(encoding="utf-8")
+        self.assertIn('"missing_routes": missing', model_source)
+
+    def test_kitchen_router_supports_both_odoo_19_printer_relations(self):
+        source = (MODELS / "print_router.py").read_text(encoding="utf-8")
+        self.assertIn('getattr(order.config_id, "preparation_printer_ids", None)', source)
+        self.assertIn("order.config_id.printer_ids", source)
+
+    def test_kitchen_gateway_supports_both_odoo_19_printer_relations(self):
+        source = (ADDON / "models/pos_order.py").read_text(encoding="utf-8")
+        self.assertIn('getattr(self.config_id, "preparation_printer_ids", None)', source)
+        self.assertIn("self.config_id.printer_ids", source)
+
+    def test_kitchen_gateway_preserves_odoo_preparation_printer_routing(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("get_gateway_kitchen_routes", source)
+        self.assertIn("routeCategories", source)
+        self.assertIn("pos_printer_id", source)
+        self.assertIn("const retryAttempt = printers instanceof Set;", source)
+        self.assertIn("requestedPrinterIds", source)
+        self.assertIn("kitchenRoutes.routes.filter", source)
+
+    def test_kitchen_retry_and_reprint_use_fresh_gateway_operations(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("if (reprint || !orderChange.__gateway_print_id)", source)
+        self.assertIn('"kitchen-retry-" + crypto.randomUUID()', source)
+        self.assertIn("retry: () =>", source)
+        self.assertIn("const retryPrinters = new Set();", source)
+        self.assertIn("this.printChanges(order, orderChange, reprint, retryPrinters)", source)
+        self.assertNotIn("retryItems", source)
+
     def test_pos_gateway_unknown_outcome_cannot_enter_core_retry_path(self):
         source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
         self.assertIn("import { RetryPrintPopup }", source)
@@ -306,6 +349,28 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("continue;", ambiguous_block)
         self.assertNotIn("retryPrinters.add(printer)", ambiguous_block)
         self.assertIn('const recordPrintAttempt = !["failed", "unknown", "partial"].includes(result?.status);', source)
+
+    def test_report_action_preserves_odoo19_layout_configuration_gate(self):
+        source = (MODELS / "ir_actions_report.py").read_text(encoding="utf-8")
+        self.assertIn("external_report_layout_id", source)
+        self.assertIn('self.env.context.get("discard_logo_check")', source)
+        layout_idx = source.index("external_report_layout_id")
+        access_idx = source.index("_assert_report_usage_access(self.env, self)")
+        route_idx = source.index("route = router.route_report(self, records, data=data)")
+        self.assertLess(layout_idx, access_idx)
+        self.assertLess(access_idx, route_idx)
+
+    def test_report_binding_selection_is_fenced_against_dispatch_toctou(self):
+        router = (MODELS / "print_router.py").read_text(encoding="utf-8")
+        binding = (MODELS / "binding.py").read_text(encoding="utf-8")
+        self.assertIn("def route_report(self, report, records, data=None, explicit_binding=None):", router)
+        route_start = router.index("def route_report(self, report, records, data=None, explicit_binding=None):")
+        route_block = router[route_start:route_start + 2600]
+        self.assertGreaterEqual(route_block.count("explicit_binding=explicit_binding or None"), 2)
+        self.assertIn(
+            "route = router.route_report(report, records, data=data, explicit_binding=binding)",
+            binding,
+        )
 
     def test_report_interceptor_malformed_response_is_fail_closed(self):
         source = (ADDON / "static/src/js/report_interceptor.js").read_text(encoding="utf-8")

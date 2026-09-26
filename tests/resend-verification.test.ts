@@ -27,6 +27,7 @@ vi.mock("../src/lib/email", () => ({
 vi.mock("../src/lib/auth-rate-limit", () => ({
   clientIpFrom: () => "127.0.0.1",
   reserveAuthAttempt: vi.fn().mockResolvedValue({ allowed: true }),
+  setRateLimitHeaders: (response: Response) => response,
 }));
 
 import { POST } from "../src/app/api/auth/resend-verification/route";

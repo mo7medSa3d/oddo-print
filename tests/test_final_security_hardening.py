@@ -117,6 +117,36 @@ def test_gateway_connection_test_result_uses_independent_cursor():
     assert "serialization conflict cannot abort the whole Odoo request" in body
 
 
+def test_odoo_dynamic_table_identifiers_are_composed_safely():
+    sources = list(ADDON.rglob("*.py"))
+    assert sources
+    for path in sources:
+        source = path.read_text(encoding="utf-8")
+        assert "% self._table" not in source
+        assert "{self._table}" not in source
+        assert "f\"SELECT" not in source
+        assert "f'SELECT" not in source
+
+    for path in (
+        ADDON / "models" / "gateway_config.py",
+        ADDON / "migrations" / "19.0.2.3.0" / "post-migrate.py",
+    ):
+        source = path.read_text(encoding="utf-8")
+        assert "psycopg2 import sql" in source
+        assert "sql.Identifier(" in source
+
+def test_ci_carries_failing_supply_chain_gates():
+    workflow = read(".github/workflows/ci.yml")
+    assert "- name: npm supply-chain audit" in workflow
+    assert "          npm audit" in workflow
+    assert "go install golang.org/x/vuln/cmd/govulncheck@v1.8.0" in workflow
+    assert '"$(go env GOPATH)/bin/govulncheck" ./...' in workflow
+    assert "- name: Rust supply-chain audit" in workflow
+    assert "cargo install cargo-audit --version 0.22.2 --locked" in workflow
+    assert "          cargo audit" in workflow
+    assert "|| true" not in workflow[workflow.index("- name: npm supply-chain audit"):workflow.index("- name: Typecheck")]
+    assert "|| true" not in workflow[workflow.index("- name: Rust supply-chain audit"):workflow.index("- name: Typecheck")]
+
 def test_tauri_renderer_cannot_supply_authorization_headers():
     rust = (ROOT / "src-tauri" / "src" / "commands.rs").read_text(encoding="utf-8")
     assert 'name.eq_ignore_ascii_case("authorization")' in rust
@@ -125,23 +155,26 @@ def test_tauri_renderer_cannot_supply_authorization_headers():
     assert 'request = request.bearer_auth(token)' in rust
 
 
-def test_tauri_manager_token_is_not_persisted_in_webview_storage():
+def test_tauri_manager_tokens_never_enter_webview_storage():
     ipc = (ROOT / "src" / "desktop" / "lib" / "ipc.ts").read_text(encoding="utf-8")
-    assert "function getBrowserManagerToken" in ipc
-    assert "if (isTauri || typeof window === \"undefined\") return null;" in ipc
-    assert "if (!isTauri && data.accessToken) setBrowserManagerToken(data.accessToken);" in ipc
+    rust = (ROOT / "src-tauri" / "src" / "commands.rs").read_text(encoding="utf-8")
     assert 'invoke("clear_manager_session")' in ipc
-    # Tauri path must not write the access token into sessionStorage.
-    assert "if (isTauri || typeof window === \"undefined\") return;\n  try {\n    window.sessionStorage.setItem" in ipc
-
+    assert "sessionStorage.setItem" not in ipc
+    assert "localStorage.setItem" not in ipc
+    assert "refreshToken?: string" in ipc
+    assert 'object.remove("accessToken")' in rust
+    assert 'object.remove("refreshToken")' in rust
 
 def test_nextjs_has_explicit_csp():
-    source = (ROOT / "next.config.ts").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "server" / "content-security-policy.ts").read_text(encoding="utf-8")
     for directive in ("default-src", "script-src", "style-src", "img-src", "connect-src", "font-src", "frame-ancestors", "object-src", "base-uri", "form-action"):
         assert directive in source
-    assert 'frame-ancestors \'none\'' in source
-    assert 'object-src \'none\'' in source
-    assert 'form-action \'self\'' in source
+    assert "frame-ancestors 'none'" in source
+    assert "object-src 'none'" in source
+    assert "form-action 'self'" in source
+    assert "script-src 'self' 'nonce-" in source
+    assert "'strict-dynamic'" in source
+    assert "script-src 'self' 'unsafe-inline'" not in source
 
 
 def test_manifest_declares_crypto_dependency_and_migration_version():
@@ -176,19 +209,21 @@ def test_deployment_document_matches_declared_toolchain_contract():
     assert "`APP_BASE_URL`" in deployment
     assert "`SESSION_SECRET`" not in deployment
 
-def test_job_timeline_is_manager_scoped_not_agent_console_scoped():
+def test_job_timeline_is_workspace_manager_scoped_not_agent_console_scoped():
     route = read("src/app/api/jobs/[id]/timeline/route.ts")
-    assert 'import { validateManager } from "../../../../../lib/manager-auth";' in route
+    assert 'import { validateWorkspaceManager } from "../../../../../lib/manager-auth";' in route
     assert "validateConsoleAuth" not in route
     assert "const tenantId = auth.tenantId;" in route
 
 
-def test_tauri_manager_login_token_stays_inside_rust():
+def test_tauri_manager_login_tokens_stay_inside_rust_boundary():
     rust = read("src-tauri/src/commands.rs")
     ipc = read("src/desktop/lib/ipc.ts")
     assert 'object.remove("accessToken")' in rust
+    assert 'object.remove("refreshToken")' in rust
     assert 'path == "/api/auth/manager/login"' in rust
-    assert "(!isTauri && !data.accessToken)" in ipc
+    assert "(isTauri && !data.accessToken)" in ipc
+    assert 'X-Refresh-Token' not in ipc
 
 
 def test_odoo_activation_can_always_disable_but_enable_is_subscription_gated():

@@ -1,4 +1,5 @@
 from odoo import api, SUPERUSER_ID
+from psycopg2 import sql
 
 
 def migrate(cr, version):
@@ -14,27 +15,29 @@ def migrate(cr, version):
     # table and columns; both names are dropped defensively for upgrades from
     # slightly different schema generations.
     cr.execute(
-        "ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s" % (
-            table,
-            table + "_company_id_branch_id_key",
+        sql.SQL("ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}").format(
+            sql.Identifier(table),
+            sql.Identifier(table + "_company_id_branch_id_key"),
         )
     )
     cr.execute(
-        "ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s" % (
-            table,
-            table + "_company_id_branch_id_uniq",
+        sql.SQL("ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}").format(
+            sql.Identifier(table),
+            sql.Identifier(table + "_company_id_branch_id_uniq"),
         )
     )
 
     # A company-level assignment is represented by branch_id IS NULL, never
     # by pointing branch_id back to the root company.
     cr.execute(
-        "UPDATE %s SET branch_id = NULL WHERE branch_id = company_id" % table
+        sql.SQL("UPDATE {} SET branch_id = NULL WHERE branch_id = company_id").format(
+            sql.Identifier(table),
+        )
     )
 
     cr.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s (company_id, branch_id, runtime_agent_id)" % (
-            table + "_company_branch_agent_uniq",
-            table,
+        sql.SQL("CREATE UNIQUE INDEX IF NOT EXISTS {} ON {} (company_id, branch_id, runtime_agent_id)").format(
+            sql.Identifier(table + "_company_branch_agent_uniq"),
+            sql.Identifier(table),
         )
     )

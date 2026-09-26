@@ -32,16 +32,18 @@ import {
 import { BrandMark } from "../components/brand";
 import {
   getManagerCookieName,
-  validateManagerClaims,
-  verifyManagerToken,
+  verifyWorkspaceTokenFromCookieValues,
 } from "../lib/manager-auth";
 import { hasManagerPermission } from "../lib/authorization";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
-  const claims = token ? await verifyManagerToken(token) : null;
+  const cookieStore = await cookies();
+  const claims = await verifyWorkspaceTokenFromCookieValues(
+    cookieStore.get("cust_session")?.value ?? null,
+    cookieStore.get(getManagerCookieName())?.value ?? null,
+  );
 
   if (claims) {
     const [tenant, subscription] = await Promise.all([

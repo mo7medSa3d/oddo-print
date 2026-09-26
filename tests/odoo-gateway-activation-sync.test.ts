@@ -181,7 +181,10 @@ describe("Odoo Gateway activation synchronization", () => {
     const client = read("odoo_addons/print_gateway/static/src/js/gateway_config_auto_sync.js");
 
     expect(model).toContain("expected_revision=None");
-    expect(model).toContain("SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE");
+    expect(model).toContain('sql.SQL("SELECT enabled_sync_revision FROM {} WHERE id = %s FOR UPDATE").format(sql.Identifier(self._table))');
+    expect(model).toContain('sql.SQL("SELECT enabled_sync_revision FROM {} WHERE id = %s FOR UPDATE NOWAIT").format(sql.Identifier(self._table))');
+    expect(model).not.toMatch(/(?:%|f)["'][^\n]*(?:self\._table|_table)[^\n]*["']/);
+    expect(model).not.toMatch(/["'][^\n]*%s[^\n]*["']\s*%\s*self\._table/);
     expect(model).toContain("int(row[0] or 0) != guard_revision");
     expect(model).toContain('"pending_sync_revision": next_revision');
     expect(model).toContain('"pending_sync_started_at": fields.Datetime.now()');

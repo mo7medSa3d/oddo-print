@@ -1,8 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { checkGateway } from "../src/lib/system-health";
+import { checkGateway, CURRENT_SCHEMA_VERSION } from "../src/lib/system-health";
 import * as fs from "fs";
 
 describe("system-health", () => {
+  it("derives schema version from the latest Drizzle migration", async () => {
+    const journal = await import("../drizzle/meta/_journal.json");
+    expect(CURRENT_SCHEMA_VERSION).toBe(Number(journal.default.entries.at(-1)?.tag?.slice(0, 4)));
+    expect(CURRENT_SCHEMA_VERSION).toBe(73);
+  });
   it("gateway check returns ok with heap and uptime", () => {
     const check = checkGateway();
     expect(check.name).toBe("Gateway");

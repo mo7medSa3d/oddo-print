@@ -542,7 +542,11 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 				if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 					continue
 				}
-				addrs, _ := iface.Addrs()
+				addrs, err := iface.Addrs()
+				if err != nil {
+					log.Printf("[discovery] failed to enumerate addresses for %s: %v", iface.Name, err)
+					continue
+				}
 				for _, addr := range addrs {
 					if ipNet, ok := addr.(*net.IPNet); ok {
 						if ip := ipNet.IP.To4(); ip != nil && ip.IsPrivate() {
@@ -589,7 +593,11 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 				if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 					continue
 				}
-				addrs, _ := iface.Addrs()
+				addrs, err := iface.Addrs()
+				if err != nil {
+					log.Printf("[discovery] failed to enumerate addresses for %s: %v", iface.Name, err)
+					continue
+				}
 				for _, addr := range addrs {
 					if ipNet, ok := addr.(*net.IPNet); ok {
 						if ip := ipNet.IP.To4(); ip != nil && ip.IsPrivate() {

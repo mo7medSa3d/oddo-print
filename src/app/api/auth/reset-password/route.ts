@@ -2,10 +2,13 @@ import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { db } from "../../../../db";
-import { managerSessions, platformSessions, passwordResetTokens, tenantUsers, users } from "../../../../db/schema";
+import { passwordResetTokens, tenantUsers, users } from "../../../../db/schema";
 import { and, eq, isNull, gt, sql } from "drizzle-orm";
 import { hashPassword, hashToken } from "../../../../lib/password";
 import { writeAuditEvent } from "../../../../lib/audit";
+import { revokeLegacyManagerSessionsForUserInTransaction } from "../../../../lib/manager-auth";
+import { revokeLegacyPlatformSessionsForUserInTransaction } from "../../../../lib/platform-auth";
+import { revokeUserRefreshFamiliesInTransaction } from "../../../../lib/session-tokens";
 
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
@@ -48,17 +51,14 @@ export async function POST(req: Request) {
         .returning({ id: users.id });
       if (updatedUser.length !== 1) throw new Error("Reset user missing");
 
-      // Revoke all tenant manager sessions for this user
-      await tx
-        .update(managerSessions)
-        .set({ revokedAt: sql`now()` })
-        .where(and(eq(managerSessions.userId, row.userId), isNull(managerSessions.revokedAt)));
+      // Revoke pre-cutover legacy sessions as part of the bounded compatibility window.
+      await revokeLegacyManagerSessionsForUserInTransaction(tx, row.userId);
+      await revokeLegacyPlatformSessionsForUserInTransaction(tx, row.userId);
 
-      // Revoke all platform owner sessions for this user
-      await tx
-        .update(platformSessions)
-        .set({ revokedAt: sql`now()` })
-        .where(and(eq(platformSessions.userId, row.userId), isNull(platformSessions.revokedAt)));
+      // Password reset is a session-boundary event: every v2 refresh family for
+      // the account must be revoked so an attacker holding an old refresh token
+      // cannot mint a new access token after the password changes.
+      await revokeUserRefreshFamiliesInTransaction(tx, row.userId, "password_reset");
 
       const membership = await tx.query.tenantUsers.findFirst({
         where: eq(tenantUsers.userId, row.userId),

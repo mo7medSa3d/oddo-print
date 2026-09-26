@@ -62,7 +62,9 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 	// Active preflight on the OPEN connection before normal ESC/POS document
 	// streaming. Test pages deliberately skip this optional status inquiry.
 	if preflight && strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
-		_ = conn.SetDeadline(time.Now().Add(1500 * time.Millisecond))
+		if err := conn.SetDeadline(time.Now().Add(1500 * time.Millisecond)); err != nil {
+			return fmt.Errorf("set printer health deadline: %w", err)
+		}
 		if _, err := QueryHealthStatus(conn); err != nil {
 			var netErr net.Error
 			if errors.Is(err, ErrPrinterStatusUnsupported) || (errors.As(err, &netErr) && netErr.Timeout()) {
@@ -72,7 +74,9 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 			}
 		}
 		// Reset read/write deadline
-		_ = conn.SetDeadline(time.Time{})
+		if err := conn.SetDeadline(time.Time{}); err != nil {
+			return fmt.Errorf("reset printer deadline: %w", err)
+		}
 	}
 
 	written := 0
@@ -90,7 +94,9 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 		if len(chunk) > networkWriteChunkSize {
 			chunk = chunk[:networkWriteChunkSize]
 		}
-		_ = conn.SetWriteDeadline(time.Now().Add(writeStallTimeout))
+		if err := conn.SetWriteDeadline(time.Now().Add(writeStallTimeout)); err != nil {
+			return fmt.Errorf("set printer write deadline: %w", err)
+		}
 		n, err := conn.Write(chunk)
 		written += n
 		if err != nil {
@@ -189,7 +195,9 @@ func (p *NetworkPrinter) Status() string {
 	if !strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
 		return "online"
 	}
-	_ = conn.SetDeadline(time.Now().Add(1500 * time.Millisecond))
+	if err := conn.SetDeadline(time.Now().Add(1500 * time.Millisecond)); err != nil {
+		return "error"
+	}
 	if _, err := QueryHealthStatus(conn); err != nil {
 		var netErr net.Error
 		if errors.Is(err, ErrPrinterStatusUnsupported) || (errors.As(err, &netErr) && netErr.Timeout()) {

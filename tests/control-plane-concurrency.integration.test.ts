@@ -9,13 +9,15 @@ import { POST as acceptInvitation } from "../src/app/api/team/invitations/accept
 import { POST as onboarding } from "../src/app/api/onboarding/route";
 import { POST as checkout } from "../src/app/api/billing/checkout/route";
 import { POST as startDiscovery } from "../src/app/api/agents/[id]/discovery/route";
-import { validateManager } from "../src/lib/manager-auth";
+import { validateManager, validateWorkspaceManager } from "../src/lib/manager-auth";
 import { requireManagerPermission } from "../src/lib/authorization";
 import { stripeRequest } from "../src/lib/stripe";
 import { applyMigrations, closePool, hasTestDatabase, truncateAll } from "./helpers/pg";
 
-vi.mock("../src/lib/manager-auth", () => ({
+vi.mock(import("../src/lib/manager-auth"), async (importOriginal) => ({
+  ...(await importOriginal()),
   validateManager: vi.fn(),
+  validateWorkspaceManager: vi.fn(),
 }));
 vi.mock("../src/lib/authorization", () => ({
   requireManagerPermission: vi.fn(),
@@ -32,6 +34,16 @@ suite("control-plane concurrency invariants", () => {
   beforeEach(async () => {
     await truncateAll();
     vi.mocked(validateManager).mockResolvedValue({
+
+      jti: "test-manager-jti-1234567890",
+      iat: Math.floor(Date.now() / 1000) - 10,
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      sub: "manager",
+      tenantId: "tenant_control_plane",
+      userId: "user_control_plane",
+      role: "owner",
+    });
+    vi.mocked(validateWorkspaceManager).mockResolvedValue({
       jti: "test-manager-jti-1234567890",
       iat: Math.floor(Date.now() / 1000) - 10,
       exp: Math.floor(Date.now() / 1000) + 3600,

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { lockDurationMs, accountKey, ipKey, clientIpFrom, cleanupAuthRateLimits, AUTH_RATE_RETENTION_MS } from "../src/lib/auth-rate-limit";
+import { lockDurationMs, ipLockDurationMs, pairingLockDurationMs, accountKey, ipKey, clientIpFrom, cleanupAuthRateLimits, setRateLimitHeaders } from "../src/lib/auth-rate-limit";
 import {
   hasTestDatabase,
   applyMigrations,
@@ -22,6 +22,29 @@ describe("auth rate limiter (pure)", () => {
     expect(lockDurationMs(10)).toBe(5 * 60_000);
     expect(lockDurationMs(15)).toBe(15 * 60_000);
     expect(lockDurationMs(20)).toBe(60 * 60_000);
+  });
+
+  it("uses a wider NAT-tolerant IP lock curve", () => {
+    expect(ipLockDurationMs(19)).toBe(0);
+    expect(ipLockDurationMs(20)).toBe(30_000);
+    expect(ipLockDurationMs(29)).toBe(30_000);
+    expect(ipLockDurationMs(30)).toBe(5 * 60_000);
+    expect(ipLockDurationMs(40)).toBe(15 * 60_000);
+    expect(ipLockDurationMs(50)).toBe(60 * 60_000);
+  });
+
+  it("sets the X-RateLimit compatibility headers from one decision", () => {
+    const response = new Response(null, { status: 200 });
+    setRateLimitHeaders(response, { allowed: true, limit: 5, remaining: 4, resetAtEpochSec: 1_800_000_000 });
+    expect(response.headers.get("X-RateLimit-Limit")).toBe("5");
+    expect(response.headers.get("X-RateLimit-Remaining")).toBe("4");
+    expect(response.headers.get("X-RateLimit-Reset")).toBe("1800000000");
+  });
+
+  it("uses the same authoritative lockout schedule for pairing", () => {
+    for (const failures of [0, 4, 5, 9, 10, 15, 20, 50]) {
+      expect(pairingLockDurationMs(failures)).toBe(lockDurationMs(failures));
+    }
   });
 
   it("normalizes account and IP keys", () => {
@@ -57,15 +80,19 @@ describe("auth rate limiter (pure)", () => {
 describe("atomic rate-limit reservation contract", () => {
   it("uses atomic reservation for all public authentication entrypoints", async () => {
     const { readFile } = await import("node:fs/promises");
-    const authFiles = [
-      "src/app/api/auth/login/route.ts",
-      "src/app/api/auth/manager/login/route.ts",
-      "src/app/api/auth/register/route.ts",
-      "src/app/api/auth/forgot-password/route.ts",
-    ];
-    for (const file of authFiles) {
+    const authContracts = [
+      ["src/app/api/auth/login/route.ts", "const ip = clientIpFrom(req);", "reserveAuthAttempt(ip, email)"],
+      ["src/app/api/auth/manager/login/route.ts", "const ip = clientIpFrom(req);", "reserveAuthAttempt(ip, username)"],
+      ["src/app/api/platform/auth/login/route.ts", "const clientIp = clientIpFrom(req);", "reserveAuthAttempt(clientIp, email)"],
+      ["src/app/api/auth/register/route.ts", "const ip = clientIpFrom(req);", "reserveAuthAttempt(ip, email)"],
+      ["src/app/api/auth/forgot-password/route.ts", "const ip = clientIpFrom(req);", "reserveAuthAttempt(ip, email)"],
+      ["src/app/api/auth/resend-verification/route.ts", "const ip = clientIpFrom(req);", "reserveAuthAttempt(ip, email)"],
+    ] as const;
+    for (const [file, ipExpression, reservationExpression] of authContracts) {
       const source = await readFile(file, "utf8");
-      expect(source).toContain("reserveAuthAttempt");
+      expect(source).toContain(ipExpression);
+      expect(source).toContain(reservationExpression);
+      expect(source).toContain("setRateLimitHeaders");
     }
     // Agent pairing has its own brute-force budget independent of the
     // account/user limiter, so it reserves from the pairing bucket only.
@@ -128,8 +155,13 @@ suite("manager login rate limiting", () => {
   it("legacy credentials mint an owner session for the exact configured tenant", async () => {
     const res = await login(USER, PASS);
     expect(res.status).toBe(200);
-    const session = await pool().query(`SELECT tenant_id, user_id, role FROM manager_sessions`);
-    expect(session.rows).toEqual([{ tenant_id: "tenant_rate_limit_test", user_id: null, role: "owner" }]);
+    const session = await pool().query(`SELECT tenant_id, user_id, role, kind FROM refresh_tokens`);
+    expect(session.rows).toEqual([{
+      tenant_id: "tenant_rate_limit_test",
+      user_id: null,
+      role: "owner",
+      kind: "manager",
+    }]);
   });
 
   it("legacy credentials cannot mint a session for a hostname-resolved different tenant", async () => {
@@ -139,7 +171,7 @@ suite("manager login rate limiting", () => {
     const res = await login(USER, PASS, "198.51.100.12", "tenant-b.test");
     expect(res.status).toBe(401);
     expect(res.headers.get("set-cookie")).toBeNull();
-    expect((await pool().query(`SELECT count(*)::int AS count FROM manager_sessions`)).rows[0].count).toBe(0);
+    expect((await pool().query(`SELECT count(*)::int AS count FROM refresh_tokens`)).rows[0].count).toBe(0);
   });
 
   it("normal tenant identity login remains available on a different tenant hostname", async () => {
@@ -152,8 +184,13 @@ suite("manager login rate limiting", () => {
 
     const res = await login(email, password, "198.51.100.13", "tenant-b.test");
     expect(res.status).toBe(200);
-    const session = await pool().query(`SELECT tenant_id, user_id, role FROM manager_sessions`);
-    expect(session.rows).toEqual([{ tenant_id: "tenant_b", user_id: "user_b", role: "admin" }]);
+    const session = await pool().query(`SELECT tenant_id, user_id, role, kind FROM refresh_tokens`);
+    expect(session.rows).toEqual([{
+      tenant_id: "tenant_b",
+      user_id: "user_b",
+      role: "admin",
+      kind: "manager",
+    }]);
   });
 
   it("repeated failures then 429 with Retry-After", async () => {
@@ -164,6 +201,9 @@ suite("manager login rate limiting", () => {
     const fifth = await login(USER, "wrong");
     expect(fifth.status).toBe(429);
     expect(fifth.headers.get("Retry-After")).not.toBeNull();
+    expect(fifth.headers.get("X-RateLimit-Limit")).toBe("5");
+    expect(fifth.headers.get("X-RateLimit-Remaining")).toBe("0");
+    expect(Number(fifth.headers.get("X-RateLimit-Reset"))).toBeGreaterThan(0);
     const body = await fifth.json();
     expect(body.error).toMatch(/too many/i);
   });
@@ -172,6 +212,9 @@ suite("manager login rate limiting", () => {
     const known = await login(USER, "wrong");
     const unknown = await login("no-such-user", "wrong", "198.51.100.11");
     expect(known.status).toBe(401);
+    expect(known.headers.get("X-RateLimit-Limit")).toBe("5");
+    expect(known.headers.get("X-RateLimit-Remaining")).not.toBeNull();
+    expect(known.headers.get("X-RateLimit-Reset")).not.toBeNull();
     expect(unknown.status).toBe(401);
     expect((await known.json()).error).toBe((await unknown.json()).error);
   });
@@ -193,6 +236,22 @@ suite("manager login rate limiting", () => {
     expect(ok.status).toBe(200);
   });
 
+  it("does not prematurely lock a shared NAT IP across different accounts", async () => {
+    for (let i = 0; i < 10; i++) {
+      const res = await login(`nat-user-${i}`, "wrong", "198.51.100.60");
+      expect(res.status).toBe(401);
+    }
+    const sharedIpRow = await pool().query(
+      `SELECT failures, locked_until FROM auth_rate_limits WHERE key = $1`,
+      ["ip:198.51.100.60"]
+    );
+    expect(Number(sharedIpRow.rows[0]?.failures ?? 0)).toBe(10);
+    expect(sharedIpRow.rows[0]?.locked_until).toBeNull();
+
+    const ok = await login(USER, PASS, "198.51.100.60");
+    expect(ok.status).toBe(200);
+  });
+
   it("successful login after cooldown recovers the account", async () => {
     for (let i = 0; i < 5; i++) {
       await login(USER, "wrong", "198.51.100.70");
@@ -205,8 +264,7 @@ suite("manager login rate limiting", () => {
   });
 
   it("removes only expired buckets and retains recent security state", async () => {
-    const staleAt = new Date(Date.now() - AUTH_RATE_RETENTION_MS - 60_000);
-    await pool().query(`INSERT INTO auth_rate_limits (key, failures, window_started_at, updated_at) VALUES ($1, 1, now() - interval '2 days', $2) ON CONFLICT (key) DO UPDATE SET updated_at = EXCLUDED.updated_at`, ["ip:stale", staleAt]);
+    await pool().query(`INSERT INTO auth_rate_limits (key, failures, window_started_at, updated_at) VALUES ($1, 1, now() - interval '2 days', clock_timestamp() - interval '24 hours' - interval '1 minute') ON CONFLICT (key) DO UPDATE SET updated_at = EXCLUDED.updated_at`, ["ip:stale"]);
     await pool().query(`INSERT INTO auth_rate_limits (key, failures, window_started_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (key) DO UPDATE SET updated_at = now()`, ["ip:fresh"]);
     const removed = await cleanupAuthRateLimits();
     expect(removed).toBeGreaterThanOrEqual(1);

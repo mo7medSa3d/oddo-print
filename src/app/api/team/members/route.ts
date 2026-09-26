@@ -2,14 +2,17 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, users } from "../../../../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { validateManager } from "../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { writeAuditEvent } from "../../../../lib/audit";
+import {
+  revokeUserTenantRefreshFamiliesInTransaction,
+} from "../../../../lib/session-tokens";
 
 const ASSIGNABLE_ROLES = ["admin", "operator", "viewer", "integration_admin", "billing_admin"] as const;
 
 export async function GET(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "users.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const rows = await db.select({ userId: tenantUsers.userId, email: users.email, role: tenantUsers.role, createdAt: tenantUsers.createdAt })
     .from(tenantUsers).innerJoin(users, eq(users.id, tenantUsers.userId)).where(eq(tenantUsers.tenantId, claims.tenantId));
@@ -17,7 +20,7 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let body: { userId?: unknown; role?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -44,6 +47,13 @@ export async function PATCH(req: Request) {
         .returning({ userId: tenantUsers.userId });
       if (updated.length !== 1) throw new TeamMemberConflict("Member changed concurrently; refresh and try again", 409);
 
+      await revokeUserTenantRefreshFamiliesInTransaction(
+        tx,
+        userId,
+        claims.tenantId,
+        "role_changed",
+      );
+
       await writeAuditEvent({
         tenantId: claims.tenantId,
         actorType: "user",
@@ -62,7 +72,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const userId = new URL(req.url).searchParams.get("userId") ?? "";
   if (!userId) return NextResponse.json({ error: "userId is required" }, { status: 400 });
@@ -85,6 +95,13 @@ export async function DELETE(req: Request) {
         ))
         .returning({ userId: tenantUsers.userId });
       if (deleted.length !== 1) throw new TeamMemberConflict("Member changed concurrently; refresh and try again", 409);
+
+      await revokeUserTenantRefreshFamiliesInTransaction(
+        tx,
+        userId,
+        claims.tenantId,
+        "member_removed",
+      );
 
       await writeAuditEvent({
         tenantId: claims.tenantId,

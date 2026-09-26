@@ -77,11 +77,7 @@ func isValidSpoolerPrinter(portName, driverName, printerName string) bool {
 }
 
 // isVirtualSpooler reports whether a Windows spooler queue is software-only.
-//
-// Deprecated: use ClassifyDevice / ClassifyDeviceInfo, which decide from the
-// full device metadata (port monitor, driver, PnP identifiers, transport)
-// instead of matching a fixed list of printer names. This wrapper only exists
-// so existing call sites and their tests keep their meaning.
+// It is used before a queue enters the managed printer inventory.
 func isVirtualSpooler(portName, driverName, printerName string) bool {
 	return ClassifyDevice(DeviceFacts{
 		Name:       printerName,
@@ -90,8 +86,8 @@ func isVirtualSpooler(portName, driverName, printerName string) bool {
 	}).IsVirtual
 }
 
-// classifySpoolerPrinter infers printerType and connectionType from PortName and DriverName.
-// Pure function, no Windows API, testable on all platforms.
+// classifySpoolerPrinter infers printer type and connection type from Windows
+// spooler metadata before the queue is persisted into the managed inventory.
 func classifySpoolerPrinter(portName, driverName, printerName string) (printerType, connectionType string) {
 	portLower := ""
 	if portName != "" {
@@ -138,8 +134,8 @@ func classifySpoolerPrinter(portName, driverName, printerName string) (printerTy
 	return
 }
 
-// mapWindowsStatus converts PRINTER_INFO_2.Status bits to our status.
-// Pure, testable on all platforms.
+// mapWindowsStatus converts Windows spooler status bits into the Gateway
+// status vocabulary, failing closed for unmodelled status bits.
 func mapWindowsStatus(status uint32, attributes uint32) string {
 	const (
 		PRINTER_STATUS_PAUSED            = 0x00000001
@@ -184,9 +180,6 @@ func mapWindowsStatus(status uint32, attributes uint32) string {
 	if status&PRINTER_STATUS_INITIALIZING != 0 || status&PRINTER_STATUS_WARMING_UP != 0 {
 		return "busy"
 	}
-	// Only status-zero or KNOWN-BENIGN bits prove a queue is ready. Any
-	// unmodelled bit set is reported honestly as "unknown" — never mapped
-	// to healthy.
 	const benignStatusBits = PRINTER_STATUS_PENDING_DELETION | PRINTER_STATUS_WAITING |
 		PRINTER_STATUS_TONER_LOW | PRINTER_STATUS_POWER_SAVE
 	if status&^benignStatusBits == 0 {
@@ -257,14 +250,4 @@ func spoolerIsIPLike(s string) bool {
 		}
 	}
 	return dots == 3 && parts >= 4
-}
-func spoolerStrconvAtoi(s string) (int, error) {
-	n := 0
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return 0, fmt.Errorf("invalid int")
-		}
-		n = n*10 + int(c-'0')
-	}
-	return n, nil
 }

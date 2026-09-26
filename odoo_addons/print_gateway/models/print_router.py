@@ -380,7 +380,7 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
-    def route_report(self, report, records, data=None):
+    def route_report(self, report, records, data=None, explicit_binding=None):
         report.ensure_one()
         report = _assert_report_usage_access(self.env, report)
         records = records.exists()
@@ -388,15 +388,31 @@ class PrintGatewayRouter(models.AbstractModel):
             if self._gateway_config(self.env.company):
                 raise ValidationError(_("Gateway printing requires at least one report record."))
             return {"gateway_enabled": False, "native": True}
-        route = self.resolve_binding(report=report, record=records[0], company=self.env.company)
+
+        route = self.resolve_binding(
+            report=report,
+            record=records[0],
+            company=self.env.company,
+            explicit_binding=explicit_binding or None,
+            payload_type="pdf",
+        )
         if route.get("native"):
             return route
+
+        selected_binding_id = route["binding"].id
         for record in records[1:]:
             if hasattr(record, "company_id") and record.company_id and record.company_id != self.env.company:
                 raise ValidationError(_("Selected records belong to conflicting routing scopes."))
-            candidate = self.resolve_binding(report=report, record=record, company=self.env.company)
-            if candidate["binding"].id != route["binding"].id:
+            candidate = self.resolve_binding(
+                report=report,
+                record=record,
+                company=self.env.company,
+                explicit_binding=explicit_binding or None,
+                payload_type="pdf",
+            )
+            if candidate["binding"].id != selected_binding_id:
                 raise ValidationError(_("The selected records resolve to different Print Bindings. Print them separately."))
+
         return self._submit_route(
             route=route,
             payload=self._render_pdf_payload(report, records, data=data),
@@ -450,17 +466,29 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
-    def route_kitchen_print(self, order, image_base64, *, reprint=False, idempotency_key=None):
+    def route_kitchen_print(self, order, image_base64, *, reprint=False, idempotency_key=None, pos_printer=None):
         order.ensure_one()
         self._assert_current_company(order.company_id, record=order)
         company = self.env.company
         self._validate_jpeg_base64(image_base64)
+        explicit_destination = order.config_id
+        if pos_printer:
+            pos_printer.ensure_one()
+            preparation_printers = getattr(order.config_id, "preparation_printer_ids", None)
+            if preparation_printers is None:
+                preparation_printers = order.config_id.printer_ids
+            if pos_printer not in preparation_printers:
+                raise ValidationError(_("The selected Odoo Preparation Printer does not belong to this POS."))
+            explicit_destination = pos_printer
         route = self.resolve_binding(
-            record=order, company=company, document_type="kitchen", explicit_destination=order.config_id,
+            record=order,
+            company=company,
+            document_type="kitchen",
+            explicit_destination=explicit_destination,
         )
         if route.get("native"):
             raise ValidationError(
-                _("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for the current POS Shop.")
+                _("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for the selected preparation printer.")
             )
         return self._submit_route(
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},

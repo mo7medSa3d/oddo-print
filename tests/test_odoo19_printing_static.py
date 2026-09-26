@@ -28,7 +28,7 @@ def test_gateway_mode_never_falls_back_to_core_printer_for_physical_pos_paths():
     assert "return super.printOrderChanges(data, printer)" in kitchen
 
 
-def test_gateway_pos_receipt_and_kitchen_do_not_require_native_odoo_printers_or_reports():
+def test_gateway_pos_receipt_and_kitchen_use_native_business_destinations():
     binding = read("models/binding.py")
     view = read("views/binding_views.xml")
     pos = read("models/pos_order.py")
@@ -40,23 +40,27 @@ def test_gateway_pos_receipt_and_kitchen_do_not_require_native_odoo_printers_or_
     assert 'record.document_type = "receipt"' in binding
     assert 'record.document_type = "kitchen"' in binding
     assert 'destination = record.report_id or record.destination_report_id' in binding
-    assert 'required="destination_type in (\'pos\', \'pos_printer\')"' in view
-    assert 'required="destination_type not in (\'pos\', \'pos_printer\')"' in view
-    assert 'name="destination_pos_printer_id" invisible="1"' in view
-    assert 'name="destination_report_id" invisible="1"' in view
-    assert 'name="report_id" string="Report"' in view
-    assert 'action_print_gateway_kitchen(self, image, reprint=False, operation_id=None)' in pos
-    assert 'def has_gateway_kitchen_binding(self):' in pos
-    assert 'def route_kitchen_print(self, order, image_base64' in router
-    assert 'explicit_destination=order.config_id' in router
-    assert 'printer_id: printer.config.id' not in js
-    assert 'has_gateway_kitchen_binding' in js
-    assert 'return super.printChanges(order, orderChange, reprint, printers)' in js
-    assert "async sendOrderInPreparation(order, opts = {})" in js
-    assert 'return super.sendOrderInPreparation(order, opts)' in js
-    assert "const gatewayCategories = new Set();" in js
-    assert "changesToOrder(order, gatewayCategories, opts.cancelled)" in js
-    assert "this.config.printerCategories.size" not in js
+    assert 'name="destination_pos_printer_id" string="Odoo Preparation Printer"' in view
+    assert 'invisible="destination_type != \'pos_printer\'"' in view
+    assert 'name="destination_pos_config_id" string="POS Shop"' in view
+    assert 'getattr(config, "preparation_printer_ids", None)' in binding
+    assert "config.printer_ids" in binding
+    assert "Odoo Preparation Printer must belong to an Odoo POS Preparation Printer configuration." in binding
+    assert 'action_print_gateway_kitchen(self, image, reprint=False, operation_id=None, pos_printer_id=None)' in pos
+    assert "def get_gateway_kitchen_routes(self):" in pos
+    assert 'getattr(self.config_id, "preparation_printer_ids", None)' in pos
+    assert "self.config_id.printer_ids" in pos
+    assert "pos_printer_id" in pos
+    assert "pos_printer=None" in router
+    assert "explicit_destination = pos_printer" in router
+    assert "get_gateway_kitchen_routes" in js
+    assert "routeCategories" in js
+    assert "missing_routes" in js
+    assert "printers = this.unwatched.printers" in js
+    assert "printers instanceof Set" in js
+    assert "kitchen-retry-" in js
+    assert "if (reprint || !orderChange.__gateway_print_id)" in js
+    assert "return super.sendOrderInPreparation(order, opts)" in js
 
 def test_project_does_not_add_parallel_browser_iot_or_epos_print_path():
     files = list((ADDON / "static").rglob("*.js")) + list((ADDON / "controllers").rglob("*.py"))
@@ -252,6 +256,87 @@ def test_gateway_sync_state_does_not_report_active_after_health_failure():
     assert 'record.gateway_sync_state = "active"' in compute[active_idx:]
 
 
+def test_gateway_report_group_check_uses_odoo19_effective_groups():
+    source = (ADDON / "models/binding.py").read_text(encoding="utf-8")
+    assert "env.user.all_group_ids.ids" in source
+    assert "env.user.groups_id.ids" not in source
+
+
+def test_gateway_pos_receipt_keeps_nb_print_in_sync():
+    source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+    start = source.index("async printReceipt(")
+    end = source.index("    getOrderData(", start)
+    method = source[start:end]
+
+    assert 'const writeResult = await this.data.silentCall(' in method
+    assert 'if (writeResult !== false)' in method
+    assert 'currentOrder.nb_print = count;' in method
+    assert method.index("await this.data.silentCall") < method.index("currentOrder.nb_print = count;")
+
+
+
+def test_gateway_sale_details_uses_odoo19_generator_and_template():
+    source = (ADDON / "static/src/js/pos_sale_details_router.js").read_text(encoding="utf-8")
+    assert 'getGenerator({ models: this.pos.models })' in source
+    assert "generateSaleDetailsData(saleDetails)" in source
+    assert 'renderToElement(\n                "point_of_sale.pos_sale_details_receipt"' in source
+    assert "point_of_sale.SaleDetailsReport" not in source
+
+
+def test_gateway_receipt_uses_odoo19_receipt_template():
+    source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+    assert 'renderToElement("point_of_sale.pos_order_receipt", props)' in source
+    assert 'renderToElement("point_of_sale.OrderReceipt"' not in source
+
+
+def test_gateway_kitchen_uses_odoo19_preparation_receipt_template():
+    source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+    assert 'renderToElement("point_of_sale.OrderChangeReceipt", { data })' in source
+    assert 'renderToElement("point_of_sale.pos_order_change_receipt", data)' not in source
+
+
+def test_gateway_kitchen_uses_native_order_change_lifecycle():
+    source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+    start = source.index("async sendOrderInPreparation(order, opts = {})")
+    end = source.index("async printChanges(", start)
+    method = source[start:end]
+
+    assert "if (isPrinted)" in method
+    assert "order.updateLastOrderChange();" in method
+    assert "this.updateLastOrderChangeIfNoDevice(order, opts);" in method
+    assert method.index("if (isPrinted)") < method.index("order.updateLastOrderChange();")
+
+
+def test_gateway_kitchen_does_not_consume_failed_changes():
+    source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+    method_start = source.index("async sendOrderInPreparation(order, opts = {})")
+    method_end = source.index("async printChanges(", method_start)
+    method = source[method_start:method_end]
+
+    # Gateway failures return isPrinted=false. Odoo 19 must retain the change
+    # for retry/reconciliation; unconditional updateLastOrderChange() would
+    # silently mark an unprinted kitchen ticket as consumed.
+    assert "if (isPrinted)" in method
+    assert "order.updateLastOrderChange();" in method
+    assert "else {" in method
+    assert "this.updateLastOrderChangeIfNoDevice(order, opts);" in method
+
+def test_gateway_kitchen_preserves_odoo19_post_print_sync():
+    source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+    method_start = source.index("async sendOrderInPreparation(order, opts = {})")
+    method_end = source.index("async printChanges(", method_start)
+    method = source[method_start:method_end]
+
+    # Odoo 19's native sendOrderInPreparation() synchronizes the changed order
+    # after printing unless a preparation display already owns synchronization.
+    assert 'if (!this.models["pos.prep.display"]?.length)' in method
+    assert 'await this.syncAllOrders({ orders: [order] });' in method
+    assert method.index("this.syncingOrders.delete(order.uuid)") < method.index(
+        'await this.syncAllOrders({ orders: [order] });'
+    )
+
+
+
 def test_gateway_config_auto_syncs_after_api_key_save():
     source = (ADDON / "static" / "src" / "js" / "gateway_config_auto_sync.js").read_text(encoding="utf-8")
     manifest = (ADDON / "__manifest__.py").read_text(encoding="utf-8")
@@ -381,3 +466,42 @@ def test_agent_registration_pairing_uses_database_clock():
     assert "pairing_code_expires_at > clock_timestamp()" in register
     assert "FOR UPDATE" in register
     assert "const now = new Date()" not in register
+
+def test_dynamic_sql_identifiers_are_composed_with_psycopg2_identifier():
+    offenders = []
+    for path in (ROOT / "odoo_addons").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        for line_no, line in enumerate(source.splitlines(), 1):
+            if "_table" in line and "%" in line and "sql.Identifier" not in line:
+                offenders.append(f"{path.relative_to(ROOT)}:{line_no}:{line.strip()}")
+            if "{self._table}" in line and line.lstrip().startswith("f") and "sql.Identifier" not in line:
+                offenders.append(f"{path.relative_to(ROOT)}:{line_no}:{line.strip()}")
+            if " % table" in line and "sql.Identifier" not in line:
+                offenders.append(f"{path.relative_to(ROOT)}:{line_no}:{line.strip()}")
+    assert not offenders, "raw SQL identifier formatting remains:\n" + "\n".join(offenders)
+
+
+def test_odoo_js_device_class_filter_uses_only_canonical_gateway_values():
+    """
+    Cross-boundary consistency regression: the Odoo JS runtime_printer_field.js uses
+    deviceClass values to filter printer suggestions. Those values must be a subset of
+    the canonical DEVICE_CLASSES from src/lib/printer-model.ts. The Gateway schema
+    rejects any other value, so phantom values like 'barcode' are dead-code filters
+    that silently drift from the contract.
+    """
+    import re
+    ts_source = (ROOT / "src" / "lib" / "printer-model.ts").read_text(encoding="utf-8")
+    m = re.search(r'DEVICE_CLASSES\s*=\s*\[([^\]]+)\]', ts_source)
+    assert m, "DEVICE_CLASSES not found in src/lib/printer-model.ts"
+    canonical = {v.strip().strip('"') for v in m.group(1).split(",")}
+    assert canonical == {"thermal", "laser", "inkjet", "label", "other", "unknown"}
+
+    js_source = (ROOT / "odoo_addons" / "print_gateway" / "static" / "src" / "components" / "runtime_printer_field.js").read_text(encoding="utf-8")
+    filter_arrays = re.findall(r'\[([^\]]+)\]\.includes\(\(p\.deviceClass', js_source)
+    for arr_src in filter_arrays:
+        used = {v.strip().strip('"\'') for v in arr_src.split(",")}
+        non_canonical = used - canonical
+        assert not non_canonical, (
+            f"runtime_printer_field.js deviceClass filter uses non-canonical values: {non_canonical}. "
+            f"The API rejects these; remove them so the filter stays in sync with DEVICE_CLASSES."
+        )
