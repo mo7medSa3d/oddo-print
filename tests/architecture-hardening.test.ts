@@ -19,7 +19,7 @@ describe("architecture hardening", () => {
     const sessionTokens = readFileSync("src/lib/session-tokens.ts", "utf8");
     const managerAuth = readFileSync("src/lib/manager-auth.ts", "utf8");
     expect(sessionTokens).toContain("export async function isSessionFamilyActive(");
-    expect(sessionTokens).toContain('eq(refreshTokens.revokedAt, null)');
+    expect(sessionTokens).toContain('refreshTokens.revokedAt} IS NULL');
     expect(sessionTokens).toContain("clock_timestamp()");
     expect(managerAuth).toContain("isSessionFamilyActive");
     expect(managerAuth).toContain("claims.familyId");
