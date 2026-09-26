@@ -458,6 +458,27 @@ async function rotateWithinFamily(
   };
 }
 
+export async function isSessionFamilyActive(
+  familyId: string,
+  kind: SessionKind,
+  tenantId: string,
+  userId?: string,
+): Promise<boolean> {
+  if (!/^[0-9a-f]{32}$/.test(familyId)) return false;
+  const row = await db.query.refreshTokens.findFirst({
+    where: and(
+      eq(refreshTokens.familyId, familyId),
+      eq(refreshTokens.kind, kind),
+      eq(refreshTokens.tenantId, tenantId),
+      sql`${refreshTokens.revokedAt} IS NULL`,
+      sql`${refreshTokens.expiresAt} > clock_timestamp()`,
+      ...(userId ? [eq(refreshTokens.userId, userId)] : []),
+    ),
+    columns: { id: true },
+  });
+  return !!row;
+}
+
 export function readCookie(req: Request, name: string): string | null {
   const cookieHeader = req.headers.get("cookie") ?? "";
   for (const part of cookieHeader.split(";")) {
