@@ -57,8 +57,18 @@ if (process.env.NODE_ENV === "production" && process.env.ALLOW_PLAINTEXT_MANAGER
   throw new Error("Refusing production startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1; configure MANAGER_PASSWORD_HASH instead.");
 }
 
-if (process.env.NODE_ENV === "production" && (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")) {
+const httpTestMode = process.env.YASSER_HTTP_TEST_MODE === "1";
+
+if (
+  process.env.NODE_ENV === "production" &&
+  !httpTestMode &&
+  (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")
+) {
   throw new Error("Refusing production startup with COOKIE_SECURE disabled; manager/customer session cookies must be Secure in production.");
+}
+
+if (process.env.NODE_ENV === "production" && httpTestMode && (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")) {
+  console.warn("[security] YASSER_HTTP_TEST_MODE=1: COOKIE_SECURE is intentionally disabled for the isolated HTTP test deployment.");
 }
 
 if (process.env.NODE_ENV === "production") {
@@ -68,30 +78,37 @@ if (process.env.NODE_ENV === "production") {
   }
   assertRealSecret("GATEWAY_JWT_SECRET", runtimeSecret("GATEWAY_JWT_SECRET"), 32);
   if (!trustProxyEnabled() && !isLoopbackBinding(hostname)) {
-    throw new Error("Refusing production startup: TRUST_PROXY=1 is required when the Gateway binds a non-loopback interface. Do not expose the Gateway application port directly.");
+    if (!httpTestMode) {
+      throw new Error("Refusing production startup: TRUST_PROXY=1 is required when the Gateway binds a non-loopback interface. Do not expose the Gateway application port directly.");
+    }
   }
   if (trustProxyEnabled()) {
-    assertRealSecret("TRUST_PROXY_SECRET", runtimeSecret("TRUST_PROXY_SECRET"), 32);
+    const proxySecret = assertRealSecret("TRUST_PROXY_SECRET", runtimeSecret("TRUST_PROXY_SECRET"), 32);
+    if (!proxySecret || proxySecret.length < 32) {
+      throw new Error("Refusing production startup with TRUST_PROXY enabled without TRUST_PROXY_SECRET (>=32 chars).");
+    }
   }
-  const appBaseUrl = runtimeSecret("APP_BASE_URL")?.trim();
-  if (!appBaseUrl) {
-    throw new Error("Refusing production startup: APP_BASE_URL must be configured.");
-  }
-  let parsedAppBaseUrl: URL;
-  try {
-    parsedAppBaseUrl = new URL(appBaseUrl);
-  } catch {
-    throw new Error("Refusing production startup: APP_BASE_URL must be an absolute URL.");
-  }
-  if (
-    parsedAppBaseUrl.protocol !== "https:" ||
-    parsedAppBaseUrl.username ||
-    parsedAppBaseUrl.password ||
-    parsedAppBaseUrl.pathname !== "/" ||
-    parsedAppBaseUrl.search ||
-    parsedAppBaseUrl.hash
-  ) {
-    throw new Error("Refusing production startup: APP_BASE_URL must be a clean HTTPS origin.");
+  if (!httpTestMode) {
+    const appBaseUrl = runtimeSecret("APP_BASE_URL")?.trim();
+    if (!appBaseUrl) {
+      throw new Error("Refusing production startup: APP_BASE_URL must be configured.");
+    }
+    let parsedAppBaseUrl: URL;
+    try {
+      parsedAppBaseUrl = new URL(appBaseUrl);
+    } catch {
+      throw new Error("Refusing production startup: APP_BASE_URL must be an absolute URL.");
+    }
+    if (
+      parsedAppBaseUrl.protocol !== "https:" ||
+      parsedAppBaseUrl.username ||
+      parsedAppBaseUrl.password ||
+      parsedAppBaseUrl.pathname !== "/" ||
+      parsedAppBaseUrl.search ||
+      parsedAppBaseUrl.hash
+    ) {
+      throw new Error("Refusing production startup: APP_BASE_URL must be a clean HTTPS origin.");
+    }
   }
 }
 

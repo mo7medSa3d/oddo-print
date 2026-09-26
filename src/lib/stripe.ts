@@ -77,6 +77,46 @@ export type StripePriceBinding = {
   productId: string | null;
 };
 
+function httpTestCatalogBinding(input: {
+  priceId: string;
+  currency: string;
+  interval: string;
+  productId?: string | null;
+}): StripePriceBinding | null {
+  if (process.env.YASSER_HTTP_TEST_MODE !== "1" || runtimeSecret("STRIPE_SECRET_KEY")) return null;
+
+  const raw = process.env.STRIPE_PLAN_CATALOG;
+  if (!raw) return null;
+
+  try {
+    const catalog = JSON.parse(raw) as Array<Record<string, unknown>>;
+    if (Array.isArray(catalog)) {
+      const entry = catalog.find((item) => item && item.priceId === input.priceId);
+      if (entry) {
+        const currency = typeof entry.currency === "string" ? entry.currency.trim().toLowerCase() : "usd";
+        const interval = typeof entry.interval === "string" ? entry.interval.trim().toLowerCase() : "month";
+        const productId = typeof entry.productId === "string" ? entry.productId.trim() : null;
+        if (currency !== input.currency.toLowerCase() || interval !== input.interval) return null;
+        if (input.productId && input.productId !== productId) return null;
+        return { id: input.priceId, active: true, type: "recurring", currency, interval, productId };
+      }
+    }
+    if (!/^price_[A-Za-z0-9_]+$/.test(input.priceId)) return null;
+    if (!/^[a-z]{3}$/.test(input.currency) || !["day", "week", "month", "year"].includes(input.interval)) return null;
+    if (input.productId && !/^prod_[A-Za-z0-9_]+$/.test(input.productId)) return null;
+    return {
+      id: input.priceId,
+      active: true,
+      type: "recurring",
+      currency: input.currency.toLowerCase(),
+      interval: input.interval,
+      productId: input.productId ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export class StripePriceBindingError extends Error {
   constructor(
     message: string,
@@ -94,6 +134,16 @@ export async function validateStripePriceBinding(input: {
   productId?: string | null;
   requireActive?: boolean;
 }): Promise<StripePriceBinding> {
+  if (process.env.YASSER_HTTP_TEST_MODE === "1" && !runtimeSecret("STRIPE_SECRET_KEY")) {
+    const binding = httpTestCatalogBinding(input);
+    if (binding) return binding;
+    throw new StripePriceBindingError(
+      "Stripe Price is not present in the HTTP test catalog.",
+      "STRIPE_PRICE_INVALID",
+      400,
+    );
+  }
+
   let price: Record<string, unknown>;
   try {
     price = await stripeRetrieve(`prices/${encodeURIComponent(input.priceId)}`);
