@@ -14,6 +14,12 @@ describe("HTTP test deployment contracts", () => {
     expect(setup).toContain('"max_prints_per_period":"unlimited"');
   });
 
+  it("models the real Tauri origin for the desktop bearer-login smoke step", () => {
+    const smoke = read("deploy/http-test/smoke-http-test.sh");
+    expect(smoke).toContain("Origin: tauri://localhost");
+    expect(smoke).toContain("X-Odoo-Print-Desktop: 1");
+    expect(smoke).toContain('"${DESKTOP_HEADERS[@]}"');
+  });
   it("passes the HTTP test login username into tenant resolution", () => {
     const route = read("src/app/api/auth/manager/login/route.ts");
     expect(route).toContain("resolveManagerTenantId(req, username)");
