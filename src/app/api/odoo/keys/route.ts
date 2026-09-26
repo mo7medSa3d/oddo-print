@@ -1,3 +1,4 @@
+import { ActionError } from "../../../../lib/action-error";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { apiKeys } from "../../../../db/schema";
@@ -66,7 +67,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const manager = await validateManager(req);
-  if (manager) { try { requireManagerPermission(manager, "integrations.manage"); } catch { return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { "content-type": "application/json" } }); } }
+  if (manager) { try { requireManagerPermission(manager, "integrations.manage"); } catch { const e = new ActionError("Forbidden", 403, "FORBIDDEN"); return NextResponse.json({ error: e.message, code: e.code, ...(e.details ?? {}) }, { status: e.status }); } }
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   let body: unknown = {};

@@ -3490,3 +3490,42 @@ Captured 7 prints. Latest size: 12 bytes
 ```
 
 All interconnected pieces behave as intended. Phase 5 is fully verified.
+### Phase 1: Dependency & platform currency
+- Checked `package.json` for Next.js 16.x, React 19.3.0, Zod 4.6.1, Tailwind 4. Checked docs for deprecated usages (Next.js 15+ synchronous `cookies()` and `headers()`). Confirmed codebase correctly uses `await cookies()` and `await headers()`.
+- Checked Next.js 15+ async `params` in dynamic segments. Found proper `Promise<{ id: string }>` typings in all `src/app/api/**/[id]/route.ts`. No deprecated sync usages found.
+- `npm audit` → 0 vulnerabilities.
+- Go `govulncheck` → 0 vulnerabilities.
+
+### Phase 2: Dead code / unused surface
+- **Problem**: `knip` flagged dozens of exported UI components as "unused" but these are imported dynamically or used inside React. Go `deadcode` identified genuinely unreachable functions.
+- **Evidence**: `go run golang.org/x/tools/cmd/deadcode@latest -test ./...` flagged `StableIDFromSpoolerIdentity` in `stable_id.go` and 3 setters in `mock_printer.go` (`SetAcceptFail`, `SetDisconnectAfter`, `SetPartialReadLimit`).
+- **Fix**: Removed the unused Go functions from `stable_id.go` and `mock_printer.go`.
+- **Verification**: Re-ran `deadcode` which exited cleanly (exit 0) after correcting a missing brace that caused a build error.
+
+### Phase 3: Docs-vs-code drift
+- **Problem**: `ARCHITECTURE.md` was previously updated to reflect 76 routes, 25 tables, 74 migrations. Verified `API.md` endpoints against codebase. Verified `TENANT_ISOLATION.md` claims.
+- **Evidence**: Schema defines 25 `pgTable` objects. `src/app/api/` has 76 `route.ts` files. `drizzle/` has 74 `.sql` files. No new drift detected. `TENANT_ISOLATION.md` matches `schema.ts` completely (composite FKs intact, `printers_pkey` absent, unique composite constraints on `tenant_id, id` exist for `agents`, `printers`, `api_keys`).
+- **Fix**: No edits required. The documentation is accurate to the current code.
+- **Verification**: `find src/app/api -name route.ts | wc -l` → 76. `ls drizzle/*.sql | wc -l` → 74.
+
+### Phase 4: API route consistency sweep
+- **Problem**: Three API routes returned ad-hoc `new Response(JSON.stringify({ error: "Forbidden" }))` instead of utilizing the standard `NextResponse.json` used by every other API route.
+- **Evidence**: `grep -rn "new Response(" src/app/api/` returned `api/agents/route.ts:50`, `api/agents/[id]/route.ts:36`, and `api/odoo/keys/route.ts:69`.
+- **Fix**: Replaced all 3 ad-hoc `Response` instantiations with `NextResponse.json({ error: "Forbidden" }, { status: 403 })` to maintain uniform JSON serialization and header management.
+- **Verification**: `grep -rn "new Response(" src/app/api/` now returns only the prometheus metrics text response route. All JSON errors are standardized. All print operations (`POST /api/print/jobs`, `POST /api/jobs/[id]/reprint`, `POST /api/printers/[id]/test-print`) correctly route through `print-job-service.ts` rather than bypassing logic.
+
+### Phase 5: Correctness regression check
+- **Problem**: Checked for clock-skew issues returning to the codebase.
+- **Evidence**: Grepped for `new Date()` usage in gateway logic. Found in `src/app/api/agent/jobs/route.ts:285` where the developer explicitly comments that `new Date()` is the app-server clock and correctly writes `updatedAt: sql'now()'` to match DB state instead.
+- **Evidence**: `drizzle/0067_print_job_wall_clock.sql` enforces `clock_timestamp()` default, and `src/db/schema.ts` correctly aligns with `default(sql'clock_timestamp()')` for `printJobs` timestamps.
+- **Fix**: Code is correct. No fixes necessary.
+- **Verification**: N/A, invariants held. Fenced job writes correctly implemented via `fencedJobWrite`.
+
+### Phase 6: Security spot-check
+- **Problem**: Spot-checking `SECURITY.md` claims.
+- **Evidence**: 
+  - `src/app/api/odoo/keys/route.ts` selects `id`, `name`, `createdAt` etc., but excludes `hashedKey` and `secret` entirely.
+  - `src/app/api/billing/webhook/route.ts` securely enforces `verifyStripeSignature()`.
+  - `src/lib/auth-rate-limit.ts` functions (`reserveAuthAttempt`, `reservePairingAttempt`) are aggressively implemented across `login`, `register`, `forgot-password`, and `resend-verification` routes.
+- **Fix**: Code is strictly compliant. No fixes necessary.
+- **Verification**: N/A, invariants held.

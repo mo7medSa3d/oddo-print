@@ -86,15 +86,6 @@ func StableIDFromSpooler(spoolerName string) string {
 	return fmt.Sprintf("printer_spooler_%x", h[:8])
 }
 
-func StableIDFromSpoolerIdentity(server, port, driver, share string) string {
-	key := fmt.Sprintf("spooler:%s|port:%s|driver:%s|share:%s",
-		strings.ToLower(strings.TrimSpace(server)),
-		strings.ToLower(strings.TrimSpace(port)),
-		strings.ToLower(strings.TrimSpace(driver)),
-		strings.ToLower(strings.TrimSpace(share)),
-	)
-	return stableIDFromIdentityKey(key)
-}
 
 // StableIDFromUSB derives a deterministic ID from USB identifiers.
 // Priority: serial > location > VID:PID.
