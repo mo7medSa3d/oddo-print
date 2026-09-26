@@ -16,7 +16,7 @@ type TimelineEntry = {
   id: string;
   stage: string;
   status: string;
-  at?: Date;
+  at?: Date | null;
   message?: string | null;
   errorCode?: string | null;
   attemptId?: string | null;
