@@ -12,6 +12,7 @@ import {
   clearAccessCookieHeader,
   clearRefreshCookieHeader,
   getAccessTokenFromRequest,
+  isSessionFamilyActive,
   issueSessionPair,
   verifyAccessTokenSignature,
   refreshCookieHeader,
@@ -126,7 +127,16 @@ export async function validateManagerClaims(claims: ManagerClaims | null): Promi
     }
     const nowSec = Math.floor(nowMs / 1000);
     if (claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.exp - claims.iat !== 15 * 60) return null;
-    if (!claims.tenantId || !claims.role) return null;
+    if (!claims.tenantId || !claims.role || !claims.familyId) return null;
+
+    // Access tokens are short-lived, but logout must revoke them immediately.
+    // The refresh-token family is the durable revocation authority for v2 sessions.
+    if (!(await isSessionFamilyActive(
+      claims.familyId,
+      claims.kind === "customer" ? "customer" : "manager",
+      claims.tenantId,
+      claims.userId,
+    ))) return null;
 
     if (claims.userId) {
       const membership = await db.query.tenantUsers.findFirst({
