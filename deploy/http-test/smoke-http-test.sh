@@ -106,11 +106,22 @@ if [[ "$MANAGER_AFTER_LOGOUT_STATUS" != "401" ]]; then
 fi
 
 echo "[9/9] customer logout + session revocation"
-curl -fsS --max-time 10 "${BROWSER_HEADERS[@]}" -b "$COOKIE_JAR" -X POST "$BASE/api/auth/logout" >/dev/null
-CUSTOMER_AFTER_LOGOUT_STATUS="$(
-  curl -sS --max-time 10 -o "$TMP_DIR/me-after-logout.json" -w '%{http_code}'     -b "$COOKIE_JAR"     "$BASE/api/auth/me"
+CUSTOMER_LOGOUT_STATUS="$(
+  curl -sS --max-time 10 -o "$TMP_DIR/customer-logout.json" -w '%{http_code}' "${BROWSER_HEADERS[@]}" -b "$COOKIE_JAR" -X POST "$BASE/api/auth/logout"
 )"
-[[ "$CUSTOMER_AFTER_LOGOUT_STATUS" == "401" ]]
+if [[ "$CUSTOMER_LOGOUT_STATUS" != "200" ]]; then
+  echo "ERROR: Customer logout returned HTTP $CUSTOMER_LOGOUT_STATUS"
+  cat "$TMP_DIR/customer-logout.json"
+  exit 1
+fi
+CUSTOMER_AFTER_LOGOUT_STATUS="$(
+  curl -sS --max-time 10 -o "$TMP_DIR/me-after-logout.json" -w '%{http_code}' -b "$COOKIE_JAR" "$BASE/api/auth/me"
+)"
+if [[ "$CUSTOMER_AFTER_LOGOUT_STATUS" != "401" ]]; then
+  echo "ERROR: Customer session remained valid after logout (HTTP $CUSTOMER_AFTER_LOGOUT_STATUS)"
+  cat "$TMP_DIR/me-after-logout.json"
+  exit 1
+fi
 
 echo
 echo "PASS: signup -> verification capture -> workspace trial -> customer login -> Manager bearer login -> both sessions revoked"
