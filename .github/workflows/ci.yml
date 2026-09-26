@@ -141,7 +141,7 @@ jobs:
 
       - name: Run Odoo static contract tests (Python)
         run: |
-          pip install pytest
+          pip install --break-system-packages pytest pytest-asyncio
           pytest tests/test_odoo19_printing_static.py tests/test_security_contracts.py tests/test_final_security_hardening.py
       - name: Build Next.js
         run: npm run build
