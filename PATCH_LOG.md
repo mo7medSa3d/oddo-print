@@ -3561,3 +3561,9 @@ All interconnected pieces behave as intended. Phase 5 is fully verified.
 - **Evidence**: The compiler reported `this file contains an unclosed delimiter` at `src\\agent.rs:861:3`, pointing back to `let status = loop {` and the block ending around line 115.
 - **Fix**: Closed the `loop` block after the `match child.try_wait()` statement in `run_bounded_command`.
 - **Verification**: The corrected source is committed to `main` at `3b0ded27c37b8a3decd3891f7346a13a1348c16f`; Windows CI must complete on this commit to verify the repair.
+
+### Phase 11: Windows Rust loop statement terminator
+- **Problem**: The first delimiter repair left the `let status = loop { ... }` expression without its required statement terminator.
+- **Evidence**: Windows CI run `36223989875`, job `108354392605`, reported `expected ';', found keyword 'if'` at `src\agent.rs:101:6` and suggested adding `;`.
+- **Fix**: Changed the closing line of the loop expression to `};`, preserving both the loop delimiter and the `let` statement terminator.
+- **Verification**: Committed directly to `main` as `28305b5c7b729d6093d04a4d40f07e3e540999a9`; Windows CI must rerun and pass the Tauri compile gate.
