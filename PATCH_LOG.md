@@ -3555,3 +3555,9 @@ All interconnected pieces behave as intended. Phase 5 is fully verified.
 - **Evidence**: The job output explicitly reported `gofmt required on:` followed by both files and exited with code 1.
 - **Fix**: Normalized the affected whitespace to the gofmt form without changing behavior.
 - **Verification**: Changes are now committed on `main`; the CI workflow must complete on the new head to prove the formatting gate passes.
+
+### Phase 10: Windows Rust delimiter repair
+- **Problem**: Windows CI run `36223030752`, job `108351786381`, failed `cargo check` while compiling `src-tauri/src/agent.rs`.
+- **Evidence**: The compiler reported `this file contains an unclosed delimiter` at `src\\agent.rs:861:3`, pointing back to `let status = loop {` and the block ending around line 115.
+- **Fix**: Closed the `loop` block after the `match child.try_wait()` statement in `run_bounded_command`.
+- **Verification**: The corrected source is committed to `main` at `3b0ded27c37b8a3decd3891f7346a13a1348c16f`; Windows CI must complete on this commit to verify the repair.
