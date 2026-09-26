@@ -2309,7 +2309,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	}
 	log.Printf("print.trace agent_receive request_id=%s job_id=%s printer_id=%s queue_wait_ms=%d received_unix_ms=%d", requestID, jobID, printerID, time.Since(receivedAt).Milliseconds(), receivedAt.UnixMilli())
 	claimToken := fields.ClaimToken
-	if fields.AgentID != a.cfg.Agent.ID {
+	if fields.AgentID != "" && fields.AgentID != a.cfg.Agent.ID {
 		log.Printf("Received job %s for agent %s on agent %s; rejecting before execution", jobID, fields.AgentID, a.cfg.Agent.ID)
 		return
 	}
