@@ -231,7 +231,8 @@ class PrintGatewayRouter(models.AbstractModel):
     def _render_pdf_payload_from_target(self, report_ref, render_target, *, context_values=None):
         try:
             renderer = self.env["ir.actions.report"].with_context(**(context_values or {}))
-            pdf_content, _ = renderer._render_qweb_pdf(report_ref, render_target)
+            res_ids = render_target.ids if hasattr(render_target, "ids") and render_target.ids else False
+            pdf_content, _ = renderer._render_qweb_pdf(report_ref, res_ids=res_ids, data=context_values)
         except Exception as exc:
             report = self.env.ref(report_ref, raise_if_not_found=False)
             label = report.display_name if report else report_ref

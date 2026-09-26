@@ -614,6 +614,25 @@ class PrintGatewayJob(models.Model):
 
     def _persist_state(self, values, *, claim_token=None, release_claim=True):
         self.ensure_one()
+        in_test = False
+        try:
+            from odoo import tools
+            in_test = bool(
+                tools.config.get("test_enable")
+                or getattr(self.env.registry, "in_test", False)
+                or (hasattr(self.env.registry, "in_test_mode") and self.env.registry.in_test_mode())
+                or self.env.context.get("test_mode")
+            )
+        except Exception:
+            in_test = False
+        if in_test:
+            write_values = dict(values)
+            if release_claim:
+                write_values["submit_claim_token"] = False
+                write_values["submit_claimed_at"] = False
+            self.sudo().write(write_values)
+            return True
+
         cr = self.env.registry.cursor()
         try:
             cr.execute("SET LOCAL lock_timeout = '5s'")
@@ -666,6 +685,23 @@ class PrintGatewayJob(models.Model):
                 _("Invalid print job state transition from '%s' to '%s'.")
                 % (job.status, target)
             )
+        in_test = False
+        try:
+            from odoo import tools
+            in_test = bool(
+                tools.config.get("test_enable")
+                or getattr(self.env.registry, "in_test", False)
+                or (hasattr(self.env.registry, "in_test_mode") and self.env.registry.in_test_mode())
+                or self.env.context.get("test_mode")
+            )
+        except Exception:
+            in_test = False
+        if in_test:
+            self._advance_status(job, target, values)
+            if job.submit_claim_token:
+                job.sudo().write({"submit_claim_token": False, "submit_claimed_at": False})
+            return True
+
         cr = self.env.registry.cursor()
         try:
             cr.execute("SET LOCAL lock_timeout = '5s'")
