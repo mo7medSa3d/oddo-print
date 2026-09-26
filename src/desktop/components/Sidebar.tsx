@@ -1,5 +1,5 @@
 import React from "react";
-import { LayoutDashboard, Printer, ClipboardList, Cpu, Settings, X, PanelLeftClose, PanelLeftOpen, ShieldCheck } from "lucide-react";
+import { X, PanelLeftClose, PanelLeftOpen, ShieldCheck } from "lucide-react";
 import { StatusDot } from "../../components/ui";
 import { BrandMarkIcon } from "../../components/brand";
 import type { Page } from "../types";

@@ -4,10 +4,9 @@ import { logError } from "../lib/log";
 import { db } from "../db";
 import { agents, printers, printJobs, discoverySessions, discoveredDevices } from "../db/schema";
 import { eq, count, or, and, inArray, sql, desc } from "drizzle-orm";
-import { nanoid } from "../lib/nanoid";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { generatePairingCode, hashPairingCode } from "../lib/agent-auth";
+import { generatePairingCode } from "../lib/agent-auth";
 import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../lib/manager-auth";
 import { createPrintJobForPrinter } from "../lib/print-job-service";
 import {
@@ -22,7 +21,7 @@ import { transitionAgentLifecycle, LifecycleConflict } from "../lib/agent-lifecy
 import { ActionError } from "../lib/action-error";
 import { writeAuditEvent } from "../lib/audit";
 import { requireManagerPermission } from "../lib/authorization";
-import { enforceTenantResourceEntitlement, TenantEntitlementError, entitlementLimitSignal, isTenantBillingError } from "../lib/entitlements";
+import { entitlementLimitSignal, isTenantBillingError } from "../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../lib/tenant-guard";
 import type { LimitSignalResult } from "../lib/limit-signal";
 import { isAgentAvailableForJob } from "../lib/agent-availability";
@@ -100,7 +99,7 @@ export async function deleteAgent(id: string) {
     await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ agentId })}::text)`);
   });
 
-  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.deleted", resourceType: "agent", resourceId: agentId }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
+  await writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.deleted", resourceType: "agent", resourceId: agentId }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   revalidatePath("/dashboard");
   return { ok: true };
 }

@@ -9,7 +9,7 @@ import {
   ErrorState,
 } from "../../components/ui";
 import { fetchGatewayAgents, registerGatewayPrinter, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
-import { errMsg, friendlyGatewayError, friendlyPrinterError, isProductionPrinter } from "../lib/printers";
+import { errMsg, friendlyGatewayError, isProductionPrinter } from "../lib/printers";
 import UpgradeLimitDialog, { type UpgradeLimitResource } from "../../components/UpgradeLimitDialog";
 
 type Conn = "spooler" | "network" | "usb" | "ipp" | "ipps";
