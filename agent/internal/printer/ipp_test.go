@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -403,4 +405,97 @@ func readAll(r interface{ Read([]byte) (int, error) }) []byte {
 
 func validTestPDFBytes() []byte {
 	return []byte("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
+}
+
+// TestParseIPPAttributesNeverPanicsOnMalformedInput exercises the recovery guard
+// over truncated/garbage inputs. Before this pass the guard was a bare
+// `_ = recover()`, so this test could not tell a swallowed panic from a clean
+// return; it now also pins the observable side of the guard.
+func TestParseIPPAttributesNeverPanicsOnMalformedInput(t *testing.T) {
+	inputs := [][]byte{
+		nil,
+		{},
+		{0x02},
+		{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
+		append([]byte{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x47}, make([]byte, 4)...),
+		append([]byte{0x02, 0, 0, 0, 0, 0, 0, 1, 0x47, 0x00, 0xFF, 0xFF, 0x00}, 0x41),
+		append([]byte{0x02, 0, 0, 0, 0, 0, 0, 1, 0x48, 0x00, 0x01, 'a', 0xFF, 0xFF}, 0x42),
+	}
+	for i, in := range inputs {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("input %d: parseIPPAttributes panicked out of the guard: %v", i, r)
+				}
+			}()
+			if got := parseIPPAttributes(in); got == nil {
+				t.Fatalf("input %d: expected non-nil map", i)
+			}
+		}()
+	}
+}
+
+// TestLogRecoveredIPPParseReportsPanic covers the reporter helper added in this
+// pass: the recovered panic value and the input length must reach the log.
+//
+// NOTE: this test alone does NOT pin the guard in parseIPPAttributes — it calls
+// the helper directly, so it still passes if the deferred closure is reverted to
+// a bare `_ = recover()`. That was measured, not assumed. The guard itself is
+// pinned separately by TestIPPParseGuardReportsRecoveredPanics below.
+func TestLogRecoveredIPPParseReportsPanic(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+
+	logRecoveredIPPParse(37, "runtime error: slice bounds out of range")
+
+	out := buf.String()
+	if !strings.Contains(out, "recovered from malformed IPP attributes") {
+		t.Fatalf("expected a recovery warning, got %q", out)
+	}
+	if !strings.Contains(out, "len=37") {
+		t.Fatalf("expected the input length in the warning, got %q", out)
+	}
+	if !strings.Contains(out, "slice bounds out of range") {
+		t.Fatalf("expected the recovered value in the warning, got %q", out)
+	}
+}
+
+// TestIPPParseGuardReportsRecoveredPanics pins the GUARD, not the helper: the
+// deferred closure in parseIPPAttributes must pass a recovered panic to the
+// reporter. A regression to the pre-fix `defer func() { _ = recover() }()` makes
+// this test fail.
+//
+// Why a source contract instead of a behavioural test: the panic path is
+// currently unreachable. Every slice in parseIPPAttributes and decodeIPPValue is
+// length-checked before use, so no input (including the truncated/lying-length
+// cases below) makes the parser panic. The guard is defensive hardening for
+// bytes taken straight off the network, and the only way to prove it still
+// REPORTS is to assert the reporting call is present.
+func TestIPPParseGuardReportsRecoveredPanics(t *testing.T) {
+	source, err := os.ReadFile("ipp.go")
+	if err != nil {
+		t.Fatalf("read ipp.go: %v", err)
+	}
+	text := string(source)
+
+	start := strings.Index(text, "func parseIPPAttributes(")
+	if start < 0 {
+		t.Fatal("parseIPPAttributes not found in ipp.go")
+	}
+	rest := text[start:]
+	if end := strings.Index(rest[1:], "\nfunc "); end >= 0 {
+		rest = rest[:end+1]
+	}
+
+	if !strings.Contains(rest, "if r := recover(); r != nil {") {
+		t.Error("parseIPPAttributes no longer inspects the recovered value; a bare recover() makes parser panics invisible again")
+	}
+	if !strings.Contains(rest, "logRecoveredIPPParse(len(data), r)") {
+		t.Error("the recovered panic is not reported by logRecoveredIPPParse; recovery is silent again")
+	}
+	if strings.Contains(rest, "_ = recover()") {
+		t.Error("the bare `_ = recover()` form is back, which discards the panic without a trace")
+	}
 }

@@ -1,11 +1,15 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -288,4 +292,78 @@ func TestHeartbeatPaginationSplitsLargeAuxiliaryState(t *testing.T) {
 // do not depend on UUID generation or random ordering.
 func formatTestIndex(i int) string {
 	return fmt.Sprintf("%04d", i)
+}
+
+// TestHeartbeatResponseBodyIsReadBeforeContextCancel is the regression test for
+// the bug found in the real Gateway<->Agent end-to-end run: sendHeartbeatContext
+// called cancel() immediately after doAuthorizedRequest returned and only then
+// read the response body, so the read was aborted by the canceled context. The
+// observed symptom was a repeating
+//   "Heartbeat page 1/1 response read failed: context canceled"
+// and an early return that skipped desired-state reconciliation and the
+// SkippedPrinters feedback.
+//
+// The handler writes the status line, flushes, then delays before writing the
+// JSON body. That gap is irrelevant with the fix (the read is bounded by the
+// remaining 15s budget) and fatal with the bug (the read is canceled at once),
+// so this test fails deterministically on the old code.
+func TestHeartbeatResponseBodyIsReadBeforeContextCancel(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		requests int
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agent/heartbeat" || r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		mu.Lock()
+		requests++
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush() // headers + status reach the client before the body does
+		}
+		time.Sleep(150 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"success":true,"desiredState":[],"skippedPrinters":[{"id":"printer-late","reason":"late body reached the agent"}]}`))
+	}))
+	defer server.Close()
+
+	var buf bytes.Buffer
+	oldWriter := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(oldWriter)
+
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_heartbeat_body"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = server.URL
+	ag, err := New(cfg, filepath.Join(t.TempDir(), "config.yaml"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = ag.Close() }()
+
+	ag.printers = map[string]printer.Printer{"printer-1": &fakePrinter{}}
+	ag.printerConfigs = map[string]config.PrinterConfig{
+		"printer-1": {ID: "printer-1", Name: "printer-1", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
+	}
+	ag.sendHeartbeat()
+
+	mu.Lock()
+	got := requests
+	mu.Unlock()
+	if got != 1 {
+		t.Fatalf("expected exactly one heartbeat request, got %d", got)
+	}
+	logged := buf.String()
+	if strings.Contains(logged, "response read failed") {
+		t.Fatalf("heartbeat body read was aborted (the pre-fix bug): %s", logged)
+	}
+	// The body must actually have been parsed and acted upon.
+	if !strings.Contains(logged, "printer \"printer-late\" rejected by gateway: late body reached the agent") {
+		t.Fatalf("heartbeat response body was not processed; logs: %s", logged)
+	}
 }

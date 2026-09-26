@@ -71,4 +71,20 @@ describe("print-certification", () => {
     expect(source).toContain("recordJobEvent");
     expect(source).toContain("timelineUrl");
   });
+
+  // This pass replaced the untyped `(e as any)?.code` conflict check with the
+  // typed narrowing already used by the sibling route (api/print/jobs/route.ts).
+  // The narrowing is deliberately stricter — it requires an Error instance —
+  // so this pin records WHY that is safe: the producer always throws a real
+  // Error carrying the code, and the sibling route's test asserts the same
+  // 409/IDEMPOTENCY_CONFLICT contract end to end.
+  it("IDEMPOTENCY_CONFLICT is detected through the typed Error narrowing, not an untyped cast", () => {
+    const source = fs.readFileSync("src/app/api/printers/[id]/certify/route.ts", "utf8");
+    expect(source).not.toContain("(e as any)?.code");
+    expect(source).toContain('e instanceof Error && (e as Error & { code?: string }).code === "IDEMPOTENCY_CONFLICT"');
+
+    const producer = fs.readFileSync("src/lib/print-job-service.ts", "utf8");
+    expect(producer).toContain('const conflictErr = new Error("IDEMPOTENCY_CONFLICT")');
+    expect(producer).toContain('Object.assign(conflictErr, { code: "IDEMPOTENCY_CONFLICT" })');
+  });
 });

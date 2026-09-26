@@ -61,10 +61,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   const tenantId = auth.tenantId;
 
-  const requestId = requestIdFrom(req as any) || generateRequestId();
+  const requestId = requestIdFrom(req) || generateRequestId();
   const correlation = { requestId, tenantId, jobId: id };
 
-  return runWithCorrelation(correlation as any, async () => {
+  return runWithCorrelation(correlation, async () => {
     const rows = await db.select().from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.id, id))).limit(1);
     if (rows.length === 0) {
       return NextResponse.json({ error: "Not found" }, { status: 404, headers: { "x-request-id": requestId } });

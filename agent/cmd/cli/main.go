@@ -302,16 +302,20 @@ func handlePrintersAdd(configPath string, args []string) {
 	serial := fs.String("serial", "", "USB serial number")
 	enabledStr := fs.String("enabled", "true", "Enabled true/false")
 	capsJSON := fs.String("capabilities", "", "Capabilities JSON e.g., '{\"paper_widths\":[58,80]}'")
-	_ = fs.String("connection-type", "", "Alias for --type")
+	connectionTypeAlias := fs.String("connection-type", "", "Alias for --type")
 	fs.Parse(args)
 
+	// Both alias flags are read from the parsed flag set. The connection-type
+	// alias used to be handled by scanning the raw argument slice for the exact
+	// token "--connection-type", which silently ignored the equally valid
+	// "--connection-type=spooler" form: the flag was registered (so Parse
+	// accepted it and no error was raised) but its value was never applied, and
+	// the printer was stored with the --type default instead.
+	if *connectionTypeAlias != "" {
+		*typ = *connectionTypeAlias
+	}
 	if *printerTypeAlias != "" && (*printerType == "unknown" || *printerType == "") {
 		*printerType = *printerTypeAlias
-	}
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--connection-type" && i+1 < len(args) {
-			*typ = args[i+1]
-		}
 	}
 	if strings.TrimSpace(*name) == "" {
 		log.Fatal("--name is required for printers add")
