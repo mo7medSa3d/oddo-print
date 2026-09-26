@@ -119,7 +119,6 @@ func TestNormalizeDeviceClassFailsClosed(t *testing.T) {
 	}
 }
 
-
 func TestNormalizePrinterTypePreservesGatewayClasses(t *testing.T) {
 	cases := map[string]string{
 		"physical": "physical", "Physical": "physical", " thermal ": "physical",
