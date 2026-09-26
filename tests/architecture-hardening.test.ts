@@ -103,9 +103,15 @@ describe("architecture hardening", () => {
     expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
     expect(proxy).toContain('requestHeaders.set("x-nonce", nonce)');
     expect(proxy).toContain('response.headers.set("Content-Security-Policy", policy)');
-    expect(server).toContain("createRequestContentSecurityPolicy");
-    expect(server).toContain('req.headers["x-nonce"] = nonce');
-    expect(server).toContain('res.setHeader("Content-Security-Policy", policy)');
+    // The custom Node server must not mint a second nonce: Proxy is the
+    // single request-scoped CSP/nonce boundary and Next.js consumes its
+    // forwarded request header during rendering.
+    expect(proxy).toContain("createRequestContentSecurityPolicy");
+    expect(proxy).toContain('requestHeaders.set("x-nonce", nonce)');
+    expect(proxy).toContain('requestHeaders.set("Content-Security-Policy", policy)');
+    expect(server).not.toContain("createRequestContentSecurityPolicy");
+    expect(server).not.toContain('req.headers["x-nonce"] = nonce');
+    expect(server).not.toContain('res.setHeader("Content-Security-Policy", policy)');
     expect(csp).toContain("crypto.randomUUID()");
     expect(csp).toContain("script-src 'self' 'nonce-");
     expect(csp).toContain("connect-src 'self';");
