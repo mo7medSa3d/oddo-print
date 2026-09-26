@@ -156,7 +156,17 @@ export async function DELETE(req: Request) {
 
   const deleted = await db.transaction(async (tx) => {
     const candidates = await tx.select({ id: printJobs.id }).from(printJobs).where(
-      and(eq(printJobs.tenantId, claims.tenantId), inArray(printJobs.status, [...TERMINAL_JOB_STATUSES]), lt(printJobs.createdAt, before)),
+      and(
+        eq(printJobs.tenantId, claims.tenantId),
+        inArray(printJobs.status, [...TERMINAL_JOB_STATUSES]),
+        lt(printJobs.createdAt, before),
+        // Never erase terminal rows whose error carries explicit physical
+        // ambiguity evidence. Those rows remain the authoritative Gateway
+        // reconciliation/reprint record until an operator handles them.
+        ...PHYSICAL_OUTCOME_UNKNOWN_MARKERS.map((marker) =>
+          sql`COALESCE(${printJobs.error}, '') NOT LIKE ${marker + "%"}`,
+        ),
+      ),
     ).orderBy(printJobs.createdAt).limit(requestedLimit);
     if (candidates.length === 0) return 0;
     const result = await tx.delete(printJobs).where(and(eq(printJobs.tenantId, claims.tenantId), inArray(printJobs.id, candidates.map((row) => row.id))));

@@ -164,6 +164,10 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 		// in-flight cancellations as unknown; pass those through verbatim.
 		n, err := p.writeChunkBounded(h, chunk, ctx.Done())
 		if err != nil {
+			if n > 0 {
+				written += int(n)
+				return MarkUnknown("WriteFile to %s returned an error after %d/%d bytes: %v", p.DevicePath, written, len(data), err)
+			}
 			if HasUnknownOutcomeMarker(err.Error()) {
 				return err
 			}

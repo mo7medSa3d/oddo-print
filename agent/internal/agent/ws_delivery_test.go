@@ -38,6 +38,11 @@ type recordingGateway struct {
 	// exact fence rejection a real gateway emits for a superseded claim.
 	// Tests the agent-side hard stop: zero bytes may follow such a response.
 	rejectPrinting bool
+	// failTerminalOnce forces the first terminal report to return an ambiguous
+	// 503. This simulates the crash/response-loss window after the physical
+	// side effect has already been recorded locally.
+	failTerminalOnce    bool
+	terminalFailureUsed bool
 	// blockQueuedReject makes the first pre-execution hand-back PATCH wait
 	// until releaseQueuedReject. This is used to prove the WS reader can
 	// continue consuming frames while rejection I/O is slow.
@@ -89,6 +94,10 @@ func newRecordingGateway(t *testing.T) *recordingGateway {
 			g.mu.Lock()
 			g.updates = append(g.updates, body)
 			reject := g.rejectPrinting && body.Status == "printing"
+			failTerminal := g.failTerminalOnce && !g.terminalFailureUsed && (body.Status == "success" || body.Status == "failed")
+			if failTerminal {
+				g.terminalFailureUsed = true
+			}
 			blockQueued := g.blockQueuedReject != nil && body.Status == "queued"
 			if blockQueued && g.queuedRejectStarted != nil && len(g.updates) >= 1 {
 				select {
@@ -98,6 +107,10 @@ func newRecordingGateway(t *testing.T) *recordingGateway {
 				}
 			}
 			g.mu.Unlock()
+			if failTerminal {
+				http.Error(w, "gateway response lost after terminal acceptance window", http.StatusServiceUnavailable)
+				return
+			}
 			if blockQueued {
 				<-g.blockQueuedReject
 			}
@@ -198,6 +211,7 @@ func claimedEnvelope(jobID, printerID string) map[string]interface{} {
 			"printerId":    printerID,
 			"documentType": "receipt",
 			"status":       "claimed",
+			"claimToken":   "claim-" + jobID,
 			"payload":      makeJobPayload(jobID),
 			"expiresAt":    time.Now().Add(time.Hour).Format(time.RFC3339),
 			"retries":      0,
@@ -238,6 +252,67 @@ func captureAgentLogs(t *testing.T) *synchronizedLogBuffer {
 		log.SetFlags(oldFlags)
 	})
 	return buf
+}
+
+func TestTerminalOutcomeOutboxReplaysWithoutPhysicalReprint(t *testing.T) {
+	gw := newRecordingGateway(t)
+	p := &fakePrinter{}
+	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
+	gw.failTerminalOnce = true
+
+	job := map[string]interface{}{
+		"id":         "job-terminal-outbox",
+		"printerId":  "p1",
+		"payload":    makeJobPayload("job-terminal-outbox"),
+		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+		"claimToken": "claim-terminal-outbox",
+	}
+	ag.processJob(context.Background(), job)
+	ag.waitForJobs()
+
+	if p.calls != 1 {
+		t.Fatalf("physical print must happen exactly once before terminal report retry, got %d", p.calls)
+	}
+	if tok := ag.queue.ClaimTokenFor("job-terminal-outbox"); tok != "claim-terminal-outbox" {
+		t.Fatalf("terminal outcome must retain claim token after ambiguous Gateway response, got %q", tok)
+	}
+	reports, err := ag.queue.PendingTerminalReports(8)
+	if err != nil {
+		t.Fatalf("PendingTerminalReports: %v", err)
+	}
+	if len(reports) != 1 || reports[0].ID != "job-terminal-outbox" || reports[0].Status != "success" {
+		t.Fatalf("expected one durable success report, got %+v", reports)
+	}
+
+	gw.mu.Lock()
+	gw.failTerminalOnce = false
+	gw.mu.Unlock()
+	ag.reportPendingTerminalStatuses(context.Background())
+
+	if p.calls != 1 {
+		t.Fatalf("terminal report replay must never reprint the document, got %d physical calls", p.calls)
+	}
+	if tok := ag.queue.ClaimTokenFor("job-terminal-outbox"); tok != "" {
+		t.Fatalf("claim token should clear only after Gateway terminal acknowledgement, got %q", tok)
+	}
+	reports, err = ag.queue.PendingTerminalReports(8)
+	if err != nil {
+		t.Fatalf("PendingTerminalReports after ack: %v", err)
+	}
+	if len(reports) != 0 {
+		t.Fatalf("durable terminal report should be drained after Gateway acknowledgement, got %+v", reports)
+	}
+
+	updates := gw.Updates()
+	var successCount int
+	for _, update := range updates {
+		if update.JobID == "job-terminal-outbox" && update.Status == "success" {
+			successCount++
+		}
+	}
+	if successCount != 2 {
+		t.Fatalf("expected one failed and one retried terminal success report, got %d updates=%+v", successCount, updates)
+	}
 }
 
 func TestExtractJobFromWSMessage(t *testing.T) {
@@ -287,14 +362,15 @@ func TestMalformedWSJobFieldsAreRejectedAndLogged(t *testing.T) {
 	waitFor(t, 5*time.Second, func() bool { return ag.getWSConn() != nil })
 
 	badJobs := []map[string]interface{}{
-		{"agentId": "agt_test", "printerId": "p1", "status": "claimed", "payload": makeJobPayload("missing_id")},
-		{"id": 123, "agentId": "agt_test", "printerId": "p1", "status": "claimed", "payload": makeJobPayload("bad_id")},
-		{"id": "missing_printer", "agentId": "agt_test", "status": "claimed", "payload": makeJobPayload("missing_printer")},
-		{"id": "bad_printer", "agentId": "agt_test", "printerId": 123, "status": "claimed", "payload": makeJobPayload("bad_printer")},
-		{"id": "bad_agent", "agentId": 123, "printerId": "p1", "status": "claimed", "payload": makeJobPayload("bad_agent")},
-		{"id": "bad_status", "agentId": "agt_test", "printerId": "p1", "status": 123, "payload": makeJobPayload("bad_status")},
-		{"id": "bad_request", "agentId": "agt_test", "printerId": "p1", "status": "claimed", "requestId": 123, "payload": makeJobPayload("bad_request")},
+		{"agentId": "agt_test", "printerId": "p1", "status": "claimed", "claimToken": "claim-missing-id", "payload": makeJobPayload("missing_id")},
+		{"id": 123, "agentId": "agt_test", "printerId": "p1", "status": "claimed", "claimToken": "claim-bad-id", "payload": makeJobPayload("bad_id")},
+		{"id": "missing_printer", "agentId": "agt_test", "status": "claimed", "claimToken": "claim-missing-printer", "payload": makeJobPayload("missing_printer")},
+		{"id": "bad_printer", "agentId": "agt_test", "printerId": 123, "status": "claimed", "claimToken": "claim-bad-printer", "payload": makeJobPayload("bad_printer")},
+		{"id": "bad_agent", "agentId": 123, "printerId": "p1", "status": "claimed", "claimToken": "claim-bad-agent", "payload": makeJobPayload("bad_agent")},
+		{"id": "bad_status", "agentId": "agt_test", "printerId": "p1", "status": 123, "claimToken": "claim-bad-status", "payload": makeJobPayload("bad_status")},
+		{"id": "bad_request", "agentId": "agt_test", "printerId": "p1", "status": "claimed", "claimToken": "claim-bad-request", "requestId": 123, "payload": makeJobPayload("bad_request")},
 		{"id": "bad_claim", "agentId": "agt_test", "printerId": "p1", "status": "claimed", "claimToken": 123, "payload": makeJobPayload("bad_claim")},
+		{"id": "missing_claim", "agentId": "agt_test", "printerId": "p1", "status": "claimed", "payload": makeJobPayload("missing_claim")},
 	}
 	for _, job := range badJobs {
 		gateway.sendCh <- map[string]interface{}{"type": "print_job", "job": job}
@@ -313,11 +389,12 @@ func TestDispatchRejectsMalformedJobFields(t *testing.T) {
 	gw := newRecordingGateway(t)
 	ag := newAgentAgainst(t, gw.server.URL, "p1", &fakePrinter{})
 	badJobs := []map[string]interface{}{
-		{"printerId": "p1", "payload": makeJobPayload("dispatch_missing_id")},
-		{"id": 123, "printerId": "p1", "payload": makeJobPayload("dispatch_bad_id")},
-		{"id": "dispatch_missing_printer", "payload": makeJobPayload("dispatch_missing_printer")},
-		{"id": "dispatch_bad_printer", "printerId": 123, "payload": makeJobPayload("dispatch_bad_printer")},
-		{"id": "dispatch_bad_claim", "printerId": "p1", "claimToken": 123, "payload": makeJobPayload("dispatch_bad_claim")},
+		{"agentId": "agt_test", "status": "claimed", "claimToken": "claim-dispatch-missing-id", "printerId": "p1", "payload": makeJobPayload("dispatch_missing_id")},
+		{"id": 123, "agentId": "agt_test", "status": "claimed", "claimToken": "claim-dispatch-bad-id", "printerId": "p1", "payload": makeJobPayload("dispatch_bad_id")},
+		{"id": "dispatch_missing_printer", "agentId": "agt_test", "status": "claimed", "claimToken": "claim-dispatch-missing-printer", "payload": makeJobPayload("dispatch_missing_printer")},
+		{"id": "dispatch_bad_printer", "agentId": "agt_test", "status": "claimed", "claimToken": "claim-dispatch-bad-printer", "printerId": 123, "payload": makeJobPayload("dispatch_bad_printer")},
+		{"id": "dispatch_bad_claim", "agentId": "agt_test", "status": "claimed", "printerId": "p1", "claimToken": 123, "payload": makeJobPayload("dispatch_bad_claim")},
+		{"id": "dispatch_missing_claim", "agentId": "agt_test", "status": "claimed", "printerId": "p1", "payload": makeJobPayload("dispatch_missing_claim")},
 	}
 	for _, job := range badJobs {
 		if accepted := ag.dispatchJob(context.Background(), job); accepted {
@@ -344,9 +421,14 @@ func TestProcessJobRejectsMalformedDecisionFields(t *testing.T) {
 		{"missing_printer_id", func(job map[string]interface{}) { delete(job, "printerId") }},
 		{"wrong_printer_id", func(job map[string]interface{}) { job["printerId"] = 123 }},
 		{"wrong_claim_token", func(job map[string]interface{}) { job["claimToken"] = 123 }},
+		{"missing_claim_token", func(job map[string]interface{}) { delete(job, "claimToken") }},
+		{"wrong_agent_id", func(job map[string]interface{}) { job["agentId"] = 123 }},
+		{"missing_agent_id", func(job map[string]interface{}) { delete(job, "agentId") }},
+		{"wrong_status_type", func(job map[string]interface{}) { job["status"] = 123 }},
+		{"wrong_status_value", func(job map[string]interface{}) { job["status"] = "success" }},
 	}
 	for _, tc := range cases {
-		job := map[string]interface{}{"id": "process_" + tc.name, "printerId": "p1", "payload": makeJobPayload(tc.name)}
+		job := map[string]interface{}{"id": "process_" + tc.name, "agentId": "agt_test", "printerId": "p1", "status": "claimed", "claimToken": "claim-" + tc.name, "payload": makeJobPayload(tc.name)}
 		tc.mutate(job)
 		ag.processJob(context.Background(), job)
 	}
@@ -668,13 +750,20 @@ func TestReprintAfterCrashPolicy(t *testing.T) {
 			t.Fatalf("UpdateStatus: %v", err)
 		}
 		ag.recoverInterruptedJobs(context.Background())
+		updates := gw.Updates()
+		if len(updates) != 1 || updates[0].Status != "queued" || updates[0].ClaimToken == "" {
+			t.Fatalf("explicit crash-reprint opt-in must request a fenced gateway requeue, got %#v", updates)
+		}
+		// A real Gateway requeue mints a fresh claim token. Model that new
+		// delivery rather than reusing the crashed attempt's token.
+		job["claimToken"] = "claim-after-restart"
 		ag.processJob(context.Background(), job)
 		if p.calls != 1 {
 			t.Fatalf("explicit crash-reprint opt-in should retry once in this test, got %d prints", p.calls)
 		}
 		last := gw.Updates()[len(gw.Updates())-1]
-		if last.Status != "success" {
-			t.Fatalf("expected the explicit opt-in retry to succeed, got %#v", last)
+		if last.Status != "success" || last.ClaimToken != "claim-after-restart" {
+			t.Fatalf("expected the explicit opt-in retry to succeed under the fresh claim fence, got %#v", last)
 		}
 	})
 

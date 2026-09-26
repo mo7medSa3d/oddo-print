@@ -6,7 +6,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { runtimeSecret } from "../../../../lib/runtime-secret";
-import { stripeRequest } from "../../../../lib/stripe";
+import { isDefinitiveStripeMutationError, stripeRequest } from "../../../../lib/stripe";
 import { gatewayNowMs, refreshClockSkew } from "../../../../lib/database-clock";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
@@ -407,10 +407,43 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ ok: true, url: session.url });
   } catch (error) {
-    // Keep the intent in 'creating' with its original idempotency key. If
-    // Stripe accepted the request but the response/DB finalization was lost,
-    // the next retry safely replays the same external operation rather than
-    // minting a second Checkout Session.
+    // Preserve the creating intent for ambiguous/retryable Stripe failures: if
+    // Stripe accepted the request but the response or local finalization was
+    // lost, the next retry must replay the same idempotency key rather than
+    // minting a second Checkout Session. A definitive Stripe 4xx, however,
+    // proves the external mutation was rejected and must release the intent so
+    // the workspace is not stranded on a permanently-invalid checkout.
+    if (isDefinitiveStripeMutationError(error)) {
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`
+          SELECT id
+          FROM tenants
+          WHERE id = ${claims.tenantId}
+          FOR UPDATE
+        `);
+        await tx.update(tenantSubscriptions)
+          .set({
+            checkoutStatus: "none",
+            checkoutPlanId: null,
+            checkoutIdempotencyKey: null,
+            checkoutSessionId: null,
+            checkoutSessionUrl: null,
+            checkoutSessionExpiresAt: null,
+            updatedAt: sql`clock_timestamp()`,
+          })
+          .where(and(
+            eq(tenantSubscriptions.tenantId, claims.tenantId),
+            eq(tenantSubscriptions.checkoutIdempotencyKey, state.idempotencyKey),
+            eq(tenantSubscriptions.checkoutStatus, "creating"),
+          ));
+      });
+      console.error("billing checkout rejected by Stripe", error.status, error.message);
+      return NextResponse.json(
+        { error: "Stripe rejected this checkout request. Correct the billing configuration and try again.", code: "STRIPE_CHECKOUT_REJECTED" },
+        { status: 409 },
+      );
+    }
+
     const message = error instanceof Error ? error.message : "unknown";
     console.error("billing checkout failed", message);
     if (message === "Stripe is not configured") {

@@ -430,6 +430,87 @@ class TestPrintGatewayRoutingContract(TransactionCase):
             cr.rollback()
             cr.close()
 
+    def test_ambiguous_submission_404_remains_reconcilable_by_idempotency_key(self):
+        """A response-lost Gateway submission must not become unreconcilable after a 404.
+
+        The first lookup has no durable gateway_job_id, so a 404 cannot safely
+        prove that the physical submission never happened. The unknown-submission
+        marker must therefore survive and remain eligible for a later idempotency-key
+        lookup rather than being replaced by the terminal-only GATEWAY_JOB_NOT_FOUND
+        marker used for jobs that already have a remote Gateway id.
+        """
+        job_id = self._job("ambiguous-404-reconciliation")
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, self.env.uid, dict(self.env.context))
+            company = env["res.company"].browse(self.durable_company_id).exists()
+            model_env = env["print_gateway.print_job"].with_company(company).env
+            job = model_env["print_gateway.print_job"].browse(job_id).exists()
+            job.write({
+                "status": "unknown",
+                "gateway_job_id": False,
+                "last_error": "UNKNOWN_SUBMISSION_OUTCOME: gateway response was lost",
+                "next_retry_at": False,
+            })
+            cr.commit()
+        finally:
+            cr.close()
+
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, self.env.uid, dict(self.env.context))
+            company = env["res.company"].browse(self.durable_company_id).exists()
+            model_env = env["print_gateway.print_job"].with_company(company).env
+            job = model_env["print_gateway.print_job"].browse(job_id).exists()
+            changed = job._mark_gateway_job_missing(
+                job,
+                "GATEWAY_JOB_NOT_FOUND: ambiguous submission was not found on the Gateway yet",
+            )
+            self.assertTrue(changed)
+            self.assertEqual(job.status, "unknown")
+            self.assertTrue(job.last_error.startswith("UNKNOWN_SUBMISSION_OUTCOME:"))
+            self.assertTrue(job.next_retry_at)
+            self.assertTrue(job._needs_gateway_status_reconciliation(job))
+            cr.rollback()
+        finally:
+            cr.close()
+
+    def test_failed_unknown_partial_delivery_remains_reconcilable_after_gateway_job_exists(self):
+        """A known Gateway job with an unknown physical outcome must stay in polling.
+
+        The Gateway can transition UNKNOWN_PARTIAL_DELIVERY -> success via the
+        same fenced execution attempt. Terminal Odoo polling must therefore keep
+        this failed row eligible; otherwise the late-success reconciliation path
+        exists in code but is unreachable from cron/manual sync.
+        """
+        job_id = self._job("failed-unknown-partial-reconciliation")
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, self.env.uid, dict(self.env.context))
+            company = env["res.company"].browse(self.durable_company_id).exists()
+            model_env = env["print_gateway.print_job"].with_company(company).env
+            job = model_env["print_gateway.print_job"].browse(job_id).exists()
+            job.write({
+                "status": "failed",
+                "gateway_job_id": "gw_failed_unknown_partial",
+                "last_error": "UNKNOWN_PARTIAL_DELIVERY: frame was accepted; physical outcome unknown",
+                "next_retry_at": False,
+            })
+            cr.commit()
+        finally:
+            cr.close()
+
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, self.env.uid, dict(self.env.context))
+            company = env["res.company"].browse(self.durable_company_id).exists()
+            model_env = env["print_gateway.print_job"].with_company(company).env
+            job = model_env["print_gateway.print_job"].browse(job_id).exists()
+            self.assertTrue(job._needs_gateway_status_reconciliation(job))
+        finally:
+            cr.rollback()
+            cr.close()
+
     def test_cron_submit_pending_ignores_unknown_jobs(self):
         job_id = self._job("cron-safety-unknown")
         # Publish the unknown state through a separate COMMITTED cursor (the
@@ -458,6 +539,32 @@ class TestPrintGatewayRoutingContract(TransactionCase):
             with patch.object(type(job), "action_submit", autospec=True) as mocked_submit:
                 model_env["print_gateway.print_job"].cron_submit_pending()
                 mocked_submit.assert_not_called()
+        finally:
+            cr.rollback()
+            cr.close()
+
+    def test_force_reprint_from_failed_unknown_outcome_generates_derived_key(self):
+        job_id = self._job("reprint-failed-unknown-origin")
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, self.env.uid, dict(self.env.context))
+            company = env["res.company"].browse(self.durable_company_id).exists()
+            model_env = env["print_gateway.print_job"].with_company(company).env
+            job = model_env["print_gateway.print_job"].browse(job_id).exists()
+            job.write({
+                "status": "failed",
+                "last_error": "AGENT_EXECUTION_TIMEOUT: execution lease expired; physical output is unknown",
+                "next_retry_at": False,
+            })
+            self.assertEqual(job.physical_outcome, "unknown")
+            with patch.object(type(job), "_schedule_postcommit_submission", autospec=True) as schedule_submit:
+                job.action_force_reprint()
+            self.assertEqual(job.reprint_attempt_count, 1)
+            derived_jobs = model_env["print_gateway.print_job"].search([
+                ("idempotency_key", "=", "%s-reprint-1" % job.idempotency_key),
+            ])
+            self.assertEqual(len(derived_jobs), 1)
+            self.assertEqual(schedule_submit.call_count, 1)
         finally:
             cr.rollback()
             cr.close()

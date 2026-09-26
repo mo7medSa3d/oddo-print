@@ -159,8 +159,15 @@ type Agent struct {
 	// a transport failure inside that window cannot be masking a
 	// reassignment (see authorizeDispatchAfterReportFailure).
 	inFlightReceived map[string]time.Time
-	inFlightMu       sync.Mutex
-	wg               sync.WaitGroup
+	// terminalExecution fences a physical result in memory when the printer
+	// side effect completed but SQLite could not persist the terminal row.
+	// This is intentionally process-local: after restart the durable row is
+	// still `printing` and MarkInterrupted converts it to an explicit unknown
+	// outcome, preventing silent re-execution. While the process remains up,
+	// duplicate deliveries must never re-enter the printer after this window.
+	terminalExecution map[string]terminalExecutionResult
+	inFlightMu        sync.Mutex
+	wg                sync.WaitGroup
 
 	// Guards making heartbeat/poll ticks non-reentrant. A slow tick (offline
 	// printers probing at 2s, slow gateway) must never let ticks pile up.
@@ -214,6 +221,12 @@ type Agent struct {
 	desiredStatePath      string
 	desiredStateSynced    bool
 	desiredStatePersistMu sync.Mutex
+}
+
+type terminalExecutionResult struct {
+	status     string
+	errMsg     string
+	claimToken string
 }
 
 type printerProbeState struct {
@@ -384,28 +397,29 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 	registryPath := config.RegistryPath(configPath)
 
 	a := &Agent{
-		cfg:              cfg,
-		configPath:       configPath,
-		registryPath:     registryPath,
-		client:           &http.Client{Timeout: 15 * time.Second},
-		printers:         make(map[string]printer.Printer),
-		printerConfigs:   make(map[string]config.PrinterConfig),
-		registryOwned:    make(map[string]struct{}),
-		queue:            q,
-		execSem:          make(chan struct{}, maxConcurrentJobs),
-		pendingSlots:     make(chan struct{}, maxPendingJobs),
-		inFlight:         make(map[string]struct{}),
-		inFlightTokens:   make(map[string]string),
-		pendingByPrinter: make(map[string]int),
-		inFlightPrinters: make(map[string]string),
-		inFlightReceived: make(map[string]time.Time),
-		shutdownCh:       make(chan struct{}),
-		discoverySem:     make(chan struct{}, 1),
-		rejectQueue:      make(chan rejectWork, maxRejectQueue),
-		rejectPending:    make(map[string]struct{}),
-		desiredStates:    make(map[string]desiredPrinterRecord),
-		gatewayOwned:     make(map[string]struct{}),
-		desiredStatePath: desiredStatePath(configPath),
+		cfg:               cfg,
+		configPath:        configPath,
+		registryPath:      registryPath,
+		client:            &http.Client{Timeout: 15 * time.Second},
+		printers:          make(map[string]printer.Printer),
+		printerConfigs:    make(map[string]config.PrinterConfig),
+		registryOwned:     make(map[string]struct{}),
+		queue:             q,
+		execSem:           make(chan struct{}, maxConcurrentJobs),
+		pendingSlots:      make(chan struct{}, maxPendingJobs),
+		inFlight:          make(map[string]struct{}),
+		inFlightTokens:    make(map[string]string),
+		pendingByPrinter:  make(map[string]int),
+		inFlightPrinters:  make(map[string]string),
+		inFlightReceived:  make(map[string]time.Time),
+		terminalExecution: make(map[string]terminalExecutionResult),
+		shutdownCh:        make(chan struct{}),
+		discoverySem:      make(chan struct{}, 1),
+		rejectQueue:       make(chan rejectWork, maxRejectQueue),
+		rejectPending:     make(map[string]struct{}),
+		desiredStates:     make(map[string]desiredPrinterRecord),
+		gatewayOwned:      make(map[string]struct{}),
+		desiredStatePath:  desiredStatePath(configPath),
 	}
 
 	if err := a.loadDesiredState(); err != nil {
@@ -645,6 +659,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// Crash recovery must run before any new delivery is accepted.
 	a.recoverInterruptedJobs(ctx)
+	a.reportPendingTerminalStatuses(ctx)
 
 	a.launchTracked(func() { a.connectWebSocket(ctx) })
 	a.launchTracked(func() { a.runRejectWorker(ctx) })
@@ -700,6 +715,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			// of every configured printer, which can take seconds when offline.
 			a.launchTracked(func() { a.sendHeartbeatGuardedContext(ctx) })
 		case <-pollTicker.C:
+			a.launchTracked(func() { a.reportPendingTerminalStatuses(ctx) })
 			// Poll is the primary delivery path while the WebSocket is down.
 			// While the socket IS up it still runs as a safety net every
 			// wsSafetyPollEvery ticks: a job that was claimed for WS delivery
@@ -732,6 +748,31 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
+// reportPendingTerminalStatuses replays durable local terminal outcomes until
+// the Gateway acknowledges one with a 2xx response. This is an Agent-local
+// transactional outbox: it closes the crash window between the SQLite terminal
+// write and the remote status report without ever re-running printer I/O.
+func (a *Agent) reportPendingTerminalStatuses(ctx context.Context) {
+	if !a.terminalReportMu.TryLock() {
+		return
+	}
+	defer a.terminalReportMu.Unlock()
+
+	reports, err := a.queue.PendingTerminalReports(32)
+	if err != nil {
+		log.Printf("Terminal status outbox scan failed: %v", err)
+		return
+	}
+	for _, report := range reports {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := a.updateJobStatus(ctx, report.ID, report.Status, report.LastError, report.ClaimToken); err != nil {
+			log.Printf("Job %s: pending terminal status report failed: %v", report.ID, err)
+		}
+	}
+}
+
 // recoverInterruptedJobs handles jobs that were still physically printing when
 // the previous agent process stopped.
 //
@@ -740,12 +781,11 @@ func (a *Agent) Run(ctx context.Context) error {
 // row is marked terminal with queue.InterruptedMarker in both cases; what
 // differs is what is told to the gateway, per agent.reprint_after_crash:
 //
-//   - true:  report NOTHING. The gateway's lease handling treats the delivered
-//     but unreported claim as an unknown outcome (terminal, manual reprint
-//     only). If the SAME job id is ever delivered again (only possible for
-//     claims that never showed delivery evidence), the WasInterrupted gate
-//     below allows exactly one more physical attempt - honest at-least-once
-//     behaviour that may duplicate paper.
+//   - true:  explicitly ask the gateway to requeue the current printing claim
+//     with the exact claim token. The gateway records an ambiguous prior
+//     attempt, increments the retry budget, and returns the job to queued. The
+//     next delivery is therefore a distinct, fenced physical attempt. This is
+//     deliberate at-least-once behavior and may duplicate paper.
 //   - false: report the job failed with an explicit reason so the gateway
 //     stops immediately and the document is never silently reprinted.
 //
@@ -760,9 +800,24 @@ func (a *Agent) recoverInterruptedJobs(ctx context.Context) {
 	for _, job := range interrupted {
 		if reprint {
 			log.Printf(
-				"WARNING: job %s on printer %s was still printing when the agent stopped. Physical output is UNKNOWN (full, partial or none). reprint_after_crash=true: leaving the job to the gateway lease so it can be redelivered and reprinted.",
+				"WARNING: job %s on printer %s was still printing when the agent stopped. Physical output is UNKNOWN (full, partial or none). reprint_after_crash=true: requesting an explicit fenced Gateway requeue for a new at-least-once attempt.",
 				job.ID, job.PrinterID,
 			)
+			if job.ClaimToken == "" {
+				log.Printf("Job %s: cannot request crash requeue without the preserved claim token; leaving the local unknown outcome terminal", job.ID)
+				continue
+			}
+			if err := a.updateJobStatus(ctx, job.ID, "queued", "AGENT_RESTART_DURING_PRINT: operator-enabled at-least-once crash recovery", job.ClaimToken); err != nil {
+				log.Printf("Job %s: Gateway rejected crash-requeue request; lease/recovery remains authoritative: %v", job.ID, err)
+				continue
+			}
+			// The Gateway has now durably accepted the new queued state. The local
+			// terminal row remains only as physical-ambiguity evidence until the
+			// next delivery; clear its old execution token so it cannot be mistaken
+			// for the next attempt's fence.
+			if err := a.queue.ClearClaimToken(job.ID); err != nil {
+				log.Printf("Job %s: failed to clear old claim token after crash requeue: %v", job.ID, err)
+			}
 			continue
 		}
 		log.Printf(
@@ -1084,19 +1139,22 @@ func decodeJobFields(job map[string]interface{}) (jobWireFields, error) {
 	if err != nil {
 		return jobWireFields{}, err
 	}
-	agentID, err := readStringField(job, "agentId", false, false)
+	agentID, err := readStringField(job, "agentId", true, false)
 	if err != nil {
 		return jobWireFields{}, err
 	}
-	status, err := readStringField(job, "status", false, false)
+	status, err := readStringField(job, "status", true, false)
 	if err != nil {
 		return jobWireFields{}, err
+	}
+	if status != "claimed" {
+		return jobWireFields{}, fmt.Errorf("field %q has invalid state %q; expected claimed", "status", status)
 	}
 	requestID, err := readStringField(job, "requestId", false, true)
 	if err != nil {
 		return jobWireFields{}, err
 	}
-	claimToken, err := readStringField(job, "claimToken", false, true)
+	claimToken, err := readStringField(job, "claimToken", true, false)
 	if err != nil {
 		return jobWireFields{}, err
 	}
@@ -1212,6 +1270,20 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 		return false
 	default:
 	}
+	if terminal, done := a.terminalExecution[jobID]; done {
+		// A prior physical attempt completed, but terminal SQLite persistence
+		// failed. Refuse every further physical dispatch in this process.
+		// Re-reporting is safe because the claim token remains fenced; a stale
+		// reclaimed claim simply rejects the report and recovery can reconcile
+		// the durable Gateway state later.
+		a.inFlightMu.Unlock()
+		a.shutdownGate.RUnlock()
+		log.Printf("Job %s already has a process-local terminal physical result; refusing duplicate dispatch and re-reporting", jobID)
+		if err := a.updateJobStatus(sessionCtx, jobID, terminal.status, terminal.errMsg, fields.ClaimToken); err != nil {
+			log.Printf("Job %s: failed to re-report process-local terminal result: %v", jobID, err)
+		}
+		return false
+	}
 	if _, dup := a.inFlight[jobID]; dup {
 		// Never adopt a newer claim token while a physical attempt is already
 		// executing locally. Doing so would let the original hardware attempt
@@ -1278,7 +1350,24 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("PANIC while executing job %s: %v", jobID, r)
-				a.updateJobStatus(executionCtx, jobID, "failed", fmt.Sprintf("AGENT_PANIC: %v", r), fields.ClaimToken)
+				// A panic is phase-ambiguous: it may occur before admission, after
+				// BeginPrint, or after physical bytes reached the device. Inspect and
+				// terminalize the durable local ledger first. A row left in `printing`
+				// would permit a later same-token redelivery to reopen the hardware
+				// attempt after the in-process fence is cleaned up.
+				_, localStatus, found, readErr := a.queue.Get(jobID)
+				panicMsg := fmt.Sprintf("AGENT_PANIC: %v", r)
+				status := "failed"
+				if readErr != nil || (found && localStatus == "printing") {
+					panicMsg = "UNKNOWN_PARTIAL_DELIVERY: " + panicMsg + " (physical outcome cannot be proven absent after agent panic)"
+					if err := a.queue.UpdateStatusWithError(jobID, "failed", panicMsg); err != nil {
+						a.rememberTerminalExecution(jobID, "failed", panicMsg, fields.ClaimToken)
+					}
+				} else if found && localStatus == "success" {
+					status = "success"
+					panicMsg = ""
+				}
+				a.updateJobStatus(executionCtx, jobID, status, panicMsg, fields.ClaimToken)
 			}
 		}()
 
@@ -1352,6 +1441,15 @@ func (a *Agent) forgetJob(id string) {
 	// executor map. The dedicated helper below is used by the normal goroutine
 	// path before the map entry disappears.
 	a.inFlightMu.Unlock()
+}
+
+func (a *Agent) rememberTerminalExecution(jobID, status, errMsg, claimToken string) {
+	a.inFlightMu.Lock()
+	defer a.inFlightMu.Unlock()
+	if a.terminalExecution == nil {
+		a.terminalExecution = make(map[string]terminalExecutionResult)
+	}
+	a.terminalExecution[jobID] = terminalExecutionResult{status: status, errMsg: errMsg, claimToken: claimToken}
 }
 
 func (a *Agent) deliveryReceivedAt(jobID string) time.Time {
@@ -2209,6 +2307,10 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	}
 	log.Printf("print.trace agent_receive request_id=%s job_id=%s printer_id=%s queue_wait_ms=%d received_unix_ms=%d", requestID, jobID, printerID, time.Since(receivedAt).Milliseconds(), receivedAt.UnixMilli())
 	claimToken := fields.ClaimToken
+	if fields.AgentID != a.cfg.Agent.ID {
+		log.Printf("Received job %s for agent %s on agent %s; rejecting before execution", jobID, fields.AgentID, a.cfg.Agent.ID)
+		return
+	}
 
 	if jobID == "" || printerID == "" {
 		// Never log the job map: it can embed the full print payload
@@ -2278,6 +2380,10 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// that survives a crash.
 	ledgerStart := time.Now()
 	if err := a.queue.BeginPrint(jobID, printerID, pl.Data, claimToken, a.cfg.ReprintAfterCrashEnabled()); err != nil {
+		if errors.Is(err, queue.ErrAlreadyPrinting) {
+			log.Printf("Job %s: duplicate delivery for the live local claim; suppressing a second physical dispatch", jobID)
+			return
+		}
 		if errors.Is(err, queue.ErrTerminalState) {
 			log.Printf("Job %s: local ledger is terminal; refusing dispatch and re-reporting stored outcome", jobID)
 			_, storedStatus, found, getErr := a.queue.Get(jobID)
@@ -2382,6 +2488,14 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	case a.execSem <- struct{}{}:
 		defer func() { <-a.execSem }()
 	case <-ctx.Done():
+		// BeginPrint already persisted `printing`, but no physical execution
+		// slot was acquired, so zero hardware bytes can have been sent. Roll the
+		// local attempt back before returning the claim to Gateway; otherwise a
+		// later same-token redelivery could reopen the stale `printing` row and
+		// dispatch the physical side effect twice.
+		if err := a.queue.AbortPrint(jobID, "dispatch_refused: agent shutting down before physical execution slot; zero bytes transmitted"); err != nil {
+			log.Printf("Job %s: failed to abort local ledger after execution-slot cancellation: %v", jobID, err)
+		}
 		a.rejectJob(ctx, jobID, claimToken, "agent_shutting_down")
 		return
 	}
@@ -2402,6 +2516,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// written to a secure temp file, rendered by the printer driver), raw and
 	// ESC/POS keep their byte-stream paths. A PDF is never re-labelled as RAW.
 	printData := pl.Data
+	physicalPeripheralSideEffect := false
 	hasActivePeripherals := (pl.Peripherals.Drawer != "" && pl.Peripherals.Drawer != "none") ||
 		(pl.Peripherals.Cutter != "" && pl.Peripherals.Cutter != "none") ||
 		(pl.Peripherals.Buzzer != "" && pl.Peripherals.Buzzer != "none")
@@ -2418,11 +2533,31 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 			if pl.Peripherals.Drawer == "pin5" {
 				drawerCmd = printer.DrawerKickPin5
 			}
-			if err := p.Print(printCtx, drawerCmd); err != nil {
-				log.Printf("print.trace peripheral_drawer_kick_failed request_id=%s job_id=%s printer_id=%s error=%v", requestID, jobID, printerID, err)
+			drawerErr := p.Print(printCtx, drawerCmd)
+			if drawerErr != nil {
+				log.Printf("print.trace peripheral_drawer_kick_failed request_id=%s job_id=%s printer_id=%s error=%v", requestID, jobID, printerID, drawerErr)
+				// The drawer kick is an independent physical side effect. A proven
+				// pre-dispatch failure is retryable, but an ambiguous failure must
+				// poison the attempt as UNKNOWN so it can never be silently retried.
+				if printer.OutcomeUnknown(drawerErr) {
+					reason := "UNKNOWN_PARTIAL_DELIVERY: cash-drawer kick outcome is ambiguous; automatic retry is unsafe: " + drawerErr.Error()
+					a.queue.UpdateStatusWithError(jobID, "failed", reason)
+					a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
+					return
+				}
+				a.queue.UpdateStatusWithError(jobID, "failed", drawerErr.Error())
+				a.updateJobStatus(ctx, jobID, "failed", drawerErr.Error(), claimToken)
+				return
 			}
+			// A successful drawer kick is already a physical side effect. Any
+			// later ambiguity must therefore remain UNKNOWN even when the main
+			// print stream itself has not started yet.
+			physicalPeripheralSideEffect = true
 			select {
 			case <-printCtx.Done():
+				reason := "UNKNOWN_PARTIAL_DELIVERY: cash-drawer kick succeeded but the print attempt was cancelled before the main document dispatch"
+				a.queue.UpdateStatusWithError(jobID, "failed", reason)
+				a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
 				return
 			case <-time.After(150 * time.Millisecond):
 			}
@@ -2444,15 +2579,25 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		if printer.OutcomeUnknown(printErr) && !printer.HasUnknownOutcomeMarker(failureMsg) {
 			failureMsg = "UNKNOWN_PARTIAL_DELIVERY: " + failureMsg
 		}
+		if physicalPeripheralSideEffect && !printer.HasUnknownOutcomeMarker(failureMsg) {
+			failureMsg = "UNKNOWN_PARTIAL_DELIVERY: peripheral side effect succeeded before main print outcome was known: " + failureMsg
+		}
 		if err := a.queue.UpdateStatusWithError(jobID, "failed", failureMsg); err != nil {
 			log.Printf("Job %s: ledger write failed after print failure: %v", jobID, err)
+			// Physical execution already happened (or is ambiguous). If the
+			// durable terminal row cannot be written, keep an in-process fence
+			// so duplicate delivery cannot execute the printer again.
+			a.rememberTerminalExecution(jobID, "failed", failureMsg, claimToken)
 		}
 	} else {
 		if err := a.queue.UpdateStatus(jobID, "success"); err != nil {
-			// A lost success record is honest (restart marks it
-			// AGENT_RESTART_DURING_PRINT), but the operator should know the
-			// local evidence of a successful physical print was not stored.
+			// Physical execution already succeeded. If SQLite cannot persist
+			// the terminal row, keep an in-process fence so duplicate delivery
+			// cannot execute the printer again. On process restart the durable
+			// row remains `printing`, and MarkInterrupted converts it into an
+			// explicit unknown outcome instead of allowing silent reprint.
 			log.Printf("Job %s: ledger write failed after successful print: %v", jobID, err)
+			a.rememberTerminalExecution(jobID, "success", "", claimToken)
 		}
 	}
 
@@ -2522,6 +2667,14 @@ func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, clai
 			return fmt.Errorf("%w: job %s status %q rejected (%d)", ErrStaleClaim, jobID, status, resp.StatusCode)
 		}
 		return fmt.Errorf("%w to %q (%d): %s", ErrTransitionRejected, status, resp.StatusCode, string(respBody))
+	}
+	if status == "success" || status == "failed" {
+		if err := a.queue.ClearClaimToken(jobID); err != nil {
+			// The Gateway already acknowledged the terminal outcome; retain the
+			// local token if SQLite cleanup fails so a later scan can retry the
+			// harmless cleanup without reprinting.
+			log.Printf("Job %s: Gateway acknowledged terminal status %q but local report token cleanup failed: %v", jobID, status, err)
+		}
 	}
 	return nil
 }

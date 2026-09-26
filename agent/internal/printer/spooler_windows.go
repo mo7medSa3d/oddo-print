@@ -286,11 +286,12 @@ func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNo
 		chunk := data[written:]
 		r, writeErr := sys.writePrinter(hPrinter, unsafe.Pointer(&chunk[0]), len(chunk), &bytesWritten)
 		if r == 0 {
-			if written > 0 {
+			totalWritten := written + bytesWritten
+			if totalWritten > 0 {
 				return spoolerTaskResult{
-					written: written,
+					written: totalWritten,
 					jobID:   jobID,
-					err:     fmt.Errorf("UNKNOWN_PARTIAL_DELIVERY: WritePrinter(%q) failed after %d/%d bytes: %w", spoolerName, written, len(data), writeErr),
+					err:     fmt.Errorf("UNKNOWN_PARTIAL_DELIVERY: WritePrinter(%q) failed after %d/%d bytes: %w", spoolerName, totalWritten, len(data), writeErr),
 				}
 			}
 			return spoolerTaskResult{written: written, jobID: jobID, err: fmt.Errorf("WritePrinter(%q) failed after %d/%d bytes: %w", spoolerName, written, len(data), writeErr)}

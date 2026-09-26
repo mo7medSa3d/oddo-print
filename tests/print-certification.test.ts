@@ -18,6 +18,15 @@ describe("print-certification", () => {
     expect(source).toContain("Idempotency-Key");
   });
 
+
+  it("certification payload is deterministic for one idempotency key", () => {
+    const source = fs.readFileSync("src/app/api/printers/[id]/certify/route.ts", "utf8");
+    expect(source).toContain("The printable payload MUST be deterministic for one idempotency key");
+    expect(source).not.toContain("${requestId}\nTime: ${new Date().toISOString()}");
+    expect(source).not.toContain("Buffer.from(`CERTIFICATION ${idempotencyKey} ${requestId}`)");
+    expect(source).toContain("Buffer.from(`CERTIFICATION ${idempotencyKey}`)");
+  });
+
   it("certification has real idempotency key handling", () => {
     const source = fs.readFileSync("src/app/api/printers/[id]/certify/route.ts", "utf8");
     expect(source).toContain("idempotencyKey");

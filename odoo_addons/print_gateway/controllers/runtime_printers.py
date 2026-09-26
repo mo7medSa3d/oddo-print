@@ -103,7 +103,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             if not isinstance(agent, dict):
                 continue
             agent_id = agent.get('id')
-            lifecycle = agent.get('lifecycle') if isinstance(agent.get('lifecycle'), str) else 'active'
+            lifecycle = agent.get('lifecycle') if isinstance(agent.get('lifecycle'), str) else ''
             if not isinstance(agent_id, str) or not agent_id.strip() or lifecycle != 'active':
                 continue
             raw_name = agent.get('name') if isinstance(agent.get('name'), str) and agent.get('name').strip() else agent_id
@@ -198,7 +198,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             printer_id = printer.get('id')
             if not isinstance(printer_id, str) or not printer_id.strip():
                 continue
-            lifecycle = printer.get('lifecycle') if isinstance(printer.get('lifecycle'), str) else 'active'
+            lifecycle = printer.get('lifecycle') if isinstance(printer.get('lifecycle'), str) else ''
             agent = printer.get('agent') if isinstance(printer.get('agent'), dict) else {}
             returned_agent_id = agent.get('id') if isinstance(agent.get('id'), str) else ''
             if lifecycle != 'active' or returned_agent_id != selected_agent_id:

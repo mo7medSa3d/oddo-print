@@ -173,8 +173,28 @@ def test_gateway_api_key_view_is_password_masked_and_system_admin_only():
 def test_gateway_http_requires_explicit_development_opt_in():
     source = read("models/gateway_config.py")
     assert 'scheme == "http"' in source
-    assert 'ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP' in source
+    assert 'YASSER_GATEWAY_ALLOW_INSECURE_HTTP' in source
     assert "Plain HTTP is allowed only for explicitly opted-in isolated development." in source
+
+
+def test_gateway_config_unlink_fails_closed_when_remote_shutdown_is_unconfirmed():
+    source = read("models/gateway_config.py")
+    unlink_start = source.index("    def unlink(self):")
+    unlink_end = source.index("    @api.model\n    @api.private\n    def cron_sync_enabled_state", unlink_start)
+    unlink = source[unlink_start:unlink_end]
+    assert "if in_test:" in unlink
+    assert "return super().unlink()" in unlink
+    assert "if not record._disable_gateway_for_unlink(" in unlink
+    assert "This Gateway configuration cannot be deleted until the Gateway confirms that printing is disabled." in unlink
+    assert "pending_disable_gateway_url" in unlink
+    assert "_gateway_api_key_plaintext_from_value" in unlink
+    assert "if len(self) != 1" in unlink
+    assert "FOR UPDATE" in unlink
+    assert "print_gateway_print_job WHERE gateway_config_id = %s LIMIT 1" in unlink
+    assert "while print jobs still reference it" in unlink
+    assert "example.com" not in unlink
+    assert "url_lower" not in unlink
+    assert "Best-effort remote shutdown" not in source
 
 
 def test_gateway_url_change_durably_disables_previous_endpoint_before_new_sync():
@@ -445,7 +465,8 @@ def test_print_submission_uses_committed_lease_fencing():
     assert "def _claim_submission_lease" in source
     assert "def _advance_status_claimed" in source
     assert "Submission lease lost while finalizing Odoo print job" in source
-    assert "_print_gateway_submission_precommit" in source
+    assert "_print_gateway_submission_precommit" not in source
+    assert "Print submission must occur after the Odoo outbox transaction commits" in source
 
 
 def test_odoo_submission_crons_report_incremental_progress():
@@ -460,9 +481,9 @@ def test_odoo_submission_crons_report_incremental_progress():
 
 
 def test_agent_registration_pairing_uses_database_clock():
-    actions = (ROOT / "src" / "app" / "actions.ts").read_text(encoding="utf-8")
+    control = (ROOT / "src" / "lib" / "agent-control.ts").read_text(encoding="utf-8")
     register = (ROOT / "src" / "app" / "api" / "agent" / "register" / "route.ts").read_text(encoding="utf-8")
-    assert "clock_timestamp() + interval '10 minutes'" in actions
+    assert "clock_timestamp() + interval '10 minutes'" in control
     assert "pairing_code_expires_at > clock_timestamp()" in register
     assert "FOR UPDATE" in register
     assert "const now = new Date()" not in register
@@ -505,3 +526,12 @@ def test_odoo_js_device_class_filter_uses_only_canonical_gateway_values():
             f"runtime_printer_field.js deviceClass filter uses non-canonical values: {non_canonical}. "
             f"The API rejects these; remove them so the filter stays in sync with DEVICE_CLASSES."
         )
+
+
+def test_gateway_idempotency_is_namespaced_by_odoo_company():
+    jobs = read("models/print_job.py")
+    assert 'def _gateway_idempotency_key(self)' in jobs
+    assert 'source = f"odoo:{self.company_id.id}:{self.idempotency_key}"' in jobs
+    assert 'hashlib.sha256(source.encode("utf-8")).hexdigest()' in jobs
+    assert '"idempotencyKey": self._gateway_idempotency_key()' in jobs
+    assert '"idempotencyKey": self.idempotency_key' not in jobs

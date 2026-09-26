@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"strings"
 
@@ -45,7 +44,7 @@ func main() {
 		if strings.TrimSpace(*serverURL) == "" {
 			log.Fatal("-server is required when pairing (e.g. -server https://gateway.example.com)")
 		}
-		if err := validateServerURL(*serverURL); err != nil {
+		if err := config.ValidateServerURL(*serverURL); err != nil {
 			log.Fatalf("Invalid -server: %v", err)
 		}
 		if strings.TrimSpace(*pairingCode) == "" {
@@ -94,30 +93,6 @@ func printUsage() {
 	fmt.Println("  printers add --name \"Kitchen\" --type network --endpoint 192.168.1.50:9100 --protocol escpos")
 	fmt.Println("  printers add --name \"HP LaserJet\" --type spooler --spooler-name \"HP LaserJet\"")
 	fmt.Println("  printers add --name \"Label USB\" --type usb --vid 03f0 --pid 0c17 --serial CN123 --spooler-name \"Zebra\"")
-}
-
-func validateServerURL(raw string) error {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return fmt.Errorf("parse url: %w", err)
-	}
-	if u.Hostname() == "" {
-		return fmt.Errorf("host is required")
-	}
-	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return fmt.Errorf("server URL must not contain credentials, query strings, or fragments")
-	}
-	switch strings.ToLower(u.Scheme) {
-	case "https":
-		return nil
-	case "http":
-		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
-			return nil
-		}
-		return fmt.Errorf("server URL must use HTTPS; plain HTTP requires an explicit development-only insecure-HTTP opt-in")
-	default:
-		return fmt.Errorf("scheme must be https or http")
-	}
 }
 
 func handlePrintersSubcommand(args []string, defaultConfigPath string) {

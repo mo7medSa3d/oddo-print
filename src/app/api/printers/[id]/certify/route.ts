@@ -108,9 +108,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const headerKey = req.headers.get("Idempotency-Key")?.trim();
       const bodyKey = typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : null;
       const providedKey = headerKey || bodyKey;
-      // If client provides key, use it; otherwise generate a key that will dedupe double-click within 5min window per printer
-      // Use cert:<printerId>:<requestId> is NOT idempotent across retries, so we use cert:<printerId>:<tenantId>:<minute-bucket> for auto-generated
-      // But for true idempotency, we require client to send Idempotency-Key; we generate one for this request and return it
+      // If the client provides a key, preserve it across retries. Otherwise the auto-key
+      // deduplicates double-clicks for the same tenant/printer within one minute.
+      // Explicit Idempotency-Key is the contract for retry-safe response-loss recovery across time;
+      // the auto-key is intentionally short-lived convenience deduplication only
       const minuteBucket = Math.floor(certificationNowMs / 60000);
       const autoKey = `cert:${printerId}:${tenantId}:${minuteBucket}`;
       const idempotencyKey = providedKey && providedKey.length >= 8 && providedKey.length <= 200 ? providedKey : autoKey;
@@ -121,18 +122,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
 
       // Build payload YASSER TEST PAGE — no secrets, using raw protocol matching printer
+      // The printable payload MUST be deterministic for one idempotency key.
+      // A retry after a lost HTTP response must produce the same fingerprint so
+      // createPrintJobForPrinter can safely reuse the original physical attempt
+      // instead of turning a transport ambiguity into an idempotency conflict.
       const payload = testPage
         ? {
             type: "raw" as const,
             protocol: printer.protocol === "unknown" ? ("raw" as const) : printer.protocol,
             data: Buffer.from(
-              `YASSER TEST PAGE\nPrinter: ${printer.name}\nTenant: ${tenantId}\nJob: ${idempotencyKey}\nRequest: ${requestId}\nTime: ${new Date().toISOString()}\nTransport: ${printer.connectionType}/${printer.protocol}\n\nThis is a diagnostic test page for certification.\nNo credentials are printed.\n`.repeat(2)
+              `YASSER TEST PAGE\nPrinter: ${printer.name}\nTenant: ${tenantId}\nJob: ${idempotencyKey}\nTransport: ${printer.connectionType}/${printer.protocol}\n\nThis is a diagnostic test page for certification.\nNo credentials are printed.\n`.repeat(2)
             ).toString("base64"),
           }
         : {
             type: "raw" as const,
             protocol: printer.protocol === "unknown" ? ("raw" as const) : printer.protocol,
-            data: Buffer.from(`CERTIFICATION ${idempotencyKey} ${requestId}`).toString("base64"),
+            data: Buffer.from(`CERTIFICATION ${idempotencyKey}`).toString("base64"),
           };
 
       const expiresAt = new Date(certificationNowMs + 5 * 60 * 1000);

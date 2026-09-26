@@ -11,7 +11,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 export const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-const MANAGER_AUTH_EVENT = "odoo-print-manager-auth-changed";
+const MANAGER_AUTH_EVENT = "yasser-print-manager-auth-changed";
 let browserManagerAuthenticated = false;
 const REQUEST_TIMEOUT_MS = 10_000;
 

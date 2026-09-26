@@ -56,13 +56,32 @@ function Assert-Command([string]$Name, [string]$InstallHint) {
   Write-Host ("  {0,-8} {1}" -f $Name, (Get-Command $Name).Source)
 }
 
+function Assert-MinVersion([string]$Name, [version]$Required, [string]$ActualText, [string]$InstallHint) {
+  $match = [regex]::Match($ActualText, '\d+(?:\.\d+){1,3}')
+  if (-not $match.Success) {
+    throw "Unable to determine '$Name' version from: $ActualText. $InstallHint"
+  }
+  $actual = [version]$match.Value
+  if ($actual -lt $Required) {
+    throw "'$Name' $actual is unsupported; this repository requires >= $Required. $InstallHint"
+  }
+  Write-Host ("  {0,-8} {1} (minimum {2})" -f $Name, $actual, $Required)
+}
+
 # ── 1. Prerequisites ─────────────────────────────────────────────────────────
 Write-Step "Prerequisite check"
-Assert-Command node   "Install Node.js >= 22 LTS (see .nvmrc)."
-Assert-Command npm    "Install Node.js >= 22 LTS (see .nvmrc)."
-Assert-Command go     "Install Go >= 1.21 from https://go.dev/dl/."
-Assert-Command rustc  "Install Rust stable: https://rustup.rs/."
-Assert-Command cargo  "Install Rust stable: https://rustup.rs/."
+Assert-Command node   "Install Node.js >= 24.15.0 (the repository baseline is pinned by .nvmrc)."
+Assert-Command npm    "Install the npm version bundled with Node.js 24.15.0+ (the repository baseline is pinned by .nvmrc)."
+Assert-Command go     "Install Go 1.26+ from https://go.dev/dl/ (agent/go.mod requires Go 1.26)."
+Assert-Command rustc  "Install the Rust toolchain pinned by src-tauri/rust-toolchain.toml: https://rustup.rs/."
+Assert-Command cargo  "Install the Rust toolchain pinned by src-tauri/rust-toolchain.toml: https://rustup.rs/."
+Assert-MinVersion "node" ([version]"24.15.0") (& node --version) "Install Node.js 24.15.0+; see .nvmrc for the CI baseline."
+Assert-MinVersion "go" ([version]"1.26.0") (& go version) "Install Go 1.26+; agent/go.mod declares Go 1.26."
+$rustToolchain = Get-Content (Join-Path $repoRoot "src-tauri\rust-toolchain.toml") | Select-String -Pattern '^channel\s*=\s*"(?<version>[^"\s]+)"' | ForEach-Object { $_.Matches[0].Groups["version"].Value }
+if ([string]::IsNullOrWhiteSpace($rustToolchain)) { throw "Unable to determine the pinned Rust toolchain from src-tauri/rust-toolchain.toml" }
+Assert-MinVersion "rustc" ([version]$rustToolchain) (& rustc --version) "Install the exact Rust toolchain pinned by src-tauri/rust-toolchain.toml ($rustToolchain)."
+$rustActual = [regex]::Match((& rustc --version), '\d+(?:\.\d+){1,3}').Value
+if ($rustActual -ne $rustToolchain) { throw "rustc $rustActual does not match the pinned repository toolchain $rustToolchain." }
 & cargo tauri --version *> $null
 if ($LASTEXITCODE -ne 0) {
   throw "tauri-cli missing. Install once with: cargo install tauri-cli --version `"^2`" --locked"

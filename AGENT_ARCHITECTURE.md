@@ -74,7 +74,7 @@ The agent carries a `claimToken` through the entire lifecycle:
 ### Crash Recovery
 
 On startup, `recoverInterruptedJobs()` marks locally-tracked "printing" jobs as interrupted:
-- `reprint_after_crash=true`: Leaves the job for gateway lease reclaim (at-least-once)
+- `reprint_after_crash=true`: Explicitly asks the Gateway to requeue the current `printing` claim using the preserved claim token (at-least-once; may duplicate paper)
 - `reprint_after_crash=false`: Reports the job as failed (conservative)
 
 Either way, the physical outcome is recorded as UNKNOWN.

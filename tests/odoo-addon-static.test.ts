@@ -103,7 +103,10 @@ describe("Odoo addon static contracts", () => {
     expect(router).toContain("MAX_IMAGE_BYTES = 5 * 1024 * 1024");
     expect(jobs).toContain('"printerId": self.printer_id');
     expect(jobs).toContain('"documentType": self.document_type');
-    expect(jobs).toContain('"idempotencyKey": self.idempotency_key');
+    expect(jobs).toContain('def _gateway_idempotency_key(self)');
+    expect(jobs).toContain('source = f"odoo:{self.company_id.id}:{self.idempotency_key}"');
+    expect(jobs).toContain('"idempotencyKey": self._gateway_idempotency_key()');
+    expect(jobs).not.toContain('"idempotencyKey": self.idempotency_key');
     expect(jobs).not.toContain("pcl");
   });
 

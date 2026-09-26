@@ -246,7 +246,7 @@ class PrintGatewayConfig(models.Model):
         scheme = parsed.scheme.lower()
         if scheme not in ("http", "https") or not parsed.hostname:
             raise ValidationError(_("Gateway URL must use HTTP or HTTPS and include a host, e.g. https://print.example.com or http://192.0.2.10:3000."))
-        if scheme == "http" and os.environ.get("ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP") != "1":
+        if scheme == "http" and os.environ.get("YASSER_GATEWAY_ALLOW_INSECURE_HTTP") != "1":
             raise ValidationError(_("Gateway URL must use HTTPS. Plain HTTP is allowed only for explicitly opted-in isolated development."))
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValidationError(_("Gateway URL must not contain credentials, query parameters, or fragments."))
@@ -1285,7 +1285,7 @@ class PrintGatewayConfig(models.Model):
         return records
 
     def _disable_gateway_for_unlink(self, gateway_url, api_key, revision):
-        """Best-effort remote shutdown used before deleting the Odoo config."""
+        """Authoritatively confirm remote shutdown before deleting the Odoo config."""
         revision = max(0, int(revision))
         url = "%s/api/odoo/configuration" % gateway_url
         headers = {
@@ -1375,80 +1375,109 @@ class PrintGatewayConfig(models.Model):
 
     def unlink(self):
         self._check_admin()
-        # Best-effort disable sync before deletion so the Gateway does not
-        # keep a stale enabled state after the Odoo record disappears.
-        # Deletion itself must not be blocked by Gateway reachability.
-        # Skip external calls during Odoo test mode to keep tests fast and deterministic.
+        # Outside Odoo's test harness, deletion is fail-closed: the Gateway
+        # record must be proven disabled before the local control record is
+        # removed. Otherwise a failed shutdown would erase the only durable
+        # retry/reconciliation state while remote printing remained enabled.
+        # Test mode intentionally skips network calls to keep fixture cleanup
+        # deterministic.
         in_test = False
         try:
             in_test = bool(self.env.registry.in_test_mode() or self.env.context.get("test_mode") or self.env.context.get("test_queue_job_no_delay"))
         except Exception:
             in_test = False
-        if not in_test:
-            for record in self:
-                try:
-                    if not record.gateway_url:
-                        continue
-                    # Skip example/test domains used in Odoo test suites.
-                    # Still allow real localhost / LAN URLs, but skip obvious
-                    # test placeholders to avoid 5s timeouts in CI.
-                    url_lower = (record.gateway_url or "").lower()
-                    if "example.com" in url_lower:
-                        continue
-                    if "test" in url_lower and "localhost" not in url_lower and "127.0.0.1" not in url_lower:
-                        continue
-                    if record.pending_disable_gateway_url and record.pending_disable_gateway_api_key:
-                        try:
-                            old_key = record._gateway_api_key_plaintext_from_value(
-                                record.pending_disable_gateway_api_key
-                            )
-                            if old_key:
-                                requests.patch(
-                                    "%s/api/odoo/configuration" % record.pending_disable_gateway_url.rstrip("/"),
-                                    headers={
-                                        "Authorization": "Bearer %s" % old_key,
-                                        "Accept": "application/json",
-                                        "Cache-Control": "no-store",
-                                        "Content-Type": "application/json",
-                                        "X-Odoo-Database": self.env.cr.dbname,
-                                    },
-                                    json={"enabled": False, "revision": int(record.pending_disable_revision or 0)},
-                                    timeout=2,
-                                    allow_redirects=False,
-                                )
-                        except Exception:
-                            _logger.debug(
-                                "Could not disable previous Gateway endpoint during unlink for config %s",
-                                record.id,
-                                exc_info=True,
-                            )
-                    if not record.gateway_api_key:
-                        continue
-                    try:
-                        gateway_url = record._gateway_base(for_request=True)
-                        api_key = record._gateway_api_key_plaintext()
-                    except Exception:
-                        _logger.debug(
-                            "Could not decrypt Gateway credential during unlink for config %s",
-                            record.id,
-                            exc_info=True,
-                        )
-                        continue
-                    new_revision = int(record.enabled_sync_revision or 0) + 1
-                    try:
-                        record._disable_gateway_for_unlink(gateway_url, api_key, new_revision)
-                    except Exception:
-                        _logger.debug(
-                            "Gateway disable during unlink failed for config %s",
-                            record.id,
-                            exc_info=True,
-                        )
-                except Exception:
-                    _logger.debug(
-                        "Unexpected error during unlink sync for config %s",
-                        record.id,
-                        exc_info=True,
+        if in_test:
+            return super().unlink()
+
+        # Remote shutdown is irreversible from Odoo's transaction perspective:
+        # HTTP cannot be rolled back if the later ORM delete fails. Keep the
+        # local transaction as the durable authority by proving the deletion
+        # itself is possible BEFORE any Gateway side effect. A parent-row lock
+        # also serializes concurrent print-job FK inserts, so the dependency
+        # check cannot become stale between the check and super().unlink().
+        if len(self) != 1:
+            raise ValidationError(
+                _("Delete Gateway configurations one at a time so a remote shutdown failure cannot leave a partially-disabled recordset.")
+            )
+        self.flush_recordset()
+        self.env.cr.execute(
+            sql.SQL("SELECT id FROM {} WHERE id = %s FOR UPDATE").format(sql.Identifier(self._table)),
+            [self.id],
+        )
+        self.invalidate_recordset(["gateway_url", "gateway_api_key", "enabled", "enabled_sync_revision", "pending_disable_gateway_url", "pending_disable_gateway_api_key", "pending_disable_revision"])
+        self.env.cr.execute(
+            "SELECT 1 FROM print_gateway_print_job WHERE gateway_config_id = %s LIMIT 1",
+            [self.id],
+        )
+        if self.env.cr.fetchone():
+            raise ValidationError(
+                _("This Gateway configuration cannot be deleted while print jobs still reference it. Reconcile or remove those jobs first.")
+            )
+
+        for record in self:
+            if not record.gateway_url:
+                continue
+
+            # Complete any durable previous-endpoint shutdown fence first.
+            # Never delete the record while the old endpoint is still enabled
+            # or while its encrypted credential cannot be used to prove a
+            # successful shutdown.
+            if record.pending_disable_gateway_url:
+                if not record.pending_disable_gateway_api_key:
+                    raise ValidationError(
+                        _("This Gateway configuration cannot be deleted until the previous Gateway endpoint has been disabled successfully.")
                     )
+                try:
+                    old_key = record._gateway_api_key_plaintext_from_value(
+                        record.pending_disable_gateway_api_key
+                    )
+                except Exception as exc:
+                    raise ValidationError(
+                        _("This Gateway configuration cannot be deleted because the credential for the previous Gateway endpoint cannot be decrypted.")
+                    ) from exc
+                if not old_key or not record._disable_gateway_for_unlink(
+                    record.pending_disable_gateway_url,
+                    old_key,
+                    int(record.pending_disable_revision or 0),
+                ):
+                    raise ValidationError(
+                        _("This Gateway configuration cannot be deleted until the previous Gateway endpoint has been disabled successfully.")
+                    )
+
+            # No API key means there is no credential available to issue a
+            # shutdown request. It is safe to delete only when Odoo already
+            # has durable evidence that the current endpoint is disabled and
+            # the corresponding revision is fully acknowledged.
+            if not record.gateway_api_key:
+                if (
+                    record.enabled
+                    or record.last_enabled_sync_error
+                    or int(record.last_enabled_sync_revision or -1)
+                    != int(record.enabled_sync_revision or 0)
+                    or (
+                        record.pending_sync_revision is not None
+                        and int(record.pending_sync_revision) >= 0
+                    )
+                ):
+                    raise ValidationError(
+                        _("This Gateway configuration cannot be deleted until the Gateway confirms that printing is disabled.")
+                    )
+                continue
+
+            try:
+                gateway_url = record._gateway_base(for_request=True)
+                api_key = record._gateway_api_key_plaintext()
+            except Exception as exc:
+                raise ValidationError(
+                    _("This Gateway configuration cannot be deleted because its Gateway credential is unavailable.")
+                ) from exc
+
+            new_revision = int(record.enabled_sync_revision or 0) + 1
+            if not record._disable_gateway_for_unlink(gateway_url, api_key, new_revision):
+                raise ValidationError(
+                    _("This Gateway configuration cannot be deleted until the Gateway confirms that printing is disabled.")
+                )
+
         return super().unlink()
 
     @api.model

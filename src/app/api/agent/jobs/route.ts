@@ -1,9 +1,9 @@
 import { db } from "../../../../db";
 import { printJobs } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { isJobStatus, canTransition, isTerminal, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, LATE_SUCCESS_POST_EXPIRATION_MARKER, type JobStatus } from "../../../../lib/job-status";
+import { isJobStatus, canTransition, isTerminal, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, AGENT_REPRINT_AFTER_CRASH_REASON, LATE_SUCCESS_POST_EXPIRATION_MARKER, type JobStatus } from "../../../../lib/job-status";
 import { logInfo, logWarn, requestIdFrom } from "../../../../lib/log";
 import { incrementMetric } from "../../../../lib/metrics";
 import { STALE_CLAIM_SECONDS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "../../../../lib/job-maintenance";
@@ -255,9 +255,16 @@ export async function PATCH(req: Request) {
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
   const currentStatus = job.status as JobStatus;
-  if (requestedStatus !== "expired" && job.claimToken && claimToken !== job.claimToken) {
-    logWarn("job.status.stale_claim", { requestId, jobId, agentId: agent.id });
-    return NextResponse.json({ error: "Stale claim token: this attempt was superseded by a newer claim", code: "STALE_CLAIM", status: currentStatus }, { status: 409 });
+  if (requestedStatus !== "expired") {
+    // Every non-expiry lifecycle report must prove ownership of an actual
+    // Gateway claim. A tokenless queued/legacy row is never a valid basis for
+    // printing, success, failure, or pre-execution requeue: otherwise any
+    // authenticated Agent that knows a queued job id could manufacture a
+    // terminal state without ever receiving the claim.
+    if (!job.claimToken || !claimToken || claimToken !== job.claimToken) {
+      logWarn("job.status.stale_or_missing_claim", { requestId, jobId, agentId: agent.id, currentStatus });
+      return NextResponse.json({ error: "A valid claim token is required for this status transition", code: "CLAIM_REQUIRED", status: currentStatus }, { status: 409 });
+    }
   }
 
   if (requestedStatus === "expired") {
@@ -315,6 +322,60 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Job has not expired or the worker claim is stale", code: "JOB_NOT_EXPIRED_OR_STALE" }, { status: 409 });
   }
 
+  if (requestedStatus === "queued" && currentStatus === "printing") {
+    if (reason !== AGENT_REPRINT_AFTER_CRASH_REASON) {
+      return NextResponse.json({ error: "Invalid status transition: printing -> queued is reserved for explicit crash-reprint recovery" }, { status: 409 });
+    }
+
+    // This is an explicit opt-in at-least-once recovery policy. The prior
+    // attempt already crossed the physical boundary, so never refund
+    // deliveryAttempts and never allow this path after the business TTL.
+    const updated = await db.update(printJobs)
+      .set({
+        status: "queued",
+        claimToken: null,
+        claimedAt: null,
+        deliveredAt: null,
+        ackedAt: null,
+        error: "AGENT_RESTART_DURING_PRINT: operator-enabled at-least-once crash recovery; prior physical outcome is unknown and a new delivery may duplicate output",
+        retries: sql`${printJobs.retries} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(and(
+        fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
+        sql`${printJobs.expiresAt} > now()`,
+        sql`${printJobs.retries} < ${MAX_RETRIES}`,
+      ))
+      .returning({ status: printJobs.status, retries: printJobs.retries });
+
+    if (updated.length !== 1) {
+      return NextResponse.json({ error: "Crash requeue rejected: claim is stale, job expired, or retry budget is exhausted", code: "CRASH_REQUEUE_REJECTED" }, { status: 409 });
+    }
+
+    incrementMetric("print_jobs_requeued_total");
+    logWarn("print.job.crash_requeued_at_least_once", { requestId, jobId, agentId: agent.id });
+    try {
+      await recordJobEvent({
+        jobId,
+        tenantId: agent.tenantId,
+        stage: "queued",
+        status: "error",
+        message: "Agent restart recovery requeued a physically ambiguous attempt under explicit at-least-once policy",
+        agentId: agent.id,
+        printerId: job.printerId,
+        requestId,
+        metadata: {
+          reason: AGENT_REPRINT_AFTER_CRASH_REASON,
+          priorDeliveredAt: job.deliveredAt ? String(job.deliveredAt) : null,
+          priorAckedAt: job.ackedAt ? String(job.ackedAt) : null,
+        },
+      });
+    } catch (error) {
+      logWarn("print.job.event_persist_failed", { requestId, jobId, stage: "queued", error: error instanceof Error ? error.message : "unknown" });
+    }
+    return NextResponse.json({ success: true, status: "queued", physicalOutcome: "unknown", requeuedAfterCrash: true });
+  }
+
   if (requestedStatus === "queued" && currentStatus === "claimed") {
     if (!AGENT_REQUEUE_REASONS.includes(reason as (typeof AGENT_REQUEUE_REASONS)[number])) {
       return NextResponse.json({ error: "Invalid status transition: claimed -> queued requires an explicit pre-execution rejection reason" }, { status: 409 });
@@ -335,7 +396,11 @@ export async function PATCH(req: Request) {
         deliveryAttempts: sql`GREATEST(${printJobs.deliveryAttempts} - 1, 0)`,
         retries: sql`${printJobs.retries} + 1`,
       })
-      .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
+      .where(and(
+        fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
+        isNull(printJobs.deliveredAt),
+        isNull(printJobs.ackedAt),
+      ))
       .returning({ status: printJobs.status, error: printJobs.error });
     if (updated.length !== 1) {
       const winner = await db.query.printJobs.findFirst({ where: whereClause });
@@ -364,10 +429,24 @@ export async function PATCH(req: Request) {
 
   let lateSuccess = false;
   if (currentStatus === "failed" && requestedStatus === "success") {
-    const lateSuccessMarker = job.error?.startsWith("AGENT_EXECUTION_TIMEOUT")
+    const executionTimeoutLateSuccess = job.error?.startsWith("AGENT_EXECUTION_TIMEOUT")
       || job.error?.startsWith("AGENT_RESTART_DURING_PRINT");
-    if (!lateSuccessMarker) {
+    const deliveryUnknownLateSuccess = job.error?.startsWith("UNKNOWN_PARTIAL_DELIVERY")
+      && Boolean(job.deliveredAt || job.ackedAt);
+    if (!executionTimeoutLateSuccess && !deliveryUnknownLateSuccess) {
       return NextResponse.json({ error: "Invalid status transition: failed -> success (late success not allowed for this job)" }, { status: 409 });
+    }
+    // For delivery ambiguity, insist on the same persisted claim fence and
+    // durable delivery evidence. The top-level claim-token check already
+    // enforces exact token ownership; this additional evidence gate prevents
+    // a stale/legacy failed row from becoming successful merely because an
+    // Agent knows its job id.
+    if (deliveryUnknownLateSuccess && (!job.claimedAt || !job.claimToken || !claimToken || claimToken !== job.claimToken)) {
+      return NextResponse.json({
+        error: "Unknown delivery outcome lacks a matching fenced execution attempt",
+        code: "DELIVERY_RECONCILIATION_NOT_POSSIBLE",
+        status: currentStatus,
+      }, { status: 409 });
     }
     // The age window is enforced atomically by PostgreSQL below, so the Gateway
     // database clock is authoritative even when the app host clock drifts.
@@ -375,6 +454,20 @@ export async function PATCH(req: Request) {
   }
 
   if (currentStatus === "expired" && requestedStatus === "success") {
+    // Late success is only a physical-outcome reconciliation path for an
+    // execution that was actually handed to the Agent. Require the original
+    // claim token plus delivery evidence, and require an ambiguity marker; a
+    // stale Agent must never promote an expired queued row merely because it
+    // knows the job id.
+    const expiredLateSuccessMarker = (job.error ?? "").startsWith("JOB_EXPIRED_DURING_PRINT")
+      || (job.error ?? "").startsWith("UNKNOWN_PARTIAL_DELIVERY");
+    if (!job.claimedAt || !job.claimToken || !claimToken || claimToken !== job.claimToken || !job.deliveredAt || !expiredLateSuccessMarker) {
+      return NextResponse.json({
+        error: "Expired job lacks a matching delivered execution attempt; late success is not allowed",
+        code: "EXPIRED_JOB_ATTEMPT_NOT_RECONCILIABLE",
+        status: currentStatus,
+      }, { status: 409 });
+    }
     // The five-minute grace window is enforced atomically by PostgreSQL below.
     const postExpiryError = `${LATE_SUCCESS_POST_EXPIRATION_MARKER}: print execution completed after TTL expiry${errorMessage ? ` (${errorMessage})` : ""}`.slice(0, MAX_ERROR_LENGTH);
     const postExpired = await db.update(printJobs)
@@ -411,11 +504,13 @@ export async function PATCH(req: Request) {
   }
 
   const nextError = lateSuccess ? `LATE_SUCCESS: ${job.error ?? "AGENT_EXECUTION_TIMEOUT"}` : errorMessage;
+  const retainsLateSuccessFence = requestedStatus === "failed"
+    && LATE_SUCCESS_ERROR_MARKERS.some((marker) => nextError?.startsWith(marker));
   const updated = await db.update(printJobs)
     .set({
       status: requestedStatus,
       error: nextError,
-      ...(isTerminal(requestedStatus) ? { claimToken: sql`NULL` } : {}),
+      ...(isTerminal(requestedStatus) && !retainsLateSuccessFence ? { claimToken: sql`NULL` } : {}),
       updatedAt: sql`now()`,
       deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
       // Spooler linkage is part of the same claim-fenced status transition.

@@ -300,7 +300,7 @@ func TestWaitForJobsNeverBlocksShutdownForever(t *testing.T) {
 // eight printing reports have been accepted, the first printer owns the
 // physical slot and the other seven are known to be waiting for that printer.
 func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
-	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "1")
+	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1")
 	const blockedJobs = maxConcurrentJobs
 
 	var mu sync.Mutex
@@ -561,5 +561,40 @@ func TestEnqueueRejectPreservesOriginalClaimToken(t *testing.T) {
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("queued rejection was not available")
+	}
+}
+
+// A physical print may succeed while the local terminal SQLite write fails.
+// The process-local terminal fence must then block a duplicate delivery until
+// restart; otherwise the stale `printing` row is enough to re-dispatch bytes.
+func TestPhysicalSuccessWithTerminalLedgerWriteFailureCannotReprint(t *testing.T) {
+	p := &fakePrinter{}
+	ag := newTestAgent(t, "p1", p)
+	p.afterPrint = func() {
+		_ = ag.queue.Close()
+	}
+
+	job := dispatchTestJob("terminal_ledger_failure", "p1")
+	job["claimToken"] = "claim-A"
+	if !ag.dispatchJob(context.Background(), job) {
+		t.Fatal("first delivery should be accepted")
+	}
+	ag.waitForJobs()
+
+	if got := p.callsByJob["terminal_ledger_failure"]; got != 1 {
+		t.Fatalf("expected exactly one physical print after ledger failure, got %d", got)
+	}
+
+	// The Gateway may redeliver the same logical job after a lost terminal
+	// acknowledgement. Even though the durable row still says `printing`, the
+	// in-process physical fence must refuse another printer invocation.
+	duplicate := dispatchTestJob("terminal_ledger_failure", "p1")
+	duplicate["claimToken"] = "claim-A"
+	if ag.dispatchJob(context.Background(), duplicate) {
+		t.Fatal("duplicate delivery after terminal ledger failure must not be admitted to physical execution")
+	}
+	ag.waitForJobs()
+	if got := p.callsByJob["terminal_ledger_failure"]; got != 1 {
+		t.Fatalf("physical print duplicated after terminal ledger failure: got %d writes", got)
 	}
 }

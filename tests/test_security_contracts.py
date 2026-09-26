@@ -144,9 +144,8 @@ def test_terminal_claim_credentials_are_cleared_without_breaking_crash_recovery(
     gateway_delivery = read("src/lib/job-delivery.ts")
     go_queue = read("agent/internal/queue/queue.go")
 
+    # Ordinary terminal failures clear the execution credential.
     for marker in (
-        "UNKNOWN_PARTIAL_DELIVERY: claim lease expired",
-        "AGENT_EXECUTION_TIMEOUT",
         "exceeded max retries after a stale claim",
     ):
         start = gateway_maintenance.index(marker)
@@ -154,9 +153,23 @@ def test_terminal_claim_credentials_are_cleared_without_breaking_crash_recovery(
         assert "claim_token=NULL" in block
         assert "claimed_at=NULL" in block
 
+    # Unknown delivery keeps the claim fence temporarily so the exact Agent
+    # attempt can reconcile a late success, then the 24-hour cleanup clears it.
+    unknown_start = gateway_maintenance.index("UNKNOWN_PARTIAL_DELIVERY: claim lease expired")
+    unknown_block = gateway_maintenance[max(0, unknown_start - 320): unknown_start + 700]
+    assert "claim_token=claim_token" in unknown_block
+    assert "claimed_at=claimed_at" in unknown_block
+    assert "updated_at <= now() - interval '24 hours'" in gateway_maintenance
+
     failed_release = gateway_delivery[gateway_delivery.index("SET status = 'failed'"):gateway_delivery.index("RETURNING id", gateway_delivery.index("SET status = 'failed'"))]
     assert "claim_token = NULL" in failed_release
     assert "claimed_at = NULL" in failed_release
+
+    unknown_delivery_start = gateway_delivery.index("export async function markJobDeliveryUnknown")
+    unknown_delivery_block = gateway_delivery[unknown_delivery_start:gateway_delivery.index("export async function recordJobAck", unknown_delivery_start)]
+    assert "deliveredAt: sql`COALESCE" in unknown_delivery_block
+    assert "claimedAt: sql`COALESCE" in unknown_delivery_block
+    assert "claimToken: sql`NULL`" not in unknown_delivery_block
 
     assert "status == \"success\" || status == \"failed\"" in go_queue
     assert "claim_token = NULL" in go_queue
@@ -281,7 +294,7 @@ def test_odoo_sql_identifiers_never_use_raw_table_name_formatting():
             func = node.func
             if isinstance(func, ast.Attribute) and func.attr == "Identifier":
                 value = func.value
-                if isinstance(value, ast.Name) and value.id == "sql":
+                if isinstance(value, ast.Name) and value.id in {"sql", "psycopg2_sql"}:
                     return False
         if isinstance(node, ast.Attribute) and node.attr == "_table":
             return True
@@ -362,7 +375,13 @@ def test_new_logout_paths_revoke_refresh_family_and_clear_matching_cookie():
         source = read(rel)
         assert "revokeSessionFamily" in source
     assert "clearManagerRefreshCookieHeader" in read("src/app/api/auth/manager/logout/route.ts")
-    assert "clearCustomerRefreshCookie" in read("src/app/api/auth/logout/route.ts")
+    generic_logout = read("src/app/api/auth/logout/route.ts")
+    assert "validateCustomer(req)" in generic_logout
+    assert "validateManager(req)" in generic_logout
+    assert 'getRefreshTokenFromRequest(req, "customer")' in generic_logout
+    assert 'getRefreshTokenFromRequest(req, "manager")' in generic_logout
+    assert "clearCustomerRefreshCookie" in generic_logout
+    assert "clearManagerRefreshCookieHeader" in generic_logout
     assert "clearPlatformRefreshCookieHeader" in read("src/app/api/platform/auth/logout/route.ts")
 
 

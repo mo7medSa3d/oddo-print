@@ -5,7 +5,7 @@ import { AppShell } from "../components/AppShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Yasser — Odoo Print Gateway",
+  title: "Yasser — Cloud Printing Platform",
   description: "Automated Odoo printing for receipts, invoices, labels, and reports across branches, stores, and warehouses.",
 };
 

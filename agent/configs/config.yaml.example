@@ -1,8 +1,8 @@
 server:
-  # Production gateways SHOULD use HTTPS. The agent accepts both http:// and
-  # https:// for any host by design (zero-config LAN support; there is no
-  # environment opt-in gate in code). Over http:// the pairing code and agent
-  # secret travel in plaintext — use https:// outside a trusted LAN.
+  # Production gateways MUST use HTTPS. Plain HTTP is rejected unless the
+  # process is explicitly started for an isolated development/test environment
+  # with YASSER_AGENT_ALLOW_INSECURE_HTTP=1. Never enable that setting in a
+  # production service.
   url: "https://your-print-gateway.example.com"
 
 agent:

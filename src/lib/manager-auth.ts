@@ -271,7 +271,13 @@ export async function verifyWorkspaceToken(token: string): Promise<ManagerClaims
 
 export async function validateWorkspaceManager(req: Request): Promise<ManagerClaims | null> {
   const managerToken = getAccessTokenFromRequest(req, "manager");
-  if (managerToken) return verifyManagerToken(managerToken);
+  if (managerToken) {
+    const managerClaims = await verifyManagerToken(managerToken);
+    // A stale/expired manager cookie must not shadow a still-valid workspace
+    // session in the same browser. Valid manager sessions retain precedence;
+    // only a failed manager validation falls through to the customer session.
+    if (managerClaims) return managerClaims;
+  }
 
   const customerToken = getAccessTokenFromRequest(req, "customer");
   return customerToken ? verifyWorkspaceToken(customerToken) : null;
@@ -281,8 +287,16 @@ export async function verifyWorkspaceTokenFromCookieValues(
   customerToken: string | null,
   managerToken: string | null,
 ): Promise<ManagerClaims | null> {
-  const token = customerToken ?? managerToken;
-  return token ? verifyWorkspaceToken(token) : null;
+  // Keep server-rendered pages consistent with validateWorkspaceManager():
+  // a valid manager session must not be shadowed by an expired/revoked
+  // customer cookie left in the same browser. Only fall through to the
+  // customer session after manager validation fails.
+  if (managerToken) {
+    const managerClaims = await verifyWorkspaceToken(managerToken);
+    if (managerClaims) return managerClaims;
+  }
+
+  return customerToken ? verifyWorkspaceToken(customerToken) : null;
 }
 
 type LegacyManagerAuthTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -386,7 +400,9 @@ export async function verifyManagerPassword(username: string, input: string): Pr
     return compareStringsSafe(derived.toString("hex"), hash.toLowerCase());
   }
 
-  if (process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD !== "1" || !expectedPass) return false;
+  const nodeEnv = process.env.NODE_ENV;
+  const plaintextAllowedEnvironment = nodeEnv === "development" || nodeEnv === "test";
+  if (!plaintextAllowedEnvironment || process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD !== "1" || !expectedPass) return false;
   return compareStringsSafe(input, expectedPass);
 }
 

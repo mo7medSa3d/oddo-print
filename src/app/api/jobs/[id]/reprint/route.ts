@@ -36,6 +36,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       code: "JOB_NOT_TERMINAL",
     }, { status: 409 });
   }
+  if (job.status === "success") {
+    return NextResponse.json({
+      error: "Successful jobs are not eligible for operator reprint; create a new intentional print instead.",
+      code: "JOB_REPRINT_NOT_ALLOWED",
+    }, { status: 409 });
+  }
 
   try {
     const result = await createPrintJobForPrinter(job.printerId, job.payload, {

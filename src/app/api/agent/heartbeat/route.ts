@@ -1,7 +1,7 @@
 import { db } from "../../../../db";
 import { agents, printJobs, printers } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { DEVICE_CLASSES, PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABILITIES_MAX_BYTES, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
@@ -191,8 +191,10 @@ export async function POST(req: Request) {
       }
       if (pairs.length >= MAX_KEEP_ALIVE_JOB_IDS) break;
     }
+    // Lease refresh is execution-fenced. Tokenless legacy keep-alives are not
+    // allowed to extend a claim because they have no proof of current attempt
+    // ownership; those rows must remain recoverable by the stale-claim sweeper.
     const tokened = pairs.filter((p): p is { jobId: string; claimToken: string } => p.claimToken !== null);
-    const tokenless = pairs.filter((p) => p.claimToken === null);
 
     const result = await db.transaction(async (tx) => {
       // Lifecycle transitions lock the same agent row. Holding this lock for the
@@ -225,18 +227,6 @@ export async function POST(req: Request) {
             AND (id, claim_token) IN (${list})
         `);
       }
-      if (tokenless.length > 0) {
-        await tx.update(printJobs)
-          .set({ updatedAt: sql`now()` })
-          .where(and(
-            eq(printJobs.tenantId, agent.tenantId),
-            eq(printJobs.agentId, agent.id),
-            inArray(printJobs.status, ["claimed", "printing"]),
-            inArray(printJobs.id, tokenless.map((p) => p.jobId)),
-            isNull(printJobs.claimToken),
-          ));
-      }
-
       const desiredStateAcks = Array.isArray(body?.desiredStateAcks) ? (body.desiredStateAcks as unknown[]).slice(0, 500) : [];
       for (const rawAck of desiredStateAcks) {
         if (!rawAck || typeof rawAck !== "object") continue;

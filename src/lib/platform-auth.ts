@@ -13,6 +13,7 @@ import {
   clearRefreshCookieHeader,
   getAccessTokenFromRequest,
   issueSessionPair,
+  isSessionFamilyActive,
   verifyAccessTokenSignature,
   refreshCookieHeader,
   type SessionRequestContext,
@@ -145,6 +146,7 @@ export async function validatePlatformClaims(
     if (nowMs === null) return null;
     const nowSec = Math.floor(nowMs / 1000);
     if (claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.exp - claims.iat !== 15 * 60) return null;
+    if (!claims.familyId || !(await isSessionFamilyActive(claims.familyId, "platform", null, claims.userId))) return null;
     const user = await db.query.users.findFirst({
       where: eq(users.id, claims.userId),
       columns: { id: true, email: true, isPlatformOwner: true, emailVerifiedAt: true },

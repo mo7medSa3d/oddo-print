@@ -3,7 +3,7 @@ import { db } from "../../../../../db";
 import { printJobs } from "../../../../../db/schema";
 import { validateOdooKey } from "../../../../../lib/odoo-auth";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
-import { and, inArray, eq } from "drizzle-orm";
+import { and, inArray, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     where: and(
       inArray(printJobs.id, uniqueIds),
       eq(printJobs.tenantId, odoo.tenantId),
-      eq(printJobs.apiKeyId, odoo.id),
+      isNotNull(printJobs.apiKeyId),
     ),
   });
 

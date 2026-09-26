@@ -60,11 +60,15 @@ export const PHYSICAL_OUTCOME_UNKNOWN_MARKERS = [
   "UNKNOWN_SUBMISSION_OUTCOME",
 ] as const;
 
+export function hasUnknownPhysicalOutcomeMarker(error: string | null | undefined): boolean {
+  return PHYSICAL_OUTCOME_UNKNOWN_MARKERS.some((marker) => (error ?? "").startsWith(marker));
+}
+
 export function derivePhysicalOutcome(status: JobStatus | string, error: string | null | undefined): PhysicalOutcome {
   // Current transports prove successful submission/execution, not paper
   // output. Never infer physical output from an ACK/WritePrinter result.
   if (status === "success") return "unknown";
-  if (PHYSICAL_OUTCOME_UNKNOWN_MARKERS.some((marker) => (error ?? "").startsWith(marker))) return "unknown";
+  if (hasUnknownPhysicalOutcomeMarker(error)) return "unknown";
   return "not_printed";
 }
 
@@ -142,7 +146,7 @@ export function canTransition(from: JobStatus, to: JobStatus, options: Transitio
  * refused, capability mismatch, ...). Only these may be overridden by a
  * late agent success report.
  */
-const LATE_SUCCESS_ERROR_MARKERS = ["AGENT_EXECUTION_TIMEOUT", "AGENT_RESTART_DURING_PRINT"] as const;
+export const LATE_SUCCESS_ERROR_MARKERS = ["AGENT_EXECUTION_TIMEOUT", "AGENT_RESTART_DURING_PRINT"] as const;
 
 /** A late success override is only meaningful while the failure is recent. */
 export const LATE_SUCCESS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -227,3 +231,9 @@ export const AGENT_REQUEUE_REASONS = [
   "agent_shutting_down",
   "ledger_unavailable",
 ] as const;
+
+// Explicit, operator-configured at-least-once recovery after an Agent restart
+// during physical printing. This is intentionally separate from pre-execution
+// rejection reasons: the previous attempt may already have produced paper, so
+// delivery/retry budgets are NOT refunded.
+export const AGENT_REPRINT_AFTER_CRASH_REASON = "agent_reprint_after_crash" as const;

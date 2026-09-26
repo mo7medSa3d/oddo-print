@@ -157,6 +157,24 @@ suite("WS claim-before-delivery", () => {
     expect(afterAck.delivered_at).not.toBeNull();
   });
 
+  it("legacy tokenless claims cannot manufacture delivery evidence", async () => {
+    await insertQueuedJob(f, "job_legacy_tokenless_delivery");
+    await pool().query(
+      `UPDATE print_jobs
+       SET status = 'claimed', claim_token = NULL, claimed_at = now(), delivered_at = NULL, acked_at = NULL
+       WHERE id = $1 AND tenant_id = $2`,
+      ["job_legacy_tokenless_delivery", f.tenantId],
+    );
+
+    expect(await recordJobAck("job_legacy_tokenless_delivery", f.tenantId, f.agentId)).toBe(false);
+    expect(await markJobDelivered("job_legacy_tokenless_delivery", f.tenantId, f.agentId, null)).toBe(false);
+    const row = await jobRow("job_legacy_tokenless_delivery");
+    expect(row.status).toBe("claimed");
+    expect(row.claim_token).toBeNull();
+    expect(row.delivered_at).toBeNull();
+    expect(row.acked_at).toBeNull();
+  });
+
   it("a forged ack cannot stamp delivery evidence onto a live claim", async () => {
     await insertQueuedJob(f, "job_ack_forged");
     const claim = await claimJobForDelivery("job_ack_forged", f.agentId);
@@ -365,6 +383,37 @@ suite("WS claim-before-delivery", () => {
     expect(row.delivery_attempts).toBe(0);
   });
 
+  it("post-send WebSocket failure is ambiguous and never requeues the job", async () => {
+    // If ws.send() crosses its boundary and then throws, the gateway cannot
+    // prove that zero bytes were accepted by the Agent. Retrying through the
+    // same or another socket could therefore duplicate physical printing.
+    const ws = await connectAgent();
+    const messages: any[] = [];
+    ws.on("message", (data) => messages.push(JSON.parse(data.toString())));
+    await insertQueuedJob(f, "job_ws_post_send_ambiguous");
+
+    const originalSend = WebSocket.prototype.send;
+    (WebSocket.prototype as any).send = function (this: WebSocket, data: any) {
+      originalSend.call(this, data);
+      throw new Error("simulated post-send WebSocket failure");
+    };
+    try {
+      expect(
+        await claimAndPushJobToAgent({ id: "job_ws_post_send_ambiguous", agentId: f.agentId }),
+      ).toBe("delivery_unknown");
+    } finally {
+      WebSocket.prototype.send = originalSend;
+    }
+
+    const row = await jobRow("job_ws_post_send_ambiguous");
+    expect(row.status).toBe("failed");
+    expect(row.delivery_attempts).toBe(1);
+    expect(row.delivered_at).not.toBeNull();
+    expect(row.claim_token).toBeNull();
+    expect(row.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY:/);
+    expect(messages.some((m) => m.job?.id === "job_ws_post_send_ambiguous")).toBe(true);
+  });
+
   it("socket delivery evidence exception never causes an automatic requeue", async () => {
     // The frame is accepted by the socket, but persistence of delivered_at
     // fails unexpectedly. The claim carries a durable pending-evidence marker,
@@ -445,6 +494,36 @@ suite("WS claim-before-delivery", () => {
     expect((await agentJobsPATCH(agentRequest(f, "PATCH", { jobId: "job_fence", status: "printing", claimToken: reclaimed.claimToken }))).status).toBe(200);
     expect((await agentJobsPATCH(agentRequest(f, "PATCH", { jobId: "job_fence", status: "success", claimToken: reclaimed.claimToken }))).status).toBe(200);
     expect((await jobRow("job_fence")).status).toBe("success");
+  });
+
+  it("delivered-but-unknown recovery preserves the claim fence for a late success", async () => {
+    await insertQueuedJob(f, "job_delivery_unknown_late_success");
+    const claim = await claimJobForDelivery("job_delivery_unknown_late_success", f.agentId, { markDeliveryEvidencePending: true });
+    expect(claim?.claimToken).toBeTruthy();
+
+    await pool().query(
+      `UPDATE print_jobs SET updated_at = now() - interval '2 minutes' WHERE id = 'job_delivery_unknown_late_success'`,
+    );
+    await sweepPrintJobs({ agentId: f.agentId });
+
+    const failed = await jobRow("job_delivery_unknown_late_success");
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY:/);
+    expect(failed.claim_token).toBe(claim!.claimToken);
+    expect(failed.claimed_at).not.toBeNull();
+
+    const late = await agentJobsPATCH(agentRequest(f, "PATCH", {
+      jobId: "job_delivery_unknown_late_success",
+      status: "success",
+      claimToken: claim!.claimToken,
+    }));
+    expect(late.status).toBe(200);
+    expect((await late.json()).status).toBe("success");
+
+    const final = await jobRow("job_delivery_unknown_late_success");
+    expect(final.status).toBe("success");
+    expect(final.claim_token).toBeNull();
+    expect(final.error).toMatch(/^LATE_SUCCESS:/);
   });
 
   it("a DELIVERED stale claim is never re-queued; it fails with an unknown-outcome marker", async () => {

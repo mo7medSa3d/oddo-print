@@ -6,7 +6,7 @@ import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { createAgent } from "../../actions";
+import { createAgentForManager } from "../../../lib/agent-control";
 import { ActionError } from "../../../lib/action-error";
 import { logError } from "../../../lib/log";
 import { isAgentAvailableForJob } from "../../../lib/agent-availability";
@@ -54,7 +54,7 @@ export async function POST(req: Request) {
   const parsed = createAgentSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "agent name is required" }, { status: 400 });
   try {
-    return NextResponse.json(await createAgent(parsed.data.name), { status: 201 });
+    return NextResponse.json(await createAgentForManager(parsed.data.name, claims), { status: 201 });
   } catch (error) {
     if (error instanceof ActionError) {
       return NextResponse.json({ error: error.message, code: error.code ?? "ACTION_ERROR", ...(error.details ?? {}) }, { status: error.status });

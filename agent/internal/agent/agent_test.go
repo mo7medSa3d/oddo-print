@@ -50,6 +50,9 @@ type fakePrinter struct {
 	startedCh     chan string
 	allowReturn   chan struct{}
 	status        string
+	afterPrint    func()
+	panicOnPrint  bool
+	failOnCall    int
 }
 
 type printSpan struct {
@@ -96,6 +99,15 @@ func (f *fakePrinter) Print(ctx context.Context, data []byte) error {
 	}
 	f.calls++
 	f.callsByJob[jobID]++
+	callNumber := f.calls
+	if f.panicOnPrint {
+		f.mu.Unlock()
+		panic("simulated printer panic after physical admission")
+	}
+	if f.failOnCall > 0 && callNumber == f.failOnCall {
+		f.mu.Unlock()
+		return context.DeadlineExceeded
+	}
 	if f.startedCh != nil {
 		select {
 		case f.startedCh <- jobID:
@@ -119,7 +131,11 @@ func (f *fakePrinter) Print(ctx context.Context, data []byte) error {
 	}
 	f.mu.Lock()
 	f.spans = append(f.spans, printSpan{start: start, end: time.Now()})
+	afterPrint := f.afterPrint
 	f.mu.Unlock()
+	if afterPrint != nil {
+		afterPrint()
+	}
 	return nil
 }
 
@@ -286,12 +302,12 @@ func TestDifferentPrintersConcurrent(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		<-start
-		ag.processJob(ctx, map[string]interface{}{"id": "j1", "printerId": "p1", "payload": makeJobPayload("j1"), "expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339)})
+		ag.processJob(ctx, map[string]interface{}{"id": "j1", "agentId": "agt_test", "printerId": "p1", "status": "claimed", "claimToken": "claim-j1", "payload": makeJobPayload("j1"), "expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339)})
 	}()
 	go func() {
 		defer wg.Done()
 		<-start
-		ag.processJob(ctx, map[string]interface{}{"id": "j2", "printerId": "p2", "payload": makeJobPayload("j2"), "expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339)})
+		ag.processJob(ctx, map[string]interface{}{"id": "j2", "agentId": "agt_test", "printerId": "p2", "status": "claimed", "claimToken": "claim-j2", "payload": makeJobPayload("j2"), "expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339)})
 	}()
 	close(start)
 
@@ -1083,7 +1099,9 @@ func TestProcessJobCancellationBeforePrintingRefusesHardware(t *testing.T) {
 	go func() {
 		ag.processJob(ctx, map[string]interface{}{
 			"id":         "job_cancel_before_print",
+			"agentId":    "agt_test",
 			"printerId":  "p1",
+			"status":     "claimed",
 			"payload":    makeJobPayload("job_cancel_before_print"),
 			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 			"claimToken": "claim-cancel-1",
@@ -1168,5 +1186,70 @@ func TestHeartbeatStopsWhenAgentContextIsCancelled(t *testing.T) {
 	case <-handlerDone:
 	case <-time.After(1 * time.Second):
 		t.Fatal("heartbeat HTTP test handler did not release cleanly")
+	}
+}
+
+func TestPanicAfterLocalAdmissionIsPersistedAsUnknown(t *testing.T) {
+	p := &fakePrinter{panicOnPrint: true}
+	ag := newTestAgent(t, "p1", p)
+	job := dispatchTestJob("panic_after_admission", "p1")
+	job["claimToken"] = "claim-panic"
+	ag.dispatchJob(context.Background(), job)
+	ag.waitForJobs()
+
+	_, status, found, err := ag.queue.Get("panic_after_admission")
+	if err != nil || !found || status != "failed" {
+		t.Fatalf("panic must terminalize the local ledger as failed/unknown: found=%v status=%q err=%v", found, status, err)
+	}
+	if !ag.queue.WasOutcomeUnknown("panic_after_admission") {
+		t.Fatal("panic after BeginPrint must persist an unknown physical outcome marker")
+	}
+}
+
+func TestCancelledBeforeExecutionSlotAbortsLocalPrintingLedger(t *testing.T) {
+	p := &fakePrinter{}
+	ag := newTestAgent(t, "p1", p)
+	for i := 0; i < maxConcurrentJobs; i++ {
+		ag.execSem <- struct{}{}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	job := dispatchTestJob("cancel_before_exec_slot", "p1")
+	job["agentId"] = ag.cfg.Agent.ID
+	job["claimToken"] = "claim-cancel"
+	ag.processJob(ctx, job)
+
+	_, status, found, err := ag.queue.Get("cancel_before_exec_slot")
+	if err != nil || !found || status != "queued" {
+		t.Fatalf("pre-execution cancellation must abort local printing state: found=%v status=%q err=%v", found, status, err)
+	}
+	if p.Calls() != 0 {
+		t.Fatalf("no physical dispatch may occur when execution slot is unavailable, got %d calls", p.Calls())
+	}
+}
+
+func TestDrawerSideEffectMakesLaterPlainPrintFailureUnknown(t *testing.T) {
+	p := &fakePrinter{failOnCall: 2}
+	ag := newTestAgent(t, "p1", p)
+	ag.cfg.Printers[0].Protocol = "escpos"
+	ag.printerConfigs["p1"] = config.PrinterConfig{ID: "p1", Name: "Test", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "escpos"}
+	job := dispatchTestJob("drawer_then_print_failure", "p1")
+	job["agentId"] = ag.cfg.Agent.ID
+	job["claimToken"] = "claim-drawer"
+	payload := job["payload"].(map[string]interface{})
+	payload["protocol"] = "escpos"
+	payload["type"] = "escpos"
+	payload["peripherals"] = map[string]interface{}{"drawer": "pin2"}
+	ag.processJob(context.Background(), job)
+
+	_, status, found, err := ag.queue.Get("drawer_then_print_failure")
+	if err != nil || !found || status != "failed" {
+		t.Fatalf("drawer/main failure must terminalize local attempt: found=%v status=%q err=%v", found, status, err)
+	}
+	if !ag.queue.WasOutcomeUnknown("drawer_then_print_failure") {
+		t.Fatal("successful drawer kick plus later main-print failure must be classified unknown")
+	}
+	if p.Calls() != 2 {
+		t.Fatalf("expected one drawer side effect and one main-print attempt, got %d calls", p.Calls())
 	}
 }

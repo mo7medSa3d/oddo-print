@@ -36,23 +36,24 @@ export function fencedJobWrite(
  * Fencing for delivery-evidence writes (markDelivered / job_ack). These do
  * not change status but are still attributed to one specific claim: a
  * delivery or ack from a superseded attempt must not touch the current
- * attempt's row. A missing token matches only legacy tokenless claims.
+ * attempt's row. Tokenless legacy attempts are deliberately ineligible for
+ * delivery evidence; they must be reclaimed/tokenized before a new hand-off.
  */
 export function fencedDeliveryWrite(
   jobId: string,
   tenantId: string,
   agentId: string,
-  claimToken: string | null | undefined,
+  claimToken: string,
   statuses: readonly JobStatus[],
 ): SQL {
-  const tokenPred = claimToken
-    ? sql`claim_token = ${claimToken}`
-    : sql`claim_token IS NULL`;
+  // Delivery evidence is never valid for a tokenless/legacy attempt.
+  // A legacy row may be reclaimed, but it must not manufacture delivered_at
+  // or acked_at evidence that can suppress stale-claim recovery.
   return and(
     eq(printJobs.id, jobId),
     eq(printJobs.tenantId, tenantId),
     eq(printJobs.agentId, agentId),
     inArray(printJobs.status, [...statuses] as [JobStatus, ...JobStatus[]]),
-    tokenPred,
+    sql`claim_token = ${claimToken}`,
   )!;
 }

@@ -22,14 +22,15 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:* http://127.0.0.1:*; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self';"
+      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self';",
+      "devCsp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:*; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self';"
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
     "publisher": "Yasser",
-    "copyright": "Copyright © 2026 Yasser",
+    "copyright": "Copyright \u00a9 2026 Yasser",
     "shortDescription": "Desktop print manager for Yasser Agent",
     "longDescription": "Yasser Print Manager pairs this Windows PC with the Yasser Gateway, manages the local print agent, and shows gateway/agent health from the system tray.",
     "icon": [

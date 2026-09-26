@@ -214,3 +214,34 @@ describe("architecture hardening", () => {
   });
 
 });
+
+describe("ambiguous Odoo submission recovery", () => {
+  it("exposes an authenticated idempotency-key lookup without crossing the Odoo provenance boundary", () => {
+    const route = readFileSync("src/app/api/print/jobs/route.ts", "utf8");
+    expect(route).toContain('const idempotencyKey = params.get("idempotencyKey")?.trim();');
+    expect(route).toContain("Provide exactly one lookup key");
+    expect(route).toContain("eq(printJobs.idempotencyKey, idempotencyKey!)");
+    expect(route).toContain("isNotNull(printJobs.apiKeyId)");
+    expect(route).toContain('eq(printJobs.tenantId, odoo.tenantId)');
+  });
+
+  it("reconciles response-lost Odoo submissions instead of retrying the physical operation", () => {
+    const jobs = readFileSync("odoo_addons/print_gateway/models/print_job.py", "utf8");
+    expect(jobs).toContain('def _lookup_gateway_job_for_ambiguous_submission(self, job):');
+    expect(jobs).toContain('params={"idempotencyKey": job._gateway_idempotency_key()}');
+    expect(jobs).toContain('"UNKNOWN_SUBMISSION_OUTCOME:"');
+    expect(jobs).toContain('"next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=60)');
+  });
+});
+
+describe("ambiguous email side effects", () => {
+  it("keeps invitation state durable when the provider response is ambiguous", () => {
+    const route = readFileSync("src/app/api/team/invitations/route.ts", "utf8");
+    const start = route.indexOf('await sendTransactionalEmail({ to: email, subject: "You are invited to Yasser Print Manager"');
+    const end = route.indexOf('return NextResponse.json({ ok: true, id });', start);
+    const block = route.slice(start, end);
+    expect(block).toContain("Invitation delivery is temporarily unavailable");
+    expect(block).not.toContain("set({ revokedAt:");
+    expect(block).toContain("Never revoke the durable invitation");
+  });
+});

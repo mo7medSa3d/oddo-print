@@ -1396,6 +1396,65 @@ class TestControlPlane(TransactionCase):
         self.assertEqual(job.gateway_job_id, "gw_operator_123")
         self.assertEqual(job.company_id, self.branch)
 
+    def test_26c_submit_refuses_uncommitted_outbox_without_remote_side_effect(self):
+        """A pre-commit outbox row must never cross the Gateway side-effect boundary.
+
+        If the surrounding Odoo transaction rolls back after a remote POST, the
+        Gateway job would outlive its source row. Submission therefore fails
+        closed before requests.post is reached; production uses the committed
+        durable outbox + post-commit dispatcher instead.
+        """
+        job = self.env["print_gateway.print_job"].create({
+            "company_id": self.branch.id,
+            "gateway_config_id": self.gateway_config.id,
+            "printer_id": self.primary_binding.printer_id,
+            "destination": self.primary_binding.destination_ref.display_name,
+            "document_type": "invoice",
+            "status": "queued",
+            "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
+            "idempotency_key": "test_precommit_submit_boundary_%s" % uuid.uuid4().hex[:8],
+        })
+
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post") as post:
+            with self.assertRaises(ValidationError):
+                job._action_submit_trusted(raise_on_failure=True)
+
+        post.assert_not_called()
+        self.assertFalse(job.gateway_job_id)
+        self.assertEqual(job.status, "queued")
+
+    def test_26d_gateway_config_unlink_checks_dependencies_before_remote_shutdown(self):
+        """A config with dependent print jobs must fail before any Gateway shutdown side effect."""
+        config_model = self.env["print_gateway.gateway_config"]
+        job = self.env["print_gateway.print_job"].create({
+            "company_id": self.branch.id,
+            "gateway_config_id": self.gateway_config.id,
+            "printer_id": self.primary_binding.printer_id,
+            "destination": self.primary_binding.destination_ref.display_name,
+            "document_type": "invoice",
+            "status": "queued",
+            "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
+            "idempotency_key": "test_config_unlink_dependency_%s" % uuid.uuid4().hex[:8],
+        })
+        with patch.object(type(self.gateway_config), "_disable_gateway_for_unlink", side_effect=AssertionError("remote shutdown must not run when local deletion is impossible")) as shutdown:
+            with self.assertRaises(ValidationError):
+                self.gateway_config.unlink()
+        shutdown.assert_not_called()
+        self.assertTrue(job.exists())
+        self.assertTrue(self.gateway_config.exists())
+
+        second_config = config_model.create({
+            "company_id": self.company.id,
+            "gateway_url": "https://gateway-2.example.com",
+            "enabled": False,
+            "gateway_api_key": "test_api_key_control_plane_2",
+        })
+        with self.assertRaises(ValidationError):
+            (self.gateway_config | second_config).unlink()
+        self.assertTrue(self.gateway_config.exists())
+        self.assertTrue(second_config.exists())
+
     def test_26b_persist_refuses_records_invisible_to_its_own_cursor(self):
         """BEHAVIORAL transaction-visibility regression test: the durable
         persist path runs on an independent cursor, so rows created but not

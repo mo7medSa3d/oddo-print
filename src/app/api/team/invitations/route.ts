@@ -93,36 +93,14 @@ export async function POST(req: Request) {
   const url = `${appBaseUrl(req)}/invite?token=${encodeURIComponent(raw)}`;
   try {
     await sendTransactionalEmail({ to: email, subject: "You are invited to Yasser Print Manager", html: `<p>You have been invited to a Yasser Print Manager workspace.</p><p><a href="${url}">Accept invitation</a></p>`, text: `Accept invitation: ${url}` });
-  } catch {
-    const revoked = await db.transaction(async (tx) => {
-      const result = await tx.update(tenantInvitations)
-        .set({ revokedAt: sql`now()` })
-        .where(and(
-          eq(tenantInvitations.id, id),
-          isNull(tenantInvitations.acceptedAt),
-          isNull(tenantInvitations.revokedAt),
-        ))
-        .returning({ id: tenantInvitations.id });
-      if (result.length === 0) return { revoked: false, accepted: false };
-
-      await writeAuditEvent({
-        tenantId: claims.tenantId,
-        actorType: "user",
-        actorId: claims.userId,
-        action: "team.invitation.delivery_failed",
-        resourceType: "tenant_invitation",
-        resourceId: id,
-      }, tx);
-      return { revoked: true, accepted: false };
-    });
-
-    if (!revoked.revoked) {
-      const current = await db.query.tenantInvitations.findFirst({
-        where: and(eq(tenantInvitations.id, id), eq(tenantInvitations.tenantId, claims.tenantId)),
-        columns: { acceptedAt: true, revokedAt: true },
-      });
-      if (current?.acceptedAt) return NextResponse.json({ ok: true, id });
-    }
+  } catch (error) {
+    // Email delivery is an ambiguous external side effect: a provider timeout
+    // or connection reset does not prove that the message was not accepted.
+    // Never revoke the durable invitation here, because doing so can invalidate
+    // a link that the invitee already received. The invitation remains bounded
+    // by its expiry/revocation/acceptance state and can be administratively
+    // revoked or replaced later.
+    console.error("team invitation email delivery ambiguous", error instanceof Error ? error.message : "unknown");
     return NextResponse.json({ error: "Invitation delivery is temporarily unavailable" }, { status: 503 });
   }
   return NextResponse.json({ ok: true, id });

@@ -8,7 +8,7 @@ import { TenantEntitlementError, TenantPrintQuotaExceededError, isTenantBillingE
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError, requestIdFrom } from "../../../../lib/log";
 import { databaseNowMs, refreshClockSkew } from "../../../../lib/database-clock";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -101,7 +101,11 @@ export async function POST(req: Request) {
 
   if (parsed.data.idempotencyKey) {
     const existing = await db.query.printJobs.findFirst({
-      where: and(eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.idempotencyKey, parsed.data.idempotencyKey)),
+      where: and(
+        eq(printJobs.tenantId, odoo.tenantId),
+        eq(printJobs.idempotencyKey, parsed.data.idempotencyKey),
+        isNotNull(printJobs.apiKeyId),
+      ),
     });
     if (existing) {
       if (idempotencyMatches(existing, request)) return NextResponse.json(responseForRow(existing), { status: 200 });
@@ -122,7 +126,11 @@ export async function POST(req: Request) {
     });
     if (result.isReused) {
       const existing = await db.query.printJobs.findFirst({
-        where: and(eq(printJobs.id, result.id), eq(printJobs.tenantId, odoo.tenantId)),
+        where: and(
+          eq(printJobs.id, result.id),
+          eq(printJobs.tenantId, odoo.tenantId),
+          isNotNull(printJobs.apiKeyId),
+        ),
       });
       if (existing) {
         return NextResponse.json(responseForRow(existing), { status: 200 });
@@ -190,7 +198,11 @@ export async function POST(req: Request) {
     }
     if (error instanceof Error && (error as Error & { code?: string }).code === "IDEMPOTENCY_CONFLICT" && parsed.data.idempotencyKey) {
       const existing = await db.query.printJobs.findFirst({
-        where: and(eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.idempotencyKey, parsed.data.idempotencyKey)),
+        where: and(
+          eq(printJobs.tenantId, odoo.tenantId),
+          eq(printJobs.idempotencyKey, parsed.data.idempotencyKey),
+          isNotNull(printJobs.apiKeyId),
+        ),
       });
       if (existing && idempotencyMatches(existing, request)) return NextResponse.json(responseForRow(existing), { status: 200 });
       return idempotencyConflict();
@@ -206,10 +218,30 @@ export async function POST(req: Request) {
 export async function GET(req: Request) {
   const odoo = await validateOdooKey(req);
   if (!odoo) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const id = new URL(req.url).searchParams.get("id")?.trim();
-  if (!id) return NextResponse.json({ error: "id query param required" }, { status: 400 });
+  const params = new URL(req.url).searchParams;
+  const id = params.get("id")?.trim();
+  const idempotencyKey = params.get("idempotencyKey")?.trim();
+  if (idempotencyKey && idempotencyKey.length > 200) {
+    return NextResponse.json({ error: "idempotencyKey is too long" }, { status: 400 });
+  }
+  if (id && idempotencyKey) {
+    return NextResponse.json({ error: "Provide exactly one lookup key" }, { status: 400 });
+  }
+  if (!id && !idempotencyKey) {
+    return NextResponse.json({ error: "id or idempotencyKey query param required" }, { status: 400 });
+  }
+  // Odoo API-key authentication establishes the integration tenant. Only
+  // Odoo-originated jobs belong to this API surface; `apiKeyId` must be present
+  // but must not equal the current credential so rotated keys can still read
+  // historical jobs. The idempotency-key lookup closes the ambiguous-POST
+  // recovery gap: Odoo may know the durable operation key while having lost the
+  // Gateway job id because the response timed out after Gateway acceptance.
   const row = await db.query.printJobs.findFirst({
-    where: and(eq(printJobs.id, id), eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.apiKeyId, odoo.id)),
+    where: and(
+      ...(id ? [eq(printJobs.id, id)] : [eq(printJobs.idempotencyKey, idempotencyKey!)]),
+      eq(printJobs.tenantId, odoo.tenantId),
+      isNotNull(printJobs.apiKeyId),
+    ),
   });
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(responseForRow(row), { status: 200 });

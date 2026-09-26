@@ -95,6 +95,49 @@ suite("atomic Agent job status transitions", () => {
     expect(["success", "failed"]).toContain(row.rows[0].status);
   });
 
+  it("rejects lifecycle mutations from queued jobs without the exact live claim token", async () => {
+    await insertQueuedJob(f, "job_unclaimed_status");
+    const patch = (status: string, claimToken?: string) => jobStatusPATCH(new Request("http://gateway.test/api/agent/jobs", {
+      method: "PATCH",
+      headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({ jobId: "job_unclaimed_status", status, ...(claimToken ? { claimToken } : {}) }),
+    }));
+
+    expect((await patch("printing")).status).toBe(409);
+    expect((await patch("success")).status).toBe(409);
+    expect((await patch("failed")).status).toBe(409);
+    expect((await jobRow("job_unclaimed_status")).status).toBe("queued");
+
+    await pool().query(`UPDATE print_jobs SET status='claimed', claim_token='tok-live', delivered_at=now(), claimed_at=now() WHERE id='job_unclaimed_status'`);
+    expect((await patch("printing", "wrong-token")).status).toBe(409);
+    expect((await patch("printing", "tok-live")).status).toBe(200);
+  });
+
+  it("refuses claimed -> queued requeue after delivery evidence exists", async () => {
+    await insertQueuedJob(f, "job_post_delivery_requeue");
+    await pool().query(`UPDATE print_jobs SET status='claimed', claim_token='tok-delivered', delivered_at=now(), claimed_at=now() WHERE id='job_post_delivery_requeue'`);
+    const patch = await jobStatusPATCH(new Request("http://gateway.test/api/agent/jobs", {
+      method: "PATCH",
+      headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({ jobId: "job_post_delivery_requeue", status: "queued", reason: "pending_full", claimToken: "tok-delivered" }),
+    }));
+    expect(patch.status).toBe(409);
+    expect((await jobRow("job_post_delivery_requeue")).status).toBe("claimed");
+  });
+
+  it("expired late success requires the preserved delivered claim fence", async () => {
+    await insertQueuedJob(f, "job_expired_reconcile");
+    await pool().query(`UPDATE print_jobs SET status='expired', expires_at=now() - interval '1 second', claimed_at=now(), delivered_at=now(), claim_token='tok-expired', error='JOB_EXPIRED_DURING_PRINT: physical output is unknown' WHERE id='job_expired_reconcile'`);
+    const patch = (claimToken?: string) => jobStatusPATCH(new Request("http://gateway.test/api/agent/jobs", {
+      method: "PATCH",
+      headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({ jobId: "job_expired_reconcile", status: "success", ...(claimToken ? { claimToken } : {}) }),
+    }));
+    expect((await patch()).status).toBe(409);
+    expect((await patch("wrong-token")).status).toBe(409);
+    expect((await patch("tok-expired")).status).toBe(200);
+  });
+
   it("late success through the route requires the unknown-wait marker AND a fresh failure", async () => {
     const patch = (jobId: string, status: string, claimToken?: string) => jobStatusPATCH(new Request("http://gateway.test/api/agent/jobs", {
       method: "PATCH",
@@ -116,7 +159,14 @@ suite("atomic Agent job status transitions", () => {
     await insertQueuedJob(f, "job_late_stale");
     await pool().query(`UPDATE print_jobs SET status='failed', error='AGENT_RESTART_DURING_PRINT: crashed', updated_at=now() - interval '25 hours' WHERE id='job_late_stale'`);
     expect((await patch("job_late_stale", "success")).status).toBe(409);
-    // 4. Late success is bound to the EXACT attempt that produced the
+    // 4. An expired job that was never claimed must not be promotable to
+    // success just because an authenticated Agent knows its id.
+    await insertQueuedJob(f, "job_expired_unclaimed");
+    await pool().query(`UPDATE print_jobs SET status='expired', expires_at=now() - interval '1 second', updated_at=now() WHERE id='job_expired_unclaimed'`);
+    expect((await patch("job_expired_unclaimed", "success")).status).toBe(409);
+    expect((await jobRow("job_expired_unclaimed")).status).toBe("expired");
+
+    // 5. Late success is bound to the EXACT attempt that produced the
     // marker: the row below failed while token-A held the claim. A report
     // carrying any other token (or none) is rejected even though the
     // marker and TTL would otherwise qualify.

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../../../../../db";
 import { apiKeys } from "../../../../../../db/schema";
-import { validateManager } from "../../../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../../lib/authorization";
 import { generateOdooApiKey } from "../../../../../../lib/odoo-auth";
 import { writeAuditEvent } from "../../../../../../lib/audit";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 const ODOO_KEY_ROTATION_GRACE_MS = 60 * 60 * 1000;
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const manager = await validateManager(req);
+  const manager = await validateWorkspaceManager(req);
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     requireManagerPermission(manager, "integrations.manage");

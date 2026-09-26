@@ -100,7 +100,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           items={NAV_ITEMS}
           brandHref="/"
           brandTitle="Yasser"
-          brandSubtitle="Odoo Print Gateway"
+          brandSubtitle="Cloud Printing Platform"
           onLogout={handleLogout}
           loggingOut={loggingOut}
           variant="console"

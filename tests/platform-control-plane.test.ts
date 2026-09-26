@@ -113,6 +113,22 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
     expect(invalidAuth).toBeNull();
   });
 
+  it("rejects a v2 access token immediately after its refresh family is revoked", async () => {
+    const user = await createTestUser({ isPlatformOwner: true });
+    const session = await createPlatformSession(user.userId, user.email);
+
+    expect(await validatePlatformClaims(verifyPlatformTokenSignature(session.token))).not.toBeNull();
+
+    await db.execute(sql`
+      UPDATE refresh_tokens
+      SET revoked_at = clock_timestamp(), revoked_reason = 'logout'
+      WHERE family_id = ${session.familyId}
+        AND kind = 'platform'
+    `);
+
+    expect(await validatePlatformClaims(verifyPlatformTokenSignature(session.token))).toBeNull();
+  });
+
   it("revokes legacy platform session and invalidates legacy claims", async () => {
     const user = await createTestUser({ isPlatformOwner: true });
     const jti = `legacy_platform_${nanoid(18)}`;

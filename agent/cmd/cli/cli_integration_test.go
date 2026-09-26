@@ -49,7 +49,7 @@ func TestCLICommandsAgainstStubGateway(t *testing.T) {
 	}
 
 	env := append([]string{}, os.Environ()...)
-	env = append(env, "YASSER_AGENT_ALLOW_INSECURE_HTTP=1", "ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP=1")
+	env = append(env, "YASSER_AGENT_ALLOW_INSECURE_HTTP=1")
 
 	run := func(args ...string) string {
 		t.Helper()

@@ -96,8 +96,7 @@ Odoo outbox never re-POSTs once a Gateway job id exists.
    Drizzle schema and is dropped by migration `0071_remove_print_job_rate_limits`.
 3. **Odoo audit clock — completed**: the stale `completed_at` recommendation is
    retired; current `print_job.py` uses `db_now_utc` for those writes.
-4. **Migration metadata — latest snapshot verified**: `drizzle/meta/0072_tenant_scoped_printer_identity_snapshot.json` is present and the repository currently contains forward migrations `0000` through `0072`.
-   The historical snapshot chain remains non-contiguous before the current `0072` snapshot. `npm run db:generate` is guarded against a missing current snapshot and must not be used to reconstruct historical metadata.
+4. **Migration metadata — latest live migration verified**: the repository currently contains forward migrations `0000` through `0073`, with `0073_refresh_tokens.sql` as the latest live schema migration. `drizzle/meta` snapshot history remains separate from the forward migration journal and must not be treated as a substitute for the migration chain. `npm run db:generate` is guarded against a missing current snapshot and must not be used to reconstruct historical metadata.
 5. **`past_due` policy**: `past_due` intentionally keeps access while Stripe
    recovers payment, and the SQL gate does not apply the `current_period_end`
    check to it. Confirm the intended dunning window, since it is a revenue
@@ -116,10 +115,11 @@ Odoo outbox never re-POSTs once a Gateway job id exists.
 - `tests/quota-dialog-render.test.ts` — renders the real dialog in jsdom from a
   limit signal (billing-period copy, used/limit, period end, upgrade path, rate
   vs concurrency wording, close behaviour).
-- Unit suite: 511 passed / 1 skipped. Integration suite: 35 of 38 files pass.
-  The three failing files fail only because this sandbox runs Node 22.22.3 while
-  `crypto.argon2` requires Node 24.7+ (the project requires Node ≥ 24.15.0); no
-  assertion related to this review fails.
+- Unit suite: 511 passed / 1 skipped. Integration suite: 35 of 38 files passed in
+  the historical review run; the three remaining files were environment-gated by
+  the then-available Node.js runtime rather than assertion failures. The current
+  repository contract remains Node.js ≥ 24.15.0, with `.nvmrc` pinning the CI/build
+  baseline to 24.21.0.
 - `tsc --noEmit`, `eslint .` and `next build` are clean; the production-like
   migration upgrade path replays 0067 without data loss.
 

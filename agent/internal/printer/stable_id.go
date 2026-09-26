@@ -63,7 +63,15 @@ func physicalIdentityKey(d DeviceInfo) (string, bool) {
 	}
 
 	if strings.TrimSpace(d.USBSerial) != "" && usableIdentityValue(d.USBSerial) {
-		return "usb-serial:" + normalizeIdentityValue(d.USBSerial), true
+		serial := normalizeIdentityValue(d.USBSerial)
+		vid := normalizeIdentityValue(d.USBVID)
+		pid := normalizeIdentityValue(d.USBPID)
+		if usableIdentityValue(vid) && usableIdentityValue(pid) {
+			return fmt.Sprintf("usb-serial:%s:%s:%s", vid, pid, serial), true
+		}
+		// Some legacy/manual discovery records expose only the serial.
+		// Keep the serial-only fallback for compatibility with those records.
+		return "usb-serial:" + serial, true
 	}
 
 	spoolerPort := strings.ToLower(strings.TrimSpace(d.SpoolerPort))

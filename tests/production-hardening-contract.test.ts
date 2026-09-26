@@ -2,10 +2,20 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hasBodyOverLimit } from "../src/lib/request-limits";
+import { isDefinitiveStripeMutationError, isRetryableStripeMutationStatus, StripeRequestError } from "../src/lib/stripe";
 
 const read = (file: string) => readFileSync(resolve(process.cwd(), file), "utf8");
 
 describe("production hardening contracts", () => {
+  it("checkout releases definitively rejected Stripe intents but keeps ambiguous ones retryable", async () => {
+    const route = read("src/app/api/billing/checkout/route.ts");
+    expect(route).toContain("isDefinitiveStripeMutationError");
+    expect(route).toContain('checkoutStatus: "none"');
+    expect(route).toContain("eq(tenantSubscriptions.checkoutIdempotencyKey, state.idempotencyKey)");
+    expect(route).toContain('eq(tenantSubscriptions.checkoutStatus, "creating")');
+    expect(route).toContain('Checkout could not be created right now. Please retry.');
+  });
+
   it("uses the transactional tenant lifecycle fence on runtime/control writes", () => {
     expect(read("src/lib/tenant-guard.ts")).toContain("requireActiveTenantInTransaction");
     expect(read("src/lib/tenant-guard.ts")).toContain("FOR SHARE");
@@ -173,6 +183,17 @@ describe("production hardening contracts", () => {
   it("does not silently discard drawer-kick transport failures", () => {
     const agent = read("agent/internal/agent/agent.go");
     expect(agent).toContain("peripheral_drawer_kick_failed");
+    expect(agent).toContain("printer.OutcomeUnknown(drawerErr)");
+    expect(agent).toContain("physicalPeripheralSideEffect = true");
+    expect(agent).toContain("UNKNOWN_PARTIAL_DELIVERY: peripheral side effect succeeded");
+  });
+
+  it("never downgrades an agent panic after BeginPrint into an ordinary retryable failure", () => {
+    const agent = read("agent/internal/agent/agent.go");
+    expect(agent).toContain('localStatus == "printing"');
+    expect(agent).toContain('panicMsg = "UNKNOWN_PARTIAL_DELIVERY: " + panicMsg');
+    expect(agent).toContain('a.queue.UpdateStatusWithError(jobID, "failed", panicMsg)');
+    expect(agent).toContain('a.rememberTerminalExecution(jobID, "failed", panicMsg, fields.ClaimToken)');
   });
 
   it("keeps tenant scoping fail-closed in manager dashboard and agent lifecycle routes", () => {
@@ -234,6 +255,28 @@ describe("production hardening contracts", () => {
           throw new Error("Selection token already used")`);
   });
 
+  it("does not strand billing-operation claims on definitive Stripe rejection", () => {
+    expect(isRetryableStripeMutationStatus(408)).toBe(true);
+    expect(isRetryableStripeMutationStatus(409)).toBe(true);
+    expect(isRetryableStripeMutationStatus(429)).toBe(true);
+    expect(isRetryableStripeMutationStatus(500)).toBe(true);
+    expect(isRetryableStripeMutationStatus(400)).toBe(false);
+    expect(isRetryableStripeMutationStatus(401)).toBe(false);
+    expect(isRetryableStripeMutationStatus(403)).toBe(false);
+    expect(isRetryableStripeMutationStatus(404)).toBe(false);
+    expect(isRetryableStripeMutationStatus(422)).toBe(false);
+
+    const rejected = new StripeRequestError("invalid state", 400);
+    expect(rejected.status).toBe(400);
+    expect(isDefinitiveStripeMutationError(rejected)).toBe(true);
+    expect(isDefinitiveStripeMutationError(new StripeRequestError("timeout", 500))).toBe(false);
+
+    const billingOp = read("src/lib/billing-operation.ts");
+    expect(billingOp).toContain("isDefinitiveStripeMutationError(error)");
+    expect(billingOp).toContain("billingOperationId: null");
+    expect(billingOp).toContain("billingOperationSubscriptionId: null");
+  });
+
   it("keeps control-plane concurrency boundaries enforced by code and schema", () => {
     const invitation = read("src/app/api/team/invitations/accept/route.ts");
     expect(invitation).toContain("FROM tenants");
@@ -284,11 +327,17 @@ describe("production hardening contracts", () => {
     const printRoute = read("src/app/api/print/jobs/route.ts");
     expect(printRoute).not.toContain("eq(printJobs.apiKeyId, odoo.id), eq(printJobs.idempotencyKey");
     expect(printRoute).toContain("eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.idempotencyKey");
-    expect(printRoute).toContain("eq(printJobs.id, id), eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.apiKeyId, odoo.id)");
+    expect(printRoute).toContain("eq(printJobs.tenantId, odoo.tenantId)");
+    expect(printRoute).toContain("isNotNull(printJobs.apiKeyId)");
+    expect(printRoute).toContain("eq(printJobs.idempotencyKey, parsed.data.idempotencyKey)");
+    expect(printRoute).not.toContain("eq(printJobs.id, id), eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.apiKeyId, odoo.id)");
+    const reusedBlock = printRoute.slice(printRoute.indexOf("if (result.isReused)"), printRoute.indexOf("return NextResponse.json({\n      jobId:", printRoute.indexOf("if (result.isReused)")));
+    expect(reusedBlock).toContain("isNotNull(printJobs.apiKeyId)");
 
     const batchStatus = read("src/app/api/print/jobs/batch-status/route.ts");
     expect(batchStatus).toContain("eq(printJobs.tenantId, odoo.tenantId)");
-    expect(batchStatus).toContain("eq(printJobs.apiKeyId, odoo.id)");
+    expect(batchStatus).toContain("isNotNull(printJobs.apiKeyId)");
+    expect(batchStatus).not.toContain("eq(printJobs.apiKeyId, odoo.id)");
 
     const auth = read("src/lib/manager-auth.ts");
     expect(auth).toContain("passwordHash: true");
@@ -319,3 +368,16 @@ describe("production hardening contracts", () => {
   });
 
 });
+
+it("agent crash reprint is a fenced printing->queued transition, separate from pre-execution rejection", () => {
+  const source = read("src/app/api/agent/jobs/route.ts");
+  const status = read("src/lib/job-status.ts");
+  expect(status).toContain('AGENT_REPRINT_AFTER_CRASH_REASON = "agent_reprint_after_crash"');
+  expect(source).toContain('requestedStatus === "queued" && currentStatus === "printing"');
+  expect(source).toContain('reason !== AGENT_REPRINT_AFTER_CRASH_REASON');
+  expect(source).toContain('printJobs.expiresAt} > now()');
+  expect(source).toContain('printJobs.retries} < ${MAX_RETRIES}');
+  expect(source).toContain('retries: sql`${printJobs.retries} + 1`');
+  expect(source).not.toMatch(/agent_reprint_after_crash[\s\S]{0,500}deliveryAttempts: sql`GREATEST/);
+});
+

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { validateCustomer } from "../../../../lib/customer-auth";
+import { validateManager } from "../../../../lib/manager-auth";
 import {
   clearCustomerRefreshCookie,
   clearCustomerSessionCookie,
@@ -14,29 +15,67 @@ import {
 } from "../../../../lib/session-tokens";
 
 export async function POST(req: Request) {
-  const claims = await validateCustomer(req);
-  const refreshToken = getRefreshTokenFromRequest(req, "customer");
+  const customerClaims = await validateCustomer(req);
+  const managerClaims = await validateManager(req);
+  const customerRefreshToken = getRefreshTokenFromRequest(req, "customer");
+  const managerRefreshToken = getRefreshTokenFromRequest(req, "manager");
   let revokeFailed = false;
 
-  try {
-    if (claims?.familyId) {
-      await revokeSessionFamily(claims.familyId, "logout");
-    } else if (refreshToken) {
-      await revokeRefreshTokenFamily("customer", refreshToken, "logout");
-    } else if (claims) {
-      await revokeManagerSession(claims.jti);
+  const revokeCustomerSession = async () => {
+    if (customerClaims?.kind === "customer" && customerClaims.familyId) {
+      await revokeSessionFamily(customerClaims.familyId, "logout");
+      return customerClaims;
     }
+    if (customerRefreshToken) {
+      await revokeRefreshTokenFamily("customer", customerRefreshToken, "logout");
+      return customerClaims?.kind === "customer" ? customerClaims : null;
+    }
+    return null;
+  };
+
+  const revokeManagerSessionIfPresent = async () => {
+    if (managerClaims?.kind === "manager" && managerClaims.familyId) {
+      await revokeSessionFamily(managerClaims.familyId, "logout");
+      return managerClaims;
+    }
+    if (managerRefreshToken) {
+      await revokeRefreshTokenFamily("manager", managerRefreshToken, "logout");
+      return managerClaims?.kind === "manager" ? managerClaims : null;
+    }
+    if (managerClaims) {
+      await revokeManagerSession(managerClaims.jti);
+      return managerClaims;
+    }
+    return null;
+  };
+
+  const auditClaims: Array<Awaited<ReturnType<typeof revokeCustomerSession>> | Awaited<ReturnType<typeof revokeManagerSessionIfPresent>>> = [];
+  try {
+    auditClaims.push(await revokeCustomerSession());
   } catch (error) {
     revokeFailed = true;
-    logError("auth.logout.session_revoke_failed", {
-      jti: claims?.jti,
-      familyId: claims?.familyId,
-      tenantId: claims?.tenantId,
+    logError("auth.logout.customer_session_revoke_failed", {
+      jti: customerClaims?.jti,
+      familyId: customerClaims?.familyId,
+      tenantId: customerClaims?.tenantId,
       error: error instanceof Error ? error.message : "unknown",
     });
   }
 
-  if (claims && !revokeFailed) {
+  try {
+    auditClaims.push(await revokeManagerSessionIfPresent());
+  } catch (error) {
+    revokeFailed = true;
+    logError("auth.logout.manager_session_revoke_failed", {
+      jti: managerClaims?.jti,
+      familyId: managerClaims?.familyId,
+      tenantId: managerClaims?.tenantId,
+      error: error instanceof Error ? error.message : "unknown",
+    });
+  }
+
+  for (const claims of auditClaims) {
+    if (!claims) continue;
     await writeAuditEvent({
       tenantId: claims.tenantId,
       actorType: claims.userId ? "user" : "system",
@@ -56,13 +95,15 @@ export async function POST(req: Request) {
     { status: revokeFailed ? 503 : 200 },
   );
 
-  if (claims?.kind === "customer" || refreshToken) {
-    response.headers.set("Set-Cookie", clearCustomerSessionCookie());
-    response.headers.append("Set-Cookie", clearCustomerRefreshCookie());
-  } else {
-    response.headers.set("Set-Cookie", clearManagerCookieHeader());
-    response.headers.append("Set-Cookie", clearManagerRefreshCookieHeader());
-  }
+  // Generic browser logout clears every browser session cookie because the
+  // endpoint intentionally represents "log out" rather than a single auth
+  // surface. Both corresponding refresh families were independently revoked
+  // above, so clearing both cookie pairs cannot leave a recoverable session
+  // behind.
+  response.headers.set("Set-Cookie", clearCustomerSessionCookie());
+  response.headers.append("Set-Cookie", clearCustomerRefreshCookie());
+  response.headers.append("Set-Cookie", clearManagerCookieHeader());
+  response.headers.append("Set-Cookie", clearManagerRefreshCookieHeader());
 
   response.headers.set("Cache-Control", "no-store");
   return response;

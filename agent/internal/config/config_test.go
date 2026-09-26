@@ -154,7 +154,7 @@ func TestConfigValidate(t *testing.T) {
 func TestConfigValidateRequiresHTTPSByDefault(t *testing.T) {
 	// Production/default behavior is fail-closed: HTTP is rejected unless
 	// explicitly opted into for isolated development/test environments.
-	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "")
+	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "")
 	for _, raw := range []string{
 		"http://127.0.0.1:3000",
 		"http://192.168.1.50:3000",
@@ -170,7 +170,7 @@ func TestConfigValidateRequiresHTTPSByDefault(t *testing.T) {
 }
 
 func TestConfigValidateAcceptsHTTPWithExplicitDevelopmentOptIn(t *testing.T) {
-	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "1")
+	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1")
 	for _, raw := range []string{
 		"http://127.0.0.1:3000",
 		"http://192.168.1.50:3000",
@@ -186,7 +186,7 @@ func TestConfigValidateAcceptsHTTPWithExplicitDevelopmentOptIn(t *testing.T) {
 }
 
 func TestConfigValidateAcceptsHTTPSByDefault(t *testing.T) {
-	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "")
+	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "")
 	for _, raw := range []string{
 		"https://127.0.0.1:3000",
 		"https://192.168.1.50:3000",

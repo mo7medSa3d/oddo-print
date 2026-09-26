@@ -173,6 +173,34 @@ func TestSpoolerStatusUnknownPrinterIsOffline(t *testing.T) {
 	}
 }
 
+func TestSpoolerWritePartialBytesThenErrorIsUnknown(t *testing.T) {
+	mockSyscalls := defaultSpoolerSyscalls
+	mockSyscalls.openPrinterW = func(printerName *uint16, hPrinter *syscall.Handle) (uintptr, error) {
+		*hPrinter = 321
+		return 1, nil
+	}
+	mockSyscalls.closePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	mockSyscalls.startDocPrinterW = func(hPrinter syscall.Handle, di *docInfo1) (uintptr, error) { return 456, nil }
+	mockSyscalls.startPagePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	mockSyscalls.writePrinter = func(hPrinter syscall.Handle, buf unsafe.Pointer, length int, bytesWritten *uint32) (uintptr, error) {
+		*bytesWritten = 3
+		return 0, syscall.Errno(31)
+	}
+	mockSyscalls.endPagePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	mockSyscalls.endDocPrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+
+	res := executeSpoolerSessionWithSyscalls("PartialErrorPrinter", []byte("receipt payload"), nil, mockSyscalls)
+	if res.err == nil {
+		t.Fatal("partial WritePrinter bytes with failure must not report success")
+	}
+	if !OutcomeUnknown(res.err) {
+		t.Fatalf("partial WritePrinter bytes with failure must be classified unknown: %v", res.err)
+	}
+	if res.written != 3 {
+		t.Fatalf("partial bytes must be preserved as evidence, got %d", res.written)
+	}
+}
+
 func TestSpoolerEndPagePrinterFailureCannotSucceed(t *testing.T) {
 	mockSyscalls := defaultSpoolerSyscalls
 	mockSyscalls.openPrinterW = func(printerName *uint16, hPrinter *syscall.Handle) (uintptr, error) {

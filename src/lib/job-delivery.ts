@@ -180,6 +180,7 @@ export async function claimJobForDelivery(
 }
 
 export async function markJobDelivered(jobId: string, tenantId: string, agentId: string, claimToken: string | null): Promise<boolean> {
+  if (!claimToken) return false;
   const res = await db.update(printJobs)
     .set({
       // DB-native now() so delivered_at and updated_at are on the same clock
@@ -209,14 +210,19 @@ export async function markJobDeliveryUnknown(
   jobId: string,
   tenantId: string,
   agentId: string,
-  claimToken: string | null,
+  claimToken: string,
 ): Promise<boolean> {
   const res = await db.update(printJobs)
     .set({
       status: "failed",
-      error: "UNKNOWN_PARTIAL_DELIVERY: WebSocket frame was accepted but delivery evidence could not be persisted; physical output is unknown (manual reconciliation required)",
+      error: "UNKNOWN_PARTIAL_DELIVERY: WebSocket frame was accepted but delivery evidence could not be persisted; physical output is unknown (reconciliation is allowed only for the same fenced attempt)",
+      // Preserve the exact execution fence so an Agent that did receive the
+      // frame can reconcile a late success. Do NOT clear it here: doing so
+      // would make a valid late result permanently unreconcilable while still
+      // preventing any automatic retry. The normal late-success age fence
+      // bounds how long this token remains useful.
       deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
-      claimToken: sql`NULL`,
+      claimedAt: sql`COALESCE(${printJobs.claimedAt}, now())`,
       updatedAt: sql`now()`,
     })
     .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed"]))
@@ -225,6 +231,7 @@ export async function markJobDeliveryUnknown(
 }
 
 export async function recordJobAck(jobId: string, tenantId: string, agentId: string, claimToken?: string | null): Promise<boolean> {
+  if (!claimToken) return false;
   const res = await db.update(printJobs)
     // ACK means the Agent admitted the job into its bounded local executor.
     // Transport delivery evidence is recorded separately by markJobDelivered().

@@ -97,6 +97,29 @@ suite("print idempotency (Odoo → Gateway)", () => {
     }
   });
 
+  it("does not reuse an internal Manager job through the Odoo idempotency surface", async () => {
+    const key = "op-internal-collision";
+    const internal = await createPrintJobForPrinter(f.printerId, jobBody(key).payload, {
+      requestedBy: "manager",
+      tenantId: f.tenantId,
+      destination: "POS",
+      documentType: "invoice",
+      idempotencyKey: key,
+    });
+    expect(internal.isReused).toBe(false);
+
+    const res = await create(jobBody(key));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+    expect(await jobCount()).toBe(1);
+
+    const statusRes = await printJobsGET(new Request(`http://gateway.test/api/print/jobs?id=${internal.id}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${f.odooKey}` },
+    }));
+    expect(statusRes.status).toBe(404);
+  });
+
   it("first request creates one durable job", async () => {
     const res = await create(jobBody("op-first"));
     expect(res.status).toBe(201);
@@ -229,10 +252,11 @@ suite("print idempotency (Odoo → Gateway)", () => {
     expect(replayed.jobId).toBe(created.jobId);
     expect(await jobCount()).toBe(1);
 
-    const foreignRead = await printJobsGET(new Request(`http://gateway.test/api/print/jobs?id=${created.jobId}`, {
+    const rotatedRead = await printJobsGET(new Request(`http://gateway.test/api/print/jobs?id=${created.jobId}`, {
       headers: { Authorization: `Bearer ${otherKey}` },
     }));
-    expect(foreignRead.status).toBe(404);
+    expect(rotatedRead.status).toBe(200);
+    expect((await rotatedRead.json()).jobId).toBe(created.jobId);
   });
 
   it("converges concurrent operator reprints on one active reprint", async () => {

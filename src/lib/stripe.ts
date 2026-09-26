@@ -5,6 +5,32 @@ export function stripeSecret(): string { const s=runtimeSecret("STRIPE_SECRET_KE
 export function stripeHeaders(extra:Record<string,string>={}) { return { Authorization:`Bearer ${stripeSecret()}`, "Content-Type":"application/x-www-form-urlencoded", ...(runtimeSecret("STRIPE_API_VERSION")?{"Stripe-Version":runtimeSecret("STRIPE_API_VERSION")!}:{}), ...extra }; }
 export type StripeApiResponse = { id: string; url?: string | null; expires_at?: number };
 
+export class StripeRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "StripeRequestError";
+  }
+}
+
+/**
+ * A Stripe mutation HTTP failure is safely replayable only for statuses whose
+ * outcome may still be ambiguous or whose failure is explicitly retryable.
+ * Validation/auth/not-found 4xx responses are terminal rejections: retrying
+ * with the same persisted operation claim would otherwise strand the control
+ * plane forever. 409/408/429 are retained because their semantics can include
+ * request ambiguity or provider throttling.
+ */
+export function isRetryableStripeMutationStatus(status: number): boolean {
+  return status === 408 || status === 409 || status === 429 || status >= 500;
+}
+
+export function isDefinitiveStripeMutationError(error: unknown): error is StripeRequestError {
+  return error instanceof StripeRequestError && !isRetryableStripeMutationStatus(error.status);
+}
+
 function requireStripeObject(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Stripe returned an invalid response object");
   return data as Record<string, unknown>;
@@ -32,9 +58,14 @@ export async function stripeRequest(path:string, form:URLSearchParams, idempoten
   const headers=stripeHeaders(idempotencyKey?{"Idempotency-Key":idempotencyKey}:{});
   const res=await fetch(`https://api.stripe.com/v1/${path}`,{method:"POST",headers,body:form,signal:AbortSignal.timeout(15_000)});
   const data=await res.json().catch(()=>({}));
-  if(!res.ok) throw new Error(typeof (data as Record<string, unknown>)?.error === "object" && typeof ((data as Record<string, unknown>).error as Record<string, unknown>)?.message === "string"
-    ? String(((data as Record<string, unknown>).error as Record<string, unknown>).message)
-    : `Stripe request failed (${res.status})`);
+  if(!res.ok) {
+    throw new StripeRequestError(
+      typeof (data as Record<string, unknown>)?.error === "object" && typeof ((data as Record<string, unknown>).error as Record<string, unknown>)?.message === "string"
+        ? String(((data as Record<string, unknown>).error as Record<string, unknown>).message)
+        : `Stripe request failed (${res.status})`,
+      res.status,
+    );
+  }
   return parseStripeResponse(path, data);
 }
 /**

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { jobEvents, printJobs } from "../../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
+import { requireManagerPermission } from "../../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
 import { getJobTimeline, buildTimelineFromJobRow } from "../../../../../lib/job-timeline";
 import { runWithCorrelation, generateRequestId } from "../../../../../server/correlation";
@@ -58,6 +59,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
   const auth = await validateWorkspaceManager(req);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try { requireManagerPermission(auth, "jobs.read"); } catch {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const tenantId = auth.tenantId;
 

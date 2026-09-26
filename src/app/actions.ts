@@ -27,6 +27,7 @@ import { requireActiveTenantInTransaction } from "../lib/tenant-guard";
 import type { LimitSignalResult } from "../lib/limit-signal";
 import { isAgentAvailableForJob } from "../lib/agent-availability";
 import { gatewayNow } from "../lib/database-clock";
+import { createAgentForManager } from "../lib/agent-control";
 
 async function requireManager() {
   const cookieStore = await cookies();
@@ -40,69 +41,9 @@ async function requireManager() {
 
 export async function createAgent(name: string) {
   const manager = await requireManager();
-  requireManagerPermission(manager, "agents.pair");
-  if (typeof name !== "string" || !name.trim() || name.trim().length > 200) throw new ActionError("Agent name must be 1-200 characters.", 400);
-  // 0032 guarantees that no two rows share a pending pairing-code hash
-  // (the register route looks codes up without a tenant boundary), so
-  // regenerate on the astronomically rare collision instead of letting
-  // the INSERT violate the constraint and mint an ambiguous code.
-  let pairingCode = "";
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const candidate = generatePairingCode();
-    const clash = await db.query.agents.findFirst({
-      where: eq(agents.pairingCodeHash, hashPairingCode(candidate)),
-      columns: { id: true },
-    });
-    if (!clash) {
-      pairingCode = candidate;
-      break;
-    }
-  }
-  if (!pairingCode) throw new ActionError("Could not mint a unique pairing code. Try again.", 500);
-  const id = `agt_${nanoid(8)}`;
-  let expiresAt: Date | undefined;
-  try {
-    await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('agents:' || ${manager.tenantId}))`);
-      const clock = await tx.execute(sql`SELECT clock_timestamp() + interval '10 minutes' AS expires_at`);
-      const rawExpiresAt = clock.rows[0]?.expires_at;
-      const candidate = rawExpiresAt instanceof Date ? rawExpiresAt : new Date(String(rawExpiresAt ?? ""));
-      if (!rawExpiresAt || Number.isNaN(candidate.getTime())) throw new Error("Database clock is unavailable");
-      expiresAt = candidate;
-      // Keep the same tenant -> subscription ordering as Billing operations.
-      // Taking the lifecycle fence before the entitlement lock avoids a
-      // subscription -> tenant / tenant -> subscription deadlock during suspend.
-      await requireActiveTenantInTransaction(tx, manager.tenantId);
-      await enforceTenantResourceEntitlement(
-        tx,
-        manager.tenantId,
-        "max_agents",
-        sql`SELECT COUNT(*)::int AS count FROM agents WHERE tenant_id = ${manager.tenantId} AND lifecycle <> 'retired'`,
-      );
-      await tx.insert(agents).values({
-        id, tenantId: manager.tenantId, name: name.trim(),
-        pairingCodeHash: hashPairingCode(pairingCode),
-        pairingCodeExpiresAt: expiresAt,
-        status: "offline", lifecycle: "active",
-      });
-    });
-  } catch (error) {
-    if (error instanceof TenantEntitlementError) {
-      const code = error.entitlement === "max_agents" ? "MAX_AGENTS_EXCEEDED" : "TENANT_ENTITLEMENT_EXCEEDED";
-      throw new ActionError(error.message, 429, code, {
-        entitlement: error.entitlement,
-        limit: error.limit,
-        used: error.used,
-        upgradeRequired: error.entitlement === "max_agents",
-      });
-    }
-    if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
-    throw error;
-  }
-  if (!expiresAt) throw new ActionError("Could not create agent pairing expiry.", 500);
-  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.paired", resourceType: "agent", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
+  const result = await createAgentForManager(name, manager);
   revalidatePath("/dashboard");
-  return { id, pairingCode, expiresAt, expires_at: expiresAt.toISOString() };
+  return result;
 }
 
 export async function deleteAgent(id: string) {
@@ -201,6 +142,9 @@ export async function reprintJob(jobId: string) {
   if (!job) throw new ActionError("Job not found", 404);
   if (!isTerminal(job.status as JobStatus)) {
     throw new ActionError("Only finished, failed, or expired jobs can be reprinted. The current job is still in progress.", 409);
+  }
+  if (job.status === "success") {
+    throw new ActionError("Successful jobs are not eligible for operator reprint; create a new intentional print instead.", 409);
   }
   try {
     // Reprint sequence allocation happens inside createPrintJobForPrinter's
@@ -322,7 +266,9 @@ export async function setAgentLifecycle(id: string, lifecycle: "active" | "disab
 
 export async function getDashboardState() {
   const manager = await requireManager();
-  requireManagerPermission(manager, "tenant.read");
+  requireManagerPermission(manager, "agents.read");
+  requireManagerPermission(manager, "printers.read");
+  requireManagerPermission(manager, "jobs.read");
   const allAgents = await db
     .select({
       id: agents.id,

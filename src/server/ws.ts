@@ -473,29 +473,41 @@ export function hasOpenAgentSocket(agentId: string): boolean {
   return false;
 }
 
-export function sendToAgent(agentId: string, message: unknown): boolean {
+type JobSendOutcome = "sent" | "not_sent" | "ambiguous";
+
+function sendJobToAgent(agentId: string, message: unknown): JobSendOutcome {
   const set = agentSockets.get(agentId);
-  if (!set || set.size === 0) return false;
+  if (!set || set.size === 0) return "not_sent";
   const open = [...set]
     .filter((ws) => ws.readyState === WebSocket.OPEN)
     .reverse();
-  if (open.length === 0) return false;
+  if (open.length === 0) return "not_sent";
 
   const payload = JSON.stringify(message);
   for (const target of open) {
     if (target.bufferedAmount > MAX_WS_BUFFERED_BYTES) continue;
     try {
       target.send(payload);
-      return true;
+      return "sent";
     } catch (e) {
-      logWarn(`[ws] send to agent ${agentId} failed; removing socket:`, { error: e });
+      logWarn(`[ws] job send to agent ${agentId} failed after crossing send boundary; treating delivery as ambiguous:`, { error: e });
       set.delete(target);
       uncountAgentSocket(target);
       try { target.terminate(); } catch (error) { logDebug("[ws] failed-send socket terminate cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }
+      // The source cannot prove that target.send() transmitted zero bytes once
+      // the send call itself has been entered. Never try another socket and
+      // never requeue the job: a second hand-off could duplicate physical
+      // printing.
+      if (set.size === 0) agentSockets.delete(agentId);
+      return "ambiguous";
     }
   }
   if (set.size === 0) agentSockets.delete(agentId);
-  return false;
+  return "not_sent";
+}
+
+export function sendToAgent(agentId: string, message: unknown): boolean {
+  return sendJobToAgent(agentId, message) === "sent";
 }
 
 export type JobDeliveryEnvelope = {
@@ -577,12 +589,29 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
     return "not_claimable";
   }
   const sendStartedAt = Date.now();
-  const delivered = sendToAgent(job.agentId, buildJobEnvelope(claimed));
+  const sendOutcome = sendJobToAgent(job.agentId, buildJobEnvelope(claimed));
   const sendLatencyMs = Date.now() - sendStartedAt;
-  if (!delivered) {
-    const outcome = await releaseUndeliveredClaim(job.id, claimed.tenantId, job.agentId, claimed.claimToken, "websocket delivery failed after claim; job requeued for redelivery");
+  if (sendOutcome === "not_sent") {
+    const outcome = await releaseUndeliveredClaim(job.id, claimed.tenantId, job.agentId, claimed.claimToken, "websocket delivery failed before send; job requeued for redelivery");
     logWarn("print.trace.gateway_send", { jobId: job.id, agentId: job.agentId, claimLatencyMs, sendLatencyMs, totalLatencyMs: Date.now() - startedAt, outcome: outcome === "failed" ? "failed" : "requeued" });
     return outcome === "failed" ? "failed" : "requeued";
+  }
+  if (sendOutcome === "ambiguous") {
+    const markedUnknown = await markJobDeliveryUnknown(
+      job.id,
+      claimed.tenantId,
+      job.agentId,
+      claimed.claimToken,
+    );
+    logWarn("print.trace.gateway_send", {
+      jobId: job.id,
+      agentId: job.agentId,
+      claimLatencyMs,
+      sendLatencyMs,
+      totalLatencyMs: Date.now() - startedAt,
+      outcome: markedUnknown ? "delivery_unknown" : "not_claimable",
+    });
+    return markedUnknown ? "delivery_unknown" : "not_claimable";
   }
   // "Delivered" is a DATABASE fact, not a socket fact: only when the
   // delivered_at evidence write lands for THIS claim token does the gateway

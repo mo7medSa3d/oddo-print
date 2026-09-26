@@ -3567,3 +3567,525 @@ All interconnected pieces behave as intended. Phase 5 is fully verified.
 - **Evidence**: Windows CI run `36223989875`, job `108354392605`, reported `expected ';', found keyword 'if'` at `src\agent.rs:101:6` and suggested adding `;`.
 - **Fix**: Changed the closing line of the loop expression to `};`, preserving both the loop delimiter and the `let` statement terminator.
 - **Verification**: Committed directly to `main` as `28305b5c7b729d6093d04a4d40f07e3e540999a9`; Windows CI must rerun and pass the Tauri compile gate.
+
+### Phase 12: Local audit continuation — toolchain contract drift (2026-09-26)
+- **Finding**: `scripts/build-windows-installer.ps1` advertised Node.js `>=22` and Go `>=1.21`, while the repository's actual contracts are Node.js `>=24.15.0` (`package.json`) and Go `1.26` (`agent/go.mod`, also enforced by CI via `go-version-file`).
+- **Why it matters**: The installer script could pass its prerequisite gate on a toolchain that the repository itself rejects or cannot build with, creating a CI/local/production mismatch.
+- **Affected components**: Windows installer build, Node.js toolchain, Go Agent build, CI contract.
+- **Root cause**: Installer prerequisite messages were stale after the repository toolchain was raised.
+- **Fix applied**: Updated the prerequisite checks/messages to match the repository's enforced versions. Added a Python regression test that fails if the builder advertises the old versions again.
+- **Verification**: `pytest -q tests/test_final_security_hardening.py tests/test_odoo19_printing_static.py tests/test_security_contracts.py` → `100 passed` before the new test; rerun after the change as part of the local verification pass.
+- **Remaining limitation**: Native Windows installer execution remains `BLOCKED — requires live Windows host / real printer / external service / production infrastructure` from this Linux environment; GitHub Actions currently proves the Windows build for the pre-existing `main` commit.
+
+### Phase 13: Local audit continuation — Agent transport validation consolidation (2026-09-26)
+- **Finding**: Agent Server URL validation was duplicated in `internal/agent/pairing.go` and `cmd/cli/main.go`, with different insecure-HTTP environment-variable semantics.
+- **Why it matters**: Duplicate security validators can diverge and create different transport acceptance rules for pairing and CLI operations.
+- **Affected components**: Go Agent pairing, CLI, configuration loading, HTTP test mode.
+- **Root cause**: Both callers had local copies of the same validation logic instead of consuming one configuration-layer contract.
+- **Fix applied**: Promoted `config.ValidateServerURL` as the canonical validator; both callers now delegate to it. Removed the legacy `ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP` alias from this transport security decision and standardized on `YASSER_AGENT_ALLOW_INSECURE_HTTP=1` for explicit isolated test/development HTTP mode. Updated the example config and regression coverage.
+- **Verification**: `gofmt -l agent` returned no files; the Python security regression suite passed before the final builder-version regression was appended. Full Go tests could not be executed locally because the host has Go `1.23.2`, the module requires Go `1.26`, and automatic toolchain download is blocked by the sandbox network.
+- **Remaining limitation**: CI on GitHub Actions is the authoritative Go 1.26 verification for this snapshot; no claim of local Go build success is made.
+
+### Phase 14: Documentation truthfulness cleanup (2026-09-26)
+- **Finding**: `docs/CORRECTNESS_REVIEW.md` contained a current-sounding statement tied to a historical sandbox Node.js `22.22.3` environment and could be read as the present repository runtime status.
+- **Why it matters**: Runtime evidence must be time-bounded and must not imply that a historical environment failure is a current source-level defect or current toolchain contract.
+- **Affected component**: Verification documentation.
+- **Root cause**: Historical verification notes were written without explicitly framing their runtime context.
+- **Fix applied**: Reworded the section to identify the integration result as a historical review run and to state the current repository runtime contract (`Node.js ≥24.15.0`, `.nvmrc` baseline `24.21.0`).
+- **Verification**: Documentation search no longer presents the old Node.js 22.22.3 statement as current behavior.
+- **Remaining limitation**: Historical test-count statements remain historical evidence and are not used as current PASS evidence.
+
+### Phase 15: Local verification and handoff state (2026-09-26)
+- **Local PASS**: `python -m pytest -q tests/test_final_security_hardening.py tests/test_odoo19_printing_static.py tests/test_security_contracts.py` → `101 passed`.
+- **Local PASS**: `python -m compileall -q odoo_addons` → success; all 9 Odoo XML files parsed successfully.
+- **Local PASS**: migration journal consistency → 74 journal entries, 74 SQL migrations, indices contiguous, latest migration `0073_refresh_tokens`.
+- **Local PASS**: `gofmt -l agent` returned no files.
+- **Local PASS**: `package.json` dependency declarations exactly match the root dependency declarations in `package-lock.json`.
+- **Local BLOCKED**: `npm ci` cannot execute on this host because Node.js is `22.16.0` while the repository engine requires `>=24.15.0`; Docker/CI use Node 24.21.0.
+- **Local BLOCKED**: `go test ./...` cannot execute on this host because Go is `1.23.2` while `agent/go.mod` requires Go `1.26`; `GOTOOLCHAIN=auto` attempted to download Go 1.26 but sandbox DNS/network access was unavailable.
+- **Local BLOCKED**: full `pytest -q` collection for 7 Odoo addon test modules requires `psycopg2`, which is not installed in this sandbox. The targeted static/security suite remains green.
+- **Infrastructure BLOCKED**: native Tauri/Windows installer execution, live Odoo 19 integration, and physical printer output require external Windows/Odoo/printer infrastructure and were not represented as local PASS.
+- **Remote baseline evidence**: GitHub Actions for `main` commit `5426f5c6eb3737014d1d6e451a97f692913e1517` reported successful CI, Security and Resilience Gates, Static Security Gates, Docker, and Windows Installer runs before this local-only change set. These results do not certify the unpushed local changes; they are baseline evidence only.
+- **Handoff state**: this audit workspace intentionally contains no Git metadata and no GitHub writes. The final ZIP and patch are the artifacts to transfer/review on `main`.
+
+## 2026-09-26 — Platform v2 access-token revocation gap
+- **Finding**: v2 Platform Owner access-token validation did not check whether the token's `refresh_tokens.family_id` was still active, even though manager/customer v2 validation already enforced family revocation and the Platform logout endpoint revokes the entire family.
+- **Evidence**: `src/lib/platform-auth.ts` validated only database time and the current user's `isPlatformOwner` / `emailVerifiedAt` / email identity after `verifyAccessTokenSignature()`. `src/app/api/platform/auth/logout/route.ts` revokes `refresh_tokens` for the access token's `familyId`. Before this fix, a logged-out Platform access token could therefore remain accepted until its 15-minute `exp`.
+- **Why it matters**: This violated the documented immediate-revocation contract for v2 sessions and made the Platform Owner boundary materially weaker than the tenant Manager/Customer boundary.
+- **Affected components**: Platform authentication, shared refresh-token families, Platform logout, Platform Owner API authorization.
+- **Root cause**: `validateManagerClaims()` had an `isSessionFamilyActive()` revocation fence, but `validatePlatformClaims()` was migrated to v2 tokens without the equivalent family check. The shared helper also required a non-null tenant ID, reflecting the tenant-scoped callers only.
+- **Fix applied**: Extended `isSessionFamilyActive()` to support `tenantId = null` for the platform session kind using a SQL `IS NULL` predicate. Added the family-active check to `validatePlatformClaims()` before accepting a v2 Platform Owner token.
+- **Regression coverage**: Added `platform-control-plane.test.ts` coverage that creates a v2 Platform session, verifies the access token is initially accepted, revokes its refresh family, and asserts `validatePlatformClaims()` immediately rejects the same access token.
+- **Verification**: TypeScript parser diagnostics for `src/lib/session-tokens.ts`, `src/lib/platform-auth.ts`, and `tests/platform-control-plane.test.ts` are clean. Targeted Python security/Odoo regression suites remain green: `101 passed`.
+- **Remaining limitation**: Full Vitest execution for the new regression test is blocked in the current artifact workspace because the attempt to provision Node 24 and run `npm ci` timed out, leaving only a partial `node_modules`; the host Node is 22.16.0 while the repository requires Node >=24.15.0. This change is therefore not marked runtime-PASS until executed under the repository toolchain.
+
+## 2026-09-26 — Desktop packaged CSP allowed unnecessary inline execution and localhost network access
+- **Date:** 2026-09-26
+- **Area:** Tauri / Desktop security / CSP
+- **Finding:** `src-tauri/tauri.conf.json` used `script-src 'unsafe-inline'`, `style-src 'unsafe-inline'`, and wildcard `localhost:*` / `127.0.0.1:*` in the packaged application's CSP. The desktop `index.html` also contained an inline theme bootstrap script and inline theme CSS.
+- **Evidence:** Tauri's current CSP guidance says the CSP should be as restricted as possible and that bundled local scripts/assets receive nonce/hash hardening at build time. citeturn997826search0turn997826search2 Runtime inspection showed the packaged desktop WebView performs Gateway network access through the Rust `gateway_request` IPC boundary rather than browser `fetch` in Tauri mode.
+- **Root cause:** Development-only WebView allowances and inline theme bootstrapping were shared with the production Tauri CSP instead of using separate `devCsp` policy and packaged local assets.
+- **Affected components:** `src/desktop/index.html`, `src/desktop/public/theme-init.js`, `src/desktop/public/theme-init.css`, `src-tauri/tauri.conf.json`, Tauri desktop security boundary.
+- **Fix:** Moved the theme bootstrap script and pre-paint CSS into packaged local assets. Production CSP now removes `unsafe-inline` and localhost wildcard network access and permits only the Tauri IPC connection endpoint. Development CSP retains local harness allowances explicitly.
+- **Regression coverage:** Added/updated static contract coverage to require a strict production CSP, separate `devCsp`, no production `unsafe-inline`, and no production localhost wildcards.
+- **Verification:** File-level inspection of Tauri configuration and desktop entrypoint passed. Full Tauri build remains BLOCKED — EXTERNAL VERIFICATION REQUIRED on a Windows build environment with the repository's pinned Rust toolchain.
+- **Remaining limitation:** WebView runtime execution and final bundled CSP injection require the Windows/Tauri build artifact; not claimable locally.
+
+## 2026-09-26 — Go Agent server URL validation made single-source-of-truth
+- **Date:** 2026-09-26
+- **Area:** Go Agent / configuration contract
+- **Finding:** `cmd/cli/main.go` and `internal/agent/pairing.go` each carried local wrapper functions named `validateServerURL`, even though `internal/config.ValidateServerURL` is the canonical transport policy implementation.
+- **Evidence:** Repository-wide validator scan found three call sites for the same transport policy and two redundant wrapper definitions. The wrappers delegated today, so no divergent behavior was observed; they nevertheless created a second maintenance boundary that could silently drift later.
+- **Root cause:** The pairing/CLI call paths retained compatibility wrappers after the canonical validator was introduced.
+- **Affected components:** `agent/cmd/cli/main.go`, `agent/internal/agent/pairing.go`, `agent/internal/config/config.go`.
+- **Fix:** Removed both wrappers and changed callers to invoke `config.ValidateServerURL` directly.
+- **Regression coverage:** Updated transport-security regression coverage to assert there is exactly one implementation and that both call sites use it directly.
+- **Verification:** Python contract suite `103 passed`; `gofmt` completed on changed Go files. Full Go build/test remains BLOCKED — EXTERNAL VERIFICATION REQUIRED because this host has Go 1.23.2 while `agent/go.mod` requires Go 1.26 and the sandbox cannot download the required toolchain.
+- **Remaining limitation:** Runtime Windows Agent pairing still requires Go/Windows verification.
+
+## 2026-09-26 — Windows installer Rust toolchain source-of-truth enforcement
+- **Date:** 2026-09-26
+- **Area:** Windows installer / toolchain reproducibility / CI alignment
+- **Finding:** `scripts/build-windows-installer.ps1` accepted any Rust version `>=1.90`, while the repository's actual build contract is the exact toolchain pinned in `src-tauri/rust-toolchain.toml` (`1.98.1`) and used by GitHub Actions. This allowed a locally built installer to use a different compiler/toolchain from the CI artifact.
+- **Evidence:** `src-tauri/rust-toolchain.toml` pins `channel = "1.98.1"`; `.github/workflows/build-windows.yml` configures `toolchain: 1.98.1`; the installer previously only checked `rustc >=1.90.0`.
+- **Why it matters:** Rust compiler drift can change code generation, dependency resolution behavior, warnings/errors, and final installer output. The installer prerequisite gate should enforce the same toolchain contract as CI rather than a looser compatibility floor.
+- **Affected components:** `scripts/build-windows-installer.ps1`, `src-tauri/rust-toolchain.toml`, `.github/workflows/build-windows.yml`, installer regression coverage.
+- **Root cause:** The installer duplicated a minimum Rust version from `Cargo.toml` instead of consuming the repository's pinned toolchain file.
+- **Fix applied:** The installer now reads the `channel` from `src-tauri/rust-toolchain.toml`, validates the installed `rustc` version against that pinned value, and fails closed on mismatch. Error/help text now references the pinned repository toolchain.
+- **Regression coverage:** Updated `tests/test_final_security_hardening.py` to require the pinned toolchain source, an explicit repository-toolchain mismatch failure, and no dependency on the old hard-coded `1.90.0` Rust gate.
+- **Verification:** `python3 -m pytest -q tests/test_final_security_hardening.py tests/test_odoo19_printing_static.py tests/test_security_contracts.py` → `103 passed in 0.28s`.
+- **Remaining limitation:** Native PowerShell/Windows/Tauri execution remains `BLOCKED — EXTERNAL VERIFICATION REQUIRED`; the local Linux sandbox does not provide PowerShell, Rust, Windows signing, or the Windows build target. Existing GitHub Actions results are baseline evidence only and do not certify this unpushed local change.
+
+## 2026-09-26 — Legacy manager authentication was not environment-closed
+- **Date:** 2026-09-26
+- **Area:** Authentication / legacy compatibility / environment isolation
+- **Finding:** `ALLOW_LEGACY_MANAGER_AUTH=1` and `ALLOW_PLAINTEXT_MANAGER_PASSWORD=1` were gated only by `NODE_ENV !== "production"`. A deployment running with `NODE_ENV=staging` could therefore enable the legacy username/password compatibility path and plaintext manager credentials.
+- **Evidence:** `src/app/api/auth/manager/login/route.ts` previously defined `legacyEnabled` using only a non-production check; `src/lib/manager-auth.ts` accepted plaintext credentials whenever `ALLOW_PLAINTEXT_MANAGER_PASSWORD=1`; `server.ts` only refused the plaintext setting when `NODE_ENV === "production"`.
+- **Why it matters:** A staging environment can be internet-reachable or otherwise contain real credentials/data. Treating every non-production environment as trusted made a development-only authentication escape hatch available outside the intended development/test boundary.
+- **Affected components:** manager login, legacy authentication, plaintext password compatibility, server startup configuration.
+- **Root cause:** Compatibility controls were expressed as a broad negative production check instead of an explicit allowlist of environments where the legacy path is legal.
+- **Fix applied:** Legacy manager authentication and plaintext password verification are now enabled only when `NODE_ENV` is exactly `development` or `test`. `server.ts` now fails startup whenever plaintext manager passwords are enabled in any other environment.
+- **Regression coverage:** Extended `tests/manager-auth.test.ts` to reject plaintext credentials in both `production` and `staging`; added a staging legacy-login rejection case to `tests/auth-rate-limit.test.ts`; updated production startup contract assertions.
+- **Verification:** `python3 -m pytest -q tests/test_final_security_hardening.py tests/test_odoo19_printing_static.py tests/test_security_contracts.py tests/test_gateway_activation_robustness.py` → `110 passed in 0.27s`.
+- **Remaining limitation:** Full TypeScript/Vitest execution remains blocked by the local Node 22 vs repository Node 24.15+ toolchain mismatch.
+
+## 2026-09-26 — Next custom server treated staging as development mode
+- **Date:** 2026-09-26
+- **Area:** Next.js runtime / deployment environment separation
+- **Finding:** `server.ts` used `const dev = process.env.NODE_ENV !== "production"`, so an environment labeled `staging` (or any unexpected value) was passed to Next.js as `dev: true`.
+- **Evidence:** The custom server passes `dev` directly to `next({ dev, hostname, port })`. Next.js distinguishes development and production execution paths; official deployment guidance uses the production build/start path for production serving, and development mode has different request/rendering behavior. citeturn615038search1turn615038search6
+- **Why it matters:** A staging environment could accidentally run the development Next runtime, changing caching/rendering semantics and exposing development behavior even when the deployment was not intended to be a development environment.
+- **Affected components:** `server.ts`, Next.js runtime initialization, deployment environment separation.
+- **Root cause:** Development mode was implemented as a negative production check instead of an explicit development allowlist.
+- **Fix applied:** Changed the custom-server flag to `const dev = process.env.NODE_ENV === "development";`, so `test`, `staging`, and unknown environment names no longer implicitly enable Next development mode.
+- **Regression coverage:** Added `test_custom_server_only_enables_next_development_mode_for_development_env` to `tests/test_final_security_hardening.py`.
+- **Verification:** `python3 -m pytest -q tests/test_final_security_hardening.py tests/test_odoo19_printing_static.py tests/test_security_contracts.py tests/test_gateway_activation_robustness.py` → `111 passed in 0.29s`.
+- **Remaining limitation:** Full Next.js runtime/build verification remains blocked locally by the Node 22 vs repository Node 24.15+ toolchain mismatch.
+
+## 2026-09-26 — Stale auth contract test corrected after environment hardening
+- **Date:** 2026-09-26
+- **Area:** Regression test contract maintenance
+- **Finding:** `tests/production-fixes-contract.test.ts` still asserted the pre-hardening production-only plaintext-password startup condition and message after the authentication environment boundary was tightened to development/test only.
+- **Evidence:** The test expected `NODE_ENV === "production" && ALLOW_PLAINTEXT_MANAGER_PASSWORD=1`, while `server.ts` now intentionally rejects the setting in every environment outside development/test.
+- **Root cause:** The product security contract changed to an explicit environment allowlist, but one TypeScript contract test still described the historical negative production check.
+- **Fix applied:** Replaced the stale assertions with checks for the explicit `development`/`test` allowlist and the new fail-closed startup message.
+- **Verification:** TypeScript transpile/parser check on the modified test and related auth sources → PASS; targeted Python contract suite → `111 passed in 0.40s`.
+- **Remaining limitation:** Full Vitest execution remains blocked by the local Node 22 / repository Node 24.15+ mismatch.
+
+## 2026-09-26 — Release-readiness and migration documentation drift corrected
+- **Date:** 2026-09-26
+- **Area:** Documentation / release governance / migration history
+- **Finding:** `docs/CORRECTNESS_REVIEW.md` described `0072` as the latest forward migration even though `0073_refresh_tokens.sql` exists. `docs/RELEASE_READINESS.md` used the heading `RELEASE READY WITH EXPLICIT BLOCKED` while simultaneously listing production-critical runtime gates as blocked.
+- **Why it matters:** Documentation is part of the operational control plane. A stale migration number can cause incorrect upgrade assumptions, and a release-ready label can be copied into a go/no-go decision despite unresolved external verification gates.
+- **Root cause:** Documentation was updated incrementally during earlier hardening passes without a final repository-wide reconciliation against the current migration journal and current evidence state.
+- **Fix applied:** Updated `CORRECTNESS_REVIEW.md` to identify migration `0073_refresh_tokens.sql` as the latest forward migration and clarified the distinction between forward migrations and `drizzle/meta` snapshots. Changed the release decision wording to explicitly state `NOT RELEASE-READY YET — EXTERNAL VERIFICATION GATES REMAIN`.
+- **Regression coverage:** Re-ran targeted security/Odoo documentation-related contract suite.
+- **Verification:** `python3 -m pytest -q tests/test_final_security_hardening.py tests/test_odoo19_printing_static.py tests/test_security_contracts.py tests/test_gateway_activation_robustness.py` → `111 passed in 0.27s`; direct document search confirms no remaining `RELEASE READY` label or stale `0072` latest-migration claim in those documents.
+- **Remaining limitation:** Runtime release gates remain blocked as already documented; this edit makes the release status more conservative rather than claiming new runtime evidence.
+
+## 2026-09-26 — Final local hardening verification pack
+- **Date:** 2026-09-26
+- **Area:** Repository-wide local verification / release evidence
+- **Finding:** The local tree was re-verified after the final hardening changes. The repository remains an extracted, `.git`-less working tree; its provenance is the original local ZIP, which was independently matched to GitHub `main` commit `5426f5c6eb3737014d1d6e451a97f692913e1517` before local edits. No remote write was performed.
+- **Scope:** Gateway/auth/session, Tauri/desktop security boundary, Go Agent configuration and pairing paths, Odoo static/runtime contracts, migrations, installer/toolchain contracts, configuration/environment separation, and release documentation.
+- **Verification:** `python3 -m pytest -q tests/test_final_security_hardening.py tests/test_odoo19_printing_static.py tests/test_security_contracts.py tests/test_gateway_activation_robustness.py` → `111 passed`; `python3 -m compileall -q odoo_addons` → PASS; all 9 Odoo XML files parse → PASS; 74 migration files map contiguously to journal entries `0000..0073` → PASS; `gofmt -l agent` → no output; TypeScript transpilation/parser check for 8 changed runtime/auth/test files → PASS.
+- **Remaining limitations:** Node 24 clean-install/Vitest/Next production build, Go 1.26 build/test/race/vet, native Tauri/Windows build, Docker/Compose runtime, database-backed integration tests, full Odoo server integration, browser CSP runtime in the packaged desktop, live Stripe/external-service verification, and physical Windows printer execution remain `BLOCKED — EXTERNAL VERIFICATION REQUIRED` by the local sandbox/toolchain/infrastructure.
+- **Final local status:** No known source-level production-critical defect identified in the inspected/fixed scope; repository is **not certified production-ready from this sandbox** because the blocked runtime gates above are still unverified.
+
+## 2026-09-26 — Final runtime verification pass: environment blockers and executable gates
+- **Date:** 2026-09-26
+- **Area:** Runtime verification / toolchains / deployment execution
+- **Observed failure:** The local sandbox could not execute the repository's production runtime stack because the required Node/Go/Rust/Docker/PostgreSQL/Odoo infrastructure is not available at the required versions.
+- **Evidence:** `node --version` → `v22.16.0` vs repository `engines.node >=24.15.0` and `.nvmrc 24.21.0`; `npm ci` with repository `engine-strict=true` failed with `EBADENGINE`. A genuine toolchain-unblock attempt using `GOTOOLCHAIN=go1.26.0 go version` failed because the sandbox could not resolve/reach `proxy.golang.org` (`connection refused`); Go remained `1.23.2`. `rustc --version` and `cargo --version` failed with `command not found`; `docker --version` and `docker compose version` failed with `command not found`; `psql --version` failed with `command not found`. An offline `npm ci` diagnostic attempt also failed with `ENOTCACHED` for `zod-validation-error@4.0.2` after emitting the Node/engine mismatch warnings. Full `pytest -q` stopped during collection in seven Odoo test modules because `psycopg2` is not installed and the Odoo runtime is not present.
+- **Root cause:** External runtime/toolchain dependencies required for the real distributed system are not provisioned in this execution sandbox, and outbound DNS/network access is unavailable for fetching the missing versions/packages.
+- **Affected components:** Gateway Node runtime, Go Agent, Tauri/Desktop, Docker/PostgreSQL runtime, Odoo runtime/integration tests.
+- **Fix applied:** No product-code weakening was performed to bypass the missing infrastructure. Runtime blockers are kept explicit instead of being converted into PASS.
+- **Regression coverage:** Re-ran executable repository-local tests that do not require the missing runtime stack: `python3 -m pytest -q tests/test_final_security_hardening.py tests/test_odoo19_printing_static.py tests/test_security_contracts.py tests/test_gateway_activation_robustness.py` → `111 passed in 0.52s`.
+- **Verification:** Bash scripts parse cleanly (`3/3`); JSON parsing passed for `package.json`, `tsconfig.json`, `src-tauri/tauri.conf.json`; YAML parsing passed for `docker-compose.yml`, `agent/configs/config.yaml.example`, `.github/dependabot.yml`; `python3 -m compileall -q odoo_addons` → PASS; all `9` Odoo XML files parse → PASS. Repository-wide source rescan found no production source references to the removed `ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP` alias or the old `NODE_ENV !== "production"` custom-server development-mode expression; remaining occurrences are intentional tests/docs or unrelated development caching behavior.
+- **Remaining limitation:** The following remain `BLOCKED — EXTERNAL VERIFICATION REQUIRED`: clean Node 24.21.0 install/Vitest/Next production build/start, Go 1.26 test/race/vet/build, PostgreSQL fresh migration/runtime, Docker/Compose/Caddy runtime, full Odoo 19 runtime, native Tauri/Windows execution, real browser CSP execution, live Stripe/external service flows, WebSocket runtime against a live Gateway, and physical Windows printer execution.
+
+## 2026-09-26 — Odoo workspace API-key authentication contract was too narrow
+- **Date:** 2026-09-26
+- **Area:** Workspace authentication / Odoo integration UI / API keys
+- **Finding:** The browser-facing `src/app/api-keys/page.tsx` calls `/api/odoo/keys` with the normal workspace browser session, but all three handlers in `src/app/api/odoo/keys/route.ts` used `validateManager(req)`, which only accepts the `mgr_session` boundary. The customer/workspace `cust_session` issued by `/api/auth/login` therefore could not load, create, revoke, or remove Odoo keys even for roles granted `integrations.read/manage`.
+- **Evidence:** `src/app/api-keys/page.tsx` calls `fetch("/api/odoo/keys", { credentials: "include" })`; `src/lib/manager-auth.ts` defines `validateWorkspaceManager()` specifically to accept manager or customer workspace sessions; the key route previously invoked `validateManager()`.
+- **Why it matters:** This is a cross-component authentication contract break that manifests as a 401 on an authenticated workspace UI and makes the Odoo integration surface unusable without switching to a different auth transport.
+- **Affected components:** Odoo integration page, `/api/odoo/keys`, Odoo key rotation endpoint, workspace session/authentication boundary.
+- **Root cause:** The key-management route was left on the legacy manager-only auth helper while surrounding workspace management APIs had migrated to `validateWorkspaceManager`.
+- **Fix applied:** GET/POST/DELETE `/api/odoo/keys` and POST `/api/odoo/keys/[id]/rotate` now use `validateWorkspaceManager(req)` while retaining the existing `integrations.read/manage` RBAC checks.
+- **Regression coverage:** Added `tests/odoo-workspace-contract.test.ts` to bind the browser page to the workspace auth contract and prevent reintroduction of the manager-only helper.
+- **Verification:** Source-level contract assertions pass for the affected route/page pair.
+- **Remaining limitation:** Live HTTP execution of the browser session against PostgreSQL/Next.js remains externally unverified.
+
+## 2026-09-26 — Odoo runtime discovery was incorrectly gated by integration activation state
+- **Date:** 2026-09-26
+- **Area:** Odoo ↔ Gateway runtime discovery / control-plane activation contract
+- **Finding:** `odoo_addons/print_gateway/controllers/runtime_printers.py` explicitly documents that Agent pairing/discovery must remain available while Odoo printing is disabled, but `/api/odoo/agents` and `/api/odoo/printers` called `validateOdooKey(req)` with its default `requireIntegrationEnabled=true`. An authenticated Odoo API key with `odooEnabled=false` was therefore rejected before discovery could run.
+- **Evidence:** Odoo controller comments state that pairing/discovery is independent from the print-dispatch `enabled` flag; `src/lib/odoo-auth.ts` defaults `requireIntegrationEnabled` to true; both discovery routes previously used the default.
+- **Why it matters:** The control-plane could not discover/select an Agent or printer while the integration was OFF, making the activation/setup flow self-blocking despite the intended architecture.
+- **Affected components:** `/api/odoo/agents`, `/api/odoo/printers`, Odoo Pair Agent wizard, runtime printer picker, Odoo integration activation flow.
+- **Root cause:** The routes inherited the runtime-print authentication default instead of explicitly selecting the control-plane exception already used by `/api/odoo/health` and `/api/odoo/configuration` PATCH.
+- **Fix applied:** Both discovery routes now call `validateOdooKey(req, { requireIntegrationEnabled: false })`. Existing tenant lifecycle and billing entitlement checks remain authoritative, so disabled integration does not bypass subscription or tenant-state enforcement.
+- **Regression coverage:** Added `tests/odoo-workspace-contract.test.ts` asserting the explicit disabled-integration contract on both discovery routes.
+- **Verification:** Source-level contract assertions pass; no production auth/billing predicate was weakened.
+- **Remaining limitation:** Live Odoo/Gateway/PostgreSQL execution with an actually disabled API key remains externally unverified.
+
+## 2026-09-26 — Source-only cross-system review findings
+
+### Area: Workspace authentication fallback
+- FINDING: `validateWorkspaceManager()` returned `verifyManagerToken(managerToken)` directly whenever any `mgr_session` cookie existed, so an expired/revoked manager cookie could shadow a valid `cust_session` workspace session in the same browser.
+- EVIDENCE: `src/lib/manager-auth.ts::validateWorkspaceManager`; `src/app/api/auth/login/route.ts` sets only customer cookies, so a pre-existing manager cookie can coexist.
+- ROOT CAUSE: authentication selection used cookie presence rather than successful validation as the precedence condition.
+- AFFECTED COMPONENTS: Gateway workspace authentication; Odoo API-key UI; Settings/console routes using `validateWorkspaceManager`.
+- FIX: retain valid manager-session precedence but fall through to customer validation when manager validation returns null.
+- REGRESSION COVERAGE: `tests/manager-auth.test.ts` — stale manager cookie + valid customer session now resolves to the customer session.
+- VERIFICATION: source-level test fixture and route inspection.
+- REMAINING LIMITATION: live browser cookie execution remains runtime-only.
+
+### Area: Print lifecycle / late success authorization
+- FINDING: the `expired -> success` reconciliation branch did not require evidence that the job had ever been claimed. An expired queued job retains a NULL claim token and could therefore match the fenced write with a NULL token.
+- EVIDENCE: `src/app/api/agent/jobs/route.ts::PATCH`, `src/lib/job-fencing.ts::fencedJobWrite`, `src/lib/job-status.ts::canTransition`.
+- ROOT CAUSE: the special post-expiration success path was entered from terminal status alone and did not distinguish claimed execution from pre-claim expiry.
+- AFFECTED COMPONENTS: Agent job status API; print-job lifecycle integrity.
+- FIX: require `job.claimedAt` before allowing the expired-job late-success reconciliation path; this preserves legacy claimed rows that may have NULL claim tokens while rejecting never-claimed jobs.
+- REGRESSION COVERAGE: `tests/job-status-postgres-concurrency.test.ts` — expired unclaimed job remains terminal and cannot become success.
+- VERIFICATION: source-level test added and fencing path re-reviewed.
+- REMAINING LIMITATION: runtime PostgreSQL execution remains external to this source-only pass.
+
+### Area: Workspace ownership transfer authentication contract
+- FINDING: `/team` uses the workspace customer session for all team operations, but `/api/team/ownership` required the manager-only session helper. Customer-session owners therefore could not complete the ownership transfer from the workspace UI.
+- EVIDENCE: `src/app/team/page.tsx::transfer()` posts to `/api/team/ownership` with browser credentials; route previously called `validateManager(req)` while adjacent team members/invitations routes use `validateWorkspaceManager(req)`.
+- ROOT CAUSE: one team mutation route retained the pre-v2 manager-only authentication contract.
+- AFFECTED COMPONENTS: Team UI, Gateway ownership transfer route, workspace session lifecycle.
+- FIX: route now uses `validateWorkspaceManager(req)` and clears both manager and customer cookie pairs after the current user's tenant session family is revoked.
+- REGRESSION COVERAGE: `tests/odoo-workspace-contract.test.ts` source contract test covers the workspace auth boundary and cookie cleanup.
+- VERIFICATION: source-level route/client trace.
+- REMAINING LIMITATION: live ownership-transfer HTTP execution remains runtime-only.
+
+## 2026-09-26 — Source-only cross-system review continuation
+
+### API-key rotation / Odoo status scope
+- **Area:** Odoo ↔ Gateway print-job status contract
+- **Finding:** `GET /api/print/jobs?id=...` and `POST /api/print/jobs/batch-status` filtered jobs by both `tenantId` and the currently authenticated `apiKeyId`.
+- **Evidence:** `src/app/api/print/jobs/route.ts` and `src/app/api/print/jobs/batch-status/route.ts` compared the job's `apiKeyId` with the credential used for the request. Odoo status synchronization uses the currently configured installation key, while rotated keys immediately become the active credential.
+- **Root cause:** Credential provenance (`print_jobs.api_key_id`) was incorrectly treated as an authorization boundary for tenant-owned job records. API-key rotation therefore stranded status visibility for jobs created before rotation and caused Odoo reconciliation to classify them as unknown.
+- **Affected components:** Gateway print-job read APIs, Odoo print-job status sync, API-key rotation.
+- **Fix:** Status reads are now tenant-scoped after successful Odoo-key authentication; `apiKeyId` remains persisted as audit/provenance metadata. Cross-tenant access remains blocked by the authenticated tenant predicate.
+- **Regression coverage:** Updated `tests/batch-status.test.ts` to prove a rotated key can read pre-rotation and post-rotation jobs in the same tenant while a different tenant's job remains hidden. Updated `tests/production-hardening-contract.test.ts` to forbid the stale credential-scope predicate.
+- **Verification:** Source contract inspection and targeted test updates completed; runtime PostgreSQL execution remains externally blocked.
+- **Remaining limitation:** Full rotated-key status synchronization requires a live PostgreSQL/Odoo/Gateway runtime test.
+
+### Workspace server-page session precedence
+- **Area:** Workspace browser session resolution
+- **Finding:** `verifyWorkspaceTokenFromCookieValues()` selected `cust_session` before attempting `mgr_session`, so an invalid/revoked customer cookie could shadow a valid manager workspace session during server rendering.
+- **Evidence:** `src/lib/manager-auth.ts` previously used `const token = customerToken ?? managerToken`, while `validateWorkspaceManager()` already used manager-first validation with customer fallback.
+- **Root cause:** Two workspace-session entrypoints implemented different precedence/fallback semantics.
+- **Affected components:** Server-rendered workspace pages and server actions using `verifyWorkspaceTokenFromCookieValues()`.
+- **Fix:** Reused the same manager-valid-first, customer-fallback semantics as `validateWorkspaceManager()`.
+- **Regression coverage:** Updated `tests/production-type-safety.contract.test.ts` to assert the fallback implementation and reject the old first-token selection.
+- **Verification:** Static source contract verified; runtime session-cookie behavior remains externally blocked.
+- **Remaining limitation:** Browser runtime with simultaneously stale and valid cookie pairs still requires live HTTP execution.
+
+
+## 2026-09-26 — Refined Odoo status scope to exclude internal Manager jobs
+
+- **Area:** Odoo ↔ Gateway print-job status authorization
+- **Observed failure:** The first rotation fix removed the current-API-key equality predicate entirely. That preserved historical Odoo jobs after key rotation, but it also made tenant-internal Manager-created jobs (where `apiKeyId` is NULL) addressable through the Odoo API-key status surface.
+- **Evidence:** `src/app/api/print/jobs/route.ts` and `src/app/api/print/jobs/batch-status/route.ts` scoped only by `tenantId`; `API.md` simultaneously documented that internal Manager jobs remain outside the Odoo integration flow.
+- **Root cause:** The credential-provenance field was correctly identified as unsuitable for current-key equality, but the initial fix did not preserve the separate Odoo-origin provenance boundary.
+- **Affected components:** Odoo status polling, Gateway print-job reads, API-key rotation, internal Manager-created jobs.
+- **Fix applied:** Status reads now require `printJobs.apiKeyId IS NOT NULL` and match the authenticated tenant, while deliberately not requiring `apiKeyId = currentOdooKey.id`. This preserves historical Odoo jobs across rotation and keeps internal Manager jobs out of the Odoo integration API.
+- **Regression coverage:** `tests/batch-status.test.ts` now seeds an internal `apiKeyId = NULL` job and asserts it is excluded while both pre-rotation and post-rotation Odoo jobs remain visible. `tests/production-hardening-contract.test.ts` asserts the `isNotNull(printJobs.apiKeyId)` boundary on both status endpoints.
+- **Verification:** Source inspection plus targeted contract assertions updated; live PostgreSQL/Odoo execution remains external to this source-only pass.
+- **Remaining limitation:** Runtime proof of rotation/status behavior still requires a live Gateway + PostgreSQL + Odoo environment.
+
+## 2026-09-26 — source-only cross-system continuation
+
+### Area: Odoo ↔ Gateway idempotency boundary
+
+- **Finding:** Odoo enforces `UNIQUE(company_id, idempotency_key)` while Gateway enforces idempotency at `tenant_id + idempotency_key`. Odoo forwarded its locally company-scoped key unchanged, so identical caller-supplied keys from two companies in the same Gateway tenant could converge on one Gateway job.
+- **Evidence:** `odoo_addons/print_gateway/models/print_job.py` (`_idempotency_unique`, `_submission_body`) and `src/lib/print-job-service.ts` (`tenant_id + idempotency_key` lookup).
+- **Root cause:** ownership scope of the same identifier differed across the Odoo/Gateway boundary.
+- **Affected components:** Odoo print outbox; Gateway print-job creation/idempotency.
+- **Fix:** added `_gateway_idempotency_key()` deriving a deterministic SHA-256 digest of `odoo:<company_id>:<idempotency_key>` and send that value to Gateway. The persisted Odoo key remains unchanged for local lookup and retry semantics.
+- **Regression coverage:** `tests/test_odoo19_printing_static.py::test_gateway_idempotency_is_namespaced_by_odoo_company`; `tests/odoo-addon-static.test.ts` updated to require the canonical helper and reject direct forwarding.
+- **Verification:** source assertions and Python compilation pass in the source-only environment.
+- **Remaining limitation:** live multi-company collision behavior requires a running Odoo 19 + Gateway/PostgreSQL stack.
+
+### Area: Browser logout/session revocation
+
+- **Finding:** generic `/api/auth/logout` validated/revoked only the customer session before clearing both customer and manager cookie surfaces. A manager-only or dual-cookie browser could therefore retain a live manager refresh family.
+- **Evidence:** `src/app/api/auth/logout/route.ts`; `AppShell.tsx` generic logout caller; `src/lib/session-tokens.ts` family revocation.
+- **Root cause:** generic logout mixed cookie clearing for both auth surfaces with revocation of only one session kind.
+- **Affected components:** browser auth, manager sessions, customer sessions.
+- **Fix:** independently validate/revoke customer and manager session families, preserve legacy manager revocation, return `503` on either revocation failure, then clear all four session cookies.
+- **Regression coverage:** `tests/session-logout.integration.test.ts` manager-only and dual-cookie cases; `tests/test_security_contracts.py::test_new_logout_paths_revoke_refresh_family_and_clear_matching_cookie`.
+- **Verification:** source-level contract checks pass; runtime PostgreSQL verification remains external.
+- **Remaining limitation:** requires live session database/HTTP execution for end-to-end proof.
+
+
+## 2026-09-26 — USB printer physical-identity collision risk
+- **Date:** 2026-09-26
+- **Area:** Agent printer discovery / cross-source deduplication / stable identity
+- **Finding:** `agent/internal/printer/discovery.go::sameUSBDevice` correctly requires matching VID/PID plus serial/location/device-instance evidence, but `agent/internal/printer/stable_id.go::physicalIdentityKey` previously keyed any USB serial as `usb-serial:<serial>` without VID/PID. The dedupe path consumes `physicalIdentityKey`, so two distinct USB printer models exposing the same serial string could collide before `sameUSBDevice` reconciliation.
+- **Evidence:** `discovery.go::sameUSBDevice` compares VID/PID first; Windows USB discovery populates `USBVID`, `USBPID`, and `USBSerial` in `usb_windows.go`; `discovery_extended.go::dedupeKey` delegates to `physicalIdentityKey`.
+- **Root cause:** Two adjacent identity implementations used different scope rules for the same USB hardware identity.
+- **Affected components:** Agent USB discovery, cross-source printer deduplication, printer registry identity reconciliation.
+- **Fix applied:** `physicalIdentityKey()` now returns `usb-serial:<vid>:<pid>:<serial>` when VID/PID are available, while retaining a serial-only fallback for legacy/manual records. The established `StableIDFromUSB()` serial namespace remains unchanged to avoid breaking persisted printer bindings.
+- **Regression coverage:** `agent/internal/printer/discovery_extended_test.go::TestDedupeKeyUSBSerialIsModelScoped` asserts same serial with different VID/PID does not collide and same VID/PID/serial remains case-insensitive equivalent.
+- **Verification:** `gofmt` applied; source-level identity paths re-reviewed against Windows discovery and existing USB reconciliation tests.
+- **Remaining limitation:** Full Windows discovery/runtime behavior remains external to this source-only pass.
+
+## 2026-09-26 — source-only cross-system hardening continuation
+
+### Dashboard and job timeline permission fence
+- **Date:** 2026-09-26
+- **Area:** Gateway authorization / dashboard data exposure
+- **Finding:** `GET /api/jobs/[id]/timeline` and the dashboard data path enforced workspace authentication and tenant scope but did not independently require the resource read permissions for the data they returned.
+- **Evidence:** `src/app/api/jobs/[id]/timeline/route.ts` previously stopped at `validateWorkspaceManager`; `src/app/actions.ts::getDashboardState` returned agents, printers and jobs after `requireManager()`; `src/app/dashboard/page.tsx` queried the same datasets before an RBAC check.
+- **Root cause:** Page/action-level access and resource-level read permissions had diverged, so a role with `tenant.read` could reach operational metadata through a secondary server path.
+- **Affected components:** Gateway timeline API, dashboard Server Action, dashboard SSR page, workspace RBAC.
+- **Fix:** Enforced `jobs.read` on the timeline endpoint; enforced `agents.read`, `printers.read`, and `jobs.read` in `getDashboardState`; added the same permission gate before dashboard SSR data access.
+- **Regression coverage:** `tests/test_final_security_hardening.py::test_job_timeline_and_dashboard_enforce_data_read_permissions`.
+- **Verification:** source/static suite `71 passed` after the change.
+- **Remaining limitation:** live multi-role HTTP execution is still external to this source-only pass.
+
+### Odoo ambiguous transport outcome
+- **Date:** 2026-09-26
+- **Area:** Odoo → Gateway submission / physical side-effect safety
+- **Finding:** Generic `requests.RequestException` during submission could include failures after request bytes were transmitted. Retrying/failing over such an exception could duplicate a physical print.
+- **Evidence:** `odoo_addons/print_gateway/models/print_job.py` generic `except requests.RequestException` branch sits after the explicit pre-dispatch timeout/connection classifiers.
+- **Root cause:** The generic exception class does not prove whether dispatch occurred.
+- **Affected components:** Odoo outbox submission, failover, retry/recovery.
+- **Fix:** Generic transport failures now call `_record_ambiguous_submission()` and terminate the automatic submission attempt without requeue/failover.
+- **Regression coverage:** `tests/test_final_security_hardening.py::test_odoo_transport_fallback_fails_closed_after_dispatch_ambiguity`.
+- **Verification:** source/static suite `71 passed`.
+- **Remaining limitation:** physical duplicate-prevention still requires live Odoo + Gateway + Agent execution.
+
+### Terminal late-success reconciliation
+- **Date:** 2026-09-26
+- **Area:** Odoo ↔ Gateway job lifecycle
+- **Finding:** Gateway can explicitly report `LATE_SUCCESS_POST_EXPIRATION`, but Odoo's terminal polling policy and transition rules needed an explicit reconciliation path for `unknown` jobs while preserving terminal fencing for ordinary failures.
+- **Evidence:** Gateway producer is `src/app/api/agent/jobs/route.ts`; Odoo consumer is `odoo_addons/print_gateway/models/print_job.py`.
+- **Root cause:** Terminal status was treated as final for polling even where Gateway semantics explicitly permit a bounded physical-outcome reconciliation.
+- **Affected components:** Odoo status sync, Gateway Agent result API, expired/unknown job recovery.
+- **Fix:** Added `_needs_gateway_status_reconciliation`, bounded marker-driven polling, and an explicit `unknown -> success` path guarded by `LATE_SUCCESS_POST_EXPIRATION:`. Ordinary terminal states remain fenced.
+- **Regression coverage:** source assertions plus existing Gateway `LATE_SUCCESS_POST_EXPIRATION` tests.
+- **Verification:** source/static suite `71 passed`.
+- **Remaining limitation:** live expiry/recovery race requires Gateway/PostgreSQL/Agent runtime.
+
+### Fail-closed Agent/Printer lifecycle parsing
+- **Date:** 2026-09-26
+- **Area:** Odoo runtime discovery
+- **Finding:** Missing or non-string lifecycle fields were previously defaulted to `active` in Odoo Agent/Printer discovery.
+- **Evidence:** `odoo_addons/print_gateway/controllers/runtime_printers.py` parsing branches.
+- **Root cause:** Invalid remote data could be interpreted as an authorized active resource.
+- **Affected components:** Odoo Pair Agent flow, printer picker, Gateway runtime inventory.
+- **Fix:** Missing/non-string lifecycle now resolves to an empty/inactive value and only explicit `active` records are exposed.
+- **Regression coverage:** `tests/test_final_security_hardening.py::test_odoo_runtime_discovery_fails_closed_on_missing_lifecycle`.
+- **Verification:** source/static suite `71 passed`.
+- **Remaining limitation:** live malformed Gateway response testing remains runtime-only.
+
+### Odoo API-key rotation and idempotency provenance
+- **Date:** 2026-09-26
+- **Area:** Odoo ↔ Gateway idempotency/status
+- **Finding:** The Odoo print-job GET/idempotency reuse path must allow historical Odoo jobs after API-key rotation without exposing internal Manager jobs (`apiKeyId IS NULL`).
+- **Evidence:** `src/app/api/print/jobs/route.ts` and `tests/print-idempotency.test.ts`.
+- **Root cause:** Current credential identity and historical job provenance are different concepts; omitting provenance admits Manager jobs, while requiring equality to the current key breaks rotation.
+- **Affected components:** Odoo print POST/GET, API-key rotation, internal Manager jobs.
+- **Fix:** All Odoo reuse/read lookups require `printJobs.apiKeyId IS NOT NULL` and tenant scope, but do not require `apiKeyId = currentKey.id`. Reused-job response lookup was fenced the same way.
+- **Regression coverage:** updated rotation expectation in `tests/print-idempotency.test.ts` and static hardening assertions.
+- **Verification:** source/static suite `71 passed`; live PostgreSQL execution remains unavailable in this pass.
+- **Remaining limitation:** runtime rotation and concurrent idempotency behavior need live DB/Gateway execution.
+
+### Manual Force Reprint for failed jobs with unknown physical outcome
+- **Date:** 2026-09-26
+- **Area:** Odoo operator recovery / physical outcome safety
+- **Finding:** Failed jobs carrying an unknown-outcome Gateway marker computed `physical_outcome = unknown`, but `action_force_reprint()` and the form button only accepted `partial`/`unknown` statuses. Such jobs could be safe from automatic retry but were also blocked from the intended explicit operator recovery path.
+- **Evidence:** `odoo_addons/print_gateway/models/print_job.py::_compute_physical_outcome`, `action_force_reprint`, and `views/print_job_views.xml`.
+- **Root cause:** UI/action eligibility was keyed to status instead of the canonical physical-outcome state.
+- **Affected components:** Odoo print-job operator UI and manual reprint action.
+- **Fix:** Force Reprint now accepts `physical_outcome == unknown`, and the form button visibility is keyed to that canonical outcome.
+- **Regression coverage:** `odoo_addons/print_gateway/tests/test_routing_contract.py::test_force_reprint_from_failed_unknown_outcome_generates_derived_key`; static assertion added to `tests/test_final_security_hardening.py`.
+- **Verification:** Python source/static suite `71 passed`.
+- **Remaining limitation:** live Odoo operator interaction remains external to the source-only pass.
+
+### Force Reprint eligibility correction
+- **Date:** 2026-09-26
+- **Area:** Odoo operator recovery
+- **Finding:** The first failed-unknown reprint fix keyed the action only to `physical_outcome == unknown`, which would also make normal Gateway-success rows reprintable because success intentionally does not prove paper output.
+- **Evidence:** `_compute_physical_outcome()` maps `status == success` to `unknown`; normal Force Reprint UI previously excluded success by status.
+- **Root cause:** Physical observability state and operator recovery eligibility are related but not identical policy decisions.
+- **Fix:** Reprint eligibility is now `partial` / `unknown` or `failed` with `physical_outcome == unknown`; successful jobs remain outside the action.
+- **Regression coverage:** `tests/test_final_security_hardening.py::test_odoo_force_reprint_includes_failed_unknown_outcomes` and `odoo_addons/print_gateway/tests/test_routing_contract.py::test_force_reprint_from_failed_unknown_outcome_generates_derived_key` cover the intended failed-unknown path.
+- **Verification:** source/static suite rerun below; live Odoo UI remains externally blocked.
+- **Remaining limitation:** none at source-contract level; runtime button rendering still requires live Odoo.
+
+## 2026-09-26 — final source-only verification rerun
+- **Verification:** `python3 -m pytest -q tests/test_final_security_hardening.py tests/test_odoo19_printing_static.py` → **71 passed**.
+- **Verification:** `python3 -m compileall -q odoo_addons` → PASS.
+- **Verification:** XML parse of all 9 `odoo_addons/print_gateway/**/*.xml` files → PASS.
+- **Verification:** repository source rescan found no production reference to the removed `ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP`, the old custom-server `NODE_ENV !== "production"` development predicate, or current-key equality on Odoo print-job status routes.
+- **Verification:** generated Python/test caches removed from the final local artifact.
+- **Remaining limitation:** this pass intentionally does not claim Node/Gateway/PostgreSQL/Go/Rust/Windows/Odoo/browser/physical-printer runtime execution.
+
+## 2026-09-26 — adversarial Agent claim fencing
+- **Date:** 2026-09-26
+- **Area:** Gateway Agent status API / print-job lifecycle security
+- **Finding:** `PATCH /api/agent/jobs` did not require a live claim token for non-expiry lifecycle reports when the row had `claim_token = NULL`. An authenticated Agent assigned to the tenant could therefore submit a known queued job ID and manufacture `printing`, `success`, or `failed` without ever receiving a Gateway claim.
+- **Root cause:** The stale-claim guard was conditional on an existing database token instead of making claim ownership mandatory for every non-expiry lifecycle mutation.
+- **Affected components:** Agent status route, job state machine, Gateway/Agent execution contract.
+- **Fix:** All non-expiry status mutations now require a non-null request claim token that exactly matches the current persisted `claim_token`; tokenless legacy rows can only age/expire through the dedicated expiry path and will not accept fabricated lifecycle reports.
+- **Regression coverage:** `tests/test_final_security_hardening.py::test_agent_status_updates_require_a_live_claim_token_and_expired_reconciliation_requires_delivery_evidence`; `tests/job-status-postgres-concurrency.test.ts` adds queued/tokenless and live-token cases.
+- **Verification:** `python3 -m pytest -q tests/test_final_security_hardening.py tests/test_odoo19_printing_static.py` → 74 passed.
+- **Remaining limitation:** live concurrent PostgreSQL Agent status execution remains runtime-only.
+
+## 2026-09-26 — preserve and bound expired execution fences
+- **Date:** 2026-09-26
+- **Area:** Gateway job expiration / late-success reconciliation
+- **Finding:** The expiry sweep cleared `claim_token` for printing/partially-delivered jobs but preserved `claimed_at`; combined with the previous `expired -> success` gate, a tokenless Agent could promote an expired job during the grace window.
+- **Root cause:** The physical-outcome reconciliation path lost the exact execution-attempt fence at the moment the job became terminal.
+- **Affected components:** `src/lib/job-maintenance.ts`, `src/app/api/agent/jobs/route.ts`, Agent/Gateway late-success contract.
+- **Fix:** The sweep now preserves the exact claim token/claimed timestamp only for ambiguous delivered attempts; the late-success route requires that preserved token, delivery evidence, claimed state evidence, and an explicit ambiguity marker. Preserved fences are cleared after the five-minute reconciliation window.
+- **Regression coverage:** same static regression above plus `tests/job-status-postgres-concurrency.test.ts` expired-reconciliation cases.
+- **Verification:** source/static suite 74 passed; source paths re-read after the fix.
+- **Remaining limitation:** runtime expiry/reclaim/late-success races require PostgreSQL + Gateway + Agent execution.
+
+## 2026-09-26 — adversarial pre-execution requeue fence
+- **Date:** 2026-09-26
+- **Area:** Gateway Agent requeue / duplicate-print prevention
+- **Finding:** A claimed Agent job could be returned to `queued` with a valid claim token and an approved pre-execution reason even when `delivered_at` or `acked_at` already proved the Gateway → Agent boundary had been crossed. That could authorize a second delivery of a physically ambiguous job.
+- **Root cause:** The route validated the reason and claim ownership but trusted the Agent's assertion that execution had not begun; the DB write did not fence on delivery evidence.
+- **Affected components:** `src/app/api/agent/jobs/route.ts`, Agent/Gateway delivery lifecycle, physical duplicate prevention.
+- **Fix:** The atomic `claimed -> queued` update now additionally requires `delivered_at IS NULL` and `acked_at IS NULL`. A correct claim token is no longer sufficient after delivery evidence exists.
+- **Regression coverage:** `tests/test_final_security_hardening.py::test_agent_pre_execution_requeue_requires_no_delivery_evidence`; `tests/job-status-postgres-concurrency.test.ts` adds a delivered-then-requeue rejection case.
+- **Verification:** `python3 -m pytest -q tests/test_final_security_hardening.py tests/test_odoo19_printing_static.py` → **75 passed**.
+- **Remaining limitation:** live Gateway/Agent delivery race execution remains runtime-only.
+
+
+## 2026-09-26 — adversarial legacy lease/reprint review
+- **Date:** 2026-09-26
+- **Area:** Agent heartbeat lease fencing
+- **Finding:** Tokenless `keepAliveJobIds` were accepted for `claimed`/`printing` rows and refreshed `updated_at` when `claim_token IS NULL`. A migrated legacy claim could therefore be kept alive indefinitely without proving current execution-attempt ownership, defeating stale-claim recovery.
+- **Evidence:** `src/app/api/agent/heartbeat/route.ts` tokenless keep-alive branch; new claims from `src/lib/job-delivery.ts` always mint a `claim_token`.
+- **Root cause:** Backward-compatibility behavior treated the existence of a legacy tokenless row as sufficient execution authority for lease renewal.
+- **Affected components:** Agent heartbeat, Gateway stale-claim sweeper, Agent/Gateway claim-fencing contract.
+- **Fix:** Removed tokenless lease refresh. Heartbeat may refresh only exact `(jobId, claimToken)` pairs; legacy tokenless rows remain recoverable by maintenance.
+- **Regression coverage:** `tests/heartbeat-enabled.test.ts` adds a legacy tokenless lease-expiry assertion; `tests/test_final_security_hardening.py::test_agent_heartbeat_cannot_extend_tokenless_legacy_claims` locks the source invariant.
+- **Verification:** source/static suite `77 passed`.
+- **Remaining limitation:** live migrated-row heartbeat/recovery race requires Gateway/PostgreSQL/Agent runtime.
+
+### Gateway operator reprint success-state fence
+- **Date:** 2026-09-26
+- **Area:** Gateway operator recovery / physical duplicate prevention
+- **Finding:** Gateway `/api/jobs/[id]/reprint`, `reprintJob()` Server Action, and Dashboard UI treated every terminal job with `derivePhysicalOutcome() == unknown` as an operator reprint candidate. Because Gateway `success` intentionally maps to `physical_outcome=unknown` for observability, a normal successful job could be reissued through the operator reprint surface. This contradicted the repository's existing policy that successful jobs are not operator reprint candidates.
+- **Evidence:** `src/lib/job-status.ts::derivePhysicalOutcome`, `src/app/api/jobs/[id]/reprint/route.ts`, `src/app/actions.ts::reprintJob`, `src/app/dashboard/dashboard-client.tsx`, and the existing Force Reprint policy recorded in `REVIEW_NOTES.md`.
+- **Root cause:** Physical-outcome observability (`success => unknown`) was incorrectly reused as operator-reprint eligibility.
+- **Affected components:** Gateway reprint API, Dashboard, Server Actions, physical duplicate-prevention policy.
+- **Fix:** Successful jobs are now rejected by the Gateway reprint route and Server Action and hidden from the Dashboard unknown-outcome reprint control. Explicit recovery remains available for failed/expired terminal jobs under the existing policy.
+- **Regression coverage:** `tests/test_final_security_hardening.py::test_operator_reprint_excludes_gateway_success_jobs`.
+- **Verification:** source/static suite `77 passed`.
+- **Remaining limitation:** live operator reprint behavior still requires Gateway/PostgreSQL/browser runtime.
+
+## 2026-09-26 — Odoo late-success reconciliation gap
+- **Date:** 2026-09-26
+- **Area:** Odoo ↔ Gateway terminal reconciliation / ambiguous physical outcome
+- **Finding:** A Gateway job that had already acquired a `gateway_job_id` and later became `failed` with `UNKNOWN_PARTIAL_DELIVERY` was excluded from both Odoo `_needs_gateway_status_reconciliation()` and `cron_sync_status()` candidate selection. The Gateway late-success contract can legitimately promote this exact fenced attempt to `success`, so the reconciliation code existed but was unreachable for this failure class.
+- **Evidence:** `odoo_addons/print_gateway/models/print_job.py::_needs_gateway_status_reconciliation()` only admitted `AGENT_EXECUTION_TIMEOUT` and `AGENT_RESTART_DURING_PRINT` under `status == failed`; `cron_sync_status()` duplicated the same marker set in its SQL selector. Gateway `src/app/api/agent/jobs/route.ts` explicitly permits `failed -> success` for `UNKNOWN_PARTIAL_DELIVERY` when the same claim token and delivery evidence are present.
+- **Root cause:** The Odoo terminal polling allow-list lagged behind the Gateway physical-outcome reconciliation matrix.
+- **Affected components:** Odoo print-job status sync, Gateway Agent status reconciliation, late-success state machine.
+- **Fix:** Added `UNKNOWN_PARTIAL_DELIVERY` to the failed-state reconciliation allow-list in `_needs_gateway_status_reconciliation()` and to the cron SQL selector. Normal markerless failed jobs remain terminal and are still not polled.
+- **Regression coverage:** Added `odoo_addons/print_gateway/tests/test_routing_contract.py::test_failed_unknown_partial_delivery_remains_reconcilable_after_gateway_job_exists`.
+- **Verification:** `python3 -m pytest -q tests/test_security_contracts.py tests/test_final_security_hardening.py` → **85 passed**; `python3 -m compileall -q odoo_addons` → PASS; all 9 Odoo XML files parsed; `gofmt -d` on changed Go files → clean.
+- **Remaining limitation:** Live Odoo/Gateway/PostgreSQL late-success convergence still requires runtime infrastructure.
+
+## 2026-09-26 — Agent local ledger duplicate-dispatch primitive hardening
+- **Date:** 2026-09-26
+- **Area:** Agent local SQLite execution fence
+- **Finding:** `Queue.BeginPrint()` treated an already-`printing` row with the same claim token as a successful idempotent admission. The current production caller already has an atomic `inFlight` gate, so no new reachable production bypass was demonstrated; however the queue primitive itself could return success to a future caller and thereby authorize a second physical dispatch.
+- **Root cause:** Local ledger idempotency and physical-dispatch admission were conflated at the primitive boundary.
+- **Affected components:** `agent/internal/queue/queue.go`, `agent/internal/agent/agent.go`.
+- **Fix:** Same-live-claim reentry now returns explicit `ErrAlreadyPrinting`; the production dispatcher treats that error as a no-op and never enters the printer path.
+- **Regression coverage:** Updated `agent/internal/queue/queue_test.go::TestBeginPrintRejectsDifferentClaimTokenWhilePrinting` to assert `ErrAlreadyPrinting` for the same-token case; existing `dispatchJobWithContexts` in-flight duplicate tests remain the higher-level fence.
+- **Verification:** `gofmt -d agent/internal/queue/queue.go agent/internal/queue/queue_test.go agent/internal/agent/agent.go` → clean. Go tests could not be executed because the local Go tool attempted to download the repository-required Go 1.26 toolchain and network access is disabled; this is runtime/toolchain-blocked, not a source FAIL.
+- **Remaining limitation:** Keep the queue primitive guard aligned with future Agent execution callers; no production caller bypass was found in this pass.
+
+## 2026-09-26 — transaction / side-effect final verification
+- **Date:** 2026-09-26
+- **Area:** Odoo response-loss reconciliation / external side effects
+- **Finding:** An ambiguous Odoo submission can legitimately leave Odoo without `gateway_job_id` after the Gateway has already accepted the request. Treating the first Gateway 404 as proof of absence would make the physical attempt unreconcilable and could force an unsafe manual duplicate. The durable company-namespaced Gateway idempotency key is the surviving operation identity.
+- **Evidence:** `odoo_addons/print_gateway/models/print_job.py::_lookup_gateway_job_for_ambiguous_submission`, Gateway `GET /api/print/jobs?idempotencyKey=...`, and the Odoo cron/manual reconciliation selectors.
+- **Root cause:** Response-loss is an ambiguous external-side-effect boundary; absence from the read path is not proof that the write never happened.
+- **Affected components:** Odoo outbox, Gateway idempotency lookup, status reconciliation, manual recovery.
+- **Fix:** Ambiguous submissions remain `UNKNOWN_SUBMISSION_OUTCOME`; reconciliation can recover the remote `gateway_job_id` by deterministic idempotency key. A 404 preserves the same provenance and schedules a bounded later lookup instead of converting the row into an unreconcilable terminal absence.
+- **Regression coverage:** source/static Odoo submission and reconciliation contract tests.
+- **Verification:** `python3 -m pytest -q tests/test_security_contracts.py tests/test_final_security_hardening.py` -> **85 passed**; `python3 -m compileall -q odoo_addons` -> PASS; XML parse -> **9/9**.
+- **Remaining limitation:** live response-loss/recovery race requires Odoo + Gateway + PostgreSQL execution.
+
+## 2026-09-26 — transaction / side-effect final scan
+- **Date:** 2026-09-26
+- **Area:** External side effects / Agent physical execution / billing mutation protocol
+- **Finding:** Final source-only adversarial scan did not identify a remaining definite source-level violation in the reviewed transaction/side-effect boundaries.
+- **Evidence:** reviewed Gateway claim/delivery/recovery writes, Odoo post-commit configuration synchronization, Odoo submission/reconciliation, Stripe checkout and cancel/resume mutation protocols, Stripe webhook idempotency/order fences, Agent SQLite crash recovery, RAW TCP/IPP/Windows spooler ambiguity handling, and direct `print_jobs` mutation sites.
+- **Root cause:** N/A — no additional confirmed defect.
+- **Affected components:** Gateway, Odoo, Agent, billing.
+- **Fix:** N/A.
+- **Regression coverage:** existing focused source/security suite.
+- **Verification:** 85 Python/security tests passed; Python compile and XML parsing passed; `gofmt -d` was clean for modified Agent files; Go runtime tests remain outside this source-only pass.
+- **Remaining limitation:** live database/concurrency, Go runtime, Windows spooler, Odoo runtime, Stripe, and physical printer execution remain runtime-only checks.
+
+## 2026-09-26 — transaction / side-effect adversarial certification idempotency
+- **Date:** 2026-09-26
+- **Area:** Printer certification / idempotent external print submission
+- **Finding:** `src/app/api/printers/[id]/certify/route.ts` embedded `requestId` and `new Date().toISOString()` in the printable payload. `createPrintJobForPrinter()` fingerprint-binds payload content to the idempotency key, so a client retry after a lost HTTP response used the same key but produced a different fingerprint and was rejected as `IDEMPOTENCY_CONFLICT` instead of reusing the original physical attempt.
+- **Root cause:** Request tracing values were incorrectly treated as printable business payload rather than side-channel metadata.
+- **Affected components:** Certification API, print-job idempotency, physical test-page submission.
+- **Fix:** Certification payload is now deterministic for one idempotency key; request ID and timestamps remain in correlation/timeline metadata only.
+- **Regression coverage:** `tests/print-certification.test.ts` now asserts the payload has no requestId/wall-clock interpolation and that the non-test-page payload uses only the idempotency key.
+- **Verification:** source/static Python suite passed; source assertions confirm deterministic payload construction.
+- **Remaining limitation:** actual response-loss/retry reuse requires Gateway/PostgreSQL HTTP runtime.
+
+## 2026-09-26 — Agent crash-reprint recovery contract
+- **Date:** 2026-09-26
+- **Area:** Agent restart recovery / Gateway physical-at-least-once retry
+- **Finding:** `agent.reprint_after_crash=true` was advertised as leaving a mid-print job for Gateway lease reclaim, but Gateway stale-printing recovery terminalized `printing` jobs as failed/unknown rather than requeueing them. The existing Agent test manually called `processJob()` and therefore did not prove the real post-restart delivery path.
+- **Root cause:** The opt-in recovery policy existed only in the local Agent ledger; no explicit cross-component transition carried the policy from restarted Agent to Gateway.
+- **Affected components:** `agent/internal/agent/agent.go`, `src/app/api/agent/jobs/route.ts`, `src/lib/job-status.ts`, Gateway maintenance.
+- **Fix:** Added `AGENT_REPRINT_AFTER_CRASH_REASON` and a fenced `printing -> queued` Gateway transition. It requires the exact preserved claim token, unexpired job, and available retry budget; it increments `retries` but never refunds `delivery_attempts`, and records a timeline event before allowing a new delivery. Agent restart recovery now sends the explicit transition and clears its old local token only after a 2xx response.
+- **Regression coverage:** strengthened `agent/internal/agent/ws_delivery_test.go::TestReprintAfterCrashPolicy` to require a queued status report with the original claim token; `tests/production-hardening-contract.test.ts` locks the Gateway transition contract.
+- **Verification:** `gofmt` clean; source/static Python suite passed 132 tests. Go runtime tests remain unavailable because the repository requires Go 1.26 and the local toolchain cannot download it offline.
+- **Remaining limitation:** live Agent/Gateway/PostgreSQL restart race remains runtime-only.
+
+
+## 2026-09-26 — source/test integrity discovered during transaction pass
+- **Date:** 2026-09-26
+- **Area:** Source regression suite integrity
+- **Finding:** `tests/production-hardening-contract.test.ts` contained malformed quoted string literals around the Agent panic regression and referenced `panicMsg` as an undefined runtime variable. TypeScript parsing therefore failed before the test body could execute.
+- **Evidence:** `tsc --noEmit --noResolve ... tests/production-hardening-contract.test.ts` reported TS1005 parse errors at the affected assertions.
+- **Root cause:** Broken test assertion quoting/variable usage in the accumulated local test source.
+- **Affected components:** Agent panic regression coverage only; no production runtime behavior was changed by this defect.
+- **Fix:** Replaced the malformed assertions with valid literals that assert the exact Agent source snippets (`panicMsg = "UNKNOWN_PARTIAL_DELIVERY: " + panicMsg`, `UpdateStatusWithError(..., "failed", panicMsg)`, and `rememberTerminalExecution(..., "failed", panicMsg, ...)`).
+- **Regression coverage:** TypeScript parse check plus the Python/static source suite.
+- **Verification:** no TS syntax diagnostics on the changed files; Python/security/Odoo suite `132 passed`.
+- **Remaining limitation:** Full Vitest execution still requires repository npm dependencies.
+

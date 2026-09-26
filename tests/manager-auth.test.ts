@@ -62,6 +62,38 @@ suite("manager authentication hardening", () => {
     await expect(validateManagerClaims(claims)).resolves.not.toBeNull();
   });
 
+  it("falls back to a valid customer session when a stale manager cookie is present", async () => {
+    await pool().query(
+      "INSERT INTO users (id, email, password_hash, email_verified_at) VALUES ($1, $2, $3, clock_timestamp())",
+      ["user_workspace_fallback", "workspace-fallback@example.test", "unused"],
+    );
+    await pool().query(
+      "INSERT INTO tenant_users (user_id, tenant_id, role) VALUES ($1, $2, $3)",
+      ["user_workspace_fallback", "tenant_manager_test", "admin"],
+    );
+
+    const manager = await createManagerSession("tenant_manager_test");
+    await pool().query("UPDATE refresh_tokens SET revoked_at = clock_timestamp() WHERE family_id = $1", [manager.familyId]);
+    const customer = await (await import("../src/lib/session-tokens")).issueSessionPair({
+      kind: "customer",
+      tenantId: "tenant_manager_test",
+      userId: "user_workspace_fallback",
+      role: "admin",
+      email: "workspace-fallback@example.test",
+    });
+
+    const request = new Request("http://gateway.test/api/settings", {
+      headers: {
+        cookie: `mgr_session=${manager.token}; cust_session=${customer.accessToken}`,
+      },
+    });
+    await expect(validateWorkspaceManager(request)).resolves.toMatchObject({
+      userId: "user_workspace_fallback",
+      tenantId: "tenant_manager_test",
+      kind: "customer",
+    });
+  });
+
   it("accepts a customer v2 session in workspace auth while manager-only validation stays separate", async () => {
     await pool().query(
       "INSERT INTO users (id, email, password_hash, email_verified_at) VALUES ($1, $2, $3, clock_timestamp())",
@@ -138,10 +170,12 @@ suite("manager authentication hardening", () => {
     await expect(verifyManagerPassword("manager", "wrong-password")).resolves.toBe(false);
   });
 
-  it("rejects plaintext passwords in production", async () => {
+  it("rejects plaintext passwords outside development/test", async () => {
     delete process.env.MANAGER_PASSWORD_HASH;
     process.env.MANAGER_PASSWORD = "plain-password";
-    vi.stubEnv("NODE_ENV", "production");
-    await expect(verifyManagerPassword("manager", "plain-password")).resolves.toBe(false);
+    for (const nodeEnv of ["production", "staging"]) {
+      vi.stubEnv("NODE_ENV", nodeEnv);
+      await expect(verifyManagerPassword("manager", "plain-password")).resolves.toBe(false);
+    }
   });
 });

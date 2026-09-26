@@ -5,7 +5,7 @@ The system has three runtime components: Gateway, Windows Agent/Desktop Manager,
 
 ### Gateway connection
 
-The Odoo addon uses HTTPS for Gateway communication by default. The `gateway_api_key` is stored as authenticated AES-256-GCM ciphertext using a deployment-managed key that is external to the Odoo database. Plain HTTP is an explicitly opt-in development mode only via `ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP=1`; do not use it for production credentials.
+The Odoo addon uses HTTPS for Gateway communication by default. The `gateway_api_key` is stored as authenticated AES-256-GCM ciphertext using a deployment-managed key that is external to the Odoo database. Plain HTTP is an explicitly opt-in development mode only via `YASSER_GATEWAY_ALLOW_INSECURE_HTTP=1`; do not use it for production credentials.
 
 
 ## 1. Gateway

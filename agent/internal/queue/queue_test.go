@@ -75,7 +75,7 @@ func TestQueueIdempotencyAndStatus(t *testing.T) {
 	}
 }
 
-func TestTerminalStatusClearsClaimToken(t *testing.T) {
+func TestTerminalStatusRetainsClaimTokenUntilGatewayAck(t *testing.T) {
 	q := newTestQueue(t)
 
 	if err := q.Push("success-token", "p1", []byte("data")); err != nil {
@@ -87,8 +87,14 @@ func TestTerminalStatusClearsClaimToken(t *testing.T) {
 	if err := q.UpdateStatus("success-token", "success"); err != nil {
 		t.Fatalf("UpdateStatus success: %v", err)
 	}
+	if got := q.ClaimTokenFor("success-token"); got != "gateway-claim-success" {
+		t.Fatalf("terminal success must retain claim token until Gateway acknowledgement, got %q", got)
+	}
+	if err := q.ClearClaimToken("success-token"); err != nil {
+		t.Fatalf("ClearClaimToken(success-token): %v", err)
+	}
 	if got := q.ClaimTokenFor("success-token"); got != "" {
-		t.Fatalf("terminal success must clear claim token, got %q", got)
+		t.Fatalf("ClearClaimToken must clear acknowledged success token, got %q", got)
 	}
 
 	if err := q.Push("failed-token", "p1", []byte("data")); err != nil {
@@ -100,8 +106,11 @@ func TestTerminalStatusClearsClaimToken(t *testing.T) {
 	if err := q.UpdateStatusWithError("failed-token", "failed", "UNKNOWN_PARTIAL_DELIVERY: ambiguous"); err != nil {
 		t.Fatalf("UpdateStatusWithError failed: %v", err)
 	}
-	if got := q.ClaimTokenFor("failed-token"); got != "" {
-		t.Fatalf("terminal failure must clear claim token, got %q", got)
+	if got := q.ClaimTokenFor("failed-token"); got != "gateway-claim-failed" {
+		t.Fatalf("terminal failure must retain claim token until Gateway acknowledgement, got %q", got)
+	}
+	if err := q.ClearClaimToken("failed-token"); err != nil {
+		t.Fatalf("ClearClaimToken(failed-token): %v", err)
 	}
 }
 
@@ -125,8 +134,35 @@ func TestMarkInterruptedPreservesClaimForRemoteRecovery(t *testing.T) {
 	if len(interrupted) != 1 || interrupted[0].ClaimToken != "gateway-crash-token" {
 		t.Fatalf("crash recovery must retain the pre-read claim token for reporting, got %#v", interrupted)
 	}
-	if got := q.ClaimTokenFor("crash-token"); got != "" {
-		t.Fatalf("terminal interruption row must clear stored claim token, got %q", got)
+	if got := q.ClaimTokenFor("crash-token"); got != "gateway-crash-token" {
+		t.Fatalf("terminal interruption row must retain stored claim token for remote reporting, got %q", got)
+	}
+}
+
+func TestPendingTerminalReportsSurviveRestartUntilGatewayAck(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.BeginPrint("pending-terminal", "printer-1", []byte("payload"), "claim-terminal", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if err := q.UpdateStatusWithError("pending-terminal", "failed", "paper jam before transmission"); err != nil {
+		t.Fatalf("UpdateStatusWithError: %v", err)
+	}
+	reports, err := q.PendingTerminalReports(8)
+	if err != nil {
+		t.Fatalf("PendingTerminalReports: %v", err)
+	}
+	if len(reports) != 1 || reports[0].ID != "pending-terminal" || reports[0].ClaimToken != "claim-terminal" || reports[0].Status != "failed" {
+		t.Fatalf("unexpected pending terminal reports: %#v", reports)
+	}
+	if err := q.ClearClaimToken("pending-terminal"); err != nil {
+		t.Fatalf("ClearClaimToken: %v", err)
+	}
+	reports, err = q.PendingTerminalReports(8)
+	if err != nil {
+		t.Fatalf("PendingTerminalReports after ack: %v", err)
+	}
+	if len(reports) != 0 {
+		t.Fatalf("acknowledged terminal report still pending: %#v", reports)
 	}
 }
 
@@ -347,8 +383,8 @@ func TestBeginPrintRejectsDifferentClaimTokenWhilePrinting(t *testing.T) {
 	if got := q.ClaimTokenFor("job_live"); got != "claim-A" {
 		t.Fatalf("rejected attempt must not replace live claim token, got %q", got)
 	}
-	if err := q.BeginPrint("job_live", "printer-1", []byte("payload"), "claim-A", false); err != nil {
-		t.Fatalf("same claim token should remain idempotent: %v", err)
+	if err := q.BeginPrint("job_live", "printer-1", []byte("payload"), "claim-A", false); !errors.Is(err, ErrAlreadyPrinting) {
+		t.Fatalf("same live claim must suppress duplicate physical dispatch, got %v", err)
 	}
 }
 
@@ -442,7 +478,7 @@ func TestBeginPrintConcurrentClaimersCannotStealToken(t *testing.T) {
 	}
 }
 
-func TestTerminalStatusClearsClaimTimestampAndToken(t *testing.T) {
+func TestTerminalStatusClearsClaimTimestampButRetainsReportToken(t *testing.T) {
 	q := newTestQueue(t)
 	if err := q.BeginPrint("terminal-clear", "printer-1", []byte("payload"), "claim-terminal", false); err != nil {
 		t.Fatalf("BeginPrint: %v", err)
@@ -458,12 +494,12 @@ func TestTerminalStatusClearsClaimTimestampAndToken(t *testing.T) {
 	if err := q.db.QueryRow(`SELECT claim_token, claimed_at FROM print_jobs WHERE id = ?`, "terminal-clear").Scan(&token, &claimedAt); err != nil {
 		t.Fatalf("read terminal row: %v", err)
 	}
-	if token != nil || claimedAt != nil {
-		t.Fatalf("terminal row retained execution lease state: token=%v claimed_at=%v", token, claimedAt)
+	if token != "claim-terminal" || claimedAt != nil {
+		t.Fatalf("terminal row should retain report token but clear lease timestamp: token=%v claimed_at=%v", token, claimedAt)
 	}
 }
 
-func TestTerminalStatusWithErrorClearsClaimTimestampAndToken(t *testing.T) {
+func TestTerminalStatusWithErrorClearsClaimTimestampButRetainsReportToken(t *testing.T) {
 	q := newTestQueue(t)
 	if err := q.BeginPrint("terminal-clear-error", "printer-1", []byte("payload"), "claim-terminal-error", false); err != nil {
 		t.Fatalf("BeginPrint: %v", err)
@@ -479,7 +515,7 @@ func TestTerminalStatusWithErrorClearsClaimTimestampAndToken(t *testing.T) {
 	if err := q.db.QueryRow(`SELECT claim_token, claimed_at FROM print_jobs WHERE id = ?`, "terminal-clear-error").Scan(&token, &claimedAt); err != nil {
 		t.Fatalf("read terminal row: %v", err)
 	}
-	if token != nil || claimedAt != nil {
-		t.Fatalf("terminal row retained execution lease state: token=%v claimed_at=%v", token, claimedAt)
+	if token != "claim-terminal-error" || claimedAt != nil {
+		t.Fatalf("terminal row should retain report token but clear lease timestamp: token=%v claimed_at=%v", token, claimedAt)
 	}
 }

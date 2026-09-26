@@ -1296,7 +1296,7 @@ export default function DashboardClient({
                 <StatusBadge label={jobLabel(selectedJob.status, outcome)} tone={sharedJobTone(selectedJob.status, outcome)} pulse={["printing", "claimed"].includes(selectedJob.status.toLowerCase())} />
               </div>
 
-              {outcome === "unknown" && isTerminal && (
+              {outcome === "unknown" && isTerminal && selectedJob.status.toLowerCase() !== "success" && (
                 <div className="rounded-[12px] border border-warn-edge bg-warn-bg p-4 space-y-3">
                   <div className="flex items-start gap-2.5 text-warn">
                     <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />

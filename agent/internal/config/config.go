@@ -55,7 +55,7 @@ func (c *Config) ReprintAfterCrashEnabled() bool {
 	return *c.Agent.ReprintAfterCrash
 }
 
-func validateServerURL(raw string) error {
+func ValidateServerURL(raw string) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
 		return fmt.Errorf("server.url invalid: %w", err)
@@ -72,10 +72,10 @@ func validateServerURL(raw string) error {
 	case "https":
 		return nil
 	case "http":
-		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
+		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" {
 			return nil
 		}
-		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASSER_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development")
+		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASSER_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development/test environments")
 	default:
 		return fmt.Errorf("server.url scheme must be http or https, got %q", u.Scheme)
 	}
@@ -273,7 +273,7 @@ func DefaultConfigPath() string {
 
 func (c *Config) Validate() error {
 	if c.Server.URL != "" {
-		if err := validateServerURL(c.Server.URL); err != nil {
+		if err := ValidateServerURL(c.Server.URL); err != nil {
 			return err
 		}
 	}

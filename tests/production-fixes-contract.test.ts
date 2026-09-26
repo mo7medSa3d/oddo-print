@@ -14,24 +14,28 @@ describe("production fixes contracts (2026-09)", () => {
     expect(read("src/app/api/print/jobs/route.ts")).not.toContain("branchId");
   });
 
-  it("invalidates execution leases on terminal failure paths without changing the deliberate expired-job grace token", () => {
+  it("terminal claim credentials are cleared except for bounded late-success reconciliation attempts", () => {
     const maintenance = read("src/lib/job-maintenance.ts");
     const delivery = read("src/lib/job-delivery.ts");
-    // Terminal failures must not retain live execution credentials.
     const normalizedMaintenance = maintenance.replace(/\r\n/g, "\n");
-    expect(normalizedMaintenance).toContain("claim_token=NULL,\n      claimed_at=NULL,\n      updated_at=now()");
     const terminalFailureUpdates = [...maintenance.matchAll(/UPDATE print_jobs SET status='failed',[\s\S]*?FROM candidates\s+WHERE print_jobs\.id = candidates\.id\s+RETURNING print_jobs\.id/g)];
     expect(terminalFailureUpdates.length).toBeGreaterThanOrEqual(2);
-    for (const match of terminalFailureUpdates) {
-      expect(match[0]).toContain("claim_token=NULL");
-      expect(match[0]).toContain("claimed_at=NULL");
-    }
+    expect(normalizedMaintenance).toContain("claim_token=NULL,\n      claimed_at=NULL,\n      updated_at=now()");
+    expect(normalizedMaintenance).toContain("status = 'failed'");
+    expect(normalizedMaintenance).toContain("error LIKE 'UNKNOWN_PARTIAL_DELIVERY:%'");
+    expect(normalizedMaintenance).toContain("updated_at <= now() - interval '24 hours'");
     const normalizedDelivery = delivery.replace(/\r\n/g, "\n");
-    expect(normalizedDelivery).toContain("SET status = 'failed',\n        claim_token = NULL,\n        claimed_at = NULL,");
-    // Expired jobs intentionally retain the claim token because the agent has a
-    // bounded post-expiration physical-success reconciliation window.
+    const unknownStart = normalizedDelivery.indexOf("export async function markJobDeliveryUnknown");
+    const unknownBlock = normalizedDelivery.slice(unknownStart, normalizedDelivery.indexOf("export async function recordJobAck", unknownStart));
+    expect(unknownBlock).toContain("deliveredAt: sql`COALESCE");
+    expect(unknownBlock).toContain("claimedAt: sql`COALESCE");
+    expect(unknownBlock).not.toContain("claimToken: sql`NULL`");
+    // Failed unknown deliveries retain their fence only so the exact agent
+    // attempt can reconcile a late success; the cleanup above bounds retention.
     const agentJobs = read("src/app/api/agent/jobs/route.ts");
     expect(agentJobs).toContain('if (currentStatus === "expired" && requestedStatus === "success")');
+    expect(agentJobs).toContain('job.error?.startsWith("UNKNOWN_PARTIAL_DELIVERY")');
+    expect(agentJobs).toContain('deliveryUnknownLateSuccess && (!job.claimedAt || !job.claimToken');
   });
 
   it("keeps the print-job GET status response metadata-only", () => {
@@ -181,11 +185,12 @@ describe("production fixes contracts (2026-09)", () => {
     expect(route).toContain('if (updatedUser.length !== 1) throw new Error("Reset user missing");');
   });
 
-  it("production startup refuses plaintext manager passwords", () => {
+  it("startup refuses plaintext manager passwords outside development/test", () => {
     const server = read("server.ts");
-    expect(server).toContain("process.env.NODE_ENV === \"production\" && process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD === \"1\"");
-    expect(server).toContain("Refusing production startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1");
-    expect(server).not.toContain("ALLOW_PLAINTEXT_MANAGER_PASSWORD=1 in production: the manager password is held in the environment");
+    expect(server).toContain('const plaintextManagerPasswordAllowedEnvironment = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";');
+    expect(server).toContain('!plaintextManagerPasswordAllowedEnvironment && process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD === "1"');
+    expect(server).toContain("outside development/test");
+    expect(server).not.toContain('process.env.NODE_ENV === "production" && process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD === "1"');
   });
 
   it("active local execution never adopts a newer Gateway claim token", () => {

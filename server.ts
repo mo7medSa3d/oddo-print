@@ -19,7 +19,7 @@ import { pool } from "./src/db";
 import { sweepStaleAgentPresence, AGENT_PRESENCE_SWEEP_INTERVAL_MS } from "./src/lib/agent-presence-maintenance";
 import { createRequestContentSecurityPolicy, shouldApplyPageContentSecurityPolicy } from "./src/server/content-security-policy";
 
-const dev = process.env.NODE_ENV !== "production";
+const dev = process.env.NODE_ENV === "development";
 const port = parseInt(process.env.PORT ?? "3000", 10);
 const hostname = process.env.HOSTNAME ?? "0.0.0.0";
 
@@ -53,8 +53,9 @@ function assertRealSecret(name: string, value: string | undefined, minLength: nu
   return value;
 }
 
-if (process.env.NODE_ENV === "production" && process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD === "1") {
-  throw new Error("Refusing production startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1; configure MANAGER_PASSWORD_HASH instead.");
+const plaintextManagerPasswordAllowedEnvironment = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+if (!plaintextManagerPasswordAllowedEnvironment && process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD === "1") {
+  throw new Error("Refusing startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1 outside development/test; configure MANAGER_PASSWORD_HASH instead.");
 }
 
 if (process.env.NODE_ENV === "production" && (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")) {

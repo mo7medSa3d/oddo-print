@@ -19,6 +19,11 @@ import (
 // NOT confuse it with ledger unavailability (which requeues).
 var ErrTerminalState = errors.New("local ledger state is terminal; refusing to reopen for printing")
 
+// ErrAlreadyPrinting means this exact claim token already owns a local printing
+// attempt. A duplicate delivery must be ignored, not treated as a new physical
+// print attempt.
+var ErrAlreadyPrinting = errors.New("local ledger already printing this claim; duplicate dispatch suppressed")
+
 // Queue is the Agent's local durable delivery queue. It is distinct from the
 // Gateway's PostgreSQL job table:
 //
@@ -136,7 +141,11 @@ func (q *Queue) Push(id, printerID string, payload []byte) error {
 // UpdateStatus sets a simple status (queued/printing/success/failed) and bumps updated_at.
 func (q *Queue) UpdateStatus(id, status string) error {
 	if status == "success" || status == "failed" {
-		_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, claim_token = NULL, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, id)
+		// Keep the execution claim token until the Gateway acknowledges the
+		// terminal report. Clearing it here creates a crash window where the
+		// local ledger durably knows the physical outcome but the restarted
+		// Agent can no longer prove which Gateway attempt produced it.
+		_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, id)
 		return err
 	}
 	_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, id)
@@ -149,7 +158,9 @@ func (q *Queue) UpdateStatus(id, status string) error {
 // helper, so crash recovery can still report the preserved token to Gateway.
 func (q *Queue) UpdateStatusWithError(id, status, lastErr string) error {
 	if status == "success" || status == "failed" {
-		_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, last_error = ?, claim_token = NULL, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, lastErr, id)
+		// The terminal state is a durable outbox record for the Gateway status
+		// report. Preserve claim_token until that report receives a 2xx response.
+		_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, last_error = ?, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, lastErr, id)
 		return err
 	}
 	_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, lastErr, id)
@@ -237,12 +248,17 @@ func (q *Queue) BeginPrint(id, printerID string, payload []byte, claimToken stri
 	}
 
 	if status == "printing" {
-		// A live physical attempt owns this row. Re-entry is idempotent only for
-		// the same non-empty token. A legacy tokenless row may only be re-entered
-		// by a tokenless legacy caller; a new tokened claimant can never steal it.
+		// A live physical attempt owns this row. Even when the duplicate delivery
+		// carries the exact same claim token, the local ledger is already in the
+		// physical-execution phase. Returning nil here would let the caller enter
+		// the printer path a second time. Duplicate delivery is therefore an
+		// explicit no-op signal, not successful admission.
 		stored := storedToken.String
 		if (stored != "" && stored == claimToken) || (stored == "" && claimToken == "") {
-			return tx.Commit()
+			if err := tx.Commit(); err != nil {
+				return err
+			}
+			return ErrAlreadyPrinting
 		}
 		return ErrTerminalState
 	}
@@ -294,6 +310,57 @@ func (q *Queue) ClaimTokenFor(id string) string {
 		return ""
 	}
 	return tok.String
+}
+
+// ClearClaimToken acknowledges that the Gateway accepted a terminal status
+// for this local execution attempt. The token is cleared only after the
+// remote 2xx response, so a process crash between local terminalization and
+// remote acknowledgement leaves a durable retryable report in SQLite.
+func (q *Queue) ClearClaimToken(id string) error {
+	_, err := q.db.Exec(`UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('success', 'failed')`, id)
+	return err
+}
+
+type TerminalReport struct {
+	ID         string
+	Status     string
+	LastError  string
+	ClaimToken string
+}
+
+// PendingTerminalReports returns durable terminal outcomes whose Gateway
+// acknowledgement has not yet been observed. These rows are a tiny local
+// outbox: they allow Agent restart recovery to re-report a proven outcome
+// without ever re-running the physical printer side effect.
+func (q *Queue) PendingTerminalReports(limit int) ([]TerminalReport, error) {
+	if limit <= 0 {
+		limit = 32
+	}
+	rows, err := q.db.Query(`
+		SELECT id, status, COALESCE(last_error, ''), claim_token
+		FROM print_jobs
+		WHERE status IN ('success', 'failed')
+		  AND claim_token IS NOT NULL
+		  AND claim_token <> ''
+		ORDER BY updated_at ASC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]TerminalReport, 0)
+	for rows.Next() {
+		var report TerminalReport
+		if err := rows.Scan(&report.ID, &report.Status, &report.LastError, &report.ClaimToken); err != nil {
+			return nil, err
+		}
+		result = append(result, report)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // Get returns the local record for a gateway job id, if present.

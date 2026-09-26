@@ -8,6 +8,7 @@ import {
   LATE_SUCCESS_MAX_AGE_MS,
   PHYSICAL_OUTCOME_UNKNOWN_MARKERS,
   derivePhysicalOutcome,
+  hasUnknownPhysicalOutcomeMarker,
   AGENT_REQUEUE_REASONS,
   type JobStatus,
 } from "../src/lib/job-status";
@@ -28,6 +29,14 @@ describe("job-status", () => {
     expect(PHYSICAL_OUTCOME_UNKNOWN_MARKERS).toHaveLength(5);
     expect(derivePhysicalOutcome("failed", "UNKNOWN_SUBMISSION_OUTCOME: x")).toBe("unknown");
     expect(derivePhysicalOutcome("failed", "CONNECTION_ERROR: x")).toBe("not_printed");
+  });
+
+  it("classifies every canonical unknown marker as protected physical evidence", () => {
+    for (const marker of PHYSICAL_OUTCOME_UNKNOWN_MARKERS) {
+      expect(hasUnknownPhysicalOutcomeMarker(`${marker}:detail`)).toBe(true);
+    }
+    expect(hasUnknownPhysicalOutcomeMarker("GATEWAY_REJECTED_422: bad payload")).toBe(false);
+    expect(hasUnknownPhysicalOutcomeMarker(null)).toBe(false);
   });
   it("does not expose a physical-print marker for post-expiry execution success", () => {
     const source = readFileSync("src/lib/job-status.ts", "utf8");

@@ -461,7 +461,7 @@ async function rotateWithinFamily(
 export async function isSessionFamilyActive(
   familyId: string,
   kind: SessionKind,
-  tenantId: string,
+  tenantId: string | null,
   userId?: string,
 ): Promise<boolean> {
   if (!/^[0-9a-f]{32}$/.test(familyId)) return false;
@@ -469,7 +469,7 @@ export async function isSessionFamilyActive(
     where: and(
       eq(refreshTokens.familyId, familyId),
       eq(refreshTokens.kind, kind),
-      eq(refreshTokens.tenantId, tenantId),
+      tenantId === null ? sql`${refreshTokens.tenantId} IS NULL` : eq(refreshTokens.tenantId, tenantId),
       sql`${refreshTokens.revokedAt} IS NULL`,
       sql`${refreshTokens.expiresAt} > clock_timestamp()`,
       ...(userId ? [eq(refreshTokens.userId, userId)] : []),

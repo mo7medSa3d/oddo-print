@@ -62,7 +62,9 @@ Single dashboard showing P0 must-close before Production and industry compliance
 - No fake PASS: Windows Service, Physical printing, Odoo runtime, PG integration, Tauri updater, and IPP Everywhere certification remain explicitly blocked where runtime or conformance evidence is unavailable.
 
 ## Release Decision
-**RELEASE READY WITH EXPLICIT BLOCKED** — P0 implemented with truthful state-driven wizard, tenant-safe health, claim token redaction, evidence-based printer/agent health. BLOCKED items explicit:
+**NOT RELEASE-READY YET — EXTERNAL VERIFICATION GATES REMAIN**. The implemented code paths and automated contracts may be PASS where evidence exists, but the repository cannot be declared production-ready while Windows/Tauri, physical printing, Odoo runtime, PostgreSQL integration, and other explicitly blocked production-critical verification remain incomplete.
+
+BLOCKED items explicit:
 - Physical printing BLOCKED (no hardware)
 - Windows Service runtime BLOCKED (no Windows host)
 - Odoo runtime BLOCKED (no deployment)

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "../db";
 import { tenantSubscriptions } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
-import { stripeRequest } from "./stripe";
+import { isDefinitiveStripeMutationError, stripeRequest } from "./stripe";
 
 /**
  * Shared persistent billing-operation protocol for the two symmetric
@@ -162,9 +162,50 @@ export async function runBillingOperation(
     const mutation = stripeBillingMutation(operation, state.subscriptionStatus, state.subscriptionId);
     await stripeRequest(mutation.path, mutation.params, state.idempotencyKey);
   } catch (error) {
-    // Keep the persistent operation claim and its idempotency key. A retry
-    // can safely replay the same Stripe request after a lost/ambiguous
-    // response instead of issuing a second external mutation.
+    // A definitive Stripe rejection (for example validation, auth, or a
+    // missing subscription resource) proves this operation did not become a
+    // successful external mutation. Do not strand the persistent claim:
+    // clear only the exact operation that is still recorded for this
+    // subscription. Retryable/ambiguous failures keep the claim and idempotency
+    // key so a later attempt replays the same external mutation safely.
+    if (isDefinitiveStripeMutationError(error)) {
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`
+          SELECT id
+          FROM tenants
+          WHERE id = ${tenantId}
+          FOR UPDATE
+        `);
+        const current = await tx.execute(sql`
+          SELECT stripe_subscription_id AS "stripeSubscriptionId",
+                 billing_operation_id AS "billingOperationId"
+          FROM tenant_subscriptions
+          WHERE tenant_id = ${tenantId}
+          FOR UPDATE
+        `);
+        const row = current.rows[0] as {
+          stripeSubscriptionId?: string | null;
+          billingOperationId?: string | null;
+        } | undefined;
+        if (row?.billingOperationId === state.operationId && row.stripeSubscriptionId === state.subscriptionId) {
+          await tx.update(tenantSubscriptions)
+            .set({
+              billingOperationId: null,
+              billingOperationType: null,
+              billingOperationIdempotencyKey: null,
+              billingOperationSubscriptionId: null,
+              updatedAt: sql`clock_timestamp()`,
+            })
+            .where(eq(tenantSubscriptions.tenantId, tenantId));
+        }
+      });
+      console.error(`billing ${operation.logLabel} rejected by Stripe (${error.status})`, error.message);
+      return NextResponse.json({ error: "Stripe rejected this billing operation. Correct the subscription state and try again." }, { status: 409 });
+    }
+
+    // Keep the persistent operation claim and its idempotency key for
+    // retryable/ambiguous failures: the next attempt replays the same Stripe
+    // mutation instead of issuing a second external mutation.
     console.error(`billing ${operation.logLabel} failed`, error instanceof Error ? error.message : "unknown");
     return NextResponse.json({ error: "Billing operation could not be completed right now. Please retry." }, { status: 502 });
   }

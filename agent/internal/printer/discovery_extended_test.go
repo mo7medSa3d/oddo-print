@@ -63,3 +63,15 @@ func TestSameUSBDeviceRequiresStrongPhysicalIdentity(t *testing.T) {
 		t.Fatal("matching device instance IDs should identify the same physical printer")
 	}
 }
+
+func TestDedupeKeyUSBSerialIsModelScoped(t *testing.T) {
+	a := DeviceInfo{USBVID: "1234", USBPID: "5678", USBSerial: "SN-42"}
+	b := DeviceInfo{USBVID: "1234", USBPID: "9999", USBSerial: "SN-42"}
+	if dedupeKey(a) == dedupeKey(b) {
+		t.Fatal("same USB serial across different VID/PID must not collide")
+	}
+	c := DeviceInfo{USBVID: "1234", USBPID: "5678", USBSerial: "sn-42"}
+	if dedupeKey(a) != dedupeKey(c) {
+		t.Fatal("same USB VID/PID/serial should dedupe case-insensitively")
+	}
+}

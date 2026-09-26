@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { clearCustomerRefreshCookie, clearCustomerSessionCookie } from "../../../../lib/customer-auth";
 import { db } from "../../../../db";
 import { tenantUsers } from "../../../../db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import {
   clearManagerCookieHeader,
   clearManagerRefreshCookieHeader,
-  validateManager,
+  validateWorkspaceManager,
   revokeLegacyManagerSessionsForUserInTransaction,
 } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
@@ -20,7 +21,7 @@ class OwnershipConflict extends Error {
 }
 
 export async function POST(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || claims.role !== "owner" || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Only the workspace owner can transfer ownership" }, { status: 403 });
   const currentUserId = claims.userId;
   let body: { userId?: unknown };
@@ -93,8 +94,13 @@ export async function POST(req: Request) {
   }
 
   const res = NextResponse.json({ ok: true, next: "/login" });
+  // Ownership transfer revokes the current user's tenant session family.
+  // Clear both web session cookie pairs so the browser cannot keep presenting
+  // a revoked manager or workspace session after the transfer.
   res.headers.set("Set-Cookie", clearManagerCookieHeader());
   res.headers.append("Set-Cookie", clearManagerRefreshCookieHeader());
+  res.headers.append("Set-Cookie", clearCustomerSessionCookie());
+  res.headers.append("Set-Cookie", clearCustomerRefreshCookie());
   res.headers.set("Cache-Control", "no-store");
   return res;
 }

@@ -428,6 +428,12 @@ suite("heartbeat validation and lifecycle preservation", () => {
     expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBe(new Date(staleAt).getTime());
     expect((await beat(f.agentAuth, ["job_hb_fence"])).status).toBe(200);
     expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBe(new Date(staleAt).getTime());
+
+    await pool().query(`UPDATE print_jobs SET claim_token = NULL, updated_at = now() - interval '200 seconds' WHERE id = 'job_hb_fence'`);
+    const legacyStaleAt = (await jobRow("job_hb_fence")).updated_at as Date;
+    expect((await beat(f.agentAuth, ["job_hb_fence"])).status).toBe(200);
+    expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBe(new Date(legacyStaleAt).getTime());
+    await pool().query(`UPDATE print_jobs SET claim_token = $1 WHERE id = 'job_hb_fence'`, [liveToken]);
     const other = await seedFixture();
     expect((await beat(other.agentAuth, [{ jobId: "job_hb_fence", claimToken: liveToken }])).status).toBe(200);
     expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBe(new Date(staleAt).getTime());

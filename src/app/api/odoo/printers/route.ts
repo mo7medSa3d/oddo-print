@@ -10,7 +10,7 @@ import { TenantSubscriptionRequiredError, requireTenantBillingAccess } from "../
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const apiKey = await validateOdooKey(req);
+  const apiKey = await validateOdooKey(req, { requireIntegrationEnabled: false });
   if (!apiKey) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   // Printer inventory is an Odoo runtime-control-plane surface. Do not expose

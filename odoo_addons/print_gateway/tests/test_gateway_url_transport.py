@@ -25,7 +25,7 @@ class TestPrintGatewayURLTransport(TransactionCase):
             PrintGatewayConfig._validate_gateway_url("http://gateway.example.com")
 
     def test_http_gateway_url_requires_explicit_development_opt_in(self):
-        with patch.dict("os.environ", {"ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP": "1"}, clear=False):
+        with patch.dict("os.environ", {"YASSER_GATEWAY_ALLOW_INSECURE_HTTP": "1"}, clear=False):
             for url in (
                 "http://gateway.example.com",
                 "http://192.168.1.50:3000",

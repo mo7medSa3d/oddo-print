@@ -31,10 +31,13 @@ func TestCrashWindowSimulation(t *testing.T) {
 		t.Fatalf("capture failed %v", caps)
 	}
 
-	// Step 2: simulate crash before queue.UpdateStatus success + PATCH success
-	// In real flow, gateway job is still `printing` with updatedAt = now, retries=0.
-	// After 90s stale, gateway reclaims: next GET FOR UPDATE SKIP LOCKED will return same job with retries++.
-	// Our simulation proves that if we re-print same id after crash, mock gets duplicate.
+	// Step 2: simulate crash before queue.UpdateStatus success + PATCH success.
+	// Without the explicit crash-reprint policy, the ambiguous attempt remains
+	// terminal/unknown and must not be silently reprinted. With the documented
+	// at-least-once policy enabled, the Agent explicitly asks the Gateway to
+	// requeue the fenced printing claim; the next delivery is a new physical
+	// attempt and may duplicate paper. This simulation proves that the physical
+	// side effect itself is not exactly-once.
 	if err := p.Print(ctx, data); err != nil {
 		t.Fatalf("re-print after crash reclaim: %v", err)
 	}

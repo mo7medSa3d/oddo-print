@@ -187,7 +187,7 @@ async function insertQueuedJobAtomically({
     }
 
     if (effectiveIdempotencyKey) {
-      const existing = await tx.execute(sql`SELECT id, printer_id, destination, document_type, payload, agent_id, status FROM print_jobs WHERE tenant_id = ${tenantId} AND idempotency_key = ${effectiveIdempotencyKey} LIMIT 1 FOR UPDATE`);
+      const existing = await tx.execute(sql`SELECT id, printer_id, destination, document_type, payload, agent_id, status, api_key_id FROM print_jobs WHERE tenant_id = ${tenantId} AND idempotency_key = ${effectiveIdempotencyKey} LIMIT 1 FOR UPDATE`);
       if (existing.rows.length > 0) {
         const row = existing.rows[0] as {
           id: string;
@@ -197,7 +197,18 @@ async function insertQueuedJobAtomically({
           payload: unknown;
           agent_id: string;
           status: string;
+          api_key_id: string | null;
         };
+        // Odoo status APIs intentionally exclude internal Manager jobs. The
+        // same boundary must apply to Odoo idempotency: never return an
+        // internal job identity to an Odoo caller. Because the database uses a
+        // tenant-wide idempotency uniqueness constraint, a collision with an
+        // internal key is a deterministic conflict, not a reusable Odoo job.
+        if (rateLimitKeyId && row.api_key_id === null) {
+          const conflictErr = new Error("IDEMPOTENCY_CONFLICT");
+          Object.assign(conflictErr, { code: "IDEMPOTENCY_CONFLICT" });
+          throw conflictErr;
+        }
         const storedFingerprint = idempotencyFingerprint({
           printerId: row.printer_id,
           documentType: row.document_type,

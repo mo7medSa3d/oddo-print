@@ -52,6 +52,26 @@ func TestCleanupTerminalRemovesOnlyTerminalJobs(t *testing.T) {
 	}
 }
 
+func TestCleanupTerminalPreservesPendingGatewayReports(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.BeginPrint("pending-cleanup", "printer-1", []byte("payload"), "claim-pending", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if err := q.UpdateStatusWithError("pending-cleanup", "failed", "paper jam before transmission"); err != nil {
+		t.Fatalf("UpdateStatusWithError: %v", err)
+	}
+	deleted, err := q.CleanupTerminal(0)
+	if err != nil {
+		t.Fatalf("CleanupTerminal: %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("CleanupTerminal deleted pending report row: %d", deleted)
+	}
+	if _, _, found, err := q.Get("pending-cleanup"); err != nil || !found {
+		t.Fatalf("pending Gateway report row was removed: found=%v err=%v", found, err)
+	}
+}
+
 // EVERY canonical unknown-outcome marker must survive cleanup: deleting a
 // row that carries any unknown-outcome marker destroys the duplicate-print
 // evidence base (the row is the local protection against reprinting a

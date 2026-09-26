@@ -5,6 +5,7 @@ import { and, count, desc, eq, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../../lib/manager-auth";
+import { hasManagerPermission } from "../../lib/authorization";
 import DashboardClient from "./dashboard-client";
 import { JobCleanupButton } from "../../components/JobCleanupButton";
 import { isAgentAvailableForJob } from "../../lib/agent-availability";
@@ -18,6 +19,13 @@ export default async function DashboardPage() {
     cookieStore.get(getManagerCookieName())?.value ?? null,
   );
   if (!claims) redirect("/login");
+  if (
+    !hasManagerPermission(claims, "agents.read") ||
+    !hasManagerPermission(claims, "printers.read") ||
+    !hasManagerPermission(claims, "jobs.read")
+  ) {
+    redirect(hasManagerPermission(claims, "billing.read") ? "/billing" : "/");
+  }
 
   let allAgents: Array<{
     id: string;

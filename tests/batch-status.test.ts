@@ -29,7 +29,7 @@ suite("POST /api/print/jobs/batch-status", () => {
     body: JSON.stringify(body),
   }));
 
-  it("returns only jobs created by the authenticated API key", async () => {
+  it("returns tenant jobs after Odoo API-key rotation while keeping cross-tenant jobs hidden", async () => {
     const keyId = await keyIdFor(f.odooKey);
     const rotatedKey = "odoo_rotated_batch";
     await pool().query(
@@ -39,10 +39,17 @@ suite("POST /api/print/jobs/batch-status", () => {
     await insertJob("batch_owned_1", keyId);
     await insertJob("batch_rotated_1", "key_rotated_batch");
     await insertJob("batch_internal_1", null);
-    const res = await post(rotatedKey, { jobIds: ["batch_owned_1", "batch_rotated_1", "batch_internal_1", "batch_missing_1"] });
+    const otherTenant = "tenant_other_batch";
+    await pool().query(`INSERT INTO tenants (id, name, lifecycle) VALUES ($1, 'Other', 'active') ON CONFLICT (id) DO NOTHING`, [otherTenant]);
+    const otherAgent = "agt_other_batch";
+    const otherPrinter = "printer_other_batch";
+    await pool().query(`INSERT INTO agents (id, tenant_id, name, status, lifecycle) VALUES ($1, $2, 'Other Agent', 'online', 'active') ON CONFLICT (id) DO NOTHING`, [otherAgent, otherTenant]);
+    await pool().query(`INSERT INTO printers (id, tenant_id, agent_id, name, printer_type, device_class, connection_type, protocol, status, lifecycle) VALUES ($1, $2, $3, 'Other Printer', 'physical', 'thermal', 'network', 'raw', 'online', 'active') ON CONFLICT (tenant_id, id) DO NOTHING`, [otherPrinter, otherTenant, otherAgent]);
+    await pool().query(`INSERT INTO print_jobs (id, tenant_id, destination, document_type, agent_id, printer_id, status, payload, expires_at) VALUES ('batch_other_tenant', $1, 'other', 'receipt', $2, $3, 'queued', '{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb, now() + interval '1 hour')`, [otherTenant, otherAgent, otherPrinter]);
+    const res = await post(rotatedKey, { jobIds: ["batch_owned_1", "batch_rotated_1", "batch_internal_1", "batch_other_tenant", "batch_missing_1"] });
     expect(res.status).toBe(200);
     const ids = ((await res.json()) as { jobs: { jobId: string }[] }).jobs.map((j) => j.jobId).sort();
-    expect(ids).toEqual(["batch_rotated_1"]);
+    expect(ids).toEqual(["batch_owned_1", "batch_rotated_1"]);
   });
 
   it("rejects invalid keys and malformed bodies", async () => {

@@ -230,6 +230,65 @@ suite("billing webhook concurrency", () => {
     expect(subscription?.stripeLastEventCreatedAt?.getTime()).toBe(created * 1000);
   });
 
+  it("cannot let an older fetched Stripe snapshot overwrite a newer committed webhook state", async () => {
+    const seeded = await seed();
+    const olderCreated = Math.floor(Date.now() / 1000) - 20;
+    const newerCreated = olderCreated + 10;
+    const olderEvent = subscriptionPayload(`evt_old_snapshot_race_${nanoid(8)}`, olderCreated, seeded, "active");
+    const newerEvent = subscriptionPayload(`evt_new_snapshot_race_${nanoid(8)}`, newerCreated, seeded, "paused");
+
+    let releaseOlder!: () => void;
+    const olderSnapshotReady = new Promise<void>((resolve) => {
+      releaseOlder = resolve;
+    });
+    let firstRetrieve!: () => void;
+    const firstRetrieveStarted = new Promise<void>((resolve) => {
+      firstRetrieve = resolve;
+    });
+
+    stripeRetrieveMock
+      .mockImplementationOnce(async () => {
+        firstRetrieve();
+        await olderSnapshotReady;
+        return {
+          id: seeded.subscriptionId,
+          object: "subscription",
+          customer: seeded.customerId,
+          status: "active",
+          items: { data: [{ price: { id: seeded.priceId } }] },
+          metadata: { tenant_id: seeded.tenantId },
+          current_period_end: newerCreated + 3600,
+          cancel_at_period_end: false,
+        };
+      })
+      .mockImplementationOnce(async () => ({
+        id: seeded.subscriptionId,
+        object: "subscription",
+        customer: seeded.customerId,
+        status: "paused",
+        items: { data: [{ price: { id: seeded.priceId } }] },
+        metadata: { tenant_id: seeded.tenantId },
+        current_period_end: newerCreated + 3600,
+        cancel_at_period_end: false,
+      }));
+
+    const olderPromise = POST(requestFor(olderEvent, olderCreated));
+    await firstRetrieveStarted;
+
+    const newerResponse = await POST(requestFor(newerEvent, newerCreated));
+    expect(newerResponse.status).toBe(200);
+
+    releaseOlder();
+    const olderResponse = await olderPromise;
+    expect(olderResponse.status).toBe(200);
+
+    const subscription = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, seeded.tenantId),
+    });
+    expect(subscription?.status).toBe("paused");
+    expect(subscription?.stripeLastEventCreatedAt?.getTime()).toBe(newerCreated * 1000);
+  });
+
   it("uses the current Stripe subscription snapshot when events share a created timestamp", async () => {
     const seeded = await seed();
     const created = Math.floor(Date.now() / 1000);

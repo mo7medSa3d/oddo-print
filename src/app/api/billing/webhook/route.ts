@@ -394,8 +394,14 @@ export async function POST(req: Request) {
           // events converge on Stripe's current state. Deleted is the exception:
           // Stripe's terminated resource is no longer retrievable, so the signed
           // deletion event is a terminal fence and can advance on an equal timestamp.
+          // The Stripe retrieve() happened before this transaction acquired the
+          // tenant row lock. Another webhook may have fetched a newer remote
+          // snapshot and committed it while this request was waiting. Never let
+          // that older fetched snapshot overwrite the newer persisted event fence.
           const currentSnapshotAuthoritative =
-            currentSnapshotSubscriptionEvents.has(eventType) && !staleSnapshotEvent;
+            currentSnapshotSubscriptionEvents.has(eventType) &&
+            !staleSnapshotEvent &&
+            (storedStripeEventCreatedAtMs === null || eventCreatedAt.getTime() > storedStripeEventCreatedAtMs);
           const terminalDelete =
             eventType === "customer.subscription.deleted";
           const sameSubscriptionCanUpdate =

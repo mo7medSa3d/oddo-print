@@ -284,4 +284,11 @@ suite("manager login rate limiting", () => {
     );
     expect(Number(failures.rows[0]?.failures ?? 0)).toBeGreaterThanOrEqual(5);
   });
+  it("does not enable legacy manager auth in staging", async () => {
+    vi.stubEnv("NODE_ENV", "staging");
+    const response = await login("rate-limit-admin", PASS);
+    expect(response.status).toBe(401);
+    vi.stubEnv("NODE_ENV", "test");
+  });
+
 });
