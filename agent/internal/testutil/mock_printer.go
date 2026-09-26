@@ -141,7 +141,7 @@ func (m *MockTCPPrinter) Reset() {
 	m.mu.Unlock()
 }
 
-func (m *MockTCPPrinter) SetDelay(d time.Duration)  { m.delay = d }
+func (m *MockTCPPrinter) SetDelay(d time.Duration) { m.delay = d }
 
 func (m *MockTCPPrinter) Close() error {
 	m.mu.Lock()
