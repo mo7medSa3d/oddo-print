@@ -724,59 +724,34 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
             let config = paths::agent_config_path();
             let _ = paths::ensure_agent_data_root()
                 .map_err(|e| format!("create agent data dir: {e}"))?;
+            let mut service_cmd = Command::new(&path);
+            service_cmd
+                .args(["-service", action, "-config"])
+                .arg(&config)
+                .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root());
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
                 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-                let mut service_cmd = Command::new(&path);
-                service_cmd
-                    .args(["-service", action, "-config"])
-                    .arg(&config)
-                    .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root())
-                    .creation_flags(CREATE_NO_WINDOW);
-                let out = run_bounded_command(
-                    service_cmd,
-                    COMMAND_TIMEOUT,
-                    MAX_COMMAND_OUTPUT_BYTES,
-                    MAX_COMMAND_OUTPUT_BYTES,
-                )?;
-                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                if !out.status.success() {
-                    let msg = if stderr.is_empty() { stdout.clone() } else { stderr.clone() };
-                    return Err(format!(
-                        "service action {action} failed (administrator may be required): {msg}"
-                    ));
-                }
-                let msg = if !stdout.is_empty() { stdout } else { format!("service action {action} completed") };
-                logging::info(&format!("service control {action}: {msg}"));
-                return Ok(msg);
+                service_cmd.creation_flags(CREATE_NO_WINDOW);
             }
-            #[cfg(not(windows))]
-            {
-                let mut service_cmd = Command::new(&path);
-                service_cmd
-                    .args(["-service", action, "-config"])
-                    .arg(&config)
-                    .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root());
-                let out = run_bounded_command(
-                    service_cmd,
-                    COMMAND_TIMEOUT,
-                    MAX_COMMAND_OUTPUT_BYTES,
-                    MAX_COMMAND_OUTPUT_BYTES,
-                )?;
-                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                if !out.status.success() {
-                    let msg = if stderr.is_empty() { stdout.clone() } else { stderr.clone() };
-                    return Err(format!(
-                        "service action {action} failed (administrator may be required): {msg}"
-                    ));
-                }
-                let msg = if !stdout.is_empty() { stdout } else { format!("service action {action} completed") };
-                logging::info(&format!("service control {action}: {msg}"));
-                return Ok(msg);
+            let out = run_bounded_command(
+                service_cmd,
+                COMMAND_TIMEOUT,
+                MAX_COMMAND_OUTPUT_BYTES,
+                MAX_COMMAND_OUTPUT_BYTES,
+            )?;
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if !out.status.success() {
+                let msg = if stderr.is_empty() { stdout.clone() } else { stderr.clone() };
+                return Err(format!(
+                    "service action {action} failed (administrator may be required): {msg}"
+                ));
             }
+            let msg = if !stdout.is_empty() { stdout } else { format!("service action {action} completed") };
+            logging::info(&format!("service control {action}: {msg}"));
+            return Ok(msg);
         }
         _ => Err(format!("invalid service action {:?}", action)),
     }
