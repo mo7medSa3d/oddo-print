@@ -3535,3 +3535,16 @@ All interconnected pieces behave as intended. Phase 5 is fully verified.
 - **Evidence**: `pg_locks` analysis during the hang revealed that a previously timed-out `TRUNCATE TABLE "print_jobs" RESTART IDENTITY CASCADE` statement continued to run in the background holding an `AccessExclusiveLock`, while subsequent test `truncateAll()` hooks blocked indefinitely waiting for `SELECT pg_advisory_lock($1)`. The root cause was `TRUNCATE TABLE` on 19 tables in `beforeEach` creating massive synchronous I/O overhead on WSL/virtualized test environments, inevitably exceeding Vitest's 30000ms hook timeout when dirty pages accumulated.
 - **Fix**: Replaced the `TRUNCATE TABLE ... CASCADE` loop in `tests/helpers/pg.ts` with an ordered `DELETE FROM` loop that executes in strict reverse-dependency order (starting from child tables like `billing_events` up to parent tables like `tenants`). This preserves exactly the same isolation without recreating table files or forcing synchronous file-system flushes, bypassing the `DataFileImmediateSync` kernel bottleneck entirely.
 - **Verification**: Re-ran `VITEST_MAX_THREADS=1 npm run test:integration`. The suite completed successfully in ~143 seconds (up from hanging indefinitely), clearing the bottleneck and resolving the lock/pool exhaustion entirely.
+
+
+### Phase 7: Test cleanup FK ordering
+- **Problem**: Replacing `TRUNCATE ... CASCADE` with `DELETE` introduced an FK failure when `printers` was deleted before `discovered_devices`.
+- **Evidence**: CI run `36220777570`, job `108345503556`, reported `23503` on constraint `discovered_devices_tenant_id_provisioned_printer_id_fk` while executing `DELETE FROM "printers"` from `tests/helpers/pg.ts:98`.
+- **Fix**: Reordered cleanup so child tables are deleted before referenced parent tables and included all 25 tables declared by `src/db/schema.ts`, including `job_events`, `email_verification_tokens`, `password_reset_tokens`, `tenant_invitations`, `platform_sessions`, and `gateway_metrics`.
+- **Verification**: The updated `orderedTables` is committed in `tests/helpers/pg.ts`; CI must rerun on the resulting commit to prove the integration suite passes.
+
+### Phase 8: Windows Rust syntax error
+- **Problem**: Windows CI failed to compile `src-tauri/src/agent.rs` because the `let status = loop { ... }` statement was missing its terminating semicolon.
+- **Evidence**: CI run `36220777637`, job `108345503805`, compiler error at `src\agent.rs:101:6`: `expected ';', found keyword 'if'`.
+- **Fix**: Added the required semicolon terminating the loop expression.
+- **Verification**: Windows CI must rerun on the resulting commit; the previous failure occurred during Rust compilation before packaging.
