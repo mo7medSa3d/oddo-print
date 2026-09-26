@@ -76,14 +76,17 @@ LOGIN_STATUS="$(curl -sS --max-time 15 -o /tmp/yasser-login.json -w '%{http_code
 curl -fsS --max-time 10 -b "$COOKIE_JAR" "$BASE/api/auth/me" | grep -q '"authenticated":true'
 
 echo "[7/9] desktop-style Manager login"
+# Mirror the actual Tauri desktop transport contract. The Gateway only issues
+# the desktop bearer token when the explicit desktop marker is paired with a
+# trusted Tauri origin; browser-origin headers must not be accepted here.
+DESKTOP_HEADERS=(-H 'Origin: tauri://localhost' -H 'X-Odoo-Print-Desktop: 1')
 MANAGER_LOGIN_STATUS="$(
-  curl -sS --max-time 10 -o "$TMP_DIR/manager-login.json" -w '%{http_code}'     -c "$MANAGER_COOKIE_JAR" -b "$MANAGER_COOKIE_JAR"     "${BROWSER_HEADERS[@]}"     -H 'Content-Type: application/json'     -H 'X-Odoo-Print-Desktop: 1'     -d "{\"username\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"     "$BASE/api/auth/manager/login"
+  curl -sS --max-time 10 -o "$TMP_DIR/manager-login.json" -w '%{http_code}'     -c "$MANAGER_COOKIE_JAR" -b "$MANAGER_COOKIE_JAR"     "${DESKTOP_HEADERS[@]}"     -H 'Content-Type: application/json'     -d "{\"username\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"     "$BASE/api/auth/manager/login"
 )"
 [[ "$MANAGER_LOGIN_STATUS" == "200" ]]
 MANAGER_TOKEN="$(grep -Eo '"accessToken":"[^"]+"' "$TMP_DIR/manager-login.json" | cut -d'"' -f4)"
 [[ -n "$MANAGER_TOKEN" ]]
 curl -fsS --max-time 10 -H "Authorization: Bearer $MANAGER_TOKEN" "$BASE/api/auth/manager/me" | grep -q '"authenticated":true'
-
 echo "[8/9] Manager logout + bearer revocation"
 curl -fsS --max-time 10 -H "Authorization: Bearer $MANAGER_TOKEN" -X POST "$BASE/api/auth/manager/logout" >/dev/null
 MANAGER_AFTER_LOGOUT_STATUS="$(
