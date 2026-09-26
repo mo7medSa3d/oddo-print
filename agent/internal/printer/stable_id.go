@@ -86,7 +86,6 @@ func StableIDFromSpooler(spoolerName string) string {
 	return fmt.Sprintf("printer_spooler_%x", h[:8])
 }
 
-
 // StableIDFromUSB derives a deterministic ID from USB identifiers.
 // Priority: serial > location > VID:PID.
 func StableIDFromUSB(vid, pid, serial, location string) string {
