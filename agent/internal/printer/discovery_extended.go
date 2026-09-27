@@ -15,15 +15,10 @@ import (
 // Common discovery interfaces and extended discoverers for production-grade coverage.
 // Each discoverer is safe, bounded, and never prints or modifies printer state.
 
-// DiscoveryCandidate enriches DeviceInfo with confidence and verification metadata.
-type DiscoveryCandidate struct {
-	Device       DeviceInfo `json:"device"`
-	Confidence   string     `json:"confidence"`   // low/medium/high
-	Verification string     `json:"verification"` // candidate/verified
-	Sources      []string   `json:"sources"`
-}
-
 // DiscoverySource constants — discovery origin, NOT printer protocol.
+// Canonical scan values are emitted via these constants so the vocabulary
+// stays in one place; transport-specific probe labels ("tcp_port_scan",
+// "ipp_tcp_scan") remain free-form forensic detail inside capabilities.
 const (
 	SourceMDNS     = "mdns"
 	SourceIPP      = "ipp"
@@ -177,7 +172,7 @@ func probeSNMPHost(ctx context.Context, host string, timeout time.Duration) *Dev
 		NetworkAddress: host,
 		Status:         "unknown",
 		Enabled:        true,
-		Capabilities:   map[string]interface{}{"discovered_via": "snmp", "sysDescr": sysDescr, "snmp_detected": true, "verification": "device_detected_only"},
+		Capabilities:   map[string]interface{}{"discovered_via": SourceSNMP, "sysDescr": sysDescr, "snmp_detected": true, "verification": "device_detected_only"},
 	}
 	// Try to parse manufacturer/model from sysDescr
 	if parts := strings.Fields(sysDescr); len(parts) >= 2 {
@@ -389,7 +384,7 @@ func probeLPRHost(ctx context.Context, host string, timeout time.Duration) *Devi
 		Port:           515,
 		Status:         "online",
 		Enabled:        true,
-		Capabilities:   map[string]interface{}{"discovered_via": "lpr", "lpr_verified": true, "queue": "raw"},
+		Capabilities:   map[string]interface{}{"discovered_via": SourceLPR, "lpr_verified": true, "queue": "raw"},
 	}
 }
 
@@ -457,7 +452,7 @@ func discoverFullMDNS(ctx context.Context) []DeviceInfo {
 				port = 631
 			}
 			id := StableIDFromNetwork(h.IP, port)
-			caps := map[string]interface{}{"discovered_via": "mdns", "mdns_verified": true}
+			caps := map[string]interface{}{"discovered_via": SourceMDNS, "mdns_verified": true}
 			if h.Model != "" {
 				caps["model"] = h.Model
 			}

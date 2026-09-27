@@ -324,7 +324,7 @@ func parseMDNSServiceEntry(entry *zeroconf.ServiceEntry) (DeviceInfo, bool) {
 
 	caps := map[string]interface{}{
 		"mdns_verified":  true,
-		"discovered_via": "mdns",
+		"discovered_via": SourceMDNS,
 		"pdl":            txtMeta.pdlList,
 	}
 	if txtMeta.mfg != "" {

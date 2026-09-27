@@ -187,7 +187,7 @@ func parseWSDProbeMatches(data []byte, remoteAddr *net.UDPAddr) []DeviceInfo {
 
 			caps := map[string]interface{}{
 				"wsd_detected":   true,
-				"discovered_via": "wsd",
+				"discovered_via": SourceWSD,
 				"wsd_endpoint":   xaddr,
 				"verification":   "device_detected_only",
 			}
@@ -257,7 +257,7 @@ func parseWSDProbeMatches(data []byte, remoteAddr *net.UDPAddr) []DeviceInfo {
 
 	caps := map[string]interface{}{
 		"wsd_detected":   true,
-		"discovered_via": "wsd",
+		"discovered_via": SourceWSD,
 		"wsd_endpoint":   xaddr,
 		"verification":   "device_detected_only",
 	}

@@ -223,8 +223,9 @@ func UpsertRegistry(registryPath string, discovered []DeviceInfo) ([]DeviceInfo,
 			continue
 		}
 		if idx, ok := byID[d.ID]; ok {
-			// Update existing using the incoming observation.
-			existing[idx] = d
+			// Merge into the stored row: a bare rediscovery observation
+			// must not wipe previously observed capabilities/serials.
+			existing[idx] = mergeDeviceInfo(existing[idx], d)
 			continue
 		}
 

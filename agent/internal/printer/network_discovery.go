@@ -228,7 +228,7 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 							di.Capabilities = make(map[string]interface{})
 						}
 						di.Capabilities["snmp_verified"] = true
-						di.Capabilities["discovered_via"] = "snmp"
+						di.Capabilities["discovered_via"] = SourceSNMP
 						di.Capabilities["verification"] = "verified"
 						di.Capabilities["confidence"] = "high"
 						if snmpDev.Capabilities != nil {

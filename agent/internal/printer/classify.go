@@ -106,7 +106,11 @@ func classifySpoolerPrinter(portName, driverName, printerName string) (printerTy
 	case spoolerHasPrefix(portLower, "wsd"):
 		connectionType = "network"
 	case portLower == "lpt1:" || portLower == "com1:" || spoolerHasPrefix(portLower, "lpt") || spoolerHasPrefix(portLower, "com"):
-		connectionType = "local"
+		// Local parallel/serial ports are served through the Windows
+		// spooler backend. The factory only accepts
+		// network/usb/spooler/ipp/ipps, so "local" would fail New/Validate
+		// for every LPT/COM-attached printer.
+		connectionType = "spooler"
 	case strings.Contains(portLower, "192.168.") || strings.Contains(portLower, "10.") || strings.Contains(portLower, ":9100") || spoolerHasPrefix(portLower, "tcp") || spoolerHasPrefix(portLower, "ip_"):
 		connectionType = "network"
 	case portLower != "":

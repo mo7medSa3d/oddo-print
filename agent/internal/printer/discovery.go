@@ -695,11 +695,17 @@ func discoverFromConfig(cfg *config.Config) []DeviceInfo {
 		return out
 	}
 	for _, pc := range cfg.Printers {
+		// Propagate the declared class (heartbeat normalizes it for the
+		// Gateway); fall back to "unknown" exactly as before when unset.
+		declaredType := pc.PrinterType
+		if declaredType == "" {
+			declaredType = "unknown"
+		}
 		di := DeviceInfo{
 			ID:             pc.ID,
 			Name:           pc.Name,
 			DisplayName:    pc.Name,
-			PrinterType:    "unknown",
+			PrinterType:    declaredType,
 			ConnectionType: pc.NormalizedType(),
 			Protocol:       pc.NormalizedProtocolOrUnknown(),
 			Endpoint:       pc.Endpoint,

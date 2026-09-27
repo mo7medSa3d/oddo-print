@@ -55,7 +55,7 @@ func TestClassifySpoolerPrinter(t *testing.T) {
 		{"WSD-123456", "Generic", "My Printer", "unknown", "network"},
 		{"IP_192.168.1.50", "ESC/POS Thermal", "Receipt Printer", "thermal", "network"},
 		{"192.168.1.50:9100", "Zebra Label", "Zebra GK420", "label", "network"},
-		{"LPT1:", "Generic", "Old LPT", "unknown", "local"},
+		{"LPT1:", "Generic", "Old LPT", "unknown", "spooler"},
 		{"", "Epson TM-T20", "TM-T20 Receipt", "thermal", "spooler"},
 	}
 	for _, tc := range cases {
