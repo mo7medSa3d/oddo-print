@@ -211,11 +211,15 @@ def test_agent_pairing_success_does_not_clear_rate_limit():
 
 def test_tauri_gateway_http_transport_contract_matches_branch_mode():
     source = read("src-tauri/src/commands.rs")
-    test_branch_mode = "This isolated test branch intentionally accepts remote HTTP" in source
+    test_branch_mode = "Staging-only HTTP acceptance, explicitly gated" in source
 
     if test_branch_mode:
         assert 'let remote_http = scheme == "http";' in source
         assert 'if remote_http {' in source
+        # Remote HTTP is accepted only with the explicit staging flag; without
+        # it the branch behaves like production (remote HTTP rejected).
+        assert 'std::env::var("YASSER_HTTP_TEST_MODE")' in source
+        assert "Gateway URL must use HTTPS for remote Gateways" in source
         assert "gateway URL cannot include embedded credentials" in source
         assert "gateway URL cannot include query strings or fragments" in source
     else:
