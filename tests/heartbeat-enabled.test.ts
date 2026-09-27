@@ -436,7 +436,9 @@ suite("heartbeat validation and lifecycle preservation", () => {
     await pool().query(`UPDATE print_jobs SET claim_token = $1 WHERE id = 'job_hb_fence'`, [liveToken]);
     const other = await seedFixture();
     expect((await beat(other.agentAuth, [{ jobId: "job_hb_fence", claimToken: liveToken }])).status).toBe(200);
-    expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBe(new Date(staleAt).getTime());
+    // Baseline is legacyStaleAt, not staleAt: the NULL-claim reset above
+    // re-based updated_at, so staleness must be measured from there.
+    expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBe(new Date(legacyStaleAt).getTime());
     expect((await beat(f.agentAuth, [{ jobId: "job_hb_fence", claimToken: liveToken }])).status).toBe(200);
     expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBeGreaterThan(new Date(staleAt).getTime());
   });

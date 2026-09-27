@@ -83,11 +83,13 @@ suite("atomic Agent job status transitions", () => {
   });
   it("rejects one conflicting transition when two HTTP PATCH requests race", async () => {
     await insertQueuedJob(f, "job_api_race");
-    await pool().query(`UPDATE print_jobs SET status='printing' WHERE id='job_api_race'`);
+    await pool().query(`UPDATE print_jobs SET status='printing', claim_token='tok-race-live' WHERE id='job_api_race'`);
     const request = (status: "success" | "failed") => jobStatusPATCH(new Request("http://gateway.test/api/agent/jobs", {
       method: "PATCH",
       headers: { Authorization: f.agentAuth, "content-type": "application/json" },
-      body: JSON.stringify({ jobId: "job_api_race", status }),
+      // Both racers carry the exact live claim (the CLAIM_REQUIRED fence
+      // rejects tokenless/mismatched reports before any transition logic).
+      body: JSON.stringify({ jobId: "job_api_race", status, claimToken: "tok-race-live" }),
     }));
     const [a, b] = await Promise.all([request("success"), request("failed")]);
     expect([a.status, b.status].sort()).toEqual([200, 409]);
@@ -150,9 +152,10 @@ suite("atomic Agent job status transitions", () => {
     expect((await patch("job_late_plain", "success")).status).toBe(409);
     // 2. A gateway-timeout failure WITHIN 24h may be reconciled when the agent
     // reports execution completion. Current transports still cannot prove paper output.
+    // The report must carry the exact live claim (CLAIM_REQUIRED fence).
     await insertQueuedJob(f, "job_late_ok");
-    await pool().query(`UPDATE print_jobs SET status='failed', error='AGENT_EXECUTION_TIMEOUT: agent execution lease expired (physical output is unknown; manual reconciliation required)', updated_at=now() WHERE id='job_late_ok'`);
-    const ok = await patch("job_late_ok", "success");
+    await pool().query(`UPDATE print_jobs SET status='failed', claim_token='tok-late-ok', error='AGENT_EXECUTION_TIMEOUT: agent execution lease expired (physical output is unknown; manual reconciliation required)', updated_at=now() WHERE id='job_late_ok'`);
+    const ok = await patch("job_late_ok", "success", "tok-late-ok");
     expect(ok.status).toBe(200);
     expect(((await ok.json()) as { physicalOutcome?: string }).physicalOutcome).toBe("unknown");
     // 3. The same marker past the 24h TTL is no longer overridable.
