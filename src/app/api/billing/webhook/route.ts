@@ -398,10 +398,14 @@ export async function POST(req: Request) {
           // tenant row lock. Another webhook may have fetched a newer remote
           // snapshot and committed it while this request was waiting. Never let
           // that older fetched snapshot overwrite the newer persisted event fence.
+          // Ties (>=, not >) converge on the live snapshot: same-second
+          // paused/resumed pairs are otherwise order-of-arrival coin flips.
+          // Strictly older events still never overwrite (see the < gate on
+          // the snapshot fetch above and isNewerThanStoredEvent below).
           const currentSnapshotAuthoritative =
             currentSnapshotSubscriptionEvents.has(eventType) &&
             !staleSnapshotEvent &&
-            (storedStripeEventCreatedAtMs === null || eventCreatedAt.getTime() > storedStripeEventCreatedAtMs);
+            (storedStripeEventCreatedAtMs === null || eventCreatedAt.getTime() >= storedStripeEventCreatedAtMs);
           const terminalDelete =
             eventType === "customer.subscription.deleted";
           const sameSubscriptionCanUpdate =
