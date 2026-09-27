@@ -238,25 +238,29 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
 
 ## 3. Gateway DB Layer (`src/db/schema.ts`, `drizzle/` — 74 migrations `0000`–`0073`)
 
-- [ ] **[Severity: High] `printers`, `discoveredDevices` lack PRIMARY KEY constraints**
+- [x] **[Severity: High] `printers`, `discoveredDevices` lack PRIMARY KEY constraints**
       File: `src/db/schema.ts:143,304`
       Issue: `id: text("id").notNull()` with only `UNIQUE (tenant_id, id)` since migration `0072` dropped the original PKs for tenant-scoped identity. No formal PK hurts ORM/replication/tooling expectations. (`printJobs` still declares `id.primaryKey()` — itself inconsistent.) v3 clarification: `discoverySessions` DOES still have its PK (0010 created it; no migration dropped it; the 0073 snapshot carries it via the `columns.id.primaryKey` flag) — the v2 parenthetical over-claimed; only `printers` and `discoveredDevices` are affected.
       Suggested fix: Add composite PKs `primaryKey({ columns: [tenantId, id] })` + a forward migration. Requires care: existing duplicate `(tenant_id,id)` rows would block it (the UNIQUE constraint already prevents that, so creation is safe).
+      Fix applied: 0074 + schema: UNIQUE(tenant_id,id) replaced by named composite PKs printers_pkey/discovered_devices_pkey (discovery_sessions verified to still carry its single PK — v2 parenthetical corrected). Migration drops dependent FKs first (Postgres forbids dropping a depended-upon UNIQUE) and re-adds them unchanged.
 
-- [ ] **[Severity: Medium] Composite foreign key names in schema.ts don't match migration-hardcoded names — and the migration chain diverges from the snapshot**
+- [x] **[Severity: Medium] Composite foreign key names in schema.ts don't match migration-hardcoded names — and the migration chain diverges from the snapshot**
       File: `src/db/schema.ts:165,294,338-340,379-381` vs `drizzle/0031_*.sql` + `drizzle/0041_*.sql:161-266` vs `drizzle/meta/0073_*_snapshot.json`
       Issue (v3 expanded): Six composite FKs are named differently in three places. Migrations 0031/0041 create short names (`printers_tenant_id_agent_id_agents_fk`, `discovery_sessions_tenant_id_agent_id_agents_fk`, `discovered_devices_tenant_id_discovery_id_fk`, `discovered_devices_tenant_id_agent_id_agents_fk`, `discovered_devices_tenant_id_provisioned_printer_id_fk`, `print_jobs_tenant_id_api_key_id_api_keys_fk`). The 0071–0073 snapshots show the live DB actually carries Drizzle-default long names (`printers_tenant_id_agent_id_agents_tenant_id_id_fk`, `discovery_sessions_tenant_id_agent_id_agents_tenant_id_id_fk`, `discovered_devices_tenant_id_discovery_id_discovery_sessions_tenant_id_id_fk`, `discovered_devices_tenant_id_agent_id_agents_tenant_id_id_fk`, `discovered_devices_tenant_id_provisioned_printer_id_printers_tenant_id_id_fk`, `print_jobs_tenant_id_api_key_id_api_keys_tenant_id_id_fk`) — no committed migration performs that rename, so a fresh `drizzle-kit migrate` from `0000` produces short-named constraints that diverge from both the snapshot and schema.ts (which specifies no `name`, i.e. the Drizzle default). `drizzle-kit check`/`generate` would try to drop/recreate all six.
       Suggested fix: Add explicit `name` properties matching the snapshot's long names to the six composite `foreignKey` declarations in schema.ts, and add one forward migration renaming the short-named constraints to the long names (idempotent `ALTER TABLE ... RENAME CONSTRAINT` in a DO block) so migrations, schema.ts, and snapshot all agree.
+      Fix applied: schema.ts composite FKs gain explicit names; snapshot 0074 aligned to match. Correction to the v3 rename direction: no 0042–0073 migration renames these constraints, so the live DB carries the SHORT 0031/0041 names (0028 longs for print_jobs agent/printer) — standardizing schema+snapshot onto the migration names avoids renaming production constraints; verified by grep over all later migrations.
 
-- [ ] **[Severity: Low] Unused `applications` table (dead code)**
+- [x] **[Severity: Low] Unused `applications` table (dead code)**
       File: `src/db/schema.ts:103`
       Issue: Defined but never queried/inserted/referenced anywhere in `src/` (verified by grep — only `schema.ts` mentions it).
       Suggested fix: Remove the export + a `DROP TABLE` migration.
+      Fix applied: export removed; 0074 DROP TABLE IF EXISTS applications (no code or FK references it). ARCHITECTURE schema count corrected 25→24.
 
-- [ ] **[Severity: Low] Missing `onDelete: "cascade"` on ephemeral token tables**
+- [x] **[Severity: Low] Missing `onDelete: "cascade"` on ephemeral token tables**
       File: `src/db/schema.ts:218,230,243`
       Issue: `emailVerificationTokens`, `passwordResetTokens`, `tenantInvitations` reference `users`/`tenants` without cascade; blocks future hard-delete flows and risks orphans.
       Suggested fix: Add `{ onDelete: "cascade" }` + migration.
+      Fix applied: schema references gain onDelete cascade; 0074 drops/re-adds the 4 constraints with ON DELETE CASCADE (guarded DO blocks).
 
 ---
 

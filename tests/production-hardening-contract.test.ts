@@ -113,13 +113,13 @@ describe("production hardening contracts", () => {
     const printersTable = printersBlock.slice(0, printersBlock.indexOf("export const apiKeys"));
     expect(printersTable).toContain("id: text(\"id\").notNull()");
     expect(printersTable).not.toContain("id: text(\"id\").primaryKey()");
-    expect(printersTable).toContain("unique(\"printers_tenant_id_unique\")");
+    expect(printersTable).toContain("primaryKey({ name: \"printers_pkey\"");
 
     const discoveredBlock = schema.slice(schema.indexOf("export const discoveredDevices = pgTable"));
     const discoveredTable = discoveredBlock.slice(0, discoveredBlock.indexOf("export const printJobs"));
     expect(discoveredTable).toContain("id: text(\"id\").notNull()");
     expect(discoveredTable).not.toContain("id: text(\"id\").primaryKey()");
-    expect(discoveredTable).toContain("unique(\"discovered_devices_tenant_id_unique\")");
+    expect(discoveredTable).toContain("primaryKey({ name: \"discovered_devices_pkey\"");
 
     const heartbeat = read("src/app/api/agent/heartbeat/route.ts");
     expect(heartbeat).toContain("onConflictDoNothing({ target: [printers.tenantId, printers.id] })");
