@@ -361,8 +361,13 @@ func (a *Agent) printerCount() int {
 	return len(a.printers)
 }
 
-func (a *Agent) mergeDiscoveredPrinter(di printer.DeviceInfo) (bool, error) {
-	pc := config.PrinterConfig{
+func printerConfigFromDeviceInfo(di printer.DeviceInfo) config.PrinterConfig {
+	// Single authority mapping a discovered/manual DeviceInfo onto the
+	// backend PrinterConfig. Every field the USB backend needs (VID/PID/
+	// serial) and everything the heartbeat reports (capabilities, class)
+	// must survive this translation; dropping fields here silently
+	// degrades direct-USB printers to VID 0/PID 0.
+	return config.PrinterConfig{
 		ID:           di.ID,
 		Name:         di.Name,
 		Type:         di.ConnectionType,
@@ -375,6 +380,10 @@ func (a *Agent) mergeDiscoveredPrinter(di printer.DeviceInfo) (bool, error) {
 		USBSerial:    di.USBSerial,
 		Capabilities: di.Capabilities,
 	}
+}
+
+func (a *Agent) mergeDiscoveredPrinter(di printer.DeviceInfo) (bool, error) {
+	pc := printerConfigFromDeviceInfo(di)
 	p, err := printer.New(pc)
 	if err != nil {
 		return false, err
@@ -593,14 +602,7 @@ func (a *Agent) RegisterManual(info printer.DeviceInfo) error {
 	if _, err := printer.RegisterManual(a.registryPath, info); err != nil {
 		return err
 	}
-	pc := config.PrinterConfig{
-		ID:          info.ID,
-		Name:        info.Name,
-		Type:        info.ConnectionType,
-		Endpoint:    info.Endpoint,
-		Protocol:    info.Protocol,
-		SpoolerName: info.SpoolerName,
-	}
+	pc := printerConfigFromDeviceInfo(info)
 	p, err := printer.New(pc)
 	if err != nil {
 		return err
