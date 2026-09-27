@@ -14,6 +14,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const { id: agentId, discoveryId } = await params;
   const session = await db.query.discoverySessions.findFirst({ where: and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agentId), eq(discoverySessions.tenantId, claims.tenantId)) });
   if (!session) return NextResponse.json({ error: "Discovery not found" }, { status: 404 });
-  const devices = await db.query.discoveredDevices.findMany({ where: and(eq(discoveredDevices.discoveryId, discoveryId), eq(discoveredDevices.tenantId, claims.tenantId)) });
+  // Fence devices by the same agentId as the session: a device row whose
+  // agentId FK disagrees with the session's agent must not leak across the
+  // :id boundary even within one tenant.
+  const devices = await db.query.discoveredDevices.findMany({ where: and(eq(discoveredDevices.discoveryId, discoveryId), eq(discoveredDevices.agentId, agentId), eq(discoveredDevices.tenantId, claims.tenantId)) });
   return NextResponse.json({ session, devices });
 }
