@@ -245,7 +245,7 @@ def test_gateway_queue_does_not_self_deadlock_current_write_transaction():
     assert "with_context(skip_enabled_sync=True).sudo().write(" in invalid_path
     assert '"last_enabled_sync_error": str(exc)[:4000]' in invalid_path
     assert "_persist_enabled_sync_result(" not in invalid_path
-    assert "record.modified(["last_enabled_sync_error"])" in invalid_path
+    assert 'record.modified(["last_enabled_sync_error"])' in invalid_path
 
 
 def test_gateway_config_form_is_setup_only_without_internal_recovery_buttons():
