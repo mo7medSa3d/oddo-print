@@ -532,10 +532,10 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       File: `.github/workflows/ci.yml:144`
       Fix applied: commit `71403d34` — `--break-system-packages` flag added.
 
-- [ ] **[Severity: Critical] CI is RED on `main` — Go dispatch suite + Odoo suite failing**
+- [x] **[Severity: Critical] CI is RED on `main` — Go dispatch suite + Odoo suite failing**
       Runs: CI `36272613988` (failure), Build Windows Installer `36272614002` (failure) on `01745fea`.
-      Issue: (a) ~20 Go `agent/internal/agent` dispatch tests fail in `Agent Phase 0 - Go race tests` (`TestPerPrinterSerialization`, `TestSameJobID*`, `TestDispatch*`, `TestKeepAliveEchoesClaimTokens`, `TestPollJobsDispatchesBoundedBatch`, `TestPanicAfterLocalAdmissionIsPersistedAsUnknown`, `TestPhysicalSuccessWithTerminalLedgerWriteFailureCannotReprint`, …). The suite passed at `d996bad0`; the breakage window is `d996bad0..01745fea` (prime suspects: `f54b2a77` queue/agent changes, `01745fea` `decodeJobFields` relaxation). (b) Odoo `test_04b2_interactive_failover_never_deadlocks` (Connection refused surfacing) and `test_26c_submit_refuses_uncommitted_outbox_without_remote_side_effect` (`post.assert_not_called` — POST performed once) fail in the same runs; Odoo failures have been evolving since `ff40d0b2`.
-      Suggested fix: Root-cause the dispatch admission regression first (likely the optional-`claimToken` relaxation interacting with the claim fence — see §5 `BeginPrint` item), then the Odoo outbox-guard regression. This item is the Part B entry gate: no finding is "done" while CI is red.
+      RESOLVED: full green on `5377be6a` — CI `36293355510`, Build Windows Installer `36293355544`, Docker, Static Security Gates, Security/Resilience all `success` (odoo19 runtime green since `b3a93f5c`). Root causes, in order: strict agent-ID gate without test updates (`ff40d0b2`, fixed by restoring the strict wire contract + realistic payloads in `c7d3cf72`); Odoo outbox/unlink guard regressions (fixed `d1dea448`/`d3793609`/`b3a93f5c`); stale static/unit/integration contracts surfaced layer by layer (`fe19988b`, `baec935b`, `f6a60efe`, `f85e3958`, `f107c3a7`, `00d389c8`, `5377be6a`).
+      (Historical detail of the red state: ~20 Go dispatch tests failed from the admission regression; Odoo 04b2/26c/26d/routing tests failed from outbox-guard bypasses. See PATCH_LOG for the per-fix evidence trail. This item was the Part B entry gate: no finding is "done" while CI is red.)
 
 - [ ] **[Severity: Low] Unpinned pip installs, no cache**
       File: `.github/workflows/ci.yml:144`
