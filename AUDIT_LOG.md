@@ -9,7 +9,7 @@
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 188 | issues high: 0 med: 4 low: 32 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 242 | issues high: 0 med: 4 low: 33 | fixed: 0 | deferred runtime: 0.
 - Note on counting: route/UI batches below re-verify files already line-by-line audited in Part B (AUDIT_FINDINGS.md). Session-4 does NOT re-do that work; it verifies currency (no changes since the fix SHAs), closes deferred follow-ups, and fully re-reads the highest-risk files. Each file still gets its own Status line.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
@@ -577,5 +577,32 @@ Cross-boundary mirrors cited in gateway headers VERIFIED by side-by-side read (a
 ## [agent/internal/printer/outcome.go] — audited 2026-09-27
 - Status: OK. Mirror of `src/lib/job-status.ts` markers VERIFIED: identical 5 markers in identical order, prefix semantics both sides, sentinel message IS the wire marker with an explicit cross-change warning. Contract tests asserted on both sides per comments. No finding.
 - Proposed fix (batch 5): none. Fix applied: n/a.
+
+## Batch 6 — Go agent prod (54 files; 3 done in batch 5) — re-verified 2026-09-27
+Basis: `git log 15ab2bea..HEAD -- agent/` shows only gofmt + the documented CLI-allowlist comment (Part-B items); every §5 fix marker re-confirmed by grep (COALESCE fence `:285-291`, `printerConfigFromDeviceInfo` ×2, `ExecutableDir` fallback, `ErrUseLastResponse`, `mergeDeviceInfo`, 0700 `MkdirAll`, `CreateTemp` atomic saves); `queue.go` fully re-read line-by-line this session. One new drift found (below).
+
+## [agent/internal/queue/queue.go] — READ FULLY — audited 2026-09-27
+- Status: OK. Local ledger invariants intact: WAL + single-writer + 0700 dir; `BeginPrint` transaction (insert-or-ignore → state read → success-never-reopen → same-token-duplicate `ErrAlreadyPrinting` → unknown-failed gate → COALESCE fenced update with `rows==1` assertion); outbox (`PendingTerminalReports`/`ClearClaimToken` post-2xx); `MarkInterrupted` returns only marked (Part-B fix); canonical 5-marker list identical to gateway + `outcome.go` (third copy verified). No finding.
+
+## [agent] NEW FINDING — virtual-token drift
+- [SEVERITY: low] `src/lib/printer-virtual.ts:122` lists `"vmware universal printer"` in `SESSION_REDIRECT_TOKENS`, but `agent/internal/printer/classify_device.go` `sessionRedirectTokens` lacks it (8 vs 9 entries; software-writer lists match 36/36 — verified by count+grep). No live bypass (agent miss would still be caught by the gateway guard at enqueue → 409 PRINTER_VIRTUAL), but the two authorities must agree — the exact drift class tracked by this audit.
+- Proposed fix: add `"vmware universal printer"` to Go `sessionRedirectTokens`.
+- Fix applied: no (queued for the fix pass)
+
+### cmd (5) — Status: OK
+- `cmd/agent/main.go`, `cmd/cli/main.go`, `cmd/cli/cleanup.go`, `cmd/cli/gateway.go`, `cmd/cli/helpers.go` — unchanged since Part B (gofmt + documented list-only-vs-single allowlist only). OK.
+
+### internal/agent (6) — Status: OK
+- `agent.go`, `desired_state.go`, `device_class.go`, `discovery_manager.go`, `heartbeat_pagination.go`, `pairing.go` — Part-B fixes intact (terminalReportMu, RegisterManual shared config, redirect policy, logged coercion); no changes. OK.
+
+### internal/config (7) — Status: OK
+- `config.go`, `paths.go`, `replace_file_posix.go`, `replace_file_windows.go`, `security_other.go`, `security_windows.go` (+`reprint_policy` test-only) — 0700 dirs, CreateTemp saves, QueueDBPath fallback intact; no changes. OK.
+
+### internal/printer (29) — Status: OK except the 1 low above
+- `classify.go`, `classify_device.go`, `discovery.go`, `discovery_other.go`, `discovery_windows.go`, `discovery_extended.go`, `network.go`, `network_discovery.go`, `ipp.go`, `ipp_discovery.go`, `snmp_discovery.go`, `wsd_discovery.go`, `usb_other.go`, `usb_windows.go`, `spooler_stub.go`, `spooler_windows.go`, `pdf.go`, `pdf_other.go`, `pdf_windows.go`, `document.go`, `image.go`, `raster_capability.go`, `registry.go`, `stable_id.go`, `health.go`, `factory.go`, `printer.go`, `peripherals.go` — LPT→spooler, merge-preserve, declared-class propagation, canonical Source vocabulary intact; no changes. OK.
+
+### internal/queue (1 remaining) + storage (7) + testutil (1) — Status: OK
+- `queue/cleanup.go`, `storage/secure.go`, `storage/secure_posix.go`, `storage/secure_windows.go`, `storage/security_other.go`, `storage/security_windows.go`, `storage/replace_file_posix.go`, `storage/replace_file_windows.go`, `testutil/mock_printer.go` — CreateTemp + 0600 + Chmod semantics intact; no changes. OK.
+- Proposed fix (batch 6): the 1 low above. Fix applied: no (queued).
 
 ## Batch 5 — Contract center (4 files) — audited 2026-09-27
