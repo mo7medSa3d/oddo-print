@@ -319,9 +319,10 @@ export async function verifyWorkspaceTokenFromCookieValues(
   customerToken: string | null,
   managerToken: string | null,
 ): Promise<ManagerClaims | null> {
-  // A valid manager session must not be shadowed by an expired/revoked
-  // customer cookie left in the same browser. Prefer the manager session,
-  // but fall back to a valid customer session if manager validation fails.
+  // Keep server-rendered pages consistent with validateWorkspaceManager():
+  // a valid manager session must not be shadowed by an expired/revoked
+  // customer cookie left in the same browser. Only fall through to the
+  // customer session after manager validation fails.
   if (managerToken) {
     const managerClaims = await verifyWorkspaceToken(managerToken);
     if (managerClaims) return managerClaims;
@@ -436,7 +437,9 @@ export async function verifyManagerPassword(username: string, input: string): Pr
     return compareStringsSafe(derived.toString("hex"), hash.toLowerCase());
   }
 
-  if (process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD !== "1" || !expectedPass) return false;
+  const nodeEnv = process.env.NODE_ENV;
+  const plaintextAllowedEnvironment = nodeEnv === "development" || nodeEnv === "test";
+  if (!plaintextAllowedEnvironment || process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD !== "1" || !expectedPass) return false;
   return compareStringsSafe(input, expectedPass);
 }
 
