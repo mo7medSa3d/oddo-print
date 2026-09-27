@@ -142,7 +142,8 @@ suite("refresh-family logout", () => {
         "SELECT revoked_at, revoked_reason FROM refresh_tokens WHERE family_id = $1",
         [familyId],
       );
-      expect(rows.rows.length).toBe(2);
+      // Neither family rotated: exactly the initial row each, both revoked.
+      expect(rows.rows.length).toBe(1);
       expect(rows.rows.every((row) => row.revoked_at !== null && row.revoked_reason === "logout")).toBe(true);
     }
 

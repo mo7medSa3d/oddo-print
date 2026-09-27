@@ -301,7 +301,11 @@ suite("WS claim-before-delivery", () => {
     const row = await jobRow("job_lost_poll");
     expect(row.status).toBe("failed");
     expect(row.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY/);
-    expect(row.claim_token).toBeNull();
+    // The claim token is preserved (not cleared) so the exact attempt can
+    // still reconcile a late success through the fenced failed->success
+    // path; clearing it would orphan the attempt (see the
+    // delivered-but-unknown recovery test below).
+    expect(row.claim_token).toBe(lost.claimToken);
 
     const second = await (await agentJobsGET(agentRequest(f, "GET"))).json();
     expect(second.find((r: any) => r.id === "job_lost_poll")).toBeUndefined();
@@ -314,8 +318,10 @@ suite("WS claim-before-delivery", () => {
     // reclaimable afterwards under a fresh token.
     await insertQueuedJob(f, "job_reject_evidence");
     const claim = await claimJobForDelivery("job_reject_evidence", f.agentId);
-    await realMarkJobDelivered("job_reject_evidence", f.tenantId, f.agentId, claim!.claimToken);
-    await pool().query(`UPDATE print_jobs SET acked_at = now() WHERE id = 'job_reject_evidence'`);
+    // No delivery evidence: the claim was never handed to any transport, so
+    // the pre-execution hand-back is provably safe. (With delivered/acked
+    // evidence the same requeue is refused 409 - pinned by the
+    // "refuses claimed -> queued requeue" concurrency test.)
     const res = await agentJobsPATCH(agentRequest(f, "PATCH", {
       jobId: "job_reject_evidence", status: "queued", reason: "pending_full", claimToken: claim!.claimToken,
     }));
@@ -361,7 +367,9 @@ suite("WS claim-before-delivery", () => {
     const row = await jobRow("job_phantom");
     expect(row.status).toBe("failed");
     expect(row.delivered_at).not.toBeNull();
-    expect(row.claim_token).toBeNull();
+    // The attempt token is preserved for fenced late-success reconciliation,
+    // even though the outcome is terminal-unknown.
+    expect(row.claim_token).not.toBeNull();
     expect(row.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY:/);
     expect(messages.length).toBeGreaterThan(0);
   });
@@ -408,7 +416,9 @@ suite("WS claim-before-delivery", () => {
     expect(row.status).toBe("failed");
     expect(row.delivery_attempts).toBe(1);
     expect(row.delivered_at).not.toBeNull();
-    expect(row.claim_token).toBeNull();
+    // The attempt token is preserved for fenced late-success reconciliation,
+    // even though the outcome is terminal-unknown.
+    expect(row.claim_token).not.toBeNull();
     expect(row.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY:/);
     expect(messages.some((m) => m.job?.id === "job_ws_post_send_ambiguous")).toBe(true);
   });
@@ -483,11 +493,13 @@ suite("WS claim-before-delivery", () => {
     expect(reclaimed).toBeDefined();
     expect(typeof reclaimed.claimToken).toBe("string");
     expect(reclaimed.claimToken).not.toBe(claimA!.claimToken);
-    // The dead attempt reports success -> rejected, and it does not move the job.
+    // The dead attempt reports success -> rejected with the merged fence
+    // code (stale and missing claims share CLAIM_REQUIRED since the fence
+    // hardening), and it does not move the job.
     const stale = await agentJobsPATCH(agentRequest(f, "PATCH", { jobId: "job_fence", status: "printing", claimToken: claimA!.claimToken }));
     expect(stale.status).toBe(409);
     const staleBody = await stale.json();
-    expect(staleBody.code).toBe("STALE_CLAIM");
+    expect(staleBody.code).toBe("CLAIM_REQUIRED");
     expect((await jobRow("job_fence")).status).toBe("claimed");
     // The live attempt proceeds normally.
     expect((await agentJobsPATCH(agentRequest(f, "PATCH", { jobId: "job_fence", status: "printing", claimToken: reclaimed.claimToken }))).status).toBe(200);
@@ -500,6 +512,10 @@ suite("WS claim-before-delivery", () => {
     const claim = await claimJobForDelivery("job_delivery_unknown_late_success", f.agentId, { markDeliveryEvidencePending: true });
     expect(claim?.claimToken).toBeTruthy();
 
+    // Hand the claim to the transport first: without delivery evidence the
+    // late-success gate (rightly) refuses, since the job may never have
+    // reached the agent at all.
+    await realMarkJobDelivered("job_delivery_unknown_late_success", f.tenantId, f.agentId, claim!.claimToken);
     await pool().query(
       `UPDATE print_jobs SET updated_at = now() - interval '2 minutes' WHERE id = 'job_delivery_unknown_late_success'`,
     );
