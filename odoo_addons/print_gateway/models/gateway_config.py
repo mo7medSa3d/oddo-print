@@ -1488,7 +1488,12 @@ class PrintGatewayConfig(models.Model):
             try:
                 gateway_url = record._gateway_base(for_request=True)
                 api_key = record._gateway_api_key_plaintext()
-            except Exception as exc:
+            except ValidationError:
+                # Preserve configuration-validation failures (for example an
+                # HTTP URL on production main) instead of misreporting them as
+                # a credential-decryption problem.
+                raise
+            except (CredentialKeyUnavailable, CredentialDecryptError, ValueError) as exc:
                 raise ValidationError(
                     _("This Gateway configuration cannot be deleted because its Gateway credential is unavailable.")
                 ) from exc
