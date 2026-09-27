@@ -97,7 +97,10 @@ export async function POST(req: Request) {
     return res;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Workspace selection failed";
-    if (message === "Selection token already used") return NextResponse.json({ error: "Workspace selection token has already been used" }, { status: 401 });
+    // Single-use-token replay is a client-state conflict, not an
+    // authentication failure: 409 (mirrors agent/register's consumed-code
+    // response) tells the client to restart selection.
+    if (message === "Selection token already used") return NextResponse.json({ error: "Workspace selection token has already been used" }, { status: 409 });
     if (message === "Workspace not available" || message === "Workspace is suspended or unavailable") return NextResponse.json({ error: message }, { status: 403 });
     logError("tenant_selection_failed", { error: message });
     return NextResponse.json({ error: "Workspace selection failed" }, { status: 500 });
