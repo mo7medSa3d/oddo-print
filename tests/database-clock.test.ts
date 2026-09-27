@@ -154,7 +154,9 @@ describe("clock authority is enforced in the source", () => {
   it("writes tokenless job lease refreshes on the database clock", () => {
     const heartbeat = read("src/app/api/agent/heartbeat/route.ts");
     expect(heartbeat).not.toContain("updatedAt: new Date()");
-    expect(heartbeat).toContain("updatedAt: sql`now()`");
+    // The bulk lease refresh is raw SQL (tuple-IN predicate Drizzle cannot
+    // express), so pin its clock source, not the Drizzle-chained form.
+    expect(heartbeat).toContain("UPDATE print_jobs SET updated_at = now()");
   });
 
   it("keeps authentication and rotation expiry decisions off the host wall clock", () => {

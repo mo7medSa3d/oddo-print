@@ -53,7 +53,10 @@ describe("Odoo addon static contracts", () => {
     const views = read("views/print_job_views.xml");
     expect(jobs).toContain('job.physical_outcome = "unknown"');
     expect(jobs).toContain('("printed", "Physically verified printed")');
-    expect(jobs).toContain('reprint_candidates = self.filtered(lambda row: row.status in ("partial", "unknown"))');
+    // Reprint candidates are partial/unknown outcomes (plus failed rows whose
+    // physical outcome is still unknown) - never transport-level success.
+    expect(jobs).toContain('row.status in ("partial", "unknown")');
+    expect(jobs).toContain('row.physical_outcome == "unknown"');
     expect(views).toContain('invisible="status not in (\'partial\', \'unknown\')"');
     expect(views).toContain("Print status is unknown - the printer may have received part or all of the document");
     expect(views).toContain("Automatic retry is paused to prevent duplicate printing.");

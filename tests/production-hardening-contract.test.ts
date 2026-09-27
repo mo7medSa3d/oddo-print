@@ -44,7 +44,8 @@ describe("production hardening contracts", () => {
     const jobStatus = read("src/lib/job-status.ts");
     expect(jobStatus).toContain('claimed: new Set(["printing", "failed", "queued"])');
     expect(jobStatus).toContain('printing: new Set(["success", "failed"])');
-    expect(route).toContain('if (requestedStatus !== "expired" && job.claimToken && claimToken !== job.claimToken)');
+    expect(route).toContain('if (requestedStatus !== "expired") {');
+    expect(route).toContain('if (!job.claimToken || !claimToken || claimToken !== job.claimToken) {');
     expect(route).toContain('requestedStatus === "expired"');
     expect(route).toContain('fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken)');
     expect(route).toContain('sql`${printJobs.expiresAt} <= now()`');
@@ -326,7 +327,8 @@ describe("production hardening contracts", () => {
 
     const printRoute = read("src/app/api/print/jobs/route.ts");
     expect(printRoute).not.toContain("eq(printJobs.apiKeyId, odoo.id), eq(printJobs.idempotencyKey");
-    expect(printRoute).toContain("eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.idempotencyKey");
+    expect(printRoute).toContain("eq(printJobs.tenantId, odoo.tenantId),");
+    expect(printRoute).toContain("eq(printJobs.idempotencyKey, parsed.data.idempotencyKey),");
     expect(printRoute).toContain("eq(printJobs.tenantId, odoo.tenantId)");
     expect(printRoute).toContain("isNotNull(printJobs.apiKeyId)");
     expect(printRoute).toContain("eq(printJobs.idempotencyKey, parsed.data.idempotencyKey)");

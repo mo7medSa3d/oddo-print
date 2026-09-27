@@ -7,6 +7,7 @@
  */
 export const integrationVitestTestFiles = [
   "tests/control-plane-concurrency.integration.test.ts",
+  "tests/agent-api-bearer.integration.test.ts",
   "tests/agent-deletion.test.ts",
   "tests/agent-health-db.test.ts",
   "tests/agent-lifecycle.integration.test.ts",

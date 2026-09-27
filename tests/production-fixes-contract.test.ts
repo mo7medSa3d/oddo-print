@@ -42,7 +42,7 @@ describe("production fixes contracts (2026-09)", () => {
     const route = read("src/app/api/print/jobs/route.ts");
     const getSection = route.slice(route.indexOf("export async function GET"));
     expect(getSection).toContain("validateOdooKey");
-    expect(getSection).toContain('searchParams.get("id")');
+    expect(getSection).toContain('params.get("id")');
     expect(getSection).toContain("responseForRow(row)");
     expect(getSection).not.toContain("row.payload");
     expect(getSection).not.toContain('json({ payload');
@@ -55,8 +55,11 @@ describe("production fixes contracts (2026-09)", () => {
     expect(normalized).toContain("claimToken");
     // The refresh predicate must bind the lease to the exact live claim…
     expect(normalized).toContain("(id, claim_token) IN");
-    // …and legacy tokenless ids may only touch rows that never got a token.
-    expect(normalized).toContain("isNull(printJobs.claimToken)");
+    // …and legacy tokenless ids are dropped before the refresh (they carry
+    // no proof of current-attempt ownership, so they must remain recoverable
+    // by the stale-claim sweeper instead of extending any claim).
+    expect(normalized).toContain("Tokenless legacy keep-alives are not");
+    expect(normalized).toContain("p.claimToken !== null");
     expect(normalized).toContain("eq(printJobs.agentId, agent.id)");
     expect(normalized).toContain("inArray(printJobs.status, [\"claimed\", \"printing\"])");
     // Lease refresh mutates updatedAt only - never status, never ownership.
