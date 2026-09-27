@@ -149,6 +149,16 @@ func Parse(raw interface{}) (*Payload, error) {
 
 	var periph Peripherals
 	if periphMap, ok := m["peripherals"].(map[string]interface{}); ok {
+		// A present-but-non-string peripheral is a contract violation, not
+		// an absent one: the Gateway's z.enum rejects it, so silently
+		// ignoring it here would print without the requested device action.
+		for _, key := range []string{"drawer", "cutter", "buzzer"} {
+			if v, present := periphMap[key]; present {
+				if _, ok := v.(string); !ok {
+					return nil, fmt.Errorf("invalid %s mode type %T; expected string", key, v)
+				}
+			}
+		}
 		if d, ok := periphMap["drawer"].(string); ok {
 			switch d {
 			case "pin2", "pin5", "none":

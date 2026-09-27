@@ -155,6 +155,24 @@ func TestParsePeripherals(t *testing.T) {
 	}
 }
 
+func TestParsePeripheralsRejectsNonStringValues(t *testing.T) {
+	data := base64.StdEncoding.EncodeToString([]byte("hello"))
+	for _, key := range []string{"drawer", "cutter", "buzzer"} {
+		_, err := Parse(map[string]interface{}{
+			"type":     "raw",
+			"protocol": "escpos",
+			"encoding": "base64",
+			"data":     data,
+			"peripherals": map[string]interface{}{
+				key: 1,
+			},
+		})
+		if err == nil {
+			t.Fatalf("non-string %s must be rejected, not silently ignored", key)
+		}
+	}
+}
+
 func TestGatewayPayloadContractIsTheAgentContract(t *testing.T) {
 	type contract struct {
 		Encoding        string   `json:"encoding"`

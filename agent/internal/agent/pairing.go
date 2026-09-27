@@ -62,7 +62,15 @@ func Register(serverURL, pairingCode, configPath string) error {
 		return fmt.Errorf("encode registration request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		// Never follow redirects on the registration path: a 3xx target
+		// must not receive the pairing code (mirrors the IPP client and
+		// the desktop Rust client, which both disable redirects).
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/agent/register", serverURL), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create registration request: %w", err)
