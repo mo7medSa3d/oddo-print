@@ -42,7 +42,10 @@ export default function TeamPage() {
   }
 
   async function load() {
-    setLoadError(null);
+    // NOTE: no optimistic setLoadError(null) here — this function runs
+    // inside the mount effect, where synchronous setState is a lint error
+    // (cascading renders). Retry buttons clear the error in their own
+    // onClick (event handlers may set state freely).
     try {
       const [membersRes, invitationsRes] = await Promise.all([
         fetch("/api/team/members", { credentials: "include", cache: "no-store" }),
@@ -247,7 +250,7 @@ export default function TeamPage() {
                       <td colSpan={3} className="px-5 py-12">
                         <div className="flex flex-col items-center gap-3 text-center">
                           <span role="alert" className="text-[13px] text-bad">{loadError}</span>
-                          <Button variant="secondary" size="sm" onClick={() => void load()}>Retry</Button>
+                          <Button variant="secondary" size="sm" onClick={() => { setLoadError(null); void load(); }}>Retry</Button>
                         </div>
                       </td>
                     </tr>
@@ -300,7 +303,7 @@ export default function TeamPage() {
               ) : loadError ? (
                 <div className="flex flex-col items-center gap-3 px-5 py-12 text-center">
                   <span role="alert" className="text-[13px] text-bad">{loadError}</span>
-                  <Button variant="secondary" size="sm" onClick={() => void load()}>Retry</Button>
+                  <Button variant="secondary" size="sm" onClick={() => { setLoadError(null); void load(); }}>Retry</Button>
                 </div>
               ) : members.length === 0 ? (
                 <div className="px-5 py-12 text-center text-[13px] text-ink-3">No members yet.</div>
