@@ -47,7 +47,7 @@ Managers can generate an Odoo API key, copy the raw value once, and revoke it. G
 ## Platform plans and entitlements
 
 The Platform Control Plane manages the commercial plan catalog at `/platform/plans`.
-A plan contains the Yasser-side entitlements `max_agents`, `max_printers`, `max_jobs_per_minute`, and `max_concurrent_jobs`.
+A plan contains the Yasser-side entitlements `max_agents`, `max_printers`, `max_jobs_per_minute`, `max_concurrent_jobs`, and `max_prints_per_period`.
 These limits are enforced server-side from the tenant's current subscription plan; they are not UI-only values.
 
 Stripe remains the source of truth for money and recurring billing. Create the Stripe Product/Price in Stripe, then bind its `price_...` (and optional `prod_...`) ID to the Yasser plan. Gateway validates that the Price is recurring and matches the plan currency/interval before a plan can become billable. Existing subscriptions continue using their current Stripe subscription price even when the plan's current price reference is changed for future checkout.

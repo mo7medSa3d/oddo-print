@@ -50,8 +50,10 @@ is queued. An explicitly configured `supported_protocols` list is never overwrit
 * without a declared list the transport decides: `pdf` requires a spooler or IPP/IPPS
   printer and is refused for raw-TCP/USB devices; `raw`/`escpos` are accepted by byte-stream transports (RAW TCP, ESC/POS, and spooler RAW mode), not by IPP/IPPS.
 
-A mismatch is `CAPABILITY_MISMATCH` → HTTP **422** at job creation, and the routing layer
-tries the next binding by priority before giving up.
+A mismatch is `CAPABILITY_MISMATCH` → HTTP **422** at job creation, and it is
+terminal: neither the Gateway nor the Odoo submit path retries the next
+binding (Odoo terminalizes 400/403/404/409/422 as `failed`). Fix the binding's
+protocol/transport instead of resubmitting.
 
 **Agent** (`processJob` in `agent/internal/agent/agent.go`): re-checks `SupportsKind`
 before anything is written anywhere and fails the job with
@@ -230,7 +232,9 @@ Other CLI verbs: `printers list`, `printers discover`, `printers test <id>`,
   heartbeat reachability (`latencyMs` is always `null`; the gateway cannot dial the LAN and
   a live agent probe is not implemented).
 * `POST /api/printers/:id/test-print` — **a real job** through the normal pipeline
-  (`queued → claimed → delivery → printing → success|failed`), using an ESC/POS test payload.
+  (`queued → claimed → delivery → printing → success|failed`), using a test ticket
+  built in the language the printer declares (ESC/POS, ZPL, TSPL, raw, or a minimal
+  PDF for spooler/IPP transports) — see §10 below, not ESC/POS-only.
 
 ## 10. Success semantics (honest)
 

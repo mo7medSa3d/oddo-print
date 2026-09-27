@@ -34,7 +34,8 @@ Odoo 19 ────────────────────────
 | `print_gateway.intent` | Durable outbox for asynchronous dispatch |
 | `print_gateway.print_job` | Odoo-side job tracking |
 | `print_gateway.runtime_agent_assignment` | Branch → Agent mapping |
-| `print_gateway.crypto` | Cryptographic utilities |
+| `print_gateway.pair_agent_wizard` | Guided Gateway agent pairing flow |
+| _`print_gateway.crypto`_ | AES-GCM utility module (not a model) |
 
 ## Report Interception (2 Layers)
 
@@ -104,10 +105,15 @@ Root Company
 Policies fire on business events (e.g., `pos_order_paid`) and create durable intents that are dispatched asynchronously:
 
 ```python
+# Branch-aware lookup: root company + branch scope (see
+# print_policy.resolve_for_record), not the bare order company.
+root_company = order.company_id.parent_id or order.company_id
+branch = order.company_id if order.company_id.parent_id else False
 policies = policy_model.search([
     ("model_id.model", "=", "pos.order"),
     ("event_type", "=", "pos_order_paid"),
-    ("company_id", "=", order.company_id.id),
+    ("company_id", "=", root_company.id),
+    ("branch_id", "in", [False, branch.id] if branch else [False]),
     ("active", "=", True),
 ])
 ```
