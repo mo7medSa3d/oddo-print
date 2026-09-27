@@ -18,7 +18,9 @@ const patchSchema = z.object({ lifecycle: z.enum(["active", "disabled", "retired
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const claims = await validateWorkspaceManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(claims, "agents.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  // Same coded ActionError shape as PATCH so clients parse one
+  // authorization-failure contract across the route.
+  try { requireManagerPermission(claims, "agents.read"); } catch { const e = new ActionError("Forbidden", 403, "FORBIDDEN"); return NextResponse.json({ error: e.message, code: e.code, ...(e.details ?? {}) }, { status: e.status }); }
   const { id } = await params;
   const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, id), eq(agents.tenantId, claims.tenantId)) });
   if (!agent) return NextResponse.json({ error: "Not found" }, { status: 404 });

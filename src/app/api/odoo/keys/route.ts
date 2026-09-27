@@ -32,7 +32,9 @@ function pgErrorCode(error: unknown): string | null {
 export async function GET(req: Request) {
   const manager = await validateWorkspaceManager(req);
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(manager, "integrations.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  // Same coded ActionError shape as POST/DELETE so clients parse one
+  // authorization-failure contract across the route.
+  try { requireManagerPermission(manager, "integrations.read"); } catch { const e = new ActionError("Forbidden", 403, "FORBIDDEN"); return NextResponse.json({ error: e.message, code: e.code, ...(e.details ?? {}) }, { status: e.status }); }
   // Intentionally uncapped: the list page has no pagination and revoked keys
   // must remain visible (they cannot be removed while referenced by jobs), so
   // a limit would silently hide credentials. The table is low-cardinality and
