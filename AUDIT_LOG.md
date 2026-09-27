@@ -9,7 +9,7 @@
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 66 | issues high: 0 med: 4 low: 32 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 70 | issues high: 0 med: 4 low: 32 | fixed: 0 | deferred runtime: 0.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
 - Confirmed repo `mo7medSa3d/oddo-print`, branch `main` via `gh repo view` + `git remote -v`; `gh auth status` OK.
@@ -478,5 +478,29 @@
 ## [gateway/src/lib/action-error.ts] — audited 2026-09-27
 - Status: OK
 - Findings: none. Trivial client-safe error carrier (status/code/details), correctly housed outside the `"use server"` module. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/runtime-secret.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. `*_FILE`-first then env fallback (Docker secrets convention), trimmed, empty→undefined, `requiredRuntimeSecret` fail-fast. Read fully in batch 1; consistent usage verified across `server.ts`, `email.ts`, auth modules. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/trust-proxy-config.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. 3-line single predicate (`TRUST_PROXY` is `"1"`/`"true"`); sole authority imported by both HTTP and WS trust paths. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/request-limits.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Strict decimal Content-Length parse (rejects arrays/non-digits/unsafe integers); `clampListLimit` floors at 1 (prior negative-limit fix confirmed — Postgres rejects `LIMIT -5`); `hasBodyOverLimit` fail-closed on unparsable length. No finding.
+- Proposed fix: none
+- Fix applied: n/a (fixed pre-session: see AUDIT_FINDINGS.md §1)
+
+## [gateway/src/lib/ws-rate-limit.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. DB-backed WS-upgrade limiter (20 failures/60s window/60s lock, `FOR UPDATE` serialization, DB-clock authority, success-clears-budget, reservation-allowed-with-`retryAfterSec` contract consumed correctly by `ws.ts`). Canonical `parseDbTimeMs` import (Part-B consolidation). No finding.
 - Proposed fix: none
 - Fix applied: n/a
