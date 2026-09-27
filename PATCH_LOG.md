@@ -4089,3 +4089,98 @@ All interconnected pieces behave as intended. Phase 5 is fully verified.
 - **Verification:** no TS syntax diagnostics on the changed files; Python/security/Odoo suite `132 passed`.
 - **Remaining limitation:** Full Vitest execution still requires repository npm dependencies.
 
+
+# Part B — audit-findings remediation (2026-09-27)
+
+All fixes below implement AUDIT_FINDINGS.md v2/v3 items. Small focused commits, one concern each; every behavior change is flagged. Batch-1 fixes (through ee13b64f) were proven by CI 36301807308, Windows 36301807309, Static 36301807327, Resilience 36301807343, Docker 36301807314 (all success). Batch-2 fixes were proven by CI 36313242838, Windows 36313242832, Static 36313242812, Resilience 36313242841, Docker 36313242798 (all success on 24cc9bf9, which contains every code change in this log).
+## 2026-09-27 — Part B batch 1: auth throttle + list-limit clamp (0d7da21e, ebc0cb05)
+- Problem: password-reset and email-verification token consumption had no rate limit (unlimited token guessing); three list routes passed negative `limit` to Drizzle (LIMIT -5 → 500).
+- Evidence: `src/app/api/auth/reset-password/route.ts` / `verify-email/route.ts` had no `reserveAuthAttempt` (unlike forgot-password/login); `Math.min(parseInt(...)||50,200)` in jobs/agents/printers routes.
+- Fix: IP-scoped `reserveAuthAttempt` + 429/Retry-After on both token routes (budget cleared only on completed reset/verification); shared `clampListLimit()` helper (1..max) used by jobs/agents/printers/platform-tenants routes.
+- Verification: CI 36301807308 + Windows 36301807309 success on ee13b64f (contains both).
+
+## 2026-09-27 — Agent dispatch wire-contract saga (599c86c1 → c7d3cf72)
+- Problem: ff40d0b2 strict agentId gating rejected every tokenless test delivery (~20 dispatch tests admitted zero jobs); then 01745fea over-relaxed decodeJobFields, breaking the malformed-field tests.
+- Evidence: CI 36272613988 Go race failures (0 prints/attempts, 5–10s timeouts); then TestDispatchRejectsMalformedJobFields etc. failed.
+- Fix: restored the strict claimed-delivery contract (agentId/status/claimToken required, status==claimed) and updated all dispatch/processJob test payloads + dispatchTestJob helper to send the realistic Gateway wire shape (CLAIM_RETURNING/buildJobEnvelope always carry the three fields).
+- Verification: Go race green on 36298390613 and CI 36301807308.
+
+## 2026-09-27 — Odoo outbox/unlink guard repair (d1dea448, d3793609, b3a93f5c) + static pins (fe19988b)
+- Problem: test-mode cursor bypasses neutered fail-closed guards (04b2 silent exits, timeout-unknown serialization failure, 26d dependency check skipped, 26c pre-commit guard bypassed); `_mark_gateway_job_missing` treated reconcilable unknown as final + NULL-vs-False id mismatch.
+- Evidence: CI odoo19 failures test_04b2 (TypeError on claim_token kwarg), test_26c (POST performed), test_26d, ambiguous-404, timeout-unknown.
+- Fix: committed rows take the durable dedicated-cursor path even in tests (invalidate via env cache, no flush); unlink dependency checks run before the test early-return; lease match tolerates NULL durable claim in tests; mock returns True; unknown excluded from terminal guard with coerced id comparison. No production fail-closed behavior weakened.
+- Verification: odoo19 job success on 36298390613 and 36301807308 runs.
+
+## 2026-09-27 — print_intent with_context correction (ab4fb9a3 → 729d2f29)
+- Problem: audit suggested `with_context()` for the company switch; CI proved `Environment` has no `with_context` (Model-only) — AttributeError stranded branch recovery intents.
+- Evidence: CI 36297521944 log: `'Environment' object has no attribute 'with_context'`, test_06b 0 submit calls.
+- Fix: reverted to `__call__(context=...)` (the working env-level API, proven by pre-change green runs) with a comment recording why; updated the kitchen static pin to gatewayUuid.
+- Verification: odoo19 success on subsequent runs.
+
+## 2026-09-27 — Agent hardening batch (e984d728, bab7848c, 16b7c58e, 7fdb5af7, 68ab1525, b87c4975)
+- Problem: BeginPrint cleared the claim fence on tokenless redelivery; RegisterManual dropped USB/capability fields; QueueDBPath split-brain; 0755 secret dirs; fixed .tmp collisions; pairing followed redirects; non-string peripherals ignored; UpsertRegistry lossy replace; LPT→local unconstructible; discoverFromConfig hardcoded unknown; dead DiscoveryCandidate/NormalizedConnectionTypeStrict; Source* consts unused.
+- Fix: COALESCE fence preservation + regression test; shared printerConfigFromDeviceInfo; exe-dir fallback; 0700; CreateTemp; ErrUseLastResponse; peripheral type errors + test; merge + incoming-wins display fields + preservation test; LPT→spooler; declared class propagation; const usage; dead code deletion.
+- Verification: Go build/vet/race + U1000 green on CI 36301807308 / Windows 36301807309. Note: the merge initially broke TestRegistryMergeDedup (rename expectation) — fixed same batch (b87c4975).
+
+## 2026-09-27 — Tauri batch (6dd1c74c)
+- Problem: read_background_record dropped whole record on one bad line; unreachable host/cookie filter; epoch timestamps.
+- Fix: skip malformed lines; delete dead check; std-only ISO-8601 UTC civil conversion + unit test (no new dependency).
+- Verification: Windows 36301807309 success (cargo check/test run there).
+
+## 2026-09-27 — Gateway logging (11a0bb82, d45024fd)
+- Problem: console.error in billing-operation + WS upgrade path; interpolated WS event names.
+- Fix: logError/logWarn with static events + fields (ws.job_send_ambiguous, ws.job_ack_no_live_claim, ws.job_cross_instance_delivery_failed, billing.operation.*).
+- Verification: CI 36301807308 (unit) + static pin update for the ws import line.
+
+## 2026-09-27 — Odoo batch (ab4fb9a3)
+- Problem: binding image gate rejected valid ESC/POS raster; printer filter fell back to rejected classes; bare randomUUID on HTTP LAN; dual Sale Details paths undocumented; unlink message suggested impossible job removal.
+- Fix: escpos allowed for raster_jpeg (BEHAVIOR CHANGE: explicitly-bound ESC/POS image jobs now accepted); empty filter stays empty; gatewayUuid fallback; dual-binding notes; archival message.
+- Verification: odoo19 success 36301807308.
+
+## 2026-09-27 — Docs batch (3cf36524)
+- Problem: stale Next.js version, broken npm ci --production build order, env-var Caddy example, crypto-as-model, branch-scope snippet, 422 retry myth, ESC/POS-only test-print, missing entitlement.
+- Fix: all corrected against code (see commit).
+- Verification: static contract tests green on CI 36301807308.
+
+## 2026-09-27 — API shapes/dead imports/invite fence (8e1fc1b9, a1423c9d, afcb5a76, 0db704d4, dedb1955, 14706ddc, 2fe01934)
+- Problem: discovery devices missing agentId fence; settings 403-for-no-auth; 3 coded-vs-bare Forbidden splits; probe shape splits; 3 dead imports; invite accept unthrottled; webhook 401 suggestion; select-tenant 401.
+- Evidence: per-route reads; webhook 401 attempt (afcb5a76) contradicted the pinned 400 integration contract — reverted in 2fe01934 with deliberate-design comment (Stripe convention, HMAC gains nothing from 401).
+- Fix: fence added; 401/403 split; coded ActionError shape standardized; probe 401 bodies standardized (clients key off status); dead imports deleted; invite accept throttled + body limit; select-tenant 409.
+- Verification: CI 36313242838 + Windows 36313242832 success on 24cc9bf9 (contains the fix).
+
+## 2026-09-27 — Health warn-cap + dashboard errors (ee13b64f)
+- Problem: system-health overall permanently unknown (unverified externals forced unknown); dashboard swallowed job-query failures; live Error objects in log fields.
+- Fix (BEHAVIOR CHANGE): externals cap overall at WARN, never OK; error panel + retry; dotted events + string messages; release-readiness text updated.
+- Verification: CI 36301807308 + Windows 36301807309.
+
+## 2026-09-27 — Dead exports + shared impls (6db07659, 1d5712ce, 5018f39a, c9a15558)
+- Problem: dead session-token/guard/WS/lifecycle exports; parseDbTimeMs ×4; stale threshold ×5; future timestamps read as fresh; tenant-guard fallthrough.
+- Fix: deletions; canonical parseDbTimeMs in database-clock; dependency-free stale-threshold module (client-bundle safety) re-exported by agent-availability; age<0 → OFFLINE/error; strict !== active.
+- Verification: CI 36313242838 + Windows 36313242832 success on 24cc9bf9 (contains the fix).
+
+## 2026-09-27 — UI/contracts batch (4ac93334, b2b324b0, a6db39b9)
+- Problem: TTL literal dup; CORS preflight gaps; LIKE wildcards; humanType dead branches; team fetch dup; ipc dead stub; overview badge invented languages; AddPrinterDialog stale cache + narrow proto select; page auth manager-only; capability taxonomy re-declared; allowlist drift; re-export binding for local use (TS2552 on cae6cf89 CI+Docker).
+- Fix: const import; headers extended; literal ESCAPE SQL; device_class read; load() reuse; stub deleted with auth-flow comment; protocol-derived badges ('Unknown' fallback); gateway-keyed cache; zpl/tspl options; workspace+agents.read gates; import-type derivation + derived BYTE_PROTOCOLS; deliberate-scoping comments; import-then-re-export.
+- Verification: CI 36313242838 + Windows 36313242832 success on 24cc9bf9 (contains the fix). Note: actions LIKE intermediate form interpolated ESCAPE as a binding (would have been LIKE $1 $2) — corrected to literal SQL before commit.
+
+## 2026-09-27 — DB 0074 saga (e73bb9f6, 5d955c10, 0791806e, 692c40ab, d70cf821)
+- Problem: audit asked for composite PKs on printers/discovered_devices.
+- Evidence: first attempt collided with the CI release gate, which explicitly forbids printers_pkey/discovered_devices_pkey and requires printers_tenant_id_unique (UNIQUE boundary is deliberate; UNIQUE NOT NULL supports future REPLICA IDENTITY).
+- Fix: PK half reverted and closed as documented-deliberate; 0074_token_cascade_cleanup ships token cascades + applications drop + migration-name FK alignment in schema/snapshot (delta verified table-by-table); docs 75 migrations/24 tables; schema-version pin 74.
+- Verification: CI 36313242838 success on 24cc9bf9: migrations applied cleanly including 0074.
+
+## 2026-09-27 — CI config (cae6cf89)
+- Problem: unpinned pip installs; odoo19 on PG15 vs prod PG16.
+- Fix: pytest==9.1.1 pytest-asyncio==1.4.0 (versions CI installs today, from logs); odoo19 service uses the exact digest-pinned PG16 image (copied verbatim).
+- Verification: CI 36313242838 + Windows 36313242832 success on 24cc9bf9.
+
+## 2026-09-27 — Shared-vocabulary regression pins (e563a138)
+- Problem: consistency pass found no runtime test pinning the single-authority derivations.
+- Fix: tests/shared-vocabulary.contract.test.ts pins stale-threshold purity, capability import-type derivation, routing derivation, re-export stability, and UI import hygiene.
+- Verification: CI 36313242838 + Windows 36313242832 success on 24cc9bf9.
+
+## 2026-09-27 — Part B close-out
+- Every AUDIT_FINDINGS.md item is checked off or closed as documented-deliberate with written reasoning; zero open boxes (`grep -c '^- \[ \]'` returns 0).
+- Two findings were corrected mid-flight with evidence: the print_intent `with_context` suggestion (AttributeError on Odoo 19 — reverted) and the composite-PK suggestion (collides with the CI release gate — reverted, documented).
+- One external `git reset --hard` (10:27 +0300, outside these turns) wiped uncommitted work once; all committed history survived and the batch was reconstructed with per-group local commits. No data was lost.
+- Final proof is the green run on the tip commit containing this log (markdown-only delta over 24cc9bf9): see final message for SHA + run URL.
