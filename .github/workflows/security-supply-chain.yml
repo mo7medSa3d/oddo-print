@@ -2,7 +2,7 @@ name: Security and Resilience Gates
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, test/http-server-ready]
   merge_group:
   push:
     branches: [main]
