@@ -145,7 +145,11 @@ func Ensure(path string) error {
 	if dir == "" {
 		dir = "."
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	// 0700 from the start: the directory holds pairing secrets and the
+	// ACL hardening below only tightens afterwards, so a 0755 transient
+	// would leave a world-readable window (every other secrets path in
+	// storage/registry/queue already uses 0700 directly).
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create config dir %s: %w", dir, err)
 	}
 	if err := EnsureSecureDirectoryACL(dir); err != nil {
@@ -183,7 +187,9 @@ func (c *Config) Save(path string) error {
 			dir = d
 		}
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	// 0700 from the start (see Ensure above): never a world-readable window
+	// for the config/secret directory, even transiently.
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create config dir %s: %w", dir, err)
 	}
 	if err := EnsureSecureDirectoryACL(dir); err != nil {
@@ -203,11 +209,19 @@ func (c *Config) Save(path string) error {
 		return fmt.Errorf("encode config %s: %w", path, err)
 	}
 
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	tmpFile, err := os.CreateTemp(filepath.Dir(path), ".config-*.tmp")
 	if err != nil {
-		return fmt.Errorf("create temp config %s: %w", tmp, err)
+		return fmt.Errorf("create temp config for %s: %w", path, err)
 	}
+	tmp := tmpFile.Name()
+	// CreateTemp is 0600; re-assert explicitly since this file carries the
+	// (sealed) agent secret material alongside the config body.
+	if err := tmpFile.Chmod(0600); err != nil {
+		tmpFile.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("secure temp config %s: %w", tmp, err)
+	}
+	f := tmpFile
 	if _, err := f.Write(data); err != nil {
 		f.Close()
 		return fmt.Errorf("write temp config %s: %w", tmp, err)
@@ -357,20 +371,6 @@ func (p PrinterConfig) NormalizedProtocolOrUnknown() string {
 		return "unknown"
 	}
 	return proto
-}
-
-// NormalizedConnectionTypeStrict returns the declared connection type
-// WITHOUT inventing one for the empty case.
-func (p PrinterConfig) NormalizedConnectionTypeStrict() string {
-	t := p.ConnectionType
-	if t == "" {
-		t = p.Type
-	}
-	t = strings.ToLower(strings.TrimSpace(t))
-	if t == "tcp" {
-		return "network"
-	}
-	return t
 }
 
 func (p PrinterConfig) IsEnabled() bool {

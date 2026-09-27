@@ -16,7 +16,15 @@ func RegistryPath(configPath string) string {
 }
 
 // QueueDBPath returns the local durable print-queue database path associated
-// with the agent configuration file.
+// with the agent configuration file. Like RegistryPath, a bare filename
+// resolves against the executable directory so the registry and the queue
+// never split across directories.
 func QueueDBPath(configPath string) string {
-	return filepath.Join(filepath.Dir(configPath), "queue.db")
+	dir := filepath.Dir(configPath)
+	if dir == "" || dir == "." {
+		if d, err := ExecutableDir(); err == nil {
+			dir = d
+		}
+	}
+	return filepath.Join(dir, "queue.db")
 }
