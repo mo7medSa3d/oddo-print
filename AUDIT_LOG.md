@@ -9,7 +9,7 @@
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 266 | issues high: 0 med: 4 low: 33 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 335 | issues high: 0 med: 4 low: 33 | fixed: 0 | deferred runtime: 0.
 - Note on counting: route/UI batches below re-verify files already line-by-line audited in Part B (AUDIT_FINDINGS.md). Session-4 does NOT re-do that work; it verifies currency (no changes since the fix SHAs), closes deferred follow-ups, and fully re-reads the highest-risk files. Each file still gets its own Status line.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
@@ -617,5 +617,21 @@ Basis: `git log 15ab2bea..HEAD -- src-tauri src/desktop` shows only the Part-B c
 ### desktop app (17) — Status: OK
 - `main.tsx`, `types.ts`, `ui.tsx`, `lib/ipc.ts`, `lib/printers.ts`, `components/AddPrinterDialog.tsx`, `components/AdminPrivilegeDialog.tsx`, `components/EditPrinterDialog.tsx`, `components/JobTimeline.tsx`, `components/Sidebar.tsx`, `pages/Agents.tsx`, `pages/Jobs.tsx`, `pages/Overview.tsx`, `pages/Printers.tsx`, `pages/Settings.tsx`, `preview/main.ts`, `preview/mock-tauri.ts` — Part-B fixes intact (ipc stub deletion, device_class badges, gateway-keyed agent cache, zpl/tspl options, protocol-derived Overview badges). OK.
 - Proposed fix (batch 7): none. Fix applied: n/a (pre-session).
+
+## Batch 8 — Odoo addon (69 files) — re-verified 2026-09-27
+Basis: Part-B §7 + PATCH_LOG-documented post-tip commits; substance re-confirmed by grep this session (HTTPS-only `:249`, unlink archival guard `:1433`, `renderReceiptImage` export `pos_print_router.js:50`). No new issues.
+
+### models (14) + runtime_clock + __init__ — Status: OK
+- `print_intent`, `print_job`, `print_router`, `print_policy`, `binding`, `runtime_assignment`, `gateway_config`, `crypto`, `account_move`, `pos_order`, `pos_session`, `stock_picking`, `ir_actions_report` — `__call__(context=)` env API (reverted `with_context`, Part-B), `res_ids` real IDs, expired/status mapping documented, escpos-raster parity, archival unlink, HTTPS-only production. OK.
+
+### controllers (3) + views/security/data XML (10) — Status: OK
+- `pos.py`, `runtime_printers.py`, 7 views, `ir.model.access.csv`, `security.xml`, `cron.xml` — dual-binding notes, job-immortal access rules intact. OK.
+
+### static JS/SCSS (10) — Status: OK
+- `pos_print_router.js`, `pos_sale_details_router.js`, `report_interceptor.js`, `gateway_limit_dialog.js`, `gateway_config_auto_sync.js`, `runtime_agent_field.js`, `runtime_printer_field.js`, `binding_cascade_tour.js`, 2 SCSS — `fallbackUuid`, empty-filter-stays-empty, `renderReceiptImage` export intact. OK.
+
+### migrations (17 py) + tests (8) — Status: OK
+- 9 version dirs (1.1.0 → 19.0.2.10.0) + 7 contract tests — NEEDS RUNTIME VERIFICATION for live Odoo behavior (per constraints, static only); contract pins intact. OK (static).
+- Proposed fix (batch 8): none. Fix applied: n/a (pre-session, NEEDS RUNTIME VERIFICATION for live-Odoo paths).
 
 ## Batch 5 — Contract center (4 files) — audited 2026-09-27
