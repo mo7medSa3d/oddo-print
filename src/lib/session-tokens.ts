@@ -2,7 +2,6 @@ import { db } from "../db";
 import { refreshTokens, tenantUsers, tenants, users } from "../db/schema";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { and, eq, sql } from "drizzle-orm";
-import { databaseNowMs } from "./database-clock";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { sessionCookieSecure } from "./session-config";
 import { sendTransactionalEmail } from "./email";
@@ -198,27 +197,6 @@ export function verifyAccessTokenSignature(
   if (!claims) return null;
   const allowed = Array.isArray(expectedKinds) ? expectedKinds : [expectedKinds];
   return allowed.includes(claims.kind) ? claims : null;
-}
-
-export async function verifyAccessToken(
-  token: string,
-  expectedKinds: SessionKind | readonly SessionKind[],
-): Promise<SharedSessionClaims | null> {
-  const claims = verifySignatureShape(token);
-  if (!claims) return null;
-
-  const allowed = Array.isArray(expectedKinds) ? expectedKinds : [expectedKinds];
-  if (!allowed.includes(claims.kind)) return null;
-
-  let nowMs: number;
-  try {
-    nowMs = await databaseNowMs();
-  } catch {
-    return null;
-  }
-  const nowSec = Math.floor(nowMs / 1000);
-  if (claims.exp <= nowSec || claims.iat > nowSec + 60) return null;
-  return claims;
 }
 
 function normalizeContext(context?: SessionRequestContext): SessionRequestContext {
@@ -535,10 +513,6 @@ export function clearRefreshCookieHeader(kind: SessionKind): string {
   return `${config.refreshCookieName}=; Path=${config.refreshCookiePath}; HttpOnly; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0`;
 }
 
-export function sessionKindFromClaims(claims: SharedSessionClaims): SessionKind {
-  return claims.kind;
-}
-
 export async function rotateRefreshToken(
   kind: SessionKind,
   token: string,
@@ -802,12 +776,4 @@ export async function cleanupExpiredRefreshTokens(): Promise<number> {
     RETURNING id
   `);
   return result.rows.length;
-}
-
-export function getRefreshCookieName(kind: SessionKind): string {
-  return configFor(kind).refreshCookieName;
-}
-
-export function getAccessCookieName(kind: SessionKind): string {
-  return configFor(kind).accessCookieName;
 }

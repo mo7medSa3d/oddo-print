@@ -283,24 +283,6 @@ export function closeTenantSockets(tenantId: string): void {
   }
 }
 
-export async function publishAgentSessionClose(agentId: string): Promise<void> {
-  const client = await pool.connect();
-  try {
-    await client.query("SELECT pg_notify($1, $2)", [PG_SESSIONS_CHANNEL, JSON.stringify({ agentId })]);
-  } finally {
-    try { client.release(); } catch (error) { logDebug("[ws] pool client release failed", { error: error instanceof Error ? error.message : String(error) }); }
-  }
-}
-
-export async function publishTenantSessionClose(tenantId: string): Promise<void> {
-  const client = await pool.connect();
-  try {
-    await client.query("SELECT pg_notify($1, $2)", [PG_SESSIONS_CHANNEL, JSON.stringify({ tenantId })]);
-  } finally {
-    try { client.release(); } catch (error) { logDebug("[ws] pool client release failed", { error: error instanceof Error ? error.message : String(error) }); }
-  }
-}
-
 function websocketClientKey(req: IncomingMessage): string {
   if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
     const forwarded = req.headers["x-forwarded-for"];

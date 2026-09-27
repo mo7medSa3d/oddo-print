@@ -1,38 +1,13 @@
 import { db } from "../db";
 import { performance } from "node:perf_hooks";
 import { sql } from "drizzle-orm";
+import { parseDbTimeMs } from "./database-clock";
 
 const WINDOW_MS = 60_000;
 const MAX_FAILURES = 20;
 const LOCK_MS = 60_000;
 
-/**
- * Raw `db.execute()` rows surface naive UTC timestamp strings while typed
- * drizzle rows surface Date; normalize either to epoch ms without host-TZ skew.
- */
-function parseDbTimeMs(value: Date | string | null | undefined): number | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value.getTime();
-  const text = value.trim();
-  if (!text) return null;
-  let iso = text.replace(" ", "T");
-  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
-    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
-  }
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : ms;
-}
-
 const localLockedUntil = new Map<string, number>();
-
-export function isWsUpgradeLocallyLocked(key: string, now = performance.now()): boolean {
-  const until = localLockedUntil.get(key) ?? 0;
-  if (until <= now) {
-    localLockedUntil.delete(key);
-    return false;
-  }
-  return true;
-}
 
 export async function recordWsUpgradeSuccess(key: string): Promise<void> {
   localLockedUntil.delete(key);

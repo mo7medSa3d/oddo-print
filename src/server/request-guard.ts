@@ -228,14 +228,6 @@ export function getReservedRequestBytes(): number {
   return reservedAuthBytes + reservedUnauthBytes;
 }
 
-export function getReservedAuthBytes(): number {
-  return reservedAuthBytes;
-}
-
-export function getReservedUnauthBytes(): number {
-  return reservedUnauthBytes;
-}
-
 /** Payload-bearing endpoints whose bodies reserve the concurrency budget. */
 function isPayloadBearingEndpoint(url: string | undefined): boolean {
   if (!url) return false;
