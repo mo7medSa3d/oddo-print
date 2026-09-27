@@ -181,35 +181,41 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       Suggested fix: One shared util in `lib/` (keep `parseEntitlementDate` in `entitlements.ts:299` separate — it is intentionally distinct).
       Fix applied: canonical `parseDbTimeMs` in `src/lib/database-clock.ts`; auth-rate-limit, job-status, ws-rate-limit, and webhook import it (webhook already did).
 
-- [ ] **[Severity: Low] Access TTL literal duplicated instead of constant**
+- [x] **[Severity: Low] Access TTL literal duplicated instead of constant**
       Files: `src/lib/manager-auth.ts:129`, `src/lib/platform-auth.ts:148` vs `src/lib/session-tokens.ts:43`
       Issue: `claims.exp - claims.iat !== 15 * 60` hardcodes what `ACCESS_TOKEN_TTL_SECONDS` already defines (and `:156` uses the constant).
       Suggested fix: Import the constant.
+      Fix applied: manager-auth.ts + platform-auth.ts now import ACCESS_TOKEN_TTL_SECONDS from session-tokens.
 
-- [ ] **[Severity: Low] `managerGatewayHeaders()` dead stub**
+- [x] **[Severity: Low] `managerGatewayHeaders()` dead stub**
       File: `src/desktop/lib/ipc.ts:363`
       Issue: Always returns `{}` yet every `fetchGateway*` awaits and spreads it. Either auth-header injection was never implemented (relying on cookies — then delete the stub) or it is a future seam (then document it).
       Suggested fix: Delete or document with a comment explaining the cookie-based auth.
+      Fix applied: stub deleted; callers pass {} with a comment (cookie auth in browser, bearer injection in Rust proxy).
 
-- [ ] **[Severity: Low] Unescaped `LIKE` wildcards in job search**
+- [x] **[Severity: Low] Unescaped `LIKE` wildcards in job search**
       File: `src/app/actions.ts:371`
       Issue: `%${search}%` is parameterized but `%`/`_`/`\` in user input stay active, while `print-job-service.ts:158` carefully escapes reprint `LIKE`.
       Suggested fix: Escape `\%\_` with `ESCAPE '\\'`.
+      Fix applied: term escaped with literal ESCAPE-SQL (an interpolated binding would parameterize into a syntax error).
 
-- [ ] **[Severity: Low] CORS allowlist omits headers the app uses**
+- [x] **[Severity: Low] CORS allowlist omits headers the app uses**
       File: `src/server/cors.ts:5`
       Issue: `ALLOWED_HEADERS` lacks `Idempotency-Key` (sent at `dashboard-client.tsx:267`), `X-Refresh-Token` (read at `session-tokens.ts:510`), `X-Request-Id`. Currently low-impact (same-origin dashboard needs no preflight; desktop stub sends no custom headers) but will break browser/preview clients that send them.
       Suggested fix: Extend `ALLOWED_HEADERS`.
+      Fix applied: ALLOWED_HEADERS gains Idempotency-Key, X-Refresh-Token, X-Request-Id with rationale comment.
 
-- [ ] **[Severity: Low] `humanType` reads `printer_type` as a device class**
+- [x] **[Severity: Low] `humanType` reads `printer_type` as a device class**
       File: `src/desktop/lib/printers.ts:79-87`
       Issue: Gateway `printerType` is `physical/virtual/redirected`; `thermal/label/laser` live in `device_class`. The `thermal/label/laser/inkjet` branches are dead code that misleads readers.
       Suggested fix: Read `device_class`/`deviceClass`.
+      Fix applied: humanType reads device_class/deviceClass (both casings in PrinterInfo); printer_type branches were dead.
 
-- [ ] **[Severity: Low] `load()` duplicates the `useEffect` fetch block**
+- [x] **[Severity: Low] `load()` duplicates the `useEffect` fetch block**
       File: `src/app/team/page.tsx:44-96`
       Issue: `load()` and the mount `useEffect` contain the same fetch block verbatim.
       Suggested fix: `useEffect` calls `load()`.
+      Fix applied: mount effect calls load(); React 18 needs no is-mounted guard (exhaustive-deps off in eslint config).
 
 ---
 
