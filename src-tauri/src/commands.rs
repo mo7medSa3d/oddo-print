@@ -535,6 +535,10 @@ fn valid_jobs_query(path: &str) -> bool {
 fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
     let method = method.to_ascii_uppercase();
     match method.as_str() {
+        // Deliberately narrower than the Go CLI allowlist
+        // (gatewayAgentPathRe also permits /api/agents/<id>): the desktop
+        // console proxy exposes only the agent list, while the operator CLI
+        // needs single-agent fetch for diagnostics. Both are read-only.
         "GET" => path == "/api/printers" || valid_jobs_query(path) || path == "/api/agents",
         "POST" => path == "/api/printers"
             || gateway_printer_action_path(path, "test-connection")

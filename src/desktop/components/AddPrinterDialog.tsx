@@ -38,6 +38,10 @@ export function AddPrinterDialog({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [agents, setAgents] = useState<Array<{ id: string; name: string; status?: string; lifecycle?: string }>>([]);
+  // Which gateway URL the cached agents were fetched from. The cache must
+  // be keyed by URL: reusing gateway A's agents after switching to gateway
+  // B would register the printer against an agentId B never issued.
+  const [agentsForUrl, setAgentsForUrl] = useState("");
   const [agentId, setAgentId] = useState("");
   const [upgradeLimit, setUpgradeLimit] = useState<{
     resource: UpgradeLimitResource;
@@ -46,16 +50,20 @@ export function AddPrinterDialog({
   } | null>(null);
 
   const loadAgents = useCallback(async () => {
-    if (!gatewayUrl || agents.length > 0) return;
+    if (!gatewayUrl || agentsForUrl === gatewayUrl) return;
     try {
       const rows = await fetchGatewayAgents(gatewayUrl);
       setAgents(rows);
+      setAgentsForUrl(gatewayUrl);
       const active = rows.find((row) => row.lifecycle === "active");
-      if (active) setAgentId((current) => current || active.id);
+      // Keep the selection only if it exists on THIS gateway; otherwise
+      // fall back to its active agent (or empty when none is active).
+      setAgentId((current) => rows.some((row) => row.id === current) ? current : (active?.id ?? ""));
     } catch {
       setAgents([]);
+      setAgentsForUrl("");
     }
-  }, [gatewayUrl, agents.length]);
+  }, [gatewayUrl, agentsForUrl]);
 
 
   // Clear any previous error when dialog transitions to open
@@ -87,6 +95,11 @@ export function AddPrinterDialog({
     if (conn === "network") {
       if (!host.trim()) return "Host is required.";
       if (host.includes(" ")) return "Invalid host.";
+      // Deliberately no private-IP allowlist here: the shared gateway
+      // validator (printer-model.ts) depends on node:net, which cannot ship
+      // in the Tauri browser bundle. The Gateway re-validates every field
+      // server-side (private destination + port policy) and its error is
+      // surfaced below via setError, so an invalid host fails closed.
       const p = Number(port);
       if (!Number.isInteger(p) || p !== 9100) return "Network printer port must be 9100.";
     }
@@ -320,6 +333,8 @@ export function AddPrinterDialog({
               >
                 <option value="raw">RAW</option>
                 <option value="escpos">ESC/POS</option>
+                <option value="zpl">ZPL</option>
+                <option value="tspl">TSPL</option>
               </Select>
             </Field>
           </div>

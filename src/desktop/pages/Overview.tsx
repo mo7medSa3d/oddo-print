@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, CheckCircle2, ClipboardList, Clock, FileText, 
 import { Button, Card, CardHeader, EmptyState, ErrorState, LoadingState, Mono, StatusBadge } from "../../components/ui";
 import { DetailList, StatCard, StatusNotice, ViewAllButton, PrinterAvatar } from "../ui";
 import type { DesktopState } from "../types";
+import { getPrinterLanguageBadges } from "../../lib/printer-capability";
 import { humanConnection, humanType, isProductionPrinter, jobDocType, jobId, jobPrinterId, jobStatus, labelJob, toneJob, labelPrinter, printerEndpoint, printerTone } from "../lib/printers";
 
 export function OverviewPage({ s }: { s: DesktopState }) {
@@ -51,12 +52,10 @@ export function OverviewPage({ s }: { s: DesktopState }) {
             ) : (
               <div className="space-y-2">
                 {shownPrinters.slice(0, 5).map((p) => {
-                  const pType = (p.printer_type || "").toLowerCase();
-                  const pClass = (p.device_class || "").toLowerCase();
-                  const isThermal = pType === "thermal" || pClass === "thermal";
-                  const isLabel = pType === "label" || pClass === "label";
-                  const isSpooler = p.connection_type === "spooler" || pClass === "laser";
-                  const badgeLabel = isLabel ? "ZPL / TSPL" : isThermal ? "ESC/POS" : isSpooler ? "Spooler" : "Raw";
+                  // Language badges derive ONLY from the declared protocol
+                  // and connection type (printer-capability.ts) — device
+                  // class must never invent a language.
+                  const badgeLabel = getPrinterLanguageBadges(p.protocol ?? "unknown", p.connection_type ?? "unknown").join(" · ") || "Unknown";
                   return (
                     <div key={p.id} className="flex w-full items-center justify-between gap-4 rounded-[12px] border border-edge bg-surface px-4 py-3 transition-colors hover:border-edge-accent">
                       <button type="button" onClick={() => s.setSelectedPrinter(p)} className="flex min-w-0 flex-1 items-center gap-3 text-left focus:outline-none">

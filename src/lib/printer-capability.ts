@@ -1,12 +1,21 @@
 /**
  * Printer Capability Matrix — Transport/Protocol/Document/Duplex/Color/Status + IPP capabilities
  * Capability-first, not just protocol.
+ *
+ * The wire vocabularies below DERIVE from the Zod-validated authorities in
+ * printer-model.ts (import type: erased at compile, so this module stays
+ * runtime-import-free for the dashboard + Tauri desktop bundles). Change a
+ * vocabulary in exactly one place — printer-model.ts — and every consumer
+ * follows. DocumentType keeps its own union: it is the payload-kind
+ * vocabulary (wire types plus rendered pdf/image), a distinct concept from
+ * the transport protocol list.
  */
+import type { PRINTER_PROTOCOLS, DEVICE_CLASSES, CONNECTION_TYPES } from "./printer-model";
 
-export type TransportType = "network" | "usb" | "spooler" | "ipp" | "ipps" | "unknown";
-export type ProtocolType = "raw" | "escpos" | "zpl" | "tspl" | "ipp" | "ipps" | "spooler" | "windows_spooler" | "unknown";
+export type TransportType = (typeof CONNECTION_TYPES)[number] | "unknown";
+export type ProtocolType = (typeof PRINTER_PROTOCOLS)[number];
 export type DocumentType = "raw" | "escpos" | "zpl" | "tspl" | "pdf" | "image";
-export type DeviceClass = "thermal" | "laser" | "inkjet" | "label" | "other" | "unknown";
+export type DeviceClass = (typeof DEVICE_CLASSES)[number];
 
 export interface CapabilityMatrixRow {
   printerId: string;

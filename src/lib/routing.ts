@@ -1,6 +1,7 @@
 import { gatewayNow } from "./database-clock";
 import { isVirtualPrinterRecord, type PrinterLike } from "./printer-virtual";
 import { getAgentAvailability } from "./agent-availability";
+import { PRINTER_PROTOCOLS } from "./printer-model";
 
 export type CapabilityCheckResult = { ok: true } | { ok: false; reason: string };
 
@@ -9,7 +10,11 @@ export interface PayloadSpec {
   protocol?: string | null;
 }
 
-const BYTE_PROTOCOLS = ["raw", "escpos", "zpl", "tspl"] as const;
+// Byte-stream subset of the canonical PRINTER_PROTOCOLS authority: derived,
+// not re-declared, so a new byte protocol cannot silently diverge here.
+const BYTE_PROTOCOLS = PRINTER_PROTOCOLS.filter(
+  (p): p is "raw" | "escpos" | "zpl" | "tspl" => p === "raw" || p === "escpos" || p === "zpl" || p === "tspl",
+);
 
 /**
  * Canonical payload/protocol → printer-capability table. This is the ONE

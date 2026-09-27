@@ -261,25 +261,29 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       File: `src/desktop/components/Sidebar.tsx:2`
       Fix applied: commit `2f27258a` — removed.
 
-- [ ] **[Severity: Medium] Desktop overview badge invents language from device class**
+- [x] **[Severity: Medium] Desktop overview badge invents language from device class**
       File: `src/desktop/pages/Overview.tsx:54-59` vs `src/lib/printer-capability.ts:61-68`
       Issue: `thermal→"ESC/POS"`, `label→"ZPL / TSPL"`, `laser→"Spooler"` badges are derived from device class, contradicting the documented rule ("device class must never invent a language: a `laser` printer declared `raw` cannot be sent PDF").
       Suggested fix: Use `getPrinterLanguageBadges(protocol, connectionType)`.
+      Fix applied: badge derives from getPrinterLanguageBadges(protocol, connectionType); unknown renders 'Unknown'.
 
-- [ ] **[Severity: Medium] Stale agent cache + weaker network validation in AddPrinterDialog**
+- [x] **[Severity: Medium] Stale agent cache + weaker network validation in AddPrinterDialog**
       File: `src/desktop/components/AddPrinterDialog.tsx:48-58,87-92` vs `EditPrinterDialog.tsx:121-129`
       Issue: `agents.length > 0` short-circuits `loadAgents`, keeping gateway A's agents after switching to gateway B; host validation is non-empty/no-space only (no private-IP check) and port must be exactly `9100`, rejecting valid network-IPP `80/443/631` that `EditPrinterDialog` and the gateway accept.
       Suggested fix: Key the agent cache by `gatewayUrl`; reuse the `EditPrinterDialog` host/port validation logic (or import the gateway's `validateConnectionConfig`).
+      Fix applied: agent cache keyed by gatewayUrl (selection re-validated per gateway); private-IP non-enforcement documented as deliberate (node:net cannot ship in Tauri bundle; server re-validates); network proto select gains zpl/tspl to match server acceptance.
 
-- [ ] **[Severity: Medium] System-health / release-readiness pages use manager-only auth**
+- [x] **[Severity: Medium] System-health / release-readiness pages use manager-only auth**
       Files: `src/app/system-health/page.tsx:10`, `src/app/release-readiness/page.tsx:10` vs `src/app/dashboard/page.tsx:17`, `src/app/billing/page.tsx:80`
       Issue: These pages use `verifyManagerToken` while dashboard/billing use `verifyWorkspaceTokenFromCookieValues`, bouncing valid customer sessions to `/login` instead of permission-checking.
       Suggested fix: Use the workspace verifier + explicit permission/role check.
+      Fix applied: both pages use verifyWorkspaceTokenFromCookieValues + agents.read gate (their client calls /api/system/health, which requires agents.read).
 
-- [ ] **[Severity: Low] Printer taxonomy validated in four places + desktop narrowing + duplicated TS types**
+- [x] **[Severity: Low] Printer taxonomy validated in four places + desktop narrowing + duplicated TS types**
       Files: `src/lib/printer-capability.ts:6-9,28-47`, `src/lib/printer-model.ts:4-8`, `src/lib/routing.ts:12` (`BYTE_PROTOCOLS`), `src/lib/discovery.ts:5-11` (superset incl. `mdns/lpr/snmp/wsd/subnet/config/registry`); `AddPrinterDialog.tsx:316-324` narrows network to `raw/escpos` while the gateway accepts `zpl/tspl/ipp` (`printer-model.ts:194-195`); `printer-capability.ts` re-declares `TransportType`/`ProtocolType`/`DocumentType`/`DeviceClass` that duplicate `printer-model.ts`.
       Issue: Same bug class as the device-class drift — four independent taxonomies plus a narrower desktop subset plus duplicated type declarations.
       Suggested fix: Single canonical enum module (`printer-model.ts`); `printer-capability.ts` imports the types instead of redefining; desktop imports the gateway sets.
+      Fix applied: capability types derive from printer-model authorities via import type (runtime-import-free for desktop); routing BYTE_PROTOCOLS derived from PRINTER_PROTOCOLS; discovery superset stays documented-distinct.
 
 ---
 
@@ -333,10 +337,11 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       File: `agent/internal/printer/discovery.go:702`
       Fix applied: commit `68ab1525` — propagates `pc.PrinterType` (normalized).
 
-- [ ] **[Severity: Low] Agent-console allowlist drift (Rust vs Go CLI)**
+- [x] **[Severity: Low] Agent-console allowlist drift (Rust vs Go CLI)**
       File: `src-tauri/src/commands.rs:539` vs `agent/cmd/cli/gateway.go:22`
       Issue: Rust allows exact `GET /api/agents` only; the Go CLI regex also allows `/api/agents/<id>`. Both are read-only, so this is a consistency gap, not a privilege gap.
       Suggested fix: Mirror the single-agent pattern in Rust or restrict the Go CLI — document whichever is deliberate.
+      Fix applied: documented as deliberate on both sides: console proxy exposes list-only, CLI needs single-agent fetch; both read-only.
 
 - [x] **[Severity: Low] `discovered_via` taxonomy drift (metadata only)**
       Files: `agent/internal/printer/network_discovery.go:194`, `ipp_discovery.go:195` vs `src/lib/discovery.ts:5`
