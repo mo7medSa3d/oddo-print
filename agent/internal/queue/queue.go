@@ -280,13 +280,15 @@ func (q *Queue) BeginPrint(id, printerID string, payload []byte, claimToken stri
 
 	// Only queued and retryable failed rows may enter printing. The UPDATE is
 	// intentionally simple: there is exactly one placeholder for each value.
-	// A fresh token becomes durable at the same transaction boundary.
+	// A fresh token becomes durable at the same transaction boundary, but a
+	// tokenless redelivery must never clear the stored claim: that token is
+	// the execution fence and the outbox evidence, so COALESCE preserves it.
 	var updateToken interface{} = nil
 	if claimToken != "" {
 		updateToken = claimToken
 	}
 	updated, err := tx.Exec(
-		`UPDATE print_jobs SET status = 'printing', claim_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('queued','failed')`,
+		`UPDATE print_jobs SET status = 'printing', claim_token = COALESCE(?, claim_token), updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('queued','failed')`,
 		updateToken, id,
 	)
 	if err != nil {

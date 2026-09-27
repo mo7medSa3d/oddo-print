@@ -392,6 +392,25 @@ func TestBeginPrintRejectsDifferentClaimTokenWhilePrinting(t *testing.T) {
 	}
 }
 
+func TestBeginPrintTokenlessRedeliveryPreservesStoredClaimToken(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.Push("job_fenced", "printer-1", []byte("payload")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET claim_token = 'claim-live' WHERE id = 'job_fenced'`); err != nil {
+		t.Fatalf("stage stored claim: %v", err)
+	}
+	if err := q.BeginPrint("job_fenced", "printer-1", []byte("payload"), "", false); err != nil {
+		t.Fatalf("tokenless redelivery must be admitted under the stored fence, got %v", err)
+	}
+	if got := q.ClaimTokenFor("job_fenced"); got != "claim-live" {
+		t.Fatalf("stored claim token must survive tokenless redelivery, got %q", got)
+	}
+	if _, status, _, err := q.Get("job_fenced"); err != nil || status != "printing" {
+		t.Fatalf("redelivery must enter printing, status=%q err=%v", status, err)
+	}
+}
+
 func TestBeginPrintRejectsTokenedClaimAgainstLegacyTokenlessPrinting(t *testing.T) {
 	q := newTestQueue(t)
 	if err := q.Push("legacy-printing", "printer-1", []byte("payload")); err != nil {
