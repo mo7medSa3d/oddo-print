@@ -9,7 +9,7 @@
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 146 | issues high: 0 med: 4 low: 32 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 184 | issues high: 0 med: 4 low: 32 | fixed: 0 | deferred runtime: 0.
 - Note on counting: route/UI batches below re-verify files already line-by-line audited in Part B (AUDIT_FINDINGS.md). Session-4 does NOT re-do that work; it verifies currency (no changes since the fix SHAs), closes deferred follow-ups, and fully re-reads the highest-risk files. Each file still gets its own Status line.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
@@ -540,4 +540,21 @@ Basis: `git log 15ab2bea..HEAD -- src/app/api` shows zero route changes beyond t
 - `team/invitations`, `team/invitations/accept`, `team/members`, `team/ownership` — accept throttle + 16 KiB limit intact. OK.
 - `settings` — 401-for-no-claims fix intact. OK.
 - `onboarding`, `health`, `live`, `metrics`, `admin/tenants/[id]/lifecycle`, `system/health` — 503-readiness fix intact; lifecycle route delegates to `tenant-lifecycle.ts` (batch 2b). OK.
+- Proposed fix (batch): none. Fix applied: n/a (pre-session).
+
+## Batch 4 — Gateway UI + Server Actions (~38 files) — re-verified 2026-09-27
+Basis: `git log 15ab2bea..HEAD` on UI paths shows only the Part-B fix commits; every §4 fix re-confirmed by grep; `src/app/actions.ts` fully re-read line-by-line this session (highest-risk: raw SQL + deletes + authz). No new issues.
+
+### `src/app/actions.ts` — READ FULLY — Status: OK
+- Every action gates `requireManager()` + explicit `requireManagerPermission`; all queries tenant-scoped; `deleteAgent` hard-deletes only with zero print history (FK-safe: devices→sessions→printers→agent order, history preserved otherwise — consistent with the batch-2b "no tenant hard-delete" analysis, which concerned tenants, not history-less agents); printer lifecycle uses documented agent→printer lock order + optimistic predicate; limit trips RETURNED (not thrown) per the Next.js serialization constraint; LIKE wildcards escaped; dashboard projections exclude payload blobs (50-row cap); audit failures catch-logged. No finding.
+
+### pages (17) + layouts/error/loading + clients — Status: OK
+- `dashboard/page.tsx`, `dashboard/dashboard-client.tsx` — jobsError/retry panel + Idempotency-Key header confirmed (`:267,302-303,478,1244`). OK.
+- `billing/page.tsx`, `team/page.tsx` — dotted log events + single `load()` implementation confirmed. OK.
+- `system-health/page.tsx`, `release-readiness/page.tsx` (+clients) — workspace verifier + `agents.read` gate (Part-B fix) unchanged. OK.
+- `login`, `signup`, `forgot-password`, `reset-password`, `verify-email`, `invite`, `onboarding`, `pricing`, `settings`, `api-keys`, `platform/*` (7), `page`, `layout`, `error`, `loading`, `not-found` — no changes since Part B; auth/layout shapes intact. OK.
+
+### components + shared (16) — Status: OK
+- `AgentHealthMatrix`, `AppShell`, `AuthShell`, `BillingActions`, `brand`, `JobCleanupButton`, `JobTimeline`, `platform/overview-charts`, `PrintCertificationWizard`, `PrinterCapabilityMatrix`, `ThemeToggle`, `TopNavbar`, `ui`, `UpgradeLimitDialog`, `shared/job-vocabulary`, `shared/components/StatusDot` — `jobTone`/`printerTone` usage confirmed; no drift. OK.
+- Desktop copies (`src/desktop/components/JobTimeline.tsx` 136 lines vs `src/components/JobTimeline.tsx` 95; `src/desktop/ui.tsx` 105 vs `src/components/ui.tsx` 1077) DIFFER by design — separate Vite bundle with its own minimal primitives, not a fork to unify. Prior per-file drifts already fixed (badges, humanType). Map question CLOSED: intentional separation, managed per-file.
 - Proposed fix (batch): none. Fix applied: n/a (pre-session).
