@@ -308,8 +308,15 @@ export async function verifyWorkspaceTokenFromCookieValues(
   customerToken: string | null,
   managerToken: string | null,
 ): Promise<ManagerClaims | null> {
-  const token = customerToken ?? managerToken;
-  return token ? verifyWorkspaceToken(token) : null;
+  // A valid manager session must not be shadowed by an expired/revoked
+  // customer cookie left in the same browser. Prefer the manager session,
+  // but fall back to a valid customer session if manager validation fails.
+  if (managerToken) {
+    const managerClaims = await verifyWorkspaceToken(managerToken);
+    if (managerClaims) return managerClaims;
+  }
+
+  return customerToken ? verifyWorkspaceToken(customerToken) : null;
 }
 
 type LegacyManagerAuthTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
