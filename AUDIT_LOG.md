@@ -9,7 +9,7 @@
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 17 | issues high: 0 med: 3 low: 13 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 22 | issues high: 0 med: 3 low: 16 | fixed: 0 | deferred runtime: 0.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
 - Confirmed repo `mo7medSa3d/oddo-print`, branch `main` via `gh repo view` + `git remote -v`; `gh auth status` OK.
@@ -146,3 +146,40 @@
   - [SEVERITY: low] Internal `withTimeout` (`:93-105`) timer lacks `unref` (holds the loop up to 2s if a calibration is in flight at shutdown; harmless under the 10s drain) and repeats the non-cancelling `Promise.race` pattern from `db/client.ts` (timeout abandons, does not abort). Add `unref` + comment.
 - Proposed fix: `timer.unref?.()` + comment that timeout abandons but does not abort the query.
 - Fix applied: no
+
+## [gateway/src/lib/agent-auth.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (1 low)
+- Findings:
+  - Verified good (no finding): 6-char unambiguous-alphabet pairing codes (`randomInt` CSPRNG, normalized trim+uppercase hash/compare); 192-bit `base64url` secrets; plain SHA-256 for secret/pairing-code hashing is correct (high-entropy random values, not passwords — no KDF needed); `timingSafeStringEqual` hashes both sides to fixed digests before compare (length-oracle hardened, same pattern as `trusted-proxy.ts`); `validateAgent` splits `agentId:secret` on the FIRST colon (colon-bearing secrets preserved), checks `lifecycle === "active"` + tenant gate. Parameterized Drizzle `eq()` — no injection surface.
+  - [SEVERITY: low] Imports from bare `"crypto"` (`:4`) while the rest of the codebase uses `"node:crypto"` — Node docs use the `node:`-prefixed form consistently (source: https://nodejs.org/api/crypto.html, all examples `import … from 'node:crypto'`). Behaviorally identical; consistency-only.
+- Proposed fix: `from "node:crypto"`.
+- Fix applied: no
+
+## [gateway/src/lib/odoo-auth.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (1 low)
+- Findings:
+  - Verified good (no finding): dual Bearer/`x-api-key` intake with `odoo_` prefix gate; rotation-grace state machine (revoked + future `readOnlyUntil` → read-only, else deny) matches migration 0064/0065 intent; `lastUsedAt` fire-and-forget with `.catch` logging never breaks auth; credential-validity vs integration-enabled separation is deliberate and documented (config/health stay callable to re-enable); tenant gate with health-probe opt-out.
+  - [SEVERITY: low] `timingSafeEqualStr` (`:13-18`) early-returns on length mismatch, unlike the hash-then-compare pattern in `agent-auth.ts:45-54` and `trusted-proxy.ts:10-16`. Harmless in practice (both sides are fixed 64-char hex digests) — consistency-only; normalize to the hashed pattern so the next reader doesn't copy the weaker form.
+- Proposed fix: hash both inputs to SHA-256 digests before `timingSafeEqual`, mirroring `agent-auth.ts`.
+- Fix applied: no
+
+## [gateway/src/lib/authorization.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Pure RBAC matrix; role set matches `tenant_users` check constraint (`owner/admin/operator/viewer/integration_admin/billing_admin`); privilege ladder is sane (viewer read-only, operator +jobs/test, admin everything but `tenant.update`, owner all, billing_admin billing-only, integration_admin bindings+integrations). `?? false` on unknown role is fail-closed. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/tenant-guard.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (1 low)
+- Findings:
+  - Verified good (no finding): strict `!== "active"` denial mirrors the transactional `FOR SHARE` fence (prior §2 fallthrough fix confirmed in place `:99-101`); `requireActiveTenantOrNull` rethrows unexpected DB/transport errors (fail-visible); unknown-tenant → deleted-denial is documented.
+  - [SEVERITY: low] Two stacked JSDoc blocks (`:52-67`) describe the same function — the first (`:52-60`) is a stale leftover from the pre-fix edit. Merge into one.
+- Proposed fix: delete the stale block, keep the lifecycle/OrNull contract doc.
+- Fix applied: no
+
+## [gateway/src/lib/tenant-lifecycle.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Single authoritative transition with `FOR UPDATE` serialization, closed transition table (`deleted` terminal), mandatory reason, platform-tenant protection (fail-open only when `PLATFORM_TENANT_ID` unset — already fail-closed at boot by `server.ts:65-69`), `clock_timestamp()` ordering, session/family revocation + `pg_notify` on suspend/delete, in-transaction audit event, lost-update detection (`updated.length !== 1`).
+- Resolved from batch 1 (no finding): hard-delete orphan risk — there is NO hard-delete path (deletion is a soft `lifecycle='deleted'` state; no `DELETE FROM tenants` exists), so FKs without `onDelete` cannot orphan via app flows. Manual DB surgery is out of scope.
+- Proposed fix: none
+- Fix applied: n/a
