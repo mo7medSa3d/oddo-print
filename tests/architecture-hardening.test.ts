@@ -230,7 +230,8 @@ describe("ambiguous Odoo submission recovery", () => {
     expect(jobs).toContain('def _lookup_gateway_job_for_ambiguous_submission(self, job):');
     expect(jobs).toContain('params={"idempotencyKey": job._gateway_idempotency_key()}');
     expect(jobs).toContain('"UNKNOWN_SUBMISSION_OUTCOME:"');
-    expect(jobs).toContain('"next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=60)');
+    expect(jobs).toContain('"next_retry_at": next_retry');
+    expect(jobs).toContain('next_retry = db_now_utc(self.env.cr) + datetime.timedelta(minutes=5)');
   });
 });
 

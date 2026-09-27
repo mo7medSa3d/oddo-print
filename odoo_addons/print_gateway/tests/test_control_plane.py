@@ -431,7 +431,7 @@ class TestControlPlane(TransactionCase):
 
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
              patch("requests.post", side_effect=[_refused_connection(), _refused_connection()]), \
-             patch.object(type(job), "_persist_state", side_effect=_mock_persist_state):
+             patch.object(type(job), "_persist_state", side_effect=_mock_persist_state, return_value=True):
             with self.assertRaises(ValidationError):
                 job._action_submit_trusted(raise_on_failure=True)
 
@@ -1450,12 +1450,16 @@ class TestControlPlane(TransactionCase):
         self.assertTrue(job.exists())
         self.assertTrue(self.gateway_config.exists())
 
-        second_config = config_model.create({
-            "company_id": self.company.id,
-            "gateway_url": "https://gateway-2.example.com",
-            "enabled": False,
-            "gateway_api_key": "test_api_key_control_plane_2",
-        })
+        # A second config needs its own root company: configs are unique per
+        # company and branch companies cannot own one.
+        second_company = self.env["res.company"].create({"name": "Control Plane Second Root"})
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None):
+            second_config = config_model.create({
+                "company_id": second_company.id,
+                "gateway_url": "https://gateway-2.example.com",
+                "enabled": False,
+                "gateway_api_key": "test_api_key_control_plane_2",
+            })
         with self.assertRaises(ValidationError):
             (self.gateway_config | second_config).unlink()
         self.assertTrue(self.gateway_config.exists())
