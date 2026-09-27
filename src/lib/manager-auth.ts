@@ -16,6 +16,7 @@ import {
   issueSessionPair,
   verifyAccessTokenSignature,
   refreshCookieHeader,
+  ACCESS_TOKEN_TTL_SECONDS,
   type SessionRequestContext,
 } from "./session-tokens";
 
@@ -126,7 +127,7 @@ export async function validateManagerClaims(claims: ManagerClaims | null): Promi
       return null;
     }
     const nowSec = Math.floor(nowMs / 1000);
-    if (claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.exp - claims.iat !== 15 * 60) return null;
+    if (claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.exp - claims.iat !== ACCESS_TOKEN_TTL_SECONDS) return null;
     if (!claims.tenantId || !claims.role || !claims.familyId) return null;
 
     // Access tokens are short-lived, but logout must revoke them immediately.

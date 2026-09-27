@@ -368,16 +368,24 @@ export async function getDashboardJobs(options?: {
   }
 
   if (searchParam) {
-    const term = `%${searchParam.toLowerCase()}%`;
+    // Escape LIKE wildcards: `%`/`_` in user input must match literally and
+    // `\` is the ESCAPE character (same policy as the reprint LIKE in
+    // print-job-service.ts). Without this, a job-search term containing `_`
+    // matches far more rows than the operator typed.
+    const escaped = searchParam.toLowerCase().replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+    const term = `%${escaped}%`;
     conditions.push(
       // Non-null: or() always receives six fixed LIKE clauses.
+      // ESCAPE is literal SQL text (NOT an interpolated binding —
+      // Drizzle would send that as a parameter and Postgres would
+      // reject `LIKE $1 $2`).
       or(
-        sql`LOWER(${printJobs.id}) LIKE ${term}`,
-        sql`LOWER(COALESCE(${printJobs.destination}, '')) LIKE ${term}`,
-        sql`LOWER(COALESCE(${printJobs.documentType}, '')) LIKE ${term}`,
-        sql`LOWER(${printJobs.printerId}) LIKE ${term}`,
-        sql`LOWER(${printJobs.agentId}) LIKE ${term}`,
-        sql`LOWER(COALESCE(${printJobs.error}, '')) LIKE ${term}`
+        sql`LOWER(${printJobs.id}) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(COALESCE(${printJobs.destination}, '')) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(COALESCE(${printJobs.documentType}, '')) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(${printJobs.printerId}) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(${printJobs.agentId}) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(COALESCE(${printJobs.error}, '')) LIKE ${term} ESCAPE '\\'`
       )!
     );
   }

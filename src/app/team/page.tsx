@@ -67,32 +67,10 @@ export default function TeamPage() {
   }
 
   useEffect(() => {
-    let active = true;
-    void Promise.all([
-      fetch("/api/team/members", { credentials: "include", cache: "no-store" }),
-      fetch("/api/team/invitations", { credentials: "include", cache: "no-store" }),
-    ])
-      .then(async ([membersRes, invitationsRes]) => {
-        if (!active) return;
-        if (!membersRes.ok || !invitationsRes.ok) {
-          setLoadError(
-            !membersRes.ok
-              ? "Could not load members. Please refresh to retry."
-              : "Could not load invitations. Please refresh to retry."
-          );
-          return;
-        }
-        setMembers((await membersRes.json()).members ?? []);
-        setInvitations((await invitationsRes.json()).invitations ?? []);
-        setLoadError(null);
-      })
-      .catch(() => {
-        if (active) setLoadError("Could not load team data. Please refresh to retry.");
-      })
-      .finally(() => {
-        if (active) setLoaded(true);
-      });
-    return () => { active = false; };
+    // Single implementation of the initial fetch — load() is the same block,
+    // invoked on mount and after every mutation. load() sets loaded/error
+    // state itself; React 18 ignores post-unmount setState.
+    void load();
   }, []);
 
   async function invite(event: React.FormEvent) {

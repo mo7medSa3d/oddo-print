@@ -77,12 +77,15 @@ export function toneJob(status: string, error?: unknown): Tone {
 /* ---------- Human-friendly descriptions ---------- */
 
 export function humanType(p: PrinterInfo): string {
-  const t = (p.printer_type || "").toLowerCase();
-  if (t === "thermal" || t === "label") return "Thermal";
-  if (t === "laser") return "Laser";
-  if (t === "inkjet") return "Inkjet";
-  if ((p.connection_type || "").toLowerCase() === "usb") return "USB device";
-  if (t && t !== "unknown") return t.charAt(0).toUpperCase() + t.slice(1);
+  // Device class (thermal/laser/inkjet/label/other/unknown) — NOT printer_type,
+  // which is physical/virtual/redirected. Reading printer_type here made the
+  // thermal/label/laser/inkjet branches dead code.
+  const deviceClass = (p.device_class || p.deviceClass || "").toLowerCase();
+  if (deviceClass === "thermal" || deviceClass === "label") return "Thermal";
+  if (deviceClass === "laser") return "Laser";
+  if (deviceClass === "inkjet") return "Inkjet";
+  if ((p.connection_type || p.connectionType || "").toLowerCase() === "usb") return "USB device";
+  if (deviceClass && deviceClass !== "unknown") return deviceClass.charAt(0).toUpperCase() + deviceClass.slice(1);
   return "Printer";
 }
 

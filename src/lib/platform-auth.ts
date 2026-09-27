@@ -16,6 +16,7 @@ import {
   isSessionFamilyActive,
   verifyAccessTokenSignature,
   refreshCookieHeader,
+  ACCESS_TOKEN_TTL_SECONDS,
   type SessionRequestContext,
 } from "./session-tokens";
 
@@ -145,7 +146,7 @@ export async function validatePlatformClaims(
     const nowMs = await databaseNowMs().catch(() => null);
     if (nowMs === null) return null;
     const nowSec = Math.floor(nowMs / 1000);
-    if (claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.exp - claims.iat !== 15 * 60) return null;
+    if (claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.exp - claims.iat !== ACCESS_TOKEN_TTL_SECONDS) return null;
     if (!claims.familyId || !(await isSessionFamilyActive(claims.familyId, "platform", null, claims.userId))) return null;
     const user = await db.query.users.findFirst({
       where: eq(users.id, claims.userId),

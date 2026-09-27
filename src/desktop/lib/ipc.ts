@@ -360,16 +360,14 @@ export interface PrinterInfo {
 
 
 
-async function managerGatewayHeaders(): Promise<Record<string, string>> {
-  return {};
-}
-
 export async function fetchGatewayAgents(
   gatewayUrl: string,
 ): Promise<Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null }>> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  const headers = await managerGatewayHeaders();
-  const { status, body } = await gatewayConsoleRequest(base, "/api/agents", "GET", headers);
+  // No extra auth headers: the browser sends the manager session cookie
+  // automatically (credentials: "include"), and the Tauri shell injects the
+  // manager bearer token in the Rust gateway proxy.
+  const { status, body } = await gatewayConsoleRequest(base, "/api/agents", "GET", {});
   if (status === 401 || status === 403) await clearManagerSession();
   if (status < 200 || status >= 300) {
     const err: Error & { status?: number } = new Error(body || "agents fetch failed (" + status + ")");
@@ -381,8 +379,7 @@ export async function fetchGatewayAgents(
 
 export async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterInfo[]> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  const headers = await managerGatewayHeaders();
-  const { status, body } = await gatewayConsoleRequest(base, "/api/printers", "GET", headers);
+  const { status, body } = await gatewayConsoleRequest(base, "/api/printers", "GET", {});
   if (status === 401 || status === 403) await clearManagerSession();
   if (status < 200 || status >= 300) {
     const err: Error & { status?: number } = new Error(body || "printers fetch failed (" + status + ")");
@@ -466,7 +463,7 @@ export async function registerGatewayPrinter(
     if (req.endpoint) config.address = req.endpoint.trim();
   }
 
-  const headers = { "Content-Type": "application/json", ...(await managerGatewayHeaders()) };
+  const headers = { "Content-Type": "application/json" };
   const payload = {
     name: req.name.trim(),
     agentId: req.agentId,
@@ -491,7 +488,7 @@ export async function updateGatewayPrinter(
   patch: Record<string, unknown>,
 ): Promise<PrinterInfo> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  const headers = { "Content-Type": "application/json", ...(await managerGatewayHeaders()) };
+  const headers = { "Content-Type": "application/json" };
   // Printer desired-state mutations are Manager-only at the Gateway HTTP boundary.
   // Use the Rust manager transport, not the Agent console allowlist.
   const { status, body } = await gatewayRequest(
@@ -528,12 +525,11 @@ export async function testGatewayPrinter(
   printerId: string,
 ): Promise<Record<string, unknown>> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  const headers = await managerGatewayHeaders();
   const { status, body } = await gatewayConsoleRequest(
     base,
     "/api/printers/" + encodeURIComponent(printerId) + "/test-print",
     "POST",
-    headers,
+    {},
   );
   if (status === 401 || status === 403) await clearManagerSession();
   if (status < 200 || status >= 300) {

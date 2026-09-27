@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { billingEvents, plans, tenantSubscriptions } from "../../../../db/schema";
 import { eq, sql } from "drizzle-orm";
+import { parseDbTimeMs } from "../../../../lib/database-clock";
 import { runtimeSecret } from "../../../../lib/runtime-secret";
 import { stripeRetrieve, verifyStripeSignature } from "../../../../lib/stripe";
 import { writeAuditEvent } from "../../../../lib/audit";
@@ -20,24 +21,6 @@ function statusOf(status: string): "trialing" | "active" | "past_due" | "incompl
 }
 
 const INTERNAL_EVENT_KEY = "__yasser";
-
-/**
- * Raw `db.execute()` rows surface naive UTC timestamp strings (node-postgres
- * identity parsers for timestamp OIDs) while typed drizzle rows surface Date.
- * Normalize either form to epoch milliseconds without host-TZ dependence.
- */
-function parseDbTimeMs(value: Date | string | null | undefined): number | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value.getTime();
-  const text = value.trim();
-  if (!text) return null;
-  let iso = text.replace(" ", "T");
-  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
-    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
-  }
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : ms;
-}
 
 function parseDbTime(value: Date | string | null | undefined): Date | null {
   const ms = parseDbTimeMs(value);
