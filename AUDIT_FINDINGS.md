@@ -1,10 +1,10 @@
 # AUDIT_FINDINGS.md — Full Codebase Audit
 
-**Audit Date:** 2026-09-26 (v1, 30 items) + 2026-09-27 (v2 expanded re-verification, this file)
+**Audit Date:** 2026-09-26 (v1, 30 items) + 2026-09-27 (v2 expanded re-verification) + 2026-09-27 (v3 re-verification against current `main`)
 **Scope:** Every file in the Yasser project, all 11 areas, file-by-file.
-**Method:** Static read of every file in scope; each finding below was verified against the exact cited lines on `main` @ `01745fea`. Four parallel area sweeps + targeted re-verification of every Medium-or-higher claim. No code was changed to produce this file.
-**Status:** Part A complete (read-only). Part B (fixes) follows. Items already fixed by in-flight Part B commits are marked `[x]` with the fixing SHA; everything else is `[ ]` open.
-**CI state at audit time:** `main` @ `01745fea` is RED — CI run `36272613988` (failure) and Build Windows Installer `36272614002` (failure); Static Security Gates `36272614125`, Docker `36272614092`, Security/Resilience `36272613987` are green. See §10 item CI-RED.
+**Method:** Static read of every file in scope. v2 verified every claim against `main @ 01745fea`. v3 re-verified every open item against `main @ 15ab2bea` (current HEAD) and attributed fixes to the 15 post-audit commits. No code was changed to produce this file.
+**Status:** Part A complete (read-only). Part B (fixes) in progress. Items fixed by post-audit commits are marked `[x]` with the fixing SHA; everything else is `[ ]` open.
+**CI state at v3 verification:** `main @ 15ab2bea` — CI `36299009432` success, Docker `36299009360` success, Static Security Gates `36299009477` success, Security/Resilience `36299009364` success; Build Windows Installer `36299009422` running at verification time. The v2 CI-RED entry gate is resolved (green since `5377be6a`).
 
 Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix without a live external system.
 
@@ -14,43 +14,35 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
 
 - [x] **[Severity: High] Unhandled JSON parsing error returns 500 instead of 400**
       File: `src/app/api/agent/heartbeat/route.ts:138`
-      Issue: `await req.json()` was inside a broad try/catch; malformed JSON fell through to a 500.
       Fix applied: commit `1771752d` — isolated JSON parsing, returns 400 Bad Request.
 
 - [x] **[Severity: Medium] Health check catch block hides errors and uses wrong status code**
       File: `src/app/api/health/route.ts:18`
-      Issue: Readiness DB failure returned hardcoded 500 with the error swallowed.
       Fix applied: commit `1771752d` — logs the error, returns 503 Service Unavailable.
 
-- [ ] **[Severity: High] No rate limit on password-reset token consumption**
+- [x] **[Severity: High] No rate limit on password-reset token consumption**
       File: `src/app/api/auth/reset-password/route.ts:13`
-      Issue: Unlike `forgot-password` (`src/app/api/auth/forgot-password/route.ts:17-24`, which calls `reserveAuthAttempt(ip, email)`), this route performs the `tokenHash` DB lookup and password change with no `reserveAuthAttempt`/`clientIpFrom` throttle. Unlimited token-guessing attempts against a stolen-or-leaked reset flow; each attempt also burns an expensive `hashPassword` call on success path setup.
-      Suggested fix: Add `reserveAuthAttempt(ip)` + 429 handling mirroring `forgot-password`, keyed by IP (no user id is known pre-token).
+      Fix applied: commit `0d7da21e` — `reserveAuthAttempt(ip, "reset-password-token")` with 429/Retry-After, mirroring forgot-password.
 
-- [ ] **[Severity: High] No rate limit on email-verification token consumption**
+- [x] **[Severity: High] No rate limit on email-verification token consumption**
       File: `src/app/api/auth/verify-email/route.ts:13`
-      Issue: `clientIpFrom` is imported but used only for audit logging (`:97`); no `reserveAuthAttempt` guards the `tokenHash` lookup, and success mints a full customer session (`issueCustomerSession`). Same shape as the reset-password gap.
-      Suggested fix: Throttle by IP/token-hash with `reserveAuthAttempt` before the DB lookup.
+      Fix applied: commit `0d7da21e` — `reserveAuthAttempt(ip, "verify-email-token")` with 429/Retry-Audit before the tokenHash lookup.
 
-- [ ] **[Severity: Medium] Negative `limit` not clamped in job listing**
+- [x] **[Severity: Medium] Negative `limit` not clamped in job listing**
       File: `src/app/api/jobs/route.ts:36`
-      Issue: `Math.min(parseInt(...) || 50, 200)` passes negative values (e.g. `?limit=-5`) to `.limit(-5)`; only `offset` is clamped (`Math.max(...,0)` at `:37`). Drizzle emits `LIMIT -5` → Postgres error → 500 on crafted authenticated input.
-      Suggested fix: `Math.min(Math.max(1, ...), 200)` as `src/app/api/platform/tenants/route.ts:20` already does.
+      Fix applied: commit `ebc0cb05` — shared `clampListLimit()` helper (`src/lib/request-limits.ts:14`), clamps 1..200.
 
-- [ ] **[Severity: Medium] Negative `limit` not clamped in agent listing**
+- [x] **[Severity: Medium] Negative `limit` not clamped in agent listing**
       File: `src/app/api/agents/route.ts:31`
-      Issue: Same shape — `Math.min(parseInt(...) || 1000, 1000)` with no lower clamp.
-      Suggested fix: Clamp `1..1000`.
+      Fix applied: commit `ebc0cb05` — `clampListLimit(..., 1000, 1000)`.
 
-- [ ] **[Severity: Medium] Negative `limit` not clamped in printer listing**
+- [x] **[Severity: Medium] Negative `limit` not clamped in printer listing**
       File: `src/app/api/printers/route.ts:32`
-      Issue: Same shape — `Math.min(parseInt(...) || 1000, 1000)` with no lower clamp.
-      Suggested fix: Clamp `1..1000`. Consider one shared `clampListLimit()` helper for all three routes + `platform/tenants`.
+      Fix applied: commit `ebc0cb05` — `clampListLimit(..., 1000, 1000)`.
 
-- [ ] **[Severity: Medium] `PLATFORM_TENANT_ID` fail-open when unset**
+- [x] **[Severity: Medium] `PLATFORM_TENANT_ID` fail-open when unset**
       File: `src/app/api/platform/tenants/[id]/suspend/route.ts:22-29` + `docker-compose.yml:83` + `DEPLOYMENT.md:50`
-      Issue: The route comment states explicitly: "When it is not configured we fail open for ordinary tenants ... while still refusing to guess which tenant is the platform one." Compose defaults `PLATFORM_TENANT_ID` to empty (`${PLATFORM_TENANT_ID:-}`) although docs call it "required in production". With it unset, the platform tenant itself loses its suspension protection silently.
-      Suggested fix: Make Compose require it (`${PLATFORM_TENANT_ID:?...}`) or fail startup closed when unset in production (`NODE_ENV=production` + missing → throw at boot).
+      Fix applied: commit `d0bdc4b9` (pre-audit; v2 audit missed it) — `server.ts:65-69` refuses production startup when `PLATFORM_TENANT_ID` is unset or the `<required-platform-tenant-id>` placeholder, so the route's fail-open branch is unreachable in production. Compose still defaults to empty (`docker-compose.yml:83`), which now fails fast at boot with a clear message.
 
 - [ ] **[Severity: Low] Discovery devices query omits `agentId` fence present on the session query**
       File: `src/app/api/agents/[id]/discovery/[discoveryId]/route.ts:15-17`
@@ -74,12 +66,12 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
 
 - [ ] **[Severity: Low] Dead imports in agent jobs route**
       File: `src/app/api/agent/jobs/route.ts:17-18`
-      Issue: `getCorrelationContext`, `generateAttemptId`, `databaseNowMs` are imported but never referenced (only `recordJobEvent`, `refreshClockSkew` are used).
+      Issue: `getCorrelationContext`, `generateAttemptId`, `databaseNowMs` are imported but never referenced (verified by grep — only the import lines match).
       Suggested fix: Delete the unused imports.
 
 - [ ] **[Severity: Low] Dead import in print jobs route**
       File: `src/app/api/print/jobs/route.ts:10`
-      Issue: `refreshClockSkew` imported but never called (only `databaseNowMs` at `:167` is used).
+      Issue: `refreshClockSkew` imported but never called (only `databaseNowMs` is used).
       Suggested fix: Delete the unused import.
 
 - [ ] **[Severity: Low] Dead import in printer certify route**
@@ -123,15 +115,17 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       File: `src/lib/system-health.ts:193`
       Fix applied: commit `6638efc4` — falls back to `"1.0.0"`.
 
-- [ ] **[Severity: Medium] `console.error` bypasses structured logger in billing operations**
+- [x] **[Severity: Medium] `console.error` bypasses structured logger in billing operations**
       File: `src/lib/billing-operation.ts:202,209,267`
-      Issue: Three raw `console.error` calls (Stripe rejection, failure, finalization) lose correlation IDs and log-redaction handling.
-      Suggested fix: Use `logError` from `./log` with a static event name + fields.
+      Fix applied: commit `11a0bb82` — all three sites now use `logError` with static event names.
 
-- [ ] **[Severity: Low] `console.error` in WebSocket upgrade error path**
+- [x] **[Severity: Low] `console.error` in WebSocket upgrade error path**
       File: `src/server/ws.ts:343`
-      Issue: `logUpgradeError` uses raw `console.error`, bypassing the structured logger.
-      Suggested fix: `logError("ws.upgrade_failed", { error: message })`.
+      Fix applied: commit `11a0bb82` — no `console.*` calls remain in `ws.ts` (verified by grep).
+
+- [x] **[Severity: Low] Dynamic log event names break aggregation**
+      File: `src/server/ws.ts:493,676,750`
+      Fix applied: commit `11a0bb82` — no interpolated `${...}` event names remain in `ws.ts` log calls (verified by grep).
 
 - [ ] **[Severity: Medium] Dashboard jobs failure swallowed with no UI error**
       File: `src/app/dashboard/dashboard-client.tsx:459`
@@ -142,11 +136,6 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       Files: `src/app/billing/page.tsx:109`, `src/app/dashboard/page.tsx:114`
       Issue: `{ error }` passes a live `Error` (`JSON.stringify(Error)` → `{}`), losing the message; `"[dashboard] database load failed"` uses brackets instead of the dotted event convention (`billing.print_usage_unavailable` at billing/page is already correct).
       Suggested fix: `{ error: error instanceof Error ? error.message : String(error) }`, event `dashboard.database_load_failed`.
-
-- [ ] **[Severity: Low] Dynamic log event names break aggregation**
-      File: `src/server/ws.ts:493,676,750`
-      Issue: Interpolating `agentId`/`jobId`/delay into the event string (`[ws] job send to agent ${agentId} ...`) creates unbounded event cardinality.
-      Suggested fix: Static event names with IDs in fields, e.g. `logWarn("ws.job_send_ambiguous", { agentId, ... })`.
 
 - [ ] **[Severity: Low] Dead exports in session tokens (zero repo-wide callers)**
       File: `src/lib/session-tokens.ts:203,538,807,811`
@@ -175,17 +164,17 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
 
 - [ ] **[Severity: Medium] Future timestamps treated as fresh in agent health**
       File: `src/lib/agent-health.ts:53-65` vs `src/lib/agent-availability.ts:47-48`, `src/lib/printer-health.ts:58-64`
-      Issue: `computeAgentHealthStatus` checks `age <= ONLINE_THRESHOLD_MS` with no `age >= 0` lower bound, so a future `lastSeenAt` (clock skew, bad write) reports `ONLINE`. The availability gate and printer health both reject `age < 0`.
+      Issue: `computeAgentHealthStatus` checks `age <= ONLINE_THRESHOLD_MS` with no `age >= 0` lower bound, so a future `lastSeenAt` (clock skew, bad write) reports `ONLINE`. The availability gate and printer health both reject `age < 0`. The same missing guard exists in the `getAgentHealth` Gateway check at `agent-health.ts:116-119`.
       Suggested fix: Add `ageMs >= 0` guards.
 
-- [ ] **[Severity: Medium] Stale-threshold quadruplication (env ignored by 3 of 4)**
-      Files: `src/lib/printer-health.ts:56`, `src/lib/agent-health.ts:49`, `src/shared/job-vocabulary.ts:130` vs `src/lib/agent-availability.ts:3-10`
-      Issue: `90s` is hardcoded in three places while only the gateway enforcement gates honor `STALE_AGENT_THRESHOLD_SECONDS`. Setting the env diverges UI/health displays from actual claim-gate enforcement.
+- [ ] **[Severity: Medium] Stale-threshold quintuplication (env ignored by 5 of 6)**
+      Files: `src/lib/printer-health.ts:56` (`FRESHNESS_THRESHOLD_MS = 90_000`), `src/lib/agent-health.ts:49` (`ONLINE_THRESHOLD_MS = 90_000`), `src/shared/job-vocabulary.ts:130` (`AGENT_HEARTBEAT_STALE_SECONDS = 90`), `src/app/api/printers/[id]/certify/route.ts:268` (`age <= 90_000`), `src/lib/system-health.ts:94` (`NOW() - INTERVAL '90 seconds'`) vs `src/lib/agent-availability.ts:3-10` (`STALE_AGENT_THRESHOLD_SECONDS`)
+      Issue: `90s` is hardcoded in five places while only the gateway enforcement gates honor `STALE_AGENT_THRESHOLD_SECONDS`. Setting the env diverges UI/health displays from actual claim-gate enforcement. (v2 said "quadruplication"; v3 found a fifth site in `system-health.ts`.)
       Suggested fix: Single shared helper; health/UI import `agentStaleThresholdSeconds()` (same consolidation already done for metrics/heartbeat in the Phase-2 pass).
 
-- [ ] **[Severity: Low] `parseDbTimeMs` triplicated**
-      Files: `src/lib/auth-rate-limit.ts:33`, `src/lib/ws-rate-limit.ts:13`, `src/lib/job-status.ts:167`
-      Issue: Identical naive-UTC normalizer in three files; will drift (same bug class as the device-class enum drift).
+- [ ] **[Severity: Low] `parseDbTimeMs` quadruplicated**
+      Files: `src/lib/auth-rate-limit.ts:33`, `src/lib/ws-rate-limit.ts:13`, `src/lib/job-status.ts:167`, `src/app/api/billing/webhook/route.ts:29`
+      Issue: Identical naive-UTC normalizer in four files; will drift (same bug class as the device-class enum drift). (v2 said "triplicated"; the webhook copy was added later.)
       Suggested fix: One shared util in `lib/` (keep `parseEntitlementDate` in `entitlements.ts:299` separate — it is intentionally distinct).
 
 - [ ] **[Severity: Low] Access TTL literal duplicated instead of constant**
@@ -222,15 +211,15 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
 
 ## 3. Gateway DB Layer (`src/db/schema.ts`, `drizzle/` — 74 migrations `0000`–`0073`)
 
-- [ ] **[Severity: High] `printers`, `discoveredDevices` (and `discoverySessions`) lack PRIMARY KEY constraints**
-      File: `src/db/schema.ts:143,304` (+ `discoverySessions`)
-      Issue: `id: text("id").notNull()` with only `UNIQUE (tenant_id, id)` since migration `0072` dropped the original PKs for tenant-scoped identity. No formal PK hurts ORM/replication/tooling expectations. (`printJobs` still declares `id.primaryKey()` — itself inconsistent.)
+- [ ] **[Severity: High] `printers`, `discoveredDevices` lack PRIMARY KEY constraints**
+      File: `src/db/schema.ts:143,304`
+      Issue: `id: text("id").notNull()` with only `UNIQUE (tenant_id, id)` since migration `0072` dropped the original PKs for tenant-scoped identity. No formal PK hurts ORM/replication/tooling expectations. (`printJobs` still declares `id.primaryKey()` — itself inconsistent.) v3 clarification: `discoverySessions` DOES still have its PK (0010 created it; no migration dropped it; the 0073 snapshot carries it via the `columns.id.primaryKey` flag) — the v2 parenthetical over-claimed; only `printers` and `discoveredDevices` are affected.
       Suggested fix: Add composite PKs `primaryKey({ columns: [tenantId, id] })` + a forward migration. Requires care: existing duplicate `(tenant_id,id)` rows would block it (the UNIQUE constraint already prevents that, so creation is safe).
 
-- [ ] **[Severity: Medium] Composite foreign key names in schema.ts don't match migration-hardcoded names**
-      File: `src/db/schema.ts:165,294,338-340,379-381` vs `drizzle/0041_*.sql:161-266`
-      Issue: Migration `0041` hardcodes names like `printers_tenant_id_agent_id_agents_fk`, but schema `foreignKey()` declarations specify no `name`, so Drizzle-kit diffs will try to drop/recreate the constraints.
-      Suggested fix: Add matching `name` properties to the composite `foreignKey` declarations.
+- [ ] **[Severity: Medium] Composite foreign key names in schema.ts don't match migration-hardcoded names — and the migration chain diverges from the snapshot**
+      File: `src/db/schema.ts:165,294,338-340,379-381` vs `drizzle/0031_*.sql` + `drizzle/0041_*.sql:161-266` vs `drizzle/meta/0073_*_snapshot.json`
+      Issue (v3 expanded): Six composite FKs are named differently in three places. Migrations 0031/0041 create short names (`printers_tenant_id_agent_id_agents_fk`, `discovery_sessions_tenant_id_agent_id_agents_fk`, `discovered_devices_tenant_id_discovery_id_fk`, `discovered_devices_tenant_id_agent_id_agents_fk`, `discovered_devices_tenant_id_provisioned_printer_id_fk`, `print_jobs_tenant_id_api_key_id_api_keys_fk`). The 0071–0073 snapshots show the live DB actually carries Drizzle-default long names (`printers_tenant_id_agent_id_agents_tenant_id_id_fk`, `discovery_sessions_tenant_id_agent_id_agents_tenant_id_id_fk`, `discovered_devices_tenant_id_discovery_id_discovery_sessions_tenant_id_id_fk`, `discovered_devices_tenant_id_agent_id_agents_tenant_id_id_fk`, `discovered_devices_tenant_id_provisioned_printer_id_printers_tenant_id_id_fk`, `print_jobs_tenant_id_api_key_id_api_keys_tenant_id_id_fk`) — no committed migration performs that rename, so a fresh `drizzle-kit migrate` from `0000` produces short-named constraints that diverge from both the snapshot and schema.ts (which specifies no `name`, i.e. the Drizzle default). `drizzle-kit check`/`generate` would try to drop/recreate all six.
+      Suggested fix: Add explicit `name` properties matching the snapshot's long names to the six composite `foreignKey` declarations in schema.ts, and add one forward migration renaming the short-named constraints to the long names (idempotent `ALTER TABLE ... RENAME CONSTRAINT` in a DO block) so migrations, schema.ts, and snapshot all agree.
 
 - [ ] **[Severity: Low] Unused `applications` table (dead code)**
       File: `src/db/schema.ts:103`
@@ -270,17 +259,17 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
 - [ ] **[Severity: Medium] Stale agent cache + weaker network validation in AddPrinterDialog**
       File: `src/desktop/components/AddPrinterDialog.tsx:48-58,87-92` vs `EditPrinterDialog.tsx:121-129`
       Issue: `agents.length > 0` short-circuits `loadAgents`, keeping gateway A's agents after switching to gateway B; host validation is non-empty/no-space only (no private-IP check) and port must be exactly `9100`, rejecting valid network-IPP `80/443/631` that `EditPrinterDialog` and the gateway accept.
-      Suggested fix: Key the agent cache by `gatewayUrl`; reuse the `EditPrinterDialog` host/port validation logic.
+      Suggested fix: Key the agent cache by `gatewayUrl`; reuse the `EditPrinterDialog` host/port validation logic (or import the gateway's `validateConnectionConfig`).
 
 - [ ] **[Severity: Medium] System-health / release-readiness pages use manager-only auth**
       Files: `src/app/system-health/page.tsx:10`, `src/app/release-readiness/page.tsx:10` vs `src/app/dashboard/page.tsx:17`, `src/app/billing/page.tsx:80`
       Issue: These pages use `verifyManagerToken` while dashboard/billing use `verifyWorkspaceTokenFromCookieValues`, bouncing valid customer sessions to `/login` instead of permission-checking.
       Suggested fix: Use the workspace verifier + explicit permission/role check.
 
-- [ ] **[Severity: Low] Printer taxonomy validated in four places + desktop narrowing**
-      Files: `src/lib/printer-capability.ts:6-9,28-47`, `src/lib/printer-model.ts:4-8`, `src/lib/routing.ts:12` (`BYTE_PROTOCOLS`), `src/lib/discovery.ts:5-11` (superset incl. `mdns/lpr/snmp/wsd/subnet/config/registry`); `AddPrinterDialog.tsx:316-324` narrows network to `raw/escpos` while the gateway accepts `zpl/tspl/ipp` (`printer-model.ts:194-195`).
-      Issue: Same bug class as the device-class drift — four independent taxonomies plus a narrower desktop subset.
-      Suggested fix: Single canonical enum module; desktop imports the gateway sets.
+- [ ] **[Severity: Low] Printer taxonomy validated in four places + desktop narrowing + duplicated TS types**
+      Files: `src/lib/printer-capability.ts:6-9,28-47`, `src/lib/printer-model.ts:4-8`, `src/lib/routing.ts:12` (`BYTE_PROTOCOLS`), `src/lib/discovery.ts:5-11` (superset incl. `mdns/lpr/snmp/wsd/subnet/config/registry`); `AddPrinterDialog.tsx:316-324` narrows network to `raw/escpos` while the gateway accepts `zpl/tspl/ipp` (`printer-model.ts:194-195`); `printer-capability.ts` re-declares `TransportType`/`ProtocolType`/`DocumentType`/`DeviceClass` that duplicate `printer-model.ts`.
+      Issue: Same bug class as the device-class drift — four independent taxonomies plus a narrower desktop subset plus duplicated type declarations.
+      Suggested fix: Single canonical enum module (`printer-model.ts`); `printer-capability.ts` imports the types instead of redefining; desktop imports the gateway sets.
 
 ---
 
@@ -302,75 +291,62 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       File: `agent/internal/storage/security_other.go:14`
       Fix applied: commit `f54b2a77` — comment reflects the active `Chmod(0600)`.
 
-- [ ] **[Severity: High] `BeginPrint` clears the claim-token fence on tokenless redelivery**
+- [x] **[Severity: High] `BeginPrint` clears the claim-token fence on tokenless redelivery**
       File: `agent/internal/queue/queue.go:284-290`
-      Issue: `updateToken = nil` when `claimToken == ""` overwrites a stored `claim_token` with `NULL`, destroying the execution fence/outbox evidence. Reachable whenever a job row carries a token (pushed with one) and `BeginPrint` is later called with `""` — made more likely by `01745fea` permitting empty `claimToken` in `decodeJobFields`.
-      Suggested fix: Only overwrite when the incoming token is non-empty, else preserve the stored token.
+      Fix applied: commit `e984d728` — `claim_token = COALESCE(?, claim_token)` preserves the stored fence when the incoming token is empty.
 
-- [ ] **[Severity: Medium] `RegisterManual` drops USB/capability fields**
-      File: `agent/internal/agent/agent.go:596-603` vs `agent/internal/printer/printer.go:30-38`, `factory.go:72-78`
-      Issue: Builds `PrinterConfig` with only `ID/Name/Type/Endpoint/Protocol/SpoolerName`; `DeviceInfo` fields `USBVID/USBPID/USBSerial/Capabilities/PaperWidthMM/Enabled` are lost, so a direct-USB printer registered manually gets `VID 0/PID 0` in `NewUSBPrinter`.
-      Suggested fix: Propagate all `DeviceInfo` fields as `desiredPrinterConfig` does.
+- [x] **[Severity: Medium] `RegisterManual` drops USB/capability fields**
+      File: `agent/internal/agent/agent.go:596-603`
+      Fix applied: commit `bab7848c` — routes through shared `printerConfigFromDeviceInfo`.
 
-- [ ] **[Severity: Medium] `QueueDBPath` split-brain vs `RegistryPath`**
+- [x] **[Severity: Medium] `QueueDBPath` split-brain vs `RegistryPath`**
       File: `agent/internal/config/paths.go:20` vs `:8-16`
-      Issue: `RegistryPath` falls back to `ExecutableDir` when the config dir is `""`/`.`, but `QueueDBPath` joins directly — a bare config filename puts the registry in the exe dir and the queue in the CWD.
-      Suggested fix: Apply the same `ExecutableDir` fallback.
+      Fix applied: commit `16b7c58e` — `QueueDBPath` applies the same `ExecutableDir` fallback.
 
-- [ ] **[Severity: Medium] `classifySpoolerPrinter` returns `connectionType="local"` for LPT/COM**
-      File: `agent/internal/printer/classify.go:109` vs `factory.go:93`, `config.go:410`
-      Issue: LPT/COM ports classify as `"local"`, but `New`/`Validate` only accept `network/usb/spooler/ipp/ipps` — LPT-attached printers always fail construction.
-      Suggested fix: Map `local` to `spooler`.
+- [x] **[Severity: Medium] `classifySpoolerPrinter` returns `connectionType="local"` for LPT/COM**
+      File: `agent/internal/printer/classify.go:109`
+      Fix applied: commit `68ab1525` — LPT/COM maps to `spooler` (with comment explaining the factory constraint).
 
-- [ ] **[Severity: Medium] Registration HTTP client follows redirects**
-      File: `agent/internal/agent/pairing.go:65` vs `ipp.go:199`, `src-tauri/src/commands.rs:421`
-      Issue: `&http.Client{Timeout: 15s}` uses the default redirect policy, which can resend the `pairingCode` body to a 3xx target; the IPP client and the Rust client both disable redirects (`ErrUseLastResponse` / `Policy::none()`).
-      Suggested fix: Set `CheckRedirect` to `http.ErrUseLastResponse`.
+- [x] **[Severity: Medium] Registration HTTP client follows redirects**
+      File: `agent/internal/agent/pairing.go:65`
+      Fix applied: commit `7fdb5af7` — `CheckRedirect` returns `http.ErrUseLastResponse`.
 
-- [ ] **[Severity: Medium] Non-string peripherals silently ignored**
+- [x] **[Severity: Medium] Non-string peripherals silently ignored**
       File: `agent/internal/payload/payload.go:151-165`
-      Issue: `if d, ok := periphMap["drawer"].(string); ok` skips present-but-non-string `drawer/cutter/buzzer` values (numbers/bools), while Gateway `payload.ts:15` (`z.enum`) rejects them — the agent would print without the requested drawer kick instead of erroring.
-      Suggested fix: Error on present-but-non-string peripheral values.
+      Fix applied: commit `7fdb5af7` — present-but-non-string peripheral values are a hard error.
 
-- [ ] **[Severity: Medium] `UpsertRegistry` lossy replace**
-      File: `agent/internal/printer/registry.go:227` vs `discovery.go:mergeDeviceInfo`
-      Issue: `existing[idx] = d` overwrites the whole row, losing previously observed `capabilities/serial`; the discovery path merges instead.
-      Suggested fix: `existing[idx] = mergeDeviceInfo(existing[idx], d)`.
+- [x] **[Severity: Medium] `UpsertRegistry` lossy replace**
+      File: `agent/internal/printer/registry.go:227`
+      Fix applied: commits `68ab1525` + `b87c4975` — stored row is merged via `mergeDeviceInfo`; incoming wins only display fields (name/displayName).
 
-- [ ] **[Severity: Low] `discoverFromConfig` hardcodes `PrinterType: "unknown"`**
+- [x] **[Severity: Low] `discoverFromConfig` hardcodes `PrinterType: "unknown"`**
       File: `agent/internal/printer/discovery.go:702`
-      Issue: Discards `pc.PrinterType`; heartbeat (`agent.go:1876`) reports the true class while CLI/discover shows `unknown`.
-      Suggested fix: Propagate `pc.PrinterType` (normalized).
+      Fix applied: commit `68ab1525` — propagates `pc.PrinterType` (normalized).
 
 - [ ] **[Severity: Low] Agent-console allowlist drift (Rust vs Go CLI)**
       File: `src-tauri/src/commands.rs:539` vs `agent/cmd/cli/gateway.go:22`
       Issue: Rust allows exact `GET /api/agents` only; the Go CLI regex also allows `/api/agents/<id>`. Both are read-only, so this is a consistency gap, not a privilege gap.
       Suggested fix: Mirror the single-agent pattern in Rust or restrict the Go CLI — document whichever is deliberate.
 
-- [ ] **[Severity: Low] `discovered_via` taxonomy drift (metadata only)**
-      Files: `agent/internal/printer/network_discovery.go:194` (`"tcp_port_scan"`), `ipp_discovery.go:195` (`"ipp_tcp_scan"`) vs `src/lib/discovery.ts:5` (`DISCOVERY_SOURCES`)
-      Issue: Values live inside the free-form `capabilities` map (not the validated `source` array), so nothing rejects them — but they are outside the canonical taxonomy.
-      Suggested fix: Emit `raw`/`ipp` or add the scan values to the Gateway enum.
+- [x] **[Severity: Low] `discovered_via` taxonomy drift (metadata only)**
+      Files: `agent/internal/printer/network_discovery.go:194`, `ipp_discovery.go:195` vs `src/lib/discovery.ts:5`
+      Fix applied: commit `68ab1525` — `discovery_extended.go:18-35` now defines the canonical `Source*` vocabulary (used at the SNMP/LPR/mDNS/WSD emission sites) and documents `tcp_port_scan`/`ipp_tcp_scan` as intentional free-form forensic detail inside `capabilities`.
 
-- [ ] **[Severity: Low] Dead `DiscoveryCandidate` type + `Source*` constants**
+- [x] **[Severity: Low] Dead `DiscoveryCandidate` type + `Source*` constants**
       File: `agent/internal/printer/discovery_extended.go:19-39`
-      Issue: Zero callers (verified by grep); the actual code hardcodes `"tcp_port_scan"` etc. instead of using them.
-      Suggested fix: Delete, or use the constants at the emission sites (preferred — fixes the drift above too).
+      Fix applied: commit `68ab1525` — the dead type was deleted; the constants are now the documented canonical vocabulary with real callers.
 
-- [ ] **[Severity: Low] Dead `NormalizedConnectionTypeStrict`**
+- [x] **[Severity: Low] Dead `NormalizedConnectionTypeStrict`**
       File: `agent/internal/config/config.go:364`
-      Issue: Zero callers (verified by grep).
-      Suggested fix: Delete.
+      Fix applied: commit `68ab1525` — deleted (zero callers, verified by grep).
 
-- [ ] **[Severity: Low] Insecure transient directory permissions**
-      File: `agent/internal/config/config.go:148,186` vs `storage/secure.go:77`, `printer/registry.go:137`, `queue.go:50`
-      Issue: `MkdirAll(dir, 0755)` before `EnsureSecureDirectoryACL` (0700/SDDL) leaves a world-readable window; every other secrets path uses `0700` directly.
-      Suggested fix: `MkdirAll(dir, 0700)`.
+- [x] **[Severity: Low] Insecure transient directory permissions**
+      File: `agent/internal/config/config.go:148,186`
+      Fix applied: commit `16b7c58e` — `MkdirAll(dir, 0700)` before ACL hardening.
 
-- [ ] **[Severity: Low] Fixed `.tmp` filename collision on concurrent save**
-      File: `agent/internal/storage/secure.go:107` (+ `config.go:206`) vs `registry.go:147`, `desired_state.go:185`
-      Issue: `tmp := p + ".tmp"` collides under concurrent `SaveSecret`/`Save`; the registry/desired-state paths use `os.CreateTemp` (unique).
-      Suggested fix: `os.CreateTemp` + rename.
+- [x] **[Severity: Low] Fixed `.tmp` filename collision on concurrent save**
+      File: `agent/internal/storage/secure.go:107` (+ `config.go:206`)
+      Fix applied: commit `16b7c58e` — `os.CreateTemp` + atomic rename on both paths.
 
 ---
 
@@ -380,29 +356,25 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       File: `src-tauri/src/agent.rs:727-783`
       Fix applied: commit `222e8c6d` — common code extracted, `creation_flags` conditional.
 
-- [ ] **[Severity: Low] Logging timestamp uses Unix epoch instead of ISO 8601**
+- [x] **[Severity: Low] Logging timestamp uses Unix epoch instead of ISO 8601**
       File: `src-tauri/src/logging.rs:101-105`
-      Issue: `timestamp()` formats `epoch_secs.millis`; hard for operators to read. No `chrono`/`time` dependency is available offline, so this needs either a new dep (lockfile must be regenerated where network exists — CI) or a small std-only UTC civil-date conversion.
-      Suggested fix: Emit ISO 8601 UTC (preferred) with a unit test pinning the format.
+      Fix applied: commit `6dd1c74c` — std-only `format_utc_iso8601` civil-date conversion, emits `2026-09-27T00:00:00.123Z`.
 
-- [ ] **[Severity: Low] `read_background_record` aborts whole record on one malformed line**
+- [x] **[Severity: Low] `read_background_record` aborts whole record on one malformed line**
       File: `src-tauri/src/agent.rs:281`
-      Issue: `let (k, v) = line.split_once('=')?` inside an `Option`-returning function drops the entire background record (→ agent looks unmanaged) on a single bad line.
-      Suggested fix: `let Some((k, v)) = ... else continue`.
+      Fix applied: commit `6dd1c74c` — `continue` on a malformed line instead of dropping the record.
 
-- [ ] **[Severity: Low] Unreachable header filter in desktop gateway proxy**
-      File: `src-tauri/src/commands.rs:427-429` vs `:371-385`
-      Issue: `host`/`cookie` already `return Err` in the first filter, so the later `if host||cookie continue` never executes.
-      Suggested fix: Delete the second check.
+- [x] **[Severity: Low] Unreachable header filter in desktop gateway proxy**
+      File: `src-tauri/src/commands.rs:427-429`
+      Fix applied: commit `6dd1c74c` — the dead second check was removed; an explanatory comment documents why the loop is safe.
 
 ---
 
 ## 7. Odoo Addon (`odoo_addons/**` — every Python and JS file read)
 
-- [ ] **[Severity: High] `Environment` instance called as function — non-standard pattern**
+- [x] **[Severity: High] `Environment` instance called as function — non-standard pattern**
       File: `odoo_addons/print_gateway/models/print_intent.py:186`
-      Issue: `new_env(context=dict(new_env.context, allowed_company_ids=[...]))` relies on `Environment.__call__`; the standard, version-stable pattern is `with_context()`. A nearby comment even claims `with_company` semantics that don't exist. Behavior today is equivalent, but `__call__` is not the documented API surface.
-      Suggested fix: `new_env = new_env.with_context(allowed_company_ids=[record_company.id])`.
+      Resolution: commits `ab4fb9a3` + `729d2f29` — the `with_context` attempt was reverted (it raises `AttributeError` on Odoo 19: `with_context` is Model-only). The current code uses `Environment.__call__(context=...)` with a detailed comment (`:184-194`) documenting why this is the correct env-level API on Odoo 19, verified against the Odoo 19 runtime in CI. Documented, deliberate exception — closed.
 
 - [x] **[Severity: High] AbstractModel passed as `res_ids` to `_render_qweb_pdf`**
       File: `odoo_addons/print_gateway/controllers/pos.py:20`, `models/print_router.py:234`
@@ -410,32 +382,28 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
 
 - [x] **[Severity: Medium] Missing `expired` status in Odoo job status Selection**
       File: `odoo_addons/print_gateway/models/print_job.py:50-55`
-      Resolution: commit `0d819b15` — Gateway `expired` is now explicitly mapped (`:1350-1365` expired→unknown/failed with reason; `:1579` sync handling) and the intentional Selection difference is documented in the header comment (`:39-52`). Deliberate, documented, tested — closed.
+      Resolution: commit `0d819b15` — Gateway `expired` is now explicitly mapped and the intentional Selection difference is documented in the header comment (`:39-52`). Deliberate, documented, tested — closed.
 
-- [ ] **[Severity: Medium] Bare `crypto.randomUUID()` breaks on insecure HTTP LAN**
+- [x] **[Severity: Medium] Bare `crypto.randomUUID()` breaks on insecure HTTP LAN**
       File: `odoo_addons/print_gateway/static/src/js/pos_print_router.js:181,385,472`
-      Issue: Kitchen/reprint operation IDs call `crypto.randomUUID()` with no fallback; it is `undefined` in non-secure contexts (plain-HTTP LAN, which the repo otherwise tolerates) → throws and aborts `printChanges`.
-      Suggested fix: `crypto.randomUUID?.() ?? fallbackUuid()` helper (RFC-4122 v4 via `getRandomValues`, with `Math.random` last resort).
+      Fix applied: commit `ab4fb9a3` — `fallbackUuid()` helper (`:12-17`) with `getRandomValues` v4 + `Math.random` last resort.
 
-- [ ] **[Severity: Medium] Printer filter falls back to full list, re-offering rejected classes**
-      File: `odoo_addons/print_gateway/static/src/components/runtime_printer_field.js:83-88` vs `models/binding.py:366-369`
-      Issue: When the thermal filter yields empty, the widget returns the full printer list — re-offering laser/inkjet for POS destinations the server will reject.
-      Suggested fix: Return `[]` with an empty-message instead of the unfiltered fallback.
+- [x] **[Severity: Medium] Printer filter falls back to full list, re-offering rejected classes**
+      File: `odoo_addons/print_gateway/static/src/components/runtime_printer_field.js:83-88`
+      Fix applied: commit `ab4fb9a3` — empty filter stays empty with an explanatory comment; the empty message is shown.
 
-- [ ] **[Severity: Medium] Odoo explicit gate over-restricts `image` vs Gateway + own failover**
-      File: `odoo_addons/print_gateway/models/binding.py:554` vs `src/lib/routing.ts:100-107`, `models/print_job.py:1041-1042`
-      Issue: `resolve_explicit` requires `spooler/ipp/ipps` for both `pdf` and `raster_jpeg`, but Gateway `physicalImage` allows `spooler` or `network+escpos`, and Odoo's own failover path allows `spooler/escpos` for raster. Valid ESC/POS kitchen image jobs are rejected when explicitly bound.
-      Suggested fix: Allow `escpos` for `image`/`raster_jpeg` in `resolve_explicit`, mirroring `routing.ts`.
+- [x] **[Severity: Medium] Odoo explicit gate over-restricts `image` vs Gateway + own failover**
+      File: `odoo_addons/print_gateway/models/binding.py:554`
+      Fix applied: commit `ab4fb9a3` — `resolve_explicit` allows `escpos` for `raster_jpeg`, mirroring `routing.ts:100-107` and the Odoo failover path, with a comment citing the parity.
 
-- [ ] **[Severity: Low] Two Sale-Details paths resolve different destinations**
+- [x] **[Severity: Low] Two Sale-Details paths resolve different destinations**
       File: `odoo_addons/print_gateway/controllers/pos.py:21-27` vs `models/print_router.py:505-509`
-      Issue: HTTP `/pos/sale_details_report` resolves destination from the report action; `action_print_gateway_sale_details` resolves `explicit_destination=session.config_id`. The same logical report needs two bindings.
-      Suggested fix: Document the dual-binding requirement or pass the POS config through the controller path.
+      Fix applied: commit `ab4fb9a3` — both sides now carry a NOTE comment documenting the dual-binding requirement (each path needs its own binding). Documented, deliberate — closed.
 
 - [ ] **[Severity: Low] Config permanently undeletable after first job**
-      File: `odoo_addons/print_gateway/security/ir.model.access.csv:8` + `models/gateway_config.py:1415-1422`
+      File: `odoo_addons/print_gateway/security/ir.model.access.csv:8` + `models/gateway_config.py:1376-1394`
       Issue: Admin `print_job` has `perm_unlink=0` (jobs immortal) and `unlink()` blocks config delete while any job references it — after the first print, the config can never be deleted.
-      Suggested fix: Document the archival-only lifecycle or allow admin job purge.
+      Suggested fix: Document the archival-only lifecycle (model header or ODOO_INTEGRATION.md) or allow admin job purge.
 
 ---
 
@@ -455,12 +423,12 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
 
 - [x] **[Severity: Low] Odoo invents `submitted`/`partial`/`unknown` top-level statuses**
       File: `odoo_addons/print_gateway/models/print_job.py:50-55` vs `src/lib/job-status.ts:33-40`
-      Resolution: commit `0d819b15` — the mapping table is now documented in the model header comment (`:39-52`) with explicit transition enforcement (`_VALID_TRANSITIONS`). Deliberate, documented — closed.
+      Resolution: commit `0d819b15` — the mapping table is documented in the model header comment (`:39-52`) with explicit transition enforcement (`_VALID_TRANSITIONS`). Deliberate, documented — closed.
 
 - [ ] **[Severity: Low] Odoo payload type nomenclature differs from shared contract**
       File: `odoo_addons/print_gateway/models/print_job.py:67-71` vs `contracts/print-payload-contract.json:5`
       Issue: Contract wire types are `raw/escpos/pdf/image`; Odoo selections are `pdf/raster_jpeg/raw_cmd` with an internal mapping dict. Works, but naming drift invites the next enum-drift bug.
-      Suggested fix: Rename Odoo selections to the wire names (migration-heavy — likely BLOCKED on Odoo data migration; at minimum document the mapping next to the Selection).
+      Suggested fix: Rename Odoo selections to the wire names (migration-heavy — likely BLOCKED on Odoo data migration); at minimum document the mapping next to the Selection, mirroring the status Selection's header comment.
 
 ---
 
@@ -482,45 +450,37 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       File: `ADR.md:104` vs `AGENT_ARCHITECTURE.md:38`
       Fix applied: commit `ef26f47d` — both now say 5s offline polling (ADR-009).
 
-- [ ] **[Severity: Medium] PRINTERS.md test-print section claims ESC/POS-only**
-      File: `PRINTERS.md:229-233` vs `src/lib/payload.ts:176-268`, `models/print_router.py:759-824`, and `PRINTERS.md` §10 itself
-      Issue: §9 says test-print uses "an ESC/POS test payload"; the code builds per-protocol zpl/tspl/raw/pdf tickets, and §10 ("build a test ticket in the language the printer actually speaks") contradicts §9.
-      Suggested fix: Document the per-protocol selection in §9.
+- [x] **[Severity: Medium] PRINTERS.md test-print section claims ESC/POS-only**
+      File: `PRINTERS.md:229-233`
+      Fix applied: commit `3cf36524` — §9 now documents per-protocol ticket selection and points to §10.
 
-- [ ] **[Severity: Low] PRINTERS.md "tries next binding on 422" is unsupported**
-      File: `PRINTERS.md:53-54` vs `src/lib/print-job-service.ts` (only defines the `CAPABILITY_MISMATCH` code; no next-binding retry) and `models/print_job.py:1320-1340` (Odoo terminalizes 400/403/404/409/422 as `failed`)
-      Issue: No routing layer retries the next binding after `CAPABILITY_MISMATCH`; Odoo-side 422 is terminal.
-      Suggested fix: Correct to "422 is terminal; fix the binding" or implement next-binding retry (behavior change).
+- [x] **[Severity: Low] PRINTERS.md "tries next binding on 422" is unsupported**
+      File: `PRINTERS.md:53-54`
+      Fix applied: commit `3cf36524` — now correctly states 422 is terminal; fix the binding.
 
-- [ ] **[Severity: Medium] DEPLOYMENT.md `npm ci --production` before build is broken**
-      File: `DEPLOYMENT.md:65` vs `Dockerfile:8-12`
-      Issue: Instructs `npm ci --production` then `npm run build`, but the build needs devDependencies; the Dockerfile correctly uses full `npm ci` for build and `--omit=dev` only for runtime.
-      Suggested fix: `npm ci` before build.
+- [x] **[Severity: Medium] DEPLOYMENT.md `npm ci --production` before build is broken**
+      File: `DEPLOYMENT.md:65`
+      Fix applied: commit `3cf36524` — `npm ci` before build, with an explanatory note.
 
-- [ ] **[Severity: Low] DEPLOYMENT.md Caddy example uses env var, repo uses secret file**
-      File: `DEPLOYMENT.md:76-81` vs `Caddyfile:13`, `docker-compose.yml:73,82`
-      Issue: Example shows `header_up X-Gateway-Proxy-Token {$TRUST_PROXY_SECRET}`; the real config reads `{file./run/secrets/trust_proxy_secret}`.
-      Suggested fix: Align the example with the secret-file pattern.
+- [x] **[Severity: Low] DEPLOYMENT.md Caddy example uses env var, repo uses secret file**
+      File: `DEPLOYMENT.md:76-81`
+      Fix applied: commit `3cf36524` — example now uses `{file./run/secrets/trust_proxy_secret}`.
 
-- [ ] **[Severity: Low] README entitlement list omits `max_prints_per_period`**
-      File: `README.md:50` vs `odoo_addons/print_gateway/models/print_job.py:1214-1220`, `static/src/js/gateway_limit_dialog.js:7-13`
-      Issue: Lists 4 entitlements; the code enforces 5.
-      Suggested fix: Add the fifth entitlement.
+- [x] **[Severity: Low] README entitlement list omits `max_prints_per_period`**
+      File: `README.md:50`
+      Fix applied: commit `3cf36524` — all five entitlements listed.
 
-- [ ] **[Severity: Low] ODOO_INTEGRATION.md lists `print_gateway.crypto` as a model**
-      File: `ODOO_INTEGRATION.md:37` vs `odoo_addons/print_gateway/models/crypto.py:1-164`, `models/gateway_config.py:1971`
-      Issue: `crypto.py` defines only AES-GCM helpers, no `models.Model`; the real `print_gateway.pair_agent_wizard` is omitted.
-      Suggested fix: Relabel crypto as a utility module; list the wizard.
+- [x] **[Severity: Low] ODOO_INTEGRATION.md lists `print_gateway.crypto` as a model**
+      File: `ODOO_INTEGRATION.md:37`
+      Fix applied: commit `3cf36524` — relabeled "AES-GCM utility module (not a model)"; the wizard is listed.
 
-- [ ] **[Severity: Low] ODOO_INTEGRATION.md policy snippet contradicts branch scope**
-      File: `ODOO_INTEGRATION.md:106-112` vs `models/print_policy.py:290-303`
-      Issue: Snippet filters `("company_id","=",order.company_id.id)`; the code searches the root company + `branch_id in [False, branch]`. The snippet misses branch-company orders.
-      Suggested fix: Update the snippet to the root+branch logic.
+- [x] **[Severity: Low] ODOO_INTEGRATION.md policy snippet contradicts branch scope**
+      File: `ODOO_INTEGRATION.md:106-112`
+      Fix applied: commit `3cf36524` — snippet now shows the root+branch logic.
 
-- [ ] **[Severity: Low] ADR-001 states stale Next.js version**
-      File: `ADR.md:12` vs `package.json:41`, `ARCHITECTURE.md:40`
-      Issue: Says Next.js 16.3.4; pinned is 16.3.6.
-      Suggested fix: Update to 16.3.6.
+- [x] **[Severity: Low] ADR-001 states stale Next.js version**
+      File: `ADR.md:12`
+      Fix applied: commit `3cf36524` — now 16.3.6.
 
 - Reviewed, no finding: `ARCHITECTURE.md:51` route count — a sweep report claimed 75, but `find src/app/api -name route.ts | wc -l` returns **76**, matching the doc. The sweep undercounted; the doc is correct.
 
@@ -534,8 +494,7 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
 
 - [x] **[Severity: Critical] CI is RED on `main` — Go dispatch suite + Odoo suite failing**
       Runs: CI `36272613988` (failure), Build Windows Installer `36272614002` (failure) on `01745fea`.
-      RESOLVED: full green on `5377be6a` — CI `36293355510`, Build Windows Installer `36293355544`, Docker, Static Security Gates, Security/Resilience all `success` (odoo19 runtime green since `b3a93f5c`). Root causes, in order: strict agent-ID gate without test updates (`ff40d0b2`, fixed by restoring the strict wire contract + realistic payloads in `c7d3cf72`); Odoo outbox/unlink guard regressions (fixed `d1dea448`/`d3793609`/`b3a93f5c`); stale static/unit/integration contracts surfaced layer by layer (`fe19988b`, `baec935b`, `f6a60efe`, `f85e3958`, `f107c3a7`, `00d389c8`, `5377be6a`).
-      (Historical detail of the red state: ~20 Go dispatch tests failed from the admission regression; Odoo 04b2/26c/26d/routing tests failed from outbox-guard bypasses. See PATCH_LOG for the per-fix evidence trail. This item was the Part B entry gate: no finding is "done" while CI is red.)
+      RESOLVED: full green on `5377be6a` and every subsequent push, including `15ab2bea` (CI `36299009432`, Docker `36299009360`, Static Security Gates `36299009477`, Security/Resilience `36299009364` all `success`). Root causes and per-fix evidence in PATCH_LOG. This item was the Part B entry gate: no finding is "done" while CI is red.
 
 - [ ] **[Severity: Low] Unpinned pip installs, no cache**
       File: `.github/workflows/ci.yml:144`
@@ -551,18 +510,20 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
 
 ## 11. Config and Environment
 
-- Reviewed in full: `.env.example`, `docker-compose.yml`, `Dockerfile`, `package.json`, `agent/go.mod`, `src-tauri/Cargo.toml`, `drizzle.config.ts`, `next.config.ts`, `server.ts`, `proxy.ts`, `tsconfig.json`, `eslint.config.mjs`, `vitest.*.mts`, `Caddyfile`. No additional findings beyond §1 item `PLATFORM_TENANT_ID fail-open` (whose Compose half lives here: `docker-compose.yml:83` defaults to empty while `DEPLOYMENT.md:50` calls it required in production).
+- Reviewed in full: `.env.example`, `docker-compose.yml`, `Dockerfile`, `package.json`, `agent/go.mod`, `src-tauri/Cargo.toml`, `drizzle.config.ts`, `next.config.ts`, `server.ts`, `proxy.ts`, `tsconfig.json`, `eslint.config.mjs`, `vitest.*.mts`, `Caddyfile`. No additional findings beyond §1 item `PLATFORM_TENANT_ID fail-open` (resolved — see §1).
 - v1 note carried forward: dependency currency is a documented residual (see PATCH_LOG Phase-1 triage), not re-reported here.
 
 ---
 
 ## Summary
 
-| Severity | v1 count | v2 open (excl. fixed) |
-|----------|----------|----------------------|
-| Critical | 3 | 1 (CI-RED; the other 2 fixed) |
-| High     | 9 | 6 (3 fixed, 1 carried open, +4 new: 2 auth rate-limit, BeginPrint fence, +system-health) |
-| Medium   | 7 | 22 (4 fixed, rest open/new) |
-| Low      | 11 | 40+ (8 fixed, rest open/new) |
+| Severity | v2 open (excl. fixed) | v3 open | Fixed by post-audit commits |
+|----------|----------------------|---------|-----------------------------|
+| Critical | 1 (CI-RED) | 0 | CI-RED resolved (`5377be6a` onward) |
+| High     | 6 | 1 | 5 (auth rate-limit ×2, negative limits ×3, BeginPrint fence, system-health still open) |
+| Medium   | 22 | 13 | 9 fixed, rest open |
+| Low      | 40+ | 28 | 12 fixed, rest open |
 
-Fixed in-flight (Part B, pre-v2): `1771752d` (§1×2), `6638efc4` (§2×3), `bedfab18` (§5 critical), `2e638987` (§8 critical), `f54b2a77` (§5×3 + §8 crash-reason), `2f27258a` (§4×4 + §8 StatusDot), `0d819b15` (§7 res_ids + §7/§8 expired/statuses documented), `222e8c6d` (§6 control_service), `c951c4b4` (§9 first-run), `ef26f47d` (§9×3), `71403d34` (§10 pip).
+**v3 open items by area:** §1 ×10 · §2 ×18 · §3 ×4 · §4 ×4 · §5 ×1 · §6 ×0 · §7 ×1 · §8 ×1 · §9 ×0 · §10 ×2 · §11 ×0 = **41 open**.
+
+**Fixed by post-audit Part B commits (15 commits, `147bd734..15ab2bea`):** `0d7da21e` (§1×2), `ebc0cb05` (§1×3), `11a0bb82` (§2×3), `e984d728` (§5), `bab7848c` (§5), `16b7c58e` (§5×3), `7fdb5af7` (§5×2), `68ab1525` (§5×5), `b87c4975` (§5), `6dd1c74c` (§6×3), `ab4fb9a3` (§7×4), `729d2f29` (§7 revert+document), `3cf36524` (§9×10), `15ab2bea` (test pin).
