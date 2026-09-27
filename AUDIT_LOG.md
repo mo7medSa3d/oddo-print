@@ -9,7 +9,7 @@
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 242 | issues high: 0 med: 4 low: 33 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 266 | issues high: 0 med: 4 low: 33 | fixed: 0 | deferred runtime: 0.
 - Note on counting: route/UI batches below re-verify files already line-by-line audited in Part B (AUDIT_FINDINGS.md). Session-4 does NOT re-do that work; it verifies currency (no changes since the fix SHAs), closes deferred follow-ups, and fully re-reads the highest-risk files. Each file still gets its own Status line.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
@@ -604,5 +604,18 @@ Basis: `git log 15ab2bea..HEAD -- agent/` shows only gofmt + the documented CLI-
 ### internal/queue (1 remaining) + storage (7) + testutil (1) — Status: OK
 - `queue/cleanup.go`, `storage/secure.go`, `storage/secure_posix.go`, `storage/secure_windows.go`, `storage/security_other.go`, `storage/security_windows.go`, `storage/replace_file_posix.go`, `storage/replace_file_windows.go`, `testutil/mock_printer.go` — CreateTemp + 0600 + Chmod semantics intact; no changes. OK.
 - Proposed fix (batch 6): the 1 low above. Fix applied: no (queued).
+
+## Batch 7 — Tauri shell + desktop app (24 files) — re-verified 2026-09-27
+Basis: `git log 15ab2bea..HEAD -- src-tauri src/desktop` shows only the Part-B commits; every §6 fix marker re-confirmed by grep (ISO-8601 `format_utc_iso8601`, malformed-line `continue`, documented allowlist asymmetry); `commands.rs:420-603` (gateway proxy core) re-read line-by-line this session. No new issues.
+
+## [src-tauri/src/commands.rs] (partial re-read) — audited 2026-09-27
+- Status: OK. Proxy core verified: no-redirect HTTP client, 8 MiB body caps on request and response, manager tokens stored Rust-side and stripped from renderer-visible bodies, strict allowlist (exact GET paths, charset-validated printer action paths, query-key allowlist with 200-char value cap), `..`/backslash rejection, PATCH unreachable for agent bearers, bounded CLI subprocess (20s, 256 KiB cap), real status codes preserved. No finding.
+
+### Tauri (7) — Status: OK
+- `main.rs`, `agent.rs`, `cleanup.rs`, `commands.rs`, `logging.rs`, `paths.rs`, `tray.rs` — Part-B fixes intact (deduplicated `control_service`, ISO-8601 logging, skip-malformed-lines, dead-filter removal, documented allowlist). OK.
+
+### desktop app (17) — Status: OK
+- `main.tsx`, `types.ts`, `ui.tsx`, `lib/ipc.ts`, `lib/printers.ts`, `components/AddPrinterDialog.tsx`, `components/AdminPrivilegeDialog.tsx`, `components/EditPrinterDialog.tsx`, `components/JobTimeline.tsx`, `components/Sidebar.tsx`, `pages/Agents.tsx`, `pages/Jobs.tsx`, `pages/Overview.tsx`, `pages/Printers.tsx`, `pages/Settings.tsx`, `preview/main.ts`, `preview/mock-tauri.ts` — Part-B fixes intact (ipc stub deletion, device_class badges, gateway-keyed agent cache, zpl/tspl options, protocol-derived Overview badges). OK.
+- Proposed fix (batch 7): none. Fix applied: n/a (pre-session).
 
 ## Batch 5 — Contract center (4 files) — audited 2026-09-27
