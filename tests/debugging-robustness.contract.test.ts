@@ -44,7 +44,7 @@ describe("debugging / robustness contracts", () => {
     expect(log).toContain('"debug" | "info" | "warn" | "error"');
     expect(log).toContain("console.debug(text)");
     expect(log).toContain("export function logDebug");
-    expect(ws).toContain('import { logDebug, logInfo, logWarn }');
+    expect(ws).toContain('import { logDebug, logError, logInfo, logWarn }');
     expect(ws).not.toMatch(/catch\s*\{\s*\}/);
   });
 
