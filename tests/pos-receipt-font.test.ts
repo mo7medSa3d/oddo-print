@@ -20,8 +20,6 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { htmlToCanvas, renderToElement } from "./__mocks__/odoo";
-// @ts-expect-error - the JS module under test has no type declarations; its Odoo
-// dependencies resolve to the shared mock module via vitest aliases.
 import { renderReceiptImage } from "../odoo_addons/print_gateway/static/src/js/pos_print_router";
 
 function makeCanvas(): HTMLCanvasElement {
