@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"runtime"
 	"strings"
@@ -17,32 +16,6 @@ import (
 
 const pairingCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 const pairingCodeLength = 6
-
-func validateServerURL(raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("invalid server URL: %w", err)
-	}
-	if u.Host == "" {
-		return fmt.Errorf("server URL host is empty")
-	}
-	if u.User != nil {
-		return fmt.Errorf("server URL must not contain embedded credentials")
-	}
-	if u.RawQuery != "" || u.Fragment != "" {
-		return fmt.Errorf("server URL must not contain query strings or fragments")
-	}
-	if u.Scheme == "https" {
-		return nil
-	}
-	if u.Scheme == "http" {
-		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
-			return nil
-		}
-		return fmt.Errorf("http URL %q requires explicit opt-in via YASSER_AGENT_ALLOW_INSECURE_HTTP=1 (or legacy ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP=1)", raw)
-	}
-	return fmt.Errorf("server URL scheme must be http or https, got %q", u.Scheme)
-}
 
 func normalizeAndValidatePairingCode(raw string) (string, error) {
 	code := strings.ToUpper(strings.TrimSpace(raw))
@@ -62,7 +35,7 @@ func normalizeAndValidatePairingCode(raw string) (string, error) {
 // and is not persisted in plaintext config.yaml or echoed to stdout.
 func Register(serverURL, pairingCode, configPath string) error {
 	serverURL = strings.TrimRight(strings.TrimSpace(serverURL), "/")
-	if err := validateServerURL(serverURL); err != nil {
+	if err := config.ValidateServerURL(serverURL); err != nil {
 		return err
 	}
 	code, err := normalizeAndValidatePairingCode(pairingCode)
@@ -89,13 +62,21 @@ func Register(serverURL, pairingCode, configPath string) error {
 		return fmt.Errorf("encode registration request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		// Never follow redirects on the registration path: a 3xx target
+		// must not receive the pairing code (mirrors the IPP client and
+		// the desktop Rust client, which both disable redirects).
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/agent/register", serverURL), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create registration request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "odoo-print-agent-cli/1")
+	req.Header.Set("User-Agent", "yasser-agent-cli/1")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -127,7 +108,6 @@ func Register(serverURL, pairingCode, configPath string) error {
 		return fmt.Errorf("load config before saving credentials: %w", err)
 	}
 	cfg.Server.URL = serverURL
-	cfg.Server.AllowInsecureHTTP = strings.HasPrefix(strings.ToLower(strings.TrimSpace(serverURL)), "http://")
 	cfg.Agent.ID = data.AgentID
 	cfg.Agent.Secret = data.Secret
 	if cfg.Agent.Name == "" {
