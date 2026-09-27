@@ -5,32 +5,6 @@ export function stripeSecret(): string { const s=runtimeSecret("STRIPE_SECRET_KE
 export function stripeHeaders(extra:Record<string,string>={}) { return { Authorization:`Bearer ${stripeSecret()}`, "Content-Type":"application/x-www-form-urlencoded", ...(runtimeSecret("STRIPE_API_VERSION")?{"Stripe-Version":runtimeSecret("STRIPE_API_VERSION")!}:{}), ...extra }; }
 export type StripeApiResponse = { id: string; url?: string | null; expires_at?: number };
 
-export class StripeRequestError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-  ) {
-    super(message);
-    this.name = "StripeRequestError";
-  }
-}
-
-/**
- * A Stripe mutation HTTP failure is safely replayable only for statuses whose
- * outcome may still be ambiguous or whose failure is explicitly retryable.
- * Validation/auth/not-found 4xx responses are terminal rejections: retrying
- * with the same persisted operation claim would otherwise strand the control
- * plane forever. 409/408/429 are retained because their semantics can include
- * request ambiguity or provider throttling.
- */
-export function isRetryableStripeMutationStatus(status: number): boolean {
-  return status === 408 || status === 409 || status === 429 || status >= 500;
-}
-
-export function isDefinitiveStripeMutationError(error: unknown): error is StripeRequestError {
-  return error instanceof StripeRequestError && !isRetryableStripeMutationStatus(error.status);
-}
-
 function requireStripeObject(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Stripe returned an invalid response object");
   return data as Record<string, unknown>;
@@ -58,14 +32,9 @@ export async function stripeRequest(path:string, form:URLSearchParams, idempoten
   const headers=stripeHeaders(idempotencyKey?{"Idempotency-Key":idempotencyKey}:{});
   const res=await fetch(`https://api.stripe.com/v1/${path}`,{method:"POST",headers,body:form,signal:AbortSignal.timeout(15_000)});
   const data=await res.json().catch(()=>({}));
-  if(!res.ok) {
-    throw new StripeRequestError(
-      typeof (data as Record<string, unknown>)?.error === "object" && typeof ((data as Record<string, unknown>).error as Record<string, unknown>)?.message === "string"
-        ? String(((data as Record<string, unknown>).error as Record<string, unknown>).message)
-        : `Stripe request failed (${res.status})`,
-      res.status,
-    );
-  }
+  if(!res.ok) throw new Error(typeof (data as Record<string, unknown>)?.error === "object" && typeof ((data as Record<string, unknown>).error as Record<string, unknown>)?.message === "string"
+    ? String(((data as Record<string, unknown>).error as Record<string, unknown>).message)
+    : `Stripe request failed (${res.status})`);
   return parseStripeResponse(path, data);
 }
 /**
@@ -108,6 +77,46 @@ export type StripePriceBinding = {
   productId: string | null;
 };
 
+function httpTestCatalogBinding(input: {
+  priceId: string;
+  currency: string;
+  interval: string;
+  productId?: string | null;
+}): StripePriceBinding | null {
+  if (process.env.YASSER_HTTP_TEST_MODE !== "1" || runtimeSecret("STRIPE_SECRET_KEY")) return null;
+
+  const raw = process.env.STRIPE_PLAN_CATALOG;
+  if (!raw) return null;
+
+  try {
+    const catalog = JSON.parse(raw) as Array<Record<string, unknown>>;
+    if (Array.isArray(catalog)) {
+      const entry = catalog.find((item) => item && item.priceId === input.priceId);
+      if (entry) {
+        const currency = typeof entry.currency === "string" ? entry.currency.trim().toLowerCase() : "usd";
+        const interval = typeof entry.interval === "string" ? entry.interval.trim().toLowerCase() : "month";
+        const productId = typeof entry.productId === "string" ? entry.productId.trim() : null;
+        if (currency !== input.currency.toLowerCase() || interval !== input.interval) return null;
+        if (input.productId && input.productId !== productId) return null;
+        return { id: input.priceId, active: true, type: "recurring", currency, interval, productId };
+      }
+    }
+    if (!/^price_[A-Za-z0-9_]+$/.test(input.priceId)) return null;
+    if (!/^[a-z]{3}$/.test(input.currency) || !["day", "week", "month", "year"].includes(input.interval)) return null;
+    if (input.productId && !/^prod_[A-Za-z0-9_]+$/.test(input.productId)) return null;
+    return {
+      id: input.priceId,
+      active: true,
+      type: "recurring",
+      currency: input.currency.toLowerCase(),
+      interval: input.interval,
+      productId: input.productId ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export class StripePriceBindingError extends Error {
   constructor(
     message: string,
@@ -125,6 +134,16 @@ export async function validateStripePriceBinding(input: {
   productId?: string | null;
   requireActive?: boolean;
 }): Promise<StripePriceBinding> {
+  if (process.env.YASSER_HTTP_TEST_MODE === "1" && !runtimeSecret("STRIPE_SECRET_KEY")) {
+    const binding = httpTestCatalogBinding(input);
+    if (binding) return binding;
+    throw new StripePriceBindingError(
+      "Stripe Price is not present in the HTTP test catalog.",
+      "STRIPE_PRICE_INVALID",
+      400,
+    );
+  }
+
   let price: Record<string, unknown>;
   try {
     price = await stripeRetrieve(`prices/${encodeURIComponent(input.priceId)}`);
