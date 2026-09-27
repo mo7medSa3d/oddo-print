@@ -20,6 +20,8 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
+// Odoo frontend aliases are virtual modules in the Node/Vitest environment.
+
 const mocks = vi.hoisted(() => ({
   htmlToCanvas: vi.fn(),
   renderToElement: vi.fn(),
