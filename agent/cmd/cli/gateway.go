@@ -19,6 +19,7 @@ import (
 const gatewayRequestMaxBody = 8 * 1024 * 1024
 
 var gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/(?:test-connection|test-print)$")
+
 // Deliberately wider than the desktop console proxy (which allows exact
 // GET /api/agents only): the operator CLI needs single-agent fetch for
 // diagnostics. Both surfaces are read-only.
