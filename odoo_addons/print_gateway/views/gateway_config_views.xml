@@ -6,8 +6,15 @@
         <field name="arch" type="xml">
             <list string="Connection &amp; Printing" create="1" class="o_pg_list">
                 <field name="company_id" string="Company"/>
+                <field name="gateway_sync_state"
+                       string="Gateway Status"
+                       widget="badge"
+                       decoration-success="gateway_sync_state == 'active'"
+                       decoration-info="gateway_sync_state == 'syncing'"
+                       decoration-warning="gateway_sync_state in ('attention', 'not_configured')"
+                       decoration-muted="gateway_sync_state == 'disabled'"/>
                 <field name="last_test_status"
-                       string="Connection"
+                       string="Connection Test"
                        widget="badge"
                        decoration-success="last_test_status == 'success'"
                        decoration-danger="last_test_status in ('failed', 'revoked')"
