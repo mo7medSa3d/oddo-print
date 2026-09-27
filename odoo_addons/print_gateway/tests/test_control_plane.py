@@ -427,11 +427,16 @@ class TestControlPlane(TransactionCase):
         persisted_states = []
 
         def _mock_persist_state(vals, **kwargs):
+            # Emulate a successful durable write. NOTE: the mock's return
+            # value is this function's return (not return_value=), so it
+            # must be an explicit True: production treats falsy as a lost
+            # lease and exits silently, which the assertions below forbid.
             persisted_states.append(dict(vals))
+            return True
 
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
              patch("requests.post", side_effect=[_refused_connection(), _refused_connection()]), \
-             patch.object(type(job), "_persist_state", side_effect=_mock_persist_state, return_value=True):
+             patch.object(type(job), "_persist_state", side_effect=_mock_persist_state):
             with self.assertRaises(ValidationError):
                 job._action_submit_trusted(raise_on_failure=True)
 

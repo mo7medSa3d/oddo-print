@@ -706,13 +706,10 @@ class PrintGatewayJob(models.Model):
                 # The caller transaction may itself be rolled back (or hold
                 # uncommitted writes of its own); flushing it against the row
                 # version we just committed can raise a serialization
-                # failure. Drop the stale cache without flushing so later
-                # reads in this transaction re-fetch the durable truth.
-                self.invalidate_cache([
-                    "status", "gateway_job_id", "attempts", "last_error",
-                    "next_retry_at", "completed_at", "printer_id", "destination",
-                    "submit_claim_token", "submit_claimed_at",
-                ])
+                # failure. Drop the whole environment cache without flushing
+                # so later reads in this transaction re-fetch the durable
+                # truth from the database.
+                self.env.cache.invalidate()
             else:
                 self.invalidate_recordset([
                     "status", "gateway_job_id", "attempts", "last_error",
