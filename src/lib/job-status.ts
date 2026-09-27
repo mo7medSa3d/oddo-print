@@ -30,6 +30,8 @@
 // override (failed -> success) is NOT part of the general table; it exists
 // only as an explicitly authorized code path via canTransition's
 // allowLateSuccess option; the HTTP route fences its age atomically against PostgreSQL time.
+import { parseDbTimeMs } from "./database-clock";
+
 export const JOB_STATUSES = [
   "queued",
   "claimed",
@@ -159,23 +161,6 @@ export const LATE_SUCCESS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
  */
 export const EXPIRED_LATE_SUCCESS_GRACE_MS = 5 * 60 * 1000;
 export const LATE_SUCCESS_POST_EXPIRATION_MARKER = "LATE_SUCCESS_POST_EXPIRATION";
-
-/**
- * Raw `db.execute()` rows surface naive UTC timestamp strings while typed
- * drizzle rows surface Date; normalize either to epoch ms without host-TZ skew.
- */
-function parseDbTimeMs(value: Date | string | null | undefined): number | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value.getTime();
-  const text = value.trim();
-  if (!text) return null;
-  let iso = text.replace(" ", "T");
-  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
-    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
-  }
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : ms;
-}
 
 export interface LateSuccessCandidate {
   status: JobStatus;

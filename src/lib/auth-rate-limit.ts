@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { isIP } from "node:net";
 import { trustProxyEnabled } from "./trust-proxy-config";
 import { logWarn } from "./log";
+import { parseDbTimeMs } from "./database-clock";
 
 /**
  * Database-backed authentication rate limiter.
@@ -25,23 +26,6 @@ import { logWarn } from "./log";
 export const AUTH_RATE_WINDOW_MS = 15 * 60 * 1000;
 export const PAIRING_RATE_WINDOW_MS = 15 * 60 * 1000;
 export const AUTH_RATE_RETENTION_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Raw `db.execute()` rows surface naive UTC timestamp strings while typed
- * drizzle rows surface Date; normalize either to epoch ms without host-TZ skew.
- */
-function parseDbTimeMs(value: Date | string | null | undefined): number | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value.getTime();
-  const text = value.trim();
-  if (!text) return null;
-  let iso = text.replace(" ", "T");
-  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
-    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
-  }
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : ms;
-}
 
 let warnedUntrustedProxy = false;
 
