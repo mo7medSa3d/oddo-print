@@ -9,7 +9,7 @@
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 27 | issues high: 0 med: 3 low: 21 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 37 | issues high: 0 med: 3 low: 26 | fixed: 0 | deferred runtime: 0.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
 - Confirmed repo `mo7medSa3d/oddo-print`, branch `main` via `gh repo view` + `git remote -v`; `gh auth status` OK.
@@ -221,3 +221,71 @@
 - Findings: none independent. Correctly mirrors `manager-auth.ts` for the platform scope: v2/legacy dual path, family-active check bound to `userId`, `isPlatformOwner` + `emailVerifiedAt` gates on both paths, normalized login, tenant-less principal enforced both in claims shape and `validatePrincipal`. The two shared lows (triplicated tx-type inference, `!` assertions `:102-103`) are counted under session-tokens/manager-auth — not double-counted here.
 - Proposed fix: none (see shared items)
 - Fix applied: n/a
+
+## [gateway/src/lib/agent-availability.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Canonical freshness gates on the calibrated `gatewayNow()` clock; `ageSeconds >= 0` lower bound present in both entry points (prior future-timestamp fix confirmed); effective printer status correctly folds parent-agent reachability before stored status; raw-status passthrough preserves unknown values instead of inventing them. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/agent-control.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (2 low)
+- Findings:
+  - Verified good (no finding): 5-attempt uniqueness loop + per-tenant advisory lock + `max_agents` entitlement gate + `requireActiveTenantInTransaction` all inside one transaction; cross-tenant mint race is closed by the DB partial-unique (0032) fail-closed. Caller-supplied `ManagerClaims` (no cookie re-read) avoids the HTTP/Server-Action trust-boundary mismatch — documented.
+  - [SEVERITY: low] Fire-and-forget audit `void writeAuditEvent(...).catch(() => undefined)` (`:84-91`) swallows even the error signal — a failing audit pipeline is invisible. Log at warn/error in the catch so audit loss is observable (keep it non-blocking).
+  - [SEVERITY: low] Return shape carries both `expiresAt` and snake_case `expires_at` (`:92`) — dual-casing for the same instant invites client drift (cf. prior §1 shape-standardization fixes). Pick one canonical field.
+- Proposed fix: log audit failures; single expiry field.
+- Fix applied: no
+
+## [gateway/src/lib/agent-health.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (2 low)
+- Findings:
+  - Verified good (no finding): prior fixes confirmed in place (`age < 0 → OFFLINE` at `:70` and the Gateway-check `:128`, shared `agentStaleThresholdSeconds()`, no `as any` on rows/metadata); per-query 3s timeouts with graceful `unknown` degradation; inferred-vs-observed labeling honest; `failureCount: null` with explicit NOT-MEASURED note instead of false 0.
+  - [SEVERITY: low] `getAllAgentsHealth` (`:216-228`) awaits `getAgentHealth` sequentially — 3 queries per agent in series (N+1). Fine for small fleets and gentle on the 20-conn pool, but large fleets degrade linearly. Use bounded concurrency if fleet sizes grow.
+  - [SEVERITY: low] `ONLINE_THRESHOLD_MS` snapshotted at module load (`:54`) while `agent-availability.ts` reads the env fresh per call — inconsistent evaluation points (env is boot-pinned in practice, so only a test-seam concern). Evaluate per call or document boot-pinned.
+- Proposed fix: bounded-concurrency fan-out; per-call threshold read.
+- Fix applied: no
+
+## [gateway/src/lib/agent-lifecycle.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. `FOR UPDATE` + revision fencing + optimistic update predicate + post-update revision assertion close the claim/transition race; any transition nulls the secret and forces offline (session kill); re-enable re-gates billing and mints a fresh pairing code; tenant fence precedes credential mutation; `pg_notify` carries the new revision for WS fencing; audit in-transaction. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/agent-presence-maintenance.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. 15s convergence sweep fenced on `lifecycle/status` with NULL-`last_seen_at` coverage and env-driven threshold; historical jobs untouched. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/audit.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Metadata sanitizer redacts secret-bearing keys, enforces depth/node/item/string/byte budgets with safe fallbacks on serialization failure. Broad `payload|pairing` redaction is deliberate (document content must never land in audit rows). No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/lifecycle.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Closed transition table (`retired` terminal, same-state idempotent); `lifecycleAllowsNewJobs` single predicate. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/stale-threshold.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Dependency-free by documented design (client-bundle safety); env parse clamped to 10..3600s with floor and fail-safe default; printer threshold intentionally fixed to keep UI and claim gate aligned. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/cache.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. `SSA-Vary` segments caller+tenant so the single public preset (`billing/plans`) cannot replay across sessions; every other data route stays `no-store` via `api-defaults.ts`. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/canonicalize.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (1 low)
+- Findings:
+  - Verified good (no finding): codepoint (non-locale) key ordering with documented rationale (locale-sensitive fingerprints fixed); recursive.
+  - [SEVERITY: low] Non-plain objects are not handled: `Object.entries(new Date())` is `[]`, so a `Date` instance canonicalizes to `{}` — two different dates would fingerprint identically and could false-match idempotency. Safe only if all inputs are JSON-round-tripped before fingerprinting. Verify at `idempotency.ts` audit that no live `Date`/class instance reaches `canonicalize`.
+- Proposed fix: confirm JSON-only inputs at idempotency audit; else add explicit `Date` (toISOString) handling.
+- Fix applied: no
