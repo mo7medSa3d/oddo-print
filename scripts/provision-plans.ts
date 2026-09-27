@@ -9,17 +9,20 @@ async function main() {
   if (!raw) throw new Error("STRIPE_PLAN_CATALOG is required");
   const parsed = JSON.parse(raw) as Array<{ id: string; name: string; priceId: string; currency?: string; interval?: string; entitlements: Record<string, unknown> }>;
   if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("STRIPE_PLAN_CATALOG must be a non-empty JSON array");
+  const httpTestMode = process.env.YASSER_HTTP_TEST_MODE === "1";
   for (const plan of parsed) {
     if (!plan?.id || !plan.name || !plan.priceId || !plan.entitlements || typeof plan.entitlements !== "object" || Array.isArray(plan.entitlements)) throw new Error("Each plan requires id, name, priceId and entitlements");
     const entitlements = normalizePlanEntitlements(plan.entitlements);
     const currency = plan.currency ?? "usd";
     const interval = plan.interval ?? "month";
-    const stripePrice = await validateStripePriceBinding({
-      priceId: plan.priceId,
-      currency,
-      interval,
-      requireActive: true,
-    });
+    const stripePrice = httpTestMode
+      ? null
+      : await validateStripePriceBinding({
+          priceId: plan.priceId,
+          currency,
+          interval,
+          requireActive: true,
+        });
     await db.insert(plans).values({
       id: plan.id,
       name: plan.name,
@@ -31,7 +34,7 @@ async function main() {
       isActive: true,
       isPublic: true,
       displayOrder: 0,
-      stripeProductId: stripePrice.productId,
+      stripeProductId: stripePrice?.productId ?? null,
     })
       .onConflictDoUpdate({ target: plans.id, set: { name: plan.name, stripePriceId: plan.priceId, currency: plan.currency ?? "usd", interval: plan.interval ?? "month", entitlements, updatedAt: new Date() } });
   }
