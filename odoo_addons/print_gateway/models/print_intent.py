@@ -183,7 +183,13 @@ class PrintGatewayIntent(models.Model):
             # can only ever restrict access, never widen it.
             record_company = record.company_id if hasattr(record, "company_id") else False
             if record_company and record_company.id != new_env.company.id:
-                new_env = new_env.with_context(allowed_company_ids=[record_company.id])
+                # NOTE: Environment has NO with_context (it is Model-only;
+                # calling new_env.with_context(...) raises AttributeError on
+                # Odoo 19). The env-level API is __call__(context=...), which
+                # returns a new Environment with the replaced context, so
+                # env.company resolves from the record's company. Verified
+                # against the Odoo 19 runtime (CI odoo19 job).
+                new_env = new_env(context=dict(new_env.context, allowed_company_ids=[record_company.id]))
                 intent = intent.with_env(new_env)
                 record = record.with_env(new_env)
             router = new_env["print_gateway.print_router"]

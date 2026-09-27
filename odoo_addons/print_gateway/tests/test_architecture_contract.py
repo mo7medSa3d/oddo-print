@@ -332,7 +332,11 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
     def test_kitchen_retry_and_reprint_use_fresh_gateway_operations(self):
         source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
         self.assertIn("if (reprint || !orderChange.__gateway_print_id)", source)
-        self.assertIn('"kitchen-retry-" + crypto.randomUUID()', source)
+        # Operation identities go through gatewayUuid() (crypto.randomUUID
+        # with a v4 fallback for insecure-HTTP LAN contexts where randomUUID
+        # is undefined); the retry prefix itself is unchanged.
+        self.assertIn("function gatewayUuid()", source)
+        self.assertIn('"kitchen-retry-" + gatewayUuid()', source)
         self.assertIn("retry: () =>", source)
         self.assertIn("const retryPrinters = new Set();", source)
         self.assertIn("this.printChanges(order, orderChange, reprint, retryPrinters)", source)
