@@ -6,12 +6,12 @@ const ARGON_MEMORY = 64 * 1024;
 const ARGON_PASSES = 3;
 const ARGON_PARALLELISM = 4;
 const ARGON_TAG_LENGTH = 32;
-const ARGON_VERSION = 0x13;
 // NOTE: verifyPassword pins stored hashes to exactly these parameters and
 // fails closed otherwise. Raising any cost parameter therefore invalidates
 // ALL existing hashes (users locked out until password reset) unless a
 // needsRehash-style upgrade path is added first. Treat a bump as a migration,
-// not a constant tweak.
+// not a constant tweak. (No version constant: the built-in has no `version`
+// option — it always uses Argon2 v1.3, matching the `v=19` label below.)
 
 function argon2OrThrow(): Argon2Fn {
   // The built-in exists since Node 24.7 (engines pin >=24.15); feature-detect
@@ -32,7 +32,6 @@ function derive(password: string, salt: Buffer): Promise<Buffer> {
       tagLength: ARGON_TAG_LENGTH,
       memory: ARGON_MEMORY,
       passes: ARGON_PASSES,
-      version: ARGON_VERSION,
     }, (err, key) => err ? reject(err) : resolve(key!));
   });
 }

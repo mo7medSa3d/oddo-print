@@ -7,14 +7,12 @@ export function stripeSecret(): string {
   return s;
 }
 
-export function stripeHeaders(extra: Record<string, string> = {}) {
-  const versioned = runtimeSecret("STRIPE_API_VERSION")
-    ? { "Stripe-Version": runtimeSecret("STRIPE_API_VERSION") as string }
-    : {};
+export function stripeHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const apiVersion = runtimeSecret("STRIPE_API_VERSION");
   return {
     Authorization: `Bearer ${stripeSecret()}`,
     "Content-Type": "application/x-www-form-urlencoded",
-    ...versioned,
+    ...(apiVersion ? { "Stripe-Version": apiVersion } : {}),
     ...extra,
   };
 }
