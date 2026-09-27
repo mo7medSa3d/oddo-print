@@ -47,7 +47,7 @@ async function elementToJpeg(element) {
     return canvasToJpeg(canvas);
 }
 
-async function renderReceiptImage(pos, currentOrder, basic = false) {
+export async function renderReceiptImage(pos, currentOrder, basic = false) {
     const renderer = pos.env?.services?.renderer || pos.printer?.renderer;
     const props = {
         data: typeof currentOrder.export_for_printing === "function" ? currentOrder.export_for_printing() : currentOrder,
