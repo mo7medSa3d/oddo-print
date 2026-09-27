@@ -94,6 +94,11 @@ export const tenantUsers = pgTable("tenant_users", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
+  // Deliberately a UNIQUE index, not a composite PRIMARY KEY: tenant_users
+  // rows are addressed via (userId, tenantId) lookups and the single-owner
+  // partial unique below, and no ORM/replication path requires a formal PK
+  // here (cf. the CI-pinned UNIQUE identity boundary on printers /
+  // discovered_devices in migration 0074).
   pk: uniqueIndex("tenant_users_pk").on(table.userId, table.tenantId),
   tenantIdx: index("tenant_users_tenant_idx").on(table.tenantId),
   ownerUnique: uniqueIndex("tenant_users_single_owner_idx").on(table.tenantId).where(sql`${table.role} = 'owner'`),
