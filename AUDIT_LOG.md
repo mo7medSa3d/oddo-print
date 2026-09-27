@@ -9,7 +9,7 @@
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 22 | issues high: 0 med: 3 low: 16 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 27 | issues high: 0 med: 3 low: 21 | fixed: 0 | deferred runtime: 0.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
 - Confirmed repo `mo7medSa3d/oddo-print`, branch `main` via `gh repo view` + `git remote -v`; `gh auth status` OK.
@@ -182,4 +182,42 @@
 - Findings: none. Single authoritative transition with `FOR UPDATE` serialization, closed transition table (`deleted` terminal), mandatory reason, platform-tenant protection (fail-open only when `PLATFORM_TENANT_ID` unset — already fail-closed at boot by `server.ts:65-69`), `clock_timestamp()` ordering, session/family revocation + `pg_notify` on suspend/delete, in-transaction audit event, lost-update detection (`updated.length !== 1`).
 - Resolved from batch 1 (no finding): hard-delete orphan risk — there is NO hard-delete path (deletion is a soft `lifecycle='deleted'` state; no `DELETE FROM tenants` exists), so FKs without `onDelete` cannot orphan via app flows. Manual DB surgery is out of scope.
 - Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/auth-rate-limit.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. DB-backed multi-instance limiter (in-memory would be bypassed by cross-instance spraying — documented): escalating account (5/10/15/20 → 0/30s/5m/15m/1h) and IP (20/30/40/50) curves, 15-min window, 24h retention cleanup, `FOR UPDATE` row locking, deterministic key sort (deadlock avoidance), parameterized `IN` lists, success-clears-budget, untrusted-proxy fail-safe (`"unknown"` shared bucket + one-time prod warning). Follow-up for route batch: callers must 429 on `retryAfterSec` carried by *allowed* reservation decisions (same pattern as `ws-rate-limit.ts`), not on the decision itself.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/customer-auth.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (2 low)
+- Findings:
+  - Verified good (no finding): tenant-selection JWT (5-min, DB-clock iat/exp, `alg`/`typ` pinned rejecting `none`, HMAC + hashed compare, `tsel_` jti prefix, 60s future-iat tolerance); legacy-manager-cookie fallback explicitly rejects v2 tokens in the wrong cookie (no silent cross-acceptance); `issueCustomerSession` gates on tenant lifecycle. Login-normalization follow-up from batch 2a CLOSED: login route calls `authenticateForTenant` → `authenticateCustomer`, both `normalizeEmail` internally.
+  - [SEVERITY: low] Membership list capped at 50 (`:186`) with silent truncation — users with 50+ memberships lose list-path access to the rest (direct-`tenantId` path still works). Document the cap or surface a `truncated` flag.
+  - [SEVERITY: low] Dead re-export `export { normalizeEmail }` (`:198`) — zero importers from `customer-auth` (all callers import from `lib/password` directly or use the authenticate functions — verified by grep). Delete.
+- Proposed fix: document/flag the 50-cap; delete the re-export.
+- Fix applied: no
+
+## [gateway/src/lib/session-tokens.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (1 low)
+- Findings:
+  - Verified good (no finding): refresh-token rotation with reuse detection matches current best practice — single-use rotation + immediate invalidation + whole-family revocation on reuse + atomic operations under locks + user notification — sources: OWASP OAuth 2.0 cheatsheet "refresh token rotation … to detect replay attempts" (https://cheatsheetseries.owasp.org/cheatsheets/OAuth2_Cheat_Sheet.html), Auth0 "Automatic Reuse Detection … invalidates the refresh token family" (https://auth0.com/blog/refresh-tokens-what-are-they-and-when-to-use-them/). Implementation: `pg_advisory_xact_lock` + `FOR UPDATE`, 5s rotation grace (concurrent double-submit rotates instead of false-alarming), 30-day absolute family TTL, per-rotation principal revalidation (tenant active, role match, email verified/unchanged), post-commit email alert, exact-TTL access tokens (`exp-iat !== 900` fails closed), kind-scoped `sub`, HttpOnly Lax/Strict path-scoped cookies, opaque 256-bit refresh tokens (SHA-256 stored). Pre-hash token lookup without kind scoping is safe (256-bit hash space) with the kind check enforced after.
+  - [SEVERITY: low] `SessionTx` type via double-`Parameters` inference (`:225`) is copy-pasted in three files (`manager-auth.ts:303` as `LegacyManagerAuthTx`, `platform-auth.ts:213` as `LegacyPlatformAuthTx`). Canonicalize to one exported transaction type from `db/`.
+- Proposed fix: export a single `DbTx`/`SessionTx` type and import it in all three files.
+- Fix applied: no
+
+## [gateway/src/lib/manager-auth.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (2 low)
+- Findings:
+  - Verified good (no finding): v2/legacy dual validation with explicit cross-rejection (legacy path rejects any v2-shaped claims); v2 checks DB-clock expiry + exact TTL + family-active revocation + membership/role match + tenant gate; legacy checks durable row agreement (jti, `clock_timestamp()` expiry, JWT/row exp match); `resolveManagerTenantId` refuses to infer tenant from row counts (Host-header cross-tenant attack documented); bootstrap password has dummy-KDF timing cover for unknown users; scrypt→argon2 upgrade is compare-and-swap race-safe; email normalized on all password paths.
+  - [SEVERITY: low] `revokeLegacyManagerSessionsForTenantInTransaction` (`:327-332`) uses `DELETE` while the user-scoped twin (`:314-325`) uses `revokedAt` update — destructive vs non-destructive revocation for the same table, losing session rows on tenant suspend. Prefer the revoke-update for consistency (refresh families already carry the durable revocation).
+  - [SEVERITY: low] Non-null assertions on shape-validated claims (`:105`, `:259` here; same class at `customer-auth.ts:156`, `platform-auth.ts:102-103`) — safe today (validators guarantee presence per kind) but a future validator change silently becomes `undefined` downstream. Prefer explicit guards that fail closed.
+- Proposed fix: revoke-update instead of delete; explicit presence guards.
+- Fix applied: no
+
+## [gateway/src/lib/platform-auth.ts] — audited 2026-09-27
+- Status: OK (shared findings recorded under session-tokens/manager-auth)
+- Findings: none independent. Correctly mirrors `manager-auth.ts` for the platform scope: v2/legacy dual path, family-active check bound to `userId`, `isPlatformOwner` + `emailVerifiedAt` gates on both paths, normalized login, tenant-less principal enforced both in claims shape and `validatePrincipal`. The two shared lows (triplicated tx-type inference, `!` assertions `:102-103`) are counted under session-tokens/manager-auth — not double-counted here.
+- Proposed fix: none (see shared items)
 - Fix applied: n/a
