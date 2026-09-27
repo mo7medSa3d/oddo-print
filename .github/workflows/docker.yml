@@ -2,10 +2,10 @@ name: Docker
 
 on:
   pull_request:
-    branches: [main, test/http-server-ready]
+    branches: [main]
   merge_group:
   push:
-    branches: [main]
+    branches: [main, test/http-server-ready]
   workflow_dispatch:
 
 concurrency:
