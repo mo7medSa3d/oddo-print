@@ -30,25 +30,24 @@ _logger = logging.getLogger(__name__)
 def _friendly_gateway_request_error(exc, gateway_url):
     """Turn a raw requests failure into an operator-actionable message.
 
-    Transport failures name the URL and hint at host/port instead of dumping
-    pool internals, so a wrong Gateway origin is diagnosable from the Odoo
-    form instead of surfacing as a generic sync stall.
+    This helper is intentionally translation-free because it is also called
+    from Odoo cron/post-commit worker threads, where there is no request
+    language frame for Odoo's translation helper.
     """
-    url = gateway_url or _("the configured Gateway URL")
+    url = gateway_url or "the configured Gateway URL"
+    detail = str(exc).strip()[:1500] or exc.__class__.__name__
     if isinstance(exc, requests.exceptions.ConnectionError):
-        return str(_(
-            "Could not reach the Gateway at %(url)s. Verify the URL host and port "
-            "match the Gateway deployment (scheme, host and explicit port, without an API path) "
-            "and that the Gateway is running."
-        )) % {"url": url}
+        return (
+            "Could not reach the Gateway at %s: %s "
+            "Verify the URL host and port match the Gateway deployment "
+            "(scheme, host and explicit port, without an API path) and that the Gateway is running."
+        ) % (url, detail)
     if isinstance(exc, requests.exceptions.Timeout):
-        return str(_(
-            "The Gateway at %(url)s did not respond within 10 seconds. Verify the host/port "
-            "and the network path between Odoo and the Gateway."
-        )) % {"url": url}
-    return str(_(
-        "Gateway request to %(url)s failed: %(error)s"
-    )) % {"url": url, "error": str(exc)[:1500]}
+        return (
+            "The Gateway at %s did not respond within 10 seconds: %s "
+            "Verify the host/port and the network path between Odoo and the Gateway."
+        ) % (url, detail)
+    return "Gateway request to %s failed: %s" % (url, detail)
 
 
 def _same_gateway_endpoint(url_a, url_b):
@@ -68,13 +67,13 @@ def _same_gateway_endpoint(url_a, url_b):
 def _safe_redirect_target(location):
     """Return only the non-sensitive origin of a redirect target."""
     if not location or not isinstance(location, str):
-        return _("another endpoint")
+        return "another endpoint"
     try:
         parsed = urlparse(location.strip())
         scheme = parsed.scheme.lower()
         hostname = parsed.hostname
         if scheme not in ("http", "https") or not hostname:
-            return _("another endpoint")
+            return "another endpoint"
         host = hostname
         if ":" in host and not host.startswith("["):
             host = "[%s]" % host
@@ -83,7 +82,7 @@ def _safe_redirect_target(location):
             if parsed.port:
                 port = ":%d" % parsed.port
         except ValueError:
-            return _("another endpoint")
+            return "another endpoint"
         return "%s://%s%s" % (scheme, host, port)
     except Exception:
         return _("another endpoint")
@@ -102,13 +101,13 @@ def _gateway_redirect_message(response, gateway_url):
         location = (response.headers.get("Location") if response.headers else "") or ""
     except Exception:
         location = ""
-    return _(
+    return (
         "The Gateway at %(url)s answered with a redirect (HTTP %(code)s%(location)s). "
         "Configure the final Gateway origin directly (usually the HTTPS URL) instead of an address that redirects."
     ) % {
-        "url": gateway_url or _("the configured Gateway URL"),
+        "url": gateway_url or "the configured Gateway URL",
         "code": response.status_code,
-        "location": (_(" to %s") % _safe_redirect_target(location)) if location else "",
+        "location": (" to %s" % _safe_redirect_target(location)) if location else "",
     }
 
 
@@ -246,7 +245,7 @@ class PrintGatewayConfig(models.Model):
         scheme = parsed.scheme.lower()
         if scheme not in ("http", "https") or not parsed.hostname:
             raise ValidationError(_("Gateway URL must use HTTP or HTTPS and include a host, e.g. https://print.example.com or http://192.0.2.10:3000."))
-        if scheme == "http" and os.environ.get("YASSER_GATEWAY_ALLOW_INSECURE_HTTP") != "1":
+        if scheme == "http":
             raise ValidationError(_("Gateway URL must use HTTPS. Plain HTTP is allowed only for explicitly opted-in isolated development."))
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValidationError(_("Gateway URL must not contain credentials, query parameters, or fragments."))
@@ -1011,13 +1010,22 @@ class PrintGatewayConfig(models.Model):
                     gateway_url = record._gateway_base(for_request=True)
                     api_key = record._gateway_api_key_plaintext()
                 except (ValidationError, ValueError) as exc:
-                    record._persist_enabled_sync_result(
-                        self.env.cr.dbname,
-                        success=False,
-                        revision=None,
-                        error=str(exc)[:4000],
-                        expected_revision=int(record.enabled_sync_revision or 0),
-                    )
+                    # This path runs INSIDE the current write/create transaction.
+                    # _persist_enabled_sync_result() opens a second cursor and
+                    # takes a FOR UPDATE lock on the same row; calling it here
+                    # can self-deadlock until Odoo's request time limit expires.
+                    # Persist the local diagnostic on the current transaction
+                    # instead. Post-commit sync outcomes continue to use the
+                    # dedicated fresh-cursor helper.
+                    record.with_context(skip_enabled_sync=True).sudo().write({
+                        "last_enabled_sync_error": str(exc)[:4000],
+                    })
+                    record.invalidate_recordset([
+                        "last_enabled_sync_error",
+                        "gateway_sync_state",
+                        "gateway_sync_message",
+                    ])
+                    record.modified(["last_enabled_sync_error"])
                     continue
             record_id = record.id
             dbname = self.env.cr.dbname
@@ -1480,7 +1488,12 @@ class PrintGatewayConfig(models.Model):
             try:
                 gateway_url = record._gateway_base(for_request=True)
                 api_key = record._gateway_api_key_plaintext()
-            except Exception as exc:
+            except ValidationError:
+                # Preserve configuration-validation failures (for example an
+                # HTTP URL on production main) instead of misreporting them as
+                # a credential-decryption problem.
+                raise
+            except (CredentialKeyUnavailable, CredentialDecryptError, ValueError) as exc:
                 raise ValidationError(
                     _("This Gateway configuration cannot be deleted because its Gateway credential is unavailable.")
                 ) from exc

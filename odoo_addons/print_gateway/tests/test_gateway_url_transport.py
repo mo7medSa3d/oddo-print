@@ -24,17 +24,15 @@ class TestPrintGatewayURLTransport(TransactionCase):
         with self.assertRaises(ValidationError):
             PrintGatewayConfig._validate_gateway_url("http://gateway.example.com")
 
-    def test_http_gateway_url_requires_explicit_development_opt_in(self):
-        with patch.dict("os.environ", {"YASSER_GATEWAY_ALLOW_INSECURE_HTTP": "1"}, clear=False):
-            for url in (
-                "http://gateway.example.com",
-                "http://192.168.1.50:3000",
-                "http://10.0.0.5:3000",
-            ):
-                with self.subTest(url=url):
-                    self.assertEqual(
-                        PrintGatewayConfig._validate_gateway_url(url), url.rstrip("/")
-                    )
+    def test_http_gateway_url_is_rejected_on_production_main(self):
+        for url in (
+            "http://gateway.example.com",
+            "http://192.168.1.50:3000",
+            "http://10.0.0.5:3000",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaises(ValidationError):
+                    PrintGatewayConfig._validate_gateway_url(url)
 
     def test_unsupported_gateway_url_scheme_is_rejected(self):
         with self.assertRaises(ValidationError):
