@@ -100,15 +100,6 @@ export const tenantUsers = pgTable("tenant_users", {
   roleCheck: check("tenant_users_role_check", sql`${table.role} in ('owner','admin','operator','viewer','integration_admin','billing_admin')`),
 }));
 
-export const applications = pgTable("applications", {
-  id: text("id").primaryKey(),
-  tenantId: text("tenant_id").references(() => tenants.id).notNull(),
-  name: text("name").notNull(),
-  type: text("type").notNull().default("odoo"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
 export const agents = pgTable("agents", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id).notNull(),
@@ -161,8 +152,10 @@ export const printers = pgTable("printers", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
-  tenantIdUnique: unique("printers_tenant_id_unique").on(table.tenantId, table.id),
-  agentFk: foreignKey({ columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
+  // Composite PK (migration 0074): tenant-scoped identity needs a formal
+  // primary key for ORM/replication expectations; the old UNIQUE is dropped.
+  pk: primaryKey({ name: "printers_pkey", columns: [table.tenantId, table.id] }),
+  agentFk: foreignKey({ name: "printers_tenant_id_agent_id_agents_fk", columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
   agentIdx: index("printers_agent_id_idx").on(table.agentId),
   printerTypeIdx: index("printers_printer_type_idx").on(table.printerType),
   statusIdx: index("printers_status_idx").on(table.status),
@@ -215,7 +208,7 @@ export const managerSessions = pgTable("manager_sessions", {
 
 export const emailVerificationTokens = pgTable("email_verification_tokens", {
   id: text("id").primaryKey(),
-  userId: text("user_id").references(() => users.id).notNull(),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   tokenHash: text("token_hash").notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
   consumedAt: timestamp("consumed_at"),
@@ -227,7 +220,7 @@ export const emailVerificationTokens = pgTable("email_verification_tokens", {
 
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: text("id").primaryKey(),
-  userId: text("user_id").references(() => users.id).notNull(),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   tokenHash: text("token_hash").notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
   consumedAt: timestamp("consumed_at"),
@@ -239,8 +232,8 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
 
 export const tenantInvitations = pgTable("tenant_invitations", {
   id: text("id").primaryKey(),
-  tenantId: text("tenant_id").references(() => tenants.id).notNull(),
-  inviterUserId: text("inviter_user_id").references(() => users.id).notNull(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  inviterUserId: text("inviter_user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   email: text("email").notNull(),
   role: text("role").notNull(),
   tokenHash: text("token_hash").notNull().unique(),
@@ -291,7 +284,7 @@ export const discoverySessions = pgTable("discovery_sessions", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   tenantIdUnique: unique("discovery_sessions_tenant_id_unique").on(table.tenantId, table.id),
-  agentFk: foreignKey({ columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
+  agentFk: foreignKey({ name: "discovery_sessions_tenant_id_agent_id_agents_fk", columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
   agentIdIdx: index("discovery_sessions_agent_id_idx").on(table.agentId),
   statusIdx: index("discovery_sessions_status_idx").on(table.status),
   activeAgentUnique: uniqueIndex("discovery_sessions_active_agent_unique").on(table.tenantId, table.agentId).where(sql`${table.status} = 'running'`),
@@ -334,10 +327,10 @@ export const discoveredDevices = pgTable("discovered_devices", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
-  tenantIdUnique: unique("discovered_devices_tenant_id_unique").on(table.tenantId, table.id),
-  discoveryFk: foreignKey({ columns: [table.tenantId, table.discoveryId], foreignColumns: [discoverySessions.tenantId, discoverySessions.id] }),
-  agentFk: foreignKey({ columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
-  provisionedPrinterFk: foreignKey({ columns: [table.tenantId, table.provisionedPrinterId], foreignColumns: [printers.tenantId, printers.id] }),
+  pk: primaryKey({ name: "discovered_devices_pkey", columns: [table.tenantId, table.id] }),
+  discoveryFk: foreignKey({ name: "discovered_devices_tenant_id_discovery_id_fk", columns: [table.tenantId, table.discoveryId], foreignColumns: [discoverySessions.tenantId, discoverySessions.id] }),
+  agentFk: foreignKey({ name: "discovered_devices_tenant_id_agent_id_agents_fk", columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
+  provisionedPrinterFk: foreignKey({ name: "discovered_devices_tenant_id_provisioned_printer_id_fk", columns: [table.tenantId, table.provisionedPrinterId], foreignColumns: [printers.tenantId, printers.id] }),
   discoveryIdIdx: index("discovered_devices_discovery_id_idx").on(table.discoveryId),
   agentIdIdx: index("discovered_devices_agent_id_idx").on(table.agentId),
   candidateStatusIdx: index("discovered_devices_candidate_status_idx").on(table.candidateStatus),
@@ -376,9 +369,9 @@ export const printJobs = pgTable("print_jobs", {
   spoolerJobId: text("spooler_job_id"),
   attemptId: text("attempt_id"),
 }, (table) => ({
-  agentFk: foreignKey({ columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
-  printerFk: foreignKey({ columns: [table.tenantId, table.printerId], foreignColumns: [printers.tenantId, printers.id] }),
-  apiKeyTenantFk: foreignKey({ columns: [table.tenantId, table.apiKeyId], foreignColumns: [apiKeys.tenantId, apiKeys.id] }),
+  agentFk: foreignKey({ name: "print_jobs_tenant_id_agent_id_agents_tenant_id_id_fk", columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
+  printerFk: foreignKey({ name: "print_jobs_tenant_id_printer_id_printers_tenant_id_id_fk", columns: [table.tenantId, table.printerId], foreignColumns: [printers.tenantId, printers.id] }),
+  apiKeyTenantFk: foreignKey({ name: "print_jobs_tenant_id_api_key_id_api_keys_fk", columns: [table.tenantId, table.apiKeyId], foreignColumns: [apiKeys.tenantId, apiKeys.id] }),
   tenantIdUnique: unique("print_jobs_tenant_id_unique").on(table.tenantId, table.id),
   tenantStatusIdx: index("print_jobs_tenant_status_idx").on(table.tenantId, table.status),
   tenantCreatedIdx: index("print_jobs_tenant_created_idx").on(table.tenantId, table.createdAt),
