@@ -23,20 +23,45 @@
         <field name="model">print_gateway.gateway_config</field>
         <field name="arch" type="xml">
             <form string="Connection &amp; Printing" create="1" class="o_pg_view o_pg_form">
-                <header/>
+                <header>
+                    <button name="action_test_connection"
+                            string="Test Connection"
+                            type="object"
+                            class="btn-primary"/>
+                    <button name="action_retry_enabled_sync"
+                            string="Retry Sync"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="gateway_sync_state != 'attention'"/>
+                </header>
                 <sheet>
                     <group>
                         <field name="company_id" string="Company"/>
                         <field name="enabled" widget="boolean_toggle" string="Enable Printing Service"/>
                         <field name="gateway_url" placeholder="https://print.example.com"/>
                         <field name="gateway_api_key" password="True" placeholder="Enter the installation API key"/>
+                        <field name="gateway_sync_state"
+                               string="Gateway Status"
+                               widget="badge"
+                               decoration-success="gateway_sync_state == 'active'"
+                               decoration-info="gateway_sync_state == 'syncing'"
+                               decoration-warning="gateway_sync_state in ('attention', 'not_configured')"
+                               decoration-muted="gateway_sync_state == 'disabled'"
+                               readonly="1"/>
+                        <field name="gateway_sync_message"
+                               string="Status details"
+                               readonly="1"/>
                         <field name="last_test_status"
-                               string="Connection"
+                               string="Connection Test"
                                widget="badge"
                                decoration-success="last_test_status == 'success'"
                                decoration-danger="last_test_status in ('failed', 'revoked')"
                                decoration-muted="last_test_status == 'draft'"
                                readonly="1"/>
+                        <field name="last_test_error"
+                               string="Last connection error"
+                               readonly="1"
+                               invisible="not last_test_error"/>
                     </group>
                 </sheet>
             </form>
