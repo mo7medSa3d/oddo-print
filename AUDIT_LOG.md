@@ -679,3 +679,10 @@ Basis: journal/file-count cross-checks + fix-marker greps (no full re-reads; Par
 - Proposed fix (batch 9): none. Fix applied: n/a.
 
 ## Batch 5 — Contract center (4 files) — audited 2026-09-27
+
+## FIX PASS addendum (2026-09-28)
+- CI typecheck failures from the fix pass, both fixed and green:
+  - `stripeHeaders` union-widening (TS2769) → explicit `: Record<string, string>` return + hoisted `apiKeyVersion` (`a7233125`). Docker failed on the same errors; green after.
+  - `argon2` params `version` rejected by `Argon2Parameters` (TS2353) → dropped (built-in has no version option; v1.3 default matches the `v=19` label) (`a7233125`).
+  - Static pin `tests/architecture-hardening.test.ts` expects literal `crypto.randomUUID()` → reverted the style-only named import; global form kept with pin comment (`9cd22a05`).
+- Note: a concurrent session is mid-merge on branch `test/http-server-ready` in the shared checkout; the CSP revert was applied via a detached worktree to avoid disturbing it. Do not resolve that merge from this trail — coordinate with the owning session.
