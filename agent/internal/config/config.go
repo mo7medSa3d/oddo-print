@@ -20,7 +20,8 @@ const secretStoreKey = "agent_secret"
 
 type Config struct {
 	Server struct {
-		URL string `yaml:"url"`
+		URL               string `yaml:"url"`
+		AllowInsecureHTTP bool   `yaml:"allow_insecure_http,omitempty"`
 	} `yaml:"server"`
 	Agent struct {
 		ID                string `yaml:"id"`
@@ -55,7 +56,11 @@ func (c *Config) ReprintAfterCrashEnabled() bool {
 	return *c.Agent.ReprintAfterCrash
 }
 
-func ValidateServerURL(raw string) error {
+func validateServerURL(raw string) error {
+	return validateServerURLWithOptIn(raw, false)
+}
+
+func validateServerURLWithOptIn(raw string, allowInsecureHTTP bool) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
 		return fmt.Errorf("server.url invalid: %w", err)
@@ -72,10 +77,10 @@ func ValidateServerURL(raw string) error {
 	case "https":
 		return nil
 	case "http":
-		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" {
+		if allowInsecureHTTP || os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
 			return nil
 		}
-		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASSER_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development/test environments")
+		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASSER_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development")
 	default:
 		return fmt.Errorf("server.url scheme must be http or https, got %q", u.Scheme)
 	}
@@ -145,11 +150,7 @@ func Ensure(path string) error {
 	if dir == "" {
 		dir = "."
 	}
-	// 0700 from the start: the directory holds pairing secrets and the
-	// ACL hardening below only tightens afterwards, so a 0755 transient
-	// would leave a world-readable window (every other secrets path in
-	// storage/registry/queue already uses 0700 directly).
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create config dir %s: %w", dir, err)
 	}
 	if err := EnsureSecureDirectoryACL(dir); err != nil {
@@ -187,9 +188,7 @@ func (c *Config) Save(path string) error {
 			dir = d
 		}
 	}
-	// 0700 from the start (see Ensure above): never a world-readable window
-	// for the config/secret directory, even transiently.
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create config dir %s: %w", dir, err)
 	}
 	if err := EnsureSecureDirectoryACL(dir); err != nil {
@@ -209,19 +208,11 @@ func (c *Config) Save(path string) error {
 		return fmt.Errorf("encode config %s: %w", path, err)
 	}
 
-	tmpFile, err := os.CreateTemp(filepath.Dir(path), ".config-*.tmp")
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
-		return fmt.Errorf("create temp config for %s: %w", path, err)
+		return fmt.Errorf("create temp config %s: %w", tmp, err)
 	}
-	tmp := tmpFile.Name()
-	// CreateTemp is 0600; re-assert explicitly since this file carries the
-	// (sealed) agent secret material alongside the config body.
-	if err := tmpFile.Chmod(0600); err != nil {
-		tmpFile.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("secure temp config %s: %w", tmp, err)
-	}
-	f := tmpFile
 	if _, err := f.Write(data); err != nil {
 		f.Close()
 		return fmt.Errorf("write temp config %s: %w", tmp, err)
@@ -287,7 +278,7 @@ func DefaultConfigPath() string {
 
 func (c *Config) Validate() error {
 	if c.Server.URL != "" {
-		if err := ValidateServerURL(c.Server.URL); err != nil {
+		if err := validateServerURLWithOptIn(c.Server.URL, c.Server.AllowInsecureHTTP); err != nil {
 			return err
 		}
 	}
@@ -371,6 +362,20 @@ func (p PrinterConfig) NormalizedProtocolOrUnknown() string {
 		return "unknown"
 	}
 	return proto
+}
+
+// NormalizedConnectionTypeStrict returns the declared connection type
+// WITHOUT inventing one for the empty case.
+func (p PrinterConfig) NormalizedConnectionTypeStrict() string {
+	t := p.ConnectionType
+	if t == "" {
+		t = p.Type
+	}
+	t = strings.ToLower(strings.TrimSpace(t))
+	if t == "tcp" {
+		return "network"
+	}
+	return t
 }
 
 func (p PrinterConfig) IsEnabled() bool {
