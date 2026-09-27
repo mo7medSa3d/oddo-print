@@ -223,9 +223,20 @@ func UpsertRegistry(registryPath string, discovered []DeviceInfo) ([]DeviceInfo,
 			continue
 		}
 		if idx, ok := byID[d.ID]; ok {
-			// Merge into the stored row: a bare rediscovery observation
-			// must not wipe previously observed capabilities/serials.
-			existing[idx] = mergeDeviceInfo(existing[idx], d)
+			// Merge into the stored row so a bare rediscovery observation
+			// never wipes previously observed capabilities/serials — but
+			// the incoming observation is the freshest display truth (an
+			// OS/spooler rename must win), while mergeDeviceInfo alone
+			// conservatively keeps the stored name for the live-discovery
+			// path where cross-transport flapping is noise.
+			merged := mergeDeviceInfo(existing[idx], d)
+			if d.Name != "" {
+				merged.Name = d.Name
+			}
+			if d.DisplayName != "" {
+				merged.DisplayName = d.DisplayName
+			}
+			existing[idx] = merged
 			continue
 		}
 
