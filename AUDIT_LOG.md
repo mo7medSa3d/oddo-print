@@ -9,7 +9,7 @@
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 184 | issues high: 0 med: 4 low: 32 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 188 | issues high: 0 med: 4 low: 32 | fixed: 0 | deferred runtime: 0.
 - Note on counting: route/UI batches below re-verify files already line-by-line audited in Part B (AUDIT_FINDINGS.md). Session-4 does NOT re-do that work; it verifies currency (no changes since the fix SHAs), closes deferred follow-ups, and fully re-reads the highest-risk files. Each file still gets its own Status line.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
@@ -557,4 +557,25 @@ Basis: `git log 15ab2bea..HEAD` on UI paths shows only the Part-B fix commits; e
 ### components + shared (16) — Status: OK
 - `AgentHealthMatrix`, `AppShell`, `AuthShell`, `BillingActions`, `brand`, `JobCleanupButton`, `JobTimeline`, `platform/overview-charts`, `PrintCertificationWizard`, `PrinterCapabilityMatrix`, `ThemeToggle`, `TopNavbar`, `ui`, `UpgradeLimitDialog`, `shared/job-vocabulary`, `shared/components/StatusDot` — `jobTone`/`printerTone` usage confirmed; no drift. OK.
 - Desktop copies (`src/desktop/components/JobTimeline.tsx` 136 lines vs `src/components/JobTimeline.tsx` 95; `src/desktop/ui.tsx` 105 vs `src/components/ui.tsx` 1077) DIFFER by design — separate Vite bundle with its own minimal primitives, not a fork to unify. Prior per-file drifts already fixed (badges, humanType). Map question CLOSED: intentional separation, managed per-file.
-- Proposed fix (batch): none. Fix applied: n/a (pre-session).
+- Proposed fix (batch 4): none. Fix applied: n/a (pre-session).
+
+## Batch 5 — Contract center (4 files) — audited 2026-09-27
+Cross-boundary mirrors cited in gateway headers VERIFIED by side-by-side read (all local logic; contract JSON is the shared source).
+
+## [contracts/print-payload-contract.json] — audited 2026-09-27
+- Status: OK. 17 lines: v1, base64, 5 MiB, wireTypes raw/escpos/pdf/image, rawProtocols, peripheral enums, `%PDF-`/`ffd8ff` signatures. Both implementations import/mirror it (`payload.ts` reads it directly; Go constants match: 5*1024*1024 = 5242880). No finding.
+- Proposed fix: none. Fix applied: n/a.
+
+## [agent/internal/payload/payload.go] — audited 2026-09-27
+- Status: OK. Mirror of `src/lib/payload.ts` VERIFIED rule-by-rule: type/protocol matrix, 5 MiB + `(Max/3)*4+8` pre-check, `%PDF-`/JPEG magic with anti-mislabling, peripheral enums + non-string hard error (Part-B fix intact) + none-means-inactive + escpos-only. Strict `StdEncoding` vs TS forgiving+round-trip-check converge on the same accept set. No finding.
+- Proposed fix: none. Fix applied: n/a.
+
+## [agent/internal/printer/capability.go] — audited 2026-09-27
+- Status: OK. Mirror of `src/lib/routing.ts` VERIFIED: same family rule, same physicalPdf/physicalImage/physicalByteProtocol, same explicit-caps authority, same reason strings, same unknown-dark semantics. Edge-case encoding differs (Go `SupportedProtocolDeclared` flag vs TS property-presence) but both fail closed on malformed caps. No finding.
+- Proposed fix: none. Fix applied: n/a.
+
+## [agent/internal/printer/outcome.go] — audited 2026-09-27
+- Status: OK. Mirror of `src/lib/job-status.ts` markers VERIFIED: identical 5 markers in identical order, prefix semantics both sides, sentinel message IS the wire marker with an explicit cross-change warning. Contract tests asserted on both sides per comments. No finding.
+- Proposed fix (batch 5): none. Fix applied: n/a.
+
+## Batch 5 — Contract center (4 files) — audited 2026-09-27
