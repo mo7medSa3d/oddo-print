@@ -34,8 +34,11 @@ describe("production TypeScript safety contracts", () => {
         expect(source).toContain("await verifyWorkspaceTokenFromCookieValues(");
         expect(source).not.toContain("validateManagerClaims(token ? verifyManagerToken(token) : null)");
       } else {
-        expect(source).toContain("const token = (await cookies()).get(getManagerCookieName())?.value ?? null;");
-        expect(source).toContain("const claims = token ? await verifyManagerToken(token) : null");
+        // Workspace auth: customer sessions with the right permission reach
+        // these pages like they reach the dashboard — still through the
+        // awaited, database-backed verifier (never sync/local validation).
+        expect(source).toContain("await verifyWorkspaceTokenFromCookieValues(");
+        expect(source).toContain('hasManagerPermission(claims, "agents.read")');
         expect(source).not.toContain("validateManagerClaims(token ? verifyManagerToken(token) : null)");
       }
     }

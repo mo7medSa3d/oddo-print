@@ -209,7 +209,9 @@ describe("deep production review contracts", () => {
     expect(source).toContain("const now = performance.now();");
     expect(source).toContain("function pruneIdleWsBuckets(nowMs = performance.now())");
     expect(upgradeSource).toContain('import { performance } from "node:perf_hooks";');
-    expect(upgradeSource).toContain("now = performance.now()");
+    // The in-process lock map is keyed off the monotonic clock (DB clock
+    // remains authoritative for persisted rate-limit rows below).
+    expect(upgradeSource).toContain("localLockedUntil.set(key, performance.now() +");
     expect(upgradeSource).toContain("SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms");
     expect(upgradeSource).not.toMatch(/reserveWsUpgradeAttempt[\s\S]{0,700}const now = new Date\(\)/);
   });
