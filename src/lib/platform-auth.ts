@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { platformSessions, users } from "../db/schema";
 import { eq, and, gt, isNull, sql } from "drizzle-orm";
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { verifyPassword, normalizeEmail } from "./password";
 import { verifyScryptPasswordHash } from "./manager-auth";

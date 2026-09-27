@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { managerSessions, tenants, tenantDomains, tenantUsers, users } from "../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { createHash, createHmac, scrypt, timingSafeEqual } from "crypto";
+import { createHash, createHmac, scrypt, timingSafeEqual } from "node:crypto";
 import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
 import { databaseNowMs } from "./database-clock";
 import { hashPassword, verifyPassword, normalizeEmail } from "./password";

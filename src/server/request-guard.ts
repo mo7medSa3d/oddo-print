@@ -1,5 +1,5 @@
 import { IncomingMessage, type ServerResponse } from "http";
-import { createHash, createHmac, timingSafeEqual } from "crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { parseStrictContentLength } from "../lib/request-limits";
 import { runtimeSecret } from "../lib/runtime-secret";
 

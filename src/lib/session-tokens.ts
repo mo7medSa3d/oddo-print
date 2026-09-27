@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { refreshTokens, tenantUsers, tenants, users } from "../db/schema";
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { sessionCookieSecure } from "./session-config";

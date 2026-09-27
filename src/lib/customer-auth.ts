@@ -3,7 +3,7 @@ import { tenantUsers, authRateLimits } from "../db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { authenticateCustomer, validateManager, validateManagerClaims, type ManagerRole, type ManagerClaims } from "./manager-auth";
 import { normalizeEmail } from "./password";
-import { createHmac, createHash, timingSafeEqual } from "crypto";
+import { createHmac, createHash, timingSafeEqual } from "node:crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { nanoid } from "./nanoid";
 import { requireActiveTenantOrNull } from "./tenant-guard";

@@ -50,16 +50,10 @@ export async function requireActiveTenantInTransaction(
 }
 
 /**
- * Reusable guard that verifies a tenant is in the 'active' lifecycle state.
- *
- * Throws TenantSuspendedError or TenantDeletedError if the tenant is not
- * active. Returns the lifecycle status on success.
- *
- * This is designed to be called in auth validation paths so all
- * tenant-scoped operations are consistently gated.
- */
-/**
  * Lifecycle-only convenience guard for authentication paths.
+ *
+ * Reusable guard that verifies a tenant is in the 'active' lifecycle state;
+ * throws TenantSuspendedError or TenantDeletedError otherwise.
  *
  * Expected tenant lifecycle denials become null so callers can preserve their
  * existing authentication return contract. Unexpected database/transport
