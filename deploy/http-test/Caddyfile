@@ -1,0 +1,14 @@
+:80 {
+  encode gzip zstd
+
+  request_body {
+    max_size 8MiB
+  }
+
+  reverse_proxy gateway:3000 {
+    header_up Host {http.request.host}
+    header_up X-Gateway-Proxy-Token {file./run/secrets/trust_proxy_secret}
+    header_up X-Forwarded-For {http.request.remote.host}
+    header_up -X-Real-Ip
+  }
+}
