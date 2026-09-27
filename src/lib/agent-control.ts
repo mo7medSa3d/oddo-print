@@ -9,6 +9,7 @@ import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBilli
 import { requireActiveTenantInTransaction } from "./tenant-guard";
 import type { ManagerClaims } from "./manager-auth";
 import { ActionError } from "./action-error";
+import { logWarn } from "./log";
 
 /**
  * Control-plane Agent creation shared by HTTP routes and Server Actions.
@@ -81,6 +82,8 @@ export async function createAgentForManager(name: string, manager: ManagerClaims
   }
 
   if (!expiresAt) throw new ActionError("Could not create agent pairing expiry.", 500);
+  // Audit persistence is best-effort (never blocks pairing), but its failure
+  // must stay observable — a silent catch would hide a broken audit pipeline.
   void writeAuditEvent({
     tenantId: manager.tenantId,
     actorType: manager.userId ? "user" : "system",
@@ -88,6 +91,13 @@ export async function createAgentForManager(name: string, manager: ManagerClaims
     action: "agent.paired",
     resourceType: "agent",
     resourceId: id,
-  }).catch(() => undefined);
-  return { id, pairingCode, expiresAt, expires_at: expiresAt.toISOString() };
+  }).catch((error) => logWarn("audit.agent_paired_persist_failed", {
+    tenantId: manager.tenantId,
+    agentId: id,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+  // Single canonical expiry field (ISO instant). The legacy snake_case twin
+  // was removed: the only consumer (dashboard-client) prefers expiresAt and
+  // falls back gracefully, so dual-casing only invited drift.
+  return { id, pairingCode, expiresAt: expiresAt.toISOString() };
 }
