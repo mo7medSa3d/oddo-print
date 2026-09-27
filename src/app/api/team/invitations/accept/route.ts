@@ -4,13 +4,34 @@ import { tenantInvitations, tenantUsers, users } from "../../../../../db/schema"
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { hashToken, normalizeEmail } from "../../../../../lib/password";
 import { writeAuditEvent } from "../../../../../lib/audit";
+import { hasBodyOverLimit } from "../../../../../lib/request-limits";
+import { clientIpFrom, reserveAuthAttempt, setRateLimitHeaders } from "../../../../../lib/auth-rate-limit";
+import { logError } from "../../../../../lib/log";
 
 export async function POST(req: Request) {
+  if (hasBodyOverLimit(req, 16 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   let body: { token?: unknown; email?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const token = typeof body.token === "string" ? body.token : "";
   const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
   if (!token || token.length > 256 || !email) return NextResponse.json({ error: "Invitation is invalid or expired" }, { status: 400 });
+
+  // Token-guessing throttle (mirrors reset-password/verify-email): no account
+  // identity is known pre-token, so scope by endpoint + IP. Accepting an
+  // invitation mints no session, so the budget is never cleared on success.
+  const ip = clientIpFrom(req);
+  let rate: Awaited<ReturnType<typeof reserveAuthAttempt>>;
+  try {
+    rate = await reserveAuthAttempt(ip, "invitation-token");
+  } catch (error) {
+    logError("auth.rate_limit.store_unavailable", { endpoint: "invitation_accept", error: error instanceof Error ? error.message : "unknown" });
+    return NextResponse.json({ error: "Service temporarily unavailable" }, { status: 503 });
+  }
+  if (!rate.allowed) {
+    const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
+    res.headers.set("Retry-After", String(rate.retryAfterSec));
+    return setRateLimitHeaders(res, rate);
+  }
 
   const row = await db.query.tenantInvitations.findFirst({
     where: and(eq(tenantInvitations.tokenHash, await hashToken(token)), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt), gt(tenantInvitations.expiresAt, sql`clock_timestamp()`)),
@@ -78,5 +99,5 @@ export async function POST(req: Request) {
         : "Invitation could not be accepted",
     }, { status: 409 });
   }
-  return NextResponse.json({ ok: true, tenantId: row.tenantId });
+  return setRateLimitHeaders(NextResponse.json({ ok: true, tenantId: row.tenantId }), rate);
 }
