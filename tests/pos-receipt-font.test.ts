@@ -49,8 +49,6 @@ vi.mock("../odoo_addons/print_gateway/static/src/js/gateway_limit_dialog", () =>
   showGatewayBillingLimitDialog: mocks.showGatewayBillingLimitDialog,
 }));
 
-// @ts-expect-error - the JS module under test has no type declarations; its Odoo
-// dependencies are mocked above, so the import is intentionally untyped.
 import { renderReceiptImage } from "../odoo_addons/print_gateway/static/src/js/pos_print_router";
 
 function makeCanvas(): HTMLCanvasElement {
