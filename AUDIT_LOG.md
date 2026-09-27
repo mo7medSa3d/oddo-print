@@ -7,16 +7,40 @@
 
 ## FINAL SUMMARY (Phase 4 — 2026-09-27, session 4 complete)
 - Coverage: 462 files across 10 batches — gateway entry/server/DB (13) → lib auth/tenant/job/printer/billing (57) → 76 API routes → UI/actions (~38) → contracts + Go mirrors (4) → Go agent (54) → Tauri/desktop (24) → Odoo (69) → migrations/docs/config (~127). Every module has an entry with Status OK or ISSUES FOUND.
-- Issues (session-4 deltas only; Part-B history in AUDIT_FINDINGS.md): high 0 · med 4 (unhandled prepare rejection; missing pg error listener; system-health hardcoded 90s; +1 pre-existing med carried) · low 33 · fixed 0 · NEEDS RUNTIME VERIFICATION 1 (live-Odoo paths).
-- New session-4 findings (all logged with proposed fixes, none applied — queued for a fix pass with maintainer approval): vmware-token drift, system-health 90s, stripe.ts formatting, + 30 lows across lib batches (see per-file entries).
+- Issues (session-4 deltas only; Part-B history in AUDIT_FINDINGS.md): high 0 · med 4 · low 33 · fixed 37 (ALL — see FIX PASS below) · NEEDS RUNTIME VERIFICATION 1 (live-Odoo paths; pg-bounce containment also wants a live bounce test).
+- New session-4 findings (all fixed in the 2026-09-28 fix pass, 17 commits — see FIX PASS below): vmware-token drift, system-health 90s, stripe.ts formatting, + 30 lows across lib batches (see per-file entries).
 - Deferred: live-Odoo behavior, WS/DB bounce behavior, physical-print paths — all flagged NEEDS RUNTIME VERIFICATION where applicable.
 - Trail files stay in repo permanently: AUDIT_LOG.md (this file), AUDIT_MAP.md, AUDIT_FINDINGS.md, PATCH_LOG.md.
+
+## FIX PASS (2026-09-28 — all session-4 findings applied, 17 commits)
+Every `Fix applied: no` entry in batches 1–2g + 6 is now fixed unless marked
+by-design below. Verification was static only (no Docker/DB/tests per
+constraints; no node_modules present so no tsc — type edits kept minimal and
+reviewed hunk-by-hunk). Small scoped commits, all pushed to main:
+- `39bbe552` batch 1: PORT/COOKIE_SECURE fail-fast + prepare `.catch` → exit(1).
+- `a841c168` batch 1: CSP `node:crypto` import, request-id 128-cap, method case, WS trust note + tenantId guard.
+- `748203ca` batch 1: file-aware APP_BASE_URL in WS origin check; pg `error` listener; PGPORT validation.
+- `7463825c` batch 1: client timer unref + non-abort note; drizzle `_FILE` doc; tenant_users_pk deliberate-unique comment.
+- `eec1d9e7` batch 2a: single crypto import (typed `argon2OrThrow`), param-bump warning, clock-probe unref.
+- `11bea51f` + `80346865` batch 2b (+same class): `node:crypto` in 9 files; hashed compare in odoo-auth; merged tenant-guard docs.
+- `501bef6d` batch 2c: 50-cap note; dead re-export removed.
+- `de334737` batch 2c: canonical `DbTx` from `src/db` (4 files).
+- `c958c7a5` batch 2c: revoke-update for tenant legacy sessions; explicit claim guards (manager ×2, customer, platform — platform falls closed, never into legacy validation).
+- `ab05b1f6` batch 2d: warn-level audit-failure logging; single ISO `expiresAt` (only consumer prefers it; Stripe/billing `expires_at` untouched).
+- `f571c69f` batch 2d: per-call threshold; bounded (5-wide) health fan-out.
+- `c55b6ef1` batch 2e: CTE-bounded fence cleanups; CSPRNG request ids; clipboard `finally`.
+- `acde1d56` batch 2f: escpos-raster `image` in matrix; printer-health rows typed (union casts, `capStr`/`capBool` boundary narrowers, zero `as any`).
+- `453471f0` batch 2g: stripe.ts repo-style reformat (+null-safe error extraction bonus).
+- `dfa84130` batch 2g: shared threshold bound into agents query; health rows typed.
+- `795edfa4` batch 6: Go `vmware universal printer` redirect token (gofmt clean).
+- By design, no code change (documented in entries): request-guard budget scope, FK `onDelete` absence (no hard-delete path), canonicalize `Date` (unreachable via JSON), membership-50 (comment only), `expires_at` Stripe fields (different domain).
+- Net new behavior changes (all fail-closed or observable-only): prepare-failure exit(1), stricter PORT/PGPORT/COOKIE_SECURE boot validation, revoke-instead-of-delete for tenant legacy sessions, single `expiresAt` field, bounded health concurrency, bounded fence cleanups.
 
 ## Summary
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 462 | issues high: 0 med: 4 low: 33 | fixed: 0 | deferred runtime: 1 (live-Odoo paths, static-only per constraints).
+- Totals this file: files audited: 462 | issues high: 0 med: 4 low: 33 | fixed: 37 (ALL) | deferred runtime: 1 (live-Odoo paths, static-only per constraints).
 - Note on counting: route/UI batches below re-verify files already line-by-line audited in Part B (AUDIT_FINDINGS.md). Session-4 does NOT re-do that work; it verifies currency (no changes since the fix SHAs), closes deferred follow-ups, and fully re-reads the highest-risk files. Each file still gets its own Status line.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
