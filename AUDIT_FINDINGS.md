@@ -157,25 +157,29 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       Issue: `isWsUpgradeLocallyLocked` has no callers; `assertLifecycleTransition` (and `isLifecycle`, used only by it) has no callers.
       Suggested fix: Delete.
 
-- [ ] **[Severity: Low] `requireActiveTenant` falls through on unexpected lifecycle**
+- [x] **[Severity: Low] `requireActiveTenant` falls through on unexpected lifecycle**
       File: `src/lib/tenant-guard.ts:92-100`
       Issue: Any value other than `suspended`/`deleted` is returned as valid, while the transactional twin `requireActiveTenantInTransaction` (`:46-48`) throws on anything `!== "active"`. In practice the DB `CHECK (tenants_lifecycle_check)` constrains values to `active/suspended/deleted`, so this is defense-in-depth inconsistency, not a live bypass.
       Suggested fix: `if (lifecycle !== "active") throw new TenantDeletedError(tenantId)` to mirror the transactional guard.
+      Fix applied: strict `!== "active"` denial mirroring the transactional guard.
 
-- [ ] **[Severity: Medium] Future timestamps treated as fresh in agent health**
+- [x] **[Severity: Medium] Future timestamps treated as fresh in agent health**
       File: `src/lib/agent-health.ts:53-65` vs `src/lib/agent-availability.ts:47-48`, `src/lib/printer-health.ts:58-64`
       Issue: `computeAgentHealthStatus` checks `age <= ONLINE_THRESHOLD_MS` with no `age >= 0` lower bound, so a future `lastSeenAt` (clock skew, bad write) reports `ONLINE`. The availability gate and printer health both reject `age < 0`. The same missing guard exists in the `getAgentHealth` Gateway check at `agent-health.ts:116-119`.
       Suggested fix: Add `ageMs >= 0` guards.
+      Fix applied: `age < 0` returns OFFLINE in `computeAgentHealthStatus`; the Gateway check reports error for future observations.
 
-- [ ] **[Severity: Medium] Stale-threshold quintuplication (env ignored by 5 of 6)**
+- [x] **[Severity: Medium] Stale-threshold quintuplication (env ignored by 5 of 6)**
       Files: `src/lib/printer-health.ts:56` (`FRESHNESS_THRESHOLD_MS = 90_000`), `src/lib/agent-health.ts:49` (`ONLINE_THRESHOLD_MS = 90_000`), `src/shared/job-vocabulary.ts:130` (`AGENT_HEARTBEAT_STALE_SECONDS = 90`), `src/app/api/printers/[id]/certify/route.ts:268` (`age <= 90_000`), `src/lib/system-health.ts:94` (`NOW() - INTERVAL '90 seconds'`) vs `src/lib/agent-availability.ts:3-10` (`STALE_AGENT_THRESHOLD_SECONDS`)
       Issue: `90s` is hardcoded in five places while only the gateway enforcement gates honor `STALE_AGENT_THRESHOLD_SECONDS`. Setting the env diverges UI/health displays from actual claim-gate enforcement. (v2 said "quadruplication"; v3 found a fifth site in `system-health.ts`.)
       Suggested fix: Single shared helper; health/UI import `agentStaleThresholdSeconds()` (same consolidation already done for metrics/heartbeat in the Phase-2 pass).
+      Fix applied: new dependency-free `src/lib/stale-threshold.ts` (no imports — `job-vocabulary.ts` is client-bundled by dashboard + Tauri Vite, so importing via `agent-availability.ts` would drag `db`→`pg` into browser/desktop bundles); `agent-availability.ts` re-exports it so all server importers are unchanged; health/UI/certify read the shared helper; `system-health.ts` already interpolated the env into its SQL. Also fixes the missing certify import the first pass dropped.
 
-- [ ] **[Severity: Low] `parseDbTimeMs` quadruplicated**
+- [x] **[Severity: Low] `parseDbTimeMs` quadruplicated**
       Files: `src/lib/auth-rate-limit.ts:33`, `src/lib/ws-rate-limit.ts:13`, `src/lib/job-status.ts:167`, `src/app/api/billing/webhook/route.ts:29`
       Issue: Identical naive-UTC normalizer in four files; will drift (same bug class as the device-class enum drift). (v2 said "triplicated"; the webhook copy was added later.)
       Suggested fix: One shared util in `lib/` (keep `parseEntitlementDate` in `entitlements.ts:299` separate — it is intentionally distinct).
+      Fix applied: canonical `parseDbTimeMs` in `src/lib/database-clock.ts`; auth-rate-limit, job-status, ws-rate-limit, and webhook import it (webhook already did).
 
 - [ ] **[Severity: Low] Access TTL literal duplicated instead of constant**
       Files: `src/lib/manager-auth.ts:129`, `src/lib/platform-auth.ts:148` vs `src/lib/session-tokens.ts:43`

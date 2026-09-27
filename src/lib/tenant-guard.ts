@@ -93,7 +93,10 @@ export async function requireActiveTenant(tenantId: string): Promise<TenantLifec
   if (lifecycle === "suspended") {
     throw new TenantSuspendedError(tenantId);
   }
-  if (lifecycle === "deleted") {
+  // Mirror the transactional guard (requireActiveTenantInTransaction):
+  // anything that is not exactly "active" is denied, so an unexpected
+  // lifecycle value can never fall through as valid.
+  if (lifecycle !== "active") {
     throw new TenantDeletedError(tenantId);
   }
 

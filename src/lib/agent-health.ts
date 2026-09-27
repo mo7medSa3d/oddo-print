@@ -14,6 +14,7 @@ import { agents, printers, printJobs } from "../db/schema";
 import { eq, and, count, sql } from "drizzle-orm";
 import { logWarn } from "./log";
 import { gatewayNow } from "./database-clock";
+import { agentStaleThresholdSeconds } from "./stale-threshold";
 
 export type AgentHealthStatus = "ONLINE" | "DEGRADED" | "OFFLINE" | "STARTING" | "UNKNOWN";
 export type HealthCheckResult = {
@@ -46,7 +47,11 @@ export interface AgentHealth {
   uptimeSeconds?: number;
 }
 
-const ONLINE_THRESHOLD_MS = 90_000; // 90s matches claim logic
+// Single source of truth for the stale threshold: the claim gate
+// (stale-threshold.ts), health displays, and the UI all read
+// agentStaleThresholdSeconds() so STALE_AGENT_THRESHOLD_SECONDS cannot
+// diverge enforcement from display.
+const ONLINE_THRESHOLD_MS = agentStaleThresholdSeconds() * 1000;
 const DEGRADED_THRESHOLD_MS = 5 * 60_000; // 5min
 const STARTING_THRESHOLD_MS = 5 * 60_000;
 
@@ -59,6 +64,10 @@ export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: D
     return "OFFLINE";
   }
   const age = now.getTime() - new Date(lastSeenAt).getTime();
+  // A future lastSeenAt (clock skew or bad write) must never read as
+  // ONLINE: the agent is not provably alive. Mirror the availability gate
+  // (agent-availability.ts) and printer health, which both reject age < 0.
+  if (age < 0) return "OFFLINE";
   if (age <= ONLINE_THRESHOLD_MS) return "ONLINE";
   if (age <= DEGRADED_THRESHOLD_MS) return "DEGRADED";
   return "OFFLINE";
@@ -114,10 +123,13 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   // Observed: Gateway heartbeat (direct from DB lastSeenAt)
   if (agent.lastSeenAt) {
     const ageMs = now.getTime() - new Date(agent.lastSeenAt).getTime();
+    // A future lastSeenAt (clock skew or bad write) is an untrustworthy
+    // observation: never "ok", and worse than merely stale.
+    const gatewayStatus = ageMs < 0 || ageMs > DEGRADED_THRESHOLD_MS ? "error" : ageMs > ONLINE_THRESHOLD_MS ? "warn" : "ok";
     checks.push({
       name: "Gateway",
-      status: ageMs <= ONLINE_THRESHOLD_MS ? "ok" : ageMs <= DEGRADED_THRESHOLD_MS ? "warn" : "error",
-      message: ageMs <= ONLINE_THRESHOLD_MS ? `Heartbeat ${Math.round(ageMs / 1000)}s ago (observed)` : `Last seen ${Math.round(ageMs / 1000)}s ago (observed)`,
+      status: gatewayStatus,
+      message: ageMs >= 0 && ageMs <= ONLINE_THRESHOLD_MS ? `Heartbeat ${Math.round(ageMs / 1000)}s ago (observed)` : `Last seen ${Math.round(ageMs / 1000)}s ago (observed)`,
       observed: true,
       lastOk: agent.lastSeenAt,
       details: { ageMs, thresholdMs: ONLINE_THRESHOLD_MS, source: "agents.last_seen_at" },

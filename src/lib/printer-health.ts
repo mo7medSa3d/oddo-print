@@ -18,6 +18,7 @@ import { db, queryWithTimeout } from "../db/client";
 import { printers } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import { gatewayNow } from "./database-clock";
+import { printerStaleThresholdSeconds } from "./stale-threshold";
 import { getSupportedDocumentTypes, type ProtocolType, type TransportType } from "./printer-capability";
 
 export type PrinterHealthStatus =
@@ -53,7 +54,10 @@ export interface PrinterCapabilityMatrix {
   config: Record<string, unknown>;
 }
 
-const FRESHNESS_THRESHOLD_MS = 90_000;
+// Single source of truth for the stale threshold: the claim gate
+// (stale-threshold.ts), health displays, and the UI all read
+// printerStaleThresholdSeconds() so enforcement and display cannot diverge.
+const FRESHNESS_THRESHOLD_MS = printerStaleThresholdSeconds() * 1000;
 
 function isFresh(lastSeenAt?: Date | null, now = gatewayNow()): { fresh: boolean; ageMs?: number } {
   if (!lastSeenAt) return { fresh: false };

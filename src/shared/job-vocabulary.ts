@@ -7,6 +7,8 @@
 // in src/lib/job-status.ts (a unit test locks both lists).
 // ============================================================
 
+import { agentStaleThresholdSeconds } from "../lib/stale-threshold";
+
 export type Tone = "ok" | "bad" | "warn" | "info" | "neutral";
 
 export const UNKNOWN_OUTCOME_MARKERS = [
@@ -126,8 +128,10 @@ export function printerLabel(status: string): string {
 
 
 /** Heartbeat-derived truth: an agent that stopped reporting is NOT online,
- *  regardless of the last status row. Mirrors src/lib/agent-availability.ts. */
-const AGENT_HEARTBEAT_STALE_SECONDS = 90;
+ *  regardless of the last status row. Mirrors src/lib/agent-availability.ts.
+ *  The threshold is the shared agentStaleThresholdSeconds() so the UI and
+ *  the claim gate cannot drift when STALE_AGENT_THRESHOLD_SECONDS is set. */
+const AGENT_HEARTBEAT_STALE_SECONDS = agentStaleThresholdSeconds();
 
 export function agentLiveView(agent: { status?: string | null; lastSeenAt?: Date | string | null; lifecycle?: string | null }, nowMs = Date.now()): { tone: Tone; label: string } {
   if (agent.lifecycle && agent.lifecycle !== "active") {

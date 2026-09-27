@@ -13,6 +13,7 @@ import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError
 import { TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../../../../../lib/entitlements";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../../lib/job-delivery";
 import { databaseNowMs } from "../../../../../lib/database-clock";
+import { agentStaleThresholdSeconds } from "../../../../../lib/agent-availability";
 
 export const dynamic = "force-dynamic";
 
@@ -264,7 +265,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         setStep("agent", "pending", "Agent never seen — waiting for heartbeat", `agentId=${printer.agentId}`);
       } else {
         const age = certificationNowMs - new Date(agent.lastSeenAt).getTime();
-        if (age <= 90_000) {
+        if (age <= agentStaleThresholdSeconds() * 1000) {
           setStep("agent", "pending", `Agent online ${Math.round(age/1000)}s ago, waiting to claim`, `agentId=${printer.agentId} lastSeen ${Math.round(age/1000)}s`);
         } else {
           setStep("agent", "blocked", `Agent offline last seen ${Math.round(age/1000)}s ago — cannot claim`, `agentId=${printer.agentId} lastSeenAt=${agent.lastSeenAt}`);

@@ -1,21 +1,15 @@
 import { gatewayNow } from "./database-clock";
 
-export const DEFAULT_AGENT_STALE_THRESHOLD_SECONDS = 90;
-export const DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS = 90;
-
-export function agentStaleThresholdSeconds(): number {
-  const raw = Number(process.env.STALE_AGENT_THRESHOLD_SECONDS ?? DEFAULT_AGENT_STALE_THRESHOLD_SECONDS);
-  if (!Number.isFinite(raw) || raw < 10 || raw > 3600) return DEFAULT_AGENT_STALE_THRESHOLD_SECONDS;
-  return Math.floor(raw);
-}
-
-export function printerStaleThresholdSeconds(): number {
-  // Keep printer execution freshness aligned with printer-health.ts's
-  // evidence policy. There is intentionally no separate env override: a
-  // mismatch here could make the UI say UNKNOWN while the claim gate still
-  // executes the printer (or vice versa).
-  return DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS;
-}
+// Canonical threshold API lives in the dependency-free stale-threshold
+// module (safe for client bundles); re-exported here so every existing
+// server-side importer keeps working unchanged.
+export {
+  DEFAULT_AGENT_STALE_THRESHOLD_SECONDS,
+  DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS,
+  agentStaleThresholdSeconds,
+  printerStaleThresholdSeconds,
+} from "./stale-threshold";
+import { printerStaleThresholdSeconds } from "./stale-threshold";
 
 export function isPrinterObservationFresh(
   lastSeenAt: Date | string | null | undefined,
