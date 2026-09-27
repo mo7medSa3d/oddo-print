@@ -2,6 +2,7 @@ import { db } from "../db";
 import { refreshTokens, tenantUsers, tenants, users } from "../db/schema";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { and, eq, sql } from "drizzle-orm";
+import { databaseNowMs } from "./database-clock";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { sessionCookieSecure } from "./session-config";
 import { sendTransactionalEmail } from "./email";
@@ -197,6 +198,27 @@ export function verifyAccessTokenSignature(
   if (!claims) return null;
   const allowed = Array.isArray(expectedKinds) ? expectedKinds : [expectedKinds];
   return allowed.includes(claims.kind) ? claims : null;
+}
+
+export async function verifyAccessToken(
+  token: string,
+  expectedKinds: SessionKind | readonly SessionKind[],
+): Promise<SharedSessionClaims | null> {
+  const claims = verifySignatureShape(token);
+  if (!claims) return null;
+
+  const allowed = Array.isArray(expectedKinds) ? expectedKinds : [expectedKinds];
+  if (!allowed.includes(claims.kind)) return null;
+
+  let nowMs: number;
+  try {
+    nowMs = await databaseNowMs();
+  } catch {
+    return null;
+  }
+  const nowSec = Math.floor(nowMs / 1000);
+  if (claims.exp <= nowSec || claims.iat > nowSec + 60) return null;
+  return claims;
 }
 
 function normalizeContext(context?: SessionRequestContext): SessionRequestContext {
@@ -439,7 +461,7 @@ async function rotateWithinFamily(
 export async function isSessionFamilyActive(
   familyId: string,
   kind: SessionKind,
-  tenantId: string | null,
+  tenantId: string,
   userId?: string,
 ): Promise<boolean> {
   if (!/^[0-9a-f]{32}$/.test(familyId)) return false;
@@ -447,7 +469,7 @@ export async function isSessionFamilyActive(
     where: and(
       eq(refreshTokens.familyId, familyId),
       eq(refreshTokens.kind, kind),
-      tenantId === null ? sql`${refreshTokens.tenantId} IS NULL` : eq(refreshTokens.tenantId, tenantId),
+      eq(refreshTokens.tenantId, tenantId),
       sql`${refreshTokens.revokedAt} IS NULL`,
       sql`${refreshTokens.expiresAt} > clock_timestamp()`,
       ...(userId ? [eq(refreshTokens.userId, userId)] : []),
@@ -511,6 +533,10 @@ export function clearAccessCookieHeader(kind: SessionKind): string {
 export function clearRefreshCookieHeader(kind: SessionKind): string {
   const config = configFor(kind);
   return `${config.refreshCookieName}=; Path=${config.refreshCookiePath}; HttpOnly; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0`;
+}
+
+export function sessionKindFromClaims(claims: SharedSessionClaims): SessionKind {
+  return claims.kind;
 }
 
 export async function rotateRefreshToken(
@@ -776,4 +802,12 @@ export async function cleanupExpiredRefreshTokens(): Promise<number> {
     RETURNING id
   `);
   return result.rows.length;
+}
+
+export function getRefreshCookieName(kind: SessionKind): string {
+  return configFor(kind).refreshCookieName;
+}
+
+export function getAccessCookieName(kind: SessionKind): string {
+  return configFor(kind).accessCookieName;
 }
