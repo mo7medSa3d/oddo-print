@@ -120,3 +120,24 @@ def test_automatic_gateway_health_probe_detects_revoked_keys_and_network_failure
     assert "_probe_gateway_connection()" in cron
     assert "if not config._probe_gateway_connection()" in cron
     assert "pending old-endpoint" in cron or "old-endpoint" in cron
+
+
+def test_queue_invalid_credentials_does_not_open_a_second_cursor_while_write_lock_is_held():
+    source = read("models/gateway_config.py")
+    queue_idx = source.index("def _queue_enabled_state_sync")
+    queue_end = source.index("def _check_admin", queue_idx)
+    queue = source[queue_idx:queue_end]
+
+    # _queue_enabled_state_sync() is invoked from write() while the current
+    # transaction still owns the configuration row lock. Its malformed
+    # credential/URL path must therefore update the current transaction rather
+    # than calling _persist_enabled_sync_result(), which opens a fresh cursor
+    # and executes SELECT ... FOR UPDATE on the same row.
+    error_idx = queue.index("except (ValidationError, ValueError) as exc:")
+    error_end = queue.index("record_id = record.id", error_idx)
+    error_path = queue[error_idx:error_end]
+
+    assert "_persist_enabled_sync_result" not in error_path
+    assert 'with_context(skip_enabled_sync=True).sudo().write({' in error_path
+    assert '"last_enabled_sync_error": str(exc)[:4000]' in error_path
+    assert "record.invalidate_recordset(" in error_path
