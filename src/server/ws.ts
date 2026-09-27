@@ -673,7 +673,7 @@ export async function handleAgentMessage(agentId: string, tenantId: string, raw:
   if (typeof jobId !== "string" || !jobId) return;
   const token = typeof claimToken === "string" && claimToken ? claimToken : null;
   const known = await recordJobAck(jobId, tenantId, agentId, token);
-  if (!known) logWarn(`[ws] agent ${agentId} acked a job with no matching live claim (unknown, terminal, or superseded): ${jobId}`);
+  if (!known) logWarn("ws.job_ack_no_live_claim", { agentId, jobId });
 }
 
 async function startJobNotificationListener(): Promise<() => Promise<void>> {
@@ -747,7 +747,7 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
           dispatchOutcome: pushOutcome,
         });
       }).catch((error) => {
-        logWarn(`[ws] cross-instance job delivery failed for ${message.jobId}:`, { error: error });
+        logWarn("ws.job_cross_instance_delivery_failed", { jobId: message.jobId, error: error });
         logWarn("print.job.ws_push_deferred", {
           requestId: typeof message.requestId === "string" ? message.requestId : null,
           jobId: message.jobId,
