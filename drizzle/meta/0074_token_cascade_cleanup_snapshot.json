@@ -1,5 +1,5 @@
 {
-  "id": "ca629089-4d8f-4bb0-8ecb-60c07423954d",
+  "id": "5110e808-e85e-4e7d-aabb-f7dd505e287c",
   "prevId": "f51d6c62-3b46-4cbe-8d42-9cc0ac0a0073",
   "version": "7",
   "dialect": "postgresql",
@@ -986,16 +986,17 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "discovered_devices_pkey": {
-          "name": "discovered_devices_pkey",
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "discovered_devices_tenant_id_unique": {
+          "name": "discovered_devices_tenant_id_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "tenant_id",
             "id"
           ]
         }
       },
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -2812,16 +2813,17 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "printers_pkey": {
-          "name": "printers_pkey",
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "printers_tenant_id_unique": {
+          "name": "printers_tenant_id_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "tenant_id",
             "id"
           ]
         }
       },
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
         "printers_management_source_check": {

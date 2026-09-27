@@ -46,7 +46,7 @@ This runs `scripts/db-migrate.ts` which applies all pending migrations from `dri
 | 0071 | 1 | Remove obsolete print-job rate-limit table |
 | 0072 | 1 | Tenant-scoped printer identity and discovered devices |
 | 0073 | 1 | Refresh tokens table for auth session management |
-| 0074 | 1 | Composite PKs for tenant-scoped identity, named composite FKs, token-table cascades, drop dead applications table |
+| 0074 | 1 | Token-table delete cascades and drop of the dead applications table |
 
 **Total**: 75 migrations (0000–0074)
 

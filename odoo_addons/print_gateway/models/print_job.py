@@ -68,6 +68,11 @@ class PrintGatewayJob(models.Model):
         ("pdf", "PDF Vector"),
         ("raster_jpeg", "JPEG Raster Banding"),
         ("raw_cmd", "Native Printer Command"),
+        # NOTE — naming deliberately differs from the shared wire contract
+        # (contracts/print-payload-contract.json: raw/escpos/pdf/image).
+        # These are Odoo STORED column values (renaming them needs a data
+        # migration on deployed DBs); the wire translation lives in
+        # _PAYLOAD_TYPE_MAP below, which is pinned to the contract.
     ], default="pdf", required=True, readonly=True)
     protocol = fields.Selection([
         ("raw", "Raw Text/Binary"),

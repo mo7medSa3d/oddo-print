@@ -242,7 +242,8 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       File: `src/db/schema.ts:143,304`
       Issue: `id: text("id").notNull()` with only `UNIQUE (tenant_id, id)` since migration `0072` dropped the original PKs for tenant-scoped identity. No formal PK hurts ORM/replication/tooling expectations. (`printJobs` still declares `id.primaryKey()` — itself inconsistent.) v3 clarification: `discoverySessions` DOES still have its PK (0010 created it; no migration dropped it; the 0073 snapshot carries it via the `columns.id.primaryKey` flag) — the v2 parenthetical over-claimed; only `printers` and `discoveredDevices` are affected.
       Suggested fix: Add composite PKs `primaryKey({ columns: [tenantId, id] })` + a forward migration. Requires care: existing duplicate `(tenant_id,id)` rows would block it (the UNIQUE constraint already prevents that, so creation is safe).
-      Fix applied: 0074 + schema: UNIQUE(tenant_id,id) replaced by named composite PKs printers_pkey/discovered_devices_pkey (discovery_sessions verified to still carry its single PK — v2 parenthetical corrected). Migration drops dependent FKs first (Postgres forbids dropping a depended-upon UNIQUE) and re-adds them unchanged.
+      Fix applied: REVERTED — see Resolution. A first attempt added composite PKs, but the CI release gate ("Verify final runtime-only schema" in ci.yml) explicitly pins the opposite design: it raises if `printers_pkey`/`discovered_devices_pkey` exist and if `printers_tenant_id_unique` is missing.
+      Resolution: CLOSED as documented-deliberate WITHOUT PKs. UNIQUE(tenant_id,id) NOT NULL is the CI-pinned identity boundary; it fully supports a future REPLICA IDENTITY USING INDEX if logical replication is ever needed. Rationale recorded in the 0074 migration header. Do not re-add PKs without updating the gate first.
 
 - [x] **[Severity: Medium] Composite foreign key names in schema.ts don't match migration-hardcoded names — and the migration chain diverges from the snapshot**
       File: `src/db/schema.ts:165,294,338-340,379-381` vs `drizzle/0031_*.sql` + `drizzle/0041_*.sql:161-266` vs `drizzle/meta/0073_*_snapshot.json`
@@ -462,10 +463,11 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       File: `odoo_addons/print_gateway/models/print_job.py:50-55` vs `src/lib/job-status.ts:33-40`
       Resolution: commit `0d819b15` — the mapping table is documented in the model header comment (`:39-52`) with explicit transition enforcement (`_VALID_TRANSITIONS`). Deliberate, documented — closed.
 
-- [ ] **[Severity: Low] Odoo payload type nomenclature differs from shared contract**
+- [x] **[Severity: Low] Odoo payload type nomenclature differs from shared contract**
       File: `odoo_addons/print_gateway/models/print_job.py:67-71` vs `contracts/print-payload-contract.json:5`
       Issue: Contract wire types are `raw/escpos/pdf/image`; Odoo selections are `pdf/raster_jpeg/raw_cmd` with an internal mapping dict. Works, but naming drift invites the next enum-drift bug.
       Suggested fix: Rename Odoo selections to the wire names (migration-heavy — likely BLOCKED on Odoo data migration); at minimum document the mapping next to the Selection, mirroring the status Selection's header comment.
+      Fix applied: pointer comment on the Selection referencing the contract + `_PAYLOAD_TYPE_MAP` (renaming stored values needs an Odoo data migration — disproportionate for documented internal naming).
 
 ---
 

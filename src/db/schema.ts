@@ -152,9 +152,7 @@ export const printers = pgTable("printers", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
-  // Composite PK (migration 0074): tenant-scoped identity needs a formal
-  // primary key for ORM/replication expectations; the old UNIQUE is dropped.
-  pk: primaryKey({ name: "printers_pkey", columns: [table.tenantId, table.id] }),
+  tenantIdUnique: unique("printers_tenant_id_unique").on(table.tenantId, table.id),
   agentFk: foreignKey({ name: "printers_tenant_id_agent_id_agents_fk", columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
   agentIdx: index("printers_agent_id_idx").on(table.agentId),
   printerTypeIdx: index("printers_printer_type_idx").on(table.printerType),
@@ -327,7 +325,7 @@ export const discoveredDevices = pgTable("discovered_devices", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
-  pk: primaryKey({ name: "discovered_devices_pkey", columns: [table.tenantId, table.id] }),
+  tenantIdUnique: unique("discovered_devices_tenant_id_unique").on(table.tenantId, table.id),
   discoveryFk: foreignKey({ name: "discovered_devices_tenant_id_discovery_id_fk", columns: [table.tenantId, table.discoveryId], foreignColumns: [discoverySessions.tenantId, discoverySessions.id] }),
   agentFk: foreignKey({ name: "discovered_devices_tenant_id_agent_id_agents_fk", columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
   provisionedPrinterFk: foreignKey({ name: "discovered_devices_tenant_id_provisioned_printer_id_fk", columns: [table.tenantId, table.provisionedPrinterId], foreignColumns: [printers.tenantId, printers.id] }),
