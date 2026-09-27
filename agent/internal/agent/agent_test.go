@@ -235,15 +235,15 @@ func TestPerPrinterSerialization(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			<-start
-		job := map[string]interface{}{
-			"id":         fmt.Sprintf("serial_%d", n),
-			"agentId":    "agt_test",
-			"printerId":  "printer_1",
-			"status":     "claimed",
-			"claimToken": fmt.Sprintf("claim-serial-%d", n),
-			"payload":    makeJobPayload(fmt.Sprintf("serial_%d", n)),
-			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
-		}
+			job := map[string]interface{}{
+				"id":         fmt.Sprintf("serial_%d", n),
+				"agentId":    "agt_test",
+				"printerId":  "printer_1",
+				"status":     "claimed",
+				"claimToken": fmt.Sprintf("claim-serial-%d", n),
+				"payload":    makeJobPayload(fmt.Sprintf("serial_%d", n)),
+				"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+			}
 			ag.processJob(ctx, job)
 		}(i)
 	}
@@ -346,15 +346,15 @@ func TestSameJobIDAcrossTenConcurrentDispatches(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-		job := map[string]interface{}{
-			"id":         "same_job_10",
-			"agentId":    "agt_test",
-			"printerId":  "printer_1",
-			"status":     "claimed",
-			"claimToken": "claim-same-job-10",
-			"payload":    makeJobPayload("same_job_10"),
-			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
-		}
+			job := map[string]interface{}{
+				"id":         "same_job_10",
+				"agentId":    "agt_test",
+				"printerId":  "printer_1",
+				"status":     "claimed",
+				"claimToken": "claim-same-job-10",
+				"payload":    makeJobPayload("same_job_10"),
+				"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+			}
 			ag.dispatchJob(ctx, job)
 		}()
 	}
@@ -379,15 +379,15 @@ func TestSameJobIDAcrossHundredConcurrentDispatches(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-		job := map[string]interface{}{
-			"id":         "same_job_100",
-			"agentId":    "agt_test",
-			"printerId":  "printer_1",
-			"status":     "claimed",
-			"claimToken": "claim-same-job-100",
-			"payload":    makeJobPayload("same_job_100"),
-			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
-		}
+			job := map[string]interface{}{
+				"id":         "same_job_100",
+				"agentId":    "agt_test",
+				"printerId":  "printer_1",
+				"status":     "claimed",
+				"claimToken": "claim-same-job-100",
+				"payload":    makeJobPayload("same_job_100"),
+				"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+			}
 			ag.dispatchJob(ctx, job)
 		}()
 	}
@@ -411,15 +411,15 @@ func TestWSAndPollingDuplicateDeliverySameJobID(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-		job := map[string]interface{}{
-			"id":         "ws_poll_same_job",
-			"agentId":    "agt_test",
-			"printerId":  "printer_1",
-			"status":     "claimed",
-			"claimToken": "claim-ws-poll-same-job",
-			"payload":    makeJobPayload("ws_poll_same_job"),
-			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
-		}
+			job := map[string]interface{}{
+				"id":         "ws_poll_same_job",
+				"agentId":    "agt_test",
+				"printerId":  "printer_1",
+				"status":     "claimed",
+				"claimToken": "claim-ws-poll-same-job",
+				"payload":    makeJobPayload("ws_poll_same_job"),
+				"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+			}
 			ag.dispatchJob(ctx, job)
 		}()
 	}
@@ -444,15 +444,15 @@ func TestDifferentJobsSamePrinterSerialized(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			<-start
-		job := map[string]interface{}{
-			"id":         fmt.Sprintf("same_printer_%d", i),
-			"agentId":    "agt_test",
-			"printerId":  "printer_1",
-			"status":     "claimed",
-			"claimToken": fmt.Sprintf("claim-same-printer-%d", i),
-			"payload":    makeJobPayload(fmt.Sprintf("same_printer_%d", i)),
-			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
-		}
+			job := map[string]interface{}{
+				"id":         fmt.Sprintf("same_printer_%d", i),
+				"agentId":    "agt_test",
+				"printerId":  "printer_1",
+				"status":     "claimed",
+				"claimToken": fmt.Sprintf("claim-same-printer-%d", i),
+				"payload":    makeJobPayload(fmt.Sprintf("same_printer_%d", i)),
+				"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+			}
 			ag.dispatchJob(ctx, job)
 		}(i)
 	}
@@ -509,15 +509,15 @@ func TestDifferentJobsAcrossThreePrintersConcurrent(t *testing.T) {
 			case 2:
 				printerID = "p3"
 			}
-		job := map[string]interface{}{
-			"id":         fmt.Sprintf("multi_%d", i),
-			"agentId":    "agt_test",
-			"printerId":  printerID,
-			"status":     "claimed",
-			"claimToken": fmt.Sprintf("claim-multi-%d", i),
-			"payload":    makeJobPayload(fmt.Sprintf("multi_%d", i)),
-			"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
-		}
+			job := map[string]interface{}{
+				"id":         fmt.Sprintf("multi_%d", i),
+				"agentId":    "agt_test",
+				"printerId":  printerID,
+				"status":     "claimed",
+				"claimToken": fmt.Sprintf("claim-multi-%d", i),
+				"payload":    makeJobPayload(fmt.Sprintf("multi_%d", i)),
+				"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+			}
 			ag.dispatchJob(ctx, job)
 		}(i)
 	}
