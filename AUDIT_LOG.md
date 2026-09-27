@@ -5,11 +5,18 @@
 > Severities: high (security/correctness/data-loss), med (bug-prone/perf/contract drift), low (style/dead code/stale comment).
 > `NEEDS RUNTIME VERIFICATION` = cannot confirm without Docker/Postgres/Odoo/printer (no runtime per constraints).
 
+## FINAL SUMMARY (Phase 4 — 2026-09-27, session 4 complete)
+- Coverage: 462 files across 10 batches — gateway entry/server/DB (13) → lib auth/tenant/job/printer/billing (57) → 76 API routes → UI/actions (~38) → contracts + Go mirrors (4) → Go agent (54) → Tauri/desktop (24) → Odoo (69) → migrations/docs/config (~127). Every module has an entry with Status OK or ISSUES FOUND.
+- Issues (session-4 deltas only; Part-B history in AUDIT_FINDINGS.md): high 0 · med 4 (unhandled prepare rejection; missing pg error listener; system-health hardcoded 90s; +1 pre-existing med carried) · low 33 · fixed 0 · NEEDS RUNTIME VERIFICATION 1 (live-Odoo paths).
+- New session-4 findings (all logged with proposed fixes, none applied — queued for a fix pass with maintainer approval): vmware-token drift, system-health 90s, stripe.ts formatting, + 30 lows across lib batches (see per-file entries).
+- Deferred: live-Odoo behavior, WS/DB bounce behavior, physical-print paths — all flagged NEEDS RUNTIME VERIFICATION where applicable.
+- Trail files stay in repo permanently: AUDIT_LOG.md (this file), AUDIT_MAP.md, AUDIT_FINDINGS.md, PATCH_LOG.md.
+
 ## Summary
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 335 | issues high: 0 med: 4 low: 33 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 462 | issues high: 0 med: 4 low: 33 | fixed: 0 | deferred runtime: 1 (live-Odoo paths, static-only per constraints).
 - Note on counting: route/UI batches below re-verify files already line-by-line audited in Part B (AUDIT_FINDINGS.md). Session-4 does NOT re-do that work; it verifies currency (no changes since the fix SHAs), closes deferred follow-ups, and fully re-reads the highest-risk files. Each file still gets its own Status line.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
@@ -633,5 +640,18 @@ Basis: Part-B §7 + PATCH_LOG-documented post-tip commits; substance re-confirme
 ### migrations (17 py) + tests (8) — Status: OK
 - 9 version dirs (1.1.0 → 19.0.2.10.0) + 7 contract tests — NEEDS RUNTIME VERIFICATION for live Odoo behavior (per constraints, static only); contract pins intact. OK (static).
 - Proposed fix (batch 8): none. Fix applied: n/a (pre-session, NEEDS RUNTIME VERIFICATION for live-Odoo paths).
+
+## Batch 9 — Migrations, docs, root config (~127 files) — re-verified 2026-09-27
+Basis: journal/file-count cross-checks + fix-marker greps (no full re-reads; Part B covered these line-by-line and nothing changed except docs commits).
+
+### drizzle (75 SQL + journal + 4 snapshots) — Status: OK
+- Journal has 75 entries headed `0074_token_cascade_cleanup` = 75 SQL files on disk ✓; 0074 contains no `*_pkey` (PK-saga resolution intact); short migration FK names adopted in schema (`grep -c` = 2 spot checks); doc counts current (`ARCHITECTURE.md:51` 76 routes, `:180` 75 migrations, `MIGRATION.md:51` 75). No finding.
+
+### docs (26 md) — Status: OK
+- All 10 Part-B doc fixes confirmed present (argon2 instructions — and verified compatible: npm `argon2` defaults m=65536/t=3/p=4 match `password.ts` pins exactly, so doc-generated hashes verify; proxy-token header; `npm ci` build order; PG16 digests; pytest pins). Counts current. No finding.
+
+### root config + scripts + workflows — Status: OK
+- `Caddyfile`, `docker-compose.yml`, `Dockerfile`, `next.config.ts`, `package.json`, `agent/go.mod`, `src-tauri/Cargo.toml`, `drizzle.config.ts` (audited batch 1), 11 `scripts/`, `.github/workflows` (pytest pins + PG16 digest identical in both jobs) — no drift. No finding.
+- Proposed fix (batch 9): none. Fix applied: n/a.
 
 ## Batch 5 — Contract center (4 files) — audited 2026-09-27

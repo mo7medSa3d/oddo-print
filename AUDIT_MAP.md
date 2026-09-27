@@ -1,5 +1,5 @@
 # AUDIT_MAP.md — Living architecture map (oddo-print / Yasser Print Gateway)
-Last updated: 2026-09-27 (session 4, batch 2a: auth primitives audited)
+Last updated: 2026-09-27 (session 4 COMPLETE — all 10 batches audited, summary in AUDIT_LOG.md)
 Repo: mo7medSa3d/oddo-print, branch: main
 Name note: package.json `name: yasser-gateway`; Go module `github.com/yasser-agent/agent`; Tauri package `yasser-manager`; Odoo addon `print_gateway` (v19.0.2.10.0). "oddo-print" is the repo slug only.
 
