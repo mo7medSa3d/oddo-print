@@ -60,8 +60,10 @@ describe("production fixes contracts (2026-09)", () => {
     // by the stale-claim sweeper instead of extending any claim).
     expect(normalized).toContain("Tokenless legacy keep-alives are not");
     expect(normalized).toContain("p.claimToken !== null");
-    expect(normalized).toContain("eq(printJobs.agentId, agent.id)");
-    expect(normalized).toContain("inArray(printJobs.status, [\"claimed\", \"printing\"])");
+    // The bulk refresh is raw SQL (tuple-IN predicate Drizzle cannot
+    // express): agent fence and claimed/printing scope in raw form.
+    expect(normalized).toContain("AND agent_id = ${agent.id}");
+    expect(normalized).toContain("AND status IN ('claimed', 'printing')");
     // Lease refresh mutates updatedAt only - never status, never ownership.
     expect(normalized).toContain("UPDATE print_jobs SET updated_at = now()");
     expect(normalized).not.toContain("db.update(printJobs) .set({ status");
