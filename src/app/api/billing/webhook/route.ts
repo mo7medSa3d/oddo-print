@@ -64,10 +64,12 @@ export async function POST(req: Request) {
   const raw = await req.text();
   const sig = req.headers.get("stripe-signature") ?? "";
   const secret = runtimeSecret("STRIPE_WEBHOOK_SECRET");
-  // A signature failure is an authentication failure, not a malformed body:
-  // 401 tells the sender to fix its signing secret, 400 would suggest the
-  // JSON is bad. Malformed JSON/events below still return 400.
-  if (!secret || !verifyStripeSignature(raw, sig, secret)) return NextResponse.json({ error: "Invalid webhook signature" }, { status: 401 });
+  // Deliberate 400 (not 401): Stripe's convention is non-2xx for failed
+  // validation, and the integration contract pins 400 + this exact body
+  // (billing-webhook.test.ts "missing/invalid Stripe signature"). A 401
+  // buys nothing here — verification is HMAC, not a brute-forceable
+  // credential — and would churn Stripe's delivery dashboard semantics.
+  if (!secret || !verifyStripeSignature(raw, sig, secret)) return NextResponse.json({ error: "Invalid webhook signature" }, { status: 400 });
 
   let event: StripeEvent;
   try { event = JSON.parse(raw) as StripeEvent; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
