@@ -18,3 +18,7 @@ export const htmlToCanvas = vi.fn();
 export const renderToElement = vi.fn();
 export const OrderReceipt = "OrderReceipt";
 export const RetryPrintPopup = "RetryPrintPopup";
+// gateway_limit_dialog.js (imported by pos_print_router.js) uses the Odoo
+// translation helper and the confirmation dialog component.
+export const _t = (s: string) => s;
+export const ConfirmationDialog = "ConfirmationDialog";
