@@ -20,7 +20,11 @@ import { sweepStaleAgentPresence, AGENT_PRESENCE_SWEEP_INTERVAL_MS } from "./src
 import { createRequestContentSecurityPolicy, shouldApplyPageContentSecurityPolicy } from "./src/server/content-security-policy";
 
 const dev = process.env.NODE_ENV === "development";
-const port = parseInt(process.env.PORT ?? "3000", 10);
+const rawPort = process.env.PORT ?? "3000";
+const port = /^\d+$/.test(rawPort.trim()) ? parseInt(rawPort.trim(), 10) : NaN;
+if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+  throw new Error(`Refusing startup: PORT must be an integer 1..65535 (got ${JSON.stringify(rawPort)}).`);
+}
 const hostname = process.env.HOSTNAME ?? "0.0.0.0";
 
 function isLoopbackBinding(host: string): boolean {
@@ -58,7 +62,7 @@ if (!plaintextManagerPasswordAllowedEnvironment && process.env.ALLOW_PLAINTEXT_M
   throw new Error("Refusing startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1 outside development/test; configure MANAGER_PASSWORD_HASH instead.");
 }
 
-if (process.env.NODE_ENV === "production" && (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")) {
+if (process.env.NODE_ENV === "production" && ["0", "false", "no", "off"].includes((process.env.COOKIE_SECURE ?? "").trim().toLowerCase())) {
   throw new Error("Refusing production startup with COOKIE_SECURE disabled; manager/customer session cookies must be Secure in production.");
 }
 
@@ -236,4 +240,8 @@ app.prepare().then(() => {
     const boundPort = typeof address === "object" && address !== null ? address.port : port;
     console.log(`> Ready on http://${hostname}:${boundPort} (Agent WS at /api/agent/ws)`);
   });
+}).catch((error) => {
+  logError("[startup] Next.js prepare failed; refusing to run without a request handler", { error: error instanceof Error ? error.message : String(error) });
+  try { void pool.end(); } catch { /* already closed */ }
+  process.exit(1);
 });
