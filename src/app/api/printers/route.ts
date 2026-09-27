@@ -4,6 +4,7 @@ import { agents, printers } from "../../../db/schema";
 import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
 import { and, desc, eq, sql } from "drizzle-orm";
+import { clampListLimit } from "../../../lib/request-limits";
 import { nanoid } from "../../../lib/nanoid";
 import { parsePrinterInput, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../lib/printer-model";
 import { writeAuditEvent } from "../../../lib/audit";
@@ -29,7 +30,7 @@ export async function GET(req: Request) {
   // Hard ceiling so cadence/abuse cannot force an unbounded scan. Entitlements
   // cap the row count per tenant (max_printers); 1000 is purely defensive.
   const { searchParams } = new URL(req.url);
-  const limit = Math.min(parseInt(searchParams.get("limit") ?? "1000", 10) || 1000, 1000);
+  const limit = clampListLimit(searchParams.get("limit"), 1000, 1000);
   const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10) || 0, 0);
   if (offset > MAX_PRINTERS_OFFSET) {
     return NextResponse.json({ error: `offset must be <= ${MAX_PRINTERS_OFFSET}` }, { status: 400 });

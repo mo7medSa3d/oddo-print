@@ -5,6 +5,7 @@ import { validateWorkspaceManager } from "../../../lib/manager-auth";
 import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
 import { and, desc, eq } from "drizzle-orm";
+import { clampListLimit } from "../../../lib/request-limits";
 import { z } from "zod";
 import { createAgentForManager } from "../../../lib/agent-control";
 import { ActionError } from "../../../lib/action-error";
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
   // cap the row count per tenant (max_agents), so a well-formed fleet never
   // approaches this; 1000 is far above any valid plan and purely defensive.
   const { searchParams } = new URL(req.url);
-  const limit = Math.min(parseInt(searchParams.get("limit") ?? "1000", 10) || 1000, 1000);
+  const limit = clampListLimit(searchParams.get("limit"), 1000, 1000);
   const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10) || 0, 0);
   if (offset > MAX_AGENTS_OFFSET) {
     return NextResponse.json({ error: `offset must be <= ${MAX_AGENTS_OFFSET}` }, { status: 400 });

@@ -5,6 +5,7 @@ import { validateWorkspaceManager } from "../../../lib/manager-auth";
 import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { clampListLimit } from "../../../lib/request-limits";
 import {
   isJobFilterStatus,
   derivePhysicalOutcome,
@@ -33,7 +34,7 @@ export async function GET(req: Request) {
   const searchParam = (url.searchParams.get("search") ?? url.searchParams.get("q"))?.trim();
   const printerId = url.searchParams.get("printerId");
   const agentId = url.searchParams.get("agentId");
-  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50", 10) || 50, 200);
+  const limit = clampListLimit(url.searchParams.get("limit"), 50, 200);
   const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10) || 0, 0);
   if (offset > MAX_LIST_OFFSET) {
     return NextResponse.json({ error: `offset must be <= ${MAX_LIST_OFFSET}` }, { status: 400 });

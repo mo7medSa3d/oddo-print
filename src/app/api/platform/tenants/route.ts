@@ -3,6 +3,7 @@ import { requirePlatformOwner, PlatformUnauthorizedError } from "../../../../lib
 import { db } from "../../../../db";
 import { tenants, tenantSubscriptions, tenantUsers, agents, printers, plans } from "../../../../db/schema";
 import { desc, eq, sql } from "drizzle-orm";
+import { clampListLimit } from "../../../../lib/request-limits";
 import { queryWithTimeout } from "../../../../db/client";
 
 export async function GET(req: Request) {
@@ -16,8 +17,7 @@ export async function GET(req: Request) {
   }
 
   const { searchParams } = new URL(req.url);
-  const limitParam = parseInt(searchParams.get("limit") ?? "300", 10);
-  const limit = Math.min(Math.max(1, isNaN(limitParam) ? 300 : limitParam), 1000);
+  const limit = clampListLimit(searchParams.get("limit"), 300, 1000);
 
   const rows = await queryWithTimeout(
     db
