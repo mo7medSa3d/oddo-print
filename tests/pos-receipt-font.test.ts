@@ -32,21 +32,21 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@point_of_sale/app/services/render_service", () => ({
   htmlToCanvas: mocks.htmlToCanvas,
-}), { virtual: true };
+}), { virtual: true });
 vi.mock("@web/core/utils/render", () => ({
   renderToElement: mocks.renderToElement,
-}), { virtual: true };
+}), { virtual: true });
 vi.mock("@point_of_sale/app/screens/receipt_screen/receipt/order_receipt", () => ({
   OrderReceipt: "OrderReceipt",
-}), { virtual: true };
-vi.mock("@web/core/utils/patch", () => ({ patch: mocks.patch }), { virtual: true };
-vi.mock("@point_of_sale/app/services/pos_store", () => ({ PosStore: class {} }), { virtual: true };
+}), { virtual: true });
+vi.mock("@web/core/utils/patch", () => ({ patch: mocks.patch }), { virtual: true });
+vi.mock("@point_of_sale/app/services/pos_store", () => ({ PosStore: class {} }), { virtual: true });
 vi.mock("@point_of_sale/app/models/utils/order_change", () => ({
   changesToOrder: mocks.changesToOrder,
-}), { virtual: true };
+}), { virtual: true });
 vi.mock("@point_of_sale/app/components/popups/retry_print_popup/retry_print_popup", () => ({
   RetryPrintPopup: "RetryPrintPopup",
-}), { virtual: true };
+}), { virtual: true });
 vi.mock("../odoo_addons/print_gateway/static/src/js/gateway_limit_dialog", () => ({
   showGatewayBillingLimitDialog: mocks.showGatewayBillingLimitDialog,
 }));
