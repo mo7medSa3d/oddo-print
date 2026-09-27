@@ -480,7 +480,10 @@ def test_odoo_gateway_status_reconciliation_uses_authoritative_row_fences():
     assert 'FOR UPDATE' in jobs[jobs.index('def _lock_status_row(self, job):'):jobs.index('def _advance_status(self, job, target, values):')]
     assert 'self._lock_status_row(job)' in jobs[jobs.index('def _advance_status(self, job, target, values):'):jobs.index('    # Payload kinds recognized', jobs.index('def _advance_status(self, job, target, values):'))]
     assert 'def _mark_gateway_job_missing(self, job, message):' in jobs
-    assert 'current_status in self._TERMINAL or current_gateway_job_id != job.gateway_job_id' in jobs
+    # success/failed/partial are final; unknown stays reconcilable. Remote-id
+    # comparison coerces NULL (raw SQL) and False (ORM) to the same value.
+    assert 'final_states = ("success", "failed", "partial")' in jobs
+    assert '(current_gateway_job_id or False) != (job.gateway_job_id or False)' in jobs
     assert 'changed = self._mark_gateway_job_missing(' in jobs
 
 
