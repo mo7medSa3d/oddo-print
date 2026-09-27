@@ -187,6 +187,8 @@ def test_gateway_config_unlink_fails_closed_when_remote_shutdown_is_unconfirmed(
     assert "if not record._disable_gateway_for_unlink(" in unlink
     assert "This Gateway configuration cannot be deleted until the Gateway confirms that printing is disabled." in unlink
     assert "pending_disable_gateway_url" in unlink
+    assert "except ValidationError:" in unlink
+    assert "except (CredentialKeyUnavailable, CredentialDecryptError, ValueError) as exc:" in unlink
     assert "_gateway_api_key_plaintext_from_value" in unlink
     assert "if len(self) != 1" in unlink
     assert "FOR UPDATE" in unlink
