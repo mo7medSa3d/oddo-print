@@ -9,7 +9,7 @@
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 37 | issues high: 0 med: 3 low: 26 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 50 | issues high: 0 med: 3 low: 29 | fixed: 0 | deferred runtime: 0.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
 - Confirmed repo `mo7medSa3d/oddo-print`, branch `main` via `gh repo view` + `git remote -v`; `gh auth status` OK.
@@ -289,3 +289,90 @@
   - [SEVERITY: low] Non-plain objects are not handled: `Object.entries(new Date())` is `[]`, so a `Date` instance canonicalizes to `{}` — two different dates would fingerprint identically and could false-match idempotency. Safe only if all inputs are JSON-round-tripped before fingerprinting. Verify at `idempotency.ts` audit that no live `Date`/class instance reaches `canonicalize`.
 - Proposed fix: confirm JSON-only inputs at idempotency audit; else add explicit `Date` (toISOString) handling.
 - Fix applied: no
+
+## [gateway/src/lib/job-delivery.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Claim protocol is airtight: per-agent advisory lock serializes WS/poll claim paths so the 64 in-flight ceiling (matching the agent's `maxPendingJobs`, cross-checked in comments) is a true invariant; eligibility (agent/printer/tenant/billing) re-checked under `FOR UPDATE … SKIP LOCKED`; token-minted claims with fenced evidence writes; ambiguous delivery → terminal `failed` + unknown marker (never requeued — no duplicate print); release only when zero evidence exists. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/job-fencing.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. TOCTOU rule (token inside the UPDATE predicate, never app-memory compare) enforced by construction; `IS NOT DISTINCT FROM` legacy-NULL semantics and strict-`=` delivery-evidence rule both documented. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/job-maintenance.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (1 low)
+- Findings:
+  - Verified good (no finding): 6 sweep statements all bounded (`LIMIT` + `SKIP LOCKED`, env override guarded — prior NaN fix confirmed `:19-20`); evidence-preserving expiry (printing/ambiguous keep fences for bounded reconciliation, pre-dispatch clears); 5-min/24-h fence cleanup; metrics only on nonzero.
+  - [SEVERITY: low] The two terminal fence-cleanup UPDATEs (`:180-204`) have no `LIMIT`, unlike the other six — steady-state tiny (only ambiguous rows retain tokens), but a post-outage backlog could hold one long statement past the 30s `statement_timeout`. Add `LIMIT` for symmetry.
+- Proposed fix: bound the cleanup updates (e.g. `LIMIT 200` via CTE like the others).
+- Fix applied: no
+
+## [gateway/src/lib/job-status.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Closed DB/API/physical vocabularies with the Go/Odoo mirrors cited in the header (to verify at agent/odoo batches); `success` never implies paper; late-success override is opt-in with marker + 24h age fences; agent requeue reasons are provably-pre-execution only with budgets correctly not refunded on crash-reprint. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/job-timeline.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Claim tokens persisted only as truncated SHA-256 (`claim_<12hex>`, deterministic for correlation, irreversible); correlation-context backfill; 3s timeout + never-breaks-main-flow catch; pure row-to-timeline builder. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/idempotency.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Browser CSPRNG keygen with explicit failure (no `Math.random` degradation); the MDN claim in the comment verified accurate — `getRandomValues()` is "the only member of the Crypto interface which can be used from an insecure context" (source: https://developer.mozilla.org/en-US/docs/Web/API/Crypto/getRandomValues), `randomUUID()` is secure-context-only (source: https://developer.mozilla.org/en-US/docs/Web/API/Crypto/randomUUID). RFC 4122 v4/variant bits set correctly. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/limit-signal.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Dependency-free (`import type` only — bundle-safe) signal shape + narrow type guard, with the Next.js thrown-error-serialization constraint documented. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/metrics.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Prometheus name validation matches the spec (`^[a-zA-Z_:][a-zA-Z0-9_:]*$`); local+DB dual counters with fail-silent writes (metrics never break requests); DB-sourced names are safe (only enter via the validated `incrementMetric`); counts interpolated are `COUNT(*)` bigints. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/log.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (1 low)
+- Findings:
+  - Verified good (no finding): claimId redaction, sensitive-key redaction, 500-char truncation, AsyncLocalStorage correlation via guarded `require` (cycle documented), JSON lines.
+  - [SEVERITY: low] Minted request IDs use `Math.random()` (`:25`) — uniqueness-only in practice (clients may supply their own IDs anyway), but inconsistent with the codebase CSPRNG posture; `node:crypto` is already imported. Use `randomBytes`/`randomUUID`. (Two `(as any)` casts nearby are style-only.)
+- Proposed fix: `randomBytes(8).toString("hex")` suffix.
+- Fix applied: no
+
+## [gateway/src/lib/nanoid.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. CSPRNG `base64url` slice is uniform for ID purposes. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/utils.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Standard `cn()` (`clsx` + `tailwind-merge`). No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/nav.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Slash-boundary prefix match (no `/agents2` false-positive); auth explicitly server-side. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/clipboard.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (1 low)
+- Findings:
+  - Verified good (no finding): secure-context fallback chain documented (LAN-over-HTTP reality), never throws, boolean contract.
+  - [SEVERITY: low] Legacy path leaks the hidden textarea if `select()`/`execCommand()` throws (`:22-33`) — `removeChild` is skipped on the throw path. Wrap in `try/finally`.
+- Proposed fix: `try { … } finally { area.remove(); }`.
+- Fix applied: no
+
+### Batch-2d follow-up CLOSED
+- `canonicalize` Date concern: sole caller is `print-job-service.ts:69` (`payload: canonicalize(input.payload)`) where `input.payload` is JSON-parsed request body — JSON deserialization cannot produce `Date`/class instances, so the `{}` collapse is unreachable. No finding; no code change needed.
