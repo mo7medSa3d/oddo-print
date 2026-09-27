@@ -1,8 +1,21 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { runtimeSecret } from "./runtime-secret";
 import { gatewayNowMs } from "./database-clock";
-export function stripeSecret(): string { const s=runtimeSecret("STRIPE_SECRET_KEY"); if(!s) throw new Error("Stripe is not configured"); return s; }
-export function stripeHeaders(extra:Record<string,string>={}) { return { Authorization:`Bearer ${stripeSecret()}`, "Content-Type":"application/x-www-form-urlencoded", ...(runtimeSecret("STRIPE_API_VERSION")?{"Stripe-Version":runtimeSecret("STRIPE_API_VERSION")!}:{}), ...extra }; }
+export function stripeSecret(): string {
+  const s = runtimeSecret("STRIPE_SECRET_KEY");
+  if (!s) throw new Error("Stripe is not configured");
+  return s;
+}
+
+export function stripeHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const apiVersion = runtimeSecret("STRIPE_API_VERSION");
+  return {
+    Authorization: `Bearer ${stripeSecret()}`,
+    "Content-Type": "application/x-www-form-urlencoded",
+    ...(apiVersion ? { "Stripe-Version": apiVersion } : {}),
+    ...extra,
+  };
+}
 export type StripeApiResponse = { id: string; url?: string | null; expires_at?: number };
 
 export class StripeRequestError extends Error {
@@ -54,17 +67,22 @@ function parseStripeResponse(path: string, data: unknown): StripeApiResponse {
   };
 }
 
-export async function stripeRequest(path:string, form:URLSearchParams, idempotencyKey?:string): Promise<StripeApiResponse> {
-  const headers=stripeHeaders(idempotencyKey?{"Idempotency-Key":idempotencyKey}:{});
-  const res=await fetch(`https://api.stripe.com/v1/${path}`,{method:"POST",headers,body:form,signal:AbortSignal.timeout(15_000)});
-  const data=await res.json().catch(()=>({}));
-  if(!res.ok) {
-    throw new StripeRequestError(
-      typeof (data as Record<string, unknown>)?.error === "object" && typeof ((data as Record<string, unknown>).error as Record<string, unknown>)?.message === "string"
-        ? String(((data as Record<string, unknown>).error as Record<string, unknown>).message)
-        : `Stripe request failed (${res.status})`,
-      res.status,
-    );
+export async function stripeRequest(path: string, form: URLSearchParams, idempotencyKey?: string): Promise<StripeApiResponse> {
+  const headers = stripeHeaders(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {});
+  const res = await fetch(`https://api.stripe.com/v1/${path}`, {
+    method: "POST",
+    headers,
+    body: form,
+    signal: AbortSignal.timeout(15_000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const body = data as Record<string, unknown>;
+    const nested = body?.error as Record<string, unknown> | undefined;
+    const message = typeof nested?.message === "string"
+      ? String(nested.message)
+      : `Stripe request failed (${res.status})`;
+    throw new StripeRequestError(message, res.status);
   }
   return parseStripeResponse(path, data);
 }
@@ -209,14 +227,25 @@ export async function validateStripePriceBinding(input: {
   return binding;
 }
 
-export function verifyStripeSignature(payload:string, header:string, secret:string, toleranceSec=300, nowSec?: number): boolean {
+export function verifyStripeSignature(payload: string, header: string, secret: string, toleranceSec = 300, nowSec?: number): boolean {
   // Replay protection compares Stripe's event timestamp with the Gateway
   // clock. Using the Node host clock here makes every webhook fail whenever the
   // host drifts outside the tolerance window, so billing state would silently
   // stop syncing; the calibrated database clock is the authority.
   const referenceSec = typeof nowSec === "number" && Number.isFinite(nowSec) ? nowSec : gatewayNowMs() / 1000;
-  const parts=header.split(",").map(p=>p.split("=",2)); const ts=Number(parts.find(([k])=>k==="t")?.[1]); if(!Number.isFinite(ts)||Math.abs(referenceSec-ts)>toleranceSec)return false;
-  const provided=parts.filter(([k])=>k==="v1").map(([,v])=>v).filter(Boolean); if(provided.length===0)return false;
-  const expected=createHmac("sha256",secret).update(`${ts}.${payload}`).digest("hex"); const expectedBuf=Buffer.from(expected,"hex");
-  return provided.some(sig=>{try{const b=Buffer.from(sig,"hex");return b.length===expectedBuf.length&&timingSafeEqual(b,expectedBuf);}catch{return false;}});
+  const parts = header.split(",").map((p) => p.split("=", 2));
+  const ts = Number(parts.find(([k]) => k === "t")?.[1]);
+  if (!Number.isFinite(ts) || Math.abs(referenceSec - ts) > toleranceSec) return false;
+  const provided = parts.filter(([k]) => k === "v1").map(([, v]) => v).filter(Boolean);
+  if (provided.length === 0) return false;
+  const expected = createHmac("sha256", secret).update(`${ts}.${payload}`).digest("hex");
+  const expectedBuf = Buffer.from(expected, "hex");
+  return provided.some((sig) => {
+    try {
+      const b = Buffer.from(sig, "hex");
+      return b.length === expectedBuf.length && timingSafeEqual(b, expectedBuf);
+    } catch {
+      return false;
+    }
+  });
 }

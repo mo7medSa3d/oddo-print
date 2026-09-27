@@ -1,5 +1,5 @@
 import { IncomingMessage, type ServerResponse } from "http";
-import { createHash, createHmac, timingSafeEqual } from "crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { parseStrictContentLength } from "../lib/request-limits";
 import { runtimeSecret } from "../lib/runtime-secret";
 
@@ -261,7 +261,7 @@ export async function guardApiRequest(
 ): Promise<IncomingMessage | null> {
   const maxBytes = options.maxBytes ?? MAX_API_BODY_BYTES;
   if (!req.url?.startsWith("/api/")) return req;
-  if (!MUTATING_METHODS.includes(req.method ?? "")) return req;
+  if (!MUTATING_METHODS.includes((req.method ?? "").toUpperCase())) return req;
 
   const payloadBearing = isPayloadBearingEndpoint(req.url);
   const authenticated = isLikelyAuthenticated(req);

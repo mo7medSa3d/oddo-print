@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { agents } from "../db/schema";
 import { eq } from "drizzle-orm";
-import { createHash, randomBytes, randomInt, timingSafeEqual } from "crypto";
+import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { requireActiveTenantOrNull } from "./tenant-guard";
 
 /**

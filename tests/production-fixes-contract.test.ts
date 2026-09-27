@@ -190,10 +190,11 @@ describe("production fixes contracts (2026-09)", () => {
     expect(route).toContain('if (updatedUser.length !== 1) throw new Error("Reset user missing");');
   });
 
-  it("startup refuses plaintext manager passwords in production", () => {
+  it("startup refuses plaintext manager passwords outside development/test", () => {
     const server = read("server.ts");
-    expect(server).toContain('if (process.env.NODE_ENV === "production" && process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD === "1")');
-    expect(server).toContain("Refusing production startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1");
+    expect(server).toContain('const plaintextManagerPasswordAllowedEnvironment = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";');
+    expect(server).toContain('!plaintextManagerPasswordAllowedEnvironment && process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD === "1"');
+    expect(server).toContain("outside development/test");
     expect(server).toContain("configure MANAGER_PASSWORD_HASH instead.");
   });
 

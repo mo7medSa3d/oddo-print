@@ -43,7 +43,10 @@ export function getSupportedDocumentTypes(protocol: ProtocolType, transport: Tra
   }
   switch (protocol) {
     case "escpos":
-      return ["escpos", "raw"];
+      // "image" via gateway raster conversion (routing.ts physicalImage):
+      // an ESC/POS device raster-converts JPEGs even though its byte sink
+      // speaks escpos. Listed so the matrix matches the enforcer.
+      return ["escpos", "raw", "image"];
     case "zpl":
       return ["zpl", "raw"];
     case "tspl":

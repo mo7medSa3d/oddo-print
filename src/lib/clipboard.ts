@@ -18,8 +18,9 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
   } catch {
     // Permissions denied or clipboard API unusable — try the legacy path.
   }
+  let area: HTMLTextAreaElement | null = null;
   try {
-    const area = document.createElement("textarea");
+    area = document.createElement("textarea");
     area.value = text;
     area.setAttribute("readonly", "");
     area.style.position = "fixed";
@@ -28,10 +29,11 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
     document.body.appendChild(area);
     area.select();
     area.setSelectionRange(0, area.value.length);
-    const copied = document.execCommand("copy");
-    document.body.removeChild(area);
-    return copied;
+    return document.execCommand("copy");
   } catch {
     return false;
+  } finally {
+    // A throw in select()/execCommand() must not leak the hidden element.
+    if (area?.parentNode) area.parentNode.removeChild(area);
   }
 }

@@ -1,7 +1,7 @@
-import { db } from "../db";
+import { db, type DbTx } from "../db";
 import { managerSessions, tenants, tenantDomains, tenantUsers, users } from "../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { createHash, createHmac, scrypt, timingSafeEqual } from "crypto";
+import { createHash, createHmac, scrypt, timingSafeEqual } from "node:crypto";
 import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
 import { databaseNowMs } from "./database-clock";
 import { hashPassword, verifyPassword, normalizeEmail } from "./password";
@@ -16,6 +16,7 @@ import {
   issueSessionPair,
   verifyAccessTokenSignature,
   refreshCookieHeader,
+  ACCESS_TOKEN_TTL_SECONDS,
   type SessionRequestContext,
 } from "./session-tokens";
 
@@ -96,12 +97,15 @@ export async function verifyManagerToken(token: string): Promise<ManagerClaims |
   const versioned = verifyAccessTokenSignature(token, "manager");
   if (versioned) {
     if (versioned.kind !== "manager") return null;
+    // Fail closed if a future validator ever stops guaranteeing tenant
+    // presence for manager-kind claims (today it always does).
+    if (!versioned.tenantId) return null;
     return validateManagerClaims({
       jti: versioned.jti,
       iat: versioned.iat,
       exp: versioned.exp,
       sub: "manager",
-      tenantId: versioned.tenantId!,
+      tenantId: versioned.tenantId,
       role: versioned.role as ManagerRole,
       ...(versioned.userId ? { userId: versioned.userId } : {}),
       ver: 2,
@@ -126,7 +130,7 @@ export async function validateManagerClaims(claims: ManagerClaims | null): Promi
       return null;
     }
     const nowSec = Math.floor(nowMs / 1000);
-    if (claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.exp - claims.iat !== 15 * 60) return null;
+    if (claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.exp - claims.iat !== ACCESS_TOKEN_TTL_SECONDS) return null;
     if (!claims.tenantId || !claims.role || !claims.familyId) return null;
 
     // Access tokens are short-lived, but logout must revoke them immediately.
@@ -277,12 +281,13 @@ export async function validateManager(req: Request): Promise<ManagerClaims | nul
 export async function verifyWorkspaceToken(token: string): Promise<ManagerClaims | null> {
   const versioned = verifyAccessTokenSignature(token, ["manager", "customer"]);
   if (versioned) {
+    if (!versioned.tenantId) return null;
     return validateManagerClaims({
       jti: versioned.jti,
       iat: versioned.iat,
       exp: versioned.exp,
       sub: "manager",
-      tenantId: versioned.tenantId!,
+      tenantId: versioned.tenantId,
       role: versioned.role as ManagerRole,
       ...(versioned.userId ? { userId: versioned.userId } : {}),
       ver: 2,
@@ -325,10 +330,10 @@ export async function verifyWorkspaceTokenFromCookieValues(
   return customerToken ? verifyWorkspaceToken(customerToken) : null;
 }
 
-type LegacyManagerAuthTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+/* LegacyManagerAuthTx folded into the canonical DbTx from src/db (single definition). */
 
 export async function revokeLegacyManagerSessionInTransaction(
-  tx: LegacyManagerAuthTx,
+  tx: DbTx,
   jti: string,
 ): Promise<void> {
   await tx.update(managerSessions)
@@ -337,7 +342,7 @@ export async function revokeLegacyManagerSessionInTransaction(
 }
 
 export async function revokeLegacyManagerSessionsForUserInTransaction(
-  tx: LegacyManagerAuthTx,
+  tx: DbTx,
   userId: string,
   tenantId?: string,
 ): Promise<void> {
@@ -350,10 +355,15 @@ export async function revokeLegacyManagerSessionsForUserInTransaction(
 }
 
 export async function revokeLegacyManagerSessionsForTenantInTransaction(
-  tx: LegacyManagerAuthTx,
+  tx: DbTx,
   tenantId: string,
 ): Promise<void> {
-  await tx.delete(managerSessions).where(eq(managerSessions.tenantId, tenantId));
+  // Revoke-update (not DELETE): session rows stay for auditability, matching
+  // the user-scoped twin above. The refresh-token families carry the durable
+  // revocation; legacy rows just stop validating.
+  await tx.update(managerSessions)
+    .set({ revokedAt: sql`clock_timestamp()` })
+    .where(eq(managerSessions.tenantId, tenantId));
 }
 
 export async function revokeManagerSession(jti: string) {

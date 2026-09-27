@@ -310,6 +310,7 @@ var sessionRedirectTokens = []string{
 	"easy print",
 	"citrix",
 	"vmware virtual print",
+	"vmware universal printer",
 	"thinprint",
 	"safeguard print",
 }

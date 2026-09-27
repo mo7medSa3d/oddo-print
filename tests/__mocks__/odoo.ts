@@ -3,8 +3,11 @@
  *
  * The Yasser addon's pos_print_router.js imports Odoo POS modules
  * (@point_of_sale/*, @web/*) that are not installed in this repository.
- * Vitest aliases resolve those imports to this mock module so the real
- * renderReceiptImage() can be driven in isolation.
+ * Vitest aliases (see vitest.unit.config.mts) resolve every such import to
+ * this single mock module so the real renderReceiptImage() can be driven in
+ * isolation. The vi.fn() exports are shared singletons: the test imports the
+ * same instances the module under test uses, so mockResolvedValue() calls
+ * made in the test are observed by pos_print_router.js.
  */
 import { vi } from "vitest";
 
@@ -15,5 +18,7 @@ export const htmlToCanvas = vi.fn();
 export const renderToElement = vi.fn();
 export const OrderReceipt = "OrderReceipt";
 export const RetryPrintPopup = "RetryPrintPopup";
+// gateway_limit_dialog.js (imported by pos_print_router.js) uses the Odoo
+// translation helper and the confirmation dialog component.
 export const _t = (s: string) => s;
 export const ConfirmationDialog = "ConfirmationDialog";

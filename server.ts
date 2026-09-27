@@ -20,7 +20,13 @@ import { sweepStaleAgentPresence, AGENT_PRESENCE_SWEEP_INTERVAL_MS } from "./src
 import { createRequestContentSecurityPolicy, shouldApplyPageContentSecurityPolicy } from "./src/server/content-security-policy";
 
 const dev = process.env.NODE_ENV === "development";
-const port = parseInt(process.env.PORT ?? "3000", 10);
+const rawPort = process.env.PORT ?? "3000";
+const port = /^\d+$/.test(rawPort.trim()) ? parseInt(rawPort.trim(), 10) : NaN;
+// 0 is valid (OS-assigned ephemeral port, used by the multi-instance
+// integration test); anything else must be a real port number.
+if (!Number.isSafeInteger(port) || port < 0 || port > 65535) {
+  throw new Error(`Refusing startup: PORT must be an integer 0..65535 (got ${JSON.stringify(rawPort)}).`);
+}
 const hostname = process.env.HOSTNAME ?? "0.0.0.0";
 
 function isLoopbackBinding(host: string): boolean {
@@ -58,16 +64,15 @@ if (process.env.NODE_ENV === "production" && process.env.ALLOW_PLAINTEXT_MANAGER
 }
 
 const httpTestMode = process.env.YASSER_HTTP_TEST_MODE === "1";
+// Staging-only insecure-cookie signal (also read by sessionCookieSecure):
+// COOKIE_SECURE=0 is refused in production unless the explicit test flag is set.
+const cookieSecureDisabled = ["0", "false", "no", "off"].includes((process.env.COOKIE_SECURE ?? "").trim().toLowerCase());
 
-if (
-  process.env.NODE_ENV === "production" &&
-  !httpTestMode &&
-  (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")
-) {
+if (process.env.NODE_ENV === "production" && !httpTestMode && cookieSecureDisabled) {
   throw new Error("Refusing production startup with COOKIE_SECURE disabled; manager/customer session cookies must be Secure in production.");
 }
 
-if (process.env.NODE_ENV === "production" && httpTestMode && (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")) {
+if (process.env.NODE_ENV === "production" && httpTestMode && cookieSecureDisabled) {
   console.warn("[security] YASSER_HTTP_TEST_MODE=1: COOKIE_SECURE is intentionally disabled for the isolated HTTP test deployment.");
 }
 
@@ -252,4 +257,8 @@ app.prepare().then(() => {
     const boundPort = typeof address === "object" && address !== null ? address.port : port;
     console.log(`> Ready on http://${hostname}:${boundPort} (Agent WS at /api/agent/ws)`);
   });
+}).catch((error) => {
+  logError("[startup] Next.js prepare failed; refusing to run without a request handler", { error: error instanceof Error ? error.message : String(error) });
+  try { void pool.end(); } catch { /* already closed */ }
+  process.exit(1);
 });

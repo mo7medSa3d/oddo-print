@@ -47,11 +47,13 @@ export interface AgentHealth {
   uptimeSeconds?: number;
 }
 
-// Single source of truth for the stale threshold: the claim gate
-// (stale-threshold.ts), health displays, and the UI all read
-// agentStaleThresholdSeconds() so STALE_AGENT_THRESHOLD_SECONDS cannot
-// diverge enforcement from display.
-const ONLINE_THRESHOLD_MS = agentStaleThresholdSeconds() * 1000;
+// Read the threshold fresh per evaluation (not snapshotted at module load):
+// enforcement (agent-availability.ts) and display must share one value even
+// across tests or a future reloadable config. The snapshot cost is one
+// clamped Number() parse.
+function onlineThresholdMs(): number {
+  return agentStaleThresholdSeconds() * 1000;
+}
 const DEGRADED_THRESHOLD_MS = 5 * 60_000; // 5min
 const STARTING_THRESHOLD_MS = 5 * 60_000;
 
@@ -68,7 +70,7 @@ export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: D
   // ONLINE: the agent is not provably alive. Mirror the availability gate
   // (agent-availability.ts) and printer health, which both reject age < 0.
   if (age < 0) return "OFFLINE";
-  if (age <= ONLINE_THRESHOLD_MS) return "ONLINE";
+  if (age <= onlineThresholdMs()) return "ONLINE";
   if (age <= DEGRADED_THRESHOLD_MS) return "DEGRADED";
   return "OFFLINE";
 }
@@ -125,14 +127,15 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
     const ageMs = now.getTime() - new Date(agent.lastSeenAt).getTime();
     // A future lastSeenAt (clock skew or bad write) is an untrustworthy
     // observation: never "ok", and worse than merely stale.
-    const gatewayStatus = ageMs < 0 || ageMs > DEGRADED_THRESHOLD_MS ? "error" : ageMs > ONLINE_THRESHOLD_MS ? "warn" : "ok";
+    const onlineMs = onlineThresholdMs();
+    const gatewayStatus = ageMs < 0 || ageMs > DEGRADED_THRESHOLD_MS ? "error" : ageMs > onlineMs ? "warn" : "ok";
     checks.push({
       name: "Gateway",
       status: gatewayStatus,
-      message: ageMs >= 0 && ageMs <= ONLINE_THRESHOLD_MS ? `Heartbeat ${Math.round(ageMs / 1000)}s ago (observed)` : `Last seen ${Math.round(ageMs / 1000)}s ago (observed)`,
+      message: ageMs >= 0 && ageMs <= onlineMs ? `Heartbeat ${Math.round(ageMs / 1000)}s ago (observed)` : `Last seen ${Math.round(ageMs / 1000)}s ago (observed)`,
       observed: true,
       lastOk: agent.lastSeenAt,
-      details: { ageMs, thresholdMs: ONLINE_THRESHOLD_MS, source: "agents.last_seen_at" },
+      details: { ageMs, thresholdMs: onlineMs, source: "agents.last_seen_at" },
     });
   } else {
     checks.push({ name: "Gateway", status: "error", message: "Never seen (observed from DB)", observed: true });
@@ -220,10 +223,16 @@ export async function getAllAgentsHealth(tenantId: string): Promise<AgentHealth[
     3000,
     "getAllAgentsHealth"
   );
+  // Bounded fan-out (5): the old sequential loop degraded linearly on large
+  // fleets, while an unbounded Promise.all over N agents × 3 queries each
+  // would exhaust the 20-connection pool. Chunks keep latency flat without
+  // stampeding the database.
   const results: AgentHealth[] = [];
-  for (const a of allAgents) {
-    const h = await getAgentHealth(tenantId, a.id);
-    if (h) results.push(h);
+  for (let i = 0; i < allAgents.length; i += 5) {
+    const chunk = await Promise.all(
+      allAgents.slice(i, i + 5).map((a) => getAgentHealth(tenantId, a.id)),
+    );
+    for (const h of chunk) if (h) results.push(h);
   }
   return results;
 }

@@ -31,10 +31,12 @@ describe("desktop manager authentication contract", () => {
 
   it("enforces the branch-specific Gateway transport contract", () => {
     const commands = read("src-tauri/src/commands.rs");
-    const testBranch = commands.includes("This isolated test branch intentionally accepts remote HTTP");
+    const testBranch = commands.includes("Staging-only HTTP acceptance, explicitly gated");
     if (testBranch) {
       expect(commands).toContain('let remote_http = scheme == "http";');
-      expect(commands).toContain("This isolated test branch intentionally accepts remote HTTP");
+      expect(commands).toContain("Staging-only HTTP acceptance, explicitly gated");
+      expect(commands).toContain('std::env::var("YASSER_HTTP_TEST_MODE")');
+      expect(commands).toContain("Gateway URL must use HTTPS for remote Gateways");
       expect(commands).toContain('cmd.env("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1");');
       expect(commands).toContain("The isolated HTTP-test branch requires explicit insecure-HTTP opt-in");
       expect(commands).toContain("gateway URL cannot include embedded credentials");

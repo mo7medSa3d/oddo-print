@@ -1,6 +1,6 @@
-import { db } from "../db";
+import { db, type DbTx } from "../db";
 import { refreshTokens, tenantUsers, tenants, users } from "../db/schema";
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { sessionCookieSecure } from "./session-config";
@@ -206,7 +206,7 @@ function normalizeContext(context?: SessionRequestContext): SessionRequestContex
   };
 }
 
-async function lockRefreshFamily(tx: SessionTx, familyId: string): Promise<void> {
+async function lockRefreshFamily(tx: DbTx, familyId: string): Promise<void> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${familyId}, 0))`);
 }
 
@@ -222,9 +222,9 @@ function validatePrincipal(principal: SharedSessionPrincipal): void {
   }
 }
 
-type SessionTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+/* SessionTx folded into the canonical DbTx from src/db (single definition). */
 
-async function dbNowMsInTransaction(tx: SessionTx): Promise<number> {
+async function dbNowMsInTransaction(tx: DbTx): Promise<number> {
   const result = await tx.execute(sql`SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms`);
   const raw = (result.rows[0] as { now_ms?: number | string } | undefined)?.now_ms;
   const nowMs = Number(raw);
@@ -256,7 +256,7 @@ function makeClaims(
 }
 
 async function insertInitialPair(
-  tx: SessionTx,
+  tx: DbTx,
   principal: SharedSessionPrincipal,
   context?: SessionRequestContext,
 ): Promise<SessionPair> {
@@ -309,7 +309,7 @@ export async function issueSessionPair(
 }
 
 export async function issueSessionPairInTransaction(
-  tx: SessionTx,
+  tx: DbTx,
   principal: SharedSessionPrincipal,
   context?: SessionRequestContext,
 ): Promise<SessionPair> {
@@ -317,7 +317,7 @@ export async function issueSessionPairInTransaction(
 }
 
 async function refreshPrincipalStillValid(
-  tx: SessionTx,
+  tx: DbTx,
   row: {
     kind: SessionKind;
     tenantId: string | null;
@@ -361,7 +361,7 @@ async function refreshPrincipalStillValid(
 }
 
 async function rotateWithinFamily(
-  tx: SessionTx,
+  tx: DbTx,
   row: {
     familyId: string;
     kind: SessionKind;
@@ -692,7 +692,7 @@ export async function rotateRefreshToken(
 }
 
 export async function revokeSessionFamilyInTransaction(
-  tx: SessionTx,
+  tx: DbTx,
   familyId: string,
   reason = "logout",
 ): Promise<void> {
@@ -706,7 +706,7 @@ export async function revokeSessionFamilyInTransaction(
 }
 
 export async function revokeUserRefreshFamiliesInTransaction(
-  tx: SessionTx,
+  tx: DbTx,
   userId: string,
   reason: string,
 ): Promise<void> {
@@ -718,7 +718,7 @@ export async function revokeUserRefreshFamiliesInTransaction(
 }
 
 export async function revokeUserTenantRefreshFamiliesInTransaction(
-  tx: SessionTx,
+  tx: DbTx,
   userId: string,
   tenantId: string,
   reason: string,
@@ -733,7 +733,7 @@ export async function revokeUserTenantRefreshFamiliesInTransaction(
 }
 
 export async function revokeTenantRefreshFamiliesInTransaction(
-  tx: SessionTx,
+  tx: DbTx,
   tenantId: string,
   reason: string,
 ): Promise<void> {

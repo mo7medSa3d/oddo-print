@@ -158,11 +158,18 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
         return Err("gateway URL must use http:// or https://".into());
     }
     let remote_http = scheme == "http";
-    // This isolated test branch intentionally accepts remote HTTP so the Azure
-    // HTTP test Gateway can be exercised directly by IP before DNS/TLS exists.
+    // Staging-only HTTP acceptance, explicitly gated: remote HTTP requires
+    // YASSER_HTTP_TEST_MODE=1 in the desktop process environment (set by the
+    // staging launcher). Without the flag this behaves exactly like
+    // production — remote HTTP is rejected, localhost HTTP stays available
+    // for development. URL credential and query/fragment validation below
+    // remains mandatory in all cases.
     if remote_http {
-        // HTTP is permitted only in this isolated test branch; URL credential
-        // and query/fragment validation below remains mandatory.
+        let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
+        let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");
+        if !local && std::env::var("YASSER_HTTP_TEST_MODE").as_deref() != Ok("1") {
+            return Err("Gateway URL must use HTTPS for remote Gateways (set YASSER_HTTP_TEST_MODE=1 for the isolated HTTP staging deployment)".into());
+        }
     }
     if parsed.username() != "" || parsed.password().is_some() {
         return Err("gateway URL cannot include embedded credentials".into());
@@ -426,10 +433,9 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
         .map_err(|e| format!("build HTTP client: {e}"))?;
     let mut request = client.request(method, target);
     request = request.header("Origin", "tauri://localhost");
+    // Restricted headers (host/cookie/authorization/...) already return Err
+    // in the allowlist filter above, so they can never reach this loop.
     for (name, value) in args.headers {
-        if name.eq_ignore_ascii_case("host") || name.eq_ignore_ascii_case("cookie") {
-            continue;
-        }
         request = request.header(name, value);
     }
     if let Some(token) = manager_token {
@@ -539,6 +545,10 @@ fn valid_jobs_query(path: &str) -> bool {
 fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
     let method = method.to_ascii_uppercase();
     match method.as_str() {
+        // Deliberately narrower than the Go CLI allowlist
+        // (gatewayAgentPathRe also permits /api/agents/<id>): the desktop
+        // console proxy exposes only the agent list, while the operator CLI
+        // needs single-agent fetch for diagnostics. Both are read-only.
         "GET" => path == "/api/printers" || valid_jobs_query(path) || path == "/api/agents",
         "POST" => path == "/api/printers"
             || gateway_printer_action_path(path, "test-connection")
@@ -1399,11 +1409,17 @@ mod security_tests {
 
     #[test]
     fn remote_http_gateway_is_accepted_only_for_the_explicit_http_test_branch() {
-        // The HTTP test branch intentionally accepts remote HTTP; production
-        // deployment remains HTTPS-only at the reverse-proxy/runtime boundary.
-        assert!(normalize_gateway_url("http://gateway.example.com").is_ok());
+        // Without the flag: production behavior (remote HTTP rejected,
+        // localhost HTTP and HTTPS accepted).
+        assert!(normalize_gateway_url("http://gateway.example.com").is_err());
         assert!(normalize_gateway_url("http://127.0.0.1:3000").is_ok());
         assert!(normalize_gateway_url("https://gateway.example.com").is_ok());
+        // With the explicit staging flag: remote HTTP accepted for the
+        // isolated IP-based staging deployment.
+        unsafe { std::env::set_var("YASSER_HTTP_TEST_MODE", "1") };
+        assert!(normalize_gateway_url("http://gateway.example.com").is_ok());
+        unsafe { std::env::remove_var("YASSER_HTTP_TEST_MODE") };
+        assert!(normalize_gateway_url("http://gateway.example.com").is_err());
     }
 
     #[test]

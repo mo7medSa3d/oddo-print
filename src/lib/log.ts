@@ -6,7 +6,7 @@
  * A correlation id is taken from `x-request-id` / `x-correlation-id` or minted.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 const SENSITIVE = /secret|password|passwd|token|authorization|cookie|api[_-]?key|payload|pairing/i;
 
@@ -22,7 +22,7 @@ export function requestIdFrom(req: Request): string {
     req.headers.get("x-request-id")?.trim() ||
     req.headers.get("x-correlation-id")?.trim();
   if (existing && existing.length <= 128) return existing;
-  return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return `req_${Date.now().toString(36)}_${randomBytes(8).toString("hex")}`;
 }
 
 function sanitize(fields: LogFields): LogFields {

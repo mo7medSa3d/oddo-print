@@ -3,7 +3,7 @@ import { tenantUsers, authRateLimits } from "../db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { authenticateCustomer, validateManager, validateManagerClaims, type ManagerRole, type ManagerClaims } from "./manager-auth";
 import { normalizeEmail } from "./password";
-import { createHmac, createHash, timingSafeEqual } from "crypto";
+import { createHmac, createHash, timingSafeEqual } from "node:crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { nanoid } from "./nanoid";
 import { requireActiveTenantOrNull } from "./tenant-guard";
@@ -147,13 +147,16 @@ export async function validateCustomer(req: Request): Promise<ManagerClaims | nu
   if (customerToken) {
     const versioned = verifyAccessTokenSignature(customerToken, "customer");
     if (!versioned) return null;
+    // Fail closed if a future validator ever stops guaranteeing tenant
+    // presence for customer-kind claims (today it always does).
+    if (!versioned.tenantId) return null;
 
     const claims: ManagerClaims = {
       jti: versioned.jti,
       iat: versioned.iat,
       exp: versioned.exp,
       sub: "manager",
-      tenantId: versioned.tenantId!,
+      tenantId: versioned.tenantId,
       role: versioned.role as ManagerRole,
       ...(versioned.userId ? { userId: versioned.userId } : {}),
       ver: 2,
@@ -184,6 +187,10 @@ export async function authenticateForTenant(email: string, password: string, ten
     return { ...identity, tenantId: membership.tenantId, role: membership.role as ManagerRole };
   }
   const memberships = await db.select({ tenantId: tenantUsers.tenantId, role: tenantUsers.role }).from(tenantUsers).where(eq(tenantUsers.userId, identity.userId)).limit(50);
+  // NOTE: the 50-row cap silently truncates users with 50+ memberships on the
+  // list path (they lose chooser access to the rest). The direct-tenantId
+  // path above is unaffected. Raise deliberately, not casually: the chooser
+  // payload stays small and the selection token stays single-use.
   if (memberships.length === 0) {
     return { ...identity, multipleTenants: false, memberships: [] };
   }
@@ -194,6 +201,4 @@ export async function authenticateForTenant(email: string, password: string, ten
   if (!(await requireActiveTenantOrNull(memberships[0].tenantId))) return null;
   return { ...identity, tenantId: memberships[0].tenantId, role: memberships[0].role as ManagerRole };
 }
-
-export { normalizeEmail };
 

@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { apiKeys } from "../db/schema";
 import { and, eq, gt, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
-import { createHash, randomBytes, timingSafeEqual } from "crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { requireActiveTenantOrNull } from "./tenant-guard";
 import { logWarn } from "./log";
 
@@ -11,10 +11,13 @@ function hashKey(raw: string): string {
 }
 
 function timingSafeEqualStr(a: string, b: string): boolean {
-  const left = Buffer.from(a, "utf8");
-  const right = Buffer.from(b, "utf8");
-  if (left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
+  // Hash both inputs to fixed-length SHA-256 digests before comparing, so no
+  // code path branches on secret length (matching agent-auth.ts). Both sides
+  // are fixed 64-char hex digests in practice; the hashing keeps the pattern
+  // uniform so the weaker length-branching form is never copied elsewhere.
+  const digestA = createHash("sha256").update(a, "utf8").digest();
+  const digestB = createHash("sha256").update(b, "utf8").digest();
+  return timingSafeEqual(digestA, digestB);
 }
 
 export function generateOdooApiKey(): { raw: string; hashed: string; id: string } {

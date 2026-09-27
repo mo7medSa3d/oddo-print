@@ -1,7 +1,7 @@
-import { db } from "../db";
+import { db, type DbTx } from "../db";
 import { platformSessions, users } from "../db/schema";
 import { eq, and, gt, isNull, sql } from "drizzle-orm";
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { verifyPassword, normalizeEmail } from "./password";
 import { verifyScryptPasswordHash } from "./manager-auth";
@@ -97,9 +97,13 @@ function verifyLegacyPlatformTokenSignature(token: string): PlatformOwnerClaims 
 export function verifyPlatformTokenSignature(token: string): PlatformOwnerClaims | null {
   const fresh = verifyAccessTokenSignature(token, "platform");
   if (fresh) {
+    // Fail closed (do NOT fall through to the legacy verifier: a v2 token
+    // carries sub "platform_owner" too, so legacy shape checks would accept
+    // it while skipping family-revocation enforcement).
+    if (!fresh.userId || !fresh.email) return null;
     return {
       jti: fresh.jti, iat: fresh.iat, exp: fresh.exp, sub: "platform_owner",
-      userId: fresh.userId!, email: fresh.email!, ver: 2, kind: "platform",
+      userId: fresh.userId, email: fresh.email, ver: 2, kind: "platform",
       sid: fresh.sid, familyId: fresh.familyId,
     };
   }
@@ -210,10 +214,10 @@ export async function authenticatePlatformOwner(
   return { userId: user.id, email: user.email };
 }
 
-type LegacyPlatformAuthTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+/* LegacyPlatformAuthTx folded into the canonical DbTx from src/db (single definition). */
 
 export async function revokeLegacyPlatformSessionsForUserInTransaction(
-  tx: LegacyPlatformAuthTx,
+  tx: DbTx,
   userId: string,
 ): Promise<void> {
   await tx.update(platformSessions)

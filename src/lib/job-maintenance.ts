@@ -177,30 +177,38 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
   // Once the bounded late-success reconciliation windows close, remove
   // preserved execution fences from terminal rows. Keeping them longer would
   // retain stale execution credentials after their recovery purpose expires.
+  // Bounded like every other sweep statement: a post-outage backlog of
+  // ambiguous rows must not hold one long UPDATE past statement_timeout.
   await db.execute(sql`
-    UPDATE print_jobs
-    SET claim_token = NULL,
-        claimed_at = NULL,
-        updated_at = now()
-    WHERE status = 'expired'
-      AND claim_token IS NOT NULL
-      AND expires_at <= now() - interval '5 minutes'
-      ${agentFilter}
+    WITH candidates AS (
+      SELECT id FROM print_jobs
+      WHERE status = 'expired'
+        AND claim_token IS NOT NULL
+        AND expires_at <= now() - interval '5 minutes'
+        ${agentFilter}
+      LIMIT ${SWEEP_BATCH}
+      FOR UPDATE SKIP LOCKED
+    )
+    UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL, updated_at = now()
+    FROM candidates WHERE print_jobs.id = candidates.id
   `);
   await db.execute(sql`
-    UPDATE print_jobs
-    SET claim_token = NULL,
-        claimed_at = NULL,
-        updated_at = now()
-    WHERE status = 'failed'
-      AND claim_token IS NOT NULL
-      AND (
-        error LIKE 'UNKNOWN_PARTIAL_DELIVERY:%'
-        OR error LIKE 'AGENT_EXECUTION_TIMEOUT:%'
-        OR error LIKE 'AGENT_RESTART_DURING_PRINT:%'
-      )
-      AND updated_at <= now() - interval '24 hours'
-      ${agentFilter}
+    WITH candidates AS (
+      SELECT id FROM print_jobs
+      WHERE status = 'failed'
+        AND claim_token IS NOT NULL
+        AND (
+          error LIKE 'UNKNOWN_PARTIAL_DELIVERY:%'
+          OR error LIKE 'AGENT_EXECUTION_TIMEOUT:%'
+          OR error LIKE 'AGENT_RESTART_DURING_PRINT:%'
+        )
+        AND updated_at <= now() - interval '24 hours'
+        ${agentFilter}
+      LIMIT ${SWEEP_BATCH}
+      FOR UPDATE SKIP LOCKED
+    )
+    UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL, updated_at = now()
+    FROM candidates WHERE print_jobs.id = candidates.id
   `);
 
   const result = {

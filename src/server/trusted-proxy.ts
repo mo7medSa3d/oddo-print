@@ -40,7 +40,9 @@ export function isAllowedWebSocketOrigin(originHeader: string | null): boolean {
   if (!supplied) return false;
 
   const configured = new Set<string>();
-  const appBaseUrl = process.env.APP_BASE_URL?.trim();
+  // Resolve via runtimeSecret (not process.env directly) so file-mounted
+  // secrets (APP_BASE_URL_FILE) work exactly like they do in server.ts.
+  const appBaseUrl = runtimeSecret("APP_BASE_URL")?.trim();
   if (appBaseUrl) {
     const origin = normalizedOrigin(appBaseUrl);
     if (origin) configured.add(origin);

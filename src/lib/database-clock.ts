@@ -97,8 +97,12 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
       promise,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("Database clock timed out")), timeoutMs);
+        // Do not hold the event loop for an abandoned calibration probe.
+        if (typeof timer.unref === "function") timer.unref();
       }),
     ]);
+    // NOTE: like db/client.ts, the timeout abandons the wait but does not
+    // abort the underlying clock query.
   } finally {
     if (timer) clearTimeout(timer);
   }
