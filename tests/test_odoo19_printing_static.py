@@ -245,9 +245,13 @@ def test_gateway_queue_does_not_self_deadlock_current_write_transaction():
     # surrounding transaction commits. The fresh-cursor persistence helper
     # takes a row lock and would block on the current transaction's own lock.
     invalid_path = queue[queue.index("except (ValidationError, ValueError) as exc:"):queue.index("record_id = record.id")]
+    executable_invalid_path = "\n".join(
+        line for line in invalid_path.splitlines()
+        if not line.lstrip().startswith("#")
+    )
     assert "with_context(skip_enabled_sync=True).sudo().write(" in invalid_path
     assert '"last_enabled_sync_error": str(exc)[:4000]' in invalid_path
-    assert "_persist_enabled_sync_result(" not in invalid_path
+    assert "_persist_enabled_sync_result(" not in executable_invalid_path
     assert 'record.modified(["last_enabled_sync_error"])' in invalid_path
 
 
