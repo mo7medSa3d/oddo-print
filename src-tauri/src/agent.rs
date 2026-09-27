@@ -276,7 +276,12 @@ fn read_background_record() -> Option<BackgroundProcessRecord> {
     let mut creation_time = None;
     let mut image = None;
     for line in raw.lines() {
-        let (key, value) = line.split_once('=')?;
+        // Skip a single malformed line instead of abandoning the whole
+        // record: otherwise one corrupt line makes a running agent look
+        // unmanaged.
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
         match key {
             "pid" => {
                 pid = value.trim().parse::<u32>().ok()?;

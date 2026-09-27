@@ -423,10 +423,9 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
         .map_err(|e| format!("build HTTP client: {e}"))?;
     let mut request = client.request(method, target);
     request = request.header("Origin", "tauri://localhost");
+    // Restricted headers (host/cookie/authorization/...) already return Err
+    // in the allowlist filter above, so they can never reach this loop.
     for (name, value) in args.headers {
-        if name.eq_ignore_ascii_case("host") || name.eq_ignore_ascii_case("cookie") {
-            continue;
-        }
         request = request.header(name, value);
     }
     if let Some(token) = manager_token {

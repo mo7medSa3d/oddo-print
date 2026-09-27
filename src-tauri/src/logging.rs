@@ -100,8 +100,59 @@ pub fn error(msg: &str) {
 
 fn timestamp() -> String {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(d) => format!("{}.{:03}", d.as_secs(), d.subsec_millis()),
-        Err(_) => "0".to_string(),
+        Ok(d) => format_utc_iso8601(d.as_secs(), d.subsec_millis()),
+        Err(_) => "1970-01-01T00:00:00.000Z".to_string(),
+    }
+}
+
+/// Format Unix seconds as ISO 8601 UTC (`2026-09-27T00:00:00.123Z`) without a
+/// date-time dependency (civil-from-days conversion; March-based epoch shift
+/// so leap days land at the end of February).
+fn format_utc_iso8601(secs: u64, millis: u32) -> String {
+    let days = (secs / 86_400) as i64;
+    let secs_of_day = secs % 86_400;
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64; // [0, 146096]
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let year = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        year,
+        m,
+        d,
+        secs_of_day / 3_600,
+        (secs_of_day % 3_600) / 60,
+        secs_of_day % 60,
+        millis,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_utc_iso8601;
+
+    #[test]
+    fn timestamp_formats_known_epochs_as_iso8601_utc() {
+        assert_eq!(format_utc_iso8601(0, 0), "1970-01-01T00:00:00.000Z");
+        assert_eq!(
+            format_utc_iso8601(1_695_772_800, 123),
+            "2023-09-27T00:00:00.123Z"
+        );
+        // Leap day survives the civil conversion.
+        assert_eq!(
+            format_utc_iso8601(1_709_164_800, 0),
+            "2024-02-29T00:00:00.000Z"
+        );
+        assert_eq!(
+            format_utc_iso8601(1_790_467_200, 5),
+            "2026-09-27T00:00:00.005Z"
+        );
     }
 }
 
