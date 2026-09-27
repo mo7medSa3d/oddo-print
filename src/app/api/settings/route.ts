@@ -8,7 +8,10 @@ import { writeAuditEvent } from "../../../lib/audit";
 
 export async function GET(req: Request) {
   const claims = await validateWorkspaceManager(req);
-  if (!claims?.userId || !hasManagerPermission(claims, "tenant.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Repo convention: 401 for missing authentication, 403 only for a
+  // permission failure on an authenticated principal.
+  if (!claims?.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasManagerPermission(claims, "tenant.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const [tenant, user] = await Promise.all([
     db.query.tenants.findFirst({ where: eq(tenants.id, claims.tenantId), columns: { id: true, name: true, createdAt: true, updatedAt: true } }),
     db.query.users.findFirst({ where: eq(users.id, claims.userId), columns: { email: true } }),
@@ -19,7 +22,8 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   const claims = await validateWorkspaceManager(req);
-  if (!claims?.userId || !hasManagerPermission(claims, "tenant.update")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!claims?.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasManagerPermission(claims, "tenant.update")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let body: { name?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const name = typeof body.name === "string" ? body.name.trim() : "";
