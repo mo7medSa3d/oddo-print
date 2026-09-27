@@ -1,5 +1,5 @@
 # AUDIT_MAP.md — Living architecture map (oddo-print / Yasser Print Gateway)
-Last updated: 2026-09-27 (session 1, PHASE 0 setup)
+Last updated: 2026-09-27 (session 4, batch 2a: auth primitives audited)
 Repo: mo7medSa3d/oddo-print, branch: main
 Name note: package.json `name: yasser-gateway`; Go module `github.com/yasser-agent/agent`; Tauri package `yasser-manager`; Odoo addon `print_gateway` (v19.0.2.10.0). "oddo-print" is the repo slug only.
 
@@ -51,10 +51,11 @@ Tauri manager (desktop): manages local agent via IPC/commands (commands.rs, agen
 
 ## 4. Open questions / to verify while auditing
 - `docs/DATABASE.md` referenced in brief but no such file in `docs/` listing (only 6 docs there) — root *.md (ARCHITECTURE, PRINTING_ARCHITECTURE, TENANT_ISOLATION, SECURITY, API, DEPLOYMENT…) may be stale vs schema.ts — verify per file.
-- Dual `src/db/client.ts` vs `src/db/index.ts` — which is canonical import?
+- ~~Dual `src/db/client.ts` vs `src/db/index.ts`~~ RESOLVED 2026-09-27 (batch 1): `index.ts` is canonical (pool + drizzle); `client.ts` is a thin compat re-export + `queryWithTimeout` shim.
 - `proxy.ts` vs old `middleware.ts` naming (Next 16 proxy convention) — verify doc.
 - Desktop has TWO JobTimeline/UI copies (`src/components/` vs `src/desktop/components/`, `src/desktop/ui.tsx` vs `src/components/ui.tsx`) — drift?
-- Odoo `__pycache__/` committed? Check .gitignore.
+- ~~Odoo `__pycache__/` committed?~~ RESOLVED 2026-09-27: git-ignored, 0 tracked files.
+- ~~`users.email` case-sensitive unique?~~ RESOLVED 2026-09-27 (batch 2a): `normalizeEmail` applied at every ingress (register, invitations, forgot-password, resend-verification, manager/platform-auth, bootstrap) — app-layer uniqueness holds; login-route normalization to confirm in auth-roles batch.
 - Exact pinned versions: Next 16.3.6, Drizzle 0.45.2, Go 1.26, Tauri =2.11.5/=2.6.3 build, Odoo 19 — all judgments must web-verify against these pins.
 
 ## 5. Audit order (dependency order, entry points outward)

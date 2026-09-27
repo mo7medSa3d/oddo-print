@@ -9,7 +9,7 @@
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 13 | issues high: 0 med: 3 low: 10 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 17 | issues high: 0 med: 3 low: 13 | fixed: 0 | deferred runtime: 0.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
 - Confirmed repo `mo7medSa3d/oddo-print`, branch `main` via `gh repo view` + `git remote -v`; `gh auth status` OK.
@@ -115,4 +115,34 @@
   - [SEVERITY: low] Most FKs lack `onDelete` (only sessions/tokens/job_events cascade) — safe under the soft-lifecycle model (tenants suspended/deleted, never hard-deleted; 0074 added token cascades) but a manual hard delete could orphan rows. Confirm `tenant-lifecycle.ts` enforces ordering at lib audit.
   - Verified good (no new finding): tenant-scoped identities + composite FKs with explicit migration-short names (post-§3 fix), pairing-code partial unique, lifecycle/status/device/protocol/type/connection/management checks, `printJobs.payloadContractCheck` COALESCE two-valued guard, `clock_timestamp()` wall-clock defaults on printJobs vs `defaultNow()` elsewhere (intentional per 0067 + Postgres docs source: https://www.postgresql.org/docs/current/functions-datetime.html — `now()` = txn start, `clock_timestamp()` = wall clock), `gateway_metrics` raw-SQL declaration, audit scope check, subscription/billing partial uniques. Email case-sensitivity + payload-contract sync deferred to `customer-auth.ts` / `print-job-service.ts` route-lib batch.
 - Proposed fix: normalize `tenant_users_pk` to `primaryKey` or comment the deliberate unique; verify hard-delete ordering in tenant-lifecycle audit.
+- Fix applied: no
+
+## [gateway/src/lib/session-config.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. `LEGACY_SESSION_MAX_AGE_SECONDS` (8h) is a clearly-commented pre-cutover compat lifetime; `sessionCookieSecure()` returns true on `"1"`/`"true"`, false on `"0"`/`"false"`, defaults to `NODE_ENV === "production"`. Fail-closed in production (any unrecognized spelling → Secure). No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/console-auth.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. 18-line union (`manager` | `agent`), manager-first then agent-fallback, null when neither validates. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/password.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (2 low)
+- Findings:
+  - Verified good (no finding): `crypto.argon2("argon2id", { message, nonce, parallelism, tagLength, memory, passes, version }, cb)` matches the current Node API exactly — source: https://nodejs.org/api/crypto.html (`crypto.argon2(algorithm, parameters, callback)`, `"argon2id"` variant; built-in since v24.7.0, engines pin `>=24.15.0`). Params m=65536 KiB (64 MiB), t=3, p=4, 32-byte tag, 16-byte salt = RFC 9106 SECOND RECOMMENDED option for memory-constrained environments — source: https://www.rfc-editor.org/info/rfc9106/ (first option's 2 GiB would self-DoS the gateway on login bursts). `timingSafeEqual` compare, PHC-style `$argon2id$v=19$m=…,t=…,p=…$salt$hash`, strict param pinning (fail-closed), 12-char minimum, 256-bit `base64url` opaque tokens, SHA-256 token hashing. Runtime path proven exercised (callers: register/reset-password routes, manager/platform-auth, bootstrap script, 3 test files — verified by grep).
+  - [SEVERITY: low] Dual import of the same module (`import * as crypto` + `import { createHash, randomBytes, timingSafeEqual }` from `"node:crypto"`, `:1-2`) — no `no-duplicate-imports` eslint rule (verified by grep), so style-only. Merge into one import.
+  - [SEVERITY: low] `verifyPassword` (`:53`) pins stored-hash params to current constants exactly — a future param bump fail-closes ALL existing hashes (users locked out until password reset). No `needsRehash`-style upgrade path. Not actionable now; document the constraint next to the constants.
+  - Resolved from batch 1 (no finding): `users.email` case-sensitivity — `normalizeEmail` (trim+lowercase) is applied at every ingress (register, team invitations ×2, forgot-password, resend-verification, manager-auth ×2, platform-auth, bootstrap script — verified by grep). Login-route normalization to be confirmed in the auth-roles batch.
+- Proposed fix: merge imports; add comment documenting the param-bump lockout constraint.
+- Fix applied: no
+
+## [gateway/src/lib/database-clock.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (1 low)
+- Findings:
+  - Verified good (no finding): `databaseNowMs` uses `clock_timestamp()` wall-clock authority — source: https://www.postgresql.org/docs/current/functions-datetime.html (`now()` = transaction start, `clock_timestamp()` = actual current time; same source as batch-1 printJobs finding). Midpoint RTT correction, 30s TTL, 2s timeout, single-flight dedup, failure throttling identical to success path, fail-soft offset 0 (degrades accuracy, never availability), `parseDbTimeMs` canonical single implementation (Part-B consolidation confirmed — same naive-UTC regex as `ws.ts` envelope builder, no drift).
+  - [SEVERITY: low] Internal `withTimeout` (`:93-105`) timer lacks `unref` (holds the loop up to 2s if a calibration is in flight at shutdown; harmless under the 10s drain) and repeats the non-cancelling `Promise.race` pattern from `db/client.ts` (timeout abandons, does not abort). Add `unref` + comment.
+- Proposed fix: `timer.unref?.()` + comment that timeout abandons but does not abort the query.
 - Fix applied: no
