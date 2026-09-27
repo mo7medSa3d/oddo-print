@@ -1010,13 +1010,22 @@ class PrintGatewayConfig(models.Model):
                     gateway_url = record._gateway_base(for_request=True)
                     api_key = record._gateway_api_key_plaintext()
                 except (ValidationError, ValueError) as exc:
-                    record._persist_enabled_sync_result(
-                        self.env.cr.dbname,
-                        success=False,
-                        revision=None,
-                        error=str(exc)[:4000],
-                        expected_revision=int(record.enabled_sync_revision or 0),
-                    )
+                    # This path runs INSIDE the current write/create transaction.
+                    # _persist_enabled_sync_result() opens a second cursor and
+                    # takes a FOR UPDATE lock on the same row; calling it here
+                    # can self-deadlock until Odoo's request time limit expires.
+                    # Persist the local diagnostic on the current transaction
+                    # instead. Post-commit sync outcomes continue to use the
+                    # dedicated fresh-cursor helper.
+                    record.with_context(skip_enabled_sync=True).sudo().write({
+                        "last_enabled_sync_error": str(exc)[:4000],
+                    })
+                    record.invalidate_recordset([
+                        "last_enabled_sync_error",
+                        "gateway_sync_state",
+                        "gateway_sync_message",
+                    ])
+                    record.modified(["last_enabled_sync_error"])
                     continue
             record_id = record.id
             dbname = self.env.cr.dbname
