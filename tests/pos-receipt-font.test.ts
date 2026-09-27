@@ -18,39 +18,10 @@
  * do NOT assert "no console 404"; they assert a valid JPEG payload is still
  * produced.
  */
-import { describe, expect, it, vi } from "vitest";
-
-// Odoo frontend aliases are virtual modules in the Node/Vitest environment.
-
-const mocks = vi.hoisted(() => ({
-  htmlToCanvas: vi.fn(),
-  renderToElement: vi.fn(),
-  patch: vi.fn(),
-  showGatewayBillingLimitDialog: vi.fn(),
-  changesToOrder: vi.fn(),
-}));
-
-vi.mock("@point_of_sale/app/services/render_service", () => ({
-  htmlToCanvas: mocks.htmlToCanvas,
-}), { virtual: true });
-vi.mock("@web/core/utils/render", () => ({
-  renderToElement: mocks.renderToElement,
-}), { virtual: true });
-vi.mock("@point_of_sale/app/screens/receipt_screen/receipt/order_receipt", () => ({
-  OrderReceipt: "OrderReceipt",
-}), { virtual: true });
-vi.mock("@web/core/utils/patch", () => ({ patch: mocks.patch }), { virtual: true });
-vi.mock("@point_of_sale/app/services/pos_store", () => ({ PosStore: class {} }), { virtual: true });
-vi.mock("@point_of_sale/app/models/utils/order_change", () => ({
-  changesToOrder: mocks.changesToOrder,
-}), { virtual: true });
-vi.mock("@point_of_sale/app/components/popups/retry_print_popup/retry_print_popup", () => ({
-  RetryPrintPopup: "RetryPrintPopup",
-}), { virtual: true });
-vi.mock("../odoo_addons/print_gateway/static/src/js/gateway_limit_dialog", () => ({
-  showGatewayBillingLimitDialog: mocks.showGatewayBillingLimitDialog,
-}));
-
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { htmlToCanvas, renderToElement } from "./__mocks__/odoo";
+// @ts-expect-error - the JS module under test has no type declarations; its Odoo
+// dependencies resolve to the shared mock module via vitest aliases.
 import { renderReceiptImage } from "../odoo_addons/print_gateway/static/src/js/pos_print_router";
 
 function makeCanvas(): HTMLCanvasElement {
@@ -77,6 +48,10 @@ function makeOrder(): never {
   return { export_for_printing: () => ({}) } as never;
 }
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 describe("renderReceiptImage — POS receipt font 404 resilience", () => {
   it("returns a valid JPEG payload when renderer.toJpeg succeeds", async () => {
     const renderer = { toJpeg: vi.fn().mockResolvedValue("VALIDJPEG") };
@@ -99,7 +74,7 @@ describe("renderReceiptImage — POS receipt font 404 resilience", () => {
       toCanvas: vi.fn().mockRejectedValue(new Error("fail")),
       toHtml: vi.fn().mockResolvedValue(document.createElement("div")),
     };
-    mocks.htmlToCanvas.mockResolvedValue(makeCanvas());
+    htmlToCanvas.mockResolvedValue(makeCanvas());
     const result = await renderReceiptImage(makePos(renderer), makeOrder());
     expect(result).toBe("VALIDJPEG");
   });
@@ -110,8 +85,8 @@ describe("renderReceiptImage — POS receipt font 404 resilience", () => {
       toCanvas: vi.fn().mockRejectedValue(new Error("fail")),
       toHtml: vi.fn().mockRejectedValue(new Error("fail")),
     };
-    mocks.renderToElement.mockReturnValue(document.createElement("div"));
-    mocks.htmlToCanvas.mockResolvedValue(makeCanvas());
+    renderToElement.mockReturnValue(document.createElement("div"));
+    htmlToCanvas.mockResolvedValue(makeCanvas());
     const result = await renderReceiptImage(makePos(renderer), makeOrder());
     expect(result).toBe("VALIDJPEG");
   });
