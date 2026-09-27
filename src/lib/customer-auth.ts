@@ -184,6 +184,10 @@ export async function authenticateForTenant(email: string, password: string, ten
     return { ...identity, tenantId: membership.tenantId, role: membership.role as ManagerRole };
   }
   const memberships = await db.select({ tenantId: tenantUsers.tenantId, role: tenantUsers.role }).from(tenantUsers).where(eq(tenantUsers.userId, identity.userId)).limit(50);
+  // NOTE: the 50-row cap silently truncates users with 50+ memberships on the
+  // list path (they lose chooser access to the rest). The direct-tenantId
+  // path above is unaffected. Raise deliberately, not casually: the chooser
+  // payload stays small and the selection token stays single-use.
   if (memberships.length === 0) {
     return { ...identity, multipleTenants: false, memberships: [] };
   }
@@ -194,6 +198,4 @@ export async function authenticateForTenant(email: string, password: string, ten
   if (!(await requireActiveTenantOrNull(memberships[0].tenantId))) return null;
   return { ...identity, tenantId: memberships[0].tenantId, role: memberships[0].role as ManagerRole };
 }
-
-export { normalizeEmail };
 
