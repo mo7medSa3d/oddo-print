@@ -3,13 +3,19 @@ import { gatewayNow } from "./database-clock";
 // Canonical threshold API lives in the dependency-free stale-threshold
 // module (safe for client bundles); re-exported here so every existing
 // server-side importer keeps working unchanged.
-export {
+import {
   DEFAULT_AGENT_STALE_THRESHOLD_SECONDS,
   DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS,
   agentStaleThresholdSeconds,
   printerStaleThresholdSeconds,
 } from "./stale-threshold";
-import { printerStaleThresholdSeconds } from "./stale-threshold";
+
+export {
+  DEFAULT_AGENT_STALE_THRESHOLD_SECONDS,
+  DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS,
+  agentStaleThresholdSeconds,
+  printerStaleThresholdSeconds,
+};
 
 export function isPrinterObservationFresh(
   lastSeenAt: Date | string | null | undefined,
