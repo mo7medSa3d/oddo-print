@@ -6,7 +6,8 @@ import { and, eq, isNull, gt, sql } from "drizzle-orm";
 import { hashToken } from "../../../../lib/password";
 import { nanoid } from "../../../../lib/nanoid";
 import { issueCustomerSession, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
-import { clientIpFrom } from "../../../../lib/auth-rate-limit";
+import { clientIpFrom, recordAuthSuccess, reserveAuthAttempt, setRateLimitHeaders } from "../../../../lib/auth-rate-limit";
+import { logError, logWarn } from "../../../../lib/log";
 import { writeAuditEvent } from "../../../../lib/audit";
 import type { ManagerRole } from "../../../../lib/manager-auth";
 
@@ -15,6 +16,22 @@ export async function POST(req: Request) {
   let body: { token?: unknown }; try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const token = typeof body.token === "string" ? body.token : "";
   if (!token || token.length > 256) return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
+  // Token-guessing throttle (mirrors login): no account identity is known
+  // pre-token, so scope by endpoint + IP. Success mints a session, so only
+  // a completed verification clears the budget.
+  const ip = clientIpFrom(req);
+  let rate: Awaited<ReturnType<typeof reserveAuthAttempt>>;
+  try {
+    rate = await reserveAuthAttempt(ip, "verify-email-token");
+  } catch (error) {
+    logError("auth.rate_limit.store_unavailable", { endpoint: "verify_email", error: error instanceof Error ? error.message : "unknown" });
+    return NextResponse.json({ error: "Service temporarily unavailable" }, { status: 503 });
+  }
+  if (!rate.allowed) {
+    const limited = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
+    limited.headers.set("Retry-After", String(rate.retryAfterSec));
+    return setRateLimitHeaders(limited, rate);
+  }
   const tokenHash = await hashToken(token);
   const row = await db.query.emailVerificationTokens.findFirst({
     where: and(
@@ -105,5 +122,6 @@ export async function POST(req: Request) {
   const response = NextResponse.json({ ok: true, next: "/onboarding" });
   response.headers.set("Set-Cookie", customerSessionCookie(session));
   response.headers.append("Set-Cookie", customerRefreshCookie(session));
-  return response;
+  await recordAuthSuccess(ip, "verify-email-token").catch((error) => logWarn("auth.verify_email.rate_limit_clear_failed", { ip, error: error instanceof Error ? error.message : "unknown" }));
+  return setRateLimitHeaders(response, rate);
 }

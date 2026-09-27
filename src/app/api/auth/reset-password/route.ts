@@ -1,10 +1,11 @@
-import { logError } from "../../../../lib/log";
+import { logError, logWarn } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { db } from "../../../../db";
 import { passwordResetTokens, tenantUsers, users } from "../../../../db/schema";
 import { and, eq, isNull, gt, sql } from "drizzle-orm";
 import { hashPassword, hashToken } from "../../../../lib/password";
+import { clientIpFrom, recordAuthSuccess, reserveAuthAttempt, setRateLimitHeaders } from "../../../../lib/auth-rate-limit";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { revokeLegacyManagerSessionsForUserInTransaction } from "../../../../lib/manager-auth";
 import { revokeLegacyPlatformSessionsForUserInTransaction } from "../../../../lib/platform-auth";
@@ -18,6 +19,23 @@ export async function POST(req: Request) {
   const password = typeof body.password === "string" ? body.password : "";
   if (!token || password.length < 12 || password.length > 4096) {
     return NextResponse.json({ error: "Invalid or incomplete reset request" }, { status: 400 });
+  }
+
+  // Token-guessing throttle (mirrors forgot-password/login): the limiter key
+  // has no account identity pre-token, so scope by endpoint + IP. Every
+  // guess consumes budget; only a completed reset clears it.
+  const ip = clientIpFrom(req);
+  let rate: Awaited<ReturnType<typeof reserveAuthAttempt>>;
+  try {
+    rate = await reserveAuthAttempt(ip, "reset-password-token");
+  } catch (error) {
+    logError("auth.rate_limit.store_unavailable", { endpoint: "reset_password", error: error instanceof Error ? error.message : "unknown" });
+    return NextResponse.json({ error: "Service temporarily unavailable" }, { status: 503 });
+  }
+  if (!rate.allowed) {
+    const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
+    res.headers.set("Retry-After", String(rate.retryAfterSec));
+    return setRateLimitHeaders(res, rate);
   }
 
   const row = await db.query.passwordResetTokens.findFirst({
@@ -83,5 +101,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Password reset failed" }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true });
+  await recordAuthSuccess(ip, "reset-password-token").catch((error) => logWarn("auth.reset_password.rate_limit_clear_failed", { ip, error: error instanceof Error ? error.message : "unknown" }));
+  return setRateLimitHeaders(NextResponse.json({ ok: true }), rate);
 }
