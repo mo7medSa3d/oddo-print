@@ -7,7 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { getJobTimeline, buildTimelineFromJobRow } from "../../../../../lib/job-timeline";
 import { runWithCorrelation, generateRequestId } from "../../../../../server/correlation";
 import { requestIdFrom, logWarn } from "../../../../../lib/log";
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
 
 export const dynamic = "force-dynamic";
 
