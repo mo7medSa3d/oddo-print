@@ -298,7 +298,13 @@ export async function verifyWorkspaceToken(token: string): Promise<ManagerClaims
 
 export async function validateWorkspaceManager(req: Request): Promise<ManagerClaims | null> {
   const managerToken = getAccessTokenFromRequest(req, "manager");
-  if (managerToken) return verifyManagerToken(managerToken);
+  if (managerToken) {
+    const managerClaims = await verifyManagerToken(managerToken);
+    // A stale/expired manager cookie must not shadow a still-valid workspace
+    // session in the same browser. Valid manager sessions retain precedence;
+    // only a failed manager validation falls through to the customer session.
+    if (managerClaims) return managerClaims;
+  }
 
   const customerToken = getAccessTokenFromRequest(req, "customer");
   return customerToken ? verifyWorkspaceToken(customerToken) : null;
