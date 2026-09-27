@@ -17,7 +17,7 @@ import {
   releaseUndeliveredClaim,
   type ClaimedJobRow,
 } from "../lib/job-delivery";
-import { logDebug, logInfo, logWarn } from "../lib/log";
+import { logDebug, logError, logInfo, logWarn } from "../lib/log";
 
 type AgentSocket = WebSocket & {
   agentId?: string;
@@ -340,7 +340,7 @@ function writeWsHttpError(socket: WritableSocket, status: number, body: string, 
 
 function logUpgradeError(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(`[ws] upgrade handling failed: ${message.slice(0, 500)}`);
+  logError("ws.upgrade_failed", { error: message.slice(0, 500) });
 }
 
 function canReserveAgentSocketSlot(activeCount: number, pendingCount: number, max = MAX_TOTAL_AGENT_SOCKETS): boolean {
@@ -490,7 +490,7 @@ function sendJobToAgent(agentId: string, message: unknown): JobSendOutcome {
       target.send(payload);
       return "sent";
     } catch (e) {
-      logWarn(`[ws] job send to agent ${agentId} failed after crossing send boundary; treating delivery as ambiguous:`, { error: e });
+      logWarn("ws.job_send_ambiguous", { agentId, error: e });
       set.delete(target);
       uncountAgentSocket(target);
       try { target.terminate(); } catch (error) { logDebug("[ws] failed-send socket terminate cleanup failed", { error: error instanceof Error ? error.message : String(error) }); }

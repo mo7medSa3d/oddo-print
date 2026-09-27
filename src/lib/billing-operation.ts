@@ -4,6 +4,7 @@ import { db } from "../db";
 import { tenantSubscriptions } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { isDefinitiveStripeMutationError, stripeRequest } from "./stripe";
+import { logError } from "./log";
 
 /**
  * Shared persistent billing-operation protocol for the two symmetric
@@ -199,14 +200,14 @@ export async function runBillingOperation(
             .where(eq(tenantSubscriptions.tenantId, tenantId));
         }
       });
-      console.error(`billing ${operation.logLabel} rejected by Stripe (${error.status})`, error.message);
+      logError("billing.operation.stripe_rejected", { tenantId, operation: operation.logLabel, status: error.status, error: error.message });
       return NextResponse.json({ error: "Stripe rejected this billing operation. Correct the subscription state and try again." }, { status: 409 });
     }
 
     // Keep the persistent operation claim and its idempotency key for
     // retryable/ambiguous failures: the next attempt replays the same Stripe
     // mutation instead of issuing a second external mutation.
-    console.error(`billing ${operation.logLabel} failed`, error instanceof Error ? error.message : "unknown");
+    logError("billing.operation.failed", { tenantId, operation: operation.logLabel, error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Billing operation could not be completed right now. Please retry." }, { status: 502 });
   }
 
@@ -264,7 +265,7 @@ export async function runBillingOperation(
     }
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error(`billing ${operation.logLabel} finalization failed`, error instanceof Error ? error.message : "unknown");
+    logError("billing.operation.finalization_failed", { tenantId, operation: operation.logLabel, error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Billing operation succeeded at Stripe but local state is still synchronizing. Retry safely." }, { status: 502 });
   }
 }
