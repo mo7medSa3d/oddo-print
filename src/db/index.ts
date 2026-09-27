@@ -2,6 +2,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool, type PoolConfig } from "pg";
 import { getWorkerSchema, schemaSearchPath } from "../lib/worker-schema";
 import { runtimeSecret } from "../lib/runtime-secret";
+import { logError } from "../lib/log";
 
 const databaseUrl = runtimeSecret("DATABASE_URL");
 const pgPassword = runtimeSecret("PGPASSWORD");
@@ -10,6 +11,18 @@ const globalForDb = globalThis as typeof globalThis & {
   __arenaNextJsPostgresqlPool?: Pool;
   __arenaWorkerSchema?: string | null;
 };
+
+function parsePgPort(): number {
+  const raw = (process.env.PGPORT ?? "5432").trim();
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`Refusing startup: PGPORT must be an integer 1..65535 (got ${JSON.stringify(process.env.PGPORT)}).`);
+  }
+  const port = parseInt(raw, 10);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Refusing startup: PGPORT must be an integer 1..65535 (got ${JSON.stringify(process.env.PGPORT)}).`);
+  }
+  return port;
+}
 
 function createPool(): Pool {
   const hasStructuredConfig = Boolean(
@@ -39,7 +52,7 @@ function createPool(): Pool {
     ? { connectionString: databaseUrl }
     : {
         host: process.env.PGHOST,
-        port: Number(process.env.PGPORT ?? "5432"),
+        port: parsePgPort(),
         database: process.env.PGDATABASE,
         user: process.env.PGUSER,
         password: pgPassword,
@@ -68,6 +81,16 @@ function createPool(): Pool {
 export const pool =
   globalForDb.__arenaNextJsPostgresqlPool ??
   createPool();
+
+// Idle-client errors (e.g. DB bounce, network reset) rethrow from the Pool
+// and crash Node when no 'error' listener is attached. Contain them as
+// observable log lines; in-flight queries still fail individually and the
+// pool replaces the dead client.
+if (typeof (pool as unknown as { on?: unknown }).on === "function") {
+  pool.on("error", (error: Error) => {
+    logError("pg.pool_idle_client_error", { error: error instanceof Error ? error.message : String(error) });
+  });
+}
 
 if (process.env.NODE_ENV !== "production") {
   globalForDb.__arenaNextJsPostgresqlPool = pool;
