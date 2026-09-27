@@ -183,7 +183,7 @@ class PrintGatewayIntent(models.Model):
             # can only ever restrict access, never widen it.
             record_company = record.company_id if hasattr(record, "company_id") else False
             if record_company and record_company.id != new_env.company.id:
-                new_env = new_env(context=dict(new_env.context, allowed_company_ids=[record_company.id]))
+                new_env = new_env.with_context(allowed_company_ids=[record_company.id])
                 intent = intent.with_env(new_env)
                 record = record.with_env(new_env)
             router = new_env["print_gateway.print_router"]

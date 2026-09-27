@@ -1417,8 +1417,12 @@ class PrintGatewayConfig(models.Model):
             [self.id],
         )
         if self.env.cr.fetchone():
+            # Print jobs are immutable audit records (no unlink right for any
+            # group), so a referenced configuration is archival: disable it
+            # instead of deleting it. Say so directly rather than suggesting
+            # job removal, which the access rules forbid.
             raise ValidationError(
-                _("This Gateway configuration cannot be deleted while print jobs still reference it. Reconcile or remove those jobs first.")
+                _("This Gateway configuration cannot be deleted while print jobs still reference it. Print jobs are retained as audit records; disable the configuration instead.")
             )
         if in_test:
             return super().unlink()

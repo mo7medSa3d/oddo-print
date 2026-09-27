@@ -547,11 +547,15 @@ class PrintGatewayBinding(models.Model):
             raise ValidationError(_("The explicitly selected print binding has no routable runtime and printer."))
         if protocol and binding.printer_protocol != protocol:
             raise ValidationError(_("The explicitly selected print binding does not support protocol '%s'.") % protocol)
-        # Document and raster payloads (PDF, JPEG raster banding) require a spooler
-        # or IPP/IPPS print queue capable of document rasterization/rendering.
-        # Direct stream protocols (escpos, raw) are excluded because they
-        # do not have arbitrary page raster rendering pipelines on the gateway/agent.
-        if payload_type in ("pdf", "raster_jpeg") and binding.printer_protocol not in ("spooler", "ipp", "ipps"):
+        # PDF requires a spooler or IPP/IPPS queue capable of document
+        # rasterization/rendering. JPEG raster banding additionally accepts
+        # ESC/POS (the agent raster-converts for ESC/POS-capable devices) -
+        # mirroring the Gateway physicalImage rule in src/lib/routing.ts and
+        # the pre-dispatch failover parity in print_job (raster_jpeg allows
+        # spooler/escpos). Direct stream protocols (raw) remain excluded.
+        if payload_type == "pdf" and binding.printer_protocol not in ("spooler", "ipp", "ipps"):
+            raise ValidationError(_("The explicitly selected print binding is not capable of document printing."))
+        if payload_type == "raster_jpeg" and binding.printer_protocol not in ("spooler", "ipp", "ipps", "escpos"):
             raise ValidationError(_("The explicitly selected print binding is not capable of document printing."))
         return binding
 

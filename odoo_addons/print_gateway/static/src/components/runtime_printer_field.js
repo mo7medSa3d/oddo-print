@@ -80,12 +80,14 @@ export class RuntimePrinterField extends Component {
             return this.state.printers;
         }
         if (dest === "pos" || dest === "pos_printer") {
-            const thermal = this.state.printers.filter(p => !["laser", "inkjet"].includes((p.deviceClass || "").toLowerCase()));
-            return thermal.length ? thermal : this.state.printers;
+            // No fallback to the full list: laser/inkjet rows would be
+            // selectable here but rejected by the server binding scope
+            // (binding.py), so an empty filter must stay empty and show
+            // the empty message instead.
+            return this.state.printers.filter(p => !["laser", "inkjet"].includes((p.deviceClass || "").toLowerCase()));
         }
         if (dest === "picking_type") {
-            const labels = this.state.printers.filter(p => ["label", "thermal", "unknown", "other"].includes((p.deviceClass || "").toLowerCase()));
-            return labels.length ? labels : this.state.printers;
+            return this.state.printers.filter(p => ["label", "thermal", "unknown", "other"].includes((p.deviceClass || "").toLowerCase()));
         }
         return this.state.printers;
     }

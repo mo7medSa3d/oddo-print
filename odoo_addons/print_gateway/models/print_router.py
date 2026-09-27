@@ -499,6 +499,10 @@ class PrintGatewayRouter(models.AbstractModel):
     @api.model
     @api.private
     def route_pos_sale_details(self, session, image_base64):
+        # NOTE — dual Sale Details paths: this POS-session path resolves
+        # explicit_destination=session.config_id, while the HTTP
+        # /pos/sale_details_report controller path resolves the destination
+        # from the report action. Bind each path in use.
         session.ensure_one()
         self._assert_current_company(session.company_id, record=session)
         self._validate_jpeg_base64(image_base64)

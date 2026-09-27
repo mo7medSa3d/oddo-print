@@ -9,6 +9,27 @@ import { htmlToCanvas } from "@point_of_sale/app/services/render_service";
 import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt";
 import { RetryPrintPopup } from "@point_of_sale/app/components/popups/retry_print_popup/retry_print_popup";
 
+// crypto.randomUUID() is undefined in non-secure contexts (plain-HTTP LAN,
+// which this integration otherwise tolerates). Fall back to a v4 UUID so
+// kitchen/reprint operation identities never throw and abort printChanges.
+function gatewayUuid() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+    }
+    const bytes = new Uint8Array(16);
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+        crypto.getRandomValues(bytes);
+    } else {
+        for (let i = 0; i < 16; i++) {
+            bytes[i] = Math.floor(Math.random() * 256);
+        }
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function canvasToJpeg(canvas) {
     const ctx = canvas.getContext("2d");
     if (ctx) {
@@ -178,7 +199,7 @@ patch(PosStore.prototype, {
         // operation identity so Gateway idempotency cannot collapse the reprint
         // into the original ticket.
         if (reprint || !orderChange.__gateway_print_id) {
-            orderChange.__gateway_print_id = crypto.randomUUID();
+            orderChange.__gateway_print_id = gatewayUuid();
         }
         const result = super.generateOrderChange(order, orderChange, categories, reprint);
         if (result?.orderData) {
@@ -382,7 +403,7 @@ patch(PosStore.prototype, {
 
                     receiptsData.forEach((data, index) => {
                         const baseOperation = retryAttempt
-                            ? crypto.randomUUID()
+                            ? gatewayUuid()
                             : data?.orderData?.__gateway_print_id;
                         if (baseOperation) {
                             data.orderData.__gateway_print_id =
@@ -469,7 +490,7 @@ patch(PosStore.prototype, {
         const reprint = Boolean(data?.orderData?.__gateway_reprint);
         const operationId = data?.orderData?.__gateway_print_id;
         const requestOperationId = isRetry
-            ? "kitchen-retry-" + crypto.randomUUID()
+            ? "kitchen-retry-" + gatewayUuid()
             : operationId;
 
         const gatewayEnabled = sessionId
