@@ -9,7 +9,7 @@
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 58 | issues high: 0 med: 3 low: 31 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 66 | issues high: 0 med: 4 low: 32 | fixed: 0 | deferred runtime: 0.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
 - Confirmed repo `mo7medSa3d/oddo-print`, branch `main` via `gh repo view` + `git remote -v`; `gh auth status` OK.
@@ -426,5 +426,57 @@
 ## [gateway/src/lib/payload.ts] — audited 2026-09-27
 - Status: OK
 - Findings: none. Contract-single-sourced Zod (wire types/protocols/peripherals/sizes from `print-payload-contract.json`); canonical base64 round-trip check (correct given Node's forgiving decoder); magic-byte enforcement (`%PDF-`, JPEG SOI) with anti-mislabling (PDF-as-raw rejected); peripherals fenced to escpos; per-protocol test tickets with injection-safe escaping (C0 strip, PDF paren-escape, ZPL `^~` strip, TSPL quote-strip, 4 KiB cap). DB `CHECK` mirror already verified at schema audit. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/print-job-service.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Enqueue admission is triple-serialized (tenant → agent → idempotency-key advisory locks, consistent order — no inversion with the agent-only claim lock); owner/capability re-validated under `FOR UPDATE` row locks (closes enqueue-vs-PATCH and enqueue-vs-suspend TOCTOUs); LIKE-escaped reprint coordination; fingerprint idempotency with the Odoo/internal boundary conflict rule; credit reservation strictly after dedup (no double-charge); queue (256) / payload (128 MiB) / in-flight (64) ceilings; DB-clock expiry window (default 1h, max 24h); same-clock `createdAt` stamp; `pg_notify` dispatch; best-effort timeline with warn-level observability. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/entitlements.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Live-subscription predicates (past_due grace, NULL period-end live, blocked flag) shared by all gates; row-locked reads; atomic credit upsert (conflict-row serialization makes the quota check race-safe); per-minute/concurrent enforcement under caller-held locks; malformed-plan fail-closed with logging; `parseEntitlementDate` intentionally distinct from `parseDbTimeMs` (prior audit decision, different null semantics). No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/billing-operation.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Claim→execute→finalize with persisted idempotency keys (retry replays, never duplicates); stale-subscription-identity discard on both claim and finalize; definitive-vs-retryable Stripe error split (definitive clears the claim, ambiguous keeps it); guarded finalization applies the flip only to the owning operation. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/stripe.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (1 low)
+- Findings:
+  - Verified good (no finding): webhook verification implements the documented Stripe scheme — `t=…,v1=…` header, HMAC-SHA256 over `{timestamp}.{payload}`, 300s default tolerance, multi-`v1` support, constant-time compare — sources: https://docs.stripe.com/webhooks (timestamp-in-signature replay protection, 5-min default tolerance), https://docs.stripe.com/webhooks/signature. Calibrated-DB-clock reference (not host clock) prevents drift-induced sync stalls. Price binding cross-checks (id/type/recurring/currency/interval/product) are strict; retryable-status split (408/409/429/5xx) matches the billing-operation claim protocol; 15s timeouts on all calls.
+  - [SEVERITY: low] Security-critical webhook/client code is written in minified one-liner style (`:4-5`, `:57-70`, `:167-170`) — inconsistent with the rest of the repo and materially harder to review. Reformat to one-statement-per-line (no formatter configured — no prettier in devDeps — so this is manual hygiene).
+- Proposed fix: reformat `stripe.ts` to repo style; no behavior change.
+- Fix applied: no
+
+## [gateway/src/lib/system-health.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (1 med, 1 low)
+- Findings:
+  - [SEVERITY: med] `checkAgents` hardcodes `INTERVAL '90 seconds'` (`:99`) instead of interpolating `agentStaleThresholdSeconds()` — the exact display-vs-enforcement divergence class the stale-threshold consolidation (prior §2 fix) eliminated everywhere else. With `STALE_AGENT_THRESHOLD_SECONDS` set, health display disagrees with the claim gate and presence sweep. `metrics.ts` already shows the correct pattern (`make_interval(secs => $1)` with a bound param). (Prior-audit text claiming system-health "already interpolated the env" does not match current code — regression or misattribution; either way the literal is what's deployed.)
+  - [SEVERITY: low] Three `as any` row casts (`:82`, `:103`, `:126`) — same class as `printer-health.ts`. Type from schema inference.
+- Proposed fix: bind `agentStaleThresholdSeconds()` into the agents query; remove casts.
+- Fix applied: no
+
+## [gateway/src/lib/worker-schema.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Test-only schema isolation: production returns null; forced schemas require BOTH opt-in flags plus `test_*` naming/length guards; worker-derived names sanitized. `search_path` interpolation is safe (validated charset). No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/email.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. `APP_BASE_URL` via file-aware `runtimeSecret()` with HTTPS-in-prod and no-creds/query/fragment rules (consistent with `server.ts` boot checks); Resend client with 10s timeout and truncated error surfacing. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/action-error.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Trivial client-safe error carrier (status/code/details), correctly housed outside the `"use server"` module. No finding.
 - Proposed fix: none
 - Fix applied: n/a
