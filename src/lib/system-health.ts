@@ -28,6 +28,7 @@
 import { db, queryWithTimeout } from "../db/client";
 import { sql } from "drizzle-orm";
 import migrationJournal from "../../drizzle/meta/_journal.json";
+import { agentStaleThresholdSeconds } from "./stale-threshold";
 
 export type HealthState = "ok" | "warn" | "error" | "unknown";
 
@@ -79,7 +80,7 @@ export async function checkQueue(tenantId?: string): Promise<HealthCheck> {
       2000,
       "systemHealthQueue"
     );
-    const stuck = (result.rows?.[0] as any)?.stuck ?? 0;
+    const stuck = Number((result.rows?.[0] as { stuck?: number | string } | undefined)?.stuck ?? 0);
     if (stuck > 10) {
       return { name: "Queue", state: "warn", message: `${stuck} stuck jobs (claimed >5m) for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { stuck, tenantId }, critical: false };
     }
@@ -95,14 +96,18 @@ export async function checkAgents(tenantId?: string): Promise<HealthCheck> {
     if (!tenantId) {
       return { name: "Agents", state: "unknown", message: "Agents check requires tenant context", latencyMs: Date.now() - start };
     }
+    // Freshness uses the shared claim-gate threshold (not a hardcoded
+    // interval) so the display can never diverge from enforcement when
+    // STALE_AGENT_THRESHOLD_SECONDS is configured.
+    const staleSeconds = agentStaleThresholdSeconds();
     const result = await queryWithTimeout(
-      db.execute(sql`SELECT COUNT(*)::int as total, COUNT(*) FILTER (WHERE last_seen_at > NOW() - INTERVAL '90 seconds')::int as online FROM agents WHERE tenant_id=${tenantId}`),
+      db.execute(sql`SELECT COUNT(*)::int as total, COUNT(*) FILTER (WHERE last_seen_at > NOW() - make_interval(secs => ${staleSeconds}))::int as online FROM agents WHERE tenant_id=${tenantId}`),
       2000,
       "systemHealthAgents"
     );
-    const row = result.rows?.[0] as any;
-    const total = row?.total ?? 0;
-    const online = row?.online ?? 0;
+    const row = result.rows?.[0] as { total?: number | string; online?: number | string } | undefined;
+    const total = Number(row?.total ?? 0);
+    const online = Number(row?.online ?? 0);
     if (total === 0) return { name: "Agents", state: "warn", message: `No agents registered for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
     if (online === 0) return { name: "Agents", state: "error", message: `${total} agents but none online for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
     if (online < total) return { name: "Agents", state: "warn", message: `${online}/${total} agents online for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
@@ -123,9 +128,9 @@ export async function checkPrinters(tenantId?: string): Promise<HealthCheck> {
       2000,
       "systemHealthPrinters"
     );
-    const row = result.rows?.[0] as any;
-    const total = row?.total ?? 0;
-    const online = row?.online ?? 0;
+    const row = result.rows?.[0] as { total?: number | string; online?: number | string } | undefined;
+    const total = Number(row?.total ?? 0);
+    const online = Number(row?.online ?? 0);
     if (total === 0) return { name: "Printers", state: "warn", message: `No printers registered for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
     return { name: "Printers", state: online > 0 ? "ok" : "warn", message: `${online}/${total} printers online for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
   } catch (e) {
