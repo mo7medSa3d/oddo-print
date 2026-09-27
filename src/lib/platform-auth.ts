@@ -97,9 +97,13 @@ function verifyLegacyPlatformTokenSignature(token: string): PlatformOwnerClaims 
 export function verifyPlatformTokenSignature(token: string): PlatformOwnerClaims | null {
   const fresh = verifyAccessTokenSignature(token, "platform");
   if (fresh) {
+    // Fail closed (do NOT fall through to the legacy verifier: a v2 token
+    // carries sub "platform_owner" too, so legacy shape checks would accept
+    // it while skipping family-revocation enforcement).
+    if (!fresh.userId || !fresh.email) return null;
     return {
       jti: fresh.jti, iat: fresh.iat, exp: fresh.exp, sub: "platform_owner",
-      userId: fresh.userId!, email: fresh.email!, ver: 2, kind: "platform",
+      userId: fresh.userId, email: fresh.email, ver: 2, kind: "platform",
       sid: fresh.sid, familyId: fresh.familyId,
     };
   }

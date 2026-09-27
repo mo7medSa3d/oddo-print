@@ -147,13 +147,16 @@ export async function validateCustomer(req: Request): Promise<ManagerClaims | nu
   if (customerToken) {
     const versioned = verifyAccessTokenSignature(customerToken, "customer");
     if (!versioned) return null;
+    // Fail closed if a future validator ever stops guaranteeing tenant
+    // presence for customer-kind claims (today it always does).
+    if (!versioned.tenantId) return null;
 
     const claims: ManagerClaims = {
       jti: versioned.jti,
       iat: versioned.iat,
       exp: versioned.exp,
       sub: "manager",
-      tenantId: versioned.tenantId!,
+      tenantId: versioned.tenantId,
       role: versioned.role as ManagerRole,
       ...(versioned.userId ? { userId: versioned.userId } : {}),
       ver: 2,

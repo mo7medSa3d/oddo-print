@@ -97,12 +97,15 @@ export async function verifyManagerToken(token: string): Promise<ManagerClaims |
   const versioned = verifyAccessTokenSignature(token, "manager");
   if (versioned) {
     if (versioned.kind !== "manager") return null;
+    // Fail closed if a future validator ever stops guaranteeing tenant
+    // presence for manager-kind claims (today it always does).
+    if (!versioned.tenantId) return null;
     return validateManagerClaims({
       jti: versioned.jti,
       iat: versioned.iat,
       exp: versioned.exp,
       sub: "manager",
-      tenantId: versioned.tenantId!,
+      tenantId: versioned.tenantId,
       role: versioned.role as ManagerRole,
       ...(versioned.userId ? { userId: versioned.userId } : {}),
       ver: 2,
@@ -251,12 +254,13 @@ export async function validateManager(req: Request): Promise<ManagerClaims | nul
 export async function verifyWorkspaceToken(token: string): Promise<ManagerClaims | null> {
   const versioned = verifyAccessTokenSignature(token, ["manager", "customer"]);
   if (versioned) {
+    if (!versioned.tenantId) return null;
     return validateManagerClaims({
       jti: versioned.jti,
       iat: versioned.iat,
       exp: versioned.exp,
       sub: "manager",
-      tenantId: versioned.tenantId!,
+      tenantId: versioned.tenantId,
       role: versioned.role as ManagerRole,
       ...(versioned.userId ? { userId: versioned.userId } : {}),
       ver: 2,
@@ -328,7 +332,12 @@ export async function revokeLegacyManagerSessionsForTenantInTransaction(
   tx: DbTx,
   tenantId: string,
 ): Promise<void> {
-  await tx.delete(managerSessions).where(eq(managerSessions.tenantId, tenantId));
+  // Revoke-update (not DELETE): session rows stay for auditability, matching
+  // the user-scoped twin above. The refresh-token families carry the durable
+  // revocation; legacy rows just stop validating.
+  await tx.update(managerSessions)
+    .set({ revokedAt: sql`clock_timestamp()` })
+    .where(eq(managerSessions.tenantId, tenantId));
 }
 
 export async function revokeManagerSession(jti: string) {
