@@ -1,4 +1,4 @@
-import { db } from "../db";
+import { db, type DbTx } from "../db";
 import { platformSessions, users } from "../db/schema";
 import { eq, and, gt, isNull, sql } from "drizzle-orm";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
@@ -210,10 +210,10 @@ export async function authenticatePlatformOwner(
   return { userId: user.id, email: user.email };
 }
 
-type LegacyPlatformAuthTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+/* LegacyPlatformAuthTx folded into the canonical DbTx from src/db (single definition). */
 
 export async function revokeLegacyPlatformSessionsForUserInTransaction(
-  tx: LegacyPlatformAuthTx,
+  tx: DbTx,
   userId: string,
 ): Promise<void> {
   await tx.update(platformSessions)

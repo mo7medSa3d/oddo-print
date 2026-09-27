@@ -98,3 +98,6 @@ if (process.env.NODE_ENV !== "production") {
 
 import * as schema from "./schema";
 export const db = drizzle(pool, { schema });
+
+/** Canonical transaction type for all lib modules (single definition). */
+export type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];

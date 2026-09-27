@@ -1,4 +1,4 @@
-import { db } from "../db";
+import { db, type DbTx } from "../db";
 import { managerSessions, tenants, tenantDomains, tenantUsers, users } from "../db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { createHash, createHmac, scrypt, timingSafeEqual } from "node:crypto";
@@ -300,10 +300,10 @@ export async function verifyWorkspaceTokenFromCookieValues(
   return customerToken ? verifyWorkspaceToken(customerToken) : null;
 }
 
-type LegacyManagerAuthTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+/* LegacyManagerAuthTx folded into the canonical DbTx from src/db (single definition). */
 
 export async function revokeLegacyManagerSessionInTransaction(
-  tx: LegacyManagerAuthTx,
+  tx: DbTx,
   jti: string,
 ): Promise<void> {
   await tx.update(managerSessions)
@@ -312,7 +312,7 @@ export async function revokeLegacyManagerSessionInTransaction(
 }
 
 export async function revokeLegacyManagerSessionsForUserInTransaction(
-  tx: LegacyManagerAuthTx,
+  tx: DbTx,
   userId: string,
   tenantId?: string,
 ): Promise<void> {
@@ -325,7 +325,7 @@ export async function revokeLegacyManagerSessionsForUserInTransaction(
 }
 
 export async function revokeLegacyManagerSessionsForTenantInTransaction(
-  tx: LegacyManagerAuthTx,
+  tx: DbTx,
   tenantId: string,
 ): Promise<void> {
   await tx.delete(managerSessions).where(eq(managerSessions.tenantId, tenantId));
