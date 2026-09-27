@@ -21,6 +21,18 @@ import { gatewayNow } from "./database-clock";
 import { printerStaleThresholdSeconds } from "./stale-threshold";
 import { getSupportedDocumentTypes, type ProtocolType, type TransportType } from "./printer-capability";
 
+// String-valued capability-bag readers: agent-reported JSON is untyped, so
+// narrow at the boundary instead of erasing rows to `any`.
+function capStr(bag: Record<string, unknown>, key: string): string | undefined {
+  const value = bag[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function capBool(bag: Record<string, unknown>, key: string): boolean | undefined {
+  const value = bag[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
 export type PrinterHealthStatus =
   | "ONLINE"
   | "IDLE"
@@ -129,10 +141,19 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
     "getPrinterCapability"
   );
   if (rows.length === 0) return null;
-  const p = rows[0] as any;
-  const config = (p.config ?? {}) as any;
-  const caps = (p.capabilities ?? {}) as any;
+  // Typed row: keep Drizzle's inferred printers type so a renamed/absent
+  // column fails to compile instead of silently degrading health output.
+  const p = rows[0];
+  if (!p) return null;
+  const config = p.config ?? {};
+  // Legacy rows may carry keys outside the schema $type (e.g. driver_name);
+  // read those through a string bag instead of erasing the whole row to any.
+  const configBag = config as Record<string, unknown>;
+  const caps: Record<string, unknown> = p.capabilities ?? {};
 
+  // DB text columns infer as string; narrow to the checked vocabularies
+  // (the CHECK constraints bound the values). Unlike `as any`, a wrong
+  // union member here still fails to compile at USE sites.
   const documentTypes = getSupportedDocumentTypes(
     p.protocol as ProtocolType,
     p.connectionType as TransportType,
@@ -141,9 +162,9 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
   const statusInfo = normalizePrinterStatus(p.status, { lastSeenAt: p.lastSeenAt, config, capabilities: caps });
 
   // Driver health: evidence-based, not from DB status alone
-  const driverName = caps.driver_name ?? config.driver_name;
-  const driverVersion = caps.driver_version;
-  const driverError = caps.driver_error;
+  const driverName = capStr(caps, "driver_name") ?? capStr(configBag, "driver_name");
+  const driverVersion = capStr(caps, "driver_version");
+  const driverError = capStr(caps, "driver_error");
   let driverHealth: "ok" | "warn" | "error" | "unknown" = "unknown";
   let driverMessage = "Driver info not reported (ACTUAL DRIVER STATUS unavailable)";
   let driverEvidence = "No driver evidence in capabilities/config (DATABASE STATUS only)";
@@ -166,6 +187,7 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
 
   // Spooler health: evidence-based, NOT from DB printer state alone
   const spoolerName = config.spooler_name;
+  const spoolerProbe = capStr(caps, "spooler_status");
   let spoolerStatus: "ok" | "error" | "unknown" = "unknown";
   let spoolerMessage = "Not using spooler transport or no spooler evidence";
   let spoolerEvidence = "No spooler evidence (requires spooler_name + spooler health)";
@@ -174,11 +196,11 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
       spoolerStatus = "unknown";
       spoolerMessage = "Spooler transport but spooler_name missing (DATABASE STATUS incomplete)";
       spoolerEvidence = "connectionType=spooler but config.spooler_name missing";
-    } else if (caps.spooler_status) {
+    } else if (spoolerProbe) {
       // Actual spooler status from agent probe
-      spoolerStatus = caps.spooler_status === "ok" ? "ok" : caps.spooler_status === "error" ? "error" : "unknown";
-      spoolerMessage = `Spooler ${spoolerName} status ${caps.spooler_status} (ACTUAL SPOOLER STATUS from agent)`;
-      spoolerEvidence = `capabilities.spooler_status=${caps.spooler_status} + spooler_name=${spoolerName}`;
+      spoolerStatus = spoolerProbe === "ok" ? "ok" : spoolerProbe === "error" ? "error" : "unknown";
+      spoolerMessage = `Spooler ${spoolerName} status ${spoolerProbe} (ACTUAL SPOOLER STATUS from agent)`;
+      spoolerEvidence = `capabilities.spooler_status=${spoolerProbe} + spooler_name=${spoolerName}`;
     } else if (statusInfo.freshness.fresh && (p.status === "online" || p.status === "idle")) {
       // We have fresh heartbeat and DB says online, but no explicit spooler probe — report UNKNOWN, not OK
       spoolerStatus = "unknown";
@@ -195,13 +217,13 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
     printerId: p.id,
     tenantId: p.tenantId,
     name: p.name,
-    transport: p.connectionType as any,
-    protocol: p.protocol as any,
-    deviceClass: p.deviceClass as any,
+    transport: p.connectionType as TransportType,
+    protocol: p.protocol as ProtocolType,
+    deviceClass: p.deviceClass as PrinterCapabilityMatrix["deviceClass"],
     documentTypes,
-    duplexCapable: config.duplex_capable ?? caps.duplex_capable ?? null,
-    colorCapable: config.color_capable ?? caps.color_capable ?? null,
-    paperWidths: config.paper_widths ?? caps.paper_widths ?? null,
+    duplexCapable: config.duplex_capable ?? capBool(caps, "duplex_capable") ?? null,
+    colorCapable: config.color_capable ?? capBool(caps, "color_capable") ?? null,
+    paperWidths: config.paper_widths ?? (Array.isArray(caps.paper_widths) ? (caps.paper_widths as number[]) : undefined) ?? null,
     driver: { name: driverName, version: driverVersion, health: driverHealth, message: driverMessage, evidence: driverEvidence },
     spooler: { name: spoolerName, status: spoolerStatus, message: spoolerMessage, evidence: spoolerEvidence },
     status: statusInfo.status,
@@ -220,7 +242,7 @@ export async function getAllPrintersCapabilityMatrix(tenantId: string): Promise<
     "getAllPrintersCapability"
   );
   const results: PrinterCapabilityMatrix[] = [];
-  for (const p of all as any[]) {
+  for (const p of all) {
     const m = await getPrinterCapabilityMatrix(tenantId, p.id);
     if (m) results.push(m);
   }
