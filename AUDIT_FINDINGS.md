@@ -535,15 +535,17 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       Runs: CI `36272613988` (failure), Build Windows Installer `36272614002` (failure) on `01745fea`.
       RESOLVED: full green on `5377be6a` and every subsequent push, including `15ab2bea` (CI `36299009432`, Docker `36299009360`, Static Security Gates `36299009477`, Security/Resilience `36299009364` all `success`). Root causes and per-fix evidence in PATCH_LOG. This item was the Part B entry gate: no finding is "done" while CI is red.
 
-- [ ] **[Severity: Low] Unpinned pip installs, no cache**
+- [x] **[Severity: Low] Unpinned pip installs, no cache**
       File: `.github/workflows/ci.yml:144`
       Issue: `pip install --break-system-packages pytest pytest-asyncio` pins no versions (unlike SHA-pinned actions, Go `cache:true`, Node `cache:npm`) — nondeterministic supply chain.
       Suggested fix: Pin versions (e.g. `pytest==x.y.z`) and/or cache pip.
+      Fix applied: pinned to the versions CI actually installs today (`pytest==9.1.1 pytest-asyncio==1.4.0` per CI logs) — evidence-based, not guessed.
 
-- [ ] **[Severity: Low] Odoo19 job on PG15 vs prod PG16**
+- [x] **[Severity: Low] Odoo19 job on PG15 vs prod PG16**
       File: `.github/workflows/ci.yml:339` vs `:23`, `docker-compose.yml:3`
       Issue: The `odoo19` service uses `postgres:15-alpine` while prod and main CI use PG16 — behavior drift risk in the test matrix.
       Suggested fix: Bump the Odoo19 service to `postgres:16-alpine` (digest-pinned like `:23`).
+      Fix applied: odoo19 service uses the exact digest-pinned PG16 image as main CI (copied verbatim from `:23`, never hand-typed).
 
 ---
 
