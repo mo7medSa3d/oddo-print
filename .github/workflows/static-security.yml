@@ -2,7 +2,7 @@ name: Static Security Gates
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, test/http-server-ready]
   push:
     branches: [main]
   merge_group:
