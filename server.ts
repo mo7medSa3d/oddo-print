@@ -22,8 +22,10 @@ import { createRequestContentSecurityPolicy, shouldApplyPageContentSecurityPolic
 const dev = process.env.NODE_ENV === "development";
 const rawPort = process.env.PORT ?? "3000";
 const port = /^\d+$/.test(rawPort.trim()) ? parseInt(rawPort.trim(), 10) : NaN;
-if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
-  throw new Error(`Refusing startup: PORT must be an integer 1..65535 (got ${JSON.stringify(rawPort)}).`);
+// 0 is valid (OS-assigned ephemeral port, used by the multi-instance
+// integration test); anything else must be a real port number.
+if (!Number.isSafeInteger(port) || port < 0 || port > 65535) {
+  throw new Error(`Refusing startup: PORT must be an integer 0..65535 (got ${JSON.stringify(rawPort)}).`);
 }
 const hostname = process.env.HOSTNAME ?? "0.0.0.0";
 
