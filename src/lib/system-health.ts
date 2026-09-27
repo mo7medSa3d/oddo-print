@@ -28,6 +28,7 @@
 import { db, queryWithTimeout } from "../db/client";
 import { sql } from "drizzle-orm";
 import migrationJournal from "../../drizzle/meta/_journal.json";
+import { agentStaleThresholdSeconds } from "./agent-availability";
 
 export type HealthState = "ok" | "warn" | "error" | "unknown";
 
@@ -96,7 +97,9 @@ export async function checkAgents(tenantId?: string): Promise<HealthCheck> {
       return { name: "Agents", state: "unknown", message: "Agents check requires tenant context", latencyMs: Date.now() - start };
     }
     const result = await queryWithTimeout(
-      db.execute(sql`SELECT COUNT(*)::int as total, COUNT(*) FILTER (WHERE last_seen_at > NOW() - INTERVAL '90 seconds')::int as online FROM agents WHERE tenant_id=${tenantId}`),
+      // Shared stale threshold (agentStaleThresholdSeconds) so the health
+      // display honors STALE_AGENT_THRESHOLD_SECONDS like the claim gate.
+      db.execute(sql`SELECT COUNT(*)::int as total, COUNT(*) FILTER (WHERE last_seen_at > NOW() - make_interval(secs => ${agentStaleThresholdSeconds()}))::int as online FROM agents WHERE tenant_id=${tenantId}`),
       2000,
       "systemHealthAgents"
     );
