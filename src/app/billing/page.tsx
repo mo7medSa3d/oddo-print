@@ -106,7 +106,8 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
       printUsage = await getTenantPrintUsage(db, claims.tenantId);
     } catch (error) {
       printUsageUnavailable = true;
-      logWarn("billing.print_usage_unavailable", { error });
+      // Never pass a live Error: JSON.stringify(Error) → {} loses the message.
+      logWarn("billing.print_usage_unavailable", { error: error instanceof Error ? error.message : String(error) });
     }
   }
 

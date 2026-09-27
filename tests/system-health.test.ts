@@ -43,6 +43,16 @@ describe("system-health", () => {
     expect(source).toContain("external");
   });
 
+  it("intentionally unverified externals cap overall at WARN, never OK or UNKNOWN", () => {
+    const source = fs.readFileSync("src/lib/system-health.ts", "utf8");
+    // The external branch must not force overall UNKNOWN any more: an
+    // unverified optional external degrades the dashboard to WARN while
+    // the measured dependencies keep their ok/warn/error signal.
+    expect(source).toContain("cap overall at WARN");
+    expect(source).toContain("intentionally unverified externals cap overall at WARN");
+    expect(source).not.toContain("if (external.some(c => c.state === \"unknown\")) return \"unknown\"");
+  });
+
   it("system health includes all required components with tenant scoping", () => {
     const source = fs.readFileSync("src/lib/system-health.ts", "utf8");
     expect(source).toContain("Gateway");

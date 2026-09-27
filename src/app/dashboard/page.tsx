@@ -111,7 +111,9 @@ export default async function DashboardPage() {
       .orderBy(desc(printJobs.createdAt))
       .limit(50);
   } catch (error: unknown) {
-    logError("[dashboard] database load failed", { error: error });
+    // Dotted event name (aggregation-safe) and a string message — a live
+    // Error would serialize as {} and lose the failure reason.
+    logError("dashboard.database_load_failed", { error: error instanceof Error ? error.message : String(error) });
     databaseError = "PostgreSQL unavailable";
   }
 

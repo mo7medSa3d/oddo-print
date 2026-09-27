@@ -69,7 +69,7 @@ export default function ReleaseReadinessClient() {
       implemented: "PASS",
       runtimeVerified: "PASS",
       status: "PASS",
-      evidence: "lib/system-health.ts checkQueue now requires tenantId (tenant-safe), checkAgents/Printers require tenantId, overall policy: CRITICAL ERROR→error, UNKNOWN→unknown, IMPORTANT ERROR→error, UNKNOWN→unknown, EXTERNAL UNKNOWN→unknown (prevents false OK). Policy documented. Odoo/Billing UNKNOWN honest. Covered by automated regression tests; current CI status is reported by GitHub Actions.",
+      evidence: "lib/system-health.ts checkQueue now requires tenantId (tenant-safe), checkAgents/Printers require tenantId, overall policy: CRITICAL ERROR→error, UNKNOWN→unknown, IMPORTANT ERROR→error, UNKNOWN→unknown, EXTERNAL ERROR→error, UNKNOWN/WARN→warn (intentionally unverified externals cap overall at WARN, never OK — prevents false OK). Policy documented. Odoo/Billing UNKNOWN honest. Covered by automated regression tests; current CI status is reported by GitHub Actions.",
     },
     {
       area: "Tenant isolation",
@@ -200,7 +200,7 @@ export default function ReleaseReadinessClient() {
           <li><strong>OTel-inspired distributed correlation</strong> (not full OpenTelemetry): custom fields request_id/job_id/tenant_id/agent_id/printer_id/attempt_id/claim_id/spooler_job_id in logs and headers, documented as application-specific, not official OTel semantic conventions.</li>
           <li><strong>IPP support / driverless direction</strong> (not IPP Everywhere certified): IPP/IPPS transport supported, capability matrix, but conformance testing not run, so not claiming certification.</li>
           <li><strong>Tauri updater</strong>: no updater plugin/config found in tauri.conf.json, marked NOT IMPLEMENTED/BLOCKED, not claimed as PASS. Capabilities 21 perms least-privilege verified.</li>
-          <li><strong>Odoo/Billing health</strong>: UNKNOWN / NOT VERIFIED honest, overall cannot be OK when external UNKNOWN — policy prevents false green.</li>
+          <li><strong>Odoo/Billing health</strong>: UNKNOWN / NOT VERIFIED honest, intentionally-unverified externals cap overall at WARN (never OK) — policy prevents false green.</li>
         </ul>
       </div>
     </div>

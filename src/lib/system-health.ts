@@ -14,9 +14,14 @@
  *   - If any important is UNKNOWN → overall UNKNOWN
  *   - If any important is WARN → overall WARN (unless already ERROR/UNKNOWN)
  * - External dependencies: Odoo, Billing
- *   - If Odoo/Billing are UNKNOWN/NOT VERIFIED, overall cannot be OK → UNKNOWN
- *   - This prevents green "system healthy" when unverified critical dependencies exist
- * - All critical+important healthy and external verified OK → overall OK
+ *   - Odoo/Billing are intentionally NOT runtime-checked in this endpoint (no
+ *     live Odoo deployment or Stripe credentials are available to the Gateway
+ *     process), so they are reported UNKNOWN / NOT VERIFIED.
+ *   - Intentionally-unverified externals cap overall at WARN, never OK: the
+ *     dashboard shows "degraded" rather than "healthy" while an external
+ *     integration is unverified, but a missing optional external does not
+ *     turn the whole system gray UNKNOWN.
+ * - All critical+important healthy → overall OK
  * - Otherwise WARN
  */
 
@@ -152,11 +157,13 @@ function computeOverall(checks: HealthCheck[]): HealthState {
   if (important.some(c => c.state === "unknown")) return "unknown";
   if (important.some(c => c.state === "warn")) return "warn";
 
-  // External: Odoo, Billing — if UNKNOWN, overall cannot be OK
+  // External: Odoo, Billing — intentionally unverified (UNKNOWN / NOT
+  // VERIFIED). They cap overall at WARN, never OK (still prevents false OK),
+  // so the dashboard can still report ok/warn/error for the dependencies
+  // that ARE measured.
   const external = checks.filter(c => ["Odoo", "Billing"].includes(c.name));
-  if (external.some(c => c.state === "unknown")) return "unknown";
   if (external.some(c => c.state === "error")) return "error";
-  if (external.some(c => c.state === "warn")) return "warn";
+  if (external.some(c => c.state === "unknown" || c.state === "warn")) return "warn";
 
   // Gateway check (already critical) but also check remaining
   if (checks.some(c => c.state === "error")) return "error";
@@ -192,6 +199,6 @@ export async function getSystemHealth(tenantId?: string): Promise<SystemHealth> 
     billing,
     version: { gateway: process.env.npm_package_version ?? "1.0.0", schema: CURRENT_SCHEMA_VERSION },
     checks,
-    policy: "CRITICAL (Gateway,Database) ERROR→error, UNKNOWN→unknown; IMPORTANT (Queue,Agents,Printers) ERROR→error, UNKNOWN→unknown, WARN→warn; EXTERNAL (Odoo,Billing) UNKNOWN→unknown (prevents false OK); all healthy→ok",
+    policy: "CRITICAL (Gateway,Database) ERROR→error, UNKNOWN→unknown; IMPORTANT (Queue,Agents,Printers) ERROR→error, UNKNOWN→unknown, WARN→warn; EXTERNAL (Odoo,Billing) ERROR→error, UNKNOWN/WARN→warn (intentionally unverified externals cap overall at WARN, never OK); all healthy→ok",
   };
 }

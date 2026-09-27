@@ -299,6 +299,8 @@ export default function DashboardClient({
   const [kpiJobs, setKpiJobs] = useState<Job[]>(initialJobs);
   const [jobs, setJobs] = useState<Job[]>(initialJobs);
   const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsError, setJobsError] = useState<string | null>(null);
+  const [jobsRetryTick, setJobsRetryTick] = useState(0);
   const router = useRouter();
 
   useEffect(() => {
@@ -446,6 +448,7 @@ export default function DashboardClient({
     let cancelled = false;
     async function loadFilteredJobs() {
       setJobsLoading(true);
+      setJobsError(null);
       try {
         const res = await getDashboardJobs({
           status: jobStatusFilter,
@@ -456,7 +459,12 @@ export default function DashboardClient({
           setJobs(res as unknown as Job[]);
         }
       } catch (err) {
+        // Surface the failure: a stale job list with no error state is
+        // indistinguishable from "no jobs" for an operator.
         console.error("Dashboard jobs query failed:", err);
+        if (!cancelled) {
+          setJobsError("Could not load jobs. Please retry.");
+        }
       } finally {
         if (!cancelled) {
           setJobsLoading(false);
@@ -467,7 +475,7 @@ export default function DashboardClient({
     return () => {
       cancelled = true;
     };
-  }, [jobStatusFilter, debouncedJobSearch]);
+  }, [jobStatusFilter, debouncedJobSearch, jobsRetryTick]);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -1233,7 +1241,22 @@ export default function DashboardClient({
             </div>
           </div>
 
-          {jobsLoading && filteredJobs.length === 0 ? (
+          {jobsError ? (
+            <div className="rounded-[12px] border border-bad-edge bg-bad-bg p-6 text-center" role="alert">
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] text-bad">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div className="mt-3 text-[13px] font-semibold text-bad">{jobsError}</div>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="mt-3"
+                onClick={() => setJobsRetryTick((tick) => tick + 1)}
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Retry
+              </Button>
+            </div>
+          ) : jobsLoading && filteredJobs.length === 0 ? (
             <div className="rounded-[12px] border border-dashed border-edge p-10 text-center text-[13px] text-ink-3">Loading jobs…</div>
           ) : filteredJobs.length === 0 ? (
             <div className="rounded-[12px] border border-dashed border-edge p-10 text-center">
