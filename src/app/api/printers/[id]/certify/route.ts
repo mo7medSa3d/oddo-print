@@ -5,7 +5,6 @@ import { printJobs, printers, agents } from "../../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
-import { nanoid } from "../../../../../lib/nanoid";
 import { recordJobEvent } from "../../../../../lib/job-timeline";
 import { runWithCorrelation, generateRequestId, generateAttemptId } from "../../../../../server/correlation";
 import { requestIdFrom, logError, logWarn } from "../../../../../lib/log";

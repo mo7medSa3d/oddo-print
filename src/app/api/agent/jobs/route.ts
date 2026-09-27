@@ -14,8 +14,6 @@ import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "../../
 import { refreshClockSkew } from "../../../../lib/database-clock";
 import { liveTenantSubscriptionPredicate } from "../../../../lib/entitlements";
 import { recordJobEvent } from "../../../../lib/job-timeline";
-import { getCorrelationContext, generateAttemptId } from "../../../../server/correlation";
-import { databaseNowMs } from "../../../../lib/database-clock";
 
 export const dynamic = "force-dynamic";
 const MAX_CLAIM_BATCH = 20;
