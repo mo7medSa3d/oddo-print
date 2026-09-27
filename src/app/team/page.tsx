@@ -71,9 +71,16 @@ export default function TeamPage() {
 
   useEffect(() => {
     // Single implementation of the initial fetch — load() is the same block,
-    // invoked on mount and after every mutation. load() sets loaded/error
-    // state itself; React 18 ignores post-unmount setState.
-    void load();
+    // invoked on mount and after every mutation. Deferred past the effect
+    // body: calling load() synchronously here is a setState-in-effect lint
+    // error (its state updates must run in a callback, as before).
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (active) return load();
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function invite(event: React.FormEvent) {
