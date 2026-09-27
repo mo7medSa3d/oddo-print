@@ -284,6 +284,10 @@ export function closeTenantSockets(tenantId: string): void {
 }
 
 function websocketClientKey(req: IncomingMessage): string {
+  // Trust-boundary note: X-Forwarded-For / X-Real-IP are only consulted when
+  // TRUST_PROXY=1, whose token is verified by the caller (upgrade path)
+  // before this function is reached. Do not reuse this helper on an
+  // unauthenticated path without verifying the proxy token first.
   if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
     const forwarded = req.headers["x-forwarded-for"];
     const candidates = typeof forwarded === "string" ? forwarded.split(",") : [];
@@ -1056,7 +1060,15 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
         return;
       }
       wsMessageInFlightByAgentId.set(agentId, inFlight + 1);
-      void handleAgentMessage(agentId, ws.tenantId!, raw)
+      const tenantId = ws.tenantId;
+      if (!tenantId) {
+        try { ws.close(4401, "missing agent identity"); } catch (error) { logDebug("[ws] identity-missing close failed", { error: error instanceof Error ? error.message : String(error) }); }
+        const remaining = (wsMessageInFlightByAgentId.get(agentId) ?? 1) - 1;
+        if (remaining <= 0) wsMessageInFlightByAgentId.delete(agentId);
+        else wsMessageInFlightByAgentId.set(agentId, remaining);
+        return;
+      }
+      void handleAgentMessage(agentId, tenantId, raw)
         .catch((e) => logWarn(`[ws] failed to handle message from agent ${agentId}:`, { error: e }))
         .finally(() => {
           const remaining = (wsMessageInFlightByAgentId.get(agentId) ?? 1) - 1;

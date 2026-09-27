@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
+
 function createContentSecurityPolicyNonce(): string {
-  return Buffer.from(crypto.randomUUID()).toString("base64");
+  return Buffer.from(randomUUID()).toString("base64");
 }
 
 function buildContentSecurityPolicy(nonce: string, isDevelopment: boolean): string {
