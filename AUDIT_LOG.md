@@ -9,7 +9,7 @@
 - Status: IN PROGRESS — session 4 (2026-09-27, ~22:57 UTC). Setup + batch 1 (gateway entry/server/DB foundation) audited. No code fixes applied yet.
 - Prior state at session start: HEAD `95ea4688`; `AUDIT_FINDINGS.md` all `[x]` (0 open boxes); `PATCH_LOG.md` Part B close-out recorded; working tree had staged deletions of both files — RESTORED via `git restore` (no history lost). `__pycache__/*.pyc` on disk are git-ignored local artifacts (0 tracked).
 - Pinned versions for doc-verification: Next 16.3.6, React 19.3.0, Drizzle 0.45.2 / Kit 0.31.10, Node >=24.15, Go 1.26, Tauri =2.11.5 / build =2.6.3, Rust 1.90 ed.2024, Odoo addon 19.0.2.10.0.
-- Totals this file: files audited: 50 | issues high: 0 med: 3 low: 29 | fixed: 0 | deferred runtime: 0.
+- Totals this file: files audited: 58 | issues high: 0 med: 3 low: 31 | fixed: 0 | deferred runtime: 0.
 
 ## 2026-09-27 — Session 4 setup (PHASE 0)
 - Confirmed repo `mo7medSa3d/oddo-print`, branch `main` via `gh repo view` + `git remote -v`; `gh auth status` OK.
@@ -376,3 +376,55 @@
 
 ### Batch-2d follow-up CLOSED
 - `canonicalize` Date concern: sole caller is `print-job-service.ts:69` (`payload: canonicalize(input.payload)`) where `input.payload` is JSON-parsed request body — JSON deserialization cannot produce `Date`/class instances, so the `{}` collapse is unreachable. No finding; no code change needed.
+
+## [gateway/src/lib/printer-model.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. SSRF-hardened authority: private/link-local-only destinations with cloud-metadata-IP block (`169.254.169.254`, `fd00:ec2::254`); IPv6 validation hand-verified (ULA `fc00::/7` + link-local `fe80::/10` accepted via top-7 `0x7e` match, `::`/`::1` rejected, IPv4-mapped and zone-ID forms fail closed); IPP URL rules (scheme allowlist, no creds/query/fragment, IPPS requires secure scheme); port allowlists per transport; USB requires Windows device path or spooler_name; transport/protocol matrix fenced (`unknown` allowed through, everything else must pair). Zod `.strict()` + 16/32 KiB metadata caps. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/printer-capability.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (1 low)
+- Findings:
+  - Verified good (no finding): vocabularies derive from `printer-model.ts` via `import type` (bundle-safe, prior taxonomy fix confirmed); language badges derive only from protocol/connection (device class never invents a language); display-name maps complete.
+  - [SEVERITY: low] `getSupportedDocumentTypes("escpos", …)` returns `[escpos, raw]` but omits `image` — while `routing.ts:105-112` (the authoritative enforcer) explicitly allows image payloads on ESC/POS devices via raster conversion. Display-only (sole caller is the `printer-health.ts` matrix; enforcement is correct), but operators see image as unsupported on thermal printers. Align the matrix with the raster exception or comment the deliberate difference.
+- Proposed fix: include the escpos-raster `image` case with a comment citing `routing.ts`.
+- Fix applied: no
+
+## [gateway/src/lib/routing.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Authoritative capability table: explicit `supported_protocols` wins, malformed (non-array) caps fail closed, `unknown`-protocol devices stay dark unless the transport is physically complete (spooler/IPP), byte transports fenced to the declared protocol, PDF/image require document-capable backends. Go mirror (`agent/internal/printer/capability.go`) cited for verification at the agent batch. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/discovery.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Discovery taxonomy kept explicitly distinct from printer protocols (commented); scan bounds (concurrency ≤64, timeout ≤30s, Zod `.strict()`); CIDR fenced to private IPv4 `/16-/30` (link-local excluded — unscannable; mirrors Go `isAllowedCIDR`); confidence heuristic sane. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/network-address.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Hand-verified bit logic (see printer-model entry); IPv4 loopback rejected, IPv6 `::`/`::1`/zone-IDs/mapped forms rejected fail-closed. The `top10 === 0x3fa` clause is a harmless redundant subset of the `top7 === 0x7e` match. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/printer-health.ts] — audited 2026-09-27
+- Status: ISSUES FOUND (1 low)
+- Findings:
+  - Verified good (no finding): evidence-based normalization (stale → UNKNOWN, never ONLINE from stale data; future-dated rejected — same rule as agent-health/availability); spooler/driver health require explicit probe evidence, never inferred from DB status; per-query 3s timeouts.
+  - [SEVERITY: low] Four `as any` casts on Drizzle rows (`:132`, `:198-200`, `:223`) discard the precise `printers` row type — the exact class removed from `agent-health.ts` in a prior fix (a renamed column would silently degrade instead of failing to compile). Plus the same sequential per-printer fan-out as `getAllAgentsHealth` (see agent-health entry). Remove casts; consider bounded concurrency.
+- Proposed fix: type the rows from schema inference; bounded fan-out.
+- Fix applied: no
+
+## [gateway/src/lib/printer-virtual.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Defense-in-depth guard with the right precedence (normalized metadata → capability keys/port monitors → driver/PnP haystack → legacy name fallback); token lists cite the agent mirror (`softwareWriterTokens`/`sessionRedirectTokens` — verify at agent batch); legacy rows preserved-but-dark. No finding.
+- Proposed fix: none
+- Fix applied: n/a
+
+## [gateway/src/lib/payload.ts] — audited 2026-09-27
+- Status: OK
+- Findings: none. Contract-single-sourced Zod (wire types/protocols/peripherals/sizes from `print-payload-contract.json`); canonical base64 round-trip check (correct given Node's forgiving decoder); magic-byte enforcement (`%PDF-`, JPEG SOI) with anti-mislabling (PDF-as-raw rejected); peripherals fenced to escpos; per-protocol test tickets with injection-safe escaping (C0 strip, PDF paren-escape, ZPL `^~` strip, TSPL quote-strip, 4 KiB cap). DB `CHECK` mirror already verified at schema audit. No finding.
+- Proposed fix: none
+- Fix applied: n/a
