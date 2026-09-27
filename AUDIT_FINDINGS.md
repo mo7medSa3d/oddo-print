@@ -44,55 +44,65 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       File: `src/app/api/platform/tenants/[id]/suspend/route.ts:22-29` + `docker-compose.yml:83` + `DEPLOYMENT.md:50`
       Fix applied: commit `d0bdc4b9` (pre-audit; v2 audit missed it) — `server.ts:65-69` refuses production startup when `PLATFORM_TENANT_ID` is unset or the `<required-platform-tenant-id>` placeholder, so the route's fail-open branch is unreachable in production. Compose still defaults to empty (`docker-compose.yml:83`), which now fails fast at boot with a clear message.
 
-- [ ] **[Severity: Low] Discovery devices query omits `agentId` fence present on the session query**
+- [x] **[Severity: Low] Discovery devices query omits `agentId` fence present on the session query**
       File: `src/app/api/agents/[id]/discovery/[discoveryId]/route.ts:15-17`
       Issue: The session lookup fences on `id + agentId + tenantId`, but the devices lookup filters only `discoveryId + tenantId`. Same-tenant managers with `agents.read` can already enumerate agents, so this is defense-in-depth rather than a privilege escalation — but a device row whose `agentId` FK disagrees with its session's agent would leak across the `:id` boundary.
       Suggested fix: Add `eq(discoveredDevices.agentId, agentId)` to the devices predicate.
+      Fix applied: 8e1fc1b9 — devices predicate gains eq(discoveredDevices.agentId, agentId).
 
-- [ ] **[Severity: Low] Wrong status for unauthenticated settings access**
+- [x] **[Severity: Low] Wrong status for unauthenticated settings access**
       File: `src/app/api/settings/route.ts:11,22`
       Issue: `!claims?.userId` returns `403 Forbidden`; the repo convention (e.g. `onboarding/route.ts:11,31`) is `401 Unauthorized` for missing auth, `403` for permission failure. `403` misleads legacy-token holders into debugging permissions instead of re-authenticating.
       Suggested fix: Return 401 when there are no claims, 403 only when permission check fails.
+      Fix applied: a1423c9d — 401 when no claims/userId, 403 only for permission failure.
 
-- [ ] **[Severity: Low] Inconsistent `Forbidden` response shape**
+- [x] **[Severity: Low] Inconsistent `Forbidden` response shape**
       Files: `src/app/api/odoo/keys/route.ts:35,70`, `src/app/api/agents/[id]/route.ts:37`
       Issue: `GET` returns bare `{error}` while `POST` returns `{error, code: FORBIDDEN, ...}` via `ActionError` for the same authorization failure.
       Suggested fix: Standardize one shape (prefer the coded shape).
+      Fix applied: 0db704d4 — standardized on the coded ActionError shape (agents/[id], odoo/keys).
 
-- [ ] **[Severity: Low] Inconsistent auth-failure shape on session probe**
+- [x] **[Severity: Low] Inconsistent auth-failure shape on session probe**
       File: `src/app/api/auth/me/route.ts:1`
       Issue: Returns `{authenticated: false}` 401 while every other route returns `{error: string}`. Breaks shared client error handling (likely a deliberate probe shape — if kept, document it as intentional).
       Suggested fix: Return `{error: "Unauthorized"}` or add a comment declaring the probe shape deliberate.
+      Fix applied: 0db704d4 — 401 bodies use {error}; 2xx probe bodies keep the authenticated flag (clients key off status).
 
-- [ ] **[Severity: Low] Dead imports in agent jobs route**
+- [x] **[Severity: Low] Dead imports in agent jobs route**
       File: `src/app/api/agent/jobs/route.ts:17-18`
       Issue: `getCorrelationContext`, `generateAttemptId`, `databaseNowMs` are imported but never referenced (verified by grep — only the import lines match).
       Suggested fix: Delete the unused imports.
+      Fix applied: dedb1955 — getCorrelationContext/generateAttemptId removed (remaining refreshClockSkew/nanoid matches are live uses).
 
-- [ ] **[Severity: Low] Dead import in print jobs route**
+- [x] **[Severity: Low] Dead import in print jobs route**
       File: `src/app/api/print/jobs/route.ts:10`
       Issue: `refreshClockSkew` imported but never called (only `databaseNowMs` is used).
       Suggested fix: Delete the unused import.
+      Fix applied: dedb1955 — refreshClockSkew import removed.
 
-- [ ] **[Severity: Low] Dead import in printer certify route**
+- [x] **[Severity: Low] Dead import in printer certify route**
       File: `src/app/api/printers/[id]/certify/route.ts:8`
       Issue: `nanoid` imported but never used (IDs come from `createPrintJobForPrinter`).
       Suggested fix: Delete the unused import.
+      Fix applied: dedb1955 — nanoid import removed (generateAttemptId use at :61 is live).
 
-- [ ] **[Severity: Low] Wrong status for webhook signature failure**
+- [x] **[Severity: Low] Wrong status for webhook signature failure**
       File: `src/app/api/billing/webhook/route.ts:67`
       Issue: Bad `stripe-signature` returns `400`; a signature failure is an authentication failure → `401` is semantically correct.
       Suggested fix: Return 401 for invalid signature (keep 400 for malformed JSON/event).
+      Fix applied: afcb5a76 tried 401; integration contract pins 400 + Stripe convention; reverted in 2fe01934 with deliberate-design comment. Closed as documented-deliberate.
 
-- [ ] **[Severity: Low] Wrong status for consumed selection token**
+- [x] **[Severity: Low] Wrong status for consumed selection token**
       File: `src/app/api/auth/select-tenant/route.ts:100`
       Issue: `Selection token already used` returns `401`; single-use-token replay is a client-state conflict → `409` (as `agent/register:189` does for consumed codes).
       Suggested fix: Return 409.
+      Fix applied: afcb5a76 — 409 (only the message string is pinned, not the status).
 
-- [ ] **[Severity: Low] No body limit or rate limit on invitation accept**
+- [x] **[Severity: Low] No body limit or rate limit on invitation accept**
       File: `src/app/api/team/invitations/accept/route.ts:8`
       Issue: No `hasBodyOverLimit`, no `reserveAuthAttempt` on the `tokenHash` lookup. Token entropy (256-char) makes enumeration infeasible and `email` must also match (`:18`), so this is a consistency/hardening item, not an exploitable gap.
       Suggested fix: Add `hasBodyOverLimit(req, 16*1024)` + IP throttle for consistency with the other token-consuming routes.
+      Fix applied: 14706ddc — hasBodyOverLimit(16KiB) + IP-scoped reserveAuthAttempt; budget never cleared (no session minted, same policy as forgot-password).
 
 ---
 
@@ -102,10 +112,11 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       File: `src/lib/job-maintenance.ts:19`
       Fix applied: commit `6638efc4` — finite-positive guard with fallback to 200.
 
-- [ ] **[Severity: High] System health overall permanently `unknown` due to hardcoded external checks**
+- [x] **[Severity: High] System health overall permanently `unknown` due to hardcoded external checks**
       File: `src/lib/system-health.ts:157,176-178` + `computeOverall` external branch
       Issue: `getSystemHealth` hardcodes `odoo`/`billing` as `unknown` ("NOT VERIFIED"), and `computeOverall` forces overall `unknown` when any external check is `unknown`. The endpoint can never report better than `unknown`, which also contradicts the Docker smoke expectation of `warn`-when-degraded. A real Odoo probe target exists (`src/app/api/odoo/health/`).
       Suggested fix: Either probe Odoo health (and Stripe reachability when configured) for real, or change policy so intentionally-unverified externals cap overall at `warn` instead of `unknown`, documenting the policy. Externally visible behavior change — note in commit + PATCH_LOG.
+      Fix applied: ee13b64f — intentionally-unverified externals cap overall at WARN, never OK (verified green CI 36299009432 + Windows 36299009422). BEHAVIOR CHANGE noted in commit.
 
 - [x] **[Severity: Low] Inconsistent logger: `console.warn` instead of application logger**
       File: `src/lib/auth-rate-limit.ts:50`
@@ -127,35 +138,41 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       File: `src/server/ws.ts:493,676,750`
       Fix applied: commit `11a0bb82` — no interpolated `${...}` event names remain in `ws.ts` log calls (verified by grep).
 
-- [ ] **[Severity: Medium] Dashboard jobs failure swallowed with no UI error**
+- [x] **[Severity: Medium] Dashboard jobs failure swallowed with no UI error**
       File: `src/app/dashboard/dashboard-client.tsx:459`
       Issue: The `catch` only `console.error`s, leaving a stale job list displayed with no error state; operators cannot distinguish "no jobs" from "query failed".
       Suggested fix: Surface via an error message state.
+      Fix applied: ee13b64f — error panel with retry via jobsError/jobsRetryTick.
 
-- [ ] **[Severity: Low] Raw `Error` objects in log fields + bracket event names**
+- [x] **[Severity: Low] Raw `Error` objects in log fields + bracket event names**
       Files: `src/app/billing/page.tsx:109`, `src/app/dashboard/page.tsx:114`
       Issue: `{ error }` passes a live `Error` (`JSON.stringify(Error)` → `{}`), losing the message; `"[dashboard] database load failed"` uses brackets instead of the dotted event convention (`billing.print_usage_unavailable` at billing/page is already correct).
       Suggested fix: `{ error: error instanceof Error ? error.message : String(error) }`, event `dashboard.database_load_failed`.
+      Fix applied: ee13b64f — dotted events + string messages.
 
-- [ ] **[Severity: Low] Dead exports in session tokens (zero repo-wide callers)**
+- [x] **[Severity: Low] Dead exports in session tokens (zero repo-wide callers)**
       File: `src/lib/session-tokens.ts:203,538,807,811`
       Issue: `verifyAccessToken` (only the signature-only variant at `:193` is used), `sessionKindFromClaims`, `getRefreshCookieName`, `getAccessCookieName` have no callers anywhere in `src/`, `tests/`, or `scripts/` (verified by grep).
       Suggested fix: Delete, or wire callers if they are intended public API.
+      Fix applied: 6db07659 — verifyAccessToken, sessionKindFromClaims, getRefreshCookieName, getAccessCookieName deleted.
 
-- [ ] **[Severity: Low] Dead exports in request guard**
+- [x] **[Severity: Low] Dead exports in request guard**
       File: `src/server/request-guard.ts:231,235`
       Issue: `getReservedAuthBytes`/`getReservedUnauthBytes` have no callers; only `getReservedRequestBytes` is used.
       Suggested fix: Delete.
+      Fix applied: 6db07659 — getReservedAuthBytes/getReservedUnauthBytes deleted.
 
-- [ ] **[Severity: Low] Dead publish helpers in WebSocket server**
+- [x] **[Severity: Low] Dead publish helpers in WebSocket server**
       File: `src/server/ws.ts:286,295`
       Issue: `publishAgentSessionClose`/`publishTenantSessionClose` have no callers; session-close paths use raw `pg_notify` SQL instead (two implementations of one concept).
       Suggested fix: Delete the helpers or route the raw-SQL callers through them (preferred: single implementation).
+      Fix applied: 6db07659 — publish helpers deleted; single inline pg_notify implementation left.
 
-- [ ] **[Severity: Low] Dead WS lock + lifecycle helpers**
+- [x] **[Severity: Low] Dead WS lock + lifecycle helpers**
       Files: `src/lib/ws-rate-limit.ts:28`, `src/lib/lifecycle.ts:6,18`
       Issue: `isWsUpgradeLocallyLocked` has no callers; `assertLifecycleTransition` (and `isLifecycle`, used only by it) has no callers.
       Suggested fix: Delete.
+      Fix applied: 6db07659 — isWsUpgradeLocallyLocked, assertLifecycleTransition, isLifecycle deleted.
 
 - [x] **[Severity: Low] `requireActiveTenant` falls through on unexpected lifecycle**
       File: `src/lib/tenant-guard.ts:92-100`
@@ -415,10 +432,11 @@ Legend: `[x]` fixed (SHA given) · `[ ]` open · `BLOCKED` = cannot verify/fix w
       File: `odoo_addons/print_gateway/controllers/pos.py:21-27` vs `models/print_router.py:505-509`
       Fix applied: commit `ab4fb9a3` — both sides now carry a NOTE comment documenting the dual-binding requirement (each path needs its own binding). Documented, deliberate — closed.
 
-- [ ] **[Severity: Low] Config permanently undeletable after first job**
+- [x] **[Severity: Low] Config permanently undeletable after first job**
       File: `odoo_addons/print_gateway/security/ir.model.access.csv:8` + `models/gateway_config.py:1376-1394`
       Issue: Admin `print_job` has `perm_unlink=0` (jobs immortal) and `unlink()` blocks config delete while any job references it — after the first print, the config can never be deleted.
       Suggested fix: Document the archival-only lifecycle (model header or ODOO_INTEGRATION.md) or allow admin job purge.
+      Fix applied: ab4fb9a3 — unlink error now says jobs are retained audit records and to disable instead.
 
 ---
 
