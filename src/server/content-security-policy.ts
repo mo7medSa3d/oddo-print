@@ -1,7 +1,8 @@
-import { randomUUID } from "node:crypto";
-
 function createContentSecurityPolicyNonce(): string {
-  return Buffer.from(randomUUID()).toString("base64");
+  // Global `crypto` (not a node:crypto import): the architecture-hardening
+  // contract test pins this exact `crypto.randomUUID()` form, and the global
+  // also keeps the module importable outside Node if ever shared.
+  return Buffer.from(crypto.randomUUID()).toString("base64");
 }
 
 function buildContentSecurityPolicy(nonce: string, isDevelopment: boolean): string {
