@@ -52,7 +52,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });
   }
 
-  const tenantId = await resolveManagerTenantId(req);
+  const tenantId = await resolveManagerTenantId(req, username);
   if (!tenantId) {
     return setRateLimitHeaders(NextResponse.json({ error: "Manager tenant is not configured for this hostname" }, { status: 503 }), pre);
   }
@@ -69,8 +69,7 @@ export async function POST(req: Request) {
       return setRateLimitHeaders(NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 }), pre);
     }
   }
-  const legacyEnvironment = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
-  const legacyEnabled = legacyEnvironment && process.env.ALLOW_LEGACY_MANAGER_AUTH === "1";
+  const legacyEnabled = process.env.NODE_ENV !== "production" && process.env.ALLOW_LEGACY_MANAGER_AUTH === "1";
   const legacyValid = legacyEnabled && expectedUser && legacyTenantId === tenantId
     ? await verifyManagerPassword(username, password)
     : false;
