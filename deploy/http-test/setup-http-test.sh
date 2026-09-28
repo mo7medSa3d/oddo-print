@@ -110,7 +110,18 @@ for octet in "$oct1" "$oct2" "$oct3" "$oct4"; do
   fi
 done
 
-HTTP_TEST_BIND_IP="$PUBLIC_IP"
+# IMPORTANT for Azure and other public-NAT hosts:
+# the public IP is not normally a local guest interface address. Caddy must
+# listen on a local bind address (0.0.0.0 on the real server), while the
+# public IP is used only as the client-facing Host/origin. In CI, where the
+# public IP is loopback, keep the binding local to 127.0.0.1.
+if [[ -n "${HTTP_TEST_BIND_IP_OVERRIDE:-}" ]]; then
+  HTTP_TEST_BIND_IP="$HTTP_TEST_BIND_IP_OVERRIDE"
+elif [[ "$PUBLIC_IP" == "127.0.0.1" ]]; then
+  HTTP_TEST_BIND_IP="127.0.0.1"
+else
+  HTTP_TEST_BIND_IP="0.0.0.0"
+fi
 HTTP_TEST_HOST="$PUBLIC_IP"
 APP_BASE_URL="http://$PUBLIC_IP"
 if [[ "$HTTP_TEST_PORT" != "80" ]]; then
@@ -176,12 +187,23 @@ if ! curl -fsS --max-time 10 "$LOCAL_BASE_URL/api/health" >/dev/null; then
   exit 1
 fi
 
+# Verify Caddy Host routing locally before any browser/Odoo/Agent testing.
+# This catches bind/Host-matcher mistakes while everything is still on-server.
+if ! curl -fsS --max-time 10 -H "Host: $HTTP_TEST_HOST" "$LOCAL_BASE_URL/api/live" >/dev/null; then
+  echo "ERROR: Caddy Host routing failed for configured server IP $HTTP_TEST_HOST."
+  docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml ps || true
+  docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml logs --no-color --tail=120 caddy gateway || true
+  exit 1
+fi
+
 docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml run --rm gateway npm run db:provision-plans
 
 echo
 echo "Yasser HTTP test environment is READY."
 echo "Local health: $LOCAL_BASE_URL"
-echo "Gateway: $APP_BASE_URL"
+echo "Bind:        $HTTP_TEST_BIND_IP"
+echo "Public host: $HTTP_TEST_HOST"
+echo "Gateway:     $APP_BASE_URL"
 echo "Signup:  $APP_BASE_URL/signup"
 echo "Login:   $APP_BASE_URL/login"
 echo "Capture: $TEST_DATA_DIR/verification-email.txt"
