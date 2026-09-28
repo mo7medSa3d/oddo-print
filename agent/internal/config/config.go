@@ -66,16 +66,13 @@ func ValidateServerURL(raw string) error {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return fmt.Errorf("server.url must not contain credentials, query strings, or fragments")
 	}
-	// HTTPS is the production/default transport. Plain HTTP is only permitted
-	// when explicitly opted into for isolated development or test environments.
+	// test/http-server-ready intentionally accepts either HTTP or HTTPS so
+	// an Agent can pair directly to a staging Gateway by IP:port without a
+	// domain or certificate. Credentials, query strings, and fragments remain
+	// forbidden above.
 	switch strings.ToLower(u.Scheme) {
-	case "https":
+	case "https", "http":
 		return nil
-	case "http":
-		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" {
-			return nil
-		}
-		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASSER_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development/test environments")
 	default:
 		return fmt.Errorf("server.url scheme must be http or https, got %q", u.Scheme)
 	}

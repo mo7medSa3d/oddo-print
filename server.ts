@@ -64,7 +64,8 @@ if (!plaintextManagerPasswordAllowedEnvironment && process.env.ALLOW_PLAINTEXT_M
   throw new Error("Refusing startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1 outside development/test; configure MANAGER_PASSWORD_HASH instead.");
 }
 
-const httpTestMode = process.env.YASSER_HTTP_TEST_MODE === "1";
+// test/http-server-ready is deliberately transport-agnostic for staging.
+const httpTestMode = process.env.YASSER_HTTP_TEST_MODE !== "0";
 // Staging-only insecure-cookie signal (also read by sessionCookieSecure):
 // COOKIE_SECURE=0 is refused in production unless the explicit test flag is set.
 const cookieSecureDisabled = ["0", "false", "no", "off"].includes((process.env.COOKIE_SECURE ?? "").trim().toLowerCase());

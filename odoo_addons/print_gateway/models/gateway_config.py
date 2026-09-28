@@ -245,8 +245,9 @@ class PrintGatewayConfig(models.Model):
         scheme = parsed.scheme.lower()
         if scheme not in ("http", "https") or not parsed.hostname:
             raise ValidationError(_("Gateway URL must use HTTP or HTTPS and include a host, e.g. https://print.example.com or http://192.0.2.10:3000."))
-        if scheme == "http" and os.environ.get("ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP") != "1":
-            raise ValidationError(_("Gateway URL must use HTTPS. Plain HTTP is allowed only for explicitly opted-in isolated development."))
+        # test/http-server-ready intentionally accepts both HTTP and HTTPS so
+        # staging can run by IP:port without a DNS name or certificate.
+        # Credentials, query strings, fragments, and API paths remain forbidden.
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValidationError(_("Gateway URL must not contain credentials, query parameters, or fragments."))
         if parsed.path not in ("", "/"):

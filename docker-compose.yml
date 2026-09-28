@@ -55,7 +55,9 @@ services:
       TZ: UTC
       HOSTNAME: 0.0.0.0
       PORT: 3000
-      APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL must be set to the public Gateway URL}
+      # Staging default: direct HTTP by IP:port is supported without a DNS name.
+      APP_BASE_URL: ${APP_BASE_URL:-http://127.0.0.1:3000}
+      YASSER_HTTP_TEST_MODE: ${YASSER_HTTP_TEST_MODE:-1}
       # Optional providers stay disabled when unset; their absence must not
       # prevent the core Gateway from starting.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -76,9 +78,9 @@ services:
       ALLOW_PLAINTEXT_MANAGER_PASSWORD:
       # Keep Secure enabled for HTTPS. Set COOKIE_SECURE=0 only for an
       # intentionally HTTP-only test deployment.
-      COOKIE_SECURE: ${COOKIE_SECURE:-1}
+      COOKIE_SECURE: ${COOKIE_SECURE:-0}
       STALE_AGENT_THRESHOLD_SECONDS: ${STALE_AGENT_THRESHOLD_SECONDS:-90}
-      TRUST_PROXY: ${TRUST_PROXY:-1}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
       TRUST_PROXY_SECRET_FILE: /run/secrets/trust_proxy_secret
       PLATFORM_TENANT_ID: ${PLATFORM_TENANT_ID:-}
     secrets:
@@ -88,6 +90,10 @@ services:
       - trust_proxy_secret
     expose:
       - "3000"
+    # Staging-only direct Gateway access. Production main keeps the Gateway
+    # private behind Caddy.
+    ports:
+      - "${GATEWAY_APP_PORT:-3000}:3000"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -104,7 +110,9 @@ services:
       gateway:
         condition: service_healthy
     environment:
-      GATEWAY_DOMAIN: ${GATEWAY_DOMAIN:?GATEWAY_DOMAIN must be set to a DNS name for production TLS}
+      # Optional for IP-based HTTP staging. Set GATEWAY_DOMAIN later to enable
+      # Caddy-managed HTTPS without changing the Gateway URL contract.
+      GATEWAY_DOMAIN: ${GATEWAY_DOMAIN:-:80}
     secrets:
       - trust_proxy_secret
     ports:

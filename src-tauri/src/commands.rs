@@ -157,20 +157,9 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     if scheme != "https" && scheme != "http" {
         return Err("gateway URL must use http:// or https://".into());
     }
-    let remote_http = scheme == "http";
-    // Staging-only HTTP acceptance, explicitly gated: remote HTTP requires
-    // YASSER_HTTP_TEST_MODE=1 in the desktop process environment (set by the
-    // staging launcher). Without the flag this behaves exactly like
-    // production — remote HTTP is rejected, localhost HTTP stays available
-    // for development. URL credential and query/fragment validation below
-    // remains mandatory in all cases.
-    if remote_http {
-        let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
-        let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");
-        if !local && std::env::var("YASSER_HTTP_TEST_MODE").as_deref() != Ok("1") {
-            return Err("Gateway URL must use HTTPS for remote Gateways (set YASSER_HTTP_TEST_MODE=1 for the isolated HTTP staging deployment)".into());
-        }
-    }
+    // test/http-server-ready intentionally accepts HTTP or HTTPS for direct
+    // staging by IP:port. Credential, query, and fragment validation remains
+    // mandatory below. Production main is unchanged by this branch.
     if parsed.username() != "" || parsed.password().is_some() {
         return Err("gateway URL cannot include embedded credentials".into());
     }

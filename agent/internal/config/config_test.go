@@ -151,36 +151,19 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
-func TestConfigValidateRequiresHTTPSByDefault(t *testing.T) {
-	// Production/default behavior is fail-closed: HTTP is rejected unless
-	// explicitly opted into for isolated development/test environments.
-	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "")
+func TestConfigValidateAcceptsHTTPAndHTTPSOnStaging(t *testing.T) {
 	for _, raw := range []string{
 		"http://127.0.0.1:3000",
 		"http://192.168.1.50:3000",
 		"http://10.0.0.5:3000",
-		"http://gateway.example.com",
-	} {
-		c := &Config{}
-		c.Server.URL = raw
-		if err := c.Validate(); err == nil {
-			t.Fatalf("expected HTTP URL %q to be rejected without explicit opt-in", raw)
-		}
-	}
-}
-
-func TestConfigValidateAcceptsHTTPWithExplicitDevelopmentOptIn(t *testing.T) {
-	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1")
-	for _, raw := range []string{
-		"http://127.0.0.1:3000",
-		"http://192.168.1.50:3000",
-		"http://10.0.0.5:3000",
-		"http://gateway.example.com",
+		"http://gateway.example.com:3000",
+		"https://gateway.example.com",
+		"https://192.168.1.50:3443",
 	} {
 		c := &Config{}
 		c.Server.URL = raw
 		if err := c.Validate(); err != nil {
-			t.Fatalf("expected explicit development opt-in to permit %q, got %v", raw, err)
+			t.Fatalf("expected staging transport URL %q to validate, got %v", raw, err)
 		}
 	}
 }
