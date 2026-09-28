@@ -823,7 +823,7 @@ func TestReloadRegistryPrintersFeedsRuntimeAndHeartbeat(t *testing.T) {
 		t.Fatalf("SaveRegistry: %v", err)
 	}
 
-	ag.sendHeartbeat()
+	ag.sendHeartbeatContext(context.Background())
 	if _, ok := ag.getPrinter(device.ID); !ok {
 		t.Fatal("registry reload must add the printer backend to the runtime map")
 	}

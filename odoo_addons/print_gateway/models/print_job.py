@@ -99,21 +99,22 @@ class PrintGatewayJob(models.Model):
         "UNIQUE(company_id, idempotency_key)",
         "The same logical print operation may only be created once.",
     )
-    # Terminal states: no further transitions are accepted once a job reaches one
-# of these. "unknown" is terminal because it represents a reconcilable but
-# ambiguous physical outcome that must be resolved by an operator, not by
-# automated transitions.
-_TERMINAL = frozenset(("success", "failed", "partial", "unknown"))
-
+        # Terminal states: no further transitions are accepted once a job reaches one
+    # of these. "unknown" is terminal because it represents a reconcilable but
+    # ambiguous physical outcome that must be resolved by an operator, not by
+    # automated transitions.
+    _TERMINAL = frozenset(("success", "failed", "partial", "unknown"))
+    
+    # Valid status transitions for the print job state machine.
+    # Canonical happy path: queued -> submitted -> claimed -> printing
+    # -> success, exactly one hop at a time. Forward progress NEVER
+    # skips a stage (an idempotent replay observed beyond 'submitted' is
+    # recorded hop-by-hop via _advance_status, so no writer needs a
+    # shortcut). Failure/unknown are explicitly valid exits from any
+    # non-terminal state; nothing leaves a terminal state (self-loops
+    # only, and 'partial' accepts no inbound writes at all - the
+    # Gateway sync never produces it).
     _VALID_TRANSITIONS = {
-        # Canonical happy path: queued -> submitted -> claimed -> printing
-        # -> success, exactly one hop at a time. Forward progress NEVER
-        # skips a stage (an idempotent replay observed beyond 'submitted' is
-        # recorded hop-by-hop via _advance_status, so no writer needs a
-        # shortcut). Failure/unknown are explicitly valid exits from any
-        # non-terminal state; nothing leaves a terminal state (self-loops
-        # only, and 'partial' accepts no inbound writes at all - the
-        # Gateway sync never produces it).
         "queued": {"submitted", "failed", "unknown"},
         "submitted": {"claimed", "failed", "unknown"},
         "claimed": {"printing", "failed", "unknown"},
@@ -123,7 +124,7 @@ _TERMINAL = frozenset(("success", "failed", "partial", "unknown"))
         "partial": {"partial"},
         "unknown": {"unknown"},
     }
-
+    
     # Forward-progress chain for _advance_status. Failure/unknown are NOT
     # chain hops: they are written directly (they are valid exits from any
     # non-terminal state per the matrix above).
@@ -212,7 +213,7 @@ _TERMINAL = frozenset(("success", "failed", "partial", "unknown"))
         """
         job.ensure_one()
         self._lock_status_row(job)
-        if target not in self._FORWARD_CHAIN and target not in ("failed", "unknown"):
+        if target not in _FORWARD_CHAIN and target not in ("failed", "unknown"):
             raise ValidationError(
                 _("Invalid print job state transition from '%s' to '%s'.")
                 % (job.status, target)
@@ -240,8 +241,8 @@ _TERMINAL = frozenset(("success", "failed", "partial", "unknown"))
             job.write(terminal_values)
             return
         try:
-            position = self._FORWARD_CHAIN.index(job.status)
-            destination = self._FORWARD_CHAIN.index(target)
+            position = _FORWARD_CHAIN.index(job.status)
+            destination = _FORWARD_CHAIN.index(target)
         except ValueError:
             raise ValidationError(
                 _("Invalid print job state transition from '%s' to '%s'.")
@@ -252,7 +253,7 @@ _TERMINAL = frozenset(("success", "failed", "partial", "unknown"))
                 _("Invalid print job state transition from '%s' to '%s'.")
                 % (job.status, target)
             )
-        for hop in self._FORWARD_CHAIN[position + 1:destination + 1]:
+        for hop in _FORWARD_CHAIN[position + 1:destination + 1]:
             hop_values = {"status": hop}
             if hop == target:
                 hop_values.update({key: value for key, value in values.items() if key != "status"})
@@ -354,7 +355,7 @@ _TERMINAL = frozenset(("success", "failed", "partial", "unknown"))
             target_status = vals["status"]
             for job in self:
                 if job.status and target_status != job.status:
-                    allowed = self._VALID_TRANSITIONS.get(job.status, set())
+                    allowed = _VALID_TRANSITIONS.get(job.status, set())
                     if target_status not in allowed:
                         raise ValidationError(
                             _("Invalid print job state transition from '%s' to '%s'.")
@@ -729,7 +730,7 @@ _TERMINAL = frozenset(("success", "failed", "partial", "unknown"))
     def _advance_status_claimed(self, job, target, values, claim_token):
         """Advance a claimed job through the canonical status chain."""
         job.ensure_one()
-        if target not in self._FORWARD_CHAIN and target not in ("failed", "unknown"):
+        if target not in _FORWARD_CHAIN and target not in ("failed", "unknown"):
             raise ValidationError(
                 _("Invalid print job state transition from '%s' to '%s'.")
                 % (job.status, target)
@@ -787,8 +788,8 @@ _TERMINAL = frozenset(("success", "failed", "partial", "unknown"))
                 locked_job.write(final_values)
             else:
                 try:
-                    start = self._FORWARD_CHAIN.index(current)
-                    end = self._FORWARD_CHAIN.index(target)
+                    start = _FORWARD_CHAIN.index(current)
+                    end = _FORWARD_CHAIN.index(target)
                 except ValueError:
                     raise ValidationError(
                         _("Invalid print job state transition from '%s' to '%s'.")
@@ -799,7 +800,7 @@ _TERMINAL = frozenset(("success", "failed", "partial", "unknown"))
                         _("Invalid print job state transition from '%s' to '%s'.")
                         % (current, target)
                     )
-                for hop in self._FORWARD_CHAIN[start + 1:end + 1]:
+                for hop in _FORWARD_CHAIN[start + 1:end + 1]:
                     hop_values = {"status": hop}
                     if hop == target:
                         hop_values.update({k: v for k, v in values.items() if k != "status"})
