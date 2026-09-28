@@ -33,20 +33,24 @@ if ($uri.AbsolutePath -ne "/" -or -not [string]::IsNullOrEmpty($uri.Query) -or -
   throw "ServerUrl must be the Gateway origin only (http://IP[:port])."
 }
 
-Write-Host "HTTP test transport is enabled by the staging Gateway URL contract with explicit insecure-HTTP opt-in for this process only."
+Write-Host "HTTP test transport is enabled directly by the isolated staging Agent/Gateway URL contract."
 Write-Host "Pairing Yasser Agent with $ServerUrl ..."
 
-$env:YASSER_AGENT_ALLOW_INSECURE_HTTP = "1"
-$pairExitCode = 0
-try {
-    & $AgentCli -pair $PairingCode -server $ServerUrl
-    $pairExitCode = $LASTEXITCODE
-} finally {
-    Remove-Item Env:YASSER_AGENT_ALLOW_INSECURE_HTTP -ErrorAction SilentlyContinue
+& $AgentCli -pair $PairingCode -server $ServerUrl
+if ($LASTEXITCODE -ne 0) {
+  throw "Yasser Agent pairing failed with exit code $LASTEXITCODE."
 }
 
-if ($pairExitCode -ne 0) {
-  throw "Yasser Agent pairing failed with exit code $pairExitCode."
+# Verify that the persisted Agent credentials can immediately use the HTTP
+# Gateway from the CLI path used by the Tauri desktop for Agent-authenticated
+# console requests. This catches the exact class of bug where pairing succeeds
+# but the Windows service/CLI still rejects the stored HTTP URL.
+$consoleResponse = & $AgentCli gateway-request -method GET -path "/api/agents"
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($consoleResponse -join ""))) {
+  throw "Yasser Agent paired, but its HTTP Gateway console request failed."
+}
+if (($consoleResponse -join "") -notmatch '"status":s*200') {
+  throw "Yasser Agent HTTP Gateway console request did not return HTTP 200: $($consoleResponse -join " ")"
 }
 
-Write-Host "PASS: Agent pairing command completed."
+Write-Host "PASS: Agent pairing and persisted HTTP Gateway authentication verified."
