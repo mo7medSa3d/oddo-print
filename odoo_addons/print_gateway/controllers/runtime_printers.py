@@ -168,7 +168,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         except (requests.RequestException, ValueError) as exc:
             raise ValidationError('Gateway agent discovery is unavailable.') from exc
         matched_agent = next(
-            (a for a in active_agents or [] if isinstance(a, dict) and a.get('id') == selected_agent_id and a.get('lifecycle') == 'active'),
+            (a for a in all_agents or [] if isinstance(a, dict) and a.get('id') == selected_agent_id and a.get('lifecycle') == 'active'),
             None,
         )
         if not matched_agent:

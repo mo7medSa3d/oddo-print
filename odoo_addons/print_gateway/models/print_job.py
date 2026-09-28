@@ -730,7 +730,7 @@ class PrintGatewayJob(models.Model):
     def _advance_status_claimed(self, job, target, values, claim_token):
         """Advance a claimed job through the canonical status chain."""
         job.ensure_one()
-        if target not in _FORWARD_CHAIN and target not in ("failed", "unknown"):
+        if target not in self._FORWARD_CHAIN and target not in ("failed", "unknown"):
             raise ValidationError(
                 _("Invalid print job state transition from '%s' to '%s'.")
                 % (job.status, target)
@@ -788,8 +788,8 @@ class PrintGatewayJob(models.Model):
                 locked_job.write(final_values)
             else:
                 try:
-                    start = _FORWARD_CHAIN.index(current)
-                    end = _FORWARD_CHAIN.index(target)
+                    start = self._FORWARD_CHAIN.index(current)
+                    end = self._FORWARD_CHAIN.index(target)
                 except ValueError:
                     raise ValidationError(
                         _("Invalid print job state transition from '%s' to '%s'.")
@@ -800,7 +800,7 @@ class PrintGatewayJob(models.Model):
                         _("Invalid print job state transition from '%s' to '%s'.")
                         % (current, target)
                     )
-                for hop in _FORWARD_CHAIN[start + 1:end + 1]:
+                for hop in self._FORWARD_CHAIN[start + 1:end + 1]:
                     hop_values = {"status": hop}
                     if hop == target:
                         hop_values.update({k: v for k, v in values.items() if k != "status"})

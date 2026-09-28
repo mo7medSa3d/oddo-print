@@ -228,11 +228,10 @@ class PrintGatewayPolicy(models.Model):
 
     @api.constrains("company_id", "branch_id", "binding_id")
     def _check_binding_scope(self):
-        # Delegate to the shared hierarchy check in binding.py to avoid
-        # duplicating the same company/branch/binding validation rules.
-        for policy in self:
-            if policy.binding_id:
-                policy.binding_id._check_hierarchy()
+        # The hierarchy validator is owned by the policy because it validates
+        # the policy's company/branch scope and its optional target binding.
+        # Keep this compatibility constraint as a single delegation point.
+        self._check_hierarchy()
 
     @api.constrains("action_type", "report_id", "raw_template", "raw_protocol", "domain_filter", "model_id", "event_type", "binding_id")
     def _check_action_configuration(self):
