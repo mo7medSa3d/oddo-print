@@ -33,13 +33,20 @@ if ($uri.AbsolutePath -ne "/" -or -not [string]::IsNullOrEmpty($uri.Query) -or -
   throw "ServerUrl must be the Gateway origin only (http://IP[:port])."
 }
 
-Write-Host "HTTP test transport is enabled by the staging Gateway URL contract; no extra insecure-HTTP agent flag is required."
+Write-Host "HTTP test transport is enabled by the staging Gateway URL contract with explicit insecure-HTTP opt-in for this process only."
 Write-Host "Pairing Yasser Agent with $ServerUrl ..."
 
-& $AgentCli -pair $PairingCode -server $ServerUrl
+$env:YASSER_AGENT_ALLOW_INSECURE_HTTP = "1"
+$pairExitCode = 0
+try {
+    & $AgentCli -pair $PairingCode -server $ServerUrl
+    $pairExitCode = $LASTEXITCODE
+} finally {
+    Remove-Item Env:YASSER_AGENT_ALLOW_INSECURE_HTTP -ErrorAction SilentlyContinue
+}
 
-if ($LASTEXITCODE -ne 0) {
-  throw "Yasser Agent pairing failed with exit code $LASTEXITCODE."
+if ($pairExitCode -ne 0) {
+  throw "Yasser Agent pairing failed with exit code $pairExitCode."
 }
 
 Write-Host "PASS: Agent pairing command completed."

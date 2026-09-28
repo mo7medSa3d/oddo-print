@@ -152,6 +152,20 @@ func TestConfigValidate(t *testing.T) {
 }
 
 func TestConfigValidateAcceptsHTTPAndHTTPSOnStaging(t *testing.T) {
+	// Same contract as ValidateServerURL: HTTP requires the explicit
+	// staging opt-in flag, HTTPS works by default.
+	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "")
+	for _, raw := range []string{
+		"http://127.0.0.1:3000",
+		"http://gateway.example.com:3000",
+	} {
+		c := &Config{}
+		c.Server.URL = raw
+		if err := c.Validate(); err == nil {
+			t.Fatalf("expected staging HTTP URL %q to be rejected without explicit opt-in", raw)
+		}
+	}
+	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1")
 	for _, raw := range []string{
 		"http://127.0.0.1:3000",
 		"http://192.168.1.50:3000",
@@ -163,7 +177,7 @@ func TestConfigValidateAcceptsHTTPAndHTTPSOnStaging(t *testing.T) {
 		c := &Config{}
 		c.Server.URL = raw
 		if err := c.Validate(); err != nil {
-			t.Fatalf("expected staging transport URL %q to validate, got %v", raw, err)
+			t.Fatalf("expected staging transport URL %q to validate with opt-in, got %v", raw, err)
 		}
 	}
 }

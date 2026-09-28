@@ -943,7 +943,7 @@ export default function DashboardClient({
                 </span>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2.5">
-                <code className="inline-flex min-h-14 items-center rounded-[10px] border border-edge bg-surface px-5 py-1 font-mono text-[30px] font-bold leading-none tracking-[0.28em] text-ink shadow-xs sm:text-[32px]">
+                <code className="inline-flex min-h-11 items-center rounded-[10px] border border-edge bg-surface px-3.5 font-mono text-[22px] font-bold tracking-[0.24em] text-ink shadow-xs">
                   {activePairing.code}
                 </code>
                 <Button variant="secondary" size="sm" onClick={() => copyPairingCode(activePairing.code)} icon={<Copy className="h-4 w-4" />}>
