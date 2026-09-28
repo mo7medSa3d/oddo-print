@@ -166,21 +166,25 @@ fi
 
 LOCAL_BASE_URL="http://127.0.0.1:$HTTP_TEST_PORT"
 
+# Caddy routes only requests carrying the configured public Host. On Azure/NAT,
+# keep the TCP connection local but send the same Host header clients use.
+CADDY_HOST_ARGS=( -H "Host: $HTTP_TEST_HOST" )
+
 echo "Waiting for Gateway..."
 for _ in $(seq 1 60); do
-  if curl -fsS --max-time 5 "$LOCAL_BASE_URL/api/live" >/dev/null; then
+  if curl -fsS --max-time 5 "${CADDY_HOST_ARGS[@]}" "$LOCAL_BASE_URL/api/live" >/dev/null; then
     break
   fi
   sleep 2
 done
 
-if ! curl -fsS --max-time 10 "$LOCAL_BASE_URL/api/live" >/dev/null; then
+if ! curl -fsS --max-time 10 "${CADDY_HOST_ARGS[@]}" "$LOCAL_BASE_URL/api/live" >/dev/null; then
   echo "ERROR: Gateway /api/live is not reachable after startup."
   docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml ps || true
   docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml logs --no-color --tail=200 gateway || true
   exit 1
 fi
-if ! curl -fsS --max-time 10 "$LOCAL_BASE_URL/api/health" >/dev/null; then
+if ! curl -fsS --max-time 10 "${CADDY_HOST_ARGS[@]}" "$LOCAL_BASE_URL/api/health" >/dev/null; then
   echo "ERROR: Gateway /api/health is not ready."
   docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml ps || true
   docker compose --env-file "$ENV_FILE" -f deploy/http-test/docker-compose.yml logs --no-color --tail=200 gateway || true
