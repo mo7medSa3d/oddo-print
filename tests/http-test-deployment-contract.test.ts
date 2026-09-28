@@ -66,6 +66,16 @@ describe("HTTP test deployment contracts", () => {
     expect(smoke).toContain("Upgrade: websocket");
     expect(smoke).toContain("$BASE/api/agent/ws");
   });
+  it("has a blocking end-to-end HTTP transport workflow for this staging branch", () => {
+    const workflow = read(".github/workflows/http-staging-transport.yml");
+    expect(workflow).toContain("test/http-server-ready");
+    expect(workflow).toContain("HTTP Gateway + Agent transport E2E");
+    expect(workflow).toContain("SERVER_PUBLIC_IP: 127.0.0.1");
+    expect(workflow).toContain("HTTP_TEST_PORT: 18080");
+    expect(workflow).toContain("bash deploy/http-test/smoke-http-test.sh");
+    expect(workflow).toContain("go test -mod=readonly ./internal/config");
+  });
+
   it("requires explicit staging mode for the production HTTP exception", () => {
     const server = read("server.ts");
     expect(server).toContain('const httpTestMode = process.env.YASSER_HTTP_TEST_MODE === "1";');
