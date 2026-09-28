@@ -98,6 +98,20 @@ if [[ -z "$POSTGRES_PASSWORD" || -z "$GATEWAY_JWT_SECRET" || -z "$TRUST_PROXY_SE
   exit 1
 fi
 
+if ! [[ "$PUBLIC_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+  echo "ERROR: SERVER_PUBLIC_IP must be an IPv4 address (got $PUBLIC_IP)."
+  exit 1
+fi
+IFS='.' read -r oct1 oct2 oct3 oct4 <<< "$PUBLIC_IP"
+for octet in "$oct1" "$oct2" "$oct3" "$oct4"; do
+  if (( 10#$octet > 255 )); then
+    echo "ERROR: SERVER_PUBLIC_IP contains an invalid IPv4 octet."
+    exit 1
+  fi
+done
+
+HTTP_TEST_BIND_IP="$PUBLIC_IP"
+HTTP_TEST_HOST="$PUBLIC_IP"
 APP_BASE_URL="http://$PUBLIC_IP"
 if [[ "$HTTP_TEST_PORT" != "80" ]]; then
   APP_BASE_URL="$APP_BASE_URL:$HTTP_TEST_PORT"
@@ -115,6 +129,8 @@ MANAGER_PASSWORD_HASH=unused-in-http-test-mode
 COOKIE_SECURE=0
 TRUST_PROXY=1
 YASSER_HTTP_TEST_MODE=1
+HTTP_TEST_BIND_IP=$HTTP_TEST_BIND_IP
+HTTP_TEST_HOST=$HTTP_TEST_HOST
 HTTP_TEST_PORT=$HTTP_TEST_PORT
 APP_BASE_URL=$APP_BASE_URL
 STRIPE_PLAN_CATALOG='[{"id":"http-test","name":"HTTP Test","priceId":"price_http_test_yasser","currency":"usd","interval":"month","entitlements":{"max_agents":5,"max_printers":10,"max_jobs_per_minute":60,"max_concurrent_jobs":8,"max_prints_per_period":"unlimited"}}]'
