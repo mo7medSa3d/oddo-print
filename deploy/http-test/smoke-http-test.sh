@@ -98,6 +98,7 @@ MANAGER_TOKEN="$(grep -Eo '"accessToken":"[^"]+"' "$TMP_DIR/manager-login.json" 
 curl -fsS --max-time 10 -H "Authorization: Bearer $MANAGER_TOKEN" "$BASE/api/auth/manager/me" | grep -q '"authenticated":true'
 echo "[8/10] Odoo bearer + Agent HTTP bearer + WebSocket over the same HTTP endpoint"
 
+echo "    -> creating Odoo API key"
 ODOO_KEY_STATUS="$(
   curl -sS --max-time 10 -o "$TMP_DIR/odoo-key.json" -w '%{http_code}' \
     "${DESKTOP_HEADERS[@]}" \
@@ -107,13 +108,22 @@ ODOO_KEY_STATUS="$(
     -d '{"name":"HTTP smoke Odoo"}' \
     "$BASE/api/odoo/keys"
 )"
-[[ "$ODOO_KEY_STATUS" == "201" ]]
+echo "    Odoo key status: $ODOO_KEY_STATUS"
+if [[ "$ODOO_KEY_STATUS" != "201" ]]; then
+  cat "$TMP_DIR/odoo-key.json"
+  exit 1
+fi
 ODOO_KEY="$(json_field apiKey < "$TMP_DIR/odoo-key.json")"
-[[ "$ODOO_KEY" == odoo_* ]]
+if [[ "$ODOO_KEY" != odoo_* ]]; then
+  echo "ERROR: Odoo API key response did not contain an odoo_* key."
+  cat "$TMP_DIR/odoo-key.json"
+  exit 1
+fi
 curl -fsS --max-time 10 \
   -H "Authorization: Bearer $ODOO_KEY" \
   "$BASE/api/odoo/health" | grep -q '"ok":true'
 
+echo "    -> creating Agent"
 AGENT_CREATE_STATUS="$(
   curl -sS --max-time 10 -o "$TMP_DIR/agent-create.json" -w '%{http_code}' \
     "${DESKTOP_HEADERS[@]}" \
@@ -123,12 +133,20 @@ AGENT_CREATE_STATUS="$(
     -d '{"name":"HTTP Smoke Agent"}' \
     "$BASE/api/agents"
 )"
-[[ "$AGENT_CREATE_STATUS" == "201" ]]
+echo "    Agent create status: $AGENT_CREATE_STATUS"
+if [[ "$AGENT_CREATE_STATUS" != "201" ]]; then
+  cat "$TMP_DIR/agent-create.json"
+  exit 1
+fi
 AGENT_ID="$(json_field id < "$TMP_DIR/agent-create.json")"
 PAIRING_CODE="$(json_field pairingCode < "$TMP_DIR/agent-create.json")"
-[[ "$AGENT_ID" == agt_* ]]
-[[ "$PAIRING_CODE" =~ ^[A-HJ-NP-Z2-9]{6}$ ]]
+if [[ "$AGENT_ID" != agt_* ]] || ! [[ "$PAIRING_CODE" =~ ^[A-HJ-NP-Z2-9]{6}$ ]]; then
+  echo "ERROR: invalid Agent create response"
+  cat "$TMP_DIR/agent-create.json"
+  exit 1
+fi
 
+echo "    -> pairing Agent"
 AGENT_REGISTER_STATUS="$(
   curl -sS --max-time 10 -o "$TMP_DIR/agent-register.json" -w '%{http_code}' \
     -H 'Content-Type: application/json' \
@@ -136,11 +154,18 @@ AGENT_REGISTER_STATUS="$(
     -d "{\"agentId\":\"$AGENT_ID\",\"pairingCode\":\"$PAIRING_CODE\",\"hostname\":\"http-smoke-agent\",\"clientVersion\":\"http-smoke\",\"platform\":\"linux\"}" \
     "$BASE/api/agent/register"
 )"
-[[ "$AGENT_REGISTER_STATUS" == "200" ]]
+echo "    Agent register status: $AGENT_REGISTER_STATUS"
+if [[ "$AGENT_REGISTER_STATUS" != "200" ]]; then
+  cat "$TMP_DIR/agent-register.json"
+  exit 1
+fi
 REGISTERED_AGENT_ID="$(json_field agentId < "$TMP_DIR/agent-register.json")"
 AGENT_SECRET="$(json_field secret < "$TMP_DIR/agent-register.json")"
-[[ "$REGISTERED_AGENT_ID" == "$AGENT_ID" ]]
-[[ -n "$AGENT_SECRET" ]]
+if [[ "$REGISTERED_AGENT_ID" != "$AGENT_ID" ]] || [[ -z "$AGENT_SECRET" ]]; then
+  echo "ERROR: invalid Agent register response"
+  cat "$TMP_DIR/agent-register.json"
+  exit 1
+fi
 
 AGENT_BEARER="Bearer $AGENT_ID:$AGENT_SECRET"
 curl -fsS --max-time 10 \
