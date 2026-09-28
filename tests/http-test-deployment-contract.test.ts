@@ -23,7 +23,7 @@ describe("HTTP test deployment contracts", () => {
     expect(compose).toContain('"${HTTP_TEST_BIND_IP}:${HTTP_TEST_PORT}:80"');
     expect(compose).toContain('HTTP_TEST_HOST: ${HTTP_TEST_HOST}');
     expect(compose).toContain(':80"');
-    expect(caddy).toContain("@gateway_host host {$HTTP_TEST_HOST}");
+    expect(caddy).toContain("@gateway_host host {$HTTP_TEST_HOST} {$HTTP_TEST_HOST}:{$HTTP_TEST_PORT}");
     expect(caddy).toContain('respond "Yasser HTTP test Gateway is available only through the configured server IP." 421');
     expect(setup).toContain('HTTP_TEST_HOST="$PUBLIC_IP"');
     expect(setup).toContain('HTTP_TEST_BIND_IP="0.0.0.0"');
