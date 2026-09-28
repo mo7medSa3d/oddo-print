@@ -462,8 +462,13 @@ export function readCookie(req: Request, name: string): string | null {
   for (const part of cookieHeader.split(";")) {
     const [key, ...rest] = part.trim().split("=");
     if (key === name) {
-      const value = rest.join("=").trim();
-      if (value.startsWith('"') && value.endsWith('"')) return value.slice(1, -1);
+      let value = rest.join("=").trim();
+      if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
+      try {
+        value = decodeURIComponent(value);
+      } catch {
+        // Malformed percent-encoding: return the raw value rather than throwing.
+      }
       return value || null;
     }
   }
