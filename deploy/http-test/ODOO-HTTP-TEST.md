@@ -6,6 +6,6 @@ Use the Gateway origin printed by `setup-http-test.sh`, for example:
 
 `http://SERVER_PUBLIC_IP:8080`
 
-The Odoo addon already rejects plain HTTP unless this explicit test flag is enabled.
+The Odoo addon on `test/http-server-ready` accepts both `http://` and `https://` Gateway origins directly. No additional HTTP opt-in flag is required for this isolated staging branch.
 
-The production configuration remains HTTPS-only. Remove the test flag before moving the deployment to the real Domain + HTTPS path.
+The production configuration on `main` remains HTTPS-only.
