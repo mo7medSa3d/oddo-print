@@ -208,11 +208,8 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
         .arg("-config")
         .arg(&config)
         .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root());
-    // The isolated HTTP-test branch requires explicit insecure-HTTP opt-in in
-    // the bundled CLI as well as at Agent runtime. Never set this for HTTPS.
-    if gateway_url.starts_with("http://") {
-        cmd.env("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1");
-    }
+    // test/http-server-ready accepts HTTP and HTTPS directly; no secondary
+    // environment switch is required when invoking the bundled CLI.
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -1397,18 +1394,11 @@ mod security_tests {
     }
 
     #[test]
-    fn remote_http_gateway_is_accepted_only_for_the_explicit_http_test_branch() {
-        // Without the flag: production behavior (remote HTTP rejected,
-        // localhost HTTP and HTTPS accepted).
-        assert!(normalize_gateway_url("http://gateway.example.com").is_err());
-        assert!(normalize_gateway_url("http://127.0.0.1:3000").is_ok());
+    fn staging_gateway_accepts_http_and_https() {
+        assert!(normalize_gateway_url("http://gateway.example.com:3000").is_ok());
+        assert!(normalize_gateway_url("http://192.168.1.50:3000").is_ok());
         assert!(normalize_gateway_url("https://gateway.example.com").is_ok());
-        // With the explicit staging flag: remote HTTP accepted for the
-        // isolated IP-based staging deployment.
-        unsafe { std::env::set_var("YASSER_HTTP_TEST_MODE", "1") };
-        assert!(normalize_gateway_url("http://gateway.example.com").is_ok());
-        unsafe { std::env::remove_var("YASSER_HTTP_TEST_MODE") };
-        assert!(normalize_gateway_url("http://gateway.example.com").is_err());
+        assert!(normalize_gateway_url("https://192.168.1.50:3443").is_ok());
     }
 
     #[test]
