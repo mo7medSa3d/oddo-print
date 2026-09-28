@@ -245,23 +245,25 @@ def test_settings_does_not_duplicate_first_class_operational_pages():
     assert 'href="/api-keys"' not in page
 
 
-def test_agent_http_transport_uses_one_shared_validator_with_explicit_staging_opt_in():
+def test_agent_http_transport_uses_one_shared_validator_for_isolated_http_staging():
     config = read("agent/internal/config/config.go")
     pairing = read("agent/internal/agent/pairing.go")
     cli = read("agent/cmd/cli/main.go")
     example = read("agent/configs/config.yaml.example")
     assert "func ValidateServerURL(raw string) error" in config
-    # Plain HTTP is accepted only with the explicit staging opt-in flag (set
-    # process-scoped by the staging launcher); without it HTTP is rejected
-    # exactly like production. No unconditional HTTP acceptance may exist.
-    assert 'case "https":' in config
-    assert 'os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1"' in config
-    assert 'case "https", "http":' not in config
+    # This branch is the isolated HTTP staging transport. HTTP must therefore
+    # be accepted by the canonical Agent validator without a process-scoped
+    # environment flag, because the Windows service does not inherit the
+    # Manager shell environment. Production/main retains the HTTPS-only
+    # validator contract.
+    assert 'case "https", "http":' in config
+    assert "YASSER_AGENT_ALLOW_INSECURE_HTTP" not in config
     assert "ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP" not in config
     assert "func validateServerURL" not in pairing
     assert "func validateServerURL" not in cli
     assert "config.ValidateServerURL(serverURL)" in pairing
     assert "config.ValidateServerURL(*serverURL)" in cli
+    assert "YASSER_AGENT_ALLOW_INSECURE_HTTP" not in pairing + cli + example
     assert "ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP" not in pairing + cli + example
 
 
