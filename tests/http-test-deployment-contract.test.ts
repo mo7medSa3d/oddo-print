@@ -41,10 +41,14 @@ describe("HTTP test deployment contracts", () => {
     expect(helper).toContain("[System.Net.Sockets.AddressFamily]::InterNetwork");
     expect(helper).toContain('ServerUrl must use the staging server IPv4 address, not a hostname.');
     expect(helper).toContain("http://IP[:port]");
-    // The insecure-HTTP flag must be set process-scoped for the pairing call
-    // only and removed afterwards — never a persistent environment change.
-    expect(helper).toContain('$env:YASSER_AGENT_ALLOW_INSECURE_HTTP = "1"');
-    expect(helper).toContain("Remove-Item Env:YASSER_AGENT_ALLOW_INSECURE_HTTP");
+    // The Agent config contract accepts HTTP directly on this isolated
+    // staging branch because the Windows service does not inherit the Manager
+    // shell environment.
+    const agentConfig = read("agent/internal/config/config.go");
+    expect(agentConfig).toContain('case "https", "http":');
+    expect(agentConfig).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
+    expect(helper).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
+    expect(helper).toContain("gateway-request");
   });
 
   it("keeps the pairing code contract one-time and rate-limited instead of weakening it for HTTP test mode", () => {
