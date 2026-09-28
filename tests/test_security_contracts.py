@@ -209,24 +209,13 @@ def test_agent_pairing_success_does_not_clear_rate_limit():
     assert "reset the brute-force budget" in source
 
 
-def test_tauri_gateway_http_transport_contract_matches_branch_mode():
+def test_tauri_gateway_http_transport_contract_accepts_http_and_https():
     source = read("src-tauri/src/commands.rs")
-    test_branch_mode = "Staging-only HTTP acceptance, explicitly gated" in source
-
-    if test_branch_mode:
-        assert 'let remote_http = scheme == "http";' in source
-        assert 'if remote_http {' in source
-        # Remote HTTP is accepted only with the explicit staging flag; without
-        # it the branch behaves like production (remote HTTP rejected).
-        assert 'std::env::var("YASSER_HTTP_TEST_MODE")' in source
-        assert "Gateway URL must use HTTPS for remote Gateways" in source
-        assert "gateway URL cannot include embedded credentials" in source
-        assert "gateway URL cannot include query strings or fragments" in source
-    else:
-        assert 'if scheme == "http" {' in source
-        assert 'let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");' in source
-        assert 'if !local {' in source
-        assert "Gateway URL must use HTTPS for remote Gateways" in source
+    assert 'if scheme != "https" && scheme != "http"' in source
+    assert "test/http-server-ready intentionally accepts HTTP or HTTPS" in source
+    assert "gateway URL cannot include embedded credentials" in source
+    assert "gateway URL cannot include query strings or fragments" in source
+    assert "YASSER_AGENT_ALLOW_INSECURE_HTTP" not in source
 
 
 def test_production_startup_fails_closed_on_secrets_and_proxy_boundary():
