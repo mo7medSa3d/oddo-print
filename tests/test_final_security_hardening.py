@@ -245,13 +245,15 @@ def test_settings_does_not_duplicate_first_class_operational_pages():
     assert 'href="/api-keys"' not in page
 
 
-def test_agent_http_transport_has_one_yasser_opt_in_and_no_legacy_odoo_alias():
+def test_agent_http_transport_uses_one_shared_validator_without_legacy_flags():
     config = read("agent/internal/config/config.go")
     pairing = read("agent/internal/agent/pairing.go")
     cli = read("agent/cmd/cli/main.go")
     example = read("agent/configs/config.yaml.example")
     assert "func ValidateServerURL(raw string) error" in config
-    assert "YASSER_AGENT_ALLOW_INSECURE_HTTP" in config
+    assert 'case "https", "http":' in config
+    assert "test/http-server-ready intentionally accepts either HTTP or HTTPS" in config
+    assert "YASSER_AGENT_ALLOW_INSECURE_HTTP" not in config
     assert "ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP" not in config
     assert "func validateServerURL" not in pairing
     assert "func validateServerURL" not in cli
