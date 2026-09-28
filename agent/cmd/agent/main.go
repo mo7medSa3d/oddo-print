@@ -222,7 +222,7 @@ func handleServiceControl(rawAction, configPath string) error {
 	svcConfig := &service.Config{
 		Name:         "YasserAgent",
 		DisplayName:  "Yasser Agent",
-		Description:  "Local print gateway agent for Yasser Cloud Printing Platform — outbound HTTPS/WSS only, no inbound ports.",
+		Description:  "Local print gateway agent for Yasser Cloud Printing Platform — outbound Gateway HTTP/HTTPS and WebSocket transport only, no inbound ports. Production uses HTTPS/WSS.",
 		Arguments:    []string{"-config", configPath},
 		Dependencies: []string{"Tcpip"},
 	}
