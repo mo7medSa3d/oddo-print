@@ -20,7 +20,9 @@ From the repository root:
 
 `bash deploy/http-test/setup-http-test.sh`
 
-The script generates real random test secrets, detects the server public IPv4, chooses port 80 when free (otherwise 8080), starts the stack, waits for health, and provisions the test plan.
+The script generates real random test secrets, detects the server public IPv4, chooses port 80 when free (otherwise 8080), starts the stack, validates the Caddy Host route, and provisions the test plan.
+
+On Azure, the Caddy container binds to `0.0.0.0` and the public IPv4 is used only as the HTTP `Host`/origin. This is required because Azure routes the public address to the VM's private interface.
 
 ## Full first-run auth smoke
 
