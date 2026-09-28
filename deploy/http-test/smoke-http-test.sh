@@ -23,6 +23,9 @@ set +a
 
 BASE="${SMOKE_BASE_URL:-${APP_BASE_URL:-http://127.0.0.1:${HTTP_TEST_PORT}}}"
 EMAIL="test+$(date +%s)-${BASHPID}@yasser.invalid"
+json_field() {
+  node -e 'const fs=require("fs"); const obj=JSON.parse(fs.readFileSync(0,"utf8")); const key=process.argv[1]; const value=obj[key]; if (value === undefined || value === null) process.exit(1); process.stdout.write(String(value));' "$1"
+}
 PASSWORD="Yasser-Test-2026!"
 WORKSPACE="Yasser HTTP Test Workspace"
 
@@ -87,7 +90,82 @@ MANAGER_LOGIN_STATUS="$(
 MANAGER_TOKEN="$(grep -Eo '"accessToken":"[^"]+"' "$TMP_DIR/manager-login.json" | cut -d'"' -f4)"
 [[ -n "$MANAGER_TOKEN" ]]
 curl -fsS --max-time 10 -H "Authorization: Bearer $MANAGER_TOKEN" "$BASE/api/auth/manager/me" | grep -q '"authenticated":true'
-echo "[8/9] Manager logout + bearer revocation"
+echo "[8/12] Odoo bearer + Agent HTTP bearer + WebSocket over the same HTTP endpoint"
+
+ODOO_KEY_STATUS="$(
+  curl -sS --max-time 10 -o "$TMP_DIR/odoo-key.json" -w '%{http_code}' \
+    "${DESKTOP_HEADERS[@]}" \
+    -H "Authorization: Bearer $MANAGER_TOKEN" \
+    -H 'Content-Type: application/json' \
+    -X POST \
+    -d '{"name":"HTTP smoke Odoo"}' \
+    "$BASE/api/odoo/keys"
+)"
+[[ "$ODOO_KEY_STATUS" == "201" ]]
+ODOO_KEY="$(json_field apiKey < "$TMP_DIR/odoo-key.json")"
+[[ "$ODOO_KEY" == odoo_* ]]
+curl -fsS --max-time 10 \
+  -H "Authorization: Bearer $ODOO_KEY" \
+  "$BASE/api/odoo/health" | grep -q '"ok":true'
+
+AGENT_CREATE_STATUS="$(
+  curl -sS --max-time 10 -o "$TMP_DIR/agent-create.json" -w '%{http_code}' \
+    "${DESKTOP_HEADERS[@]}" \
+    -H "Authorization: Bearer $MANAGER_TOKEN" \
+    -H 'Content-Type: application/json' \
+    -X POST \
+    -d '{"name":"HTTP Smoke Agent"}' \
+    "$BASE/api/agents"
+)"
+[[ "$AGENT_CREATE_STATUS" == "201" ]]
+AGENT_ID="$(json_field id < "$TMP_DIR/agent-create.json")"
+PAIRING_CODE="$(json_field pairingCode < "$TMP_DIR/agent-create.json")"
+[[ "$AGENT_ID" == agt_* ]]
+[[ "$PAIRING_CODE" =~ ^[A-HJ-NP-Z2-9]{6}$ ]]
+
+AGENT_REGISTER_STATUS="$(
+  curl -sS --max-time 10 -o "$TMP_DIR/agent-register.json" -w '%{http_code}' \
+    -H 'Content-Type: application/json' \
+    -X POST \
+    -d "{\"agentId\":\"$AGENT_ID\",\"pairingCode\":\"$PAIRING_CODE\",\"hostname\":\"http-smoke-agent\",\"clientVersion\":\"http-smoke\",\"platform\":\"linux\"}" \
+    "$BASE/api/agent/register"
+)"
+[[ "$AGENT_REGISTER_STATUS" == "200" ]]
+REGISTERED_AGENT_ID="$(json_field agentId < "$TMP_DIR/agent-register.json")"
+AGENT_SECRET="$(json_field secret < "$TMP_DIR/agent-register.json")"
+[[ "$REGISTERED_AGENT_ID" == "$AGENT_ID" ]]
+[[ -n "$AGENT_SECRET" ]]
+
+AGENT_BEARER="Bearer $AGENT_ID:$AGENT_SECRET"
+curl -fsS --max-time 10 \
+  -H "Authorization: $AGENT_BEARER" \
+  -H 'Content-Type: application/json' \
+  -X POST \
+  -d '{"status":"online","printers":[]}' \
+  "$BASE/api/agent/heartbeat" | grep -q '"ok":true'
+
+WS_KEY="$(openssl rand -base64 16)"
+WS_STATUS="$(
+  curl -sS --http1.1 --max-time 10 \
+    -o /dev/null \
+    -D "$TMP_DIR/agent-ws-headers.txt" \
+    -w '%{http_code}' \
+    -H "Connection: Upgrade" \
+    -H "Upgrade: websocket" \
+    -H "Sec-WebSocket-Version: 13" \
+    -H "Sec-WebSocket-Key: $WS_KEY" \
+    -H "Authorization: $AGENT_BEARER" \
+    "$BASE/api/agent/ws"
+)"
+if [[ "$WS_STATUS" != "101" ]]; then
+  echo "ERROR: Agent WebSocket HTTP upgrade returned $WS_STATUS"
+  cat "$TMP_DIR/agent-ws-headers.txt"
+  exit 1
+fi
+
+echo "PASS: HTTP Odoo bearer, Agent bearer, pairing, heartbeat, and WebSocket upgrade"
+
+echo "[9/12] Manager logout + bearer revocation"
 MANAGER_LOGOUT_STATUS="$(
   curl -sS --max-time 10 -o "$TMP_DIR/manager-logout.json" -w '%{http_code}' -H "Authorization: Bearer $MANAGER_TOKEN" -X POST "$BASE/api/auth/manager/logout"
 )"
@@ -105,7 +183,7 @@ if [[ "$MANAGER_AFTER_LOGOUT_STATUS" != "401" ]]; then
   exit 1
 fi
 
-echo "[9/9] customer logout + session revocation"
+echo "[10/12] customer logout + session revocation"
 CUSTOMER_LOGOUT_STATUS="$(
   curl -sS --max-time 10 -o "$TMP_DIR/customer-logout.json" -w '%{http_code}' "${BROWSER_HEADERS[@]}" -b "$COOKIE_JAR" -X POST "$BASE/api/auth/logout"
 )"
