@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantSubscriptions } from "../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
+import { requireManagerPermission } from "../../../../lib/authorization";
 import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../../../../lib/entitlements";
 import { refreshClockSkew } from "../../../../lib/database-clock";
 import { eq } from "drizzle-orm";
@@ -18,6 +19,11 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const manager = await validateWorkspaceManager(req);
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    requireManagerPermission(manager, "billing.read");
+  } catch {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   await refreshClockSkew();
   const sub = await db.query.tenantSubscriptions.findFirst({
