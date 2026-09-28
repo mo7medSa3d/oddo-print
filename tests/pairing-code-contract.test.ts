@@ -6,6 +6,7 @@ describe("pairing code contract", () => {
     const codes = Array.from({ length: 1000 }, () => generatePairingCode());
     expect(codes.every((code) => PAIRING_CODE_PATTERN.test(code))).toBe(true);
     expect(codes.every((code) => code.length === 6)).toBe(true);
+    expect(new Set(codes).size).toBeGreaterThan(990);
   });
 
   it("uses the unambiguous alphabet shared by Gateway, Go and Tauri", () => {
