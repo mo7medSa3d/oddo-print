@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm audit
+          npm audit --audit-level=high
 
       - name: Verify npm high-severity audit gate with known vulnerable fixture
         shell: bash
