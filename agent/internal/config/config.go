@@ -66,19 +66,14 @@ func ValidateServerURL(raw string) error {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return fmt.Errorf("server.url must not contain credentials, query strings, or fragments")
 	}
-	// Production gateways MUST use HTTPS. Plain HTTP is only permitted when
-	// explicitly opted into for isolated development/test environments via
-	// YASSER_AGENT_ALLOW_INSECURE_HTTP=1 (the staging launcher sets this;
-	// it is never set in production). Credentials, query strings, and
-	// fragments remain forbidden above on every branch.
+	// This branch is the isolated HTTP staging target. HTTP is a supported
+	// transport for the complete staging lifecycle, including the Windows
+	// service runtime; no process-scoped environment flag may be required
+	// because the service does not inherit the Manager UI shell environment.
+	// Production/main remains HTTPS-only on its own branch.
 	switch strings.ToLower(u.Scheme) {
-	case "https":
+	case "https", "http":
 		return nil
-	case "http":
-		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" {
-			return nil
-		}
-		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASSER_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development/test environments")
 	default:
 		return fmt.Errorf("server.url scheme must be http or https, got %q", u.Scheme)
 	}
