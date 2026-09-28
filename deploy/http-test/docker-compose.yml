@@ -98,6 +98,8 @@ services:
         condition: service_healthy
     secrets:
       - trust_proxy_secret
+    environment:
+      HTTP_TEST_HOST: ${HTTP_TEST_HOST}
     ports:
       - "${HTTP_TEST_BIND_IP}:${HTTP_TEST_PORT}:80"
     volumes:
