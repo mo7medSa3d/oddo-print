@@ -42,8 +42,6 @@ Use the Gateway URL printed by the setup script and pair the Agent with it:
 
 ## Odoo
 
-Use the Gateway URL from setup and set:
+Use the HTTP Gateway URL printed by setup directly, for example `http://SERVER_IP[:PORT]`.
 
-`ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP=1`
-
-Do not keep the HTTP test flag when moving to the real Domain + HTTPS deployment.
+No additional Odoo HTTP opt-in flag is required on this isolated staging branch. The production/main deployment remains HTTPS-only.
