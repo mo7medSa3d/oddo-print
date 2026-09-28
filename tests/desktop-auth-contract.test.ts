@@ -29,22 +29,14 @@ describe("desktop manager authentication contract", () => {
     expect(rust).toContain('request = request.header("Origin", "tauri://localhost")');
   });
 
-  it("enforces the branch-specific Gateway transport contract", () => {
+  it("accepts HTTP and HTTPS Gateway origins on the staging branch without a legacy flag", () => {
     const commands = read("src-tauri/src/commands.rs");
-    const testBranch = commands.includes("Staging-only HTTP acceptance, explicitly gated");
-    if (testBranch) {
-      expect(commands).toContain('let remote_http = scheme == "http";');
-      expect(commands).toContain("Staging-only HTTP acceptance, explicitly gated");
-      expect(commands).toContain('std::env::var("YASSER_HTTP_TEST_MODE")');
-      expect(commands).toContain("Gateway URL must use HTTPS for remote Gateways");
-      expect(commands).toContain('cmd.env("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1");');
-      expect(commands).toContain("The isolated HTTP-test branch requires explicit insecure-HTTP opt-in");
-      expect(commands).toContain("gateway URL cannot include embedded credentials");
-    } else {
-      expect(commands).toContain('if scheme == "http"');
-      expect(commands).toContain('let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");');
-      expect(commands).toContain("Gateway URL must use HTTPS for remote Gateways");
-    }
+    expect(commands).toContain('if scheme != "https" && scheme != "http"');
+    expect(commands).toContain("test/http-server-ready intentionally accepts HTTP or HTTPS");
+    expect(commands).toContain("gateway URL cannot include embedded credentials");
+    expect(commands).toContain("gateway URL cannot include query strings or fragments");
+    expect(commands).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
+    expect(commands).not.toContain("Gateway URL must use HTTPS for remote Gateways");
   });
 
   it("routes manager-owned printer mutations through the Manager transport", () => {
