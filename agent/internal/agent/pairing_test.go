@@ -6,16 +6,15 @@ import (
 	"github.com/yasser-agent/agent/internal/config"
 )
 
-func TestValidateServerURLAcceptsHTTPSByDefault(t *testing.T) {
+func TestValidateServerURLAcceptsHTTPS(t *testing.T) {
 	if err := config.ValidateServerURL("https://gateway.example.com"); err != nil {
-		t.Fatalf("expected HTTPS URL to be accepted by default, got %v", err)
+		t.Fatalf("expected HTTPS URL to be accepted, got %v", err)
 	}
 }
 
 func TestValidateServerURLAcceptsHTTPAndHTTPSOnStaging(t *testing.T) {
 	// The isolated staging branch accepts HTTP directly; this must also work
 	// for the Windows service because it does not inherit the Manager process env.
-	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "")
 	for _, raw := range []string{
 		"http://127.0.0.1:3000",
 		"http://192.0.2.10:3000",
