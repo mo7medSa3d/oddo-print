@@ -222,6 +222,10 @@ function stageForStatus(status: string): "printing" | "success" | "failed" | "ex
     case "success": return "success";
     case "failed": return "failed";
     case "expired": return "expired";
+    case "blocked": return "blocked";
+    case "delivery": return "delivery";
+    case "accepted": return "accepted";
+    case "connection": return "connection";
     default: return "printing";
   }
 }
