@@ -208,8 +208,8 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
         .arg("-config")
         .arg(&config)
         .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root());
-    // test/http-server-ready accepts HTTP and HTTPS directly; no secondary
-    // environment switch is required when invoking the bundled CLI.
+    // The staging branch accepts the configured HTTP or HTTPS origin directly;
+    // no secondary insecure-HTTP environment switch is required.
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
