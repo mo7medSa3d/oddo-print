@@ -173,7 +173,7 @@ curl -fsS --max-time 10 \
   -H 'Content-Type: application/json' \
   -X POST \
   -d '{"status":"online","printers":[]}' \
-  "$BASE/api/agent/heartbeat" | grep -q '"ok":true'
+  "$BASE/api/agent/heartbeat" | grep -q '"success":true'
 
 WS_KEY="$(openssl rand -base64 16)"
 curl_exit=0
