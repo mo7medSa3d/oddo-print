@@ -17,6 +17,20 @@ EVENT_TYPES = [
 ]
 
 
+def is_in_test_mode(env):
+    """Return True when Odoo's test harness is active."""
+    try:
+        from odoo import tools
+        return bool(
+            tools.config.get("test_enable")
+            or getattr(env.registry, "in_test", False)
+            or (hasattr(env.registry, "in_test_mode") and env.registry.in_test_mode())
+            or env.context.get("test_mode")
+        )
+    except Exception:
+        return False
+
+
 def sanitize_raw_value(value, protocol):
     """Keep Odoo field values inert inside protocol command templates."""
     text = "" if value is False or value is None else str(value)

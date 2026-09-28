@@ -141,7 +141,7 @@ jobs:
           const proxySecret = fs.readFileSync("/run/secrets/trust_proxy_secret", "utf8").trim();
           const suffix = crypto.randomBytes(8).toString("hex");
           const tenantId = "phase0_tenant_" + suffix;
-          const agentId = "phase0_agent_" + suffix;
+          const agentId = crypto.randomUUID();
           const agentSecret = "phase0_secret_" + crypto.randomBytes(18).toString("base64url");
           const jti = "phase0_jti_" + crypto.randomBytes(16).toString("hex");
           const now = Math.floor(Date.now() / 1000);

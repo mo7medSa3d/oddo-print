@@ -213,7 +213,7 @@ class PrintGatewayJob(models.Model):
         """
         job.ensure_one()
         self._lock_status_row(job)
-        if target not in _FORWARD_CHAIN and target not in ("failed", "unknown"):
+        if target not in self._FORWARD_CHAIN and target not in ("failed", "unknown"):
             raise ValidationError(
                 _("Invalid print job state transition from '%s' to '%s'.")
                 % (job.status, target)
@@ -241,8 +241,8 @@ class PrintGatewayJob(models.Model):
             job.write(terminal_values)
             return
         try:
-            position = _FORWARD_CHAIN.index(job.status)
-            destination = _FORWARD_CHAIN.index(target)
+            position = self._FORWARD_CHAIN.index(job.status)
+            destination = self._FORWARD_CHAIN.index(target)
         except ValueError:
             raise ValidationError(
                 _("Invalid print job state transition from '%s' to '%s'.")
@@ -253,7 +253,7 @@ class PrintGatewayJob(models.Model):
                 _("Invalid print job state transition from '%s' to '%s'.")
                 % (job.status, target)
             )
-        for hop in _FORWARD_CHAIN[position + 1:destination + 1]:
+        for hop in self._FORWARD_CHAIN[position + 1:destination + 1]:
             hop_values = {"status": hop}
             if hop == target:
                 hop_values.update({key: value for key, value in values.items() if key != "status"})
@@ -355,7 +355,7 @@ class PrintGatewayJob(models.Model):
             target_status = vals["status"]
             for job in self:
                 if job.status and target_status != job.status:
-                    allowed = _VALID_TRANSITIONS.get(job.status, set())
+                    allowed = self._VALID_TRANSITIONS.get(job.status, set())
                     if target_status not in allowed:
                         raise ValidationError(
                             _("Invalid print job state transition from '%s' to '%s'.")

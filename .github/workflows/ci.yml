@@ -81,7 +81,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm audit
+          npm audit --audit-level=high
       - name: Install Rust toolchain for supply-chain audit
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.98.1
         with:

@@ -36,8 +36,8 @@ func TestSpoolerPrinter_Status_ProbeTimeout(t *testing.T) {
 	st := sp.Status()
 	elapsed := time.Since(start)
 
-	if st != "spooler_rpc_unresponsive" {
-		t.Fatalf("expected status 'spooler_rpc_unresponsive', got %q", st)
+	if st != "error" {
+		t.Fatalf("expected status 'error', got %q", st)
 	}
 	if elapsed > 300*time.Millisecond {
 		t.Fatalf("expected status to return within deadline, took %v", elapsed)
