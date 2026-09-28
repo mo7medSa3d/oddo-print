@@ -20,8 +20,8 @@ describe("HTTP test deployment contracts", () => {
     const setup = read("deploy/http-test/setup-http-test.sh");
     const env = read("deploy/http-test/.env.test.example");
 
-    expect(compose).toContain('HTTP_TEST_BIND_IP:');
-    expect(compose).toContain('HTTP_TEST_HOST:');
+    expect(compose).toContain('"${HTTP_TEST_BIND_IP}:${HTTP_TEST_PORT}:80"');
+    expect(compose).toContain('HTTP_TEST_HOST: ${HTTP_TEST_HOST}');
     expect(compose).toContain(':80"');
     expect(caddy).toContain("@gateway_host host {$HTTP_TEST_HOST}");
     expect(caddy).toContain('respond "Yasser HTTP test Gateway is available only through the configured server IP." 421');
@@ -30,14 +30,16 @@ describe("HTTP test deployment contracts", () => {
     expect(setup).toContain("SERVER_PUBLIC_IP must be an IPv4 address");
     expect(env).toContain("HTTP_TEST_BIND_IP=AUTO-DETECTED-PUBLIC-IP");
     expect(env).toContain("HTTP_TEST_HOST=AUTO-DETECTED-PUBLIC-IP");
+    expect(env).toContain("APP_BASE_URL=http://AUTO-DETECTED-PUBLIC-IP");
   });
 
   it("requires the Windows HTTP test helper to use an IPv4 Gateway address", () => {
     const helper = read("deploy/http-test/windows-agent-http-test.ps1");
     expect(helper).toContain("[System.Net.IPAddress]::Parse($uri.Host)");
-    expect(helper).toContain("AddressFamily::InterNetwork");
+    expect(helper).toContain("[System.Net.Sockets.AddressFamily]::InterNetwork");
     expect(helper).toContain('ServerUrl must use the staging server IPv4 address, not a hostname.');
     expect(helper).toContain("http://IP[:port]");
+    expect(helper).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
   });
 
   it("keeps the pairing code contract one-time and rate-limited instead of weakening it for HTTP test mode", () => {
@@ -60,6 +62,9 @@ describe("HTTP test deployment contracts", () => {
     expect(smoke).toContain("Origin: tauri://localhost");
     expect(smoke).toContain("X-Odoo-Print-Desktop: 1");
     expect(smoke).toContain('"${DESKTOP_HEADERS[@]}"');
+    expect(smoke).toContain("Authorization: $AGENT_BEARER");
+    expect(smoke).toContain("Upgrade: websocket");
+    expect(smoke).toContain("$BASE/api/agent/ws");
   });
   it("passes the HTTP test login username into tenant resolution", () => {
     const route = read("src/app/api/auth/manager/login/route.ts");
