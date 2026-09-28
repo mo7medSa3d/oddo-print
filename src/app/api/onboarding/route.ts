@@ -7,7 +7,7 @@ import { hasManagerPermission } from "../../../lib/authorization";
 import { hasBodyOverLimit } from "../../../lib/request-limits";
 
 export async function GET(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!hasManagerPermission(claims, "billing.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const rows = await db.select({
