@@ -170,6 +170,10 @@ export function isCookieMutationSameOrigin(req: IncomingMessage): boolean {
   }
 
   // When TRUST_PROXY is enabled, the outer proxy must already have been
+  // authenticated by server.ts before this guard runs. That makes the
+  // forwarded host trustworthy for same-origin comparison while preserving
+  // strict Host matching for direct/non-proxied traffic.
+  // A browser carrying ambient cookies without the modern fetch-metadata or
   // standard origin signals is ambiguous; fail closed rather than treating
   // SameSite as the sole CSRF boundary.
   return fetchSite === "same-origin";
