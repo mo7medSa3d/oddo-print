@@ -93,16 +93,44 @@ func (p *program) Start(s service.Service) error {
 			}
 		}
 
-		app, err := agent.New(cfg, p.configPath)
-		if err != nil {
-			log.Printf("Failed to initialize agent: %v — waiting for resolution...", err)
-			<-p.ctx.Done()
-			return
-		}
-		p.agent = app
+		// Restart loop: if the agent crashes or exits with an error, restart it
+		// with exponential backoff. This ensures the agent recovers from transient
+		// failures without requiring manual intervention.
+		restartBackoff := 5 * time.Second
+		const maxRestartBackoff = 60 * time.Second
+		for {
+			app, err := agent.New(cfg, p.configPath)
+			if err != nil {
+				log.Printf("Failed to initialize agent: %v — retrying in %s...", err, restartBackoff)
+				select {
+				case <-p.ctx.Done():
+					return
+				case <-time.After(restartBackoff):
+				}
+				restartBackoff *= 2
+				if restartBackoff > maxRestartBackoff {
+					restartBackoff = maxRestartBackoff
+				}
+				continue
+			}
+			p.agent = app
 
-		if err := p.agent.Run(p.ctx); err != nil {
-			log.Printf("Agent error: %v", err)
+			if err := p.agent.Run(p.ctx); err != nil {
+				log.Printf("Agent error: %v — restarting in %s...", err, restartBackoff)
+			} else {
+				log.Printf("Agent exited cleanly")
+				return
+			}
+
+			select {
+			case <-p.ctx.Done():
+				return
+			case <-time.After(restartBackoff):
+			}
+			restartBackoff *= 2
+			if restartBackoff > maxRestartBackoff {
+				restartBackoff = maxRestartBackoff
+			}
 		}
 	}()
 	return nil
