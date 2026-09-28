@@ -14,7 +14,7 @@ describe("HTTP test deployment contracts", () => {
     expect(setup).toContain('"max_prints_per_period":"unlimited"');
   });
 
-  it("binds the isolated HTTP endpoint to the detected IPv4 and rejects other Hosts", () => {
+  it("binds the HTTP listener locally while routing the public IPv4 through the Host header", () => {
     const compose = read("deploy/http-test/docker-compose.yml");
     const caddy = read("deploy/http-test/Caddyfile");
     const setup = read("deploy/http-test/setup-http-test.sh");
@@ -25,10 +25,12 @@ describe("HTTP test deployment contracts", () => {
     expect(compose).toContain(':80"');
     expect(caddy).toContain("@gateway_host host {$HTTP_TEST_HOST}");
     expect(caddy).toContain('respond "Yasser HTTP test Gateway is available only through the configured server IP." 421');
-    expect(setup).toContain('HTTP_TEST_BIND_IP=$PUBLIC_IP');
-    expect(setup).toContain('HTTP_TEST_HOST=$PUBLIC_IP');
+    expect(setup).toContain('HTTP_TEST_HOST="$PUBLIC_IP"');
+    expect(setup).toContain('HTTP_TEST_BIND_IP="0.0.0.0"');
+    expect(setup).toContain('HTTP_TEST_BIND_IP="127.0.0.1"');
+    expect(setup).toContain('curl -fsS --max-time 10 -H "Host: $HTTP_TEST_HOST"');
     expect(setup).toContain("SERVER_PUBLIC_IP must be an IPv4 address");
-    expect(env).toContain("HTTP_TEST_BIND_IP=AUTO-DETECTED-PUBLIC-IP");
+    expect(env).toContain("HTTP_TEST_BIND_IP=AUTO-DETECTED-LISTEN-ADDRESS");
     expect(env).toContain("HTTP_TEST_HOST=AUTO-DETECTED-PUBLIC-IP");
     expect(env).toContain("APP_BASE_URL=http://AUTO-DETECTED-PUBLIC-IP");
   });
