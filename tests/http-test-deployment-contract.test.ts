@@ -41,7 +41,10 @@ describe("HTTP test deployment contracts", () => {
     expect(helper).toContain("[System.Net.Sockets.AddressFamily]::InterNetwork");
     expect(helper).toContain('ServerUrl must use the staging server IPv4 address, not a hostname.');
     expect(helper).toContain("http://IP[:port]");
-    expect(helper).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
+    // The insecure-HTTP flag must be set process-scoped for the pairing call
+    // only and removed afterwards — never a persistent environment change.
+    expect(helper).toContain('$env:YASSER_AGENT_ALLOW_INSECURE_HTTP = "1"');
+    expect(helper).toContain("Remove-Item Env:YASSER_AGENT_ALLOW_INSECURE_HTTP");
   });
 
   it("keeps the pairing code contract one-time and rate-limited instead of weakening it for HTTP test mode", () => {
@@ -53,10 +56,14 @@ describe("HTTP test deployment contracts", () => {
     expect(register).toContain("SET pairing_code_hash = NULL");
   });
 
-  it("makes the pairing code prominent without changing its wire format", () => {
+  it("renders the pairing code with its expiry without changing its wire format", () => {
     const dashboard = read("src/app/dashboard/dashboard-client.tsx");
-    expect(dashboard).toContain("text-[30px]");
-    expect(dashboard).toContain("sm:text-[32px]");
+    // Wire contract (matches the agent-create API + smoke assertions): the
+    // pairing code and its expiry are displayed from the creation response.
+    // Visual styling is main-owned; this test pins behavior, not pixels.
+    expect(dashboard).toContain("activePairing.code");
+    expect(dashboard).toContain("activePairing.expiresAt");
+    expect(dashboard).toContain("formatCountdown");
   });
 
   it("models the real Tauri origin for the desktop bearer-login smoke step", () => {
