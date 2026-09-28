@@ -70,7 +70,13 @@ VERIFY_TOKEN="${VERIFY_URL#*token=}"
 echo "[5/10] email verification + onboarding"
 curl -fsS --max-time 15 -c "$COOKIE_JAR" -b "$COOKIE_JAR"   "${BROWSER_HEADERS[@]}"   -H 'Content-Type: application/json'   -d "{\"token\":\"$VERIFY_TOKEN\"}"   "$BASE/api/auth/verify-email" | grep -q '"next":"/onboarding"'
 
-curl -fsS --max-time 15 -c "$COOKIE_JAR" -b "$COOKIE_JAR"   "${BROWSER_HEADERS[@]}"   -H 'Content-Type: application/json'   -d "{\"workspaceName\":\"$WORKSPACE\",\"planId\":\"http-test\",\"trial\":true}"   "$BASE/api/onboarding" | grep -q '"next":"/dashboard"'
+ONBOARDING_STATUS="$(curl -sS --max-time 15 -o "$TMP_DIR/onboarding.json" -w '%{http_code}' -c "$COOKIE_JAR" -b "$COOKIE_JAR"   "${BROWSER_HEADERS[@]}"   -H 'Content-Type: application/json'   -d "{\"workspaceName\":\"$WORKSPACE\",\"planId\":\"http-test\",\"trial\":true}"   "$BASE/api/onboarding")"
+if [[ "$ONBOARDING_STATUS" != "200" ]]; then
+  echo "ERROR: onboarding returned HTTP $ONBOARDING_STATUS"
+  cat "$TMP_DIR/onboarding.json"
+  exit 1
+fi
+grep -q '"next":"/dashboard"' "$TMP_DIR/onboarding.json"
 
 echo "[6/10] customer login + authenticated session"
 LOGIN_STATUS="$(curl -sS --max-time 15 -o /tmp/yasser-login.json -w '%{http_code}'   -c "$COOKIE_JAR" -b "$COOKIE_JAR"   "${BROWSER_HEADERS[@]}"   -H 'Content-Type: application/json'   -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"   "$BASE/api/auth/login")"
