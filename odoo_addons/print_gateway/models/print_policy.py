@@ -128,7 +128,7 @@ class PrintGatewayPolicy(models.Model):
                 values[field_name] = sanitize_raw_value(rel.display_name if rel else "", protocol)
                 values[f"{field_name}_id"] = sanitize_raw_value(rel.id if rel else "", protocol)
         try:
-            import string
+            import string  # noqa: F401  (imported for clarity; Formatter used below)
             formatter = string.Formatter()
             for literal_text, field_name, format_spec, conversion in formatter.parse(template):
                 self._sanitize_template_field(field_name)
@@ -214,19 +214,11 @@ class PrintGatewayPolicy(models.Model):
 
     @api.constrains("company_id", "branch_id", "binding_id")
     def _check_binding_scope(self):
+        # Delegate to the shared hierarchy check in binding.py to avoid
+        # duplicating the same company/branch/binding validation rules.
         for policy in self:
-            binding = policy.binding_id
-            if not binding:
-                continue
-            if policy.company_id.parent_id:
-                raise ValidationError(_("Odoo Company must be a root company, not a branch."))
-            if binding.company_id != policy.company_id:
-                raise ValidationError(_("Target Binding must belong to the same Odoo Company as the Policy."))
-            if policy.branch_id:
-                if binding.branch_id != policy.branch_id:
-                    raise ValidationError(_("A Branch Policy must use a Binding for that exact Branch."))
-            elif binding.branch_id:
-                raise ValidationError(_("A Company Policy must use a company-wide Binding, not a Branch Binding."))
+            if policy.binding_id:
+                policy.binding_id._check_hierarchy()
 
     @api.constrains("action_type", "report_id", "raw_template", "raw_protocol", "domain_filter", "model_id", "event_type", "binding_id")
     def _check_action_configuration(self):
