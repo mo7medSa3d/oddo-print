@@ -2,11 +2,7 @@
 
 This file is only for the temporary no-domain/no-TLS integration test.
 
-Set the Odoo process environment variable:
-
-`ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP=1`
-
-Then use the Gateway origin printed by `setup-http-test.sh`, for example:
+Use the Gateway origin printed by `setup-http-test.sh`, for example:
 
 `http://SERVER_PUBLIC_IP:8080`
 
