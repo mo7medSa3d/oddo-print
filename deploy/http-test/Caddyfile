@@ -5,7 +5,7 @@
     max_size 8MiB
   }
 
-  @gateway_host host {$HTTP_TEST_HOST}
+  @gateway_host host {$HTTP_TEST_HOST} {$HTTP_TEST_HOST}:{$HTTP_TEST_PORT}
   handle @gateway_host {
     reverse_proxy gateway:3000 {
       header_up Host {http.request.host}
