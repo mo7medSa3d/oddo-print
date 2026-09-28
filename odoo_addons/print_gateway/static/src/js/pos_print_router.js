@@ -6,6 +6,8 @@ import { PosStore } from "@point_of_sale/app/services/pos_store";
 import { changesToOrder } from "@point_of_sale/app/models/utils/order_change";
 import { renderToElement } from "@web/core/utils/render";
 import { htmlToCanvas } from "@point_of_sale/app/services/render_service";
+import { toCanvas as htmlToImageToCanvas } from "@point_of_sale/app/utils/html-to-image";
+import { waitImages } from "@point_of_sale/utils";
 import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt";
 import { RetryPrintPopup } from "@point_of_sale/app/components/popups/retry_print_popup/retry_print_popup";
 
@@ -47,6 +49,42 @@ async function elementToJpeg(element) {
     return canvasToJpeg(canvas);
 }
 
+/**
+ * Convert a rendered receipt element to JPEG WITHOUT web-font embedding.
+ *
+ * html-to-image's font embedding scans EVERY @font-face rule in the POS
+ * document and fetches each one — including Odoo's Noto UI fonts whose
+ * italic/Arabic/Hebrew variants are missing from fonts.odoocdn.com, which
+ * produces the recurring console 404s. The receipt declares no custom font
+ * (Bootstrap utilities only), so embedding is pure overhead: text renders
+ * with locally available fonts instead.
+ *
+ * Odoo's render_service.htmlToCanvas builds a fixed option object and drops
+ * every other option, so skipFonts cannot flow through renderer.toJpeg /
+ * renderer.toCanvas. This helper calls Odoo's vendored html-to-image build
+ * directly with the same snapshot options Odoo uses plus skipFonts: true.
+ */
+async function elementToJpegNoFonts(element) {
+    if (!element) {
+        throw new Error("No receipt element to rasterize");
+    }
+    try {
+        element.classList.add("pos-receipt-print");
+    } catch {
+        // Detached or exotic node: the class is a styling hook only.
+    }
+    // waitImages is timeout-safe and resolves on error; QR/logo <img>
+    // embedding below is independent of fonts and still applies.
+    await waitImages(element);
+    const canvas = await htmlToImageToCanvas(element, {
+        backgroundColor: "#ffffff",
+        pixelRatio: 1,
+        includeQueryParams: true,
+        skipFonts: true,
+    });
+    return canvasToJpeg(canvas);
+}
+
 export async function renderReceiptImage(pos, currentOrder, basic = false) {
     const renderer = pos.env?.services?.renderer || pos.printer?.renderer;
     const props = {
@@ -55,6 +93,18 @@ export async function renderReceiptImage(pos, currentOrder, basic = false) {
         formatCurrency: pos.env?.utils?.formatCurrency || pos.formatCurrency || ((amount) => String(amount)),
         basic_receipt: Boolean(basic),
     };
+
+    if (renderer && typeof renderer.toHtml === "function") {
+        try {
+            // Preferred path: toHtml is pure Owl rendering (no font
+            // involvement); rasterize with web-font embedding disabled so no
+            // remote Noto variant is ever requested (see elementToJpegNoFonts).
+            const element = await renderer.toHtml(OrderReceipt, props);
+            return await elementToJpegNoFonts(element);
+        } catch (err) {
+            console.warn("renderer.toHtml (no-fonts) failed, falling back to standard chain:", err);
+        }
+    }
 
     if (renderer && typeof renderer.toJpeg === "function") {
         try {

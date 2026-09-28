@@ -16,6 +16,11 @@ export const patch = vi.fn();
 export const changesToOrder = vi.fn();
 export const htmlToCanvas = vi.fn();
 export const renderToElement = vi.fn();
+// Direct vendored html-to-image entry (imported by pos_print_router.js from
+// "@point_of_sale/app/utils/html-to-image", resolved here by the alias above)
+// and the image-readiness helper (from "@point_of_sale/utils").
+export const toCanvas = vi.fn();
+export const waitImages = vi.fn().mockResolvedValue({ timedOut: false });
 export const OrderReceipt = "OrderReceipt";
 export const RetryPrintPopup = "RetryPrintPopup";
 // gateway_limit_dialog.js (imported by pos_print_router.js) uses the Odoo
