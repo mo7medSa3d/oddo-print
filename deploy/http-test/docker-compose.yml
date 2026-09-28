@@ -99,7 +99,7 @@ services:
     secrets:
       - trust_proxy_secret
     ports:
-      - "${HTTP_TEST_PORT}:80"
+      - "${HTTP_TEST_BIND_IP}:${HTTP_TEST_PORT}:80"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     networks:
