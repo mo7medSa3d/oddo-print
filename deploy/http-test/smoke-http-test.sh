@@ -37,18 +37,18 @@ rm -f "$COOKIE_JAR" "$MANAGER_COOKIE_JAR"
 : > "$TEST_DATA"
 docker compose "${COMPOSE_ARGS[@]}" exec -T gateway sh -c "rm -f '$CAPTURE_FILE'"
 
-echo "[1/9] liveness/readiness"
+echo "[1/10] liveness/readiness"
 curl -fsS --max-time 10 "$BASE/api/live" >/dev/null
 curl -fsS --max-time 10 "$BASE/api/health" >/dev/null
 
-echo "[2/9] billing plan catalog"
+echo "[2/10] billing plan catalog"
 curl -fsS --max-time 10 "$BASE/api/billing/plans" | grep -q '"http-test"'
 
-echo "[3/9] first registration"
+echo "[3/10] first registration"
 REGISTER_STATUS="$(curl -sS --max-time 15 -o /tmp/yasser-register.json -w '%{http_code}'   -H 'Content-Type: application/json'   -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"   "$BASE/api/auth/register")"
 [[ "$REGISTER_STATUS" == "202" ]]
 
-echo "[4/9] capture verification email"
+echo "[4/10] capture verification email"
 for _ in $(seq 1 30); do
   if docker compose "${COMPOSE_ARGS[@]}" exec -T gateway sh -c "test -s '$CAPTURE_FILE'" >/dev/null 2>&1; then
     if docker compose "${COMPOSE_ARGS[@]}" exec -T gateway sh -c "cat '$CAPTURE_FILE'" > "$TEST_DATA"; then
@@ -67,18 +67,18 @@ VERIFY_URL="$(grep -Eo 'https?://[^[:space:]]+/verify-email\?token=[^[:space:]]+
 [[ -n "$VERIFY_URL" ]]
 VERIFY_TOKEN="${VERIFY_URL#*token=}"
 
-echo "[5/9] email verification + onboarding"
+echo "[5/10] email verification + onboarding"
 curl -fsS --max-time 15 -c "$COOKIE_JAR" -b "$COOKIE_JAR"   "${BROWSER_HEADERS[@]}"   -H 'Content-Type: application/json'   -d "{\"token\":\"$VERIFY_TOKEN\"}"   "$BASE/api/auth/verify-email" | grep -q '"next":"/onboarding"'
 
 curl -fsS --max-time 15 -c "$COOKIE_JAR" -b "$COOKIE_JAR"   "${BROWSER_HEADERS[@]}"   -H 'Content-Type: application/json'   -d "{\"workspaceName\":\"$WORKSPACE\",\"planId\":\"http-test\",\"trial\":true}"   "$BASE/api/onboarding" | grep -q '"next":"/dashboard"'
 
-echo "[6/9] customer login + authenticated session"
+echo "[6/10] customer login + authenticated session"
 LOGIN_STATUS="$(curl -sS --max-time 15 -o /tmp/yasser-login.json -w '%{http_code}'   -c "$COOKIE_JAR" -b "$COOKIE_JAR"   "${BROWSER_HEADERS[@]}"   -H 'Content-Type: application/json'   -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"   "$BASE/api/auth/login")"
 [[ "$LOGIN_STATUS" == "200" ]]
 
 curl -fsS --max-time 10 -b "$COOKIE_JAR" "$BASE/api/auth/me" | grep -q '"authenticated":true'
 
-echo "[7/9] desktop-style Manager login"
+echo "[7/10] desktop-style Manager login"
 # Mirror the actual Tauri desktop transport contract. The Gateway only issues
 # the desktop bearer token when the explicit desktop marker is paired with a
 # trusted Tauri origin; browser-origin headers must not be accepted here.
@@ -90,7 +90,7 @@ MANAGER_LOGIN_STATUS="$(
 MANAGER_TOKEN="$(grep -Eo '"accessToken":"[^"]+"' "$TMP_DIR/manager-login.json" | cut -d'"' -f4)"
 [[ -n "$MANAGER_TOKEN" ]]
 curl -fsS --max-time 10 -H "Authorization: Bearer $MANAGER_TOKEN" "$BASE/api/auth/manager/me" | grep -q '"authenticated":true'
-echo "[8/12] Odoo bearer + Agent HTTP bearer + WebSocket over the same HTTP endpoint"
+echo "[8/10] Odoo bearer + Agent HTTP bearer + WebSocket over the same HTTP endpoint"
 
 ODOO_KEY_STATUS="$(
   curl -sS --max-time 10 -o "$TMP_DIR/odoo-key.json" -w '%{http_code}' \
@@ -145,27 +145,25 @@ curl -fsS --max-time 10 \
   "$BASE/api/agent/heartbeat" | grep -q '"ok":true'
 
 WS_KEY="$(openssl rand -base64 16)"
-WS_STATUS="$(
-  curl -sS --http1.1 --max-time 10 \
-    -o /dev/null \
-    -D "$TMP_DIR/agent-ws-headers.txt" \
-    -w '%{http_code}' \
-    -H "Connection: Upgrade" \
-    -H "Upgrade: websocket" \
-    -H "Sec-WebSocket-Version: 13" \
-    -H "Sec-WebSocket-Key: $WS_KEY" \
-    -H "Authorization: $AGENT_BEARER" \
-    "$BASE/api/agent/ws"
-)"
+curl_exit=0
+curl -sS --http1.1 --max-time 5 \
+  -o /dev/null \
+  -D "$TMP_DIR/agent-ws-headers.txt" \
+  -H "Connection: Upgrade" \
+  -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Version: 13" \
+  -H "Sec-WebSocket-Key: $WS_KEY" \
+  -H "Authorization: $AGENT_BEARER" \
+  "$BASE/api/agent/ws" || curl_exit=$?
+WS_STATUS="$(awk 'NR == 1 {print $2}' "$TMP_DIR/agent-ws-headers.txt" 2>/dev/null || true)"
 if [[ "$WS_STATUS" != "101" ]]; then
-  echo "ERROR: Agent WebSocket HTTP upgrade returned $WS_STATUS"
+  echo "ERROR: Agent WebSocket HTTP upgrade returned ${WS_STATUS:-unknown} (curl=$curl_exit)"
   cat "$TMP_DIR/agent-ws-headers.txt"
   exit 1
 fi
-
 echo "PASS: HTTP Odoo bearer, Agent bearer, pairing, heartbeat, and WebSocket upgrade"
 
-echo "[9/12] Manager logout + bearer revocation"
+echo "[9/10] Manager logout + bearer revocation"
 MANAGER_LOGOUT_STATUS="$(
   curl -sS --max-time 10 -o "$TMP_DIR/manager-logout.json" -w '%{http_code}' -H "Authorization: Bearer $MANAGER_TOKEN" -X POST "$BASE/api/auth/manager/logout"
 )"
@@ -183,7 +181,7 @@ if [[ "$MANAGER_AFTER_LOGOUT_STATUS" != "401" ]]; then
   exit 1
 fi
 
-echo "[10/12] customer logout + session revocation"
+echo "[10/10] customer logout + session revocation"
 CUSTOMER_LOGOUT_STATUS="$(
   curl -sS --max-time 10 -o "$TMP_DIR/customer-logout.json" -w '%{http_code}' "${BROWSER_HEADERS[@]}" -b "$COOKIE_JAR" -X POST "$BASE/api/auth/logout"
 )"
@@ -202,6 +200,6 @@ if [[ "$CUSTOMER_AFTER_LOGOUT_STATUS" != "401" ]]; then
 fi
 
 echo
-echo "PASS: signup -> verification capture -> workspace trial -> customer login -> Manager bearer login -> both sessions revoked"
+echo "PASS: HTTP staging end-to-end — signup -> verification -> trial -> customer session -> Manager bearer -> Odoo bearer -> Agent pairing -> Agent heartbeat bearer -> Agent WebSocket -> session revocation"
 echo "Test account: $EMAIL"
 echo "Gateway: $BASE"
