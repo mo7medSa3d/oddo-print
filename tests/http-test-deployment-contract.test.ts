@@ -76,6 +76,12 @@ describe("HTTP test deployment contracts", () => {
     expect(workflow).toContain("go test -mod=readonly ./internal/config");
   });
 
+  it("uses workspace authentication for post-verification onboarding", () => {
+    const route = read("src/app/api/onboarding/route.ts");
+    expect(route).toContain("validateWorkspaceManager(req)");
+    expect(route).not.toContain("validateManager(req)");
+  });
+
   it("requires explicit staging mode for the production HTTP exception", () => {
     const server = read("server.ts");
     expect(server).toContain('const httpTestMode = process.env.YASSER_HTTP_TEST_MODE === "1";');
