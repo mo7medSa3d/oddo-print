@@ -2,6 +2,7 @@ import { IncomingMessage, type ServerResponse } from "http";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { parseStrictContentLength } from "../lib/request-limits";
 import { runtimeSecret } from "../lib/runtime-secret";
+import { trustProxyEnabled } from "./trusted-proxy";
 
 /**
  * API body limit. The custom Next server must never consume the IncomingMessage
@@ -142,13 +143,17 @@ export function isCookieMutationSameOrigin(req: IncomingMessage): boolean {
   if (fetchSite === "cross-site") return false;
 
   const host = headerValue(req, "host").toLowerCase().replace(/\.$/, "");
-  if (!host || host.length > 255 || host.includes("/") || host.includes("@")) return false;
+  const forwardedHost = trustProxyEnabled()
+    ? headerValue(req, "x-forwarded-host").toLowerCase().replace(/\.$/, "")
+    : "";
+  const allowedHosts = new Set([host, forwardedHost].filter(Boolean));
+  if (allowedHosts.size === 0 || [...allowedHosts].some((value) => value.length > 255 || value.includes("/") || value.includes("@"))) return false;
 
   const origin = headerValue(req, "origin");
   if (origin) {
     try {
       const parsed = new URL(origin);
-      return parsed.host.toLowerCase() === host;
+      return allowedHosts.has(parsed.host.toLowerCase());
     } catch {
       return false;
     }
@@ -158,13 +163,13 @@ export function isCookieMutationSameOrigin(req: IncomingMessage): boolean {
   if (referer) {
     try {
       const parsed = new URL(referer);
-      return parsed.host.toLowerCase() === host;
+      return allowedHosts.has(parsed.host.toLowerCase());
     } catch {
       return false;
     }
   }
 
-  // A browser carrying ambient cookies without the modern fetch-metadata or
+  // When TRUST_PROXY is enabled, the outer proxy must already have been
   // standard origin signals is ambiguous; fail closed rather than treating
   // SameSite as the sole CSRF boundary.
   return fetchSite === "same-origin";
