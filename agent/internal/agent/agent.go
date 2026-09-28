@@ -1433,10 +1433,14 @@ func (a *Agent) forgetJob(id string) {
 	delete(a.inFlightTokens, id)
 	delete(a.inFlightReceived, id)
 	if printerID := a.inFlightPrinters[id]; printerID != "" {
-		if count := a.pendingByPrinter[printerID] - 1; count > 0 {
-			a.pendingByPrinter[printerID] = count
-		} else {
-			delete(a.pendingByPrinter, printerID)
+		// Guard against negative counts: if the entry is already gone or
+		// corrupted, don't let the counter go negative.
+		if count, ok := a.pendingByPrinter[printerID]; ok {
+			if count > 1 {
+				a.pendingByPrinter[printerID] = count - 1
+			} else {
+				delete(a.pendingByPrinter, printerID)
+			}
 		}
 	}
 	delete(a.inFlightPrinters, id)
@@ -2147,10 +2151,6 @@ func (a *Agent) reloadRegistryPrinters() {
 	a.reconcileRegistryPrinters(infos)
 }
 
-func (a *Agent) sendHeartbeat() {
-	a.sendHeartbeatContext(context.Background())
-}
-
 func (a *Agent) sendHeartbeatContext(parent context.Context) {
 	if parent.Err() != nil {
 		return
@@ -2639,6 +2639,9 @@ func (a *Agent) currentClaimToken(jobID string) string {
 
 func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken string, reason ...string) error {
 	if live := a.currentClaimToken(jobID); live != "" {
+		if claimToken != "" && claimToken != live {
+			log.Printf("Job %s: claim token override (passed %q, using live %q)", jobID, claimToken, live)
+		}
 		claimToken = live
 	}
 	reqURL := fmt.Sprintf("%s/api/agent/jobs", a.cfg.Server.URL)
@@ -2708,6 +2711,16 @@ func (a *Agent) doAuthorizedRequest(ctx context.Context, method, url string, bod
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return nil, err
+	}
+
+	// Drain and close the response body to enable connection reuse.
+	// Callers that need the body will read it before it is closed here;
+	// this is a safety net for paths that forget to close.
+	if resp.Body != nil {
+		go func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+			_ = resp.Body.Close()
+		}()
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized {

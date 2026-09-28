@@ -30,12 +30,14 @@ export async function GET(req: Request) {
   // Hard ceiling so cadence/abuse cannot force an unbounded scan. Entitlements
   // cap the row count per tenant (max_printers); 1000 is purely defensive.
   const { searchParams } = new URL(req.url);
-  const limit = clampListLimit(searchParams.get("limit"), 1000, 1000);
+  const limit = 1000;
   const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10) || 0, 0);
   if (offset > MAX_PRINTERS_OFFSET) {
     return NextResponse.json({ error: `offset must be <= ${MAX_PRINTERS_OFFSET}` }, { status: 400 });
   }
 
+  await refreshClockSkew();
+  const now = gatewayNow();
   const rows = await db.select({ printer: printers, agent: agents })
     .from(printers)
     .leftJoin(agents, and(eq(agents.id, printers.agentId), eq(agents.tenantId, tenantId)))
@@ -43,8 +45,6 @@ export async function GET(req: Request) {
     .orderBy(desc(printers.createdAt))
     .limit(limit)
     .offset(offset);
-  await refreshClockSkew();
-  const now = gatewayNow();
   return NextResponse.json(rows.map(({ printer, agent }) => ({
     ...printer,
     status: getEffectivePrinterStatus(printer, agent, now),

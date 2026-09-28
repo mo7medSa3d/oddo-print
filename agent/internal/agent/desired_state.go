@@ -365,6 +365,10 @@ func validateDesiredNetworkDestination(c map[string]interface{}) error {
 	if host == "169.254.169.254" || strings.EqualFold(host, "fd00:ec2::254") {
 		return fmt.Errorf("network printer destination must not be a metadata endpoint")
 	}
+	// Explicitly reject IPv6 Unique Local Addresses (fd00::/8)
+	if ip.To4() == nil && len(ip) >= 2 && ip[0] == 0xfd {
+		return fmt.Errorf("network printer destination must not be a ULA address")
+	}
 	canonical := net.JoinHostPort(host, strconv.Itoa(port))
 	if supplied := desiredStringValue(c, "address"); supplied != "" {
 		suppliedHost, suppliedPort, err := net.SplitHostPort(supplied)

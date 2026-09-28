@@ -304,7 +304,12 @@ class PrintGatewayBinding(models.Model):
 
     def _get_gateway_config(self):
         self.ensure_one()
-        root_company = self.company_id.parent_id if self.branch_id and self.company_id.parent_id else self.company_id
+        # When a branch is set, the company_id is the branch's company which may
+        # not have its own gateway config. Fall back to the root company.
+        if self.branch_id and self.company_id.parent_id:
+            root_company = self.company_id.parent_id
+        else:
+            root_company = self.company_id
         config = self.env["print_gateway.gateway_config"].search([("company_id", "=", root_company.id)], limit=1)
         if not config or not config.enabled:
             raise ValidationError(_("An enabled Print Gateway configuration is required for this Odoo Company."))
@@ -501,15 +506,7 @@ class PrintGatewayBinding(models.Model):
             },
         }
 
-    @api.model_create_multi
-    def create(self, vals_list):
-        return super().create(vals_list)
-
-    def write(self, vals):
-        return super().write(vals)
-
-    def unlink(self):
-        return super().unlink()
+    # create/write/unlink are inherited from base; no overrides needed.
     @api.model
     def destination_for(self, *, record=None, report=None, explicit_destination=None):
         if explicit_destination:

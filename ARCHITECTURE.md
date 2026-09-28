@@ -48,7 +48,7 @@ The Gateway is a Next.js 16.3.6 application with a **custom HTTP server** (`serv
 - Enforces trusted proxy authentication (Caddy → Gateway)
 - Rejects known placeholder secrets in production mode
 
-**API Route Structure** (76 routes):
+**API Route Structure** (76 route files, verified 2026-09-28):
 - `/api/agent/*` — Agent data plane (heartbeat, jobs, register, discovery)
 - `/api/agents/*` — Agent management (CRUD, discovery sessions)
 - `/api/odoo/*` — Odoo integration endpoints (agents, printers, keys, health)

@@ -24,11 +24,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
   const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, id), eq(agents.tenantId, claims.tenantId)) });
   if (!agent) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  await refreshClockSkew();
+  const now = gatewayNow();
   const agentPrinters = await db.query.printers.findMany({ where: and(eq(printers.agentId, id), eq(printers.tenantId, claims.tenantId)), orderBy: [desc(printers.createdAt)] });
   const [jobs] = await db.select({ c: count() }).from(printJobs).where(and(eq(printJobs.agentId, id), eq(printJobs.tenantId, claims.tenantId)));
   const { secret: _secret, pairingCodeHash: _pch, pairingCode: _pc, pairingCodeExpiresAt: _exp, ...safe } = agent as Record<string, unknown>;
-  await refreshClockSkew();
-  const now = gatewayNow();
   const safeAgent = { ...safe, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" };
   const effectivePrinters = agentPrinters.map((printer) => ({ ...printer, status: getEffectivePrinterStatus(printer, agent, now) }));
   return NextResponse.json({ agent: safeAgent, printers: effectivePrinters, jobCount: jobs?.c ?? 0 });

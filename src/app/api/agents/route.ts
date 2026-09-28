@@ -29,7 +29,7 @@ export async function GET(req: Request) {
   // cap the row count per tenant (max_agents), so a well-formed fleet never
   // approaches this; 1000 is far above any valid plan and purely defensive.
   const { searchParams } = new URL(req.url);
-  const limit = clampListLimit(searchParams.get("limit"), 1000, 1000);
+  const limit = 1000;
   const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10) || 0, 0);
   if (offset > MAX_AGENTS_OFFSET) {
     return NextResponse.json({ error: `offset must be <= ${MAX_AGENTS_OFFSET}` }, { status: 400 });
@@ -37,12 +37,12 @@ export async function GET(req: Request) {
   const where = auth.kind === "agent"
     ? and(eq(agents.tenantId, tenantId), eq(agents.id, auth.agent.id))
     : eq(agents.tenantId, tenantId);
+  await refreshClockSkew();
+  const now = gatewayNow();
   const rows = await db.select({
     id: agents.id, name: agents.name, status: agents.status, lifecycle: agents.lifecycle,
     metadata: agents.metadata, lastSeenAt: agents.lastSeenAt, createdAt: agents.createdAt,
   }).from(agents).where(where).orderBy(desc(agents.createdAt)).limit(limit).offset(offset);
-  await refreshClockSkew();
-  const now = gatewayNow();
   return NextResponse.json(rows.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" })));
 }
 
