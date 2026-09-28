@@ -33,10 +33,7 @@ if ($uri.AbsolutePath -ne "/" -or -not [string]::IsNullOrEmpty($uri.Query) -or -
   throw "ServerUrl must be the Gateway origin only (http://IP[:port])."
 }
 
-[Environment]::SetEnvironmentVariable("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1", "Machine")
-$env:YASSER_AGENT_ALLOW_INSECURE_HTTP = "1"
-
-Write-Host "HTTP test transport explicitly enabled for this Windows test machine."
+Write-Host "HTTP test transport is enabled by the staging Gateway URL contract; no extra insecure-HTTP agent flag is required."
 Write-Host "Pairing Yasser Agent with $ServerUrl ..."
 
 & $AgentCli -pair $PairingCode -server $ServerUrl
