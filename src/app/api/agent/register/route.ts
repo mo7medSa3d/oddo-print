@@ -127,7 +127,12 @@ export async function POST(req: Request) {
         WHERE ${liveTenantSubscriptionPredicate(sql`${agent.tenantId}`)}
         FOR UPDATE
       `);
-      if (billingResult.rows.length !== 1) {
+      // Existence check (not a count): the outer SELECT returns one row per
+      // subscription row in the table whenever ANY live subscription exists
+      // for this tenant, so `!== 1` falsely rejects as soon as the database
+      // holds 2+ subscription rows (any multi-tenant gateway, or a staging
+      // database reused across runs).
+      if (billingResult.rows.length === 0) {
         return { kind: "billing_required" as const };
       }
 
