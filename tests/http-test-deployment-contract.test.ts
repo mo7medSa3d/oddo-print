@@ -66,6 +66,12 @@ describe("HTTP test deployment contracts", () => {
     expect(smoke).toContain("Upgrade: websocket");
     expect(smoke).toContain("$BASE/api/agent/ws");
   });
+  it("requires explicit staging mode for the production HTTP exception", () => {
+    const server = read("server.ts");
+    expect(server).toContain('const httpTestMode = process.env.YASSER_HTTP_TEST_MODE === "1";');
+    expect(server).not.toContain('process.env.YASSER_HTTP_TEST_MODE !== "0"');
+  });
+
   it("passes the HTTP test login username into tenant resolution", () => {
     const route = read("src/app/api/auth/manager/login/route.ts");
     expect(route).toContain("resolveManagerTenantId(req, username)");
