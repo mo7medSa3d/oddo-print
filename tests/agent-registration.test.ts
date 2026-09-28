@@ -59,6 +59,32 @@ suite("agent registration contract", () => {
     expect(row.status).toBe("offline");
   });
 
+  it("pairs when other tenants hold live subscriptions (existence, not count)", async () => {
+    // Regression: the billing gate once required `rows.length === 1` on an
+    // unscoped outer SELECT, so the second tenant's pairing always failed
+    // with SUBSCRIPTION_REQUIRED despite a live subscription.
+    const f = await seedFixture();
+    await seedFixture();
+    const pairingCode = "CD44EF";
+    await pool().query(
+      `UPDATE agents
+       SET pairing_code_hash = $1, pairing_code_expires_at = now() + interval '30 minutes', secret = NULL, status = 'offline'
+       WHERE id = $2`,
+      [hashPairingCode(pairingCode), f.agentId],
+    );
+
+    const response = await registerPOST(new Request("http://gateway.test/api/agent/register", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-real-ip": "127.0.0.52" },
+      body: JSON.stringify({ pairingCode }),
+    }));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.agentId).toBe(f.agentId);
+    expect(body.secret).toMatch(/.+/);
+  });
+
   it("pairs using only the one-time pairing code and preserves runtime-only agent ownership", async () => {
     const f = await seedFixture();
     const pairingCode = "AB22CD";
