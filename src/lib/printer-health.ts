@@ -166,7 +166,13 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
     p.connectionType as TransportType,
   );
 
-  const statusInfo = normalizePrinterStatus(p.status, {\n    lastSeenAt: p.lastSeenAt,\n    agentLastSeenAt: agent?.lastSeenAt,\n    agentStatus: agent?.status,\n    config,\n    capabilities: caps,\n  });
+  const statusInfo = normalizePrinterStatus(p.status, {
+    lastSeenAt: p.lastSeenAt,
+    agentLastSeenAt: agent?.lastSeenAt,
+    agentStatus: agent?.status,
+    config,
+    capabilities: caps,
+  });
 
   // Driver health: evidence-based, not from DB status alone
   const driverName = capStr(caps, "driver_name") ?? capStr(configBag, "driver_name");
