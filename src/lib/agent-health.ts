@@ -77,7 +77,7 @@ export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: D
 
 export async function getAgentHealth(tenantId: string, agentId: string): Promise<AgentHealth | null> {
   const agentRows = await queryWithTimeout(
-    () => db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, agentId))).limit(1),
+    db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, agentId))).limit(1),
     3000,
     "getAgentHealth"
   );
@@ -95,7 +95,7 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   let queueDataAvailable = true;
   try {
     queueRows = await queryWithTimeout(
-      () => db.select({ cnt: count() }).from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.agentId, agentId), sql`${printJobs.status} in ('queued','claimed','printing')`)),
+      db.select({ cnt: count() }).from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.agentId, agentId), sql`${printJobs.status} in ('queued','claimed','printing')`)),
       3000,
       "agentQueueDepth"
     );
@@ -109,7 +109,7 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   let printerDataAvailable = true;
   try {
     printerRows = await queryWithTimeout(
-      () => db.select({ id: printers.id, status: printers.status }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
+      db.select({ id: printers.id, status: printers.status }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
       3000,
       "agentPrinters"
     );
@@ -219,7 +219,7 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
 export async function getAllAgentsHealth(tenantId: string): Promise<AgentHealth[]> {
   // `db.select().from(agents)` is already typed; the cast only disabled checking.
   const allAgents = await queryWithTimeout(
-    () => db.select().from(agents).where(eq(agents.tenantId, tenantId)),
+    db.select().from(agents).where(eq(agents.tenantId, tenantId)),
     3000,
     "getAllAgentsHealth"
   );

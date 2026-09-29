@@ -135,8 +135,7 @@ export function normalizePrinterStatus(
 }
 
 export async function getPrinterCapabilityMatrix(tenantId: string, printerId: string): Promise<PrinterCapabilityMatrix | null> {
-  const rows = await queryWithTimeout(
-    db.select().from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.id, printerId))).limit(1),
+  const rows = await queryWithTimeout(\n    () => db.select().from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.id, printerId))).limit(1),
     3000,
     "getPrinterCapability"
   );
@@ -236,8 +235,7 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
 }
 
 export async function getAllPrintersCapabilityMatrix(tenantId: string): Promise<PrinterCapabilityMatrix[]> {
-  const all = await queryWithTimeout(
-    db.select().from(printers).where(eq(printers.tenantId, tenantId)),
+  const all = await queryWithTimeout(\n    () => db.select().from(printers).where(eq(printers.tenantId, tenantId)),
     3000,
     "getAllPrintersCapability"
   );

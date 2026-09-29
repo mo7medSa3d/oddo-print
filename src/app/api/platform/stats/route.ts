@@ -35,7 +35,7 @@ export async function GET(req: Request) {
     jobStats24h,
     hourlyJobStats,
   ] = await queryWithTimeout(
-    Promise.all([
+    () => Promise.all([
       db.select({
         total: sql<number>`count(*)::int`,
         active: sql<number>`count(*) filter (where ${tenants.lifecycle} = 'active')::int`,

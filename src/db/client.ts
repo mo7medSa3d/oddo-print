@@ -9,7 +9,7 @@ const dbCircuitBreaker = new CircuitBreaker({
   name: "postgresql",
 });
 
-export async function queryWithTimeout<T>(query: () => Promise<T>, ms: number, label: string): Promise<T> {
+export async function queryWithTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return dbCircuitBreaker.execute(async () => {
     let timer: NodeJS.Timeout | undefined;
     try {
@@ -22,7 +22,7 @@ export async function queryWithTimeout<T>(query: () => Promise<T>, ms: number, l
       // underlying query — it keeps running on the pooled connection until the
       // database finishes or statement_timeout fires. Callers must not assume
       // cancellation, only bounded waiting.
-      const result = await Promise.race([query(), timeout]);
+      const result = await Promise.race([promise, timeout]);
       return result as T;
     } finally {
       if (timer) clearTimeout(timer);

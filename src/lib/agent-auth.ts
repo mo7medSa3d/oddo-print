@@ -10,19 +10,13 @@ import { requireActiveTenantOrNull } from "./tenant-guard";
  */
 export const PAIRING_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export const PAIRING_CODE_LENGTH = 6;
-export const PAIRING_CODE_PATTERN = new RegExp(`^[${PAIRING_CODE_ALPHABET}]{${PAIRING_CODE_LENGTH}}import { db } from "../db";
-import { agents } from "../db/schema";
-import { eq } from "drizzle-orm";
-import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
-import { requireActiveTenantOrNull } from "./tenant-guard";
+export const PAIRING_CODE_PATTERN = new RegExp(`^[${PAIRING_CODE_ALPHABET}]{${PAIRING_CODE_LENGTH}}$`);
 
-/**
- * Public pairing contract shared by Gateway, Go agent and Tauri manager.
- * 32-character unambiguous alphabet; excludes O/I and 0/1.
- */
-export const PAIRING_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-export const PAIRING_CODE_LENGTH = 6;
-);\n\nexport const AGENT_ID_PATTERN = /^agt_[A-Za-z0-9_-]{8}$/;\n\nexport function isValidAgentId(value: unknown): value is string {\n  return typeof value === "string" && AGENT_ID_PATTERN.test(value);\n}
+export const AGENT_ID_PATTERN = /^agt_[A-Za-z0-9_-]{8}$/;
+
+export function isValidAgentId(value: unknown): value is string {
+  return typeof value === "string" && AGENT_ID_PATTERN.test(value);
+}
 
 export function hashSecret(secret: string): string {
   return createHash("sha256").update(secret).digest("hex");
@@ -55,11 +49,6 @@ export function isValidPairingCode(value: unknown): value is string {
 }
 
 function timingSafeStringEqual(a: string, b: string): boolean {
-  // Length-oracle hardening: hash both inputs to fixed 32-byte digests
-  // before comparing, so no code path branches on secret length and
-  // timingSafeEqual never receives mismatched buffers (the old
-  // length-mismatch branch compared a buffer to itself, leaking length
-  // via response-time differences).
   const digestA = createHash("sha256").update(a, "utf8").digest();
   const digestB = createHash("sha256").update(b, "utf8").digest();
   return timingSafeEqual(digestA, digestB);
@@ -83,7 +72,6 @@ export async function validateAgent(authHeader: string | null) {
 
   const providedHash = hashSecret(secret);
   if (!timingSafeStringEqual(agent.secret, providedHash)) return null;
-  // Tenant lifecycle gate: agents of suspended/deleted tenants cannot connect.
   const tenantLifecycle = await requireActiveTenantOrNull(agent.tenantId);
   if (!tenantLifecycle) return null;
   return agent;
