@@ -10,7 +10,19 @@ import { requireActiveTenantOrNull } from "./tenant-guard";
  */
 export const PAIRING_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export const PAIRING_CODE_LENGTH = 6;
-export const PAIRING_CODE_PATTERN = new RegExp(`^[${PAIRING_CODE_ALPHABET}]{${PAIRING_CODE_LENGTH}}$`);
+export const PAIRING_CODE_PATTERN = new RegExp(`^[${PAIRING_CODE_ALPHABET}]{${PAIRING_CODE_LENGTH}}import { db } from "../db";
+import { agents } from "../db/schema";
+import { eq } from "drizzle-orm";
+import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { requireActiveTenantOrNull } from "./tenant-guard";
+
+/**
+ * Public pairing contract shared by Gateway, Go agent and Tauri manager.
+ * 32-character unambiguous alphabet; excludes O/I and 0/1.
+ */
+export const PAIRING_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+export const PAIRING_CODE_LENGTH = 6;
+);\n\nexport const AGENT_ID_PATTERN = /^agt_[A-Za-z0-9_-]{8}$/;\n\nexport function isValidAgentId(value: unknown): value is string {\n  return typeof value === "string" && AGENT_ID_PATTERN.test(value);\n}
 
 export function hashSecret(secret: string): string {
   return createHash("sha256").update(secret).digest("hex");
@@ -64,7 +76,7 @@ export async function validateAgent(authHeader: string | null) {
   const secret = token.slice(separatorIndex + 1);
   if (!agentId || !secret) return null;
   // Validate canonical Gateway Agent ID format: agt_ prefix plus 8 Base64URL characters.
-  if (!/^agt_[A-Za-z0-9_-]{8}$/.test(agentId)) return null;
+  if (!isValidAgentId(agentId)) return null;
 
   const agent = await db.query.agents.findFirst({ where: eq(agents.id, agentId) });
   if (!agent || !agent.secret || agent.lifecycle !== "active") return null;
