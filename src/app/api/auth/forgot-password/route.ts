@@ -37,7 +37,21 @@ export async function POST(req: Request) {
       expiresAt: sql`clock_timestamp() + interval '20 minutes'`,
     });
   });
-  try { const url=`${appBaseUrl(req)}/reset-password?token=${encodeURIComponent(raw)}`; await sendTransactionalEmail({to:user.email,subject:"Reset your Yasser password",html:`<p><a href="${url}">Reset password</a></p>`,text:`Reset your password: ${url}`}); } catch (error) {    // Keep the response enumeration-safe, but retain an operational signal so    // failed email delivery is diagnosable without exposing the recipient.    logError("auth.forgot_password.reset_email_failed", {      error: error instanceof Error ? error.message : String(error),    });  }
+  try {
+    const url = `${appBaseUrl(req)}/reset-password?token=${encodeURIComponent(raw)}`;
+    await sendTransactionalEmail({
+      to: user.email,
+      subject: "Reset your Yasser password",
+      html: `<p><a href="${url}">Reset password</a></p>`,
+      text: `Reset your password: ${url}`,
+    });
+  } catch (error) {
+    // Keep the response enumeration-safe, but retain an operational signal so
+    // failed email delivery is diagnosable without exposing the recipient.
+    logError("auth.forgot_password.reset_email_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   // Do not clear the limiter here: a password-reset request is not a successful
   // authentication event. Clearing it would let an attacker repeatedly trigger
   // reset emails and bypass the abuse budget after every delivery.
