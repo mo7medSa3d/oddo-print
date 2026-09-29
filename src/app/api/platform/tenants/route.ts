@@ -20,7 +20,7 @@ export async function GET(req: Request) {
   const limit = clampListLimit(searchParams.get("limit"), 300, 1000);
 
   const rows = await queryWithTimeout(
-    db
+    () => db
       .select({
         id: tenants.id,
         name: tenants.name,
