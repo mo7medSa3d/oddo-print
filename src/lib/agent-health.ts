@@ -57,7 +57,8 @@ function onlineThresholdMs(): number {
 const DEGRADED_THRESHOLD_MS = 5 * 60_000; // 5min
 const STARTING_THRESHOLD_MS = 5 * 60_000;
 
-export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: Date | null, now = gatewayNow(), status = "online"): AgentHealthStatus {\n  if (status === "offline" && lastSeenAt) return "OFFLINE";
+export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: Date | null, now = gatewayNow(), status = "online"): AgentHealthStatus {
+  if (status === "offline" && lastSeenAt) return "OFFLINE";
   if (!lastSeenAt) {
     if (createdAt) {
       const ageCreated = now.getTime() - new Date(createdAt).getTime();
@@ -89,7 +90,8 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   const agent = agentRows[0];
 
   const now = gatewayNow();
-  const baseStatus = agent.lifecycle !== "active"\n    ? "OFFLINE"\n    : agent.status === "offline" && agent.lastSeenAt\n      ? "OFFLINE"\n      : computeAgentHealthStatus(agent.lastSeenAt, agent.createdAt, now);
+  const baseStatus = agent.lifecycle !== "active"
+    ? "OFFLINE"\n    : agent.status === "offline" && agent.lastSeenAt\n      ? "OFFLINE"\n      : computeAgentHealthStatus(agent.lastSeenAt, agent.createdAt, now);
 
   let queueRows: Array<{ cnt: number }> = [];
   let queueDataAvailable = true;
