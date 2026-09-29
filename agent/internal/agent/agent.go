@@ -1848,12 +1848,18 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 	close(workQueue)
 
 	pendingProbes := len(works)
-	// Keep the 2s signal for operator latency, but ALWAYS join every spawned
-	// probe before returning. The bounded pool prevents a large fleet from
-	// creating an unbounded number of OS/RPC calls or goroutines.
-	warningTimer := time.NewTimer(2 * time.Second)
-	defer warningTimer.Stop()
-	var warningC <-chan time.Time = warningTimer.C
+	// Hard probe budget: the heartbeat must never block indefinitely on a
+	// wedged driver. Each individual probe already has its own timeout
+	// (spooler 5s, network 2s, IPP 5s), but a fleet of slow printers could
+	// still exceed the heartbeat HTTP budget. After 10s total, stop waiting:
+	// slow printers keep their last-known status and their helpers finish in
+	// the background (single-flight guarantees at most one stuck helper per
+	// printer, and the bounded pool caps total helpers). The next heartbeat
+	// reuses the cached result until the stuck probe clears.
+	// A bad printer probe must never make the Agent appear offline.
+	budgetTimer := time.NewTimer(10 * time.Second)
+	defer budgetTimer.Stop()
+	var warningC <-chan time.Time = budgetTimer.C
 	for pendingProbes > 0 {
 		select {
 		case res := <-results:
@@ -1861,11 +1867,24 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 			probed[res.idx] = true
 			pendingProbes--
 		case <-warningC:
-			log.Printf("WARNING: Printer status probe batch exceeded 2s; waiting for bounded probes to finish before returning")
 			warningC = nil
+			deferred := 0
+			for i, id := range ids {
+				if !probed[i] {
+					statuses[i] = a.probeLastStatus(id)
+					if statuses[i] == "" {
+						statuses[i] = "unknown"
+					}
+					probed[i] = true
+					pendingProbes--
+					deferred++
+				}
+			}
+			log.Printf("WARNING: Printer status probe batch exceeded 10s budget; %d slow probe(s) deferred to background (last-known status reported)", deferred)
 		}
 	}
-	probeWG.Wait()
+	// Slow helpers are single-flight per printer and self-clearing; joining
+	// them here would reintroduce the heartbeat stall this budget removes.
 
 	observedCapabilityStateChanged := false
 	result := make([]map[string]interface{}, 0, len(ids))

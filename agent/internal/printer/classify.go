@@ -88,40 +88,24 @@ func isVirtualSpooler(portName, driverName, printerName string) bool {
 
 // classifySpoolerPrinter infers printer type and connection type from Windows
 // spooler metadata before the queue is persisted into the managed inventory.
+// classifySpoolerPrinter infers printer type and connection type from Windows
+// spooler metadata before the queue is persisted into the managed inventory.
+//
+// A Windows print queue is ALWAYS served through the Windows spooler backend,
+// regardless of its port (USB001, WSD, IP_*, BRN_*, LPT1:, shared \\server\,
+// vendor monitors). The port/monitor select the spooler's delivery path; they
+// never turn the queue into a direct-TCP or direct-USB device. Direct network
+// (RAW 9100) and direct USB (device path) transports are separate,
+// operator-declared printer records — never inferred from a queue's port
+// name. Inferring "network" here previously broke every WSD and Standard
+// TCP/IP queue: the factory expects ip:port endpoints for network printers,
+// so those queues failed to initialize and never heartbeated.
 func classifySpoolerPrinter(portName, driverName, printerName string) (printerType, connectionType string) {
-	portLower := ""
-	if portName != "" {
-		if idx := spoolerIndexComma(portName); idx >= 0 {
-			portLower = spoolerToLowerTrim(portName[:idx])
-		} else {
-			portLower = spoolerToLowerTrim(portName)
-		}
-	}
+	// Connection is always the Windows spooler for an installed queue.
+	connectionType = "spooler"
+
 	driverLower := spoolerToLowerTrim(driverName)
 	nameLower := spoolerToLowerTrim(printerName)
-
-	switch {
-	case spoolerHasPrefix(portLower, "usb") || spoolerHasPrefix(portLower, "dot4"):
-		connectionType = "usb"
-	case spoolerHasPrefix(portLower, "wsd"):
-		connectionType = "network"
-	case portLower == "lpt1:" || portLower == "com1:" || spoolerHasPrefix(portLower, "lpt") || spoolerHasPrefix(portLower, "com"):
-		// Local parallel/serial ports are served through the Windows
-		// spooler backend. The factory only accepts
-		// network/usb/spooler/ipp/ipps, so "local" would fail New/Validate
-		// for every LPT/COM-attached printer.
-		connectionType = "spooler"
-	case strings.Contains(portLower, "192.168.") || strings.Contains(portLower, "10.") || strings.Contains(portLower, ":9100") || spoolerHasPrefix(portLower, "tcp") || spoolerHasPrefix(portLower, "ip_"):
-		connectionType = "network"
-	case portLower != "":
-		if strings.Contains(portLower, ".") && (strings.Contains(portLower, ":") || spoolerHasPrefix(portLower, "hp") || spoolerHasPrefix(portLower, "canon") || spoolerHasPrefix(portLower, "epson")) {
-			connectionType = "network"
-		} else {
-			connectionType = "spooler"
-		}
-	default:
-		connectionType = "spooler"
-	}
 
 	switch {
 	case strings.Contains(driverLower, "thermal") || strings.Contains(nameLower, "thermal") || strings.Contains(nameLower, "receipt") || strings.Contains(nameLower, "pos") || strings.Contains(driverLower, "escpos") || strings.Contains(driverLower, "epson tm-") || strings.Contains(driverLower, "bixolon"):

@@ -36,10 +36,17 @@ const (
 	PRINTER_STATUS_ERROR             = 0x00000002
 	PRINTER_STATUS_PAPER_JAM         = 0x00000008
 	PRINTER_STATUS_PAPER_OUT         = 0x00000010
+	PRINTER_STATUS_PAPER_PROBLEM     = 0x00000040
 	PRINTER_STATUS_OFFLINE           = 0x00000080
+	PRINTER_STATUS_OUTPUT_BIN_FULL   = 0x00000800
+	PRINTER_STATUS_NOT_AVAILABLE     = 0x00001000
+	PRINTER_STATUS_NO_TONER          = 0x00040000
+	PRINTER_STATUS_SERVER_UNKNOWN    = 0x00800000
 	PRINTER_STATUS_USER_INTERVENTION = 0x00100000
 	PRINTER_STATUS_DOOR_OPEN         = 0x00400000
 )
+
+const PRINTER_ATTRIBUTE_WORK_OFFLINE = 0x00000400
 
 type docInfo1 struct {
 	pDocName    *uint16
@@ -382,8 +389,21 @@ func preFlightSpoolerCheck(spoolerName string) error {
 	}
 
 	pi := (*printerInfo2)(unsafe.Pointer(&buf[0]))
+	// WorkOffline is a queue attribute the operator sets ("Use Printer
+	// Offline"), not a device report. The spooler queues jobs instead of
+	// sending them, so an attempt would strand a durable job until someone
+	// clears the flag. Fail fast with an explicit reason.
+	if (pi.Attributes & PRINTER_ATTRIBUTE_WORK_OFFLINE) != 0 {
+		return fmt.Errorf("%w: spooler printer %q has WorkOffline set (queue is holding jobs; clear \"Use Printer Offline\" to resume)", ErrPrinterOffline, spoolerName)
+	}
 	if (pi.Status & PRINTER_STATUS_OFFLINE) != 0 {
 		return fmt.Errorf("%w: spooler printer %q is offline (status 0x%08x)", ErrPrinterOffline, spoolerName, pi.Status)
+	}
+	if (pi.Status & PRINTER_STATUS_NOT_AVAILABLE) != 0 {
+		return fmt.Errorf("%w: spooler printer %q is not available (status 0x%08x)", ErrPrinterOffline, spoolerName, pi.Status)
+	}
+	if (pi.Status & PRINTER_STATUS_SERVER_UNKNOWN) != 0 {
+		return fmt.Errorf("%w: spooler printer %q status unknown from server (status 0x%08x)", ErrPrinterOffline, spoolerName, pi.Status)
 	}
 	if (pi.Status & PRINTER_STATUS_PAUSED) != 0 {
 		return fmt.Errorf("%w: spooler printer %q is paused (status 0x%08x)", ErrPrinterNotReady, spoolerName, pi.Status)
@@ -545,8 +565,173 @@ func (p *SpoolerPrinter) PrintDocument(ctx context.Context, doc Document) error 
 	}
 }
 
+// SpoolerProbe is the evidence record for one Windows print queue. Every
+// field names its source: queue/driver/port/attributes come from GetPrinterW
+// level 2 (the Windows authority for installed queues), availability comes
+// from OpenPrinter + GetPrinter results with exact Win32 errors, and the
+// verdict distinguishes queue health from physical-device truth.
+type SpoolerProbe struct {
+	QueueName        string `json:"queue_name"`
+	DriverName       string `json:"driver_name,omitempty"`
+	PortName         string `json:"port_name,omitempty"`
+	PrintProcessor   string `json:"print_processor,omitempty"`
+	Datatype         string `json:"datatype,omitempty"`
+	ShareName        string `json:"share_name,omitempty"`
+	Comment          string `json:"comment,omitempty"`
+	Location         string `json:"location,omitempty"`
+	Attributes       uint32 `json:"attributes"`
+	WorkOffline      bool   `json:"work_offline"`
+	StatusFlags      uint32 `json:"status_flags"`
+	PendingJobs      uint32 `json:"pending_jobs"`
+	OpenPrinterOK    bool   `json:"open_printer_ok"`
+	OpenPrinterError string `json:"open_printer_error,omitempty"`
+	GetPrinterOK     bool   `json:"get_printer_ok"`
+	GetPrinterError  string `json:"get_printer_error,omitempty"`
+	Verdict          string `json:"verdict"`
+	VerdictReason    string `json:"verdict_reason"`
+}
+
+// Spooler verdicts. SPOOLER_JOB_ACCEPTED is the strongest truthful claim for
+// a submission path (Windows accepted the bytes); PHYSICAL_OUTCOME_UNKNOWN
+// is the honest physical state after acceptance. Nothing here claims paper.
+const (
+	SpoolerReadyToAccept    = "SPOOLER_READY_TO_ACCEPT"
+	SpoolerQueueUnavailable = "SPOOLER_QUEUE_UNAVAILABLE"
+	SpoolerDriverError      = "SPOOLER_DRIVER_ERROR"
+	SpoolerPortError        = "SPOOLER_PORT_ERROR"
+	SpoolerStatusUnknown    = "SPOOLER_STATUS_UNKNOWN"
+	SpoolerJobAccepted      = "SPOOLER_JOB_ACCEPTED"
+	PhysicalOutcomeUnknown  = "PHYSICAL_OUTCOME_UNKNOWN"
+)
+
+// ProbeSpoolerQueue collects Windows spooler evidence for one queue without
+// submitting any document. OpenPrinter/GetPrinter failures carry the exact
+// Win32 error; status bits are reported as observed flags, never collapsed
+// into physical truth.
+func ProbeSpoolerQueue(spoolerName string) SpoolerProbe {
+	probe := SpoolerProbe{QueueName: spoolerName}
+	printerNamePtr, err := syscall.UTF16PtrFromString(spoolerName)
+	if err != nil {
+		probe.OpenPrinterError = fmt.Sprintf("encode spooler name: %v", err)
+		probe.Verdict = SpoolerQueueUnavailable
+		probe.VerdictReason = "invalid spooler name"
+		return probe
+	}
+	var hPrinter syscall.Handle
+	ret, _, lastErr := procOpenPrinterW.Call(
+		uintptr(unsafe.Pointer(printerNamePtr)),
+		uintptr(unsafe.Pointer(&hPrinter)),
+		0,
+	)
+	if ret == 0 {
+		if lastErr != nil {
+			probe.OpenPrinterError = lastErr.Error()
+		} else {
+			probe.OpenPrinterError = "OpenPrinterW returned zero"
+		}
+		probe.Verdict = SpoolerQueueUnavailable
+		probe.VerdictReason = "OpenPrinterW failed; queue inaccessible from service context"
+		return probe
+	}
+	probe.OpenPrinterOK = true
+	defer procClosePrinter.Call(uintptr(hPrinter))
+
+	minSize := uint32(unsafe.Sizeof(printerInfo2{}))
+	var needed uint32
+	procGetPrinterW.Call(uintptr(hPrinter), 2, 0, 0, uintptr(unsafe.Pointer(&needed)))
+	if needed < minSize {
+		probe.GetPrinterError = fmt.Sprintf("GetPrinterW sizing returned %d bytes (minimum %d)", needed, minSize)
+		probe.Verdict = SpoolerStatusUnknown
+		probe.VerdictReason = "GetPrinterW sizing inconclusive; status unreadable"
+		return probe
+	}
+	buf := make([]byte, needed)
+	ret, _, lastErr = procGetPrinterW.Call(
+		uintptr(hPrinter), 2,
+		uintptr(unsafe.Pointer(&buf[0])), uintptr(needed),
+		uintptr(unsafe.Pointer(&needed)),
+	)
+	if ret == 0 {
+		if lastErr != nil {
+			probe.GetPrinterError = lastErr.Error()
+		} else {
+			probe.GetPrinterError = "GetPrinterW level 2 returned zero"
+		}
+		probe.Verdict = SpoolerStatusUnknown
+		probe.VerdictReason = "GetPrinterW failed; queue state unreadable"
+		return probe
+	}
+	probe.GetPrinterOK = true
+	if len(buf) < int(minSize) {
+		probe.GetPrinterError = fmt.Sprintf("buffer %d smaller than PRINTER_INFO_2 %d", len(buf), minSize)
+		probe.Verdict = SpoolerStatusUnknown
+		probe.VerdictReason = "short GetPrinterW buffer; status unreadable"
+		return probe
+	}
+	pi := (*printerInfo2)(unsafe.Pointer(&buf[0]))
+	probe.DriverName = utf16PtrToString(pi.pDriverName)
+	probe.PortName = utf16PtrToString(pi.pPortName)
+	probe.PrintProcessor = utf16PtrToString(pi.pPrintProcessor)
+	probe.Datatype = utf16PtrToString(pi.pDatatype)
+	probe.ShareName = utf16PtrToString(pi.pShareName)
+	probe.Comment = utf16PtrToString(pi.pComment)
+	probe.Location = utf16PtrToString(pi.pLocation)
+	probe.Attributes = pi.Attributes
+	probe.WorkOffline = (pi.Attributes & PRINTER_ATTRIBUTE_WORK_OFFLINE) != 0
+	probe.StatusFlags = pi.Status
+	probe.PendingJobs = pi.cJobs
+	if probe.DriverName == "" {
+		probe.Verdict = SpoolerDriverError
+		probe.VerdictReason = "queue has no driver name; driver missing or corrupt"
+		return probe
+	}
+	if probe.PortName == "" {
+		probe.Verdict = SpoolerPortError
+		probe.VerdictReason = "queue has no port; port missing or invalid"
+		return probe
+	}
+	if probe.WorkOffline {
+		probe.Verdict = SpoolerQueueUnavailable
+		probe.VerdictReason = "WorkOffline attribute set (\"Use Printer Offline\"); spooler holds jobs"
+		return probe
+	}
+	if (pi.Status & PRINTER_STATUS_PAUSED) != 0 {
+		probe.Verdict = SpoolerQueueUnavailable
+		probe.VerdictReason = "queue paused; spooler holds jobs"
+		return probe
+	}
+	if (pi.Status & (PRINTER_STATUS_ERROR | PRINTER_STATUS_PAPER_JAM | PRINTER_STATUS_PAPER_OUT | PRINTER_STATUS_PAPER_PROBLEM | PRINTER_STATUS_OUTPUT_BIN_FULL | PRINTER_STATUS_NO_TONER | PRINTER_STATUS_DOOR_OPEN | PRINTER_STATUS_USER_INTERVENTION)) != 0 {
+		probe.Verdict = SpoolerStatusUnknown
+		probe.VerdictReason = fmt.Sprintf("queue reports device condition (status 0x%08x); submission may queue; physical outcome unknown", pi.Status)
+		return probe
+	}
+	if (pi.Status & (PRINTER_STATUS_OFFLINE | PRINTER_STATUS_NOT_AVAILABLE | PRINTER_STATUS_SERVER_UNKNOWN)) != 0 {
+		probe.Verdict = SpoolerStatusUnknown
+		probe.VerdictReason = fmt.Sprintf("port monitor reports unreachable (status 0x%08x); queue exists and is accessible; physical device state unproven", pi.Status)
+		return probe
+	}
+	probe.Verdict = SpoolerReadyToAccept
+	probe.VerdictReason = "queue exists, driver and port present, no blocking status; submission eligible (physical outcome still unknown until observed)"
+	return probe
+}
+
 func (p *SpoolerPrinter) Test(ctx context.Context) error {
-	return p.Print(ctx, []byte("\x1b\x40Spooler Test Print from Odoo Agent\nPrinter: "+p.SpoolerName+"\n\n\x1d\x56\x01"))
+	// A spooler queue is driver-rendered: sending RAW ESC/POS bytes to an
+	// office printer (Brother MFC, HP LaserJet, …) bypasses the driver and
+	// produces garbage or nothing. The correct local check proves the
+	// Windows path is usable (OpenPrinter + GetPrinter level 2) without
+	// submitting a document; genuine document tests travel the Gateway
+	// "Send Test Page" path as PDF (spooler) so the driver renders them.
+	// No bytes are spooled by this probe: success means SPOOLER_READY_TO_ACCEPT
+	// (queue exists, driver loads, spooler answered) — the physical outcome
+	// of any later document remains UNKNOWN until observed.
+	if err := p.boundedPreflight(ctx, preflightTimeout, func() error {
+		return preFlightSpoolerCheck(p.SpoolerName)
+	}); err != nil {
+		return fmt.Errorf("spooler test probe for %q (SPOOLER_QUEUE_UNAVAILABLE): %w", p.SpoolerName, err)
+	}
+	log.Printf("Spooler test probe for %q succeeded (SPOOLER_READY_TO_ACCEPT; no document spooled)", p.SpoolerName)
+	return nil
 }
 
 func (p *SpoolerPrinter) Status() string {
@@ -593,9 +778,11 @@ func (p *SpoolerPrinter) Status() string {
 		return st
 	case <-timer.C:
 		log.Printf("WARNING: Spooler status probe timed out for %q after %v", p.SpoolerName, timeout)
-		// Normalize to the gateway status vocabulary: online/offline/error/busy/unknown.
-		// A spooler RPC timeout is an error condition, not a distinct status.
-		return "error"
+		// Normalize to the gateway status vocabulary
+		// (online/offline/error/busy/unknown). A spooler RPC timeout proves
+		// nothing about the physical device, so report "unknown" — never a
+		// fabricated offline.
+		return "unknown"
 	}
 }
 

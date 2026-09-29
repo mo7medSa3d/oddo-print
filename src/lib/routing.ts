@@ -116,6 +116,13 @@ export function validatePayloadForPrinter(
     if (payloadProto && payloadProto !== "escpos") {
       return { ok: false, reason: `CAPABILITY_MISMATCH: escpos payload cannot use protocol ${payloadProto}` };
     }
+    // Windows spooler queues render documents through the driver by default.
+    // A raw ESC/POS byte stream bypasses driver rendering (WritePrinter RAW)
+    // and is only valid for passthrough-mode queues whose operator explicitly
+    // declared escpos support. Without that declaration, route pdf/image.
+    if ((conn === "spooler" || proto === "spooler") && !hasExplicitCaps) {
+      return { ok: false, reason: "CAPABILITY_MISMATCH: spooler printers accept document payloads (pdf/image) by default; raw ESC/POS requires an explicit supported_protocols declaration" };
+    }
     if (physicalByteProtocol("escpos") && (!hasExplicitCaps || anyCap("escpos"))) return { ok: true };
     return { ok: false, reason: `CAPABILITY_MISMATCH: printer does not explicitly support ESC/POS (protocol=${proto || "unknown"})` };
   }
@@ -128,6 +135,10 @@ export function validatePayloadForPrinter(
     }
     if (!(BYTE_PROTOCOLS as readonly string[]).includes(payloadProto)) {
       return { ok: false, reason: `CAPABILITY_MISMATCH: unsupported raw protocol ${payloadProto}` };
+    }
+    // Same spooler passthrough rule as ESC/POS above.
+    if ((conn === "spooler" || proto === "spooler") && !hasExplicitCaps) {
+      return { ok: false, reason: "CAPABILITY_MISMATCH: spooler printers accept document payloads (pdf/image) by default; raw byte protocols require an explicit supported_protocols declaration" };
     }
     // raw+escpos is exactly an escpos payload; every other byte protocol is
     // accepted only by devices that declare it.
@@ -144,9 +155,47 @@ export interface PrinterAvailability extends PrinterLike {
 }
 
 export function isPrinterStatusExecutable(printer: Pick<PrinterAvailability, "status" | "connectionType" | "protocol">): boolean {
-  if (printer.status === "online") return true;
-  if (printer.status !== "unknown" || printer.connectionType !== "network") return false;
-  return ["raw", "escpos", "zpl", "tspl"].includes(String(printer.protocol ?? "").toLowerCase());
+  const status = String(printer.status ?? "").toLowerCase().trim();
+  // Positive evidence of availability. "busy" (spooler printing/processing,
+  // IPP state 4, ESC/POS back-channel busy) means the queue accepts more work.
+  if (status === "online" || status === "busy") return true;
+  // Positive evidence of a problem. Fail fast with an explicit reason instead
+  // of stranding a durable job or burning the delivery budget against a
+  // printer we already know is broken. Queued jobs stay durable and become
+  // claimable when a fresh probe succeeds again.
+  if (status === "offline" || status === "error") return false;
+
+  // Only "unknown" (absence of evidence) remains. Eligible iff the transport
+  // is fully declared so the agent has a concrete pre-dispatch probe to run
+  // before any byte reaches hardware.
+  if (status !== "unknown") return false;
+
+  const conn = String(printer.connectionType ?? "").toLowerCase();
+  const proto = String(printer.protocol ?? "").toLowerCase();
+
+  // Windows spooler queue: the queue name IS the transport declaration.
+  // OpenPrinterW + GetPrinterW (level 2) is the pre-dispatch probe.
+  if (conn === "spooler" || proto === "spooler") return true;
+  // IPP/IPPS document transport: the endpoint URL IS the declaration.
+  if (conn === "ipp" || conn === "ipps" || proto === "ipp" || proto === "ipps") return true;
+  // Direct byte-stream transports: require an explicitly declared language.
+  // "unknown" protocol on a byte pipe is dark until declared (mirrors the
+  // capability model: unknown+network/usb resolves to a name nothing matches).
+  if (conn === "network" || conn === "usb") {
+    return ["raw", "escpos", "zpl", "tspl"].includes(proto);
+  }
+  return false;
+}
+
+/**
+ * isPrinterClaimable answers the same question as isPrinterStatusExecutable
+ * for the delivery boundary: "Is there enough trustworthy evidence to ATTEMPT
+ * this job?" Single canonical predicate: claim == executable. The SQL claim
+ * gates add lifecycle, agent freshness, printer freshness, desired-state and
+ * entitlement on top; they must never reimplement the status/transport rule.
+ */
+export function isPrinterClaimable(printer: Pick<PrinterAvailability, "status" | "connectionType" | "protocol">): boolean {
+  return isPrinterStatusExecutable(printer);
 }
 
 export function isPrinterAvailableForJob(

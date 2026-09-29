@@ -158,7 +158,8 @@ describe("getSupportedDocumentTypes", () => {
   it("matches the real routing contract for document transports and byte protocols", () => {
     expect(getSupportedDocumentTypes("ipp", "ipp")).toEqual(["pdf"]);
     expect(getSupportedDocumentTypes("ipps", "ipps")).toEqual(["pdf"]);
-    expect(getSupportedDocumentTypes("spooler", "spooler")).toEqual(["pdf", "image", "raw", "escpos"]);
+    // Spooler is document-default: raw passthrough needs explicit declaration.
+    expect(getSupportedDocumentTypes("spooler", "spooler")).toEqual(["pdf", "image"]);
     expect(getSupportedDocumentTypes("raw", "network")).toEqual(["raw"]);
     expect(getSupportedDocumentTypes("zpl", "network")).toEqual(["zpl", "raw"]);
     expect(getSupportedDocumentTypes("tspl", "network")).toEqual(["tspl", "raw"]);
