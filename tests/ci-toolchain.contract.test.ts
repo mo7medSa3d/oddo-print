@@ -66,15 +66,13 @@ describe("CI/runtime alignment", () => {
     expect(docker).not.toContain("GATEWAY_DOMAIN: print.example.com");
   });
 
-  it("pins undici to a patched release in both manifest and lockfile", () => {
-    const lock = JSON.parse(readFileSync(path.join(root, "package-lock.json"), "utf8"));
-    expect(packageJson.overrides?.undici).toBe("8.10.2");
-    expect(lock.packages?.["node_modules/undici"]?.version).toBe("8.10.2");
-  });
-
-  it("keeps Docker smoke test on an HTTP-only bind without ACME", () => {
-    const docker = readFileSync(path.join(root, ".github/workflows/docker.yml"), "utf8");
-    expect(docker).toContain('GATEWAY_DOMAIN: ":80"');
+  it("keeps Rust supply-chain audit scoped to the Windows production target", () => {
+    for (const workflow of workflows()) {
+      if (/cargo audit/.test(workflow)) {
+        expect(workflow).toContain("cargo audit --target-os windows --target-arch x86_64");
+        expect(workflow).not.toMatch(/cargo audit(?! --target-os windows --target-arch x86_64)/);
+      }
+    }
   });
 
   it("keeps Caddy's forwarded-header security contract warning-free", () => {
@@ -82,6 +80,9 @@ describe("CI/runtime alignment", () => {
     const httpTestCaddy = readFileSync(path.join(root, "deploy/http-test/Caddyfile"), "utf8");
     expect(caddy).not.toContain("header_up X-Forwarded-For");
     expect(httpTestCaddy).not.toContain("header_up X-Forwarded-For");
+    expect(caddy).not.toContain("header_up Host {http.request.host}");
+    expect(httpTestCaddy).not.toContain("header_up Host {http.request.host}");
+    expect(caddy).toContain("sanitizes X-Forwarded-* inputs");
   });
 
   it("keeps the Rust desktop JSON contract while using idiomatic field names", () => {

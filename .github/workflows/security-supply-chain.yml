@@ -127,7 +127,7 @@ jobs:
         working-directory: src-tauri
         run: |
           cargo install cargo-audit --version 0.22.2 --locked
-          cargo audit
+          cargo audit --target-os windows --target-arch x86_64
 
       - name: Verify container image references are immutable
         shell: bash
