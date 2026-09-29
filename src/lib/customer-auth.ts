@@ -186,11 +186,12 @@ export async function authenticateForTenant(email: string, password: string, ten
     if (!(await requireActiveTenantOrNull(membership.tenantId))) return null;
     return { ...identity, tenantId: membership.tenantId, role: membership.role as ManagerRole };
   }
-  const memberships = await db.select({ tenantId: tenantUsers.tenantId, role: tenantUsers.role }).from(tenantUsers).where(eq(tenantUsers.userId, identity.userId)).limit(50);
-  // NOTE: the 50-row cap silently truncates users with 50+ memberships on the
-  // list path (they lose chooser access to the rest). The direct-tenantId
-  // path above is unaffected. Raise deliberately, not casually: the chooser
-  // payload stays small and the selection token stays single-use.
+  // Do not silently truncate workspace memberships. The chooser must expose
+  // every workspace the authenticated user belongs to; an arbitrary cap would
+  // make valid memberships unreachable from the normal tenant-selection flow.
+  const memberships = await db.select({ tenantId: tenantUsers.tenantId, role: tenantUsers.role })
+    .from(tenantUsers)
+    .where(eq(tenantUsers.userId, identity.userId));
   if (memberships.length === 0) {
     return { ...identity, multipleTenants: false, memberships: [] };
   }
