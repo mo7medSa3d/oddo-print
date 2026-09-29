@@ -46,6 +46,28 @@ describe("CI/runtime alignment", () => {
     }
   });
 
+  it("reviews dependency install scripts explicitly", () => {
+    expect(packageJson.allowScripts).toMatchObject({
+      "esbuild@0.28.2": true,
+      "unrs-resolver@1.12.2": true,
+      "fsevents@2.3.3": true,
+    });
+  });
+
+  it("keeps Caddy's forwarded-header security contract warning-free", () => {
+    const caddy = readFileSync(path.join(root, "Caddyfile"), "utf8");
+    const httpTestCaddy = readFileSync(path.join(root, "deploy/http-test/Caddyfile"), "utf8");
+    expect(caddy).not.toContain("header_up X-Forwarded-For");
+    expect(httpTestCaddy).not.toContain("header_up X-Forwarded-For");
+  });
+
+  it("keeps the Rust desktop JSON contract while using idiomatic field names", () => {
+    const commands = readFileSync(path.join(root, "src-tauri/src/commands.rs"), "utf8");
+    expect(commands).toContain('#[serde(rename = "isVirtual", alias = "is_virtual")]');
+    expect(commands).toContain("pub is_virtual: Option<bool>");
+    expect(commands).not.toContain("pub isVirtual: Option<bool>");
+  });
+
   it("does not reference package scripts that do not exist", () => {
     const scripts = new Set(Object.keys(packageJson.scripts));
     for (const [index, workflow] of workflows().entries()) {
