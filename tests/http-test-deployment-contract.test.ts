@@ -20,6 +20,8 @@ describe("HTTP test deployment contracts", () => {
     const setup = read("deploy/http-test/setup-http-test.sh");
     const env = read("deploy/http-test/.env.test.example");
 
+    expect(compose).toContain("postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea");
+    expect(compose).toContain("caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e");
     expect(compose).toContain('"${HTTP_TEST_BIND_IP}:${HTTP_TEST_PORT}:80"');
     expect(compose).toContain('HTTP_TEST_HOST: ${HTTP_TEST_HOST}');
     expect(compose).toContain(':80"');
