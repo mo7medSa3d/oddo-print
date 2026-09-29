@@ -962,6 +962,33 @@ suite("WS claim-before-delivery", () => {
     expect(row.status).toBe("queued");
     expect(row.delivery_attempts).toBe(0);
   });
+  it("polling returns no more than the remaining Agent capacity across stale and queued candidates", async () => {
+    await pool().query(
+      `INSERT INTO print_jobs (id, tenant_id, destination, document_type, agent_id, printer_id, status, payload, expires_at, delivery_attempts, claimed_at, updated_at)
+       SELECT 'poll_total_cap_fill_' || g, $1, $2, 'receipt', $3, $4, 'claimed',
+              '{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb,
+              now() + interval '1 hour', 1, now(), now()
+       FROM generate_series(1, $5) g`,
+      [f.tenantId, f.destination, f.agentId, f.printerId, MAX_AGENT_IN_FLIGHT_JOBS - 1],
+    );
+    await pool().query(
+      `INSERT INTO print_jobs (id, tenant_id, destination, document_type, agent_id, printer_id, status, payload, expires_at, delivery_attempts, claimed_at, updated_at)
+       VALUES ('poll_total_cap_stale', $1, $2, 'receipt', $3, $4, 'claimed',
+               '{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb,
+               now() + interval '1 hour', 1, now() - interval '2 minutes', now() - interval '2 minutes')`,
+      [f.tenantId, f.destination, f.agentId, f.printerId],
+    );
+    await insertQueuedJob(f, "poll_total_cap_queued");
+
+    const response = await agentJobsGET(agentRequest(f, "GET"));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const returned = body.filter((job: { id: string }) =>
+      job.id === "poll_total_cap_stale" || job.id === "poll_total_cap_queued"
+    );
+    expect(returned).toHaveLength(1);
+  });
+
   it("WS claim enforces the in-flight ceiling: saturated agent gets no new claim", async () => {
     // The 500 in-flight cap used to be creation- and poll-only: concurrent
     // WS pushes (NOTIFY fan-out, bulk creation) could overshoot it without
