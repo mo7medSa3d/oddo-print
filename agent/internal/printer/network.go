@@ -95,7 +95,7 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 	}
 	log.Printf("print.trace network_write address=%s bytes=%d latency_ms=%d", p.Address, written, time.Since(writeStart).Milliseconds())
 
-	return nil	return nil
+	return nil
 }
 
 // SupportsKind exposes the render paths this byte-stream backend can produce.
