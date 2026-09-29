@@ -10,6 +10,8 @@ describe("domain staging deployment contracts", () => {
     const compose = read("docker-compose.yml");
     const domainCompose = read("deploy/domain-test/docker-compose.yml");
     const caddy = read("deploy/domain-test/Caddyfile");
+    expect(domainCompose).toContain("postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea");
+    expect(domainCompose).toContain("caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e");
 
     expect(compose).toContain("${APP_BASE_URL:-https://print.yaseir.cloud}");
     expect(compose).toContain("${GATEWAY_DOMAIN:-print.yaseir.cloud}");
