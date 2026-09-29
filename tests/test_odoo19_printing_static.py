@@ -175,7 +175,7 @@ def test_gateway_http_is_production_https_only():
     assert 'if scheme == "http":' in source
     assert "YASSER_GATEWAY_ALLOW_INSECURE_HTTP" not in source
     assert "ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP" not in source
-    assert "Plain HTTP is allowed only for explicitly opted-in isolated development." in source
+    assert 'Gateway URL must use HTTPS.' in source
 
 
 def test_gateway_config_unlink_fails_closed_when_remote_shutdown_is_unconfirmed():
