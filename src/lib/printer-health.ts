@@ -76,7 +76,7 @@ function isFresh(lastSeenAt?: Date | null, now = gatewayNow()): { fresh: boolean
   const ageMs = now.getTime() - new Date(lastSeenAt).getTime();
   // Future-dated observations are clock-invalid and must never be treated as
   // fresh. Execution gates use the same rule, so health and delivery converge.
-  return { fresh: ageMs >= 0 && ageMs <= FRESHNESS_THRESHOLD_MS, ageMs };
+  return { fresh: ageMs >= 0 && ageMs <= printerStaleThresholdSeconds() * 1000, ageMs };
 }
 
 /**
@@ -89,12 +89,13 @@ export function normalizePrinterStatus(
   evidence?: { lastSeenAt?: Date | null; agentLastSeenAt?: Date | null; agentStatus?: string | null; config?: any; capabilities?: any; error?: string; now?: Date }
 ): { status: PrinterHealthStatus; evidence: string; freshness: { lastSeenAt?: Date; ageMs?: number; fresh: boolean; source: string } } {
   const now = evidence?.now ?? gatewayNow();
-  const freshnessCheck = isFresh(evidence?.lastSeenAt ?? null, now);
+  const printerFreshness = isFresh(evidence?.lastSeenAt ?? null, now);
+  const agentFreshness = isFresh(evidence?.agentLastSeenAt ?? null, now);
   const freshness = {
     lastSeenAt: evidence?.lastSeenAt ?? undefined,
-    ageMs: freshnessCheck.ageMs,
-    fresh: freshnessCheck.fresh,
-    source: "printers.last_seen_at + agents.last_seen_at (observed)",
+    ageMs: Math.max(printerFreshness.ageMs ?? Number.POSITIVE_INFINITY, agentFreshness.ageMs ?? Number.POSITIVE_INFINITY),
+    fresh: printerFreshness.fresh && agentFreshness.fresh && evidence?.agentStatus === "online",
+    source: "printers.last_seen_at + agents.status + agents.last_seen_at (observed)",
   };
 
   // If no status at all
@@ -136,15 +137,21 @@ export function normalizePrinterStatus(
 
 export async function getPrinterCapabilityMatrix(tenantId: string, printerId: string): Promise<PrinterCapabilityMatrix | null> {
   const rows = await queryWithTimeout(
-    () => db.select().from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.id, printerId))).limit(1),
+    () => db.select({ printer: printers, agent: agents })
+      .from(printers)
+      .leftJoin(agents, and(eq(agents.id, printers.agentId), eq(agents.tenantId, tenantId)))
+      .where(and(eq(printers.tenantId, tenantId), eq(printers.id, printerId)))
+      .limit(1),
     3000,
     "getPrinterCapability"
   );
   if (rows.length === 0) return null;
   // Typed row: keep Drizzle's inferred printers type so a renamed/absent
   // column fails to compile instead of silently degrading health output.
-  const p = rows[0];
-  if (!p) return null;
+  const row = rows[0];
+  if (!row) return null;
+  const p = row.printer;
+  const agent = row.agent;
   const config = p.config ?? {};
   // Legacy rows may carry keys outside the schema $type (e.g. driver_name);
   // read those through a string bag instead of erasing the whole row to any.
