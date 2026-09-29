@@ -123,7 +123,7 @@ export async function GET(req: Request) {
         AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
-        LIMIT ${MAX_CLAIM_BATCH}
+        LIMIT ${queuedLimit}
       ),
       queued_candidates AS (
         SELECT p.id, p.created_at, 1 AS priority
