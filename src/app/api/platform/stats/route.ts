@@ -35,7 +35,7 @@ export async function GET(req: Request) {
     jobStats24h,
     hourlyJobStats,
   ] = await queryWithTimeout(
-    Promise.all([
+    () => Promise.all([
       db.select({
         total: sql<number>`count(*)::int`,
         active: sql<number>`count(*) filter (where ${tenants.lifecycle} = 'active')::int`,
@@ -67,14 +67,16 @@ export async function GET(req: Request) {
           where ${agents.lifecycle} = 'active'
             and ${agents.status} = 'online'
             and ${agents.lastSeenAt} is not null
-            and ${agents.lastSeenAt} > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+            and ${agents.lastSeenAt} <= now()
+            and ${agents.lastSeenAt} >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         )::int`,
         offline: sql<number>`count(*) filter (
           where not (
             ${agents.lifecycle} = 'active'
             and ${agents.status} = 'online'
             and ${agents.lastSeenAt} is not null
-            and ${agents.lastSeenAt} > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+            and ${agents.lastSeenAt} <= now()
+            and ${agents.lastSeenAt} >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
           )
         )::int`,
       }).from(agents),
@@ -87,7 +89,8 @@ export async function GET(req: Request) {
             and ${agents.lifecycle} = 'active'
             and ${agents.status} = 'online'
             and ${agents.lastSeenAt} is not null
-            and ${agents.lastSeenAt} > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+            and ${agents.lastSeenAt} <= now()
+            and ${agents.lastSeenAt} >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         )::int`,
         offline: sql<number>`count(*) filter (
           where not (
@@ -96,7 +99,8 @@ export async function GET(req: Request) {
             and ${agents.lifecycle} = 'active'
             and ${agents.status} = 'online'
             and ${agents.lastSeenAt} is not null
-            and ${agents.lastSeenAt} > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+            and ${agents.lastSeenAt} <= now()
+            and ${agents.lastSeenAt} >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
           )
         )::int`,
       })

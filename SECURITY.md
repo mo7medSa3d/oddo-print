@@ -46,7 +46,10 @@ Authentication-adjacent routes keep PostgreSQL-backed rate limiting fail-closed.
 The availability tradeoff is intentional: legitimate login, registration, password-reset, and verification-resend requests can be temporarily blocked during a rate-limiter-specific PostgreSQL failure. PostgreSQL is already a hard dependency for Gateway authentication and most other Gateway operations, so a limiter-store outage is expected to correlate with a broader database availability problem in which authentication would not be reliably completable anyway. No narrowly-scoped fail-open exception is currently justified.
 
 ### Reverse Proxy Trust
-- `TRUST_PROXY_SECRET` header validated on every request
+- `TRUST_PROXY_SECRET` header validated on every request EXCEPT the two
+  unauthenticated liveness probes `GET /api/health` and `GET /api/live`
+  (server.ts proxy bypass — intentional so load balancers can probe without the
+  secret; neither probe returns sensitive data)
 - Minimum 32 characters, reject known placeholder values
 - Required for production mode (`NODE_ENV=production`)
 

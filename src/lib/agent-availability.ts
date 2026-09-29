@@ -1,4 +1,4 @@
-import { gatewayNow } from "./database-clock";
+import { gatewayNow, parseDbTimeMs } from "./database-clock";
 
 // Canonical threshold API lives in the dependency-free stale-threshold
 // module (safe for client bundles); re-exported here so every existing
@@ -22,8 +22,10 @@ export function isPrinterObservationFresh(
   now = gatewayNow(),
 ): boolean {
   if (!lastSeenAt) return false;
-  const lastSeen = new Date(lastSeenAt).getTime();
-  if (!Number.isFinite(lastSeen)) return false;
+  // parseDbTimeMs: node-postgres naive "YYYY-MM-DD HH:MM:SS" strings are UTC;
+  // new Date(str) would parse them as host-local time (TZ-dependent freshness).
+  const lastSeen = parseDbTimeMs(lastSeenAt);
+  if (lastSeen === null) return false;
   const ageSeconds = (now.getTime() - lastSeen) / 1000;
   return ageSeconds >= 0 && ageSeconds <= printerStaleThresholdSeconds();
 }
@@ -42,8 +44,8 @@ export function getAgentAvailability(
   if (agent.lifecycle !== "active") return { available: false, reason: "inactive-lifecycle" };
   if (agent.status !== "online") return { available: false, reason: "offline" };
   if (!agent.lastSeenAt) return { available: false, reason: "missing-heartbeat" };
-  const lastSeen = new Date(agent.lastSeenAt).getTime();
-  if (!Number.isFinite(lastSeen)) return { available: false, reason: "missing-heartbeat" };
+  const lastSeen = parseDbTimeMs(agent.lastSeenAt);
+  if (lastSeen === null) return { available: false, reason: "missing-heartbeat" };
   const ageSeconds = (now.getTime() - lastSeen) / 1000;
   if (ageSeconds < 0 || ageSeconds > agentStaleThresholdSeconds()) {
     return { available: false, reason: "stale" };

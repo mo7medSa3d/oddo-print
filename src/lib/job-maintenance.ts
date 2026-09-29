@@ -1,7 +1,12 @@
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { incrementMetric } from "./metrics";
+import { agentStaleThresholdSeconds } from "./stale-threshold";
 
+// Claim-lease staleness historically hardcoded at 90s. It now follows the same
+// STALE_AGENT_THRESHOLD_SECONDS env as the presence/claim gates so tuning the
+// env cannot diverge the UI/offline display from sweeper requeue behavior.
+// STALE_CLAIM_SECONDS is kept as the default/fallback value (deprecated alias).
 export const STALE_CLAIM_SECONDS = 90;
 export const STALE_PRINTING_SECONDS = 10 * 60;
 export const MAX_RETRIES = 5;
@@ -68,7 +73,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       SELECT id FROM print_jobs
       WHERE status='claimed' AND delivered_at IS NULL AND acked_at IS NULL
         AND COALESCE(error, '') <> 'DELIVERY_EVIDENCE_PENDING'
-        AND updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS})
+        AND updated_at < now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND retries < ${MAX_RETRIES} AND expires_at > now() ${agentFilter}
       ORDER BY updated_at ASC
       LIMIT ${SWEEP_BATCH}
@@ -91,7 +96,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       SELECT id FROM print_jobs
       WHERE status='claimed'
         AND (delivered_at IS NOT NULL OR acked_at IS NOT NULL OR error = 'DELIVERY_EVIDENCE_PENDING')
-        AND updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS}) ${agentFilter}
+        AND updated_at < now() - make_interval(secs => ${agentStaleThresholdSeconds()}) ${agentFilter}
       ORDER BY updated_at ASC
       LIMIT ${SWEEP_BATCH}
       FOR UPDATE SKIP LOCKED
@@ -139,7 +144,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       SELECT id FROM print_jobs
       WHERE status='claimed' AND delivered_at IS NULL AND acked_at IS NULL
         AND COALESCE(error, '') <> 'DELIVERY_EVIDENCE_PENDING'
-        AND updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS})
+        AND updated_at < now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND retries >= ${MAX_RETRIES} ${agentFilter}
       ORDER BY updated_at ASC
       LIMIT ${SWEEP_BATCH}

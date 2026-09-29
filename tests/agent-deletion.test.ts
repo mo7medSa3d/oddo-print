@@ -213,7 +213,9 @@ suite("permanent agent deletion lifecycle & invariants", () => {
   });
 
   it("invalidates credentials: deleted agent cannot authenticate or access endpoints", async () => {
-    const agentId = "agt_auth_invalidation";
+    // Fixture ID must satisfy the production Agent ID contract
+    // (agt_ + 8 chars, enforced by validateAgent via isValidAgentId).
+    const agentId = "agt_authinv0";
     const rawSecret = "my-super-secret-password-123";
     await pool().query(
       `INSERT INTO agents (id, tenant_id, name, secret, status, lifecycle, last_seen_at)

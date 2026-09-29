@@ -29,14 +29,22 @@ describe("printer-capability-matrix", () => {
   it("evidence-based: ONLINE not mapped to IDLE unless explicit idle", () => {
     const now = new Date();
     const freshLastSeen = new Date(now.getTime() - 10_000);
-    const online = normalizePrinterStatus("online", { lastSeenAt: freshLastSeen, now });
+    // Since 68b609fd a printer needs FRESH PARENT-AGENT evidence too: a
+    // printer row alone (stale/missing agent) must not render ONLINE.
+    const evidence = { lastSeenAt: freshLastSeen, agentLastSeenAt: freshLastSeen, agentStatus: "online", now };
+    const online = normalizePrinterStatus("online", evidence);
     expect(online.status).toBe("ONLINE"); // NOT IDLE
     expect(online.evidence).toContain("ONLINE");
     expect(online.freshness.fresh).toBe(true);
 
-    const idle = normalizePrinterStatus("idle", { lastSeenAt: freshLastSeen, now });
+    const idle = normalizePrinterStatus("idle", { ...evidence });
     expect(idle.status).toBe("IDLE");
     expect(idle.evidence).toContain("IDLE");
+
+    // Printer-fresh but agent evidence missing: must stay UNKNOWN.
+    const orphan = normalizePrinterStatus("online", { lastSeenAt: freshLastSeen, now });
+    expect(orphan.status).toBe("UNKNOWN");
+    expect(orphan.freshness.fresh).toBe(false);
   });
 
   it("stale data returns UNKNOWN, not ONLINE", () => {
@@ -51,7 +59,8 @@ describe("printer-capability-matrix", () => {
   it("future-dated observations are not fresh or ONLINE", () => {
     const now = new Date("2026-09-24T00:00:00.000Z");
     const futureLastSeen = new Date(now.getTime() + 30_000);
-    const result = normalizePrinterStatus("online", { lastSeenAt: futureLastSeen, now });
+    const evidence = { lastSeenAt: futureLastSeen, agentLastSeenAt: futureLastSeen, agentStatus: "online", now };
+    const result = normalizePrinterStatus("online", evidence);
     expect(result.status).toBe("UNKNOWN");
     expect(result.freshness.fresh).toBe(false);
     expect(result.freshness.ageMs).toBe(-30_000);
@@ -65,17 +74,18 @@ describe("printer-capability-matrix", () => {
   it("normalizes error with evidence separation", () => {
     const now = new Date();
     const fresh = new Date(now.getTime() - 5_000);
-    const errorPaper = normalizePrinterStatus("error", { error: "paper out", lastSeenAt: fresh, now });
+    const base = { lastSeenAt: fresh, agentLastSeenAt: fresh, agentStatus: "online", now };
+    const errorPaper = normalizePrinterStatus("error", { ...base, error: "paper out" });
     expect(errorPaper.status).toBe("PAPER_OUT");
     expect(errorPaper.evidence).toContain("paper");
 
-    const errorDriver = normalizePrinterStatus("error", { error: "driver error", lastSeenAt: fresh, now });
+    const errorDriver = normalizePrinterStatus("error", { ...base, error: "driver error" });
     expect(errorDriver.status).toBe("DRIVER_ERROR");
 
-    const errorSpooler = normalizePrinterStatus("error", { error: "spooler error", lastSeenAt: fresh, now });
+    const errorSpooler = normalizePrinterStatus("error", { ...base, error: "spooler error" });
     expect(errorSpooler.status).toBe("SPOOLER_ERROR");
 
-    const unknown = normalizePrinterStatus(null, { lastSeenAt: fresh, now });
+    const unknown = normalizePrinterStatus(null, base);
     expect(unknown.status).toBe("UNKNOWN");
   });
 

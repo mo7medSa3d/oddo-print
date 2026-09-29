@@ -15,9 +15,9 @@
  */
 
 import { db, queryWithTimeout } from "../db/client";
-import { printers } from "../db/schema";
+import { agents, printers } from "../db/schema";
 import { eq, and } from "drizzle-orm";
-import { gatewayNow } from "./database-clock";
+import { gatewayNow, parseDbTimeMs } from "./database-clock";
 import { printerStaleThresholdSeconds } from "./stale-threshold";
 import { getSupportedDocumentTypes, type ProtocolType, type TransportType } from "./printer-capability";
 
@@ -69,14 +69,16 @@ export interface PrinterCapabilityMatrix {
 // Single source of truth for the stale threshold: the claim gate
 // (stale-threshold.ts), health displays, and the UI all read
 // printerStaleThresholdSeconds() so enforcement and display cannot diverge.
-const FRESHNESS_THRESHOLD_MS = printerStaleThresholdSeconds() * 1000;
 
-function isFresh(lastSeenAt?: Date | null, now = gatewayNow()): { fresh: boolean; ageMs?: number } {
+
+function isFresh(lastSeenAt?: Date | string | null, now = gatewayNow()): { fresh: boolean; ageMs?: number } {
   if (!lastSeenAt) return { fresh: false };
-  const ageMs = now.getTime() - new Date(lastSeenAt).getTime();
+  // parseDbTimeMs: naive DB strings are UTC; new Date(str) is host-local.
+  const seenMs = parseDbTimeMs(lastSeenAt);
+  const ageMs = seenMs === null ? Number.POSITIVE_INFINITY : now.getTime() - seenMs;
   // Future-dated observations are clock-invalid and must never be treated as
   // fresh. Execution gates use the same rule, so health and delivery converge.
-  return { fresh: ageMs >= 0 && ageMs <= FRESHNESS_THRESHOLD_MS, ageMs };
+  return { fresh: ageMs >= 0 && ageMs <= printerStaleThresholdSeconds() * 1000, ageMs };
 }
 
 /**
@@ -86,15 +88,16 @@ function isFresh(lastSeenAt?: Date | null, now = gatewayNow()): { fresh: boolean
  */
 export function normalizePrinterStatus(
   rawStatus?: string | null,
-  evidence?: { lastSeenAt?: Date | null; config?: any; capabilities?: any; error?: string; now?: Date }
+  evidence?: { lastSeenAt?: Date | null; agentLastSeenAt?: Date | null; agentStatus?: string | null; config?: any; capabilities?: any; error?: string; now?: Date }
 ): { status: PrinterHealthStatus; evidence: string; freshness: { lastSeenAt?: Date; ageMs?: number; fresh: boolean; source: string } } {
   const now = evidence?.now ?? gatewayNow();
-  const freshnessCheck = isFresh(evidence?.lastSeenAt ?? null, now);
+  const printerFreshness = isFresh(evidence?.lastSeenAt ?? null, now);
+  const agentFreshness = isFresh(evidence?.agentLastSeenAt ?? null, now);
   const freshness = {
     lastSeenAt: evidence?.lastSeenAt ?? undefined,
-    ageMs: freshnessCheck.ageMs,
-    fresh: freshnessCheck.fresh,
-    source: "printers.last_seen_at + agents.last_seen_at (observed)",
+    ageMs: Math.max(printerFreshness.ageMs ?? Number.POSITIVE_INFINITY, agentFreshness.ageMs ?? Number.POSITIVE_INFINITY),
+    fresh: printerFreshness.fresh && agentFreshness.fresh && evidence?.agentStatus === "online",
+    source: "printers.last_seen_at + agents.status + agents.last_seen_at (observed)",
   };
 
   // If no status at all
@@ -107,7 +110,7 @@ export function normalizePrinterStatus(
     if (evidence?.lastSeenAt) {
       return {
         status: "UNKNOWN",
-        evidence: `Stale evidence: lastSeen ${Math.round((freshness.ageMs ?? 0) / 1000)}s ago > ${FRESHNESS_THRESHOLD_MS / 1000}s threshold, cannot report ONLINE from stale data (OBSERVED AGENT STATUS stale)`,
+        evidence: `Stale evidence: printer/agent observation age ${Math.round((freshness.ageMs ?? 0) / 1000)}s exceeds the ${printerStaleThresholdSeconds()}s freshness window, cannot report ONLINE from stale data`,
         freshness,
       };
     }
@@ -136,15 +139,21 @@ export function normalizePrinterStatus(
 
 export async function getPrinterCapabilityMatrix(tenantId: string, printerId: string): Promise<PrinterCapabilityMatrix | null> {
   const rows = await queryWithTimeout(
-    db.select().from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.id, printerId))).limit(1),
+    () => db.select({ printer: printers, agent: agents })
+      .from(printers)
+      .leftJoin(agents, and(eq(agents.id, printers.agentId), eq(agents.tenantId, tenantId)))
+      .where(and(eq(printers.tenantId, tenantId), eq(printers.id, printerId)))
+      .limit(1),
     3000,
     "getPrinterCapability"
   );
   if (rows.length === 0) return null;
   // Typed row: keep Drizzle's inferred printers type so a renamed/absent
   // column fails to compile instead of silently degrading health output.
-  const p = rows[0];
-  if (!p) return null;
+  const row = rows[0];
+  if (!row) return null;
+  const p = row.printer;
+  const agent = row.agent;
   const config = p.config ?? {};
   // Legacy rows may carry keys outside the schema $type (e.g. driver_name);
   // read those through a string bag instead of erasing the whole row to any.
@@ -159,7 +168,13 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
     p.connectionType as TransportType,
   );
 
-  const statusInfo = normalizePrinterStatus(p.status, { lastSeenAt: p.lastSeenAt, config, capabilities: caps });
+  const statusInfo = normalizePrinterStatus(p.status, {
+    lastSeenAt: p.lastSeenAt,
+    agentLastSeenAt: agent?.lastSeenAt,
+    agentStatus: agent?.status,
+    config,
+    capabilities: caps,
+  });
 
   // Driver health: evidence-based, not from DB status alone
   const driverName = capStr(caps, "driver_name") ?? capStr(configBag, "driver_name");
@@ -237,7 +252,7 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
 
 export async function getAllPrintersCapabilityMatrix(tenantId: string): Promise<PrinterCapabilityMatrix[]> {
   const all = await queryWithTimeout(
-    db.select().from(printers).where(eq(printers.tenantId, tenantId)),
+    () => db.select().from(printers).where(eq(printers.tenantId, tenantId)),
     3000,
     "getAllPrintersCapability"
   );

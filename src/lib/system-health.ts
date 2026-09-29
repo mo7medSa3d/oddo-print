@@ -28,7 +28,8 @@
 import { db, queryWithTimeout } from "../db/client";
 import { sql } from "drizzle-orm";
 import migrationJournal from "../../drizzle/meta/_journal.json";
-import { agentStaleThresholdSeconds } from "./stale-threshold";
+import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./stale-threshold";
+import { agents, printers } from "../db/schema";
 
 export type HealthState = "ok" | "warn" | "error" | "unknown";
 
@@ -61,7 +62,7 @@ export interface SystemHealth {
 export async function checkDatabase(): Promise<HealthCheck> {
   const start = Date.now();
   try {
-    await queryWithTimeout(db.execute(sql`SELECT 1`), 2000, "systemHealthDB");
+    await queryWithTimeout(() => db.execute(sql`SELECT 1`), 2000, "systemHealthDB");
     return { name: "Database", state: "ok", message: "Postgres reachable", latencyMs: Date.now() - start, critical: true };
   } catch (e) {
     return { name: "Database", state: "error", message: `DB unreachable: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start, critical: true };
@@ -76,7 +77,7 @@ export async function checkQueue(tenantId?: string): Promise<HealthCheck> {
       return { name: "Queue", state: "unknown", message: "Queue check requires tenant context (tenant-safe enforcement)", latencyMs: Date.now() - start, critical: false };
     }
     const result = await queryWithTimeout(
-      db.execute(sql`SELECT COUNT(*)::int as stuck FROM print_jobs WHERE tenant_id=${tenantId} AND status='claimed' AND claimed_at < NOW() - INTERVAL '5 minutes'`),
+      () => db.execute(sql`SELECT COUNT(*)::int as stuck FROM print_jobs WHERE tenant_id=${tenantId} AND status='claimed' AND claimed_at < NOW() - INTERVAL '5 minutes'`),
       2000,
       "systemHealthQueue"
     );
@@ -101,7 +102,7 @@ export async function checkAgents(tenantId?: string): Promise<HealthCheck> {
     // STALE_AGENT_THRESHOLD_SECONDS is configured.
     const staleSeconds = agentStaleThresholdSeconds();
     const result = await queryWithTimeout(
-      db.execute(sql`SELECT COUNT(*)::int as total, COUNT(*) FILTER (WHERE last_seen_at > NOW() - make_interval(secs => ${staleSeconds}))::int as online FROM agents WHERE tenant_id=${tenantId}`),
+      () => db.execute(sql`SELECT COUNT(*) FILTER (WHERE lifecycle = 'active')::int as total, COUNT(*) FILTER (WHERE lifecycle = 'active' AND status = 'online' AND last_seen_at IS NOT NULL AND last_seen_at <= NOW() AND last_seen_at >= NOW() - make_interval(secs => ${agentStaleThresholdSeconds()}))::int as online FROM agents WHERE tenant_id=${tenantId}`),
       2000,
       "systemHealthAgents"
     );
@@ -124,7 +125,7 @@ export async function checkPrinters(tenantId?: string): Promise<HealthCheck> {
       return { name: "Printers", state: "unknown", message: "Printers check requires tenant context", latencyMs: Date.now() - start };
     }
     const result = await queryWithTimeout(
-      db.execute(sql`SELECT COUNT(*)::int as total, COUNT(*) FILTER (WHERE status='online')::int as online FROM printers WHERE tenant_id=${tenantId}`),
+      () => db.execute(sql`SELECT COUNT(*) FILTER (WHERE p.lifecycle = 'active')::int as total, COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status = 'online' AND p.last_seen_at IS NOT NULL AND p.last_seen_at <= NOW() AND p.last_seen_at >= NOW() - make_interval(secs => ${printerStaleThresholdSeconds()}) AND a.lifecycle = 'active' AND a.status = 'online' AND a.last_seen_at IS NOT NULL AND a.last_seen_at <= NOW() AND a.last_seen_at >= NOW() - make_interval(secs => ${agentStaleThresholdSeconds()}))::int as online FROM printers p LEFT JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id WHERE p.tenant_id=${tenantId}`),
       2000,
       "systemHealthPrinters"
     );

@@ -87,6 +87,21 @@ func SupportsKind(p Printer, kind string) bool {
 func documentContext(parent context.Context, kind string) (context.Context, context.CancelFunc) {
 	norm := NormalizeKind(kind)
 	if norm == KindPDF {
+		// PDF deliberately detaches from cancellation: once a document has
+		// been handed to a real renderer, killing the wait does NOT recall
+		// the pages. But the timeout must never clamp a larger deliberate
+		// caller budget: take max(parent deadline, now+defaultPDFTimeout).
+		if deadline, hasDeadline := parent.Deadline(); hasDeadline {
+			base := context.WithoutCancel(parent)
+			// Preserve the caller's larger budget when it exceeds the default.
+			minDeadline := time.Now().Add(defaultPDFDocumentTimeout)
+			if deadline.After(minDeadline) {
+				ctx, cancel := context.WithDeadline(base, deadline)
+				return ctx, cancel
+			}
+			ctx, cancel := context.WithTimeout(base, defaultPDFDocumentTimeout)
+			return ctx, cancel
+		}
 		base := context.WithoutCancel(parent)
 		ctx, cancel := context.WithTimeout(base, defaultPDFDocumentTimeout)
 		return ctx, cancel

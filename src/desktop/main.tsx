@@ -53,6 +53,7 @@ import {
   onTrayRestartAgent,
   onGatewayConfigChanged,
   pairAgent,
+  clearManagerSession,
   restartAgent as ipcRestartAgent,
   setGatewayUrl,
   startAgent as ipcStartAgent,
@@ -504,8 +505,14 @@ export default function App() {
     let unlisten: (() => void) | undefined;
     let disposed = false;
     onGatewayConfigChanged((url) => {
+      // The manager session is a bearer credential for ONE gateway origin.
+      // Switching gateways must not send the old JWT to the new origin:
+      // drop it (and stale per-gateway caches) before probing the new URL.
+      void clearManagerSession();
       setSavedGatewayUrl(url);
       setGw(url);
+      setJobs([]);
+      setPrinters([]);
       if (url) {
         void probeGateway(url);
       } else {

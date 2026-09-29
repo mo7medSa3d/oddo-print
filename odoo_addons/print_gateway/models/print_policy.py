@@ -88,6 +88,11 @@ class PrintGatewayPolicy(models.Model):
         ("zpl", "Zebra ZPL-II"),
         ("tspl", "TSC TSPL"),
         ("escpos", "ESC/POS"),
+        # "raw" = opaque byte passthrough (no language framing). It is the
+        # router's fallback for pre-encoded streams; the Gateway accepts it
+        # (route_raw_command allows zpl/tspl/escpos/raw) so the policy
+        # selection must offer it too.
+        ("raw", "Raw passthrough"),
     ], string="Raw Protocol", default="zpl")
     raw_template = fields.Text(
         string="Raw Command Template",
@@ -257,8 +262,8 @@ class PrintGatewayPolicy(models.Model):
                     raise ValidationError(_("Raw command template cannot be empty when action type is 'Raw Command / Label Template'."))
                 if policy.report_id:
                     raise ValidationError(_("Report action must not be configured when action type is 'Raw Command / Label Template'."))
-                if not policy.raw_protocol or policy.raw_protocol not in ("zpl", "tspl", "escpos"):
-                    raise ValidationError(_("A valid raw protocol (ZPL, TSPL, or ESC/POS) must be specified."))
+                if not policy.raw_protocol or policy.raw_protocol not in ("zpl", "tspl", "escpos", "raw"):
+                    raise ValidationError(_("A valid raw protocol (ZPL, TSPL, ESC/POS, or raw passthrough) must be specified."))
 
                 # 3. Binding protocol compatibility: EXACT match only. A raw
                 # binding is not a wildcard for label or receipt languages.

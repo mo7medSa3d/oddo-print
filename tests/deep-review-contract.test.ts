@@ -16,7 +16,9 @@ describe("deep production review contracts", () => {
     expect(source).toContain("const certificationNowMs = await databaseNowMs();");
     expect(source).toContain("Math.floor(certificationNowMs / 60000)");
     expect(source).toContain("new Date(certificationNowMs + 5 * 60 * 1000)");
-    expect(source).toContain("const age = certificationNowMs - new Date(agent.lastSeenAt).getTime()");
+    // Naive DB timestamps are UTC; new Date(str) parses host-local, so the
+    // heartbeat age uses the shared UTC normalizer (same clock, same zone).
+    expect(source).toContain("parseDbTimeMs(agent.lastSeenAt)");
     expect(source).not.toContain("Math.floor(Date.now() / 60000)");
     expect(source).not.toContain("new Date(Date.now() + 5 * 60 * 1000)");
     expect(source).not.toContain("const age = Date.now() -");
@@ -137,7 +139,10 @@ describe("deep production review contracts", () => {
       expect(source).toContain("applied_desired_revision >= pr.desired_revision");
       expect(source).toContain("printerStaleThresholdSeconds");
       expect(source).toContain("pr.last_seen_at IS NOT NULL");
-      expect(source).toContain("pr.last_seen_at > now() - make_interval");
+      // Inclusive-fresh boundary (>=): exactly-at-threshold is fresh, matching
+      // the JS gates (agent-availability, job-vocabulary, printer-health,
+      // agent-health all treat age <= threshold as fresh).
+      expect(source).toContain("pr.last_seen_at >= now() - make_interval");
       expect(source).toContain("liveTenantSubscriptionPredicate");
     }
     const entitlementSource = read("src/lib/entitlements.ts");
@@ -153,7 +158,7 @@ describe("deep production review contracts", () => {
     expect((pollClaim.match(/\bstale_candidates\s+AS\s*\(/g) ?? []).length).toBe(1);
     expect((pollClaim.match(/\bqueued_candidates\s+AS\s*\(/g) ?? []).length).toBe(1);
     expect((pollClaim.match(/\bclaimable\s+AS\s*\(/g) ?? []).length).toBe(1);
-    expect((pollClaim.match(/pr\.last_seen_at > now\(\) - make_interval/g) ?? []).length).toBe(3);
+    expect((pollClaim.match(/pr\.last_seen_at >= now\(\) - make_interval/g) ?? []).length).toBe(3);
   });
 
   it("keeps Agent heartbeat as observed telemetry and Manager-owned desired state", async () => {

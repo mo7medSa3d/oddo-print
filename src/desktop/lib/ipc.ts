@@ -57,7 +57,7 @@ export function normalizeGatewayUrl(raw: string): string {
   }
 }
 
-async function clearManagerSession(): Promise<void> {
+export async function clearManagerSession(): Promise<void> {
   if (isTauri) {
     await invoke("clear_manager_session");
   } else {
@@ -126,9 +126,12 @@ async function gatewayRequest(
     });
   }
 
+  // Only 401 (authentication) triggers a refresh-then-clear cycle. A 403 means
+  // the session is valid but lacks permission — destroying it logs out
+  // viewer/operator roles that simply lack one permission.
   if (
     allowSessionRefresh &&
-    (response.status === 401 || response.status === 403) &&
+    response.status === 401 &&
     path !== "/api/auth/manager/login" &&
     path !== "/api/auth/manager/refresh"
   ) {
@@ -186,11 +189,15 @@ export async function loginManager(
     refreshToken?: string;
     error?: string;
   };
-  if (status < 200 || status >= 300 || !data.ok || (isTauri && !data.accessToken)) {
+  if (status < 200 || status >= 300 || !data.ok) {
     const err: Error & { status?: number } = new Error(data.error || `Manager login failed (${status})`);
     err.status = status;
     throw err;
   }
+  // NOTE: in the packaged desktop app the Rust proxy (commands.rs
+  // gateway_request) stores accessToken/refreshToken Rust-side and strips them
+  // from the renderer-visible body, so data.accessToken must NOT be required
+  // here. The browser path keeps its cookie-based marker instead.
   if (!isTauri) browserManagerAuthenticated = true;
   if (typeof window !== "undefined") window.dispatchEvent(new Event(MANAGER_AUTH_EVENT));
   return { authenticated: true, expiresAt: data.expiresAt };
@@ -215,12 +222,15 @@ export async function getManagerSession(gatewayUrl: string): Promise<ManagerSess
   const base = normalizeGatewayUrl(gatewayUrl);
   const { status, body } = await gatewayRequest(base, "/api/auth/manager/me", "GET");
   if (status === 401 || status === 403) {
-    try {
-      return await refreshManagerSession(base);
-    } catch {
-      await clearManagerSession();
-      return { authenticated: false };
+    if (status === 401) {
+      try {
+        return await refreshManagerSession(base);
+      } catch {
+        await clearManagerSession();
+        return { authenticated: false };
+      }
     }
+    return { authenticated: false };
   }
   if (status < 200 || status >= 300) throw new Error(`Manager session check failed (${status})`);
   const data = JSON.parse(body) as { authenticated?: boolean; exp?: number };
@@ -368,7 +378,7 @@ export async function fetchGatewayAgents(
   // automatically (credentials: "include"), and the Tauri shell injects the
   // manager bearer token in the Rust gateway proxy.
   const { status, body } = await gatewayConsoleRequest(base, "/api/agents", "GET", {});
-  if (status === 401 || status === 403) await clearManagerSession();
+  if (status === 401) await clearManagerSession();
   if (status < 200 || status >= 300) {
     const err: Error & { status?: number } = new Error(body || "agents fetch failed (" + status + ")");
     err.status = status;
@@ -380,7 +390,7 @@ export async function fetchGatewayAgents(
 export async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterInfo[]> {
   const base = normalizeGatewayUrl(gatewayUrl);
   const { status, body } = await gatewayConsoleRequest(base, "/api/printers", "GET", {});
-  if (status === 401 || status === 403) await clearManagerSession();
+  if (status === 401) await clearManagerSession();
   if (status < 200 || status >= 300) {
     const err: Error & { status?: number } = new Error(body || "printers fetch failed (" + status + ")");
     err.status = status;
@@ -473,7 +483,7 @@ export async function registerGatewayPrinter(
     config,
   };
   const { status, body } = await gatewayConsoleRequest(base, "/api/printers", "POST", headers, JSON.stringify(payload));
-  if (status === 401 || status === 403) await clearManagerSession();
+  if (status === 401) await clearManagerSession();
   if (status < 200 || status >= 300) {
     const err: Error & { status?: number } = new Error(body || "printer registration failed (" + status + ")");
     err.status = status;
@@ -498,7 +508,7 @@ export async function updateGatewayPrinter(
     headers,
     JSON.stringify(patch),
   );
-  if (status === 401 || status === 403) await clearManagerSession();
+  if (status === 401) await clearManagerSession();
   if (status < 200 || status >= 300) {
     const err: Error & { status?: number } = new Error(body || "printer update failed (" + status + ")");
     err.status = status;
@@ -531,7 +541,7 @@ export async function testGatewayPrinter(
     "POST",
     {},
   );
-  if (status === 401 || status === 403) await clearManagerSession();
+  if (status === 401) await clearManagerSession();
   if (status < 200 || status >= 300) {
     const err: Error & { status?: number } = new Error(body || "Gateway test print failed (" + status + ")");
     err.status = status;
@@ -588,7 +598,7 @@ export async function fetchGatewayJobs(
   const endpoint = `/api/jobs?${params.toString()}`;
   const headers: Record<string, string> = {};
   const { status, body } = await gatewayConsoleRequest(base, endpoint, "GET", headers);
-  if (status === 401 || status === 403) {
+  if (status === 401) {
     await clearManagerSession();
   }
   if (status < 200 || status >= 300) {

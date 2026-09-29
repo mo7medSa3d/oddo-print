@@ -3,7 +3,7 @@ import { db } from "../db";
 import { printJobs } from "../db/schema";
 import { and, sql } from "drizzle-orm";
 import { fencedDeliveryWrite } from "./job-fencing";
-import { STALE_CLAIM_SECONDS, MAX_DELIVERY_ATTEMPTS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "./job-maintenance";
+import { MAX_DELIVERY_ATTEMPTS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "./job-maintenance";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./agent-availability";
 
 /**
@@ -47,7 +47,6 @@ export const MAX_AGENT_IN_FLIGHT_JOBS = 64;
  * Both ceilings gate BOTH claim paths (WS `claimJobForDelivery` and the poll
  * stale/queued candidates); no path may claim past either.
  */
-export const CLAIM_LEASE_SECONDS = STALE_CLAIM_SECONDS;
 export { MAX_DELIVERY_ATTEMPTS };
 
 export type ClaimedJobRow = {
@@ -121,7 +120,8 @@ export async function claimJobForDelivery(
         AND a.lifecycle = 'active'
         AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
-        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+        AND a.last_seen_at <= now()
+        AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND t.lifecycle = 'active'
     `);
     const inFlight = Number((live.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
@@ -142,7 +142,8 @@ export async function claimJobForDelivery(
         AND a.lifecycle = 'active'
         AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
-        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+        AND a.last_seen_at <= now()
+        AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
         AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR (
@@ -150,7 +151,8 @@ export async function claimJobForDelivery(
           AND pr.observed_desired_revision >= pr.desired_revision
         ))
         AND pr.last_seen_at IS NOT NULL
-        AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
+        AND pr.last_seen_at <= now()
+        AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
         AND t.lifecycle = 'active'
         AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
       FOR UPDATE OF p, a, pr, t SKIP LOCKED

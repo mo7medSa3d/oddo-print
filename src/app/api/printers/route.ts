@@ -30,8 +30,9 @@ export async function GET(req: Request) {
   // Hard ceiling so cadence/abuse cannot force an unbounded scan. Entitlements
   // cap the row count per tenant (max_printers); 1000 is purely defensive.
   const { searchParams } = new URL(req.url);
-  const limit = 1000;
-  const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10) || 0, 0);
+  const limit = clampListLimit(searchParams.get("limit"), 1000, MAX_PRINTERS_LIST);
+  const offsetRaw = parseInt(searchParams.get("offset") ?? "0", 10);
+  const offset = Number.isNaN(offsetRaw) ? 0 : Math.max(0, offsetRaw);
   if (offset > MAX_PRINTERS_OFFSET) {
     return NextResponse.json({ error: `offset must be <= ${MAX_PRINTERS_OFFSET}` }, { status: 400 });
   }

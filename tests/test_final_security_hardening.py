@@ -222,7 +222,13 @@ def test_tauri_manager_login_tokens_stay_inside_rust_boundary():
     assert 'object.remove("accessToken")' in rust
     assert 'object.remove("refreshToken")' in rust
     assert 'path == "/api/auth/manager/login"' in rust
-    assert "(isTauri && !data.accessToken)" in ipc
+    # The renderer must never gate login on the bearer tokens: they are
+    # stored Rust-side and stripped from the renderer-visible body, so the old
+    # `(isTauri && !data.accessToken)` gate broke Tauri login entirely.
+    # (The optional `accessToken?` response-shape field may remain for the
+    # browser path; what matters is no success gate reads it.)
+    assert "!data.accessToken" not in ipc
+    assert "if (status < 200 || status >= 300 || !data.ok)" in ipc
     assert 'X-Refresh-Token' not in ipc
 
 

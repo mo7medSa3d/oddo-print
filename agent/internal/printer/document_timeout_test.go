@@ -32,3 +32,23 @@ func TestDocumentContextUsesKindSpecificTimeout(t *testing.T) {
 		t.Fatalf("RAW timeout should be about 20s, got %s", rawRemaining)
 	}
 }
+
+func TestDocumentContextPDFHonorsLargerParentDeadline(t *testing.T) {
+	// A large deliberate caller budget (multi-hundred-KB raster on a slow
+	// spooler) must never be clamped down to the 120s PDF default: cutting
+	// a legitimate long write mid-payload produces garbage plus an unknown
+	// outcome.
+	parent, parentCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer parentCancel()
+
+	pdfCtx, pdfCancel := documentContext(parent, KindPDF)
+	defer pdfCancel()
+	deadline, ok := pdfCtx.Deadline()
+	if !ok {
+		t.Fatal("PDF context must have a deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining < 9*time.Minute || remaining > 10*time.Minute {
+		t.Fatalf("PDF context must preserve the larger parent budget, got %s remaining", remaining)
+	}
+}

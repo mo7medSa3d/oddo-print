@@ -71,6 +71,12 @@ export async function transitionTenantLifecycle(
       throw new TenantLifecycleError("Tenant not found", "TENANT_NOT_FOUND", 404);
     }
     const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID")?.trim();
+    // Layered protection: production startup (server.ts) refuses to boot when
+    // PLATFORM_TENANT_ID is unset or the placeholder, so this guard's fail-open
+    // branch is reachable only in development/test where no platform tenant is
+    // configured yet. Do NOT "fix" this into a hard fail-closed here without
+    // providing a dev bootstrap path — operators would be locked out of all
+    // lifecycle operations in fresh dev databases.
     if (platformTenantId && tenant.id === platformTenantId) {
       throw new TenantLifecycleError(
         "The platform tenant is protected from lifecycle suspension or deletion.",

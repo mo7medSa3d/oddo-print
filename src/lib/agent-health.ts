@@ -13,7 +13,7 @@ import { db, queryWithTimeout } from "../db/client";
 import { agents, printers, printJobs } from "../db/schema";
 import { eq, and, count, sql } from "drizzle-orm";
 import { logWarn } from "./log";
-import { gatewayNow } from "./database-clock";
+import { gatewayNow, parseDbTimeMs } from "./database-clock";
 import { agentStaleThresholdSeconds } from "./stale-threshold";
 
 export type AgentHealthStatus = "ONLINE" | "DEGRADED" | "OFFLINE" | "STARTING" | "UNKNOWN";
@@ -57,15 +57,18 @@ function onlineThresholdMs(): number {
 const DEGRADED_THRESHOLD_MS = 5 * 60_000; // 5min
 const STARTING_THRESHOLD_MS = 5 * 60_000;
 
-export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: Date | null, now = gatewayNow()): AgentHealthStatus {
+export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: Date | null, now = gatewayNow(), status = "online"): AgentHealthStatus {
+  if (status === "offline" && lastSeenAt) return "OFFLINE";
   if (!lastSeenAt) {
     if (createdAt) {
-      const ageCreated = now.getTime() - new Date(createdAt).getTime();
+      const createdMs = parseDbTimeMs(createdAt);
+      const ageCreated = createdMs === null ? Number.POSITIVE_INFINITY : now.getTime() - createdMs;
       if (ageCreated <= STARTING_THRESHOLD_MS) return "STARTING";
     }
     return "OFFLINE";
   }
-  const age = now.getTime() - new Date(lastSeenAt).getTime();
+  const seenMs = parseDbTimeMs(lastSeenAt);
+  const age = seenMs === null ? Number.POSITIVE_INFINITY : now.getTime() - seenMs;
   // A future lastSeenAt (clock skew or bad write) must never read as
   // ONLINE: the agent is not provably alive. Mirror the availability gate
   // (agent-availability.ts) and printer health, which both reject age < 0.
@@ -77,7 +80,7 @@ export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: D
 
 export async function getAgentHealth(tenantId: string, agentId: string): Promise<AgentHealth | null> {
   const agentRows = await queryWithTimeout(
-    db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, agentId))).limit(1),
+    () => db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, agentId))).limit(1),
     3000,
     "getAgentHealth"
   );
@@ -89,13 +92,17 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   const agent = agentRows[0];
 
   const now = gatewayNow();
-  const baseStatus = computeAgentHealthStatus(agent.lastSeenAt, agent.createdAt, now);
+  const baseStatus = agent.lifecycle !== "active"
+    ? "OFFLINE"
+    : agent.status === "offline"
+      ? "OFFLINE"
+      : computeAgentHealthStatus(agent.lastSeenAt, agent.createdAt, now, agent.status);
 
   let queueRows: Array<{ cnt: number }> = [];
   let queueDataAvailable = true;
   try {
     queueRows = await queryWithTimeout(
-      db.select({ cnt: count() }).from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.agentId, agentId), sql`${printJobs.status} in ('queued','claimed','printing')`)),
+      () => db.select({ cnt: count() }).from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.agentId, agentId), sql`${printJobs.status} in ('queued','claimed','printing')`)),
       3000,
       "agentQueueDepth"
     );
@@ -109,7 +116,7 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   let printerDataAvailable = true;
   try {
     printerRows = await queryWithTimeout(
-      db.select({ id: printers.id, status: printers.status }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
+      () => db.select({ id: printers.id, status: printers.status }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
       3000,
       "agentPrinters"
     );
@@ -124,11 +131,14 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
 
   // Observed: Gateway heartbeat (direct from DB lastSeenAt)
   if (agent.lastSeenAt) {
-    const ageMs = now.getTime() - new Date(agent.lastSeenAt).getTime();
+    const seenMs = parseDbTimeMs(agent.lastSeenAt);
+    const ageMs = seenMs === null ? Number.POSITIVE_INFINITY : now.getTime() - seenMs;
     // A future lastSeenAt (clock skew or bad write) is an untrustworthy
     // observation: never "ok", and worse than merely stale.
     const onlineMs = onlineThresholdMs();
-    const gatewayStatus = ageMs < 0 || ageMs > DEGRADED_THRESHOLD_MS ? "error" : ageMs > onlineMs ? "warn" : "ok";
+    const gatewayStatus = agent.lifecycle !== "active" || agent.status !== "online"
+      ? "error"
+      : ageMs < 0 || ageMs > DEGRADED_THRESHOLD_MS ? "error" : ageMs > onlineMs ? "warn" : "ok";
     checks.push({
       name: "Gateway",
       status: gatewayStatus,
@@ -219,7 +229,7 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
 export async function getAllAgentsHealth(tenantId: string): Promise<AgentHealth[]> {
   // `db.select().from(agents)` is already typed; the cast only disabled checking.
   const allAgents = await queryWithTimeout(
-    db.select().from(agents).where(eq(agents.tenantId, tenantId)),
+    () => db.select().from(agents).where(eq(agents.tenantId, tenantId)),
     3000,
     "getAllAgentsHealth"
   );

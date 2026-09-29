@@ -85,7 +85,7 @@ Root Company
 | `destination_type` | POS Receipt, POS Kitchen / Preparation, Operation Type, or Report |
 | `runtime_agent_id` | Gateway agent ID |
 | `printer_id` | Gateway printer ID |
-| `printer_protocol` | Required: escpos, zpl, tspl, raw, spooler, ipp, ipps, unknown |
+| `printer_protocol` | Required: escpos, zpl, tspl, raw, spooler, windows_spooler, ipp, ipps, unknown |
 | `report_id` | Single operator-facing Odoo report selector for backend/document bindings; POS Receipt and POS Kitchen / Preparation bindings do not require a report |
 | `fallback_binding_id` | Pre-dispatch failover if primary printer is offline |
 

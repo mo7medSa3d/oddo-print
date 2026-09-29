@@ -288,6 +288,7 @@ export const discoverySessions = pgTable("discovery_sessions", {
 }, (table) => ({
   tenantIdUnique: unique("discovery_sessions_tenant_id_unique").on(table.tenantId, table.id),
   agentFk: foreignKey({ name: "discovery_sessions_tenant_id_agent_id_agents_fk", columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
+  statusCheck: check("discovery_sessions_status_check", sql`${table.status} in ('running','completed','partial','failed','cancelled')`),
   agentIdIdx: index("discovery_sessions_agent_id_idx").on(table.agentId),
   statusIdx: index("discovery_sessions_status_idx").on(table.status),
   activeAgentUnique: uniqueIndex("discovery_sessions_active_agent_unique").on(table.tenantId, table.agentId).where(sql`${table.status} = 'running'`),
@@ -338,6 +339,9 @@ export const discoveredDevices = pgTable("discovered_devices", {
   agentIdIdx: index("discovered_devices_agent_id_idx").on(table.agentId),
   candidateStatusIdx: index("discovered_devices_candidate_status_idx").on(table.candidateStatus),
   confidenceIdx: index("discovered_devices_confidence_idx").on(table.confidence),
+  candidateStatusCheck: check("discovered_devices_candidate_status_check", sql`${table.candidateStatus} in ('discovered','verified','provisioned')`),
+  confidenceCheck: check("discovered_devices_confidence_check", sql`${table.confidence} in ('low','medium','high')`),
+  verificationCheck: check("discovered_devices_verification_check", sql`${table.verification} in ('candidate','verified')`),
   tenantAgentIdentityUnique: uniqueIndex("discovered_devices_tenant_agent_identity_unique").on(table.tenantId, table.agentId, table.identityKey),
 }));
 

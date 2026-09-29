@@ -5,7 +5,7 @@ const ALLOWED_METHODS = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
 // Idempotency-Key is sent by the dashboard print client; X-Refresh-Token is
 // read by the session-tokens refresh path; X-Request-Id is the correlation
 // header. Without these, browser/preview clients sending them fail preflight.
-const ALLOWED_HEADERS = "Content-Type,Authorization,X-Odoo-Print-Desktop,Idempotency-Key,X-Refresh-Token,X-Request-Id";
+const ALLOWED_HEADERS = "Content-Type,Authorization,X-Odoo-Print-Desktop,Idempotency-Key,X-Refresh-Token,X-Request-Id,X-Api-Key";
 
 function configuredOrigins(): Set<string> {
   const raw = process.env.DESKTOP_CORS_ORIGINS;

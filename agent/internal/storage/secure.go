@@ -117,6 +117,14 @@ func (s *Store) SaveSecret(key, secret string) error {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("storage: write %s: %w", tmp, err)
 	}
+	// Flush to stable storage before the atomic rename: without Sync, a
+	// crash between write and flush can leave an empty/corrupt secrets file
+	// and the agent idles unpaired on next Load.
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("storage: sync temp %s: %w", tmp, err)
+	}
 	if err := tmpFile.Close(); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("storage: close temp %s: %w", tmp, err)

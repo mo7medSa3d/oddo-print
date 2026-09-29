@@ -64,7 +64,7 @@ export async function recordJobEvent(input: RecordJobEventInput): Promise<void> 
   };
   try {
     await queryWithTimeout(
-      db.insert(jobEvents).values(event),
+      () => db.insert(jobEvents).values(event),
       3000,
       "recordJobEvent"
     );
@@ -77,7 +77,7 @@ export async function recordJobEvent(input: RecordJobEventInput): Promise<void> 
 
 export async function getJobTimeline(tenantId: string, jobId: string) {
   const events = await queryWithTimeout(
-    db.select().from(jobEvents).where(and(eq(jobEvents.tenantId, tenantId), eq(jobEvents.jobId, jobId))).orderBy(jobEvents.createdAt),
+    () => db.select().from(jobEvents).where(and(eq(jobEvents.tenantId, tenantId), eq(jobEvents.jobId, jobId))).orderBy(jobEvents.createdAt),
     3000,
     "getJobTimeline"
   );
