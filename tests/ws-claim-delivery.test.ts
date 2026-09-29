@@ -983,6 +983,33 @@ suite("WS claim-before-delivery", () => {
     expect(row.claim_token).toBeNull();
   });
 
+  it("polling cannot reclaim stale claims when the agent is already at capacity", async () => {
+    await pool().query(
+      `INSERT INTO print_jobs (id, tenant_id, destination, document_type, agent_id, printer_id, status, payload, expires_at, delivery_attempts, claimed_at, updated_at)
+       SELECT 'poll_cap_fill_' || g, $1, $2, 'receipt', $3, $4, 'claimed',
+              '{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb,
+              now() + interval '1 hour', 1, now(), now()
+       FROM generate_series(1, $5) g`,
+      [f.tenantId, f.destination, f.agentId, f.printerId, MAX_AGENT_IN_FLIGHT_JOBS],
+    );
+    await pool().query(
+      `INSERT INTO print_jobs (id, tenant_id, destination, document_type, agent_id, printer_id, status, payload, expires_at, delivery_attempts, claimed_at, updated_at)
+       VALUES ('poll_cap_stale', $1, $2, 'receipt', $3, $4, 'claimed',
+               '{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb,
+               now() + interval '1 hour', 1, now() - interval '2 minutes', now() - interval '2 minutes')`,
+      [f.tenantId, f.destination, f.agentId, f.printerId],
+    );
+
+    const response = await agentJobsGET(agentRequest(f, "GET"));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.find((job: { id: string }) => job.id === "poll_cap_stale")).toBeUndefined();
+
+    const row = await jobRow("poll_cap_stale");
+    expect(row.status).toBe("claimed");
+    expect(Number(row.delivery_attempts)).toBe(1);
+  });
+
   it("concurrent WS claims at the cap boundary admit exactly one (advisory-lock serialization)", async () => {
     // One slot below the ceiling, two simultaneous pushes must not both
     // win: the shared pg_advisory_xact_lock serializes the count+claim, so
