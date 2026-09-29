@@ -101,7 +101,7 @@ export async function checkAgents(tenantId?: string): Promise<HealthCheck> {
     // STALE_AGENT_THRESHOLD_SECONDS is configured.
     const staleSeconds = agentStaleThresholdSeconds();
     const result = await queryWithTimeout(
-      db.execute(sql`SELECT COUNT(*)::int as total, COUNT(*) FILTER (WHERE last_seen_at > NOW() - make_interval(secs => ${staleSeconds}))::int as online FROM agents WHERE tenant_id=${tenantId}`),
+      db.execute(sql`SELECT COUNT(*)::int as total, COUNT(*) FILTER (WHERE last_seen_at >= NOW() - make_interval(secs => ${staleSeconds}))::int as online FROM agents WHERE tenant_id=${tenantId}`),
       2000,
       "systemHealthAgents"
     );
