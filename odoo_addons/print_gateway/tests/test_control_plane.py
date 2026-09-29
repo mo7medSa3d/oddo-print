@@ -1461,17 +1461,22 @@ class TestControlPlane(TransactionCase):
              patch("requests.post", return_value=mock_resp):
             with self.assertRaises(ValidationError) as ctx:
                 job._action_submit_trusted(raise_on_failure=True)
-        # _action_submit_trusted() runs through a trusted/sudo environment.
-        # Refresh the original test recordset before asserting persisted state;
-        # otherwise the original environment can retain the pre-submit cache.
-        job.invalidate_recordset(["status", "last_error", "next_retry_at", "gateway_job_id", "attempts"])
         self.assertIn("offline", str(ctx.exception).lower())
         self.assertIn(job.printer_id, str(ctx.exception))
         self.assertNotIsInstance(ctx.exception, RuntimeError)
-        self.assertEqual(job.status, "failed")
-        self.assertIn("offline", (job.last_error or "").lower())
-        self.assertFalse(job.gateway_job_id)
-        self.assertFalse(job.next_retry_at)
+
+        # The interactive raise path is asserted above. Verify durable state
+        # through the non-raising/background path, which does not roll back the
+        # surrounding Odoo test transaction after the expected exception.
+        persisted = self._submit_test_job("test_503_offline_persisted_%s" % uuid.uuid4().hex[:8])
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            persisted._action_submit_trusted(raise_on_failure=False)
+        persisted.invalidate_recordset(["status", "last_error", "next_retry_at", "gateway_job_id", "attempts"])
+        self.assertEqual(persisted.status, "failed")
+        self.assertIn("offline", (persisted.last_error or "").lower())
+        self.assertFalse(persisted.gateway_job_id)
+        self.assertFalse(persisted.next_retry_at)
 
     def test_26e2_gateway_503_offline_marker_survives_background_submit(self):
         """Without raise_on_failure (cron/background), the same rejection
@@ -1500,11 +1505,16 @@ class TestControlPlane(TransactionCase):
              patch("requests.post", return_value=mock_resp):
             with self.assertRaises(ValidationError) as ctx:
                 job._action_submit_trusted(raise_on_failure=True)
-        job.invalidate_recordset(["status", "last_error", "next_retry_at", "gateway_job_id", "attempts"])
         self.assertIn("re-queued", str(ctx.exception))
-        self.assertEqual(job.status, "queued")
-        self.assertTrue(job.next_retry_at)
-        self.assertIn("GATEWAY_BUSY_503", job.last_error)
+
+        persisted = self._submit_test_job("test_503_full_persisted_%s" % uuid.uuid4().hex[:8])
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            persisted._action_submit_trusted(raise_on_failure=False)
+        persisted.invalidate_recordset(["status", "last_error", "next_retry_at", "gateway_job_id", "attempts"])
+        self.assertEqual(persisted.status, "queued")
+        self.assertTrue(persisted.next_retry_at)
+        self.assertIn("GATEWAY_BUSY_503", persisted.last_error)
 
     def test_26g_gateway_500_stays_retryable_and_honest(self):
         """Genuine infrastructure failures (5xx) must NOT be terminalized and
@@ -1518,10 +1528,15 @@ class TestControlPlane(TransactionCase):
              patch("requests.post", return_value=mock_resp):
             with self.assertRaises(ValidationError) as ctx:
                 job._action_submit_trusted(raise_on_failure=True)
-        job.invalidate_recordset(["status", "last_error", "next_retry_at", "gateway_job_id", "attempts"])
         self.assertIn("GATEWAY_HTTP_500", str(ctx.exception))
-        self.assertEqual(job.status, "queued")
-        self.assertTrue(job.next_retry_at)
+
+        persisted = self._submit_test_job("test_500_retry_persisted_%s" % uuid.uuid4().hex[:8])
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            persisted._action_submit_trusted(raise_on_failure=False)
+        persisted.invalidate_recordset(["status", "last_error", "next_retry_at", "gateway_job_id", "attempts"])
+        self.assertEqual(persisted.status, "queued")
+        self.assertTrue(persisted.next_retry_at)
 
     def test_26d_gateway_config_unlink_checks_dependencies_before_remote_shutdown(self):
         """A config with dependent print jobs must fail before any Gateway shutdown side effect."""
