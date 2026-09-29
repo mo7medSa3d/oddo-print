@@ -139,45 +139,50 @@ func TestNetworkPrinterDialFailure(t *testing.T) {
 }
 
 func TestNetworkPrinterPartialDelivery(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	conn := &partialWriteConn{
+		Conn:      client,
+		firstSize: 10,
 	}
-	defer ln.Close()
 
-	// Server accepts, reads 10 bytes, and forcefully closes connection with TCP RST
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		buf := make([]byte, 10)
-		_, _ = io.ReadFull(conn, buf)
-		// Force immediate TCP RST on Windows and Linux by setting linger to 0
-		if tcpConn, ok := conn.(*net.TCPConn); ok {
-			_ = tcpConn.SetLinger(0)
-		}
-		_ = conn.Close()
-	}()
-
-	p := &NetworkPrinter{Address: ln.Addr().String()}
-	// Large payload (2MB) to ensure write loop has multiple iterations and gets interrupted
-	largeData := make([]byte, 2*1024*1024)
-	for i := range largeData {
-		largeData[i] = 'A'
+	data := make([]byte, 2*networkWriteChunkSize+1)
+	for i := range data {
+		data[i] = 'A'
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	err = p.Print(ctx, largeData)
+	written, err := writePrintPayload(ctx, conn, data, "127.0.0.1:9100")
 	if err == nil {
 		t.Fatal("expected error on severed connection")
 	}
-	// Check that error contains UNKNOWN_PARTIAL_DELIVERY marker
+	if written != 10 {
+		t.Fatalf("expected 10 bytes written before failure, got %d", written)
+	}
 	if !strings.Contains(err.Error(), "UNKNOWN_PARTIAL_DELIVERY") {
 		t.Fatalf("expected UNKNOWN_PARTIAL_DELIVERY error marker, got: %v", err)
 	}
+}
+
+type partialWriteConn struct {
+	net.Conn
+	firstSize int
+	written   bool
+}
+
+func (c *partialWriteConn) Write(p []byte) (int, error) {
+	if c.written {
+		return 0, errors.New("connection reset by peer")
+	}
+	c.written = true
+	if len(p) < c.firstSize {
+		return len(p), nil
+	}
+	return c.firstSize, nil
 }
 
 func TestNetworkPrinterPreFlightCheckScenarios(t *testing.T) {
