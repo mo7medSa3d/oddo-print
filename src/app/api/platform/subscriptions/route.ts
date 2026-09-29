@@ -20,7 +20,7 @@ export async function GET(req: Request) {
   const limit = Math.min(Math.max(1, isNaN(limitParam) ? 300 : limitParam), 1000);
 
   const rows = await queryWithTimeout(
-    db
+    () => db
       .select({
         tenantId: tenants.id,
         tenantName: tenants.name,
