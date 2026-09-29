@@ -13,9 +13,11 @@ describe("printer-capability-matrix", () => {
     expect(isIppTransport("network", "ipp")).toBe(true);
   });
 
-  it("Spooler transport supports pdf/image/raw/escpos", () => {
+  it("Spooler transport supports pdf/image by default (raw passthrough needs explicit declaration)", () => {
     expect(getSupportedDocumentTypes("spooler", "spooler")).toContain("pdf");
-    expect(getSupportedDocumentTypes("windows_spooler", "spooler")).toContain("escpos");
+    expect(getSupportedDocumentTypes("spooler", "spooler")).toContain("image");
+    expect(getSupportedDocumentTypes("spooler", "spooler")).not.toContain("raw");
+    expect(getSupportedDocumentTypes("windows_spooler", "spooler")).not.toContain("escpos");
     expect(isSpoolerTransport("spooler", "spooler")).toBe(true);
     expect(isSpoolerTransport("network", "windows_spooler")).toBe(true);
   });

@@ -700,7 +700,13 @@ class PrintGatewayRouter(models.AbstractModel):
     @api.model
     @api.private
     def route_test_page(self, binding):
-        """Send a standardized diagnostic test ticket to the target printer."""
+        """Send a standardized diagnostic test ticket to the target printer.
+
+        Transport-aware: document printers (spooler/ipp) receive a real valid
+        PDF rendered through the driver/IPP transport; byte-stream printers
+        receive a protocol-valid ticket. A document printer is never asked to
+        consume raw printer-language bytes.
+        """
         binding.ensure_one()
         current_company = binding.branch_id or binding.company_id
         config = self._gateway_config(current_company)
@@ -710,12 +716,33 @@ class PrintGatewayRouter(models.AbstractModel):
         proto = getattr(binding, "printer_protocol", False)
         if not proto:
             raise ValidationError(_("Printer protocol is required on binding '%s' to send a diagnostic test ticket.") % binding.display_name)
+
+        now_str = fields.Datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        company_name = binding.company_id.name
+        branch_name = binding.branch_id.name if binding.branch_id else "Default / Root"
+        printer_name = binding.printer_id
+
+        # SPOOLER: real PDF through the Windows driver path.
+        if proto == "spooler":
+            return self._route_spooler_test_page(
+                binding=binding, company=current_company,
+                company_name=company_name, branch_name=branch_name,
+                printer_name=printer_name, now_str=now_str,
+            )
+
+        # IPP/IPPS: real PDF through the IPP document transport.
+        if proto in ("ipp", "ipps"):
+            return self._route_ipp_test_page(
+                binding=binding, company=current_company,
+                company_name=company_name, branch_name=branch_name,
+                printer_name=printer_name, now_str=now_str,
+            )
+
         if proto not in ("zpl", "tspl", "raw", "escpos"):
             raise ValidationError(
-                _("No canned diagnostic ticket exists for protocol '%s'. Declare an escpos/zpl/tspl/raw protocol on the printer, or print a real report through the Gateway.")
+                _("No canned diagnostic ticket exists for protocol '%s'. Declare an escpos/zpl/tspl/raw/spooler/ipp protocol on the printer, or print a real report through the Gateway.")
                 % (proto or "unknown")
             )
-        now_str = fields.Datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # User-controlled metadata is sanitized per printer language before it
         # is embedded into the command stream: a company named e.g.
         # 'A^XZ\n^XA...' must not inject ZPL commands, and a '"' must not
@@ -792,4 +819,102 @@ class PrintGatewayRouter(models.AbstractModel):
             company=current_company,
             document_type="test_page",
         )
+
+    @api.model
+    @api.private
+    def _route_spooler_test_page(self, *, binding, company, company_name, branch_name, printer_name, now_str):
+        """PDF test page through the Windows Spooler driver path.
+
+        Exercises OpenPrinter → StartDocPrinter → WritePrinter → EndDocPrinter
+        and proves the queue can accept a job. Physical output stays unknown
+        until observed; success here means SPOOLER_JOB_ACCEPTED.
+        """
+        pdf_content = self._generate_test_pdf(
+            company_name=company_name, branch_name=branch_name,
+            printer_name=printer_name, now_str=now_str,
+        )
+        payload = {"type": "pdf", "encoding": "base64", "data": base64.b64encode(pdf_content).decode("ascii")}
+        route = self.resolve_binding(
+            record=False, company=company, document_type="test_page",
+            explicit_binding=binding, payload_type="pdf",
+        )
+        if route.get("native"):
+            raise ValidationError(
+                _("Gateway printing is enabled, but the binding resolved to native print. Check the binding configuration.")
+            )
+        return self._submit_route(
+            route=route, payload=payload, company=company,
+            source_model="print_gateway.binding", source_record_id=binding.id,
+        )
+
+    @api.model
+    @api.private
+    def _route_ipp_test_page(self, *, binding, company, company_name, branch_name, printer_name, now_str):
+        """PDF test page through the IPP document transport."""
+        pdf_content = self._generate_test_pdf(
+            company_name=company_name, branch_name=branch_name,
+            printer_name=printer_name, now_str=now_str,
+        )
+        payload = {"type": "pdf", "encoding": "base64", "data": base64.b64encode(pdf_content).decode("ascii")}
+        route = self.resolve_binding(
+            record=False, company=company, document_type="test_page",
+            explicit_binding=binding, payload_type="pdf",
+        )
+        if route.get("native"):
+            raise ValidationError(
+                _("Gateway printing is enabled, but the binding resolved to native print. Check the binding configuration.")
+            )
+        return self._submit_route(
+            route=route, payload=payload, company=company,
+            source_model="print_gateway.binding", source_record_id=binding.id,
+        )
+
+    @api.model
+    @api.private
+    def _generate_test_pdf(self, *, company_name, branch_name, printer_name, now_str):
+        """Minimal valid single-page PDF test document.
+
+        Offsets and stream Length are computed from actual content; text is
+        PDF-escaped so operator names cannot break document syntax.
+        """
+        def _pdf_text(value):
+            text = str(value or "")
+            text = "".join(ch for ch in text if ch >= " " or ch in "\n\t").strip()[:80]
+            return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+        lines = [
+            "BT", "/F1 24 Tf", "72 720 Td",
+            "(YASSER PRINT GATEWAY) Tj",
+            "/F1 18 Tf", "0 -40 Td", "(PRINTER TEST PAGE) Tj",
+            "/F1 12 Tf", "0 -30 Td",
+            f"(Company: {_pdf_text(company_name)}) Tj",
+            "0 -20 Td",
+            f"(Location: {_pdf_text(branch_name)}) Tj",
+            "0 -20 Td",
+            f"(Printer: {_pdf_text(printer_name)}) Tj",
+            "0 -20 Td", "(Status: READY) Tj",
+            "0 -20 Td",
+            f"(Time: {_pdf_text(now_str)}) Tj",
+            "ET",
+        ]
+        content = "\n".join(lines).encode("latin-1", errors="replace")
+        objects = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        ]
+        pdf = bytearray(b"%PDF-1.4\n")
+        offsets = [0]
+        for number, body in enumerate(objects, start=1):
+            offsets.append(len(pdf))
+            pdf += ("%d 0 obj\n" % number).encode("ascii") + body + b"\nendobj\n"
+        xref_pos = len(pdf)
+        pdf += ("xref\n0 %d\n" % (len(objects) + 1)).encode("ascii")
+        pdf += b"0000000000 65535 f \n"
+        for offset in offsets[1:]:
+            pdf += ("%010d 00000 n \n" % offset).encode("ascii")
+        pdf += ("trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF" % (len(objects) + 1, xref_pos)).encode("ascii")
+        return bytes(pdf)
 

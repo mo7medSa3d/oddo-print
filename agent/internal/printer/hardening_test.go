@@ -48,15 +48,21 @@ func TestStableID_USBDeterministic(t *testing.T) {
 }
 
 func TestClassifySpoolerPrinter(t *testing.T) {
+	// A Windows print queue is ALWAYS served through the spooler backend,
+	// regardless of port. The port/monitor select the spooler's delivery
+	// path; they never turn the queue into a direct-TCP/USB device (that
+	// broke every WSD and Standard TCP/IP queue: the factory expects
+	// ip:port endpoints for direct network printers).
 	cases := []struct {
 		port, driver, name, wantType, wantConn string
 	}{
-		{"USB001", "HP LaserJet", "HP LaserJet", "laser", "usb"},
-		{"WSD-123456", "Generic", "My Printer", "unknown", "network"},
-		{"IP_192.168.1.50", "ESC/POS Thermal", "Receipt Printer", "thermal", "network"},
-		{"192.168.1.50:9100", "Zebra Label", "Zebra GK420", "label", "network"},
-		{"LPT1:", "Generic", "Old LPT", "unknown", "local"},
+		{"USB001", "HP LaserJet", "HP LaserJet", "laser", "spooler"},
+		{"WSD-123456", "Generic", "My Printer", "unknown", "spooler"},
+		{"IP_192.168.1.50", "ESC/POS Thermal", "Receipt Printer", "thermal", "spooler"},
+		{"192.168.1.50:9100", "Zebra Label", "Zebra GK420", "label", "spooler"},
+		{"LPT1:", "Generic", "Old LPT", "unknown", "spooler"},
 		{"", "Epson TM-T20", "TM-T20 Receipt", "thermal", "spooler"},
+		{"BRFAX:", "Brother PC-FAX v.3.2", "Brother PC-FAX v.3.2 (A3/LGR)", "unknown", "spooler"},
 	}
 	for _, tc := range cases {
 		pt, ct := classifySpoolerPrinter(tc.port, tc.driver, tc.name)

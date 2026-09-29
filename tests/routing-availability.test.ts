@@ -67,12 +67,25 @@ suite("gateway runtime printer availability + payload capability contract", () =
     expect(source).not.toContain("delete capabilities.supported_protocols");
   });
 
-  it("allows spooler raw/escpos payloads but not unsupported spooler languages", () => {
-    expect(validatePayloadForPrinter({ type: "raw", protocol: "raw" }, {
+  it("allows spooler pdf/image by default but requires explicit declaration for spooler raw passthrough", () => {
+    // Document printers render through the driver: pdf/image pass without an
+    // explicit list. Raw byte passthrough bypasses rendering and is only for
+    // passthrough-mode queues whose operator explicitly declared support —
+    // otherwise a Brother MFC would receive raw ESC/POS garbage.
+    expect(validatePayloadForPrinter({ type: "pdf" }, {
       protocol: "spooler", connectionType: "spooler", capabilities: null,
     }).ok).toBe(true);
+    expect(validatePayloadForPrinter({ type: "image" }, {
+      protocol: "spooler", connectionType: "spooler", capabilities: null,
+    }).ok).toBe(true);
+    expect(validatePayloadForPrinter({ type: "raw", protocol: "raw" }, {
+      protocol: "spooler", connectionType: "spooler", capabilities: null,
+    }).ok).toBe(false);
     expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, {
       protocol: "spooler", connectionType: "spooler", capabilities: null,
+    }).ok).toBe(false);
+    expect(validatePayloadForPrinter({ type: "raw", protocol: "raw" }, {
+      protocol: "spooler", connectionType: "spooler", capabilities: { supported_protocols: ["raw", "pdf", "image"] },
     }).ok).toBe(true);
     expect(validatePayloadForPrinter({ type: "raw", protocol: "zpl" }, {
       protocol: "spooler", connectionType: "spooler", capabilities: null,
@@ -99,7 +112,7 @@ suite("gateway runtime printer availability + payload capability contract", () =
     })).toEqual({ ok: true });
   });
 
-  it("treats USB printers backed by the Windows spooler as spooler transports", () => {
+  it("treats USB printers backed by the Windows spooler as spooler document transports", () => {
     expect(validatePayloadForPrinter({ type: "pdf" }, {
       protocol: "spooler",
       connectionType: "usb",
@@ -108,9 +121,15 @@ suite("gateway runtime printer availability + payload capability contract", () =
       protocol: "spooler",
       connectionType: "usb",
     }).ok).toBe(true);
+    // Raw passthrough on a spooler-backed USB queue requires explicit support.
     expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, {
       protocol: "spooler",
       connectionType: "usb",
+    }).ok).toBe(false);
+    expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, {
+      protocol: "spooler",
+      connectionType: "usb",
+      capabilities: { supported_protocols: ["escpos", "pdf", "image"] },
     }).ok).toBe(true);
   });
 

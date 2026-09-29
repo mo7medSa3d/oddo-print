@@ -35,6 +35,11 @@ func main() {
 			handleGatewayRequest(args[1:], *configPath)
 			return
 		}
+		// Diagnostic mode: spooler/queue/device evidence, no secrets.
+		if args[0] == "diagnose" {
+			handleDiagnosePrinters(*configPath)
+			return
+		}
 		// Also support legacy flag style: -pair etc already handled, so unknown args => usage
 		fmt.Printf("Unknown command: %v\n", args)
 		printUsage()

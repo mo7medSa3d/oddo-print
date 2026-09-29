@@ -1576,56 +1576,83 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 	}
 
 	statuses := make([]string, len(ids))
-	// Probe results flow back through a channel and are applied ONLY by this
-	// goroutine. Probes themselves are bounded by each printer backend's
-	// Status() contract, so the batch warning is a latency signal rather than
-	// permission to orphan probe goroutines past the heartbeat lifecycle.
+	// Probe results flow back through a bounded worker pool so a large fleet
+	// can never create an unbounded number of OS/RPC goroutines. Each
+	// printer keeps single-flight semantics (at most one live probe), and
+	// the whole batch has a hard 10s budget: after that, slow printers keep
+	// their last-known status and their helpers finish in the background.
+	// A bad printer probe must never make the Agent appear offline.
 	type probeResult struct {
 		idx    int
 		status string
 	}
+	type probeWork struct {
+		idx   int
+		pid   string
+		p     printer.Printer
+		state *printerProbeState
+	}
 	results := make(chan probeResult, len(ids))
+	works := make([]probeWork, 0, len(ids))
 	probed := make(map[int]bool, len(ids))
 	pendingProbes := 0
 	for i, id := range ids {
 		state := a.getProbeState(id)
 		if !state.running.CompareAndSwap(false, true) {
 			// A previous probe is still running in the OS/RPC driver!
-			// Do NOT spawn another goroutine. Reuse the last known status
-			// (written under probeStateMu by whoever set it).
+			// Do NOT spawn another goroutine. Reuse the last known status.
 			statuses[i] = a.probeLastStatus(id)
+			if statuses[i] == "" {
+				statuses[i] = "unknown"
+			}
 			probed[i] = true
 			continue
 		}
-
 		pendingProbes++
-		go func(i int, pid string, p printer.Printer, st *printerProbeState) {
-			defer func() {
-				st.running.Store(false)
-				a.deleteProbeState(pid)
-			}()
-			status := "error"
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						log.Printf("Status probe panic for %s: %v", pid, r)
-					}
-				}()
-				status = p.Status()
-			}()
-			a.setProbeLastStatus(pid, status)
-			a.observeDesiredRevision(pid, status)
-			results <- probeResult{idx: i, status: status}
-		}(i, id, printerByID[id], state)
+		works = append(works, probeWork{idx: i, pid: id, p: printerByID[id], state: state})
 	}
 
-	// Keep the 2s signal for operator latency, but ALWAYS join every spawned
-	// probe before returning. A printer backend has its own bounded Status()
-	// call; letting this function return while probes still mutate runtime
-	// state would create an unowned goroutine after heartbeat/shutdown.
-	warningTimer := time.NewTimer(2 * time.Second)
-	defer warningTimer.Stop()
-	var warningC <-chan time.Time = warningTimer.C
+	const maxHeartbeatProbeConcurrency = 64
+	workers := len(works)
+	if workers > maxHeartbeatProbeConcurrency {
+		workers = maxHeartbeatProbeConcurrency
+	}
+	var probeWG sync.WaitGroup
+	probeWG.Add(workers)
+	workQueue := make(chan probeWork, len(works))
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer probeWG.Done()
+			for work := range workQueue {
+				func() {
+					defer func() {
+						work.state.running.Store(false)
+						a.deleteProbeState(work.pid)
+					}()
+					status := "error"
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								log.Printf("Status probe panic for %s: %v", work.pid, r)
+							}
+						}()
+						status = work.p.Status()
+					}()
+					a.setProbeLastStatus(work.pid, status)
+					a.observeDesiredRevision(work.pid, status)
+					results <- probeResult{idx: work.idx, status: status}
+				}()
+			}
+		}()
+	}
+	for _, work := range works {
+		workQueue <- work
+	}
+	close(workQueue)
+
+	budgetTimer := time.NewTimer(10 * time.Second)
+	defer budgetTimer.Stop()
+	var warningC <-chan time.Time = budgetTimer.C
 	for pendingProbes > 0 {
 		select {
 		case res := <-results:
@@ -1633,16 +1660,24 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 			probed[res.idx] = true
 			pendingProbes--
 		case <-warningC:
-			log.Printf("WARNING: Printer status probe batch exceeded 2s; waiting for bounded probes to finish before returning")
 			warningC = nil
+			deferred := 0
+			for i, id := range ids {
+				if !probed[i] {
+					statuses[i] = a.probeLastStatus(id)
+					if statuses[i] == "" {
+						statuses[i] = "unknown"
+					}
+					probed[i] = true
+					pendingProbes--
+					deferred++
+				}
+			}
+			log.Printf("WARNING: Printer status probe batch exceeded 10s budget; %d slow probe(s) deferred to background (last-known status reported)", deferred)
 		}
 	}
-	for i, id := range ids {
-		if !probed[i] {
-			statuses[i] = "spooler_rpc_unresponsive"
-			a.setProbeLastStatus(id, "spooler_rpc_unresponsive")
-		}
-	}
+	// Slow helpers are single-flight per printer and self-clearing; joining
+	// them here would reintroduce the heartbeat stall this budget removes.
 
 	observedCapabilityStateChanged := false
 	result := make([]map[string]interface{}, 0, len(ids))

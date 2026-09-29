@@ -254,6 +254,7 @@ var virtualPortMonitors = []string{
 	"null:",
 	"shrfax:", // Windows Shared Fax
 	"fax:",
+	"brfax:", // Brother PC-FAX (software fax queue, never physical paper)
 }
 
 // softwareWriterTokens mark driver/PnP/name families that only ever produce
@@ -268,6 +269,12 @@ var softwareWriterTokens = []string{
 	"microsoft enhanced point and print compatibility driver",
 	"send to onenote",
 	"onenote",
+	// ---- Fax software queues (any vendor): PC-FAX dials a modem, never paper ----
+	"pc-fax",
+	"pc fax",
+	"pcfax",
+	"fax v.",
+	"fax driver",
 	// ---- Semantic families (language independent) ----
 	"document writer",
 	"documentwriter",

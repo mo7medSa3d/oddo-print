@@ -23,8 +23,10 @@ func TestCapabilityTableParity(t *testing.T) {
 		{"escpos device prints escpos", "escpos", "escpos", "escpos", "network", nil, true},
 		{"tspl device rejects zpl", "raw", "zpl", "tspl", "network", nil, false},
 		{"raw payload without protocol is malformed", "raw", "", "zpl", "network", nil, false},
-		{"spooler raw payload is supported", "raw", "raw", "spooler", "spooler", nil, true},
-		{"spooler escpos payload is supported", "escpos", "escpos", "spooler", "spooler", nil, true},
+		{"spooler raw passthrough requires explicit declaration", "raw", "raw", "spooler", "spooler", nil, false},
+		{"spooler raw passthrough with explicit caps", "raw", "raw", "spooler", "spooler", []string{"raw", "pdf", "image"}, true},
+		{"spooler escpos passthrough requires explicit declaration", "escpos", "escpos", "spooler", "spooler", nil, false},
+		{"spooler escpos passthrough with explicit caps", "escpos", "escpos", "spooler", "spooler", []string{"escpos", "pdf", "image"}, true},
 		{"spooler does not imply zpl language", "raw", "zpl", "spooler", "spooler", nil, false},
 		{"pdf needs a document transport", "pdf", "", "raw", "network", nil, false},
 		{"pdf never carries a protocol", "pdf", "raw", "spooler", "spooler", nil, false},
@@ -41,7 +43,7 @@ func TestCapabilityTableParity(t *testing.T) {
 		{"unknown+spooler pdf accepted", "pdf", "", "unknown", "spooler", nil, true},
 		{"unknown+spooler image accepted", "image", "", "unknown", "spooler", nil, true},
 		{"unknown+ipp pdf accepted", "pdf", "", "unknown", "ipp", nil, true},
-		{"unknown+spooler escpos uses spooler transport", "escpos", "escpos", "unknown", "spooler", nil, true},
+		{"unknown+spooler escpos requires explicit declaration", "escpos", "escpos", "unknown", "spooler", nil, false},
 		// Explicit capability lists cannot override the concrete transport protocol;\n\t\t// they can only narrow/confirm what that backend actually speaks.
 		{"declared escpos caps cannot override raw device protocol", "escpos", "escpos", "raw", "network", []string{"escpos"}, false},
 		{"declared zpl caps cannot override raw USB device protocol", "raw", "zpl", "raw", "usb", []string{"zpl"}, false},
@@ -50,9 +52,10 @@ func TestCapabilityTableParity(t *testing.T) {
 		{"declared pdf caps cannot add renderer to raw pipe", "pdf", "", "raw", "network", []string{"pdf"}, false},
 		{"declared caps cannot smuggle a protocol", "pdf", "raw", "spooler", "spooler", []string{"pdf"}, false},
 		// ipp and ipps are the same document transport everywhere checked.
+		// USB-backed spooler prints pdf/image by default; raw passthrough needs explicit caps.
 		{"USB-backed spooler prints pdf", "pdf", "", "spooler", "usb", nil, true},
 		{"USB-backed spooler prints image", "image", "", "spooler", "usb", nil, true},
-		{"USB-backed spooler prints escpos", "escpos", "escpos", "spooler", "usb", nil, true},
+		{"USB-backed spooler escpos requires explicit declaration", "escpos", "escpos", "spooler", "usb", nil, false},
 		{"ipps transport prints pdf like ipp", "pdf", "", "ipps", "ipps", nil, true},
 		{"declared ipps caps cannot turn raw pipe into IPPS renderer", "pdf", "", "raw", "network", []string{"ipps"}, false},
 		{"declared ipps caps cannot add renderer to raw pipe", "image", "", "raw", "network", []string{"ipps"}, false},
