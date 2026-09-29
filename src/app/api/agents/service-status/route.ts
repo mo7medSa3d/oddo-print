@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { requestIdFrom } from "../../../../lib/log";
-import { runWithCorrelation, generateRequestId } from "../../../../server/correlation";
+import { runWithCorrelation } from "../../../../server/correlation";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +17,11 @@ export async function GET(req: Request) {
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "agents.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
-  const requestId = requestIdFrom(req as any) || generateRequestId();
+  const requestId = requestIdFrom(req);
   const url = new URL(req.url);
   const agentId = url.searchParams.get("agentId");
 
-  return runWithCorrelation({ requestId, tenantId: claims.tenantId, agentId: agentId ?? undefined } as any, async () => {
+  return runWithCorrelation({ requestId, tenantId: claims.tenantId, agentId: agentId ?? undefined }, async () => {
     // In production Windows, this data comes from agent metadata (service state) and SCM query
     // For now, return structure with BLOCKED note for sandbox
     // Service identity must match the actual registration in
