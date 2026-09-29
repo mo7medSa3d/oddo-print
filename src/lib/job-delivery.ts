@@ -121,6 +121,7 @@ export async function claimJobForDelivery(
         AND a.lifecycle = 'active'
         AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
+        AND a.last_seen_at <= now()
         AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND t.lifecycle = 'active'
     `);
@@ -142,6 +143,7 @@ export async function claimJobForDelivery(
         AND a.lifecycle = 'active'
         AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
+        AND a.last_seen_at <= now()
         AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
         AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
@@ -150,6 +152,7 @@ export async function claimJobForDelivery(
           AND pr.observed_desired_revision >= pr.desired_revision
         ))
         AND pr.last_seen_at IS NOT NULL
+        AND pr.last_seen_at <= now()
         AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
         AND t.lifecycle = 'active'
         AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
