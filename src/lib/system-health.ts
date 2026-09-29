@@ -102,7 +102,7 @@ export async function checkAgents(tenantId?: string): Promise<HealthCheck> {
     // STALE_AGENT_THRESHOLD_SECONDS is configured.
     const staleSeconds = agentStaleThresholdSeconds();
     const result = await queryWithTimeout(
-      () => db.execute(sql`SELECT COUNT(*) FILTER (WHERE lifecycle = 'active')::int as total, COUNT(*) FILTER (WHERE lifecycle = 'active' AND status = 'online' AND last_seen_at IS NOT NULL AND last_seen_at <= NOW() AND last_seen_at >= NOW() - make_interval(secs => ${staleSeconds}))::int as online FROM agents WHERE tenant_id=${tenantId}`),
+      () => db.execute(sql`SELECT COUNT(*) FILTER (WHERE lifecycle = 'active')::int as total, COUNT(*) FILTER (WHERE lifecycle = 'active' AND status = 'online' AND last_seen_at IS NOT NULL AND last_seen_at <= NOW() AND last_seen_at >= NOW() - make_interval(secs => ${agentStaleThresholdSeconds()}))::int as online FROM agents WHERE tenant_id=${tenantId}`),
       2000,
       "systemHealthAgents"
     );
@@ -125,7 +125,7 @@ export async function checkPrinters(tenantId?: string): Promise<HealthCheck> {
       return { name: "Printers", state: "unknown", message: "Printers check requires tenant context", latencyMs: Date.now() - start };
     }
     const result = await queryWithTimeout(
-      () => db.execute(sql`SELECT COUNT(*) FILTER (WHERE p.lifecycle = 'active')::int as total, COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status = 'online' AND p.last_seen_at IS NOT NULL AND p.last_seen_at <= NOW() AND p.last_seen_at >= NOW() - make_interval(secs => ${printerStaleThresholdSeconds()}) AND a.lifecycle = 'active' AND a.status = 'online' AND a.last_seen_at IS NOT NULL AND a.last_seen_at <= NOW() AND a.last_seen_at >= NOW() - make_interval(secs => ${staleSeconds}))::int as online FROM printers p LEFT JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id WHERE p.tenant_id=${tenantId}`),
+      () => db.execute(sql`SELECT COUNT(*) FILTER (WHERE p.lifecycle = 'active')::int as total, COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status = 'online' AND p.last_seen_at IS NOT NULL AND p.last_seen_at <= NOW() AND p.last_seen_at >= NOW() - make_interval(secs => ${printerStaleThresholdSeconds()}) AND a.lifecycle = 'active' AND a.status = 'online' AND a.last_seen_at IS NOT NULL AND a.last_seen_at <= NOW() AND a.last_seen_at >= NOW() - make_interval(secs => ${agentStaleThresholdSeconds()}))::int as online FROM printers p LEFT JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id WHERE p.tenant_id=${tenantId}`),
       2000,
       "systemHealthPrinters"
     );
