@@ -196,12 +196,14 @@ export async function POST(req: Request) {
 
     // Do not clear the IP pairing limiter after success. A valid pairing
     // should not reset the brute-force budget for subsequent codes.
+    // The Agent secret is a one-time credential response. Explicitly
+    // prevent intermediary/browser caching even though this is a POST.
     return NextResponse.json({
       agentId: outcome.agentId,
       agent_id: outcome.agentId,
       secret: outcome.secret,
       agent_secret: outcome.secret,
-    }, { status: 200 });
+    }, { status: 200, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (isTenantBillingError(error)) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: 403, headers: { "Cache-Control": "no-store" } });
