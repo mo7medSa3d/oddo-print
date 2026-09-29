@@ -112,6 +112,7 @@ services:
 volumes:
   postgres_http_test_data:
     external: true
+    name: ${HTTP_TEST_VOLUME_NAME:?HTTP_TEST_VOLUME_NAME must be set}
   yasser_domain_caddy_data:
   yasser_domain_caddy_config:
 
