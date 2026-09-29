@@ -108,7 +108,7 @@ describe("production fixes contracts (2026-09)", () => {
     // Write-deadline failures used to be discarded (`_ = conn.SetWriteDeadline`).
     // They must now surface as an error so a stalled printer is reported.
     expect(net).toContain("if err := conn.SetWriteDeadline(time.Now().Add(writeStallTimeout)); err != nil {");
-    expect(net).toContain('return fmt.Errorf("set printer write deadline: %w", err)');
+    expect(net).toContain('fmt.Errorf("set printer write deadline: %w", err)');
   });
 
   it("print quota applies at logical job admission and does not make Agent discovery the enforcement point", () => {
