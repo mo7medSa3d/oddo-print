@@ -100,7 +100,9 @@ export async function POST(req: Request) {
     // a link that the invitee already received. The invitation remains bounded
     // by its expiry/revocation/acceptance state and can be administratively
     // revoked or replaced later.
-    console.error("team invitation email delivery ambiguous", error instanceof Error ? error.message : "unknown");
+    logError("team.invitation_email_delivery_ambiguous", {
+      error: error instanceof Error ? error.message : "unknown",
+    });
     return NextResponse.json({ error: "Invitation delivery is temporarily unavailable" }, { status: 503 });
   }
   return NextResponse.json({ ok: true, id });

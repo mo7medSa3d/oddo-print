@@ -328,3 +328,17 @@ describe("2026-09-24 remediation contracts", () => {
     expect(read("scripts/db-generate.ts")).toContain("Refusing to run drizzle-kit generate");
   });
 });
+
+describe("production fixes — authentication and observability", () => {
+  it("does not silently truncate workspace memberships in tenant selection", () => {
+    const source = read("src/lib/customer-auth.ts");
+    expect(source).not.toContain(".limit(50)");
+    expect(source).toContain("Do not silently truncate workspace memberships");
+  });
+
+  it("does not claim unmeasured Windows service diagnostics as observed", () => {
+    const source = read("src/app/api/agents/service-status/route.ts");
+    expect(source).toContain("failureCount: null");
+    expect(source).toContain("exitCode: null");
+  });
+});
