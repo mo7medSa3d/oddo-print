@@ -8,6 +8,7 @@ import { nanoid } from "../../../../../../../lib/nanoid";
 import { validateConnectionConfig } from "../../../../../../../lib/printer-model";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../../../../../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../../../../../../../lib/tenant-guard";
+import { logError } from "../../../../../../../lib/log";
 
 export const dynamic = "force-dynamic";
 
@@ -169,6 +170,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (isTenantBillingError(error)) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
     }
+    logError("agent.provision.failed", { deviceId, error: error instanceof Error ? error.message : String(error) });
     throw error;
   }
 

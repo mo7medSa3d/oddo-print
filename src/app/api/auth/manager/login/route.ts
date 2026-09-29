@@ -10,6 +10,7 @@ import {
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
 import { logWarn, logInfo, logError, requestIdFrom } from "../../../../../lib/log";
 import { writeAuditEvent } from "../../../../../lib/audit";
+import { runtimeSecret } from "../../../../../lib/runtime-secret";
 
 const INVALID = "Invalid credentials";
 
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
   }
 
   const expectedUser = getManagerUsername();
-  const legacyTenantId = (process.env.MANAGER_TENANT_ID ?? "").trim();
+  const legacyTenantId = (runtimeSecret("MANAGER_TENANT_ID") ?? "").trim();
   const desktopClient = isTrustedDesktopRequest(req);
   const ip = clientIpFrom(req);
 

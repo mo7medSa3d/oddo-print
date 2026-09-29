@@ -81,5 +81,7 @@ export function getEffectivePrinterStatus(
   const rawStatus = (printer.status ?? "").toLowerCase().trim();
   if (rawStatus === "online") return "online";
   if (rawStatus === "offline") return "offline";
-  return rawStatus ? (rawStatus as "unknown") : "unknown";
+  if (rawStatus === "busy") return "offline";
+  if (rawStatus === "error") return "offline";
+  return "unknown";
 }

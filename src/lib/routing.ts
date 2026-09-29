@@ -41,7 +41,7 @@ export function validatePayloadForPrinter(
     printerType?: string | null;
   },
 ): CapabilityCheckResult {
-  if (!payloadInput) return { ok: true };
+  if (!payloadInput) return { ok: false, reason: "CAPABILITY_MISMATCH: payload is required" };
   const pt = (payloadInput.type ?? "").toLowerCase();
   const payloadProto = payloadInput.protocol ? payloadInput.protocol.toLowerCase() : null;
   const proto = (printer.protocol ?? "").toLowerCase();

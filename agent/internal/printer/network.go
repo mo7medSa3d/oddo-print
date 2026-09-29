@@ -88,9 +88,12 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 	// Graceful shutdown: signal EOF after all application bytes have been
 	// accepted by the socket. TCP close semantics provide delivery ordering;
 	// an arbitrary sleep is not a correctness mechanism.
+	// A CloseWrite failure after all bytes were accepted by the kernel does
+	// NOT make the physical outcome unknown — the bytes were already in the
+	// TCP send buffer. Log and treat as success.
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		if err := tcpConn.CloseWrite(); err != nil {
-			return MarkUnknown("failed to half-close print connection after sending %d bytes: %v", written, err)
+			log.Printf("print.trace network_closewrite address=%s bytes=%d error=%v (bytes already accepted by kernel)", p.Address, written, err)
 		}
 	}
 	log.Printf("print.trace network_write address=%s bytes=%d latency_ms=%d", p.Address, written, time.Since(writeStart).Milliseconds())

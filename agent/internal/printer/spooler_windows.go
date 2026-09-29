@@ -291,6 +291,9 @@ func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNo
 
 		var bytesWritten uint32
 		chunk := data[written:]
+		if len(chunk) > networkWriteChunkSize {
+			chunk = chunk[:networkWriteChunkSize]
+		}
 		r, writeErr := sys.writePrinter(hPrinter, unsafe.Pointer(&chunk[0]), len(chunk), &bytesWritten)
 		if r == 0 {
 			totalWritten := written + bytesWritten

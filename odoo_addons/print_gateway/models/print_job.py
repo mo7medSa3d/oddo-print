@@ -1360,15 +1360,17 @@ class PrintGatewayJob(models.Model):
 
                         # Deterministic client-side rejections (invalid
                         # payload semantics, capability mismatch, idempotency
-                        # conflict, forbidden document type) will never
-                        # succeed on retry. Terminalize immediately with the
-                        # Gateway's (safe, typed) reason instead of burning
-                        # the exponential-backoff budget.
-                        if response.status_code in (400, 403, 404, 409, 422):
+                        # conflict, forbidden document type, invalid
+                        # credentials) will never succeed on retry. Terminalize
+                        # immediately with the Gateway's (safe, typed) reason
+                        # instead of burning the exponential-backoff budget.
+                        if response.status_code in (400, 401, 403, 404, 409, 422):
                             try:
-                                reason = str(response.json().get("error") or "")[:2000] or "GATEWAY_REJECTED"
-                            except ValueError:
-                                reason = "GATEWAY_HTTP_%s" % response.status_code
+                                reject_body = response.json()
+                            except (ValueError, TypeError):
+                                reject_body = {}
+                            reason = str(reject_body.get("error") or "")[:2000] or "GATEWAY_REJECTED"
+                            reject_code = str(reject_body.get("code") or "").strip()
                             terminal_error = "GATEWAY_REJECTED_%s: %s" % (response.status_code, reason)
                             values = {
                                 "status": "failed",
@@ -1380,6 +1382,14 @@ class PrintGatewayJob(models.Model):
                             persist_submit_state(values)
                             _logger.warning("Gateway rejected job %s deterministically (%s): %s", job.idempotency_key[:8], response.status_code, reason[:300])
                             if raise_on_failure:
+                                if reject_code == "AGENT_UNAVAILABLE":
+                                    raise ValidationError(
+                                        _("The printing service agent is unavailable. The receipt was not sent.")
+                                    )
+                                if reject_code in ("PRINTER_UNAVAILABLE", "PRINTER_OFFLINE"):
+                                    raise ValidationError(
+                                        _("Printer '%s' is offline or unavailable (%s). The receipt was not sent.") % (job.printer_id, reject_code)
+                                    )
                                 raise ValidationError(_("The Gateway rejected this print job: %s") % reason[:500])
                             break
                         # Deterministic printer/agent-state rejections: the

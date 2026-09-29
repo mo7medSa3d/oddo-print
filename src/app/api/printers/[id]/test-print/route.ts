@@ -11,6 +11,7 @@ import { buildTestPrintPayloadForPrinter } from "../../../../../lib/payload";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../../lib/job-delivery";
 import { logError } from "../../../../../lib/log";
 import { databaseNowMs } from "../../../../../lib/database-clock";
+import { getAgentAvailability } from "../../../../../lib/agent-availability";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, tenantId)) });
   if (!agent) return NextResponse.json({ error: "Printer owner agent missing", code: "AGENT_NOT_FOUND" }, { status: 404 });
   if (printer.lifecycle !== "active") return NextResponse.json({ error: "printer disabled" }, { status: 409 });
+  // A test print to a printer whose agent is offline will create a queued job
+  // that sits until the agent reconnects. Fail fast with an explicit reason
+  // instead of stranding the user with a silently-queued test.
+  const availability = getAgentAvailability(agent);
+  if (!availability.available) {
+    return NextResponse.json({
+      error: "Agent is offline — test print will be queued until the agent reconnects",
+      code: "AGENT_OFFLINE",
+      retryable: true,
+    }, { status: 503 });
+  }
 
   let payload: ReturnType<typeof buildTestPrintPayloadForPrinter>;
   try {

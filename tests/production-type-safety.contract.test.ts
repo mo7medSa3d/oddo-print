@@ -53,7 +53,7 @@ describe("production TypeScript safety contracts", () => {
 
   it("does not let an invalid customer cookie shadow a valid manager workspace session", () => {
     const source = readFileSync(resolve(process.cwd(), "src/lib/manager-auth.ts"), "utf8");
-    expect(source).toContain("const managerClaims = await verifyWorkspaceToken(managerToken);");
+    expect(source).toContain("const managerClaims = await verifyManagerToken(managerToken);");
     expect(source).toContain("if (managerClaims) return managerClaims;");
     expect(source).toContain("return customerToken ? verifyWorkspaceToken(customerToken) : null;");
     expect(source).not.toContain("const token = customerToken ?? managerToken;");

@@ -95,11 +95,21 @@ func StableIDFromSpooler(spoolerName string) string {
 }
 
 // StableIDFromUSB derives a deterministic ID from USB identifiers.
-// Priority: serial > location > VID:PID.
+// Priority: serial > device instance ID > location > VID:PID.
+// The device instance ID is a Windows-assigned unique identifier for each
+// physical device instance, so two identical USB printers without serial
+// numbers get distinct identities.
 func StableIDFromUSB(vid, pid, serial, location string) string {
+	return StableIDFromUSBFull(vid, pid, serial, location, "")
+}
+
+// StableIDFromUSBFull is StableIDFromUSB with an explicit device instance ID.
+func StableIDFromUSBFull(vid, pid, serial, location, instanceID string) string {
 	var key string
 	if serial != "" && usableIdentityValue(serial) {
 		key = fmt.Sprintf("usb-sn:%s", normalizeIdentityValue(serial))
+	} else if instanceID != "" {
+		key = fmt.Sprintf("usb-inst:%s", strings.ToLower(strings.TrimSpace(instanceID)))
 	} else if location != "" {
 		key = fmt.Sprintf("usb-loc:%s", strings.ToLower(strings.TrimSpace(location)))
 	} else {

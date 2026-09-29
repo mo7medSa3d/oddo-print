@@ -1304,7 +1304,7 @@ export default function DashboardClient({
         </div>
       </Card>
 
-      <Drawer open={selectedJob !== null} onClose={() => setSelectedJob(null)} title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : "Job Details"} description="Delivery details">
+      <Modal open={selectedJob !== null} onClose={() => setSelectedJob(null)} title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : "Job Details"} description="Delivery details" wide>
         {selectedJob && (() => {
           const outcome = deriveOutcome(selectedJob.status, selectedJob.error);
           const isTerminal = ["success", "failed", "expired"].includes(selectedJob.status.toLowerCase());
@@ -1372,7 +1372,7 @@ export default function DashboardClient({
             </div>
           );
         })()}
-      </Drawer>
+      </Modal>
 
       <Drawer
         open={certifyPrinter !== null}

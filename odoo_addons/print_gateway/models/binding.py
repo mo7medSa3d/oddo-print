@@ -552,7 +552,7 @@ class PrintGatewayBinding(models.Model):
         # spooler/escpos). Direct stream protocols (raw) remain excluded.
         if payload_type == "pdf" and binding.printer_protocol not in ("spooler", "ipp", "ipps"):
             raise ValidationError(_("The explicitly selected print binding is not capable of document printing."))
-        if payload_type == "raster_jpeg" and binding.printer_protocol not in ("spooler", "ipp", "ipps", "escpos"):
+        if payload_type == "raster_jpeg" and binding.printer_protocol not in ("spooler", "escpos"):
             raise ValidationError(_("The explicitly selected print binding is not capable of document printing."))
         return binding
 

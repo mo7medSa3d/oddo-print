@@ -6,6 +6,7 @@ import { requireManagerPermission } from "../../../../../lib/authorization";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { nanoid } from "../../../../../lib/nanoid";
 import { validateDiscoveryRequest } from "../../../../../lib/discovery";
+import { logError } from "../../../../../lib/log";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +79,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if ((error as { code?: string })?.code === "23505") {
       return NextResponse.json({ error: "Discovery already running for this agent" }, { status: 409 });
     }
+    logError("agent.discovery.failed", { agentId, error: error instanceof Error ? error.message : String(error) });
     throw error;
   }
   return NextResponse.json({ discoveryId, agentId, status: "running" }, { status: 201 });

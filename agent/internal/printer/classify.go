@@ -163,7 +163,7 @@ func mapWindowsStatus(status uint32, attributes uint32) string {
 		return "busy"
 	}
 	if status&PRINTER_STATUS_PAUSED != 0 {
-		return "offline"
+		return "busy"
 	}
 	if status&PRINTER_STATUS_INITIALIZING != 0 || status&PRINTER_STATUS_WARMING_UP != 0 {
 		return "busy"
