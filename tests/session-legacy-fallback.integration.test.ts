@@ -50,8 +50,8 @@ suite("legacy authentication fallback", () => {
     const nowSec = Number(row.now_sec);
     const jti = "legacy_mgr_" + randomBytes(8).toString("hex");
     await pool().query(
-      "INSERT INTO manager_sessions (jti, tenant_id, user_id, role, expires_at) VALUES ($1, $2, $3, $4, clock_timestamp() + interval '8 hours')",
-      [jti, "tenant_legacy_test", "user_legacy_test", "admin"],
+      "INSERT INTO manager_sessions (jti, tenant_id, user_id, role, expires_at) VALUES ($1, $2, $3, $4, to_timestamp($5))",
+      [jti, "tenant_legacy_test", "user_legacy_test", "admin", nowSec + LEGACY_SESSION_MAX_AGE_SECONDS],
     );
     const token = legacyJwt({
       jti,
