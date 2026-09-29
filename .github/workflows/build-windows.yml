@@ -88,13 +88,13 @@ jobs:
         run: |
           go test -mod=readonly ./... -race
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Tauri Phase 0 - cargo audit
+      - name: Tauri Phase 0 - cargo audit --target-os windows --target-arch x86_64
         working-directory: src-tauri
         shell: pwsh
         run: |
           cargo install cargo-audit --version 0.22.2 --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo audit
+          cargo audit --target-os windows --target-arch x86_64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build Go Agent resources for Tauri
         working-directory: agent

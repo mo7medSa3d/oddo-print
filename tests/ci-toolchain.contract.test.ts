@@ -66,6 +66,15 @@ describe("CI/runtime alignment", () => {
     expect(docker).not.toContain("GATEWAY_DOMAIN: print.example.com");
   });
 
+  it("keeps Rust supply-chain audit scoped to the Windows production target", () => {
+    for (const workflow of workflows()) {
+      if (/cargo audit/.test(workflow)) {
+        expect(workflow).toContain("cargo audit --target-os windows --target-arch x86_64");
+        expect(workflow).not.toMatch(/cargo audit(?! --target-os windows --target-arch x86_64)/);
+      }
+    }
+  });
+
   it("keeps Caddy's forwarded-header security contract warning-free", () => {
     const caddy = readFileSync(path.join(root, "Caddyfile"), "utf8");
     expect(caddy).not.toContain("header_up X-Forwarded-For");
