@@ -36,6 +36,15 @@ jobs:
         working-directory: agent
         run: go test -mod=readonly ./internal/config -run 'TestConfigValidateAcceptsHTTPAndHTTPSOnStaging|TestConfigValidateAcceptsHTTPSByDefault' -count=1
 
+      - name: Validate HTTPS domain staging contract
+        run: |
+          set -euo pipefail
+          bash -n deploy/domain-test/setup-domain-test.sh
+          bash -n deploy/domain-test/smoke-domain-test.sh
+          npm exec vitest run --config vitest.unit.config.mts tests/domain-staging-deployment.contract.test.ts
+          cp deploy/domain-test/.env.domain-test.example /tmp/yasser-domain-test.env
+          docker compose --env-file /tmp/yasser-domain-test.env -f deploy/domain-test/docker-compose.yml config -q
+
       - name: Start isolated HTTP Gateway
         env:
           SERVER_PUBLIC_IP: 127.0.0.1
