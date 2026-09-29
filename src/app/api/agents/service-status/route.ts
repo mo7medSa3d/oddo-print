@@ -47,7 +47,9 @@ export async function GET(req: Request) {
       lastRestart: null,
       // Failure history is not measured by this sandbox endpoint.
       failureCount: null,
-      exitCode: 0,
+      // The sandbox cannot observe an SCM process exit code either; null keeps
+      // this blocked diagnostic honest instead of presenting a synthetic success code.
+      exitCode: null,
       uptimeSeconds: null,
       blocked: true,
       blockedReason: "BLOCKED: Windows Service Control Manager query requires Windows host with sc.exe and service installed. In sandbox, code is hardened (system32_exe validation, run_bounded_command budget, background PID meta creation_time+image) but runtime not proven. See docs/WINDOWS_SERVICE_RECOVERY.md for kill→restart→reconnect test procedure.",
