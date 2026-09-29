@@ -79,38 +79,10 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 		}
 	}
 
-	written := 0
 	writeStart := time.Now()
-	for written < len(data) {
-		select {
-		case <-ctx.Done():
-			if written > 0 {
-				return MarkUnknown("print cancelled after %d/%d bytes: %v", written, len(data), ctx.Err())
-			}
-			return fmt.Errorf("print cancelled after %d/%d bytes: %w", written, len(data), ctx.Err())
-		default:
-		}
-		chunk := data[written:]
-		if len(chunk) > networkWriteChunkSize {
-			chunk = chunk[:networkWriteChunkSize]
-		}
-		if err := conn.SetWriteDeadline(time.Now().Add(writeStallTimeout)); err != nil {
-			return fmt.Errorf("set printer write deadline: %w", err)
-		}
-		n, err := conn.Write(chunk)
-		written += n
-		if err != nil {
-			if written > 0 {
-				return MarkUnknown("write %d/%d to %s: %v", written, len(data), p.Address, err)
-			}
-			return fmt.Errorf("write %d/%d to %s: %w", written, len(data), p.Address, err)
-		}
-		if n == 0 {
-			if written > 0 {
-				return MarkUnknown("short write 0 bytes after %d/%d to %s", written, len(data), p.Address)
-			}
-			return fmt.Errorf("short write 0 bytes to %s", p.Address)
-		}
+	written, err := writePrintPayload(ctx, conn, data, p.Address)
+	if err != nil {
+		return err
 	}
 
 	// Graceful shutdown: signal EOF after all application bytes have been
@@ -123,7 +95,7 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 	}
 	log.Printf("print.trace network_write address=%s bytes=%d latency_ms=%d", p.Address, written, time.Since(writeStart).Milliseconds())
 
-	return nil
+	return nil	return nil
 }
 
 // SupportsKind exposes the render paths this byte-stream backend can produce.
@@ -145,6 +117,42 @@ func (p *NetworkPrinter) SupportsKind(kind string) bool {
 			return false
 		}
 	}
+}
+
+func writePrintPayload(ctx context.Context, conn net.Conn, data []byte, address string) (int, error) {
+	written := 0
+	for written < len(data) {
+		select {
+		case <-ctx.Done():
+			if written > 0 {
+				return written, MarkUnknown("print cancelled after %d/%d bytes: %v", written, len(data), ctx.Err())
+			}
+			return written, fmt.Errorf("print cancelled after %d/%d bytes: %w", written, len(data), ctx.Err())
+		default:
+		}
+		chunk := data[written:]
+		if len(chunk) > networkWriteChunkSize {
+			chunk = chunk[:networkWriteChunkSize]
+		}
+		if err := conn.SetWriteDeadline(time.Now().Add(writeStallTimeout)); err != nil {
+			return written, fmt.Errorf("set printer write deadline: %w", err)
+		}
+		n, err := conn.Write(chunk)
+		written += n
+		if err != nil {
+			if written > 0 {
+				return written, MarkUnknown("write %d/%d to %s: %v", written, len(data), address, err)
+			}
+			return written, fmt.Errorf("write %d/%d to %s: %w", written, len(data), address, err)
+		}
+		if n == 0 {
+			if written > 0 {
+				return written, MarkUnknown("short write 0 bytes after %d/%d to %s", written, len(data), address)
+			}
+			return written, fmt.Errorf("short write 0 bytes to %s", address)
+		}
+	}
+	return written, nil
 }
 
 func (p *NetworkPrinter) PrintDocument(ctx context.Context, doc Document) error {

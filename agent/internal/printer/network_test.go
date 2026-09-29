@@ -139,72 +139,50 @@ func TestNetworkPrinterDialFailure(t *testing.T) {
 }
 
 func TestNetworkPrinterPartialDelivery(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer ln.Close()
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
 
-	// The server intentionally constrains its receive buffer and keeps the
-	// connection open long enough for the client to hit backpressure. Once the
-	// first bytes arrive, it sends a TCP RST. This makes the client-side write
-	// failure deterministic instead of depending on a race between Write and
-	// remote close propagation.
-	ready := make(chan struct{})
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-
-		if tcpConn, ok := conn.(*net.TCPConn); ok {
-			_ = tcpConn.SetReadBuffer(1024)
-		}
-		close(ready)
-
-		buf := make([]byte, 10)
-		_, _ = io.ReadFull(conn, buf)
-
-		if tcpConn, ok := conn.(*net.TCPConn); ok {
-			_ = tcpConn.SetLinger(0)
-		}
-		_ = conn.Close()
-	}()
-
-	p := &NetworkPrinter{Address: ln.Addr().String()}
-
-	// Start the write first so the server goroutine can Accept() and install
-	// its constrained receive window. Waiting for ready before Print() would
-	// deadlock because ready is closed only after Accept() succeeds.
-	// Large payload guarantees the sender cannot buffer the complete stream
-	// before the peer resets the connection.
-	largeData := make([]byte, 4*1024*1024)
-	for i := range largeData {
-		largeData[i] = 'A'
+	conn := &partialWriteConn{
+		Conn:      client,
+		firstSize: 10,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	data := make([]byte, 2*networkWriteChunkSize+1)
+	for i := range data {
+		data[i] = 'A'
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	printErr := make(chan error, 1)
-	go func() {
-		printErr <- p.Print(ctx, largeData)
-	}()
-
-	select {
-	case <-ready:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for test server")
-	}
-
-	err = <-printErr
+	written, err := writePrintPayload(ctx, conn, data, "127.0.0.1:9100")
 	if err == nil {
 		t.Fatal("expected error on severed connection")
+	}
+	if written != 10 {
+		t.Fatalf("expected 10 bytes written before failure, got %d", written)
 	}
 	if !strings.Contains(err.Error(), "UNKNOWN_PARTIAL_DELIVERY") {
 		t.Fatalf("expected UNKNOWN_PARTIAL_DELIVERY error marker, got: %v", err)
 	}
+}
+
+type partialWriteConn struct {
+	net.Conn
+	firstSize int
+	written   bool
+}
+
+func (c *partialWriteConn) Write(p []byte) (int, error) {
+	if c.written {
+		return 0, errors.New("connection reset by peer")
+	}
+	c.written = true
+	if len(p) < c.firstSize {
+		return len(p), nil
+	}
+	return c.firstSize, nil
 }
 
 func TestNetworkPrinterPreFlightCheckScenarios(t *testing.T) {
