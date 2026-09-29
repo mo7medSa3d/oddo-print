@@ -122,6 +122,7 @@ export async function POST(req: Request) {
   const response = NextResponse.json({ ok: true, next: "/onboarding" });
   response.headers.set("Set-Cookie", customerSessionCookie(session));
   response.headers.append("Set-Cookie", customerRefreshCookie(session));
+  response.headers.set("Cache-Control", "no-store");
   await recordAuthSuccess(ip, "verify-email-token").catch((error) => logWarn("auth.verify_email.rate_limit_clear_failed", { ip, error: error instanceof Error ? error.message : "unknown" }));
   return setRateLimitHeaders(response, rate);
 }
