@@ -226,8 +226,11 @@ describe("Odoo addon static contracts", () => {
     const binding = read("models/binding.py");
     expect(binding).not.toContain("def _ensure_branch_agent_assignment(self):");
     expect(binding).not.toContain("records._ensure_branch_agent_assignment()");
-    expect(binding).toContain("def create(self, vals_list):");
-    expect(binding).toContain("return super().create(vals_list)");
+    // 7b0fc61e deliberately removed the pass-through create/write/unlink
+    // overrides (they are inherited from base now); the invariant is that
+    // no override recreates assignment side-effects.
+    expect(binding).not.toContain("_ensure_branch_agent_assignment");
+    expect(binding).toContain("no overrides needed");
   });
 
   it("keeps the Odoo migration tree unambiguous, ordered, and covered by the manifest version", () => {
@@ -301,9 +304,12 @@ describe("Odoo addon static contracts", () => {
 
   it("keeps Odoo raster failover in parity with the Gateway image capability contract", () => {
     const jobs = read("models/print_job.py");
-    const rasterFailover = jobs.match(/elif job\.payload_type == "raster_jpeg":\s*\n\s*protocol_compatible = fallback_proto in \(([^)]+)\)/);
-    expect(rasterFailover).toBeTruthy();
-    const failoverProtos = (rasterFailover as RegExpMatchArray)[1];
+    const branchIdx = jobs.indexOf('elif job.payload_type == "raster_jpeg":');
+    expect(branchIdx).toBeGreaterThan(-1);
+    const branchWindow = jobs.slice(branchIdx, branchIdx + 600);
+    const failoverMatch = branchWindow.match(/protocol_compatible = fallback_proto in \(([^)]+)\)/);
+    expect(failoverMatch).toBeTruthy();
+    const failoverProtos = (failoverMatch as RegExpMatchArray)[1];
     expect(failoverProtos).toContain('"spooler"');
     expect(failoverProtos).toContain('"escpos"');
     expect(failoverProtos).not.toContain("ipp");

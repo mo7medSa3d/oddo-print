@@ -11,6 +11,26 @@ import { agentStaleThresholdSeconds } from "../lib/stale-threshold";
 
 export type Tone = "ok" | "bad" | "warn" | "info" | "neutral";
 
+/**
+ * Client-safe timestamp normalization. This module ships in browser/desktop
+ * bundles, so it cannot import parseDbTimeMs from lib/database-clock (which
+ * pulls in the pg chain). The naive-string branch mirrors it exactly:
+ * node-postgres raw rows emit naive "YYYY-MM-DD HH:MM:SS" in UTC, and
+ * new Date(str) would parse those as host-local time.
+ */
+export function parseSharedTimeMs(value: Date | string | null | undefined): number | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value.getTime();
+  const text = value.trim();
+  if (!text) return null;
+  let iso = text.replace(" ", "T");
+  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
+    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
+  }
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 export const UNKNOWN_OUTCOME_MARKERS = [
   "AGENT_EXECUTION_TIMEOUT",
   "AGENT_RESTART_DURING_PRINT",
@@ -19,16 +39,18 @@ export const UNKNOWN_OUTCOME_MARKERS = [
   "UNKNOWN_SUBMISSION_OUTCOME",
 ] as const;
 
-export type PhysicalOutcome = "printed" | "not_printed" | "unknown" | "unproven";
+export type PhysicalOutcome = "printed" | "not_printed" | "unknown";
 
-/** Client-side mirror of derivePhysicalOutcome. */
+/** Client-side mirror of derivePhysicalOutcome (src/lib/job-status.ts).
+ * In-flight rows (claimed/printing) are "not_printed": no paper evidence
+ * exists yet. The job STATUS already conveys in-flight; the outcome must not
+ * invent a fourth state the server never emits. */
 export function deriveOutcome(status: string, error?: string | null): PhysicalOutcome {
   // Successful transport/execution is not proof of physical paper output.
   // Keep the physical result unverified until a real hardware proof exists.
   if (status === "success") return "unknown";
   const msg = error ?? "";
   if (UNKNOWN_OUTCOME_MARKERS.some((marker) => msg.startsWith(marker))) return "unknown";
-  if (status === "claimed" || status === "printing") return "unproven";
   return "not_printed";
 }
 
@@ -135,8 +157,8 @@ export function agentLiveView(agent: { status?: string | null; lastSeenAt?: Date
   if (agent.lifecycle && agent.lifecycle !== "active") {
     return { tone: "neutral", label: agent.lifecycle === "retired" ? "Retired" : "Disabled" };
   }
-  const seen = agent.lastSeenAt ? new Date(agent.lastSeenAt).getTime() : 0;
-  const ageMs = Number.isFinite(seen) ? nowMs - seen : Number.POSITIVE_INFINITY;
+  const seen = agent.lastSeenAt ? parseSharedTimeMs(agent.lastSeenAt) : null;
+  const ageMs = seen === null ? Number.POSITIVE_INFINITY : nowMs - seen;
   const fresh = ageMs >= 0 && ageMs <= agentStaleThresholdSeconds() * 1000;
   if (agent.status === "online" && !fresh) {
     return { tone: "bad", label: "Offline — heartbeat lost" };

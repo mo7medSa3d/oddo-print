@@ -24,7 +24,11 @@ describe("print-certification", () => {
     expect(source).toContain("The printable payload MUST be deterministic for one idempotency key");
     expect(source).not.toContain("${requestId}\nTime: ${new Date().toISOString()}");
     expect(source).not.toContain("Buffer.from(`CERTIFICATION ${idempotencyKey} ${requestId}`)");
-    expect(source).toContain("Buffer.from(`CERTIFICATION ${idempotencyKey}`)");
+    // Byte transports use a deterministic raw ticket; document transports
+    // (spooler/ipp) use a deterministic PDF (a raw ticket would 422 there).
+    // Neither may embed requestId or wall-clock time.
+    expect(source).toContain("CERTIFICATION ${idempotencyKey}");
+    expect(source).toContain("buildDeterministicCertificationPdf");
   });
 
   it("certification has real idempotency key handling", () => {

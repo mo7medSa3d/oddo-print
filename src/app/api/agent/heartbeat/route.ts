@@ -21,8 +21,10 @@ const KNOWN_CAPABILITY_TOKENS = new Set([
   "image",
   "jpeg",
   "spooler",
+  "windows_spooler",
   "ipp",
   "ipps",
+  "unknown",
 ]);
 const VALID_AGENT_STATUSES = new Set(["online", "offline"]);
 

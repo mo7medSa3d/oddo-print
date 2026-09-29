@@ -47,8 +47,9 @@ This runs `scripts/db-migrate.ts` which applies all pending migrations from `dri
 | 0072 | 1 | Tenant-scoped printer identity and discovered devices |
 | 0073 | 1 | Refresh tokens table for auth session management |
 | 0074 | 1 | Token-table delete cascades and drop of the dead applications table |
+| 0075 | 1 | Discovery state-machine CHECKs and drop of the redundant device-identity index |
 
-**Total**: 75 migrations (0000–0074)
+**Total**: 76 migrations (0000–0075)
 
 ## Migration Policy
 

@@ -408,10 +408,16 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 	registryPath := config.RegistryPath(configPath)
 
 	a := &Agent{
-		cfg:               cfg,
-		configPath:        configPath,
-		registryPath:      registryPath,
-		client:            &http.Client{Timeout: 15 * time.Second},
+		cfg:          cfg,
+		configPath:   configPath,
+		registryPath: registryPath,
+		// Never follow redirects with the credential-bearing client: a 3xx
+		// from the gateway/proxy would otherwise forward
+		// `Authorization: Bearer id:secret` to the redirect target.
+		// Callers treat 3xx as an error and surface it.
+		client: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}},
 		printers:          make(map[string]printer.Printer),
 		printerConfigs:    make(map[string]config.PrinterConfig),
 		registryOwned:     make(map[string]struct{}),
@@ -2713,15 +2719,12 @@ func (a *Agent) doAuthorizedRequest(ctx context.Context, method, url string, bod
 		return nil, err
 	}
 
-	// Drain and close the response body to enable connection reuse.
-	// Callers that need the body will read it before it is closed here;
-	// this is a safety net for paths that forget to close.
-	if resp.Body != nil {
-		go func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
-			_ = resp.Body.Close()
-		}()
-	}
+	// Callers own resp.Body: they read it and close it (usually via
+	// defer resp.Body.Close()). A previous version drained+closed the body
+	// here in a background goroutine while callers were still reading it,
+	// which raced (read on closed body, truncated heartbeat/job payloads).
+	// Do NOT touch resp.Body here; connection reuse is handled by callers
+	// closing the body after a full read.
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		log.Printf("CRITICAL: Agent %s unauthorized by server. Credentials may have been revoked; re-pair this agent.", a.cfg.Agent.ID)

@@ -74,7 +74,10 @@ describe("production fixes contracts (2026-09)", () => {
     expect(jobs).toContain("AGENT_REQUEUE_REASONS");
     expect(jobs).toContain("pre-execution rejection reason");
     // The claim token gate makes the rejection unforgeable by a superseded attempt.
-    expect(jobs).toContain("STALE_CLAIM");
+    // The stale-claim lease follows agentStaleThresholdSeconds() (shared with
+    // the presence/claim gates); STALE_CLAIM_SECONDS remains only as the
+    // default in job-maintenance.ts.
+    expect(jobs).toMatch(/STALE_CLAIM|agentStaleThresholdSeconds/);
     const status = read("src/lib/job-status.ts");
     expect(status).toMatch(/AGENT_REQUEUE_REASONS\s*=\s*\[\s*"pending_full",\s*"printer_pending_full",\s*"printer_not_at_desired_state",\s*"agent_shutting_down",\s*"ledger_unavailable",\s*\]\s*as const/);
     const normalizedJobs = jobs.replace(/\s+/g, " ");

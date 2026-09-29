@@ -510,12 +510,14 @@ export function refreshCookieHeader(kind: SessionKind, token: string, expiresAt:
 
 export function clearAccessCookieHeader(kind: SessionKind): string {
   const config = configFor(kind);
-  return `${config.accessCookieName}=; Path=/; HttpOnly; SameSite=Lax; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0`;
+  const secure = sessionCookieSecure() ? "; Secure" : "";
+  return `${config.accessCookieName}=; Path=/; HttpOnly; SameSite=Lax${secure}; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0`;
 }
 
 export function clearRefreshCookieHeader(kind: SessionKind): string {
   const config = configFor(kind);
-  return `${config.refreshCookieName}=; Path=${config.refreshCookiePath}; HttpOnly; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0`;
+  const secure = sessionCookieSecure() ? "; Secure" : "";
+  return `${config.refreshCookieName}=; Path=${config.refreshCookiePath}; HttpOnly; SameSite=Strict${secure}; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0`;
 }
 
 export async function rotateRefreshToken(

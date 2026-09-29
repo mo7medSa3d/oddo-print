@@ -17,7 +17,7 @@
 import { db, queryWithTimeout } from "../db/client";
 import { agents, printers } from "../db/schema";
 import { eq, and } from "drizzle-orm";
-import { gatewayNow } from "./database-clock";
+import { gatewayNow, parseDbTimeMs } from "./database-clock";
 import { printerStaleThresholdSeconds } from "./stale-threshold";
 import { getSupportedDocumentTypes, type ProtocolType, type TransportType } from "./printer-capability";
 
@@ -71,9 +71,11 @@ export interface PrinterCapabilityMatrix {
 // printerStaleThresholdSeconds() so enforcement and display cannot diverge.
 
 
-function isFresh(lastSeenAt?: Date | null, now = gatewayNow()): { fresh: boolean; ageMs?: number } {
+function isFresh(lastSeenAt?: Date | string | null, now = gatewayNow()): { fresh: boolean; ageMs?: number } {
   if (!lastSeenAt) return { fresh: false };
-  const ageMs = now.getTime() - new Date(lastSeenAt).getTime();
+  // parseDbTimeMs: naive DB strings are UTC; new Date(str) is host-local.
+  const seenMs = parseDbTimeMs(lastSeenAt);
+  const ageMs = seenMs === null ? Number.POSITIVE_INFINITY : now.getTime() - seenMs;
   // Future-dated observations are clock-invalid and must never be treated as
   // fresh. Execution gates use the same rule, so health and delivery converge.
   return { fresh: ageMs >= 0 && ageMs <= printerStaleThresholdSeconds() * 1000, ageMs };

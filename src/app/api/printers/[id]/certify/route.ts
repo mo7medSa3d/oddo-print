@@ -12,8 +12,11 @@ import { getPrinterCapabilityMatrix } from "../../../../../lib/printer-health";
 import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError, PrintJobCapabilityError, PrintJobInputError } from "../../../../../lib/print-job-service";
 import { TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../../../../../lib/entitlements";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../../lib/job-delivery";
-import { databaseNowMs } from "../../../../../lib/database-clock";
+import { databaseNowMs, parseDbTimeMs } from "../../../../../lib/database-clock";
 import { agentStaleThresholdSeconds } from "../../../../../lib/agent-availability";
+import { hasBodyOverLimit } from "../../../../../lib/request-limits";
+
+const CERTIFY_MAX_BODY_BYTES = 16 * 1024;
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +53,59 @@ type CertificationStep = (typeof CERTIFICATION_STEPS)[number] & {
 type PrintJobRow = InferSelectModel<typeof printJobs>;
 type AgentRow = InferSelectModel<typeof agents>;
 type PrinterRow = InferSelectModel<typeof printers>;
+
+/**
+ * Deterministic minimal PDF ticket for spooler/IPP certification. Unlike
+ * buildTestPdfPayload (which stamps the current time), every byte here derives
+ * from (printer, tenant, idempotencyKey) so a retry after a lost HTTP response
+ * reproduces the identical fingerprint and idempotent reuse holds.
+ */
+function buildDeterministicCertificationPdf(printerName: string, tenantId: string, idempotencyKey: string): string {
+  const escape = (value: string) => value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)").slice(0, 120);
+  const streamContent = [
+    "BT",
+    "/F1 18 Tf",
+    "50 720 Td",
+    "(YASSER TEST PAGE) Tj",
+    "/F1 12 Tf",
+    "0 -30 Td",
+    `(Printer: ${escape(printerName)}) Tj`,
+    "0 -20 Td",
+    `(Tenant: ${escape(tenantId)}) Tj`,
+    "0 -20 Td",
+    `(Job: ${escape(idempotencyKey)}) Tj`,
+    "ET",
+  ].join("\n");
+  const streamLength = Buffer.byteLength(streamContent, "utf-8");
+  const header = "%PDF-1.4\n";
+  const obj1 = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+  const obj2 = "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
+  const obj3 = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n";
+  const obj4 = "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n";
+  const obj5 = `5 0 obj\n<< /Length ${streamLength} >>\nstream\n${streamContent}\nendstream\nendobj\n`;
+  const off1 = Buffer.byteLength(header);
+  const off2 = off1 + Buffer.byteLength(obj1);
+  const off3 = off2 + Buffer.byteLength(obj2);
+  const off4 = off3 + Buffer.byteLength(obj3);
+  const off5 = off4 + Buffer.byteLength(obj4);
+  const startxref = off5 + Buffer.byteLength(obj5);
+  const pad = (n: number) => String(n).padStart(10, "0");
+  return header + obj1 + obj2 + obj3 + obj4 + obj5 + [
+    "xref",
+    "0 6",
+    "0000000000 65535 f ",
+    `${pad(off1)} 00000 n `,
+    `${pad(off2)} 00000 n `,
+    `${pad(off3)} 00000 n `,
+    `${pad(off4)} 00000 n `,
+    `${pad(off5)} 00000 n `,
+    "trailer",
+    "<< /Size 6 /Root 1 0 R >>",
+    "startxref",
+    String(startxref),
+    "%%EOF\n",
+  ].join("\n");
+}
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: printerId } = await params;
@@ -101,8 +157,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     let jobStatus: string = "unknown";
     let isReused = false;
     try {
+      if (hasBodyOverLimit(req, CERTIFY_MAX_BODY_BYTES)) {
+        setStep("queue", "error", "Request body too large", `limit=${CERTIFY_MAX_BODY_BYTES}`);
+        return NextResponse.json({ error: "Request body too large", code: "INVALID_REQUEST", steps }, { status: 413, headers: { "x-request-id": requestId } });
+      }
       let body: Record<string, unknown> = {};
-      try { body = await req.json() as Record<string, unknown>; } catch { /* use empty defaults */ }
+      try {
+        // Only parse when a body was actually sent: an empty POST certifies
+        // with defaults, but malformed JSON must not silently become defaults.
+        const contentLength = req.headers.get("content-length")?.trim() ?? "";
+        const hasBody = contentLength !== "" ? contentLength !== "0" : true;
+        if (hasBody) body = await req.json() as Record<string, unknown>;
+      } catch {
+        setStep("queue", "error", "Malformed JSON body", "invalid-json");
+        return NextResponse.json({ error: "Malformed JSON body", code: "INVALID_REQUEST", steps }, { status: 400, headers: { "x-request-id": requestId } });
+      }
       const testPage = body.testPage !== false;
       const documentType = typeof body.documentType === "string" ? body.documentType : "raw";
       // Idempotency: header preferred, then body, then deterministic fallback per certification session
@@ -122,23 +191,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return NextResponse.json({ error: "invalid Idempotency-Key", code: "INVALID_REQUEST", steps }, { status: 400, headers: { "x-request-id": requestId } });
       }
 
-      // Build payload YASSER TEST PAGE — no secrets, using raw protocol matching printer
+      // Build payload YASSER TEST PAGE in the LANGUAGE THE PRINTER SPEAKS.
       // The printable payload MUST be deterministic for one idempotency key.
       // A retry after a lost HTTP response must produce the same fingerprint so
       // createPrintJobForPrinter can safely reuse the original physical attempt
       // instead of turning a transport ambiguity into an idempotency conflict.
-      const payload = testPage
-        ? {
-            type: "raw" as const,
-            protocol: printer.protocol === "unknown" ? ("raw" as const) : printer.protocol,
-            data: Buffer.from(
-              `YASSER TEST PAGE\nPrinter: ${printer.name}\nTenant: ${tenantId}\nJob: ${idempotencyKey}\nTransport: ${printer.connectionType}/${printer.protocol}\n\nThis is a diagnostic test page for certification.\nNo credentials are printed.\n`.repeat(2)
-            ).toString("base64"),
-          }
+      // Byte transports (raw/escpos/zpl/tspl) get a raw ticket in the declared
+      // protocol; document transports (spooler/ipp/ipps) get a minimal PDF
+      // ticket (a raw ticket would fail capability validation with 422).
+      const declaredProtocol = String(printer.protocol ?? "unknown").toLowerCase().trim();
+      const declaredConn = String(printer.connectionType ?? "").toLowerCase().trim();
+      const isByteProtocol = declaredProtocol === "raw" || declaredProtocol === "escpos"
+        || declaredProtocol === "zpl" || declaredProtocol === "tspl";
+      const isDocumentTransport = declaredConn === "spooler" || declaredConn === "ipp"
+        || declaredConn === "ipps" || (!isByteProtocol && declaredProtocol !== "unknown"
+          && (declaredProtocol === "spooler" || declaredProtocol === "ipp" || declaredProtocol === "ipps"));
+      const ticketText = testPage
+        ? `YASSER TEST PAGE\nPrinter: ${printer.name}\nTenant: ${tenantId}\nJob: ${idempotencyKey}\nTransport: ${printer.connectionType}/${printer.protocol}\n\nThis is a diagnostic test page for certification.\nNo credentials are printed.\n`.repeat(2)
+        : `CERTIFICATION ${idempotencyKey}`;
+      const payload = isDocumentTransport
+        ? { type: "pdf" as const, data: Buffer.from(buildDeterministicCertificationPdf(printer.name, tenantId, idempotencyKey), "utf-8").toString("base64") }
         : {
             type: "raw" as const,
-            protocol: printer.protocol === "unknown" ? ("raw" as const) : printer.protocol,
-            data: Buffer.from(`CERTIFICATION ${idempotencyKey}`).toString("base64"),
+            protocol: (isByteProtocol ? declaredProtocol : "raw") as "raw" | "escpos" | "zpl" | "tspl",
+            data: Buffer.from(ticketText).toString("base64"),
           };
 
       const expiresAt = new Date(certificationNowMs + 5 * 60 * 1000);
@@ -265,7 +341,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       } else if (!agent.lastSeenAt) {
         setStep("agent", "pending", "Agent never seen — waiting for heartbeat", `agentId=${printer.agentId}`);
       } else {
-        const age = certificationNowMs - new Date(agent.lastSeenAt).getTime();
+        // parseDbTimeMs: naive DB strings are UTC; new Date(str) is host-local.
+        const seenMs = parseDbTimeMs(agent.lastSeenAt);
+        const age = seenMs === null ? Number.POSITIVE_INFINITY : certificationNowMs - seenMs;
         if (age <= agentStaleThresholdSeconds() * 1000) {
           setStep("agent", "pending", `Agent online ${Math.round(age/1000)}s ago, waiting to claim`, `agentId=${printer.agentId} lastSeen ${Math.round(age/1000)}s`);
         } else {

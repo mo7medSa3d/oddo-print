@@ -13,7 +13,7 @@ import { db, queryWithTimeout } from "../db/client";
 import { agents, printers, printJobs } from "../db/schema";
 import { eq, and, count, sql } from "drizzle-orm";
 import { logWarn } from "./log";
-import { gatewayNow } from "./database-clock";
+import { gatewayNow, parseDbTimeMs } from "./database-clock";
 import { agentStaleThresholdSeconds } from "./stale-threshold";
 
 export type AgentHealthStatus = "ONLINE" | "DEGRADED" | "OFFLINE" | "STARTING" | "UNKNOWN";
@@ -61,12 +61,14 @@ export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: D
   if (status === "offline" && lastSeenAt) return "OFFLINE";
   if (!lastSeenAt) {
     if (createdAt) {
-      const ageCreated = now.getTime() - new Date(createdAt).getTime();
+      const createdMs = parseDbTimeMs(createdAt);
+      const ageCreated = createdMs === null ? Number.POSITIVE_INFINITY : now.getTime() - createdMs;
       if (ageCreated <= STARTING_THRESHOLD_MS) return "STARTING";
     }
     return "OFFLINE";
   }
-  const age = now.getTime() - new Date(lastSeenAt).getTime();
+  const seenMs = parseDbTimeMs(lastSeenAt);
+  const age = seenMs === null ? Number.POSITIVE_INFINITY : now.getTime() - seenMs;
   // A future lastSeenAt (clock skew or bad write) must never read as
   // ONLINE: the agent is not provably alive. Mirror the availability gate
   // (agent-availability.ts) and printer health, which both reject age < 0.
@@ -129,7 +131,8 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
 
   // Observed: Gateway heartbeat (direct from DB lastSeenAt)
   if (agent.lastSeenAt) {
-    const ageMs = now.getTime() - new Date(agent.lastSeenAt).getTime();
+    const seenMs = parseDbTimeMs(agent.lastSeenAt);
+    const ageMs = seenMs === null ? Number.POSITIVE_INFINITY : now.getTime() - seenMs;
     // A future lastSeenAt (clock skew or bad write) is an untrustworthy
     // observation: never "ok", and worse than merely stale.
     const onlineMs = onlineThresholdMs();

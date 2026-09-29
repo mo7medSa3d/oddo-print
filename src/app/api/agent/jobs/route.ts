@@ -3,10 +3,10 @@ import { printJobs } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { isJobStatus, canTransition, isTerminal, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, AGENT_REPRINT_AFTER_CRASH_REASON, LATE_SUCCESS_POST_EXPIRATION_MARKER, LATE_SUCCESS_ERROR_MARKERS, type JobStatus } from "../../../../lib/job-status";
+import { isJobStatus, canTransition, isTerminal, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, AGENT_REPRINT_AFTER_CRASH_REASON, LATE_SUCCESS_POST_EXPIRATION_MARKER, LATE_SUCCESS_ERROR_MARKERS, LATE_SUCCESS_MAX_AGE_MS, EXPIRED_LATE_SUCCESS_GRACE_MS, type JobStatus } from "../../../../lib/job-status";
 import { logInfo, logWarn, requestIdFrom } from "../../../../lib/log";
 import { incrementMetric } from "../../../../lib/metrics";
-import { STALE_CLAIM_SECONDS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "../../../../lib/job-maintenance";
+import { MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "../../../../lib/job-maintenance";
 import { CLAIM_RETURNING, MAX_DELIVERY_ATTEMPTS, MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../lib/job-delivery";
 import { fencedJobWrite } from "../../../../lib/job-fencing";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
@@ -68,9 +68,15 @@ export async function GET(req: Request) {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:agent:${agent.id}`}))`);
 
     // Capacity accounting must include all unexpired claimed/printing jobs owned
-    // by this Agent. Printer health and billing are claim-eligibility gates, not
-    // capacity gates; otherwise stale/offline printers can disappear from the
-    // count and a recovered Agent can exceed its bounded local executor limit.
+    // by this Agent — EXCEPT stale claims that this very poll is about to
+    // reclaim. A stale no-evidence claim reuses its own executor slot when
+    // reclaimed (it never left the agent's budget), so counting it as
+    // occupied would permanently starve reclaims whenever the fleet sits at
+    // the cap. Everything else (fresh claims, printing, delivered) counts:
+    // printer health and billing are claim-eligibility gates, not capacity
+    // gates; otherwise stale/offline printers can disappear from the count
+    // and a recovered Agent can exceed its bounded local executor limit.
+    // The exclusion predicate mirrors stale_candidates below exactly.
     const countResult = await tx.execute(sql`
       SELECT COUNT(*)::int AS count
       FROM print_jobs p
@@ -79,6 +85,15 @@ export async function GET(req: Request) {
       WHERE p.agent_id = ${agent.id}
         AND p.status IN ('claimed', 'printing')
         AND p.expires_at > now()
+        AND NOT (
+          p.status = 'claimed'
+          AND p.delivered_at IS NULL
+          AND p.acked_at IS NULL
+          AND COALESCE(p.error, '') <> ${DELIVERY_EVIDENCE_PENDING}
+          AND p.updated_at < now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+          AND p.retries < ${MAX_RETRIES}
+          AND p.delivery_attempts < ${MAX_DELIVERY_ATTEMPTS}
+        )
         AND a.lifecycle = 'active'
         AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
@@ -103,7 +118,7 @@ export async function GET(req: Request) {
           AND p.delivered_at IS NULL
           AND p.acked_at IS NULL
           AND COALESCE(p.error, '') <> ${DELIVERY_EVIDENCE_PENDING}
-          AND p.updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS})
+          AND p.updated_at < now() - make_interval(secs => ${agentStaleThresholdSeconds()})
           AND p.retries < ${MAX_RETRIES}
           AND p.delivery_attempts < ${MAX_DELIVERY_ATTEMPTS}
           AND a.lifecycle = 'active'
@@ -300,7 +315,14 @@ export async function PATCH(req: Request) {
         // Use DB-native now() to match the sweeper's clock (updated_at < now() - interval).
         // JS new Date() is the app-server clock and can drift from the DB host.
         updatedAt: sql`now()`,
-        deliveredAt: sql`CASE WHEN ${printJobs.status} IN ('claimed', 'printing') THEN COALESCE(${printJobs.deliveredAt}, now()) ELSE ${printJobs.deliveredAt} END`,
+        // Same delivery-evidence rule as the status-transition path below:
+        // only a printing expiry may stamp deliveredAt (the agent provably
+        // holds the job). A claimed-but-undelivered expiry keeps error=null
+        // (honest not_printed) and must not gain delivery proof, or the row
+        // would later look reconcilable/partially-delivered without basis.
+        ...(currentStatus === "printing"
+          ? { deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())` }
+          : {}),
       })
       .where(and(
         fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
@@ -493,7 +515,8 @@ export async function PATCH(req: Request) {
       .where(and(
         fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
         sql`${printJobs.expiresAt} <= now()`,
-        sql`${printJobs.expiresAt} > now() - interval '5 minutes'`,
+        // Bound by EXPIRED_LATE_SUCCESS_GRACE_MS (single source in job-status.ts).
+        sql`${printJobs.expiresAt} > now() - make_interval(secs => ${Math.floor(EXPIRED_LATE_SUCCESS_GRACE_MS / 1000)})`,
       ))
       .returning({ status: printJobs.status, error: printJobs.error });
     if (postExpired.length !== 1) {
@@ -521,7 +544,17 @@ export async function PATCH(req: Request) {
       error: nextError,
       ...(isTerminal(requestedStatus) && !retainsLateSuccessFence ? { claimToken: sql`NULL` } : {}),
       updatedAt: sql`now()`,
-      deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
+      // deliveredAt is delivery EVIDENCE: it must only be stamped when the
+      // agent provably received the job (entering printing/success, or a
+      // printing->failed report where delivery already happened at the
+      // printing step). Stamping it on claimed->failed pre-execution or
+      // claimed->queued rejection fabricates evidence: the expiry sweeper
+      // treats delivered_at as proof of delivery and marks the job
+      // UNKNOWN_PARTIAL_DELIVERY, blocking auto-retry and forcing
+      // unknown-outcome handling for a job that provably never dispatched.
+      ...((requestedStatus === "printing" || requestedStatus === "success" || (requestedStatus === "failed" && currentStatus === "printing"))
+        ? { deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())` }
+        : {}),
       // Spooler linkage is part of the same claim-fenced status transition.
       // A second id+tenant-only UPDATE here could let a stale attempt overwrite
       // current-attempt spooler evidence after this lifecycle UPDATE commits.
@@ -529,7 +562,7 @@ export async function PATCH(req: Request) {
     })
     .where(and(
       fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
-      lateSuccess ? sql`${printJobs.updatedAt} >= now() - interval '24 hours' AND ${printJobs.updatedAt} <= now()` : requestedStatus === "printing" ? sql`${printJobs.expiresAt} > now()` : sql`TRUE`,
+      lateSuccess ? sql`${printJobs.updatedAt} >= now() - make_interval(secs => ${Math.floor(LATE_SUCCESS_MAX_AGE_MS / 1000)}) AND ${printJobs.updatedAt} <= now()` : requestedStatus === "printing" ? sql`${printJobs.expiresAt} > now()` : sql`TRUE`,
     ))
     .returning({ status: printJobs.status, error: printJobs.error });
 

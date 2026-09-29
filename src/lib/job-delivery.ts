@@ -3,7 +3,7 @@ import { db } from "../db";
 import { printJobs } from "../db/schema";
 import { and, sql } from "drizzle-orm";
 import { fencedDeliveryWrite } from "./job-fencing";
-import { STALE_CLAIM_SECONDS, MAX_DELIVERY_ATTEMPTS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "./job-maintenance";
+import { MAX_DELIVERY_ATTEMPTS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "./job-maintenance";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./agent-availability";
 
 /**
@@ -47,7 +47,6 @@ export const MAX_AGENT_IN_FLIGHT_JOBS = 64;
  * Both ceilings gate BOTH claim paths (WS `claimJobForDelivery` and the poll
  * stale/queued candidates); no path may claim past either.
  */
-export const CLAIM_LEASE_SECONDS = STALE_CLAIM_SECONDS;
 export { MAX_DELIVERY_ATTEMPTS };
 
 export type ClaimedJobRow = {
