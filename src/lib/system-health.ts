@@ -61,7 +61,7 @@ export interface SystemHealth {
 export async function checkDatabase(): Promise<HealthCheck> {
   const start = Date.now();
   try {
-    await queryWithTimeout(db.execute(sql`SELECT 1`), 2000, "systemHealthDB");
+    await queryWithTimeout(() => db.execute(sql`SELECT 1`), 2000, "systemHealthDB");
     return { name: "Database", state: "ok", message: "Postgres reachable", latencyMs: Date.now() - start, critical: true };
   } catch (e) {
     return { name: "Database", state: "error", message: `DB unreachable: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start, critical: true };
@@ -76,7 +76,7 @@ export async function checkQueue(tenantId?: string): Promise<HealthCheck> {
       return { name: "Queue", state: "unknown", message: "Queue check requires tenant context (tenant-safe enforcement)", latencyMs: Date.now() - start, critical: false };
     }
     const result = await queryWithTimeout(
-      db.execute(sql`SELECT COUNT(*)::int as stuck FROM print_jobs WHERE tenant_id=${tenantId} AND status='claimed' AND claimed_at < NOW() - INTERVAL '5 minutes'`),
+      () => db.execute(sql`SELECT COUNT(*)::int as stuck FROM print_jobs WHERE tenant_id=${tenantId} AND status='claimed' AND claimed_at < NOW() - INTERVAL '5 minutes'`),
       2000,
       "systemHealthQueue"
     );
