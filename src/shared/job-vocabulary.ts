@@ -131,14 +131,13 @@ export function printerLabel(status: string): string {
  *  regardless of the last status row. Mirrors src/lib/agent-availability.ts.
  *  The threshold is the shared agentStaleThresholdSeconds() so the UI and
  *  the claim gate cannot drift when STALE_AGENT_THRESHOLD_SECONDS is set. */
-const AGENT_HEARTBEAT_STALE_SECONDS = agentStaleThresholdSeconds();
-
 export function agentLiveView(agent: { status?: string | null; lastSeenAt?: Date | string | null; lifecycle?: string | null }, nowMs = Date.now()): { tone: Tone; label: string } {
   if (agent.lifecycle && agent.lifecycle !== "active") {
     return { tone: "neutral", label: agent.lifecycle === "retired" ? "Retired" : "Disabled" };
   }
   const seen = agent.lastSeenAt ? new Date(agent.lastSeenAt).getTime() : 0;
-  const ageMs = Number.isFinite(seen) ? nowMs - seen : Number.POSITIVE_INFINITY;\n  const fresh = ageMs >= 0 && ageMs <= agentStaleThresholdSeconds() * 1000;
+  const ageMs = Number.isFinite(seen) ? nowMs - seen : Number.POSITIVE_INFINITY;
+  const fresh = ageMs >= 0 && ageMs <= agentStaleThresholdSeconds() * 1000;
   if (agent.status === "online" && !fresh) {
     return { tone: "bad", label: "Offline — heartbeat lost" };
   }
