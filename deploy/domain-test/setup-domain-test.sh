@@ -66,11 +66,24 @@ if [[ -z "$POSTGRES_PASSWORD" ]]; then POSTGRES_PASSWORD="$(openssl rand -hex 24
 if [[ -z "$GATEWAY_JWT_SECRET" ]]; then GATEWAY_JWT_SECRET="$(openssl rand -hex 32)"; fi
 if [[ -z "$TRUST_PROXY_SECRET" ]]; then TRUST_PROXY_SECRET="$(openssl rand -hex 32)"; fi
 
-if ! docker volume inspect postgres_http_test_data >/dev/null 2>&1; then
-  echo "ERROR: PostgreSQL volume postgres_http_test_data does not exist."
+HTTP_TEST_VOLUME_NAME="$(get_env_value HTTP_TEST_VOLUME_NAME "$ENV_FILE" || true)"
+if [[ -z "$HTTP_TEST_VOLUME_NAME" && -f "$LEGACY_ENV" ]]; then
+  HTTP_TEST_VOLUME_NAME="$(docker volume ls -q --filter label=com.docker.compose.volume=postgres_http_test_data | head -n 1 || true)"
+fi
+if [[ -z "$HTTP_TEST_VOLUME_NAME" ]]; then
+  for candidate in "http-test_postgres_http_test_data" "oddo-print_postgres_http_test_data" "postgres_http_test_data"; do
+    if docker volume inspect "$candidate" >/dev/null 2>&1; then
+      HTTP_TEST_VOLUME_NAME="$candidate"
+      break
+    fi
+  done
+fi
+if [[ -z "$HTTP_TEST_VOLUME_NAME" ]] || ! docker volume inspect "$HTTP_TEST_VOLUME_NAME" >/dev/null 2>&1; then
+  echo "ERROR: Could not locate the existing HTTP staging PostgreSQL volume."
   echo "Run deploy/http-test/setup-http-test.sh once before domain migration."
   exit 1
 fi
+
 
 upsert_env POSTGRES_DB yasser_http_test
 upsert_env POSTGRES_USER yasser_test
@@ -85,6 +98,7 @@ upsert_env APP_BASE_URL "https://$DOMAIN"
 upsert_env COOKIE_SECURE 1
 upsert_env TRUST_PROXY 1
 upsert_env YASSER_HTTP_TEST_MODE 1
+upsert_env HTTP_TEST_VOLUME_NAME "$HTTP_TEST_VOLUME_NAME"
 chmod 600 "$ENV_FILE"
 
 docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.yml" up -d --build
