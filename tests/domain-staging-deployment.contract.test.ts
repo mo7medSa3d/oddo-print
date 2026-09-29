@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 describe("domain staging deployment contracts", () => {
-  const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
+  const read = (path: string) =>
+    readFileSync(resolve(process.cwd(), path), "utf8").replace(/\r\n?/g, "\n");
 
   it("pins the test domain and keeps Gateway port 3000 private", () => {
     const compose = read("docker-compose.yml");
@@ -14,7 +15,7 @@ describe("domain staging deployment contracts", () => {
     expect(compose).toContain("${GATEWAY_DOMAIN:-print.yaseir.cloud}");
     expect(compose).toContain('COOKIE_SECURE: ${COOKIE_SECURE:-1}');
     expect(compose).toContain('TRUST_PROXY: ${TRUST_PROXY:-1}');
-    expect(compose).toContain('expose:');
+    expect(compose).toContain("expose:");
     const gatewayBlock = compose.split("\n  caddy:\n")[0].split("\n  gateway:\n")[1];
     expect(gatewayBlock).toBeTruthy();
     expect(gatewayBlock).not.toContain("ports:");
