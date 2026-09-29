@@ -342,3 +342,11 @@ describe("production fixes — authentication and observability", () => {
     expect(source).toContain("exitCode: null");
   });
 });
+
+describe("onboarding session contract", () => {
+  it("accepts the same workspace session issued by email verification", () => {
+    const source = read("src/app/api/onboarding/route.ts");
+    expect(source).toContain("const claims = await validateWorkspaceManager(req);");
+    expect(source).not.toContain("const claims = await validateManager(req);");
+  });
+});

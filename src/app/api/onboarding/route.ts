@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { plans, tenantSubscriptions, tenants } from "../../../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { validateManager, validateWorkspaceManager } from "../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../lib/authorization";
 import { hasBodyOverLimit } from "../../../lib/request-limits";
 
 export async function GET(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!hasManagerPermission(claims, "billing.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const rows = await db.select({
