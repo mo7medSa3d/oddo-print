@@ -702,7 +702,7 @@ pub struct PrinterInfo {
     pub status: String,
     pub enabled: bool,
     #[serde(rename = "isVirtual", alias = "is_virtual")]
-    pub isVirtual: Option<bool>,
+    pub is_virtual: Option<bool>,
     #[serde(rename = "usbVid")]
     pub usb_vid: Option<String>,
     #[serde(rename = "usbPid")]
@@ -795,7 +795,7 @@ const SESSION_REDIRECT_TOKENS: &[&str] = &[
 ];
 
 fn is_virtual_printer_for_ui(p: &PrinterInfo) -> bool {
-    if p.isVirtual.unwrap_or(false) {
+    if p.is_virtual.unwrap_or(false) {
         return true;
     }
     if let Some(t) = p.printer_type.as_ref() {
