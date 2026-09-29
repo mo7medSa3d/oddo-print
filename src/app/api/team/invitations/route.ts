@@ -9,6 +9,7 @@ import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
 import { nanoid } from "../../../../lib/nanoid";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
+import { logError } from "../../../../lib/log";
 
 const ROLES = ["admin", "operator", "viewer", "integration_admin", "billing_admin"] as const;
 
