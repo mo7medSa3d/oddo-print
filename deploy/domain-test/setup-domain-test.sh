@@ -99,6 +99,7 @@ upsert_env COOKIE_SECURE 1
 upsert_env TRUST_PROXY 1
 upsert_env YASSER_HTTP_TEST_MODE 1
 upsert_env HTTP_TEST_VOLUME_NAME "$HTTP_TEST_VOLUME_NAME"
+upsert_env STRIPE_PLAN_CATALOG '[{"id":"http-test","name":"HTTP Test","priceId":"price_http_test_yasser","currency":"usd","interval":"month","entitlements":{"max_agents":5,"max_printers":10,"max_jobs_per_minute":60,"max_concurrent_jobs":8,"max_prints_per_period":"unlimited"}}]'
 chmod 600 "$ENV_FILE"
 
 docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.yml" up -d --build
