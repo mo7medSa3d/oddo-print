@@ -251,7 +251,7 @@ app.prepare().then(() => {
   presenceTimer.unref();
 
   if (trustProxyEnabled()) {
-    logWarn("[security] TRUST_PROXY enabled: only requests carrying the proxy authentication token are trusted for forwarded-client-IP handling. The bundled Caddyfile injects the token and overwrites X-Forwarded-For.");
+    logWarn("[security] TRUST_PROXY enabled: only requests carrying the proxy authentication token are trusted for forwarded-client-IP handling. The bundled Caddyfile injects the proxy token and relies on Caddy's sanitized X-Forwarded-* handling.");
   }
 
   server.listen(port, hostname, () => {

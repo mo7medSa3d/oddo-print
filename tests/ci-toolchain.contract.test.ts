@@ -62,7 +62,7 @@ describe("CI/runtime alignment", () => {
 
   it("keeps Docker smoke test on an HTTP-only bind without ACME", () => {
     const docker = readFileSync(path.join(root, ".github/workflows/docker.yml"), "utf8");
-    expect(docker).toContain('GATEWAY_DOMAIN: ":80"');
+    expect(docker).toContain('GATEWAY_DOMAIN: "http://print.example.com"');
     expect(docker).not.toContain("GATEWAY_DOMAIN: print.example.com");
   });
 
