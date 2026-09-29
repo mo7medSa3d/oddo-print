@@ -15,12 +15,17 @@ describe("domain staging deployment contracts", () => {
     expect(compose).toContain('COOKIE_SECURE: ${COOKIE_SECURE:-1}');
     expect(compose).toContain('TRUST_PROXY: ${TRUST_PROXY:-1}');
     expect(compose).toContain('expose:');
-    expect(compose).not.toMatch(/gateway:[\s\S]*?ports:/);
+    const gatewayBlock = compose.split("\n  caddy:\n")[0].split("\n  gateway:\n")[1];
+    expect(gatewayBlock).toBeTruthy();
+    expect(gatewayBlock).not.toContain("ports:");
 
     expect(domainCompose).toContain("- postgres_http_test_data:/var/lib/postgresql/data");
+    expect(domainCompose).toContain("name: ${HTTP_TEST_VOLUME_NAME:?HTTP_TEST_VOLUME_NAME must be set}");
     expect(domainCompose).toContain('"80:80"');
     expect(domainCompose).toContain('"443:443"');
-    expect(domainCompose).not.toMatch(/gateway:[\s\S]*?ports:/);
+    const domainGatewayBlock = domainCompose.split("\n  caddy:\n")[0].split("\n  gateway:\n")[1];
+    expect(domainGatewayBlock).toBeTruthy();
+    expect(domainGatewayBlock).not.toContain("ports:");
 
     expect(caddy).toContain("{$GATEWAY_DOMAIN}");
     expect(caddy).toContain("reverse_proxy gateway:3000");
