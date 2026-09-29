@@ -255,20 +255,44 @@ export default function App() {
 
     setGatewayChecking(true);
     setHealthError(null);
-    try {
-      const reachable = await probeGateway(target);
-      if (!reachable) return;
 
+    // gateway_request is intentionally pinned to the persisted Gateway origin.
+    // Persist the candidate before probing so the health request tests exactly
+    // the URL the operator entered, then restore the previous origin on failure.
+    // /api/health is public, so this pre-authentication check sends no manager
+    // credential.
+    const previousGatewayUrl = savedGatewayUrl;
+    try {
       await setGatewayUrl(target);
       setGw(target);
       setSavedGatewayUrl(target);
+
+      const reachable = await probeGateway(target);
+      if (!reachable) {
+        if (previousGatewayUrl && previousGatewayUrl !== target) {
+          await setGatewayUrl(previousGatewayUrl);
+          setGw(previousGatewayUrl);
+          setSavedGatewayUrl(previousGatewayUrl);
+        }
+        return;
+      }
+
       setMsg({ text: "Gateway connection verified and saved", type: "success" });
     } catch (e) {
+      try {
+        if (previousGatewayUrl && previousGatewayUrl !== target) {
+          await setGatewayUrl(previousGatewayUrl);
+          setGw(previousGatewayUrl);
+          setSavedGatewayUrl(previousGatewayUrl);
+        }
+      } catch {
+        // Preserve the primary connection error if restoration also fails.
+      }
       setMsg({ text: friendlyGatewayError(errMsg(e)), type: "error" });
     } finally {
       setGatewayChecking(false);
     }
-  }, [gatewayUrl, probeGateway]);
+  }, [gatewayUrl, probeGateway, savedGatewayUrl]);
 
   const handleDiscover = useCallback(async () => {
     if (!isTauri) return;
@@ -434,7 +458,7 @@ export default function App() {
   }, [refreshStatus]);
 
   useEffect(() => {
-    if (!isTauri) return;
+    if (!isTauri || !savedGatewayUrl) return;
 
     const raw = gatewayUrl.trim();
     if (!raw) {
@@ -444,9 +468,6 @@ export default function App() {
       return;
     }
 
-    // Do not probe every keystroke. Once a syntactically valid URL is present,
-    // check it automatically after a short pause so pasted/entered URLs become
-    // Reachable without an extra save step.
     let target: string;
     try {
       target = normalizeGatewayUrl(raw);
@@ -457,12 +478,17 @@ export default function App() {
       return;
     }
 
+    // Auto-probe only the already-persisted Gateway. A newly edited URL must
+    // go through the explicit Check connection action, which persists the
+    // candidate before the transport probe.
+    if (target !== savedGatewayUrl) return;
+
     const timer = window.setTimeout(() => {
       void probeGateway(target);
     }, 450);
 
     return () => window.clearTimeout(timer);
-  }, [gatewayUrl, probeGateway]);
+  }, [gatewayUrl, savedGatewayUrl, probeGateway]);
 
   useEffect(() => {
     if (savedGatewayUrl) refreshPrinters();
