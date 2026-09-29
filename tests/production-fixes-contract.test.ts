@@ -350,3 +350,12 @@ describe("onboarding session contract", () => {
     expect(source).not.toContain("const claims = await validateManager(req);");
   });
 });
+
+describe("legacy session fixture contract", () => {
+  it("uses one exact expiry source for JWT and durable session state", () => {
+    const source = read("tests/session-legacy-fallback.integration.test.ts");
+    expect(source).toContain("to_timestamp($5)");
+    expect(source).toContain("nowSec + LEGACY_SESSION_MAX_AGE_SECONDS");
+    expect(source).not.toContain("clock_timestamp() + interval '8 hours'");
+  });
+});
