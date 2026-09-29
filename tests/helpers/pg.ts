@@ -130,7 +130,7 @@ export type Fixture = { tenantId: string; agentId: string; agentSecret: string; 
 
 export async function seedFixture(opts?: { printerCapabilities?: unknown }): Promise<Fixture> {
   const suffix = randomBytes(8).toString("hex");
-  const agentId = `agt_${suffix}`;
+  const agentId = `agt_${randomBytes(6).toString("base64url").slice(0, 8)}`;
   const agentSecret = randomBytes(16).toString("base64url");
   const printerId = `printer_${suffix}`;
   const destination = `POS ${suffix}`;
