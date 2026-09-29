@@ -593,7 +593,9 @@ func (p *SpoolerPrinter) Status() string {
 		return st
 	case <-timer.C:
 		log.Printf("WARNING: Spooler status probe timed out for %q after %v", p.SpoolerName, timeout)
-		return "spooler_rpc_unresponsive"
+		// Normalize to the gateway status vocabulary: online/offline/error/busy/unknown.
+		// A spooler RPC timeout is an error condition, not a distinct status.
+		return "error"
 	}
 }
 

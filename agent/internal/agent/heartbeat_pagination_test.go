@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -165,7 +166,7 @@ func TestHeartbeatPaginationPreservesFullInventoryAndOwnershipFence(t *testing.T
 		t.Fatalf("printerStatusPayload truncated the inventory: got %d, want %d", got, printerCount)
 	}
 
-	ag.sendHeartbeat()
+	ag.sendHeartbeatContext(context.Background())
 
 	if got, want := len(received), 3; got != want {
 		t.Fatalf("heartbeat should paginate %d printers into %d pages, got %d", printerCount, want, got)
@@ -252,7 +253,7 @@ func TestHeartbeatInvalidFinalSnapshotFailsClosed(t *testing.T) {
 	a.cfg.Server.URL = server.URL
 	a.client = server.Client()
 
-	a.sendHeartbeat()
+	a.sendHeartbeatContext(context.Background())
 
 	a.desiredStateMu.Lock()
 	synced := a.desiredStateSynced
@@ -366,7 +367,7 @@ func TestHeartbeatResponseBodyIsReadBeforeContextCancel(t *testing.T) {
 			Protocol: "raw",
 		},
 	}
-	ag.sendHeartbeat()
+	ag.sendHeartbeatContext(context.Background())
 
 	mu.Lock()
 	got := requests

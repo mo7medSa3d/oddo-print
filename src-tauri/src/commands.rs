@@ -47,7 +47,10 @@ pub fn is_running_as_admin() -> bool {
         }
 
         const TOKEN_QUERY: DWORD = 0x0008;
-        const TOKEN_ELEVATION_TYPE: DWORD = 20;
+        // TokenElevation (18) returns a TOKEN_ELEVATION struct with a
+        // TokenIsElevated boolean field. TOKEN_ELEVATION_TYPE (20) returns
+        // a different enum type and must not be used with TOKEN_ELEVATION.
+        const TOKEN_ELEVATION: DWORD = 18;
 
         unsafe extern "system" {
             fn GetCurrentProcess() -> HANDLE;
@@ -71,7 +74,7 @@ pub fn is_running_as_admin() -> bool {
             let mut ret_len: DWORD = 0;
             let ok = GetTokenInformation(
                 token,
-                TOKEN_ELEVATION_TYPE,
+                TOKEN_ELEVATION,
                 &mut elevation as *mut _ as *mut c_void,
                 std::mem::size_of::<TOKEN_ELEVATION>() as DWORD,
                 &mut ret_len,

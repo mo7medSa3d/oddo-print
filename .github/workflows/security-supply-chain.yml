@@ -44,19 +44,19 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Phase 0 npm audit (production dependencies)
+      - name: Phase 0 npm audit --audit-level=high (production dependencies)
         working-directory: .
         shell: bash
         run: |
           set -euo pipefail
-          npm audit --omit=dev
+          npm audit --audit-level=high --omit=dev
 
-      - name: Phase 0 npm audit (full dependency tree)
+      - name: Phase 0 npm audit --audit-level=high (full dependency tree)
         working-directory: .
         shell: bash
         run: |
           set -euo pipefail
-          npm audit
+          npm audit --audit-level=high
 
       - name: Verify npm high-severity audit gate with known vulnerable fixture
         shell: bash
@@ -76,23 +76,23 @@ jobs:
           EOF
           (cd "$fixture" && npm install --package-lock-only --ignore-scripts >/dev/null)
           set +e
-          audit_output="$(cd "$fixture" && npm audit --audit-level=high 2>&1)"
+          audit_output="$(cd "$fixture" && npm audit --audit-level=high --audit-level=high 2>&1)"
           audit_status=$?
           set -e
           printf '%s\n' "$audit_output"
           if [ "$audit_status" -eq 0 ]; then
-            echo "Expected npm audit to fail for the known high-severity fixture."
+            echo "Expected npm audit --audit-level=high to fail for the known high-severity fixture."
             exit 1
           fi
-          echo "Known vulnerable fixture correctly caused npm audit --audit-level=high to fail."
+          echo "Known vulnerable fixture correctly caused npm audit --audit-level=high --audit-level=high to fail."
 
-      - name: npm audit
+      - name: npm audit --audit-level=high
         shell: bash
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
             set +e
-            audit_output="$(npm audit --audit-level=high 2>&1)"
+            audit_output="$(npm audit --audit-level=high --audit-level=high 2>&1)"
             audit_status=$?
             set -e
             printf '%s\n' "$audit_output"

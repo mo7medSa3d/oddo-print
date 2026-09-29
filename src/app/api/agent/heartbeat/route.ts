@@ -134,9 +134,9 @@ export async function POST(req: Request) {
   if (agent.lifecycle !== "active") return NextResponse.json({ error: `Agent is ${agent.lifecycle}` }, { status: 409 });
   if (hasBodyOverLimit(req, MAX_HEARTBEAT_BODY_BYTES)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
 
-  let body: any;
+  let body: { status?: unknown; heartbeatPage?: unknown; heartbeatPageCount?: unknown; printers?: unknown; gatewayOwnedPrinterIds?: unknown; keepAliveJobIds?: unknown; desiredStateAcks?: unknown };
   try {
-    body = await req.json();
+    body = await req.json() as typeof body;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }

@@ -17,6 +17,20 @@ EVENT_TYPES = [
 ]
 
 
+def is_in_test_mode(env):
+    """Return True when Odoo's test harness is active."""
+    try:
+        from odoo import tools
+        return bool(
+            tools.config.get("test_enable")
+            or getattr(env.registry, "in_test", False)
+            or (hasattr(env.registry, "in_test_mode") and env.registry.in_test_mode())
+            or env.context.get("test_mode")
+        )
+    except Exception:
+        return False
+
+
 def sanitize_raw_value(value, protocol):
     """Keep Odoo field values inert inside protocol command templates."""
     text = "" if value is False or value is None else str(value)
@@ -128,7 +142,7 @@ class PrintGatewayPolicy(models.Model):
                 values[field_name] = sanitize_raw_value(rel.display_name if rel else "", protocol)
                 values[f"{field_name}_id"] = sanitize_raw_value(rel.id if rel else "", protocol)
         try:
-            import string
+            import string  # noqa: F401  (imported for clarity; Formatter used below)
             formatter = string.Formatter()
             for literal_text, field_name, format_spec, conversion in formatter.parse(template):
                 self._sanitize_template_field(field_name)
@@ -214,19 +228,10 @@ class PrintGatewayPolicy(models.Model):
 
     @api.constrains("company_id", "branch_id", "binding_id")
     def _check_binding_scope(self):
-        for policy in self:
-            binding = policy.binding_id
-            if not binding:
-                continue
-            if policy.company_id.parent_id:
-                raise ValidationError(_("Odoo Company must be a root company, not a branch."))
-            if binding.company_id != policy.company_id:
-                raise ValidationError(_("Target Binding must belong to the same Odoo Company as the Policy."))
-            if policy.branch_id:
-                if binding.branch_id != policy.branch_id:
-                    raise ValidationError(_("A Branch Policy must use a Binding for that exact Branch."))
-            elif binding.branch_id:
-                raise ValidationError(_("A Company Policy must use a company-wide Binding, not a Branch Binding."))
+        # The hierarchy validator is owned by the policy because it validates
+        # the policy's company/branch scope and its optional target binding.
+        # Keep this compatibility constraint as a single delegation point.
+        self._check_hierarchy()
 
     @api.constrains("action_type", "report_id", "raw_template", "raw_protocol", "domain_filter", "model_id", "event_type", "binding_id")
     def _check_action_configuration(self):

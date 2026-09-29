@@ -36,6 +36,8 @@ export async function GET(req: Request) {
     conditions.push(eq(agents.id, agentId));
   }
 
+  await refreshClockSkew();
+  const now = gatewayNow();
   const rows = await db
     .select({
       id: printers.id,
@@ -57,9 +59,6 @@ export async function GET(req: Request) {
     .innerJoin(agents, and(eq(printers.agentId, agents.id), eq(printers.tenantId, agents.tenantId)))
     .where(and(...conditions))
     .orderBy(printers.name);
-
-  await refreshClockSkew();
-  const now = gatewayNow();
   return NextResponse.json({
     printers: rows.map((row) => ({
       id: row.id,

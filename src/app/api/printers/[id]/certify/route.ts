@@ -101,9 +101,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     let jobStatus: string = "unknown";
     let isReused = false;
     try {
-      const body = await req.json().catch(() => ({}));
+      let body: Record<string, unknown> = {};
+      try { body = await req.json() as Record<string, unknown>; } catch { /* use empty defaults */ }
       const testPage = body.testPage !== false;
-      const documentType = body.documentType || "raw";
+      const documentType = typeof body.documentType === "string" ? body.documentType : "raw";
       // Idempotency: header preferred, then body, then deterministic fallback per certification session
       const headerKey = req.headers.get("Idempotency-Key")?.trim();
       const bodyKey = typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : null;

@@ -390,6 +390,14 @@ func isAllowedPrinterIP(ip net.IP) bool {
 	if strings.EqualFold(ip.String(), "fd00:ec2::254") {
 		return false
 	}
+	// Explicitly reject IPv6 Unique Local Addresses (fd00::/8) in addition to
+	// IsPrivate() which covers fc00::/7. This keeps the ULA rejection explicit
+	// rather than relying on the Go version's IsPrivate behavior.
+	if ip.To4() == nil {
+		if len(ip) >= 2 && ip[0] == 0xfd {
+			return false
+		}
+	}
 	return ip.IsPrivate() || ip.IsLinkLocalUnicast()
 }
 

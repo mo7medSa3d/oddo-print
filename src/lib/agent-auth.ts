@@ -63,6 +63,8 @@ export async function validateAgent(authHeader: string | null) {
   const agentId = token.slice(0, separatorIndex);
   const secret = token.slice(separatorIndex + 1);
   if (!agentId || !secret) return null;
+  // Validate agent ID format: UUID v4 (36 chars with hyphens at fixed positions).
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(agentId)) return null;
 
   const agent = await db.query.agents.findFirst({ where: eq(agents.id, agentId) });
   if (!agent || !agent.secret || agent.lifecycle !== "active") return null;

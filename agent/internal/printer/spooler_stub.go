@@ -136,7 +136,11 @@ func (p *SpoolerPrinter) Status() string {
 		case st := <-resCh:
 			return st
 		case <-timer.C:
-			return "spooler_rpc_unresponsive"
+			// Keep the non-Windows stand-in aligned with the Printer.Status
+			// contract used by the real Windows spooler implementation.
+			// A wedged probe is an error condition; callers must not need
+			// OS-specific status vocabularies.
+			return "error"
 		}
 	}
 	if simulatedTransportAllowed() {

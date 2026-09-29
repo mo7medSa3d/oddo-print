@@ -477,15 +477,15 @@ func (q *Queue) WasInterrupted(id string) bool {
 }
 
 // CountByStatus is a small diagnostic helper for the Tauri/desktop health view.
+// Unused in production code but kept for potential future diagnostic endpoints.
 func (q *Queue) CountByStatus(status string) (int, error) {
 	var n int
 	err := q.db.QueryRow(`SELECT COUNT(*) FROM print_jobs WHERE status = ?`, status).Scan(&n)
 	return n, err
 }
 
-// LastError returns the recorded failure reason for a job, if any. It is used
-// when a duplicate delivery of an already-failed job must be re-reported to
-// the gateway with its real terminal error instead of being printed again.
+// LastError returns the recorded failure reason for a job, if any.
+// Unused in production code but kept for potential future diagnostic endpoints.
 func (q *Queue) LastError(id string) string {
 	var lastErr sql.NullString
 	if err := q.db.QueryRow(`SELECT last_error FROM print_jobs WHERE id = ?`, id).Scan(&lastErr); err != nil {

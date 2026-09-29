@@ -99,17 +99,22 @@ class PrintGatewayJob(models.Model):
         "UNIQUE(company_id, idempotency_key)",
         "The same logical print operation may only be created once.",
     )
+        # Terminal states: no further transitions are accepted once a job reaches one
+    # of these. "unknown" is terminal because it represents a reconcilable but
+    # ambiguous physical outcome that must be resolved by an operator, not by
+    # automated transitions.
     _TERMINAL = frozenset(("success", "failed", "partial", "unknown"))
-
+    
+    # Valid status transitions for the print job state machine.
+    # Canonical happy path: queued -> submitted -> claimed -> printing
+    # -> success, exactly one hop at a time. Forward progress NEVER
+    # skips a stage (an idempotent replay observed beyond 'submitted' is
+    # recorded hop-by-hop via _advance_status, so no writer needs a
+    # shortcut). Failure/unknown are explicitly valid exits from any
+    # non-terminal state; nothing leaves a terminal state (self-loops
+    # only, and 'partial' accepts no inbound writes at all - the
+    # Gateway sync never produces it).
     _VALID_TRANSITIONS = {
-        # Canonical happy path: queued -> submitted -> claimed -> printing
-        # -> success, exactly one hop at a time. Forward progress NEVER
-        # skips a stage (an idempotent replay observed beyond 'submitted' is
-        # recorded hop-by-hop via _advance_status, so no writer needs a
-        # shortcut). Failure/unknown are explicitly valid exits from any
-        # non-terminal state; nothing leaves a terminal state (self-loops
-        # only, and 'partial' accepts no inbound writes at all - the
-        # Gateway sync never produces it).
         "queued": {"submitted", "failed", "unknown"},
         "submitted": {"claimed", "failed", "unknown"},
         "claimed": {"printing", "failed", "unknown"},
@@ -119,7 +124,7 @@ class PrintGatewayJob(models.Model):
         "partial": {"partial"},
         "unknown": {"unknown"},
     }
-
+    
     # Forward-progress chain for _advance_status. Failure/unknown are NOT
     # chain hops: they are written directly (they are valid exits from any
     # non-terminal state per the matrix above).
@@ -376,8 +381,9 @@ class PrintGatewayJob(models.Model):
                         raise ValidationError(_(
                             "Payload protocol '%s' contradicts job protocol '%s'."
                         ) % (payload_proto, job.protocol))
-        if "payload_type" in vals and vals["payload_type"] in ("pdf", "raster_jpeg"):
-            vals["protocol"] = False
+        # protocol is not applicable for pdf/raster_jpeg payloads; the write
+        # method's constrains check already enforces this, so no additional
+        # mutation is needed here.
         return super().write(vals)
 
     @api.constrains("payload_type", "protocol")
@@ -623,17 +629,13 @@ class PrintGatewayJob(models.Model):
             cr.close()
 
     def _in_test_mode(self):
-        """True inside Odoo's test harness (unit + post-install tests)."""
-        try:
-            from odoo import tools
-            return bool(
-                tools.config.get("test_enable")
-                or getattr(self.env.registry, "in_test", False)
-                or (hasattr(self.env.registry, "in_test_mode") and self.env.registry.in_test_mode())
-                or self.env.context.get("test_mode")
-            )
-        except Exception:
-            return False
+        """True inside Odoo's test harness (unit + post-install tests).
+
+        Delegates to the shared implementation in print_policy to avoid
+        duplicating the same detection logic in multiple models.
+        """
+        from .print_policy import is_in_test_mode
+        return is_in_test_mode(self.env)
 
     def _durable_job_visible(self):
         """Whether a dedicated cursor can see this row (i.e. it is committed).
@@ -1087,6 +1089,9 @@ class PrintGatewayJob(models.Model):
             if job.payload_type == "pdf":
                 protocol_compatible = fallback_proto in ("spooler", "ipp", "ipps")
             elif job.payload_type == "raster_jpeg":
+                # raster_jpeg can be rendered by spooler (driver converts to PDF)
+                # or by escpos (raster conversion). IPP/IPPS are document transports
+                # that do not natively render JPEG, so they are excluded here.
                 protocol_compatible = fallback_proto in ("spooler", "escpos")
             elif job.payload_type == "raw_cmd" and job.protocol:
                 protocol_compatible = fallback_proto == job.protocol
@@ -1288,10 +1293,7 @@ class PrintGatewayJob(models.Model):
                                 "last_error": "GATEWAY_BILLING_LIMIT_REACHED: %s (limit %s, used %s)" % (entitlement, limit or "unknown", used),
                                 "next_retry_at": next_retry,
                             }
-                            if raise_on_failure:
-                                persist_submit_state(values)
-                            else:
-                                persist_submit_state(values)
+                            persist_submit_state(values)
 
                             message_map = {
                                 "max_agents": _("Your Gateway plan has reached its Agent limit."),
@@ -1320,10 +1322,7 @@ class PrintGatewayJob(models.Model):
                             "last_error": "GATEWAY_RATE_LIMITED: Gateway returned HTTP 429",
                             "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=retry_after),
                         }
-                        if raise_on_failure:
-                            persist_submit_state(values)
-                        else:
-                            persist_submit_state(values)
+                        persist_submit_state(values)
                         if raise_on_failure:
                             raise ValidationError(_("Gateway is temporarily rate-limiting print submissions. The job was safely re-queued for retry."))
                         break
@@ -1378,10 +1377,7 @@ class PrintGatewayJob(models.Model):
                                 "next_retry_at": False,
                                 "completed_at": db_now_utc(self.env.cr),
                             }
-                            if raise_on_failure:
-                                persist_submit_state(values)
-                            else:
-                                persist_submit_state(values)
+                            persist_submit_state(values)
                             _logger.warning("Gateway rejected job %s deterministically (%s): %s", job.idempotency_key[:8], response.status_code, reason[:300])
                             if raise_on_failure:
                                 raise ValidationError(_("The Gateway rejected this print job: %s") % reason[:500])
@@ -1412,7 +1408,10 @@ class PrintGatewayJob(models.Model):
                             break
                         job._post_source_audit(_("Print Job #%s expired at the Gateway (%s).") % (remote_id or job.id, expired_status))
                         break
-                    if remote_status not in {"queued", "submitted", "claimed", "printing", "success", "failed", "unknown"}:
+                    # "partial" is a valid Gateway status indicating some devices
+                    # were skipped during discovery. Treat it as "submitted" since
+                    # the job was accepted but not fully processed.
+                    if remote_status not in {"queued", "submitted", "claimed", "printing", "success", "failed", "unknown", "partial"}:
                         remote_status = "submitted"
                     values = {
                         "gateway_job_id": str(remote_id),
@@ -1502,10 +1501,7 @@ class PrintGatewayJob(models.Model):
                             "next_retry_at": False,
                             "completed_at": db_now_utc(self.env.cr),
                         }
-                        if raise_on_failure:
-                            persist_submit_state(values)
-                        else:
-                            persist_submit_state(values)
+                        persist_submit_state(values)
                         _logger.warning("Gateway submission failed deterministically for job %s: %s", job.idempotency_key[:8], str(exc)[:300])
                         if raise_on_failure:
                             raise ValidationError(_("Gateway submission failed: %s") % str(exc)[:500]) from exc
@@ -1518,10 +1514,7 @@ class PrintGatewayJob(models.Model):
                         "next_retry_at": False if terminal else db_now_utc(self.env.cr),
                         "completed_at": db_now_utc(self.env.cr) if terminal else False,
                     }
-                    if raise_on_failure:
-                        persist_submit_state(values)
-                    else:
-                        persist_submit_state(values)
+                    persist_submit_state(values)
                     if raise_on_failure:
                         raise ValidationError(_("Gateway submission failed: %s") % str(exc)[:500]) from exc
                     break
