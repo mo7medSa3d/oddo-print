@@ -185,7 +185,7 @@ export async function GET(req: Request) {
         AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC
-        LIMIT ${MAX_CLAIM_BATCH}
+        LIMIT ${queuedLimit}
         FOR UPDATE OF p, a, pr, t SKIP LOCKED
       )
       UPDATE print_jobs
