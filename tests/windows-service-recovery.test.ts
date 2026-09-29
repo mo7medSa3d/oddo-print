@@ -26,6 +26,8 @@ describe("windows-service-recovery", () => {
     expect(source).toContain("recovery");
     expect(source).toContain("lastRestart");
     expect(source).toContain("failureCount");
+    expect(source).toContain("failureCount: null");
+    expect(source).toContain("exitCode: null");
     expect(source).toContain("exitCode");
     expect(source).toContain("BLOCKED");
     expect(source).toContain("Windows Service Control Manager");
