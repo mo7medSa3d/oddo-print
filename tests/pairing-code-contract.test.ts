@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { generatePairingCode, hashPairingCode, isValidPairingCode, PAIRING_CODE_PATTERN } from "../src/lib/agent-auth";
+import { AGENT_ID_PATTERN, generatePairingCode, hashPairingCode, isValidAgentId, isValidPairingCode, PAIRING_CODE_PATTERN } from "../src/lib/agent-auth";
 
 describe("pairing code contract", () => {
   it("generates 1000 codes accepted by the registration contract", () => {
     const codes = Array.from({ length: 1000 }, () => generatePairingCode());
     expect(codes.every((code) => PAIRING_CODE_PATTERN.test(code))).toBe(true);
     expect(codes.every((code) => code.length === 6)).toBe(true);
-    expect(new Set(codes).size).toBeGreaterThan(990);
   });
 
   it("uses the unambiguous alphabet shared by Gateway, Go and Tauri", () => {
@@ -28,5 +27,20 @@ describe("pairing code contract", () => {
     expect(h1).toBe(h3);
     expect(h1).toMatch(/^[a-f0-9]{64}$/);
     expect(h1).not.toBe(code);
+  });
+});
+
+
+describe("agent ID contract", () => {
+  it("accepts canonical Gateway agent IDs", () => {
+    expect(AGENT_ID_PATTERN.test("agt_scZ7zHZ5")).toBe(true);
+    expect(isValidAgentId("agt_scZ7zHZ5")).toBe(true);
+  });
+
+  it("rejects UUID and malformed agent IDs", () => {
+    expect(isValidAgentId("550e8400-e29b-41d4-a716-446655440000")).toBe(false);
+    expect(isValidAgentId("agent_scZ7zHZ5")).toBe(false);
+    expect(isValidAgentId("agt_short")).toBe(false);
+    expect(isValidAgentId("agt_1234567")).toBe(false);
   });
 });

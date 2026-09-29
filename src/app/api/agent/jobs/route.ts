@@ -97,7 +97,8 @@ export async function GET(req: Request) {
         AND a.lifecycle = 'active'
         AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
-        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+        AND a.last_seen_at <= now()
+        AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND t.lifecycle = 'active'
     `);
     const inFlight = Number((countResult.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
@@ -123,7 +124,8 @@ export async function GET(req: Request) {
           AND a.lifecycle = 'active'
           AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
-        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+        AND a.last_seen_at <= now()
+        AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
           AND pr.lifecycle = 'active'
           AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR (
@@ -131,11 +133,12 @@ export async function GET(req: Request) {
           AND pr.observed_desired_revision >= pr.desired_revision
         ))
         AND pr.last_seen_at IS NOT NULL
-        AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
+        AND pr.last_seen_at <= now()
+        AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
         AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
-        LIMIT ${MAX_CLAIM_BATCH}
+        LIMIT ${queuedLimit}
       ),
       queued_candidates AS (
         SELECT p.id, p.created_at, 1 AS priority
@@ -152,7 +155,8 @@ export async function GET(req: Request) {
           AND a.lifecycle = 'active'
           AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
-        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+        AND a.last_seen_at <= now()
+        AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
           AND pr.lifecycle = 'active'
           AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR (
@@ -160,7 +164,8 @@ export async function GET(req: Request) {
           AND pr.observed_desired_revision >= pr.desired_revision
         ))
         AND pr.last_seen_at IS NOT NULL
-        AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
+        AND pr.last_seen_at <= now()
+        AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
         AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
@@ -181,7 +186,8 @@ export async function GET(req: Request) {
         WHERE a.lifecycle = 'active'
           AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
-        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+        AND a.last_seen_at <= now()
+        AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
           AND pr.lifecycle = 'active'
           AND (pr.status = 'online' OR (pr.status = 'unknown' AND pr.connection_type = 'network' AND pr.protocol IN ('raw','escpos','zpl','tspl')))
         AND (pr.management_source = 'agent' OR (
@@ -189,11 +195,12 @@ export async function GET(req: Request) {
           AND pr.observed_desired_revision >= pr.desired_revision
         ))
         AND pr.last_seen_at IS NOT NULL
-        AND pr.last_seen_at > now() - make_interval(secs => ${printerStaleThresholdSeconds()})
+        AND pr.last_seen_at <= now()
+        AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
         AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC
-        LIMIT ${MAX_CLAIM_BATCH}
+        LIMIT ${queuedLimit}
         FOR UPDATE OF p, a, pr, t SKIP LOCKED
       )
       UPDATE print_jobs

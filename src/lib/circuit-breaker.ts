@@ -26,6 +26,7 @@ export class CircuitBreaker {
   private readonly failureThreshold: number;
   private readonly resetTimeoutMs: number;
   private readonly name: string;
+  private halfOpenProbeInFlight = false;
 
   constructor(options: CircuitBreakerOptions) {
     this.failureThreshold = options.failureThreshold;
@@ -45,6 +46,17 @@ export class CircuitBreaker {
     if (state === "open") {
       throw new Error(`Circuit breaker '${this.name}' is open — database operations suspended`);
     }
+
+    const isProbe = state === "half-open";
+    if (isProbe) {
+      if (this.halfOpenProbeInFlight) {
+        throw new Error(`Circuit breaker '${this.name}' is half-open — recovery probe already in progress`);
+      }
+      // This synchronous flag acquisition is safe in Node's single-threaded
+      // execution model: no await occurs between the check and assignment.
+      this.halfOpenProbeInFlight = true;
+    }
+
     try {
       const result = await fn();
       this.onSuccess();
@@ -52,6 +64,8 @@ export class CircuitBreaker {
     } catch (error) {
       this.onFailure();
       throw error;
+    } finally {
+      if (isProbe) this.halfOpenProbeInFlight = false;
     }
   }
 
