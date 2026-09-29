@@ -1409,7 +1409,15 @@ class PrintGatewayJob(models.Model):
                             reject_code = str(reject_body.get("code") or "").strip()
                             reject_msg = str(reject_body.get("error") or "").strip()
                             if reject_code in ("PRINTER_OFFLINE", "PRINTER_UNAVAILABLE", "AGENT_UNAVAILABLE"):
-                                terminal_error = "GATEWAY_REJECTED_503: %s" % (reject_msg or reject_code or "printer unavailable")
+                                terminal_error = "GATEWAY_REJECTED_503: %s" % (
+                                    ": ".join(
+                                        part for part in (
+                                            reject_code,
+                                            reject_msg or "printer unavailable",
+                                        )
+                                        if part
+                                    )
+                                )
                                 values = {
                                     "status": "failed",
                                     "attempts": job.attempts + 1,
