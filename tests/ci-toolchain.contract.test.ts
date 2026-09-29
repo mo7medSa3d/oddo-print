@@ -54,6 +54,18 @@ describe("CI/runtime alignment", () => {
     });
   });
 
+  it("pins undici to a patched release in both manifest and lockfile", () => {
+    const lock = JSON.parse(readFileSync(path.join(root, "package-lock.json"), "utf8"));
+    expect(packageJson.overrides?.undici).toBe("8.10.2");
+    expect(lock.packages?.["node_modules/undici"]?.version).toBe("8.10.2");
+  });
+
+  it("keeps Docker smoke test on an HTTP-only bind without ACME", () => {
+    const docker = readFileSync(path.join(root, ".github/workflows/docker.yml"), "utf8");
+    expect(docker).toContain('GATEWAY_DOMAIN: ":80"');
+    expect(docker).not.toContain("GATEWAY_DOMAIN: print.example.com");
+  });
+
   it("keeps Caddy's forwarded-header security contract warning-free", () => {
     const caddy = readFileSync(path.join(root, "Caddyfile"), "utf8");
     expect(caddy).not.toContain("header_up X-Forwarded-For");
