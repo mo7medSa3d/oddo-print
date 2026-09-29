@@ -409,6 +409,7 @@ export async function createPrintJobForPrinter(
 ): Promise<CreatePrintJobResult> {
   const normalizedPrinterId = typeof printerId === "string" ? printerId.trim() : "";
   if (!normalizedPrinterId) throw new PrintJobInputError("printer id is required", "INVALID_REQUEST", 400);
+  if (typeof options.tenantId !== "string" || !options.tenantId.trim()) throw new PrintJobInputError("tenant context is required", "TENANT_CONTEXT_REQUIRED", 400);
   const requestedBy = normalizeRequestedBy(options.requestedBy);
   const printer = await db.query.printers.findFirst({ where: and(eq(printers.id, normalizedPrinterId), eq(printers.tenantId, options.tenantId)) });
   if (!printer) throw new PrintJobInputError("Printer not found", "PRINTER_NOT_FOUND", 404);
@@ -425,8 +426,6 @@ export async function createPrintJobForPrinter(
   const ownerAgent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, options.tenantId)) });
   if (!ownerAgent) throw new PrintJobInputError("Printer owner agent not found", "AGENT_NOT_FOUND", 404);
   if (ownerAgent.lifecycle !== "active") throw new PrintJobInputError(`Agent is ${ownerAgent.lifecycle}`, "AGENT_UNAVAILABLE", 409);
-
-  if (typeof options.tenantId !== "string" || !options.tenantId.trim()) throw new PrintJobInputError("tenant context is required", "TENANT_CONTEXT_REQUIRED", 500);
 
   const id = `job_${nanoid(12)}`;
   const expiresAt = options.expiresAt;
