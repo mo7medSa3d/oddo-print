@@ -78,7 +78,7 @@ export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: D
 
 export async function getAgentHealth(tenantId: string, agentId: string): Promise<AgentHealth | null> {
   const agentRows = await queryWithTimeout(
-    db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, agentId))).limit(1),
+    () => db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, agentId))).limit(1),
     3000,
     "getAgentHealth"
   );
@@ -97,7 +97,7 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   let queueDataAvailable = true;
   try {
     queueRows = await queryWithTimeout(
-      db.select({ cnt: count() }).from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.agentId, agentId), sql`${printJobs.status} in ('queued','claimed','printing')`)),
+      () => db.select({ cnt: count() }).from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.agentId, agentId), sql`${printJobs.status} in ('queued','claimed','printing')`)),
       3000,
       "agentQueueDepth"
     );
