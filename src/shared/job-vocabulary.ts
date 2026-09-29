@@ -138,7 +138,7 @@ export function agentLiveView(agent: { status?: string | null; lastSeenAt?: Date
     return { tone: "neutral", label: agent.lifecycle === "retired" ? "Retired" : "Disabled" };
   }
   const seen = agent.lastSeenAt ? new Date(agent.lastSeenAt).getTime() : 0;
-  const fresh = Number.isFinite(seen) && nowMs - seen <= AGENT_HEARTBEAT_STALE_SECONDS * 1000;
+  const ageMs = Number.isFinite(seen) ? nowMs - seen : Number.POSITIVE_INFINITY;\n  const fresh = ageMs >= 0 && ageMs <= agentStaleThresholdSeconds() * 1000;
   if (agent.status === "online" && !fresh) {
     return { tone: "bad", label: "Offline — heartbeat lost" };
   }

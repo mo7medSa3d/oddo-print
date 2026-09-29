@@ -15,7 +15,7 @@
  */
 
 import { db, queryWithTimeout } from "../db/client";
-import { printers } from "../db/schema";
+import { agents, printers } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import { gatewayNow } from "./database-clock";
 import { printerStaleThresholdSeconds } from "./stale-threshold";
@@ -69,7 +69,7 @@ export interface PrinterCapabilityMatrix {
 // Single source of truth for the stale threshold: the claim gate
 // (stale-threshold.ts), health displays, and the UI all read
 // printerStaleThresholdSeconds() so enforcement and display cannot diverge.
-const FRESHNESS_THRESHOLD_MS = printerStaleThresholdSeconds() * 1000;
+
 
 function isFresh(lastSeenAt?: Date | null, now = gatewayNow()): { fresh: boolean; ageMs?: number } {
   if (!lastSeenAt) return { fresh: false };
@@ -86,7 +86,7 @@ function isFresh(lastSeenAt?: Date | null, now = gatewayNow()): { fresh: boolean
  */
 export function normalizePrinterStatus(
   rawStatus?: string | null,
-  evidence?: { lastSeenAt?: Date | null; config?: any; capabilities?: any; error?: string; now?: Date }
+  evidence?: { lastSeenAt?: Date | null; agentLastSeenAt?: Date | null; agentStatus?: string | null; config?: any; capabilities?: any; error?: string; now?: Date }
 ): { status: PrinterHealthStatus; evidence: string; freshness: { lastSeenAt?: Date; ageMs?: number; fresh: boolean; source: string } } {
   const now = evidence?.now ?? gatewayNow();
   const freshnessCheck = isFresh(evidence?.lastSeenAt ?? null, now);
@@ -107,7 +107,7 @@ export function normalizePrinterStatus(
     if (evidence?.lastSeenAt) {
       return {
         status: "UNKNOWN",
-        evidence: `Stale evidence: lastSeen ${Math.round((freshness.ageMs ?? 0) / 1000)}s ago > ${FRESHNESS_THRESHOLD_MS / 1000}s threshold, cannot report ONLINE from stale data (OBSERVED AGENT STATUS stale)`,
+        evidence: `Stale evidence: printer/agent observation age ${Math.round((freshness.ageMs ?? 0) / 1000)}s exceeds the ${printerStaleThresholdSeconds()}s freshness window, cannot report ONLINE from stale data`,
         freshness,
       };
     }
@@ -159,7 +159,7 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
     p.connectionType as TransportType,
   );
 
-  const statusInfo = normalizePrinterStatus(p.status, { lastSeenAt: p.lastSeenAt, config, capabilities: caps });
+  const statusInfo = normalizePrinterStatus(p.status, {\n    lastSeenAt: p.lastSeenAt,\n    agentLastSeenAt: agent?.lastSeenAt,\n    agentStatus: agent?.status,\n    config,\n    capabilities: caps,\n  });
 
   // Driver health: evidence-based, not from DB status alone
   const driverName = capStr(caps, "driver_name") ?? capStr(configBag, "driver_name");
