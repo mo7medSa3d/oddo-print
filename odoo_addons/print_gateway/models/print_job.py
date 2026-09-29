@@ -1382,6 +1382,57 @@ class PrintGatewayJob(models.Model):
                             if raise_on_failure:
                                 raise ValidationError(_("The Gateway rejected this print job: %s") % reason[:500])
                             break
+                        # Deterministic printer/agent-state rejections: the
+                        # Gateway refused BEFORE creating a job (pre-admission
+                        # eligibility), so zero bytes were transmitted and no
+                        # physical execution is possible. Terminalize
+                        # immediately with the Gateway's typed reason instead
+                        # of burning the backoff budget, and raise an
+                        # actionable ValidationError (never a bare
+                        # RuntimeError, which the POS frontend can only render
+                        # as a generic "Odoo Server Error").
+                        if response.status_code == 503:
+                            try:
+                                reject_body = response.json()
+                            except (ValueError, TypeError):
+                                reject_body = {}
+                            reject_code = str(reject_body.get("code") or "").strip()
+                            reject_msg = str(reject_body.get("error") or "").strip()
+                            if reject_code in ("PRINTER_OFFLINE", "PRINTER_UNAVAILABLE", "AGENT_UNAVAILABLE"):
+                                terminal_error = "GATEWAY_REJECTED_503: %s" % (reject_msg or reject_code or "printer unavailable")
+                                values = {
+                                    "status": "failed",
+                                    "attempts": job.attempts + 1,
+                                    "last_error": terminal_error,
+                                    "next_retry_at": False,
+                                    "completed_at": db_now_utc(self.env.cr),
+                                }
+                                persist_submit_state(values)
+                                _logger.warning("Gateway refused job %s for unavailable printer/agent (%s): %s", job.idempotency_key[:8], reject_code, reject_msg[:300])
+                                if raise_on_failure:
+                                    if reject_code == "AGENT_UNAVAILABLE":
+                                        raise ValidationError(
+                                            _("The printing service agent is unavailable. The receipt was not sent.")
+                                        )
+                                    raise ValidationError(
+                                        _("Printer '%s' is offline or unavailable (%s). The receipt was not sent.") % (job.printer_id, reject_code or "PRINTER_UNAVAILABLE")
+                                    )
+                                break
+                            # Any other 503 (queue-full capacity, unknown
+                            # shape) is transient: the printer/agent state may
+                            # recover, so keep the durable outbox queued with
+                            # backoff exactly like the 429 path. Interactive
+                            # callers get an actionable re-queued message.
+                            values = {
+                                "status": "queued",
+                                "attempts": job.attempts + 1,
+                                "last_error": "GATEWAY_BUSY_503: %s" % (reject_msg or reject_code or "printer temporarily busy"),
+                                "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=60),
+                            }
+                            persist_submit_state(values)
+                            if raise_on_failure:
+                                raise ValidationError(_("The printer is temporarily busy. The job was safely re-queued for retry."))
+                            break
                         raise RuntimeError("GATEWAY_HTTP_%s" % response.status_code)
                     body = response.json()
                     remote_id = body.get("jobId") or body.get("id")

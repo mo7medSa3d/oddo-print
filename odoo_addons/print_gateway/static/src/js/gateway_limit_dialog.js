@@ -57,8 +57,49 @@ function candidateMessages(error) {
     return candidates;
 }
 
-export function parseGatewayBillingLimit(error) {
-    for (const candidate of candidateMessages(error)) {
+const GENERIC_RPC_TITLES = new Set(["Odoo Server Error", "RPC_ERROR", "RPC Error"]);
+
+/**
+ * Extract the actionable server-side message from an Odoo RPC rejection.
+ *
+ * Odoo serializes server exceptions (e.g. ValidationError) into a generic
+ * RPCError whose `.message` is the fixed title "Odoo Server Error"; the real
+ * message lives in `error.data.message` (and string arguments). Reading only
+ * `error.message` therefore renders every deterministic printer failure as a
+ * generic server-error alert. Prefer the server message, then string
+ * arguments, then the local message unless it is itself the generic title.
+ */
+export function gatewayServerMessage(error) {
+    const fallbacks = [];
+    if (error && typeof error === "object") {
+        if (typeof error.data?.message === "string" && error.data.message.trim()) {
+            return error.data.message;
+        }
+        for (const key of ["arguments", "args"]) {
+            const values = error.data?.[key];
+            if (Array.isArray(values)) {
+                for (const value of values) {
+                    if (typeof value === "string" && value.trim() && !GENERIC_RPC_TITLES.has(value.trim())) {
+                        return value;
+                    }
+                }
+            }
+        }
+        if (typeof error.message === "string" && error.message.trim()) {
+            fallbacks.push(error.message);
+        }
+    } else if (typeof error === "string" && error.trim()) {
+        return error;
+    }
+    for (const candidate of fallbacks) {
+        if (!GENERIC_RPC_TITLES.has(candidate.trim())) {
+            return candidate;
+        }
+    }
+    return "";
+}
+
+export function parseGatewayBillingLimit(error) {    for (const candidate of candidateMessages(error)) {
         const markerIndex = candidate.indexOf(PREFIX);
         if (markerIndex < 0) continue;
         const raw = candidate.slice(markerIndex + PREFIX.length).trim();

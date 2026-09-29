@@ -1435,6 +1435,88 @@ class TestControlPlane(TransactionCase):
         self.assertFalse(job.gateway_job_id)
         self.assertEqual(job.status, "queued")
 
+    def _submit_test_job(self, idempotency_key):
+        return self.env["print_gateway.print_job"].create({
+            "company_id": self.branch.id,
+            "gateway_config_id": self.gateway_config.id,
+            "printer_id": self.primary_binding.printer_id,
+            "destination": self.primary_binding.destination_ref.display_name,
+            "document_type": "invoice",
+            "status": "queued",
+            "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
+            "idempotency_key": idempotency_key,
+        })
+
+    def test_26e_gateway_503_printer_offline_is_terminal_with_actionable_message(self):
+        """A deterministic Gateway printer-state rejection must terminalize
+        immediately with an actionable ValidationError — never a bare
+        RuntimeError (which the POS frontend can only render as a generic
+        "Odoo Server Error") and never burned backoff retries against a
+        printer the Gateway already proved unusable."""
+        job = self._submit_test_job("test_503_offline_%s" % uuid.uuid4().hex[:8])
+        mock_resp = MagicMock()
+        mock_resp.status_code = 503
+        mock_resp.json.return_value = {"error": "Printer is not executable", "code": "PRINTER_OFFLINE", "retryable": True}
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            with self.assertRaises(ValidationError) as ctx:
+                job._action_submit_trusted(raise_on_failure=True)
+        self.assertIn("offline", str(ctx.exception).lower())
+        self.assertIn(job.printer_id, str(ctx.exception))
+        self.assertNotIsInstance(ctx.exception, RuntimeError)
+        self.assertEqual(job.status, "failed")
+        self.assertIn("offline", (job.last_error or "").lower())
+        self.assertFalse(job.gateway_job_id)
+        self.assertFalse(job.next_retry_at)
+
+    def test_26e2_gateway_503_offline_marker_survives_background_submit(self):
+        """Without raise_on_failure (cron/background), the same rejection
+        terminalizes with the machine-readable marker intact for forensics."""
+        job = self._submit_test_job("test_503_bg_%s" % uuid.uuid4().hex[:8])
+        mock_resp = MagicMock()
+        mock_resp.status_code = 503
+        mock_resp.json.return_value = {"error": "Printer is not executable", "code": "PRINTER_OFFLINE", "retryable": True}
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            job._action_submit_trusted(raise_on_failure=False)
+        self.assertEqual(job.status, "failed")
+        self.assertIn("GATEWAY_REJECTED_503", job.last_error)
+        self.assertEqual(job.attempts, 1)
+        self.assertFalse(job.gateway_job_id)
+
+    def test_26f_gateway_503_queue_full_requeues_without_terminalizing(self):
+        """Transient 503 capacity rejections stay retryable: the durable
+        outbox remains queued with backoff, and interactive callers learn the
+        job was safely re-queued (not lost, not duplicated)."""
+        job = self._submit_test_job("test_503_full_%s" % uuid.uuid4().hex[:8])
+        mock_resp = MagicMock()
+        mock_resp.status_code = 503
+        mock_resp.json.return_value = {"error": "AGENT_QUEUE_FULL", "code": "AGENT_QUEUE_FULL", "retryable": True}
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            with self.assertRaises(ValidationError) as ctx:
+                job._action_submit_trusted(raise_on_failure=True)
+        self.assertIn("re-queued", str(ctx.exception))
+        self.assertEqual(job.status, "queued")
+        self.assertTrue(job.next_retry_at)
+        self.assertIn("GATEWAY_BUSY_503", job.last_error)
+
+    def test_26g_gateway_500_stays_retryable_and_honest(self):
+        """Genuine infrastructure failures (5xx) must NOT be terminalized and
+        must NOT be hidden: the job stays queued for retry and the interactive
+        error still carries the real Gateway status."""
+        job = self._submit_test_job("test_500_retry_%s" % uuid.uuid4().hex[:8])
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.json.return_value = {}
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            with self.assertRaises(ValidationError) as ctx:
+                job._action_submit_trusted(raise_on_failure=True)
+        self.assertIn("GATEWAY_HTTP_500", str(ctx.exception))
+        self.assertEqual(job.status, "queued")
+        self.assertTrue(job.next_retry_at)
+
     def test_26d_gateway_config_unlink_checks_dependencies_before_remote_shutdown(self):
         """A config with dependent print jobs must fail before any Gateway shutdown side effect."""
         config_model = self.env["print_gateway.gateway_config"]
