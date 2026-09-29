@@ -94,6 +94,7 @@ export async function POST(req: Request) {
     const res = NextResponse.json({ ok: true, tenantId: result.membership.tenantId, role: result.membership.role });
     res.headers.set("Set-Cookie", customerSessionCookie(result.session));
     res.headers.append("Set-Cookie", customerRefreshCookie(result.session));
+    res.headers.set("Cache-Control", "no-store");
     return res;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Workspace selection failed";
