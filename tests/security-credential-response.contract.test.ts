@@ -17,3 +17,13 @@ describe("credential response security", () => {
     }
   });
 });
+
+
+describe("Agent credential response security", () => {
+  it("marks one-time Agent pairing credentials as non-cacheable", () => {
+    const source = fs.readFileSync(path.join(root, "src/app/api/agent/register/route.ts"), "utf8");
+    expect(source).toContain('secret: outcome.secret');
+    expect(source).toContain('agent_secret: outcome.secret');
+    expect(source).toContain('"Cache-Control": "no-store"');
+  });
+});
