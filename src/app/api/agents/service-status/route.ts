@@ -45,7 +45,8 @@ export async function GET(req: Request) {
         failureFlag: true,
       },
       lastRestart: null,
-      failureCount: 0,
+      // Failure history is not measured by this sandbox endpoint.
+      failureCount: null,
       exitCode: 0,
       uptimeSeconds: null,
       blocked: true,
