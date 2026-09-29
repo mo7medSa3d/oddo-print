@@ -66,13 +66,18 @@ describe("CI/runtime alignment", () => {
     expect(docker).not.toContain("GATEWAY_DOMAIN: print.example.com");
   });
 
-  it("keeps Rust supply-chain audit scoped to the Windows production target", () => {
-    for (const workflow of workflows()) {
-      if (/cargo audit/.test(workflow)) {
-        expect(workflow).toContain("cargo audit --target-os windows --target-arch x86_64");
-        expect(workflow).not.toMatch(/cargo audit(?! --target-os windows --target-arch x86_64)/);
-      }
-    }
+  it("scopes Rust supply-chain audits to the environment they validate", () => {
+    const all = workflows();
+    const ci = all.find((workflow) => workflow.includes("name: CI"));
+    const security = all.find((workflow) => workflow.includes("name: Security and Resilience Gates"));
+    const windows = all.find((workflow) => workflow.includes("name: Build Windows Installer"));
+    expect(ci).toContain("cargo audit");
+    // CI validates the host-toolchain dependency graph on Linux.
+    expect(ci).not.toContain("cargo audit --target-os windows --target-arch x86_64");
+    // Production is a Windows desktop target, so the security and installer
+    // gates explicitly audit the Windows x86_64 target.
+    expect(security).toContain("cargo audit --target-os windows --target-arch x86_64");
+    expect(windows).toContain("cargo audit --target-os windows --target-arch x86_64");
   });
 
   it("keeps Caddy's forwarded-header security contract warning-free", () => {

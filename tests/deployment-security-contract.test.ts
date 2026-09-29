@@ -31,7 +31,11 @@ describe("deployment security contracts", () => {
     expect(server).toContain("TRUSTED_PROXY_REQUIRED");
     expect(server).toContain("TRUST_PROXY_SECRET");
     expect(caddy).toContain("header_up X-Gateway-Proxy-Token {file./run/secrets/trust_proxy_secret}");
-    expect(caddy).toContain("header_up X-Forwarded-For {http.request.remote.host}");
+    // Caddy's reverse_proxy sanitizes forwarded headers by default when no
+    // trusted-proxy list is configured, so an explicit X-Forwarded-For rewrite
+    // is neither necessary nor part of the production contract.
+    expect(caddy).toContain("sanitizes X-Forwarded-* inputs");
+    expect(caddy).not.toContain("header_up X-Forwarded-For");
     expect(caddy).toContain("header_up -X-Real-Ip");
   });
 
