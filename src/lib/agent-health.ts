@@ -91,7 +91,10 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
 
   const now = gatewayNow();
   const baseStatus = agent.lifecycle !== "active"
-    ? "OFFLINE"\n    : agent.status === "offline" && agent.lastSeenAt\n      ? "OFFLINE"\n      : computeAgentHealthStatus(agent.lastSeenAt, agent.createdAt, now);
+    ? "OFFLINE"
+    : agent.status === "offline"
+      ? "OFFLINE"
+      : computeAgentHealthStatus(agent.lastSeenAt, agent.createdAt, now, agent.status);
 
   let queueRows: Array<{ cnt: number }> = [];
   let queueDataAvailable = true;
@@ -111,7 +114,7 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   let printerDataAvailable = true;
   try {
     printerRows = await queryWithTimeout(
-      db.select({ id: printers.id, status: printers.status }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
+      () => db.select({ id: printers.id, status: printers.status }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
       3000,
       "agentPrinters"
     );
@@ -130,7 +133,9 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
     // A future lastSeenAt (clock skew or bad write) is an untrustworthy
     // observation: never "ok", and worse than merely stale.
     const onlineMs = onlineThresholdMs();
-    const gatewayStatus = ageMs < 0 || ageMs > DEGRADED_THRESHOLD_MS ? "error" : ageMs > onlineMs ? "warn" : "ok";
+    const gatewayStatus = agent.lifecycle !== "active" || agent.status !== "online"
+      ? "error"
+      : ageMs < 0 || ageMs > DEGRADED_THRESHOLD_MS ? "error" : ageMs > onlineMs ? "warn" : "ok";
     checks.push({
       name: "Gateway",
       status: gatewayStatus,
@@ -221,7 +226,7 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
 export async function getAllAgentsHealth(tenantId: string): Promise<AgentHealth[]> {
   // `db.select().from(agents)` is already typed; the cast only disabled checking.
   const allAgents = await queryWithTimeout(
-    db.select().from(agents).where(eq(agents.tenantId, tenantId)),
+    () => db.select().from(agents).where(eq(agents.tenantId, tenantId)),
     3000,
     "getAllAgentsHealth"
   );
