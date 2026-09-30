@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "./ui";
 import { CheckCircle2, CircleAlert, ExternalLink, Loader2, Printer } from "lucide-react";
 
 type StepStatus = "ok" | "error" | "blocked" | "pending" | "running";
@@ -79,14 +80,16 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
               Yasser sends a controlled test page and reports the result of each stage, from Gateway authentication and queueing through Agent transport and physical printing.
             </p>
           </div>
-          <button
+          <Button
+            variant="primary"
+            size="lg"
             onClick={runCertification}
+            loading={loading}
             disabled={loading}
-            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-brand px-5 text-[14px] font-semibold text-white shadow-sm transition-colors hover:bg-brand-hover disabled:pointer-events-none disabled:opacity-50"
+            icon={<Printer className="h-4 w-4" aria-hidden />}
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Printer className="h-4 w-4" aria-hidden />}
             {loading ? "Running certification…" : "Run certification"}
-          </button>
+          </Button>
         </div>
 
         {error && (
