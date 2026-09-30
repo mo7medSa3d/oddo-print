@@ -58,15 +58,15 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "succ
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary:
-    "bg-brand text-white border border-transparent shadow-sm hover:bg-brand-hover active:bg-brand-active active:shadow-none",
+    "bg-brand text-brand-contrast border border-transparent shadow-sm hover:bg-brand-hover active:bg-brand-active active:shadow-none",
   secondary:
     "bg-surface-2 text-ink border border-transparent shadow-xs hover:bg-surface-3 active:bg-surface-3",
   ghost:
     "bg-transparent text-ink-2 border border-transparent hover:bg-surface-2 hover:text-ink active:bg-surface-3",
   danger:
-    "bg-bad-solid text-white border border-transparent shadow-xs hover:brightness-[0.96] active:brightness-[0.92]",
+    "bg-bad-solid text-on-solid border border-transparent shadow-xs hover:brightness-[0.96] active:brightness-[0.92]",
   success:
-    "bg-ok-solid text-white border border-transparent shadow-xs hover:brightness-[0.96] active:brightness-[0.92]",
+    "bg-ok-solid text-on-solid border border-transparent shadow-xs hover:brightness-[0.96] active:brightness-[0.92]",
 };
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
