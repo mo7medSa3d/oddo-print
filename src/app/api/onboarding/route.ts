@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { plans, tenantSubscriptions, tenants } from "../../../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { validateManager, validateWorkspaceManager } from "../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../lib/authorization";
 import { hasBodyOverLimit } from "../../../lib/request-limits";
 

@@ -21,8 +21,12 @@ describe("runtime printer routing regressions", () => {
 
   it("separates unknown health from execution eligibility for connected unidirectional network printers", () => {
     expect(isPrinterAvailableForJob(printer({ status: "unknown", protocol: "escpos" }))).toBe(true);
-    expect(isPrinterAvailableForJob(printer({ status: "unknown", protocol: "ipp" }))).toBe(false);
-    expect(isPrinterAvailableForJob(printer({ status: "unknown", connectionType: "spooler" }))).toBe(false);
+    // Network + IPP is a valid document transport (printer-model allows it);
+    // unknown telemetry with a declared transport is eligible to attempt.
+    expect(isPrinterAvailableForJob(printer({ status: "unknown", protocol: "ipp" }))).toBe(true);
+    // A Windows spooler queue with unknown telemetry is eligible to attempt:
+    // the queue (OpenPrinter/GetPrinter) is the probe, not the Bidi channel.
+    expect(isPrinterAvailableForJob(printer({ status: "unknown", connectionType: "spooler" }))).toBe(true);
     expect(isPrinterAvailableForJob(printer({ status: "offline" }))).toBe(false);
     expect(isPrinterAvailableForJob(printer({ lifecycle: "disabled" }))).toBe(false);
   });

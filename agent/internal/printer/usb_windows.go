@@ -306,7 +306,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 		}
 		vidStr := fmt.Sprintf("%04x", vid)
 		pidStr := fmt.Sprintf("%04x", pid)
-		id := StableIDFromUSB(vidStr, pidStr, serial, location)
+		id := StableIDFromUSBFull(vidStr, pidStr, serial, location, instanceID)
 		if seenIDs[id] {
 			continue
 		}
@@ -433,7 +433,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 				}
 				vidStr := fmt.Sprintf("%04x", vid)
 				pidStr := fmt.Sprintf("%04x", pid)
-				id := StableIDFromUSB(vidStr, pidStr, serial, location)
+				id := StableIDFromUSBFull(vidStr, pidStr, serial, location, instanceID)
 				if seenIDs[id] {
 					continue
 				}

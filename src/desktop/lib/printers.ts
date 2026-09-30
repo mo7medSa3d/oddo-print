@@ -90,7 +90,7 @@ export function humanType(p: PrinterInfo): string {
 }
 
 export function humanConnection(p: PrinterInfo): string {
-  const c = (p.connection_type || p.printer_type || "").toLowerCase();
+  const c = (p.connection_type || p.connectionType || "").toLowerCase();
   const proto = (p.protocol || "").toLowerCase();
   if (c === "spooler" || proto === "spooler") return "Windows spooler";
   if (c === "usb") return "USB";

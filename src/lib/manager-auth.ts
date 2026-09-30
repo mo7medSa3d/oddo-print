@@ -324,7 +324,7 @@ export async function verifyWorkspaceTokenFromCookieValues(
   // customer cookie left in the same browser. Only fall through to the
   // customer session after manager validation fails.
   if (managerToken) {
-    const managerClaims = await verifyWorkspaceToken(managerToken);
+    const managerClaims = await verifyManagerToken(managerToken);
     if (managerClaims) return managerClaims;
   }
 

@@ -329,7 +329,6 @@ describe("2026-09-24 remediation contracts", () => {
   });
 });
 
-
 describe("production fixes — authentication and observability", () => {
   it("does not silently truncate workspace memberships in tenant selection", () => {
     const source = read("src/lib/customer-auth.ts");
@@ -343,7 +342,6 @@ describe("production fixes — authentication and observability", () => {
     expect(source).toContain("exitCode: null");
   });
 });
-
 
 describe("onboarding session contract", () => {
   it("accepts the same workspace session issued by email verification", () => {

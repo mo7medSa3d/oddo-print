@@ -1,7 +1,7 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
-import { showGatewayBillingLimitDialog } from "./gateway_limit_dialog";
+import { gatewayServerMessage, showGatewayBillingLimitDialog } from "./gateway_limit_dialog";
 import { PosStore } from "@point_of_sale/app/services/pos_store";
 import { changesToOrder } from "@point_of_sale/app/models/utils/order_change";
 import { renderToElement } from "@web/core/utils/render";
@@ -227,8 +227,11 @@ patch(PosStore.prototype, {
             if (showGatewayBillingLimitDialog(this.env, error)) {
                 return false;
             }
-            // Fail-safe: display user notification and return false, NEVER re-throw to avoid freezing POS UI
-            this.notification.add(error?.message || "Receipt printing failed.", { type: "danger" });
+            // Fail-safe: display user notification and return false, NEVER re-throw to avoid freezing POS UI.
+            // Read the server-side message (error.data.message), not the
+            // generic RPC title (error.message is "Odoo Server Error" for
+            // every deterministic printer failure).
+            this.notification.add(gatewayServerMessage(error) || "Receipt printing failed.", { type: "danger" });
             return false;
         }
     },
@@ -528,7 +531,7 @@ patch(PosStore.prototype, {
             if (showGatewayBillingLimitDialog(this.env, error)) {
                 return false;
             }
-            this.notification.add(error?.message || "Kitchen / Preparation printing failed.", {
+            this.notification.add(gatewayServerMessage(error) || "Kitchen / Preparation printing failed.", {
                 type: "danger",
             });
             return false;
@@ -601,11 +604,11 @@ patch(PosStore.prototype, {
                     message: { title: "Printing Service", body: "The Gateway plan limit has been reached." },
                 };
             }
-            this.notification.add(error?.message || "Kitchen / Preparation printing failed.", { type: "danger" });
+            this.notification.add(gatewayServerMessage(error) || "Kitchen / Preparation printing failed.", { type: "danger" });
             return {
                 successful: false,
                 canRetry: true,
-                message: { title: "Printing Service", body: error?.message || "Kitchen / Preparation printing failed." },
+                message: { title: "Printing Service", body: gatewayServerMessage(error) || "Kitchen / Preparation printing failed." },
             };
         }
     },

@@ -130,6 +130,12 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		if pp != "" && pp != "escpos" {
 			return false, "escpos payload cannot use protocol " + pp
 		}
+		// Windows spooler queues render documents through the driver by
+		// default. A raw ESC/POS byte stream bypasses rendering and is only
+		// valid for passthrough-mode queues with explicit escpos support.
+		if (conn == "spooler" || proto == "spooler") && !hasCaps {
+			return false, "spooler printers accept document payloads (pdf/image) by default; raw ESC/POS requires an explicit supported_protocols declaration"
+		}
 		if declared("escpos", "escpos") {
 			return true, ""
 		}
@@ -142,6 +148,10 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		case "raw", "escpos", "zpl", "tspl":
 		default:
 			return false, "unsupported raw protocol " + pp
+		}
+		// Same spooler passthrough rule as ESC/POS above.
+		if (conn == "spooler" || proto == "spooler") && !hasCaps {
+			return false, "spooler printers accept document payloads (pdf/image) by default; raw byte protocols require an explicit supported_protocols declaration"
 		}
 		if declared(pp, pp) {
 			return true, ""
@@ -180,7 +190,10 @@ func SupportedProtocolsForDevice(d TransportFacts) []string {
 	case "raw":
 		return []string{"raw"}
 	case "spooler":
-		return []string{"raw", "escpos", "pdf", "image"}
+		// Document transports by default. Raw byte passthrough (raw/escpos)
+		// requires an explicit operator-declared supported_protocols list;
+		// it is never inferred, so office printers are never sent raw bytes.
+		return []string{"pdf", "image"}
 	case "ipp", "ipps":
 		return []string{"pdf"}
 	default:

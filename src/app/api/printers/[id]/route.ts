@@ -8,6 +8,7 @@ import { z } from "zod";
 import { canTransitionLifecycle } from "../../../../lib/lifecycle";
 import { PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, assertPrinterMetadataLimits, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { writeAuditEvent } from "../../../../lib/audit";
+import { logError } from "../../../../lib/log";
 import { isTenantBillingError } from "../../../../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 
@@ -174,6 +175,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (isTenantBillingError(error)) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: 403, headers: { "Cache-Control": "no-store" } });
     }
+    logError("printers.patch.failed", { printerId: id, error: error instanceof Error ? error.message : String(error) });
     throw error;
   }
 

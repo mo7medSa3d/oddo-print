@@ -94,7 +94,56 @@ func (p *SpoolerPrinter) PrintDocument(ctx context.Context, doc Document) error 
 	}
 }
 
+// SpoolerProbe mirrors the Windows probe record on non-Windows platforms:
+// the print subsystem is absent, so the verdict is honestly unavailable.
+type SpoolerProbe struct {
+	QueueName        string `json:"queue_name"`
+	DriverName       string `json:"driver_name,omitempty"`
+	PortName         string `json:"port_name,omitempty"`
+	PrintProcessor   string `json:"print_processor,omitempty"`
+	Datatype         string `json:"datatype,omitempty"`
+	ShareName        string `json:"share_name,omitempty"`
+	Comment          string `json:"comment,omitempty"`
+	Location         string `json:"location,omitempty"`
+	Attributes       uint32 `json:"attributes"`
+	WorkOffline      bool   `json:"work_offline"`
+	StatusFlags      uint32 `json:"status_flags"`
+	PendingJobs      uint32 `json:"pending_jobs"`
+	OpenPrinterOK    bool   `json:"open_printer_ok"`
+	OpenPrinterError string `json:"open_printer_error,omitempty"`
+	GetPrinterOK     bool   `json:"get_printer_ok"`
+	GetPrinterError  string `json:"get_printer_error,omitempty"`
+	Verdict          string `json:"verdict"`
+	VerdictReason    string `json:"verdict_reason"`
+}
+
+const (
+	SpoolerReadyToAccept    = "SPOOLER_READY_TO_ACCEPT"
+	SpoolerQueueUnavailable = "SPOOLER_QUEUE_UNAVAILABLE"
+	SpoolerDriverError      = "SPOOLER_DRIVER_ERROR"
+	SpoolerPortError        = "SPOOLER_PORT_ERROR"
+	SpoolerStatusUnknown    = "SPOOLER_STATUS_UNKNOWN"
+	SpoolerJobAccepted      = "SPOOLER_JOB_ACCEPTED"
+	PhysicalOutcomeUnknown  = "PHYSICAL_OUTCOME_UNKNOWN"
+)
+
+// ProbeSpoolerQueue on non-Windows always reports the subsystem as absent.
+func ProbeSpoolerQueue(spoolerName string) SpoolerProbe {
+	return SpoolerProbe{
+		QueueName:        spoolerName,
+		OpenPrinterError: "Windows print subsystem unavailable on this OS",
+		Verdict:          SpoolerQueueUnavailable,
+		VerdictReason:    "no Windows spooler on this platform",
+	}
+}
+
 func (p *SpoolerPrinter) Test(ctx context.Context) error {
+	// Non-Windows stand-in: never pretend to have printed. A simulated write
+	// happens only under the explicit development opt-in; otherwise fail
+	// closed so CI/dev never masks a missing Windows path.
+	if !simulatedTransportAllowed() {
+		return fmt.Errorf("ERR_UNSUPPORTED_TRANSPORT: the Windows spooler backend cannot run on this OS; nothing was printed to %q", p.SpoolerName)
+	}
 	return p.Print(ctx, []byte("Spooler Test Print"))
 }
 
@@ -136,11 +185,10 @@ func (p *SpoolerPrinter) Status() string {
 		case st := <-resCh:
 			return st
 		case <-timer.C:
-			// Keep the non-Windows stand-in aligned with the Printer.Status
-			// contract used by the real Windows spooler implementation.
-			// A wedged probe is an error condition; callers must not need
-			// OS-specific status vocabularies.
-			return "error"
+			// Keep the non-Windows stand-in aligned with the Windows spooler
+			// implementation: a spooler RPC timeout proves nothing about the
+			// physical device, so report "unknown" — never a fabricated error.
+			return "unknown"
 		}
 	}
 	if simulatedTransportAllowed() {

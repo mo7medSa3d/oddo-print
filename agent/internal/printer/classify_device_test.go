@@ -614,3 +614,53 @@ func TestStaleVirtualRowDoesNotBreakPhysicalPrinters(t *testing.T) {
 		t.Errorf("physical printer lost its transport metadata: %+v", byID["printer_zebra"])
 	}
 }
+
+func TestBrotherPCFaxIsVirtual(t *testing.T) {
+	fax := ClassifyDevice(DeviceFacts{
+		Name:       "Brother PC-FAX v.3.2 (A3/LGR)",
+		DriverName: "Brother PC-FAX v.3.2",
+		PortName:   "BRFAX:",
+	})
+	if fax.Class != ClassVirtual || !fax.IsVirtual {
+		t.Fatalf("Brother PC-FAX must be virtual, got %+v", fax)
+	}
+}
+
+func TestWSDPhysicalQueueIsNotVirtual(t *testing.T) {
+	wsd := ClassifyDevice(DeviceFacts{
+		Name:        "Brother MFC-J3940DW Printer",
+		DriverName:  "Brother MFC-J3940DW Printer",
+		PortName:    "WSD_12345678",
+		SpoolerName: "Brother MFC-J3940DW Printer",
+	})
+	if wsd.IsVirtual {
+		t.Fatalf("WSD physical queue must not be virtual, got %+v", wsd)
+	}
+	if wsd.Class != ClassPhysical {
+		t.Fatalf("WSD physical queue must be physical, got %+v", wsd)
+	}
+}
+
+func TestIPPPhysicalQueueIsNotVirtual(t *testing.T) {
+	ipp := ClassifyDevice(DeviceFacts{
+		Name:           "Office IPP",
+		ConnectionType: "ipp",
+		Protocol:       "ipp",
+		Endpoint:       "ipp://192.168.1.50/ipp/print",
+	})
+	if ipp.IsVirtual {
+		t.Fatalf("IPP physical queue must not be virtual, got %+v", ipp)
+	}
+}
+
+func TestInboxDriverQueueIsNotVirtual(t *testing.T) {
+	inbox := ClassifyDevice(DeviceFacts{
+		Name:        "HP LaserJet",
+		DriverName:  "Microsoft IPP Class Driver",
+		PortName:    "WSD_abcdef",
+		SpoolerName: "HP LaserJet",
+	})
+	if inbox.IsVirtual {
+		t.Fatalf("inbox-driver physical queue must not be virtual, got %+v", inbox)
+	}
+}

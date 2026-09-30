@@ -36,7 +36,10 @@ export interface CapabilityMatrixRow {
 
 export function getSupportedDocumentTypes(protocol: ProtocolType, transport: TransportType): DocumentType[] {
   if (transport === "spooler" || protocol === "spooler" || protocol === "windows_spooler") {
-    return ["pdf", "image", "raw", "escpos"];
+    // Document transports by default. Raw byte passthrough requires an
+    // explicit supported_protocols declaration (enforced in routing.ts);
+    // it is never inferred, so office printers are never sent raw bytes.
+    return ["pdf", "image"];
   }
   if (protocol === "ipp" || protocol === "ipps" || transport === "ipp" || transport === "ipps") {
     return ["pdf"];
