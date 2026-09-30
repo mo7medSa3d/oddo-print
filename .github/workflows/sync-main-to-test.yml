@@ -1,0 +1,36 @@
+name: Temporary main-to-test sync
+
+on:
+  push:
+    branches:
+      - test/http-server-ready
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge latest main into test, preferring main only on conflicting hunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout test/http-server-ready
+          git merge --no-edit -X theirs origin/main
+
+      - name: Remove temporary sync workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/sync-main-to-test.yml
+          git commit -m "chore(test): remove temporary main sync workflow"
+          git push origin HEAD:test/http-server-ready
