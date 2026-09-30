@@ -273,7 +273,7 @@ describe("Operations observability presentation", () => {
     const dashboard = read("src/app/dashboard/dashboard-client.tsx");
     expect(dashboard).toContain(">Agents</h3>");
     expect(dashboard).toContain(">Printers</h3>");
-    expect(dashboard).toContain(">Certification</h3>");
+    expect(dashboard).toContain("Printer Certification");
     expect(dashboard).not.toContain("Agent Health (ONLINE/DEGRADED/OFFLINE/STARTING");
   });
 });

@@ -58,15 +58,15 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "succ
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary:
-    "bg-brand text-white border border-transparent shadow-sm hover:bg-brand-hover active:bg-brand-active active:shadow-none",
+    "bg-brand text-brand-contrast border border-transparent shadow-sm hover:bg-brand-hover active:bg-brand-active active:shadow-none",
   secondary:
     "bg-surface-2 text-ink border border-transparent shadow-xs hover:bg-surface-3 active:bg-surface-3",
   ghost:
     "bg-transparent text-ink-2 border border-transparent hover:bg-surface-2 hover:text-ink active:bg-surface-3",
   danger:
-    "bg-bad-solid text-white border border-transparent shadow-xs hover:brightness-[0.96] active:brightness-[0.92]",
+    "bg-bad-solid text-on-solid border border-transparent shadow-xs hover:brightness-[0.96] active:brightness-[0.92]",
   success:
-    "bg-ok-solid text-white border border-transparent shadow-xs hover:brightness-[0.96] active:brightness-[0.92]",
+    "bg-ok-solid text-on-solid border border-transparent shadow-xs hover:brightness-[0.96] active:brightness-[0.92]",
 };
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -603,6 +603,35 @@ export function Select({
 
 const inertedBackground = new Set<HTMLElement>();
 let openDialogCount = 0;
+let bodyLockScrollY = 0;
+let bodyLockStyles: { position: string; top: string; width: string; overflow: string } | null = null;
+
+function lockBodyScroll(): void {
+  if (typeof document === "undefined" || bodyLockStyles) return;
+  const body = document.body;
+  bodyLockScrollY = window.scrollY;
+  bodyLockStyles = {
+    position: body.style.position,
+    top: body.style.top,
+    width: body.style.width,
+    overflow: body.style.overflow,
+  };
+  body.style.position = "fixed";
+  body.style.top = `-${bodyLockScrollY}px`;
+  body.style.width = "100%";
+  body.style.overflow = "hidden";
+}
+
+function unlockBodyScroll(): void {
+  if (typeof document === "undefined" || !bodyLockStyles) return;
+  const body = document.body;
+  body.style.position = bodyLockStyles.position;
+  body.style.top = bodyLockStyles.top;
+  body.style.width = bodyLockStyles.width;
+  body.style.overflow = bodyLockStyles.overflow;
+  bodyLockStyles = null;
+  window.scrollTo(0, bodyLockScrollY);
+}
 
 function refreshBackgroundIsolation(): void {
   if (typeof document === "undefined") return;
@@ -643,6 +672,7 @@ function useDialog(
 ) {
   useEffect(() => {
     if (!open) return;
+    if (openDialogCount === 0) lockBodyScroll();
     openDialogCount += 1;
     refreshBackgroundIsolation();
     const focusables = (): HTMLElement[] => {
@@ -683,6 +713,7 @@ function useDialog(
       document.removeEventListener("keydown", onKey);
       openDialogCount = Math.max(0, openDialogCount - 1);
       refreshBackgroundIsolation();
+      if (openDialogCount === 0) unlockBodyScroll();
       prev?.focus?.();
     };
   }, [open, onClose, panelRef]);

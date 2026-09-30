@@ -1374,17 +1374,17 @@ export default function DashboardClient({
         })()}
       </Modal>
 
-      <Drawer
+      <Modal
         open={certifyPrinter !== null}
         onClose={() => setCertifyPrinter(null)}
         title={certifyPrinter ? `Certify ${certifyPrinter.name}` : "Printer Certification"}
-        description="Verify this printer with a real print test"
+        description="Run a controlled real-print certification and review every stage of the delivery path."
+        wide
       >
-        <h3 className="sr-only">Certification</h3>
         {certifyPrinter && (
           <PrintCertificationWizard key={certifyPrinter.id} printerId={certifyPrinter.id} />
         )}
-      </Drawer>
+      </Modal>
 
       <UpgradeLimitDialog
         open={upgradeLimit !== null}
