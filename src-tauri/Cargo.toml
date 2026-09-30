@@ -9,7 +9,7 @@ edition = "2024"
 rust-version = "1.90"
 
 [build-dependencies]
-tauri-build = { version = "=2.6.3", features = [] }
+tauri-build = { version = "=2.7.0", features = [] }
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
