@@ -8,6 +8,9 @@
 // ============================================================
 
 import { agentStaleThresholdSeconds } from "../lib/stale-threshold";
+import { DEFAULT_LOCALE, type Locale } from "../i18n/config";
+import { translate } from "../i18n/translate";
+import type { MessageKey } from "../i18n/messages/en";
 
 export type Tone = "ok" | "bad" | "warn" | "info" | "neutral";
 
@@ -79,42 +82,38 @@ export function jobTone(status: string, outcome?: PhysicalOutcome): Tone {
 
 /** Operator words for gateway job states. Never "Success" after only
  *  queueing, and never a plain "Failed" when paper may exist. */
-export function jobLabel(status: string, outcome?: PhysicalOutcome): string {
+export function jobLabel(status: string, outcome?: PhysicalOutcome, locale: Locale = DEFAULT_LOCALE): string {
+  const word = (key: MessageKey) => translate(locale, key);
   switch (status.toLowerCase()) {
     case "queued":
-      return "Queued at Gateway";
+      return word("job.queued");
     case "claimed":
-      return "Sent to agent";
+      return word("job.claimed");
     case "printing":
-      return "Printing";
+      return word("job.printing");
     case "success":
-      return "Delivered to printer";
+      return word("job.success");
     case "failed":
-      if (outcome === "unknown") return "Unknown outcome";
-      return "Failed (not printed)";
+      return outcome === "unknown" ? word("job.failedUnknown") : word("job.failed");
     case "expired":
-      if (outcome === "unknown") return "Unknown outcome";
-      return "Expired (never claimed)";
+      return outcome === "unknown" ? word("job.expiredUnknown") : word("job.expired");
     default:
+      // An unrecognised backend state is shown verbatim: inventing a friendly
+      // word for a state we do not model would misreport the job.
       return status;
   }
 }
 
 /** One-sentence operator guidance for the current job state. */
-export function jobGuidance(status: string, outcome: PhysicalOutcome): string {
-  if (status === "success") return "The agent confirmed the payload was fully transmitted to the printer. Physical paper output is not independently verified.";
-  if (outcome === "unknown") {
-    return "Print status is unknown. The printer may have received part or all of the job. Automatic retry is paused to prevent duplicate printing. Verify the printer before reprinting.";
-  }
-  if (status === "expired") {
-    return "The job waited longer than its release window without being claimed. Nothing reached the agent. Start the agent, then re-send from the source document.";
-  }
-  if (status === "failed") {
-    return "The print failed before the printer started. Fix the cause shown in the error, then retry.";
-  }
-  if (status === "queued") return "Waiting for the agent to pick the job up.";
-  if (status === "claimed") return "The agent received the job and is about to print it.";
-  if (status === "printing") return "The printer is receiving the document now.";
+export function jobGuidance(status: string, outcome: PhysicalOutcome, locale: Locale = DEFAULT_LOCALE): string {
+  const word = (key: MessageKey) => translate(locale, key);
+  if (status === "success") return word("job.guidance.success");
+  if (outcome === "unknown") return word("job.guidance.unknown");
+  if (status === "expired") return word("job.guidance.expired");
+  if (status === "failed") return word("job.guidance.failed");
+  if (status === "queued") return word("job.guidance.queued");
+  if (status === "claimed") return word("job.guidance.claimed");
+  if (status === "printing") return word("job.guidance.printing");
   return "";
 }
 
@@ -132,18 +131,19 @@ export function printerTone(status: string): Tone {
   }
 }
 
-export function printerLabel(status: string): string {
+export function printerLabel(status: string, locale: Locale = DEFAULT_LOCALE): string {
+  const word = (key: MessageKey) => translate(locale, key);
   switch (status) {
     case "online":
-      return "Online";
+      return word("status.online");
     case "offline":
-      return "Offline";
+      return word("status.offline");
     case "busy":
-      return "Busy";
+      return word("status.busy");
     case "error":
-      return "Error - check printer";
+      return word("status.errorCheckPrinter");
     default:
-      return "Status unknown";
+      return word("status.unknown");
   }
 }
 
@@ -153,18 +153,27 @@ export function printerLabel(status: string): string {
  *  regardless of the last status row. Mirrors src/lib/agent-availability.ts.
  *  The threshold is the shared agentStaleThresholdSeconds() so the UI and
  *  the claim gate cannot drift when STALE_AGENT_THRESHOLD_SECONDS is set. */
-export function agentLiveView(agent: { status?: string | null; lastSeenAt?: Date | string | null; lifecycle?: string | null }, nowMs = Date.now()): { tone: Tone; label: string } {
+export function agentLiveView(
+  agent: { status?: string | null; lastSeenAt?: Date | string | null; lifecycle?: string | null },
+  nowMs = Date.now(),
+  locale: Locale = DEFAULT_LOCALE,
+): { tone: Tone; label: string } {
+  const word = (key: MessageKey) => translate(locale, key);
   if (agent.lifecycle && agent.lifecycle !== "active") {
-    return { tone: "neutral", label: agent.lifecycle === "retired" ? "Retired" : "Disabled" };
+    return {
+      tone: "neutral",
+      label: agent.lifecycle === "retired" ? word("status.retired") : word("status.disabled"),
+    };
   }
   const seen = agent.lastSeenAt ? parseSharedTimeMs(agent.lastSeenAt) : null;
   const ageMs = seen === null ? Number.POSITIVE_INFINITY : nowMs - seen;
   const fresh = ageMs >= 0 && ageMs <= agentStaleThresholdSeconds() * 1000;
   if (agent.status === "online" && !fresh) {
-    return { tone: "bad", label: "Offline — heartbeat lost" };
+    // "Heartbeat" is engineering vocabulary; operators need the consequence.
+    return { tone: "bad", label: word("status.heartbeatLost") };
   }
-  if (agent.status === "online") return { tone: "ok", label: "Online" };
-  return { tone: "bad", label: "Offline" };
+  if (agent.status === "online") return { tone: "ok", label: word("status.online") };
+  return { tone: "bad", label: word("status.offline") };
 }
 
 /**

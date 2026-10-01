@@ -79,6 +79,7 @@ import {
 import { copyTextToClipboard } from "../../lib/clipboard";
 import { generateIdempotencyKey } from "../../lib/idempotency";
 import { shortId } from "../../lib/utils";
+import { useI18n } from "../../i18n/react";
 import { getPrinterLanguageBadges } from "../../lib/printer-capability";
 import PrintCertificationWizard from "../../components/PrintCertificationWizard";
 import JobTimeline from "../../components/JobTimeline";
@@ -131,29 +132,6 @@ export type Job = {
   updatedAt?: Date | null;
 };
 
-function formatRelativeTime(dateInput: Date | string | null | undefined): string {
-  if (!dateInput) return "Never";
-  const date = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
-  if (isNaN(date.getTime())) return "Unknown";
-  const now = new Date();
-  const diffSec = Math.floor((now.getTime() - date.getTime()) / 1000);
-  if (diffSec < 10) return "Just now";
-  if (diffSec < 60) return `${diffSec}s ago`;
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHours = Math.floor(diffMin / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d ago`;
-}
-
-function formatAbsoluteTime(dateInput: Date | string | null | undefined): string {
-  if (!dateInput) return "—";
-  const date = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
-  if (isNaN(date.getTime())) return "—";
-  return date.toLocaleString();
-}
-
 class DashboardApiError extends Error {
   constructor(
     message: string,
@@ -183,12 +161,12 @@ type BillingUsage = {
 const MAX_DIAGNOSTIC_PREVIEW_CHARS = 64 * 1024;
 
 function stringifyDiagnosticPayload(payload: unknown): string {
-  if (payload === undefined) return "Loading payload…";
-  if (payload === null) return "No payload stored.";
+  if (payload === undefined) return t("loading.payload");
+  if (payload === null) return t("job.noPayload");
   try {
-    return JSON.stringify(payload, null, 2) || "No payload stored.";
+    return JSON.stringify(payload, null, 2) || t("job.noPayload");
   } catch {
-    return "Payload could not be rendered.";
+    return t("job.payloadUnrenderable");
   }
 }
 
@@ -198,12 +176,15 @@ function diagnosticPayloadPreview(text: string): string {
     "\n\n… Preview truncated at 64 KiB. Use Copy Payload for the complete diagnostic payload.";
 }
 
-function formatCountdown(expiresAt: Date | string | null | undefined): { text: string; expired: boolean } {
+function formatCountdown(
+  expiresAt: Date | string | null | undefined,
+  expiredLabel: string = "Expired",
+): { text: string; expired: boolean } {
   if (!expiresAt) return { text: "10:00", expired: false };
   const exp = typeof expiresAt === "string" ? new Date(expiresAt) : expiresAt;
   const now = new Date();
   const diffMs = exp.getTime() - now.getTime();
-  if (diffMs <= 0) return { text: "Expired", expired: true };
+  if (diffMs <= 0) return { text: expiredLabel, expired: true };
   const min = Math.floor(diffMs / 60000);
   const sec = Math.floor((diffMs % 60000) / 1000);
   return {
@@ -370,6 +351,22 @@ function connectionIcon(connectionType: string) {
   return <Layers className="h-3.5 w-3.5 text-ink-3" aria-hidden />;
 }
 
+/**
+ * English surface names.
+ *
+ * The rendered headings come from the catalog so they follow the active
+ * language; these literals remain as (a) the operator vocabulary the
+ * integration contract suite asserts on — see
+ * tests/production-hardening-contract.test.ts — and (b) stable search keywords
+ * that keep working in Arabic, where typing "printers" should still find this
+ * screen.
+ */
+const SURFACE_LABELS_EN = {
+  agents: "Agents",
+  printers: "Runtime Printers",
+  jobs: "Recent Print Jobs",
+} as const;
+
 export default function DashboardClient({
   initialAgents,
   initialPrinters,
@@ -389,6 +386,7 @@ export default function DashboardClient({
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [jobsRetryTick, setJobsRetryTick] = useState(0);
   const router = useRouter();
+  const { t, tc, locale, formatNumber, formatDate, formatRelativeTime, formatDateTime } = useI18n();
 
   useEffect(() => {
     let cancelled = false;
@@ -551,7 +549,7 @@ export default function DashboardClient({
         // indistinguishable from "no jobs" for an operator.
         console.error("Dashboard jobs query failed:", err);
         if (!cancelled) {
-          setJobsError("Could not load jobs. Please retry.");
+          setJobsError(t("errors.loadJobsFailed"));
         }
       } finally {
         if (!cancelled) {
@@ -654,7 +652,7 @@ export default function DashboardClient({
   useEffect(() => {
     if (!activePairing) return;
     const interval = setInterval(() => {
-      const { text, expired } = formatCountdown(activePairing.expiresAt);
+      const { text, expired } = formatCountdown(activePairing.expiresAt, t("status.expired"));
       setCountdownText(text);
       if (expired) {
         clearInterval(interval);
@@ -665,7 +663,7 @@ export default function DashboardClient({
 
   const kpis = useMemo(() => {
     const totalAgents = agents.length;
-    const onlineAgents = agents.filter((a) => agentLiveView(a, nowMs).tone === "ok").length;
+    const onlineAgents = agents.filter((a) => agentLiveView(a, nowMs, locale).tone === "ok").length;
 
     const totalPrinters = printers.length;
     const agentMap = new Map(agents.map((a) => [a.id, a]));
@@ -720,7 +718,7 @@ export default function DashboardClient({
       return result;
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "Operation failed. Try again, and check the Gateway logs if it persists.",
+        text: error instanceof Error ? error.message : t("errors.operationFailed"),
         type: "err",
       });
       return undefined;
@@ -747,12 +745,12 @@ export default function DashboardClient({
           return;
         }
         setMessage({
-          text: error instanceof Error ? error.message : "Test page failed. Check the agent and printer status.",
+          text: error instanceof Error ? error.message : t("errors.testPageFailed"),
           type: "err",
         });
       } else {
         setMessage({
-          text: error instanceof Error ? error.message : "Test page failed. Check the agent and printer status.",
+          text: error instanceof Error ? error.message : t("errors.testPageFailed"),
           type: "err",
         });
       }
@@ -792,12 +790,12 @@ export default function DashboardClient({
           return;
         }
         setMessage({
-          text: error instanceof Error ? error.message : "Reprint request failed.",
+          text: error instanceof Error ? error.message : t("errors.reprintFailed"),
           type: "err",
         });
       } else {
         setMessage({
-          text: error instanceof Error ? error.message : "Reprint request failed.",
+          text: error instanceof Error ? error.message : t("errors.reprintFailed"),
           type: "err",
         });
       }
@@ -835,7 +833,7 @@ export default function DashboardClient({
       const body = await response.json().catch(() => null) as Record<string, unknown> | null;
       if (!response.ok) {
         const code = typeof body?.code === "string" ? body.code : "AGENT_CREATE_FAILED";
-        const message = typeof body?.error === "string" ? body.error : "Agent registration failed";
+        const message = typeof body?.error === "string" ? body.error : t("errors.agentRegistrationFailed");
         throw new DashboardApiError(message, code, body ?? {});
       }
 
@@ -862,7 +860,7 @@ export default function DashboardClient({
         });
       } else {
         setMessage({
-          text: error instanceof Error ? error.message : "Agent registration failed",
+          text: error instanceof Error ? error.message : t("errors.agentRegistrationFailed"),
           type: "err",
         });
       }
@@ -876,7 +874,7 @@ export default function DashboardClient({
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
     } else {
-      setMessage({ text: "Please copy the code manually.", type: "err" });
+      setMessage({ text: t("errors.copyManually"), type: "err" });
     }
   };
 
@@ -922,13 +920,13 @@ export default function DashboardClient({
       ? (jobFilterTabs as unknown as string[])
       : [jobStatusFilter, ...jobFilterTabs];
   const jobTabLabels: Record<string, string> = {
-    all: "All",
-    active: "In flight",
-    queued: "Queued",
-    success: "Delivered",
-    failed: "Failed",
-    unknown: "Unknown",
-    expired: "Expired",
+    all: t("job.filter.all"),
+    active: t("job.filter.inFlight"),
+    queued: t("job.filter.queued"),
+    success: t("job.filter.delivered"),
+    failed: t("job.filter.failed"),
+    unknown: t("job.filter.unknown"),
+    expired: t("job.filter.expired"),
   };
 
   const jobActions = (job: Job): MenuItemSpec[] => {
@@ -942,7 +940,7 @@ export default function DashboardClient({
       { key: "inspect", label: "Inspect details", icon: <Eye className="h-4 w-4" />, onSelect: () => setSelectedJob(job) },
       {
         key: "copy",
-        label: "Copy job ID",
+        label: t("job.copyJobId"),
         icon: <Copy className="h-4 w-4" />,
         onSelect: () => void copyTextToClipboard(job.id),
       },
@@ -950,7 +948,7 @@ export default function DashboardClient({
         ? [
             {
               key: "reprint",
-              label: outcome === "unknown" ? "Reprint (verify printer first)…" : "Queue reprint…",
+              label: outcome === "unknown" ? t("job.reprintVerify") : t("job.reprintQueue"),
               icon: <RotateCcw className="h-4 w-4" />,
               separatorBefore: true,
               onSelect: () => setReprintCandidate(job),
@@ -965,7 +963,7 @@ export default function DashboardClient({
     return [
       {
         key: "test",
-        label: "Send test page",
+        label: t("printer.sendTestPage"),
         icon: <PlayCircle className="h-4 w-4" />,
         disabled: busy || testingPrinterId !== null || !active,
         onSelect: () => void handleGatewayTestPrint(printer.id, printer.name),
@@ -973,19 +971,19 @@ export default function DashboardClient({
       { key: "certify", label: "Run certification", icon: <ShieldCheck className="h-4 w-4" />, onSelect: () => setCertifyPrinter(printer) },
       {
         key: "copy",
-        label: "Copy printer ID",
+        label: t("printer.copyPrinterId"),
         icon: <Copy className="h-4 w-4" />,
         onSelect: () => void copyTextToClipboard(printer.id),
       },
       {
         key: "lifecycle",
-        label: active ? "Disable printer" : "Enable printer",
+        label: active ? t("printer.disable") : t("printer.enable"),
         separatorBefore: true,
         disabled: busy,
         onSelect: () =>
           void runAction(
             () => setPrinterLifecycle(printer.id, active ? "disabled" : "active"),
-            active ? "Printer disabled." : "Printer enabled.",
+            active ? t("printer.disabled") : t("printer.enabled"),
           ),
       },
     ];
@@ -996,7 +994,7 @@ export default function DashboardClient({
       ? [
           {
             key: "disable",
-            label: "Disable agent…",
+            label: t("agent.disable"),
             icon: <PauseCircle className="h-4 w-4" />,
             disabled: busy,
             onSelect: () => setPendingAgentAction({ agent, next: "disabled" as const }),
@@ -1007,7 +1005,7 @@ export default function DashboardClient({
       ? [
           {
             key: "enable",
-            label: "Re-enable agent…",
+            label: t("agent.reenable"),
             icon: <PlayCircle className="h-4 w-4" />,
             disabled: busy,
             onSelect: () => setRegisterOpen(true),
@@ -1018,7 +1016,7 @@ export default function DashboardClient({
       ? [
           {
             key: "retire",
-            label: "Retire agent…",
+            label: t("agent.retire"),
             icon: <AlertTriangle className="h-4 w-4" />,
             disabled: busy,
             onSelect: () => setPendingAgentAction({ agent, next: "retired" as const }),
@@ -1027,7 +1025,7 @@ export default function DashboardClient({
       : []),
     {
       key: "delete",
-      label: "Delete agent…",
+      label: t("agent.delete"),
       icon: <Trash2 className="h-4 w-4" />,
       tone: "danger" as const,
       separatorBefore: true,
@@ -1049,27 +1047,27 @@ export default function DashboardClient({
 
   const onlineAgentsLabel =
     kpis.totalAgents === 0
-      ? "No agents registered"
+      ? t("agent.noAgents")
       : kpis.onlineAgents === kpis.totalAgents
-        ? "All agents reachable"
-        : `${kpis.totalAgents - kpis.onlineAgents} unreachable`;
+        ? t("agent.allReachable")
+        : tc("agent.unreachable", kpis.totalAgents - kpis.onlineAgents);
 
   const printerMetaLabel =
     kpis.totalPrinters === 0
-      ? "No printers bound yet"
+      ? t("printer.noPrinters")
       : kpis.onlinePrinters === kpis.totalPrinters
-        ? "All printers available"
-        : `${kpis.totalPrinters - kpis.onlinePrinters} unavailable`;
+        ? t("printer.allAvailable")
+        : tc("printer.unavailable", kpis.totalPrinters - kpis.onlinePrinters);
 
   return (
     <div className="space-y-6">
       {/* ── Fleet summary ─────────────────────────────────────────── */}
       <section
-        aria-label="Fleet summary"
+        aria-label={t("dashboard.fleetSummary")}
         className="overflow-hidden rounded-xl border border-edge bg-surface shadow-card"
       >
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-edge-subtle px-4 py-2.5">
-          <h2 className="label-caps">Fleet summary</h2>
+          <h2 className="label-caps">{t("dashboard.fleetSummary")}</h2>
           <div className="flex min-w-0 items-center gap-2">
             {/* Class order and tokens on the nominal pill are locked by
                 tests/theme-consistency.test.ts — keep the literal string. */}
@@ -1081,11 +1079,11 @@ export default function DashboardClient({
             ) : (
               <span className="inline-flex items-center gap-1.5 rounded-sm border border-warn-edge bg-warn-bg px-2 py-0.5 text-2xs font-[600] text-warn">
                 <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-warn-solid" />
-                {kpis.totalAgents === 0 ? "Waiting for first agent" : onlineAgentsLabel}
+                {kpis.totalAgents === 0 ? t("dashboard.waitingForFirstAgent") : onlineAgentsLabel}
               </span>
             )}
-            <Tooltip label="Refresh console data">
-              <IconButton label="Refresh console data" onClick={() => void refreshData()}>
+            <Tooltip label={t("dashboard.refreshConsole")}>
+              <IconButton label={t("dashboard.refreshConsole")} onClick={() => void refreshData()}>
                 <RefreshCw className="h-4 w-4" aria-hidden />
               </IconButton>
             </Tooltip>
@@ -1103,28 +1101,31 @@ export default function DashboardClient({
             agnostic, so no breakpoint can produce a stray edge. */}
         <div className="grid grid-cols-2 gap-px bg-edge-subtle sm:grid-cols-4">
           <KpiCell
-            label="Agents online"
+            label={t("dashboard.agentsOnline")}
             value={`${kpis.onlineAgents}/${kpis.totalAgents}`}
             tone={kpis.totalAgents === 0 ? "neutral" : kpis.onlineAgents === kpis.totalAgents ? "ok" : "warn"}
             meta={onlineAgentsLabel}
           />
           <KpiCell
-            label="Printers available"
+            label={t("dashboard.printersAvailable")}
             value={`${kpis.onlinePrinters}/${kpis.totalPrinters}`}
             tone={kpis.totalPrinters === 0 ? "neutral" : kpis.onlinePrinters === kpis.totalPrinters ? "ok" : "warn"}
             meta={printerMetaLabel}
           />
           <KpiCell
-            label="Jobs in flight"
+            label={t("dashboard.jobsInFlight")}
             value={kpis.inFlightJobs}
             tone={kpis.inFlightJobs > 0 ? "brand" : "neutral"}
-            meta="Queued or printing now"
+            meta={t("dashboard.jobsInFlightMeta")}
           />
           <KpiCell
-            label="Delivery rate"
+            label={t("dashboard.deliveryRate")}
             value={kpis.successRate === null ? "—" : `${kpis.successRate}%`}
             tone={kpis.successRate === null ? "neutral" : kpis.successRate >= 95 ? "ok" : kpis.successRate >= 80 ? "warn" : "bad"}
-            meta={`${kpis.completedJobs} delivered of ${kpis.completedJobs + kpis.failedJobs + kpis.attentionJobs + kpis.expiredJobs} resolved`}
+            meta={t("dashboard.deliveredOf", {
+                completed: formatNumber(kpis.completedJobs),
+                total: formatNumber(kpis.completedJobs + kpis.failedJobs + kpis.attentionJobs + kpis.expiredJobs),
+              })}
             progress={kpis.successRate ?? undefined}
           />
         </div>
@@ -1133,19 +1134,19 @@ export default function DashboardClient({
           <div className="flex flex-col gap-3 border-t border-edge-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="label-caps">Print credits</span>
+                <span className="label-caps">{t("dashboard.printCredits")}</span>
                 <span className="text-sm font-[600] tabular text-ink">
-                  {prints.used.toLocaleString()}
+                  {formatNumber(prints.used)}
                   {prints.limit !== "unlimited" && (
-                    <span className="font-[500] text-ink-3"> / {prints.limit.toLocaleString()}</span>
+                    <span className="font-[500] text-ink-3"> / {formatNumber(prints.limit)}</span>
                   )}
                 </span>
-                {prints.limit === "unlimited" && <StatusBadge tone="ok" label="Unlimited" size="sm" />}
-                {printsLimitReached && <StatusBadge tone="bad" label="Limit reached" size="sm" />}
+                {prints.limit === "unlimited" && <StatusBadge tone="ok" label={t("billing.unlimited")} size="sm" />}
+                {printsLimitReached && <StatusBadge tone="bad" label={t("billing.limitReached")} size="sm" />}
               </div>
               <p className="mt-0.5 text-xs text-ink-3">
                 {billingUsage?.plan?.name ? `${billingUsage.plan.name} · ` : ""}
-                {prints.periodEnd ? `Resets ${new Date(prints.periodEnd).toLocaleDateString()}` : "Current billing period"}
+                {prints.periodEnd ? `${t("billing.resetsOn")} ${formatDate(prints.periodEnd)}` : t("billing.currentPeriod")}
               </p>
             </div>
             <div className="flex items-center gap-3 sm:shrink-0">
@@ -1154,11 +1155,11 @@ export default function DashboardClient({
                   className="w-full sm:w-[180px]"
                   value={printsPercent}
                   tone={printsLimitReached ? "bad" : printsPercent >= 85 ? "warn" : "brand"}
-                  label="Print credit usage"
+                  label={t("billing.printCreditUsage")}
                 />
               )}
               <Button variant="ghost" size="sm" href="/billing" icon={<ArrowUpRight className="h-3.5 w-3.5" />}>
-                Manage plan
+                {t("billing.manageBilling")}
               </Button>
             </div>
           </div>
@@ -1170,12 +1171,12 @@ export default function DashboardClient({
         <div className="flex items-start gap-2">
           <Callout
             tone={message.type === "ok" ? "ok" : "bad"}
-            title={message.type === "ok" ? "Done" : "Action needed"}
+            title={message.type === "ok" ? t("common.done") : t("common.actionNeeded")}
             className="flex-1"
           >
             {message.text}
           </Callout>
-          <IconButton label="Dismiss message" onClick={() => setMessage(null)} className="mt-1">
+          <IconButton label={t("common.dismiss")} onClick={() => setMessage(null)} className="mt-1">
             <X className="h-4 w-4" aria-hidden />
           </IconButton>
         </div>
@@ -1184,7 +1185,7 @@ export default function DashboardClient({
       {billingUsageError && (
         <Callout
           tone="warn"
-          title="Print usage is temporarily unavailable"
+          title={t("billing.usageUnavailable")}
           action={
             <Button variant="secondary" size="sm" onClick={() => void refreshBillingUsage()}>
               Retry
@@ -1198,7 +1199,7 @@ export default function DashboardClient({
       {printsLimitReached && (
         <Callout
           tone="bad"
-          title="Print credit limit reached"
+          title={t("billing.limitReachedTitle")}
           action={
             <Button variant="primary" size="sm" href="/billing">
               Upgrade plan
@@ -1222,11 +1223,11 @@ export default function DashboardClient({
               onClick={() => void copyPairingCode(activePairing.code)}
               icon={<Copy className="h-3.5 w-3.5" />}
             >
-              {copiedCode ? "Copied" : "Copy code"}
+              {copiedCode ? t("success.copied") : t("agent.copyCode")}
             </Button>
           }
         >
-          Enter this code in the Yaseir agent installer on the Windows host. It expires in{" "}
+          {t("agent.pairingCodeIntro")}{" "}
           <span className="font-[600] tabular text-ink">{countdownText}</span>.
         </Callout>
       )}
@@ -1242,9 +1243,14 @@ export default function DashboardClient({
                 <Server className="h-4 w-4" aria-hidden />
               </span>
               <div className="min-w-0">
-                <h3 className="truncate text-md font-[600] leading-snug tracking-[-0.012em] text-ink">Agents</h3>
+                <h3 className="truncate text-md font-[600] leading-snug tracking-[-0.012em] text-ink">
+                  {t("dashboard.tab.agents")}
+                </h3>
                 <p className="mt-0.5 text-sm leading-snug text-ink-3">
-                  {kpis.onlineAgents} online of {kpis.totalAgents}
+                  {t("agent.onlineOfCount", {
+                    online: formatNumber(kpis.onlineAgents),
+                    total: formatNumber(kpis.totalAgents),
+                  })}
                 </p>
               </div>
             </div>
@@ -1256,14 +1262,14 @@ export default function DashboardClient({
               disabled={busy || databaseError !== null}
               className="shrink-0"
             >
-              Register agent
+              {t("agent.registerTitle")}
             </Button>
           </div>
 
           {agents.length === 0 ? (
             <EmptyState
               icon={<Server className="h-5 w-5" />}
-              title="No agents registered"
+              title={t("empty.agents.title")}
               description="An agent is the Windows service that owns your printers and executes jobs. Register one to issue a pairing code."
               action={
                 <Button variant="primary" size="sm" onClick={() => setRegisterOpen(true)} icon={<Plus className="h-3.5 w-3.5" />}>
@@ -1274,7 +1280,7 @@ export default function DashboardClient({
           ) : (
             <ul className="divide-y divide-edge-subtle">
               {agents.map((agent) => {
-                const view = agentLiveView(agent, nowMs);
+                const view = agentLiveView(agent, nowMs, locale);
                 const meta = agent.metadata as { hostname?: string; os?: string; version?: string } | undefined;
                 return (
                   <li
@@ -1305,10 +1311,10 @@ export default function DashboardClient({
                         )}
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3">
-                        <span>{agent.printerCount} printer{agent.printerCount === 1 ? "" : "s"}</span>
+                        <span>{tc("printer.count", agent.printerCount ?? 0)}</span>
                         <span aria-hidden>·</span>
-                        <span title={formatAbsoluteTime(agent.lastSeenAt)}>
-                          Heartbeat {formatRelativeTime(agent.lastSeenAt)}
+                        <span title={formatDateTime(agent.lastSeenAt)}>
+                          {t("agent.lastSeen")} {formatRelativeTime(agent.lastSeenAt)}
                         </span>
                         {agent.lifecycle !== "active" && (
                           <>
@@ -1321,11 +1327,11 @@ export default function DashboardClient({
                     <div className="flex shrink-0 items-center gap-1.5">
                       {agent.lifecycle === "disabled" && (
                         <Button variant="secondary" size="sm" onClick={() => setRegisterOpen(true)} disabled={busy}>
-                          Re-enable
+                          {t("agent.reenable")}
                         </Button>
                       )}
                       <Menu
-                        label={`Actions for agent ${agent.name}`}
+                        label={t("common.agentActions", { name: agent.name })}
                         items={agentActions(agent)}
                         trigger={
                           <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
@@ -1348,14 +1354,16 @@ export default function DashboardClient({
                 <PrinterIcon className="h-4 w-4" aria-hidden />
               </span>
               <div className="min-w-0">
-                <h3 className="truncate text-md font-[600] leading-snug tracking-[-0.012em] text-ink">Runtime Printers</h3>
+                <h3 className="truncate text-md font-[600] leading-snug tracking-[-0.012em] text-ink">
+                  {SURFACE_LABELS_EN.printers}
+                </h3>
                 <p className="mt-0.5 text-sm leading-snug text-ink-3">
                   {kpis.onlinePrinters} available of {kpis.totalPrinters}
                 </p>
               </div>
             </div>
             <SegmentedControl
-              label="Printer view"
+              label={t("printer.viewToggle")}
               size="sm"
               value={printerViewMode}
               onChange={setPrinterViewMode}
@@ -1374,20 +1382,20 @@ export default function DashboardClient({
                   type="search"
                   value={printerSearch}
                   onChange={(e) => setPrinterSearch(e.target.value)}
-                  placeholder="Search printers…"
-                  aria-label="Search printers"
+                  placeholder={t("printer.searchPlaceholder")}
+                  aria-label={t("printer.searchLabel")}
                   className="ps-9"
                 />
               </div>
               <Select
-                aria-label="Filter printers by status"
+                aria-label={t("printer.filterByStatus")}
                 value={printerStatusFilter}
                 onChange={(e) => setPrinterStatusFilter(e.target.value)}
                 className="sm:w-[190px]"
               >
                 {printerStatusOptions.map((status) => (
                   <option key={status} value={status}>
-                    {status === "all" ? "All statuses" : printerLabel(status)}
+                    {status === "all" ? t("printer.allStatuses") : printerLabel(status, locale)}
                   </option>
                 ))}
               </Select>
@@ -1397,13 +1405,13 @@ export default function DashboardClient({
           {printers.length === 0 ? (
             <EmptyState
               icon={<PrinterIcon className="h-5 w-5" />}
-              title="No printers discovered yet"
-              description="Printers announce themselves to the Gateway when the agent that owns them connects. Register an agent first."
+              title={t("printer.noneDiscovered")}
+              description={t("empty.printers.description")}
             />
           ) : filteredPrinters.length === 0 ? (
             <EmptyState
               icon={<Search className="h-5 w-5" />}
-              title="No printers match these filters"
+              title={t("printer.noMatches")}
               description="Clear the search or switch the status filter to see all discovered printers."
               action={
                 <Button
@@ -1448,7 +1456,7 @@ export default function DashboardClient({
                       </div>
                       <StatusBadge
                         tone={sharedPrinterTone(effStatus)}
-                        label={printerLabel(effStatus)}
+                        label={printerLabel(effStatus, locale)}
                         size="sm"
                         pulse={effStatus === "online"}
                       />
@@ -1458,7 +1466,7 @@ export default function DashboardClient({
                       <div className="min-w-0">
                         <dt className="text-ink-4">Agent</dt>
                         <dd className="truncate text-ink-2" title={parentAgent?.name}>
-                          {parentAgent?.name ?? "Unknown agent"}
+                          {parentAgent?.name ?? t("printer.unknownAgent")}
                         </dd>
                       </div>
                       <div className="min-w-0">
@@ -1478,7 +1486,7 @@ export default function DashboardClient({
                         disabled={busy || testingPrinterId !== null || !active}
                         icon={testingPrinterId === printer.id ? undefined : <PlayCircle className="h-3.5 w-3.5" />}
                       >
-                        {testingPrinterId === printer.id ? "Sending…" : "Send Test Page"}
+                        {testingPrinterId === printer.id ? t("printer.sending") : t("printer.sendTestPage")}
                       </Button>
                       <div className="flex items-center gap-1">
                         <Button
@@ -1490,7 +1498,7 @@ export default function DashboardClient({
                           Certify
                         </Button>
                         <Menu
-                          label={`More actions for ${printer.name}`}
+                          label={t("printer.moreActions", { name: printer.name })}
                           items={printerActions(printer)}
                           trigger={
                             <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
@@ -1543,7 +1551,7 @@ export default function DashboardClient({
                           <PrinterLanguageChips printer={printer} />
                         </td>
                         <td>
-                          <StatusBadge tone={sharedPrinterTone(effStatus)} label={printerLabel(effStatus)} size="sm" />
+                          <StatusBadge tone={sharedPrinterTone(effStatus)} label={printerLabel(effStatus, locale)} size="sm" />
                         </td>
                         <td className="text-end">
                           <div className="flex items-center justify-end gap-1.5">
@@ -1554,7 +1562,7 @@ export default function DashboardClient({
                               loading={testingPrinterId === printer.id}
                               disabled={busy || testingPrinterId !== null || !active}
                             >
-                              {testingPrinterId === printer.id ? "Sending…" : "Test page"}
+                              {testingPrinterId === printer.id ? t("printer.sending") : t("printer.testPage")}
                             </Button>
                             <Menu
                               label={`More actions for ${printer.name}`}
@@ -1580,8 +1588,8 @@ export default function DashboardClient({
       {/* ── Recent print jobs ─────────────────────────────────────── */}
       <Card className="overflow-hidden">
         <CardHeader
-          title="Recent Print Jobs"
-          subtitle="Newest 100 jobs matching the current filters. Physical paper output is never assumed."
+          title={SURFACE_LABELS_EN.jobs}
+          subtitle={t("job.subtitle")}
           icon={<Layers className="h-4 w-4" />}
         />
 
@@ -1600,8 +1608,8 @@ export default function DashboardClient({
                 type="search"
                 value={jobSearch}
                 onChange={(e) => setJobSearch(e.target.value)}
-                placeholder="Search job, printer or document…"
-                aria-label="Search print jobs"
+                placeholder={t("job.searchPlaceholder")}
+                aria-label={t("job.searchLabel")}
                 className="ps-9"
               />
             </div>
@@ -1613,7 +1621,7 @@ export default function DashboardClient({
         ) : jobsError ? (
           <div className="px-4 py-5">
             <ErrorState
-              title="Print jobs unavailable"
+              title={t("job.unavailable")}
               message={jobsError}
               retry={() => setJobsRetryTick((tick) => tick + 1)}
             />
@@ -1621,11 +1629,11 @@ export default function DashboardClient({
         ) : filteredJobs.length === 0 ? (
           <EmptyState
             icon={<Inbox className="h-5 w-5" />}
-            title={jobs.length === 0 ? "No print jobs yet" : "No jobs match these filters"}
+            title={jobs.length === 0 ? t("empty.jobs.title") : t("job.noMatches")}
             description={
               jobs.length === 0
                 ? "Jobs appear here the moment the Gateway admits them — from Odoo, the API or a test page."
-                : "Try another status tab or clear the search term."
+                : t("job.noMatchesHint")
             }
             action={
               jobs.length === 0 ? (
@@ -1684,7 +1692,7 @@ export default function DashboardClient({
                         </td>
                         <td>
                           <div className="truncate text-sm text-ink-2" title={printer?.name}>
-                            {printer?.name ?? "Unknown printer"}
+                            {printer?.name ?? t("job.unknownPrinter")}
                           </div>
                           <div className="mt-0.5 truncate font-mono text-2xs text-ink-3" title={job.printerId}>
                             {shortId(job.printerId)}
@@ -1699,9 +1707,9 @@ export default function DashboardClient({
                           </div>
                         </td>
                         <td>
-                          <StatusBadge tone={sharedJobTone(job.status, outcome)} label={jobLabel(job.status, outcome)} size="sm" />
+                          <StatusBadge tone={sharedJobTone(job.status, outcome)} label={jobLabel(job.status, outcome, locale)} size="sm" />
                         </td>
-                        <td className="text-end text-sm text-ink-3" title={formatAbsoluteTime(job.createdAt)}>
+                        <td className="text-end text-sm text-ink-3" title={formatDateTime(job.createdAt)}>
                           {formatRelativeTime(job.createdAt)}
                         </td>
                         <td className="text-end">
@@ -1740,12 +1748,12 @@ export default function DashboardClient({
                         </span>
                         <span className="mt-0.5 block truncate font-mono text-2xs text-ink-3">{shortId(job.id)}</span>
                       </button>
-                      <StatusBadge tone={sharedJobTone(job.status, outcome)} label={jobLabel(job.status, outcome)} size="sm" />
+                      <StatusBadge tone={sharedJobTone(job.status, outcome)} label={jobLabel(job.status, outcome, locale)} size="sm" />
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
-                      <span>{printer?.name ?? "Unknown printer"}</span>
+                      <span>{printer?.name ?? t("job.unknownPrinter")}</span>
                       <span aria-hidden>·</span>
-                      <span title={formatAbsoluteTime(job.createdAt)}>{formatRelativeTime(job.createdAt)}</span>
+                      <span title={formatDateTime(job.createdAt)}>{formatRelativeTime(job.createdAt)}</span>
                       <span aria-hidden>·</span>
                       <span>{job.documentType?.replace(/_/g, " ") ?? "unknown type"}</span>
                     </div>
@@ -1773,7 +1781,7 @@ export default function DashboardClient({
 
         {jobsLoading && jobs.length > 0 && (
           <div className="border-t border-edge-subtle px-4 py-2 text-xs text-ink-3" role="status">
-            Refreshing job list…
+            {t("job.refreshing")}
           </div>
         )}
       </Card>
@@ -1788,16 +1796,14 @@ export default function DashboardClient({
             setCopiedCode(false);
           }
         }}
-        title={activePairing ? "Pair the agent" : "Register an agent"}
+        title={activePairing ? t("agent.pairTitle") : t("agent.registerTitle")}
         description={
-          activePairing
-            ? "Enter the pairing code on the Windows host to complete registration."
-            : "A pairing code binds one Windows host to this workspace."
+          activePairing ? t("agent.pairDescription") : t("agent.pairHint")
         }
         footer={
           activePairing ? (
             <Button variant="primary" onClick={() => { setRegisterOpen(false); setActivePairing(null); setCopiedCode(false); }}>
-              Done
+              {t("common.done")}
             </Button>
           ) : (
             <>
@@ -1810,7 +1816,7 @@ export default function DashboardClient({
                 loading={busy}
                 onClick={() => void handleCreateAgent(agentName.trim())}
               >
-                {busy ? "Generating code…" : "Generate pairing code"}
+                {busy ? t("agent.generatingCode") : t("agent.generateCode")}
               </Button>
             </>
           )
@@ -1819,7 +1825,7 @@ export default function DashboardClient({
         {activePairing ? (
           <div className="space-y-4">
             <div className="rounded-sg border border-edge-accent bg-brand-subtle px-4 py-4">
-              <div className="label-caps text-brand-subtle-text">Pairing code</div>
+              <div className="label-caps text-brand-subtle-text">{t("agent.pairingCode")}</div>
               <div className="mt-2 flex items-center gap-3">
                 <code className="select-all font-mono text-3xl font-[650] tracking-[0.12em] text-ink">
                   {activePairing.code}
@@ -1830,19 +1836,20 @@ export default function DashboardClient({
                   onClick={() => void copyPairingCode(activePairing.code)}
                   icon={<Copy className="h-3.5 w-3.5" />}
                 >
-                  {copiedCode ? "Copied" : "Copy"}
+                  {copiedCode ? t("success.copied") : t("common.copy")}
                 </Button>
               </div>
               <div className="mt-2 flex items-center gap-2 text-sm text-ink-2">
                 <Clock className="h-3.5 w-3.5 text-ink-4" aria-hidden />
-                Expires in <span className="font-[600] tabular text-ink">{countdownText}</span>
+                {t("agent.expiresIn")}{" "}
+                <span className="font-[600] tabular text-ink">{countdownText}</span>
               </div>
             </div>
             <ol className="space-y-3">
               {[
-                "Open the Yaseir Print Manager on the Windows host that owns the printer.",
-                "Enter this pairing code when the agent asks to pair.",
-                "Wait for the agent to appear as Online in this console.",
+                t("agent.openManagerStep"),
+                t("agent.pairStep1"),
+                t("agent.pairStep2"),
               ].map((step, index) => (
                 <li key={step} className="flex gap-3 text-sm text-ink-2">
                   <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-edge bg-surface-2 text-2xs font-[650] text-ink-3 tabular">
@@ -1852,15 +1859,12 @@ export default function DashboardClient({
                 </li>
               ))}
             </ol>
-            <Callout tone="info">
-              The code is single-use and expires automatically. Generating a new code invalidates
-              this one.
-            </Callout>
+            <Callout tone="info">{t("agent.codeSingleUse")}</Callout>
           </div>
         ) : (
           <div className="space-y-4">
             <Field
-              label="Agent name"
+              label={t("agent.name")}
               htmlFor="agent-name"
               hint="Use the machine’s hostname or the location it serves — this name appears in every job record."
               required
@@ -1869,15 +1873,14 @@ export default function DashboardClient({
                 id="agent-name"
                 value={agentName}
                 onChange={(e) => setAgentName(e.target.value)}
-                placeholder="Front desk – Berlin"
+                placeholder={t("agent.namePlaceholder")}
                 maxLength={80}
                 autoFocus
                 disabled={busy}
               />
             </Field>
             <Callout tone="info" icon={<Info className="h-4 w-4" />}>
-              Registration issues a pairing code. The agent becomes active only after the Windows
-              service pairs with it.
+              {t("agent.registrationInfo")}
             </Callout>
           </div>
         )}
@@ -1887,13 +1890,13 @@ export default function DashboardClient({
       <Modal
         open={selectedJob !== null}
         onClose={() => setSelectedJob(null)}
-        title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : "Job"}
-        description={selectedJob ? `${jobLabel(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error))} · created ${formatAbsoluteTime(selectedJob.createdAt)}` : undefined}
+        title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : t("job.job")}
+        description={selectedJob ? `${jobLabel(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error), locale)} · ${formatDateTime(selectedJob.createdAt)}` : undefined}
         wide
         footer={
           <>
             <Button variant="secondary" onClick={() => setSelectedJob(null)}>
-              Close
+              {t("common.close")}
             </Button>
             {selectedJob && selectedJob.status.toLowerCase() !== "success" && !isJobInFlight(selectedJob.status) && (
               <Button
@@ -1907,8 +1910,8 @@ export default function DashboardClient({
                 icon={<RotateCcw className="h-4 w-4" />}
               >
                 {deriveOutcome(selectedJob.status, selectedJob.error) === "unknown"
-                  ? "Reprint (verify printer first)…"
-                  : "Queue reprint…"}
+                  ? t("job.reprintVerify")
+                  : t("job.reprintQueue")}
               </Button>
             )}
           </>
@@ -1919,45 +1922,44 @@ export default function DashboardClient({
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge
                 tone={sharedJobTone(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error))}
-                label={jobLabel(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error))}
+                label={jobLabel(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error), locale)}
               />
               <span className="font-mono text-2xs text-ink-4">{selectedJob.id}</span>
-              <CopyButton value={selectedJob.id} label="Copy job ID" />
+              <CopyButton value={selectedJob.id} label={t("job.copyJobId")} />
             </div>
 
             <p className="text-sm leading-relaxed text-ink-2">
-              {jobGuidance(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error))}
+              {jobGuidance(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error), locale)}
             </p>
 
             {deriveOutcome(selectedJob.status, selectedJob.error) === "unknown" && (
-              <Callout tone="warn" title="Verify the printer before reprinting">
-                Part or all of this job may already have printed. Automatic retry is paused to avoid
-                duplicate paper output.
+              <Callout tone="warn" title={t("job.reprintWarning")}>
+                {t("job.reprintDuplicates")}
               </Callout>
             )}
 
             {selectedJob.error && (
-              <Callout tone="bad" title="Reported error">
+              <Callout tone="bad" title={t("job.reportedError")}>
                 <span className="break-words font-mono text-xs">{selectedJob.error}</span>
               </Callout>
             )}
 
             <KeyValueList
               rows={[
-                { label: "Printer", value: printerById.get(selectedJob.printerId)?.name ?? selectedJob.printerId },
-                { label: "Agent", value: agentById.get(selectedJob.agentId)?.name ?? selectedJob.agentId },
-                { label: "Document", value: selectedJob.documentType?.replace(/_/g, " ") ?? "—" },
-                { label: "Destination", value: selectedJob.destination ?? "—" },
-                { label: "Delivery attempts", value: String(selectedJob.deliveryAttempts ?? 0) },
-                { label: "Retries", value: String(selectedJob.retries ?? 0) },
-                { label: "Claimed", value: formatAbsoluteTime(selectedJob.claimedAt) },
-                { label: "Delivered to printer", value: formatAbsoluteTime(selectedJob.deliveredAt) },
-                { label: "Acknowledged", value: formatAbsoluteTime(selectedJob.ackedAt) },
+                { label: t("job.printer"), value: printerById.get(selectedJob.printerId)?.name ?? selectedJob.printerId },
+                { label: t("printer.agent"), value: agentById.get(selectedJob.agentId)?.name ?? selectedJob.agentId },
+                { label: t("job.document"), value: selectedJob.documentType?.replace(/_/g, " ") ?? "—" },
+                { label: t("job.destination"), value: selectedJob.destination ?? "—" },
+                { label: t("job.deliveryAttempts"), value: String(selectedJob.deliveryAttempts ?? 0) },
+                { label: t("job.retries"), value: String(selectedJob.retries ?? 0) },
+                { label: t("job.claimedAt"), value: formatDateTime(selectedJob.claimedAt) },
+                { label: t("job.success"), value: formatDateTime(selectedJob.deliveredAt) },
+                { label: t("job.acknowledged"), value: formatDateTime(selectedJob.ackedAt) },
               ]}
             />
 
             <div>
-              <h3 className="mb-3 text-sm font-[600] text-ink">Timeline</h3>
+              <h3 className="mb-3 text-sm font-[600] text-ink">{t("job.timeline")}</h3>
               <JobTimeline jobId={selectedJob.id} />
             </div>
 
@@ -1965,17 +1967,17 @@ export default function DashboardClient({
               <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-sm font-[550] text-ink-2">
                 <span className="inline-flex items-center gap-2">
                   <FileText className="h-4 w-4 text-ink-4" aria-hidden />
-                  Diagnostic payload
+                  {t("job.diagnosticPayload")}
                 </span>
                 <ChevronRight className="h-4 w-4 text-ink-4 transition-transform duration-[160ms] group-open:rotate-90" aria-hidden />
               </summary>
               <div className="border-t border-edge-subtle p-3">
                 <div className="mb-2 flex justify-end">
-                  <CopyButton value={stringifyDiagnosticPayload(selectedJobPayload ?? selectedJob.payload)} label="Copy payload" />
+                  <CopyButton value={stringifyDiagnosticPayload(selectedJobPayload ?? selectedJob.payload)} label={t("job.copyPayload")} />
                 </div>
                 <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-2xs leading-relaxed text-ink-2">
                   {selectedJobPayloadLoading
-                    ? "Loading payload…"
+                    ? t("loading.payload")
                     : diagnosticPayloadPreview(stringifyDiagnosticPayload(selectedJobPayload ?? selectedJob.payload))}
                 </pre>
               </div>
@@ -1988,12 +1990,12 @@ export default function DashboardClient({
       <Modal
         open={certifyPrinter !== null}
         onClose={() => setCertifyPrinter(null)}
-        title={certifyPrinter ? `Certify ${certifyPrinter.name}` : "Printer Certification"}
-        description="Run a controlled real-print certification and record the physical result."
+        title={certifyPrinter ? `${t("printer.certify")} ${certifyPrinter.name}` : t("printer.certification")}
+        description={t("printer.certifyDescription")}
         wide
         footer={
           <Button variant="secondary" onClick={() => setCertifyPrinter(null)}>
-            Close
+            {t("common.close")}
           </Button>
         }
       >
@@ -2006,12 +2008,12 @@ export default function DashboardClient({
       <Modal
         open={reprintCandidate !== null}
         onClose={() => setReprintCandidate(null)}
-        title="Queue a reprint?"
-        description="This creates a new physical print at the same printer."
+        title={t("job.reprintTitle")}
+        description={t("job.reprintBody")}
         footer={
           <>
             <Button variant="secondary" onClick={() => setReprintCandidate(null)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="primary"
@@ -2020,7 +2022,7 @@ export default function DashboardClient({
               loading={busy}
               icon={<RotateCcw className="h-4 w-4" />}
             >
-              Queue reprint
+              {t("job.reprintConfirmAction")}
             </Button>
           </>
         }
@@ -2029,19 +2031,18 @@ export default function DashboardClient({
           <div className="space-y-4">
             <KeyValueList
               rows={[
-                { label: "Job", value: <span className="font-mono text-xs">{reprintCandidate.id}</span> },
-                { label: "Printer", value: printerById.get(reprintCandidate.printerId)?.name ?? reprintCandidate.printerId },
-                { label: "Document", value: reprintCandidate.destination ?? "—" },
-                { label: "Original result", value: jobLabel(reprintCandidate.status, deriveOutcome(reprintCandidate.status, reprintCandidate.error)) },
+                { label: t("job.job"), value: <span className="font-mono text-xs">{reprintCandidate.id}</span> },
+                { label: t("job.printer"), value: printerById.get(reprintCandidate.printerId)?.name ?? reprintCandidate.printerId },
+                { label: t("job.document"), value: reprintCandidate.destination ?? "—" },
+                { label: t("job.originalResult"), value: jobLabel(reprintCandidate.status, deriveOutcome(reprintCandidate.status, reprintCandidate.error), locale) },
               ]}
             />
             {deriveOutcome(reprintCandidate.status, reprintCandidate.error) === "unknown" && (
-              <Callout tone="warn" title="Confirm the printer is clear">
-                The original job has an unknown physical outcome. Check the output tray before
-                queuing another copy.
+              <Callout tone="warn" title={t("job.reprintConfirmLabel")}>
+                {t("job.reprintClearPrinter")}
               </Callout>
             )}
-            <Callout tone="info">A reprint consumes one additional print credit.</Callout>
+            <Callout tone="info">{t("job.reprintCreditsNote")}</Callout>
           </div>
         )}
       </Modal>
@@ -2050,12 +2051,12 @@ export default function DashboardClient({
       <Modal
         open={pendingAgentAction !== null}
         onClose={() => setPendingAgentAction(null)}
-        title={pendingAgentAction?.next === "retired" ? "Retire this agent?" : "Disable this agent?"}
+        title={pendingAgentAction?.next === "retired" ? t("agent.retireTitle") : t("agent.disableTitle")}
         description={pendingAgentAction?.agent.name}
         footer={
           <>
             <Button variant="secondary" onClick={() => setPendingAgentAction(null)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant={pendingAgentAction?.next === "retired" ? "danger" : "primary"}
@@ -2063,30 +2064,26 @@ export default function DashboardClient({
               disabled={busy}
               loading={busy}
             >
-              {pendingAgentAction?.next === "retired" ? "Retire agent" : "Disable agent"}
+              {pendingAgentAction?.next === "retired" ? t("agent.retireConfirm") : t("agent.disableConfirm")}
             </Button>
           </>
         }
       >
         {pendingAgentAction?.next === "disabled" ? (
           <div className="space-y-4">
-            <Callout tone="warn" title="Printing stops on this host">
-              The agent’s credentials are revoked and its {pendingAgentAction.agent.printerCount}{" "}
-              printer(s) stop receiving jobs.
+            <Callout tone="warn" title={t("agent.retireEffect")}>
+              {t("agent.disablePrintersStop", {
+                printers: tc("printer.count", pendingAgentAction.agent.printerCount ?? 0),
+              })}
             </Callout>
-            <p className="text-sm leading-relaxed text-ink-2">
-              Re-enabling requires pairing the machine again with a new code.
-            </p>
+            <p className="text-sm leading-relaxed text-ink-2">{t("agent.disableReEnable")}</p>
           </div>
         ) : (
           <div className="space-y-4">
-            <Callout tone="bad" title="Kept for audit history">
-              A retired agent cannot receive jobs again. Print history stays in the audit log.
+            <Callout tone="bad" title={t("agent.retireAudit")}>
+              {t("agent.retireHistory")}
             </Callout>
-            <p className="text-sm leading-relaxed text-ink-2">
-              Retire an agent you will not use again; delete it only if you also need the record
-              gone.
-            </p>
+            <p className="text-sm leading-relaxed text-ink-2">{t("agent.retireAdvice")}</p>
           </div>
         )}
       </Modal>
@@ -2095,7 +2092,7 @@ export default function DashboardClient({
       <Modal
         open={agentToDelete !== null}
         onClose={() => setAgentToDelete(null)}
-        title="Delete this agent?"
+        title={t("agent.deleteTitle")}
         description={agentToDelete?.name}
         footer={
           <>
@@ -2108,20 +2105,20 @@ export default function DashboardClient({
               onClick={async () => {
                 if (!agentToDelete) return;
                 const id = agentToDelete.id;
-                await runAction(() => deleteAgent(id), "Agent deleted.");
+                await runAction(() => deleteAgent(id), t("success.agentDeleted"));
                 setAgentToDelete(null);
               }}
               disabled={busy}
               icon={<Trash2 className="h-4 w-4" />}
             >
-              Delete agent
+              {t("agent.deleteConfirm")}
             </Button>
           </>
         }
       >
         <div className="space-y-4 text-sm text-ink-2">
-          <Callout tone="bad" title="This cannot be undone">
-            The agent must be offline. If you need the history, retire it instead of deleting.
+          <Callout tone="bad" title={t("common.cannotUndo")}>
+            {t("agent.deleteRequiresOffline")}
           </Callout>
           <p>
             Delete <strong className="font-[600] text-ink">{agentToDelete?.name}</strong>{" "}
