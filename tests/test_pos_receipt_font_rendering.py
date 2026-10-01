@@ -27,6 +27,7 @@ of those remote fonts:
    keeps fallback paths, so a renderer failure degrades instead of throwing.
 """
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,12 @@ ADDON = ROOT / "odoo_addons" / "print_gateway"
 
 def read(rel):
     return (ADDON / rel).read_text(encoding="utf-8")
+
+
+def strip_js_comments(source):
+    """Remove JS block/whole-line comments while preserving string literals."""
+    source = re.sub(r"/\*[\s\S]*?\*/", "", source)
+    return re.sub(r"(?m)^\s*//.*(?:\n|$)", "", source)
 
 
 def test_pos_receipt_rendering_declares_no_web_fonts():
@@ -50,7 +57,7 @@ def test_pos_receipt_rendering_declares_no_web_fonts():
     assert pos_assets, "expected POS JS/SCSS assets to scan"
     offenders = []
     for path in pos_assets:
-        source = path.read_text(encoding="utf-8")
+        source = strip_js_comments(path.read_text(encoding="utf-8"))
         for token in ("@font-face", "NotoSans", "Noto Sans", "fonts.odoocdn.com"):
             if token in source:
                 offenders.append(f"{path.relative_to(ADDON)}: {token}")
@@ -94,7 +101,7 @@ def test_render_receipt_image_does_not_reference_remote_font_urls():
     A hardcoded ``fonts.odoocdn.com`` URL (or a ``@font-face`` src) in the
     receipt renderer would re-introduce the CDN dependency the 404 fix removes.
     """
-    source = read("static/src/js/pos_print_router.js")
+    source = strip_js_comments(read("static/src/js/pos_print_router.js"))
     assert "fonts.odoocdn.com" not in source
     assert "@font-face" not in source
     assert "NotoSans" not in source
