@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Server } from "lucide-react";
+import { EmptyState, Skeleton, StatusBadge, type Tone } from "./ui";
 
 type HealthCheck = { name: string; status: string; message: string; details?: Record<string, unknown> };
 type AgentHealth = {
@@ -21,42 +23,43 @@ function rel(t?: string | null) {
   const d = new Date(t);
   if (isNaN(d.getTime())) return "—";
   const s = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 }
 
-function statusMeta(s: string) {
-  switch (s) {
-    case "ONLINE": return { label: "Online", cls: "bg-ink text-white border-ink" };
-    case "DEGRADED": return { label: "Degraded", cls: "bg-warn-solid text-white border-warn-solid" };
-    case "OFFLINE": return { label: "Offline", cls: "bg-surface-3 text-ink-2 border-edge" };
-    case "STARTING": return { label: "Starting", cls: "bg-info-solid text-white border-info-solid" };
-    default: return { label: s, cls: "bg-surface-3 text-ink-3 border-edge" };
+function statusMeta(status: string): { label: string; tone: Tone } {
+  switch (status) {
+    case "ONLINE": return { label: "Online", tone: "ok" };
+    case "DEGRADED": return { label: "Degraded", tone: "warn" };
+    case "OFFLINE": return { label: "Offline", tone: "neutral" };
+    case "STARTING": return { label: "Starting", tone: "info" };
+    case "RECOVERING": return { label: "Recovering", tone: "info" };
+    default: return { label: "Unknown", tone: "neutral" };
   }
 }
 
 function parseCheck(c: HealthCheck, a: AgentHealth) {
   const n = c.name.toLowerCase();
   const st = c.status;
-  const d = c.details as any;
+  const d = c.details as { ageMs?: number; queueDepth?: number; printerCount?: number; onlinePrinterCount?: number; version?: string } | undefined;
   if (n.includes("gateway")) {
     return {
       k: "Gateway",
-      v: st === "ok" ? `${rel(new Date(Date.now() - (d?.ageMs || 0)).toISOString())} ago` : rel(a.lastSeenAt) === "—" ? "No signal" : `${rel(a.lastSeenAt)} ago`,
+      v: st === "ok" ? `seen ${rel(new Date(Date.now() - (d?.ageMs || 0)).toISOString())}` : rel(a.lastSeenAt) === "—" ? "No signal" : `seen ${rel(a.lastSeenAt)}`,
       ok: st === "ok",
     };
   }
   if (n.includes("queue")) {
     const q = d?.queueDepth ?? a.queueDepth;
-    return { k: "Queue", v: q === 0 ? "Empty" : `${q}`, ok: q <= 50 };
+    return { k: "Queue", v: q === 0 ? "Empty" : `${q} waiting`, ok: q <= 50 };
   }
   if (n.includes("printer")) {
     const total = d?.printerCount ?? a.printerCount;
     const on = d?.onlinePrinterCount ?? a.onlinePrinterCount;
-    if (total === 0) return { k: "Printers", v: "0", ok: false };
-    return { k: "Printers", v: `${on}/${total}`, ok: on > 0 };
+    if (total === 0) return { k: "Printers", v: "None registered", ok: false };
+    return { k: "Printers", v: `${on}/${total} online`, ok: on > 0 };
   }
   if (n.includes("version")) {
     return { k: "Version", v: d?.version ? `v${d.version}` : "—", ok: !!d?.version };
@@ -64,6 +67,13 @@ function parseCheck(c: HealthCheck, a: AgentHealth) {
   return null;
 }
 
+/**
+ * Agent heartbeat matrix (legacy surface kept for compatibility).
+ *
+ * Each agent reports its own health checks; the row reduces them to the four
+ * operator-relevant facts (Gateway, Queue, Printers, Version) and never dumps
+ * raw diagnostic payloads.
+ */
 export default function AgentHealthMatrix() {
   const [agents, setAgents] = useState<AgentHealth[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,45 +86,75 @@ export default function AgentHealthMatrix() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="h-24 animate-pulse rounded-xl bg-surface-3" />;
-  if (!agents || agents.length === 0) return <div className="rounded-xl border border-dashed border-edge bg-surface p-12 text-center text-[13px] font-medium text-ink-3">No agents. Pair one to get started.</div>;
+  if (loading) {
+    return (
+      <div className="space-y-2.5" role="status" aria-label="Loading agent health">
+        {[0, 1].map((i) => <Skeleton key={i} className="h-16" />)}
+        <span className="sr-only">Loading agent health…</span>
+      </div>
+    );
+  }
+
+  if (!agents || agents.length === 0) {
+    return (
+      <EmptyState
+        icon={<Server className="h-5 w-5" aria-hidden />}
+        title="No agents paired"
+        description="Register an agent to start reporting gateway, queue and printer health."
+        size="sm"
+      />
+    );
+  }
 
   return (
-    <div className="space-y-3">
-      {agents.map(a => {
-        const meta = statusMeta(a.status);
-        const checks = a.checks.map(c => parseCheck(c, a)).filter(Boolean) as { k: string; v: string; ok: boolean }[];
+    <div className="space-y-2.5">
+      {agents.map(agent => {
+        const meta = statusMeta(agent.status);
+        const checks = agent.checks.map(c => parseCheck(c, agent)).filter(Boolean) as { k: string; v: string; ok: boolean }[];
         const uniqueChecks = Array.from(new Map(checks.map(c => [c.k, c])).values()).slice(0, 4);
         return (
-          <div key={a.agentId} className="group flex items-center justify-between gap-4 rounded-xl border border-edge bg-surface px-5 py-4 transition hover:border-edge-strong hover:shadow-sm">
-            <div className="flex items-center gap-4 min-w-0">
-              <div className={`h-2 w-2 rounded-full ${a.status === "ONLINE" ? "bg-ok-solid" : a.status === "OFFLINE" ? "bg-ink-4" : "bg-warn-solid"}`} />
+          <div
+            key={agent.agentId}
+            className="flex flex-col gap-3 rounded-lg border border-edge bg-surface px-4 py-3.5 transition-colors duration-[140ms] hover:border-edge-strong sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <span
+                aria-hidden
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface-2 text-ink-3"
+              >
+                <Server className="h-4 w-4" />
+              </span>
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-[14px] font-semibold tracking-tight text-ink truncate">{a.name}</span>
-                  <span className={`rounded-[8px] border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${meta.cls}`}>{meta.label}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="truncate text-base font-[550] tracking-[-0.01em] text-ink">{agent.name}</span>
+                  <StatusBadge size="sm" tone={meta.tone} label={meta.label} />
                 </div>
-                <div className="mt-0.5 flex items-center gap-2 text-[11px] text-ink-3">
-                  <span className="font-mono">{a.agentId.slice(0, 8)}</span>
-                  <span>•</span>
-                  <span>{rel(a.lastSeenAt)}</span>
-                  {a.version && <><span>•</span><span>v{a.version}</span></>}
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3">
+                  <span className="font-mono">{agent.agentId.slice(0, 8)}</span>
+                  <span aria-hidden>·</span>
+                  <span>{rel(agent.lastSeenAt)}</span>
+                  {agent.version && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>v{agent.version}</span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-6">
-              <div className="hidden md:flex items-center gap-6">
-                {uniqueChecks.map(c => (
-                  <div key={c.k} className="text-right">
-                    <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-4">{c.k}</div>
-                    <div className={`text-[13px] font-semibold tabular-nums ${c.ok ? "text-ink" : "text-ink-3"}`}>{c.v}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center gap-1 text-[12px] tabular-nums">
-                <span className={`font-semibold ${a.onlinePrinterCount > 0 ? "text-ink" : "text-ink-4"}`}>{a.onlinePrinterCount}/{a.printerCount}</span>
-                <span className="text-ink-4">printers</span>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 sm:justify-end">
+              {uniqueChecks.map(c => (
+                <div key={c.k}>
+                  <div className="label-caps">{c.k}</div>
+                  <div className={`mt-0.5 text-sm font-[550] tabular-nums ${c.ok ? "text-ink" : "text-ink-3"}`}>{c.v}</div>
+                </div>
+              ))}
+              <div>
+                <div className="label-caps">Printer fleet</div>
+                <div className="mt-0.5 text-sm font-[550] tabular-nums text-ink">
+                  {agent.onlinePrinterCount}/{agent.printerCount}
+                </div>
               </div>
             </div>
           </div>

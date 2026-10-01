@@ -20,8 +20,8 @@ export function StatusDot({ status, label }: { status: string; label?: string })
     tone === "info" ? "bg-info-solid" :
     "bg-ink-4";
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-2">
-      <span className={cn("w-2 h-2 rounded-[8px]", color)} />
+    <span className="inline-flex items-center gap-1.5 text-xs font-[550] text-ink-2">
+      <span className={cn("h-2 w-2 shrink-0 rounded-full ring-1 ring-inset ring-black/10 dark:ring-white/15", color)} aria-hidden />
       {label ?? status}
     </span>
   );

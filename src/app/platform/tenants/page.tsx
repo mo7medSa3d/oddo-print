@@ -1,8 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { AlertOctagon, Building2, CheckCircle2, CircleAlert, RefreshCw, Search, ShieldAlert, X } from "lucide-react";
-import { Button, Modal } from "../../../components/ui";
+import { useEffect, useState } from "react";
+import { Building2, RefreshCw, Search, X, MoreHorizontal, AlertOctagon, RotateCcw, Ban } from "lucide-react";
+import {
+  Button,
+  Callout,
+  Card,
+  CardHeader,
+  PageHeader,
+  EmptyState,
+  ErrorState,
+  Field,
+  Input,
+  Menu,
+  Modal,
+  StatusBadge,
+  TableSkeleton,
+  Textarea,
+  type MenuItemSpec,
+  type Tone,
+} from "../../../components/ui";
 
 type Tenant = {
   id: string;
@@ -19,6 +36,12 @@ type Tenant = {
 };
 
 type DialogMode = "suspend" | "reactivate";
+
+const LIFECYCLE_META: Record<Tenant["lifecycle"], { tone: Tone; label: string }> = {
+  active: { tone: "ok", label: "Active" },
+  suspended: { tone: "warn", label: "Suspended" },
+  deleted: { tone: "bad", label: "Deleted" },
+};
 
 export default function PlatformTenantsPage() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -50,19 +73,12 @@ export default function PlatformTenantsPage() {
     return () => { ignore = true; };
   }, [reloadKey]);
 
-  const closeDialog = useCallback(() => {
+  function closeDialog() {
     if (actionLoading) return;
     setSelectedTenant(null);
     setSuspendReason("");
     setActionError(null);
-  }, [actionLoading]);
-
-  useEffect(() => {
-    if (!selectedTenant) return;
-    function handleKeyDown(event: KeyboardEvent) { if (event.key === "Escape" && !actionLoading) closeDialog(); }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedTenant, actionLoading, closeDialog]);
+  }
 
   function handleRefresh() { setLoading(true); setError(null); setNotice(null); setReloadKey((k) => k + 1); }
   function openSuspend(tenant: Tenant) { setSelectedTenant(tenant); setDialogMode("suspend"); setSuspendReason(""); setActionError(null); }
@@ -97,79 +113,183 @@ export default function PlatformTenantsPage() {
     return tenant.name.toLowerCase().includes(query) || tenant.id.toLowerCase().includes(query);
   });
 
+  const activeCount = tenants.filter((t) => t.lifecycle === "active").length;
+  const suspendedCount = tenants.filter((t) => t.lifecycle === "suspended").length;
+
+  const tenantMenu = (tenant: Tenant): MenuItemSpec[] =>
+    tenant.lifecycle === "active"
+      ? [
+          {
+            key: "suspend",
+            label: "Suspend workspace…",
+            icon: <AlertOctagon className="h-4 w-4" />,
+            tone: "danger",
+            disabled: actionLoading,
+            onSelect: () => openSuspend(tenant),
+          },
+        ]
+      : tenant.lifecycle === "suspended"
+        ? [
+            {
+              key: "reactivate",
+              label: "Reactivate workspace…",
+              icon: <RotateCcw className="h-4 w-4" />,
+              disabled: actionLoading,
+              onSelect: () => openReactivate(tenant),
+            },
+          ]
+        : [];
+
   return (
     <div className="space-y-5">
-      <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-[8px] border border-edge-strong bg-surface-2 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
-            <ShieldAlert className="h-3.5 w-3.5" /> Control Plane • Tenants
-          </div>
-          <h1 className="mt-4 flex items-center gap-2.5 text-[26px] font-bold tracking-[-0.02em] text-ink leading-tight">
-            <Building2 className="h-6 w-6 text-brand" /> Tenants
-          </h1>
-        </div>
-        <button onClick={handleRefresh} disabled={loading} className="inline-flex items-center gap-2 rounded-[8px] border border-edge-strong bg-surface-2 px-4 py-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink transition disabled:opacity-50">
-          <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} /> Refresh
-        </button>
-      </section>
+      <PageHeader
+        variant="inline"
+        eyebrow="Control plane · Tenants"
+        icon={<Building2 className="h-4 w-4" aria-hidden />}
+        title="Tenants"
+        description="Every workspace on the platform, with fleet size and lifecycle control."
+        actions={
+          <>
+            {suspendedCount > 0 && <StatusBadge tone="warn" label={`${suspendedCount} suspended`} />}
+            <Button
+              variant="secondary"
+              onClick={handleRefresh}
+              disabled={loading}
+              loading={loading}
+              icon={loading ? undefined : <RefreshCw className="h-4 w-4" aria-hidden />}
+            >
+              {loading ? "Refreshing…" : "Refresh"}
+            </Button>
+          </>
+        }
+      />
 
       {notice && (
-        <div role="status" className="flex items-start gap-3 rounded-[12px] border border-ok-edge bg-ok-bg px-4 py-3 text-[13px] text-ok">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /><span>{notice}</span>
-          <button onClick={() => setNotice(null)} className="ml-auto rounded p-0.5 text-ok/70 hover:bg-ok-bg hover:text-ok"><X className="h-4 w-4" /></button>
+        <div role="status" className="flex items-start gap-3">
+          <Callout tone="ok" className="flex-1" title="Lifecycle updated">
+            {notice}
+          </Callout>
+          <Button variant="ghost" size="sm" onClick={() => setNotice(null)} aria-label="Dismiss notification" icon={<X className="h-4 w-4" />}>
+            {""}
+          </Button>
         </div>
       )}
-      {error && <div role="alert" className="flex items-start gap-3 rounded-[12px] border border-bad-edge bg-bad-bg px-4 py-3 text-[13px] text-bad"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><span>{error}</span></div>}
 
-      <div className="relative">
-        <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" />
-        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by tenant name or ID…" aria-label="Search tenants" className="w-full rounded-[12px] border border-edge-strong bg-surface py-2.5 pl-10 pr-4 text-[13px] text-ink placeholder-ink-4 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
-      </div>
+      {error && (
+        <ErrorState title="Tenant directory unavailable" message={error} retry={handleRefresh} />
+      )}
 
-      <div className="overflow-hidden rounded-[14px] border border-edge bg-surface">
-        <div className="flex items-center justify-between border-b border-edge px-5 py-4">
-          <div><h2 className="text-[13px] font-semibold text-ink">Workspace directory</h2><p className="mt-0.5 text-[11px] text-ink-4">{filtered.length} {filtered.length === 1 ? "tenant" : "tenants"} • {tenants.filter(t => t.lifecycle === "active").length} active • {tenants.filter(t => t.lifecycle === "suspended").length} suspended</p></div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[960px] text-left text-[13px] text-ink-2">
-            <thead className="border-b border-edge bg-surface-2 text-[11px] font-semibold uppercase tracking-wide text-ink-4">
-              <tr><th className="px-5 py-3">Tenant</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Plan</th><th className="px-5 py-3">Members</th><th className="px-5 py-3">Fleet</th><th className="px-5 py-3">Created</th><th className="px-5 py-3 text-right">Action</th></tr>
-            </thead>
-            <tbody className="divide-y divide-edge-subtle">
-              {filtered.length === 0 ? (
-                <tr><td colSpan={7} className="px-5 py-16 text-center"><div className="mx-auto flex max-w-sm flex-col items-center"><div className="mb-3 flex h-10 w-10 items-center justify-center rounded-[10px] border border-edge bg-surface-2 text-ink-4"><Building2 className="h-4 w-4" /></div><div className="text-[13px] font-medium text-ink-2">No tenants found</div><div className="mt-1 text-[11px] text-ink-4">Try a different name or ID.</div></div></td></tr>
-              ) : filtered.map((tenant) => (
-                <tr key={tenant.id} className="hover:bg-surface-hover transition">
-                  <td className="px-5 py-4"><div className="font-semibold text-ink text-[13px]">{tenant.name}</div><div className="mt-1 font-mono text-[11px] text-ink-4">{tenant.id}</div></td>
-                  <td className="px-5 py-4">
-                    {tenant.lifecycle === "active" ? <span className="inline-flex items-center gap-1.5 rounded-[8px] border border-ok-edge bg-ok-bg px-2.5 py-1 text-[11px] font-medium text-ok"><CheckCircle2 className="h-3 w-3" /> Active</span> : tenant.lifecycle === "suspended" ? <div className="max-w-[200px]"><span className="inline-flex items-center gap-1.5 rounded-[8px] border border-warn-edge bg-warn-bg px-2.5 py-1 text-[11px] font-medium text-warn"><AlertOctagon className="h-3 w-3" /> Suspended</span>{tenant.lifecycleReason && <div title={tenant.lifecycleReason} className="mt-1 truncate text-[11px] text-ink-4">{tenant.lifecycleReason}</div>}</div> : <span className="inline-flex items-center gap-1.5 rounded-[8px] border border-bad-edge bg-bad-bg px-2.5 py-1 text-[11px] font-medium text-bad">Deleted</span>}
-                  </td>
-                  <td className="px-5 py-4 text-[12px] text-ink-2">{tenant.planName || "No plan"}</td>
-                  <td className="px-5 py-4 text-[12px] font-medium tabular-nums">{tenant.memberCount}</td>
-                  <td className="px-5 py-4 text-[11px] text-ink-3"><div>{tenant.agentCount} agents</div><div>{tenant.printerCount} printers</div></td>
-                  <td className="px-5 py-4 text-[11px] text-ink-4">{new Date(tenant.createdAt).toLocaleDateString()}</td>
-                  <td className="px-5 py-4 text-right">
-                    {tenant.lifecycle === "active" ? <button onClick={() => openSuspend(tenant)} disabled={actionLoading} className="rounded-[8px] border border-warn-edge bg-warn-bg px-3 py-1.5 text-[11px] font-semibold text-warn hover:brightness-95 transition disabled:opacity-50">Suspend</button> : tenant.lifecycle === "suspended" ? <button onClick={() => openReactivate(tenant)} disabled={actionLoading} className="rounded-[8px] border border-ok-edge bg-ok-bg px-3 py-1.5 text-[11px] font-semibold text-ok hover:brightness-95 transition disabled:opacity-50">Reactivate</button> : <span className="text-[11px] text-ink-4">No actions</span>}
-                  </td>
+      <Card className="overflow-hidden">
+        <CardHeader
+          title="Workspace directory"
+          subtitle={`${filtered.length} ${filtered.length === 1 ? "tenant" : "tenants"} · ${activeCount} active · ${suspendedCount} suspended`}
+          actions={
+            <div className="relative w-full sm:w-[280px]">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
+              <Input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name or ID…"
+                aria-label="Search tenants"
+                className="pl-9"
+              />
+            </div>
+          }
+        />
+
+        {loading && tenants.length === 0 ? (
+          <TableSkeleton rows={6} columns={6} />
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={<Building2 className="h-5 w-5" />}
+            title={tenants.length === 0 ? "No tenants yet" : "No tenants match this search"}
+            description={
+              tenants.length === 0
+                ? "Workspaces appear here as soon as customers complete signup."
+                : "Try a different tenant name or identifier."
+            }
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="data-table min-w-[920px]">
+              <caption className="sr-only">Platform tenants</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Tenant</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Plan</th>
+                  <th scope="col" className="text-right">Members</th>
+                  <th scope="col">Fleet</th>
+                  <th scope="col" className="text-right">Created</th>
+                  <th scope="col" className="w-[1%] text-right">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              </thead>
+              <tbody>
+                {filtered.map((tenant) => {
+                  const meta = LIFECYCLE_META[tenant.lifecycle];
+                  const items = tenantMenu(tenant);
+                  return (
+                    <tr key={tenant.id}>
+                      <td>
+                        <div className="text-sm font-[550] text-ink">{tenant.name}</div>
+                        <div className="mt-0.5 font-mono text-2xs text-ink-4">{tenant.id}</div>
+                      </td>
+                      <td>
+                        <div className="max-w-[220px]">
+                          <StatusBadge tone={meta.tone} label={meta.label} size="sm" />
+                          {tenant.lifecycleReason && (
+                            <div className="mt-1 truncate text-xs text-ink-3" title={tenant.lifecycleReason}>
+                              {tenant.lifecycleReason}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="text-sm text-ink-2">{tenant.planName || "No plan"}</td>
+                      <td className="text-right text-sm tabular text-ink-2">{tenant.memberCount}</td>
+                      <td className="text-xs text-ink-3">
+                        <div>{tenant.agentCount} agents</div>
+                        <div>{tenant.printerCount} printers</div>
+                      </td>
+                      <td className="text-right text-sm text-ink-3">
+                        {new Date(tenant.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className="text-right">
+                        {items.length === 0 ? (
+                          <span className="text-xs text-ink-4">No actions</span>
+                        ) : (
+                          <Menu
+                            label={`Actions for ${tenant.name}`}
+                            items={items}
+                            trigger={
+                              <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
+                                <MoreHorizontal className="h-4 w-4" aria-hidden />
+                              </span>
+                            }
+                          />
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       <Modal
         open={selectedTenant !== null}
         onClose={closeDialog}
         title={dialogMode === "suspend" ? "Suspend tenant" : "Reactivate tenant"}
-        description={dialogMode === "suspend" ? "Pause workspace until reactivated." : "Restore workspace to active."}
+        description={dialogMode === "suspend" ? "Pause the workspace until it is reactivated." : "Restore the workspace to active."}
         footer={
           <>
             <Button variant="secondary" onClick={closeDialog} disabled={actionLoading}>
               Cancel
             </Button>
             <Button
-              variant={dialogMode === "suspend" ? "secondary" : "primary"}
+              variant={dialogMode === "suspend" ? "danger" : "primary"}
               onClick={() => void handleLifecycleAction()}
               disabled={actionLoading || (dialogMode === "suspend" && !suspendReason.trim())}
               loading={actionLoading}
@@ -181,23 +301,24 @@ export default function PlatformTenantsPage() {
       >
         {selectedTenant && (
           <div className="space-y-4">
-            <div className="rounded-[10px] border border-edge bg-surface-2 px-4 py-3">
-              <div className="text-[13px] font-semibold text-ink">{selectedTenant.name}</div>
-              <div className="mt-1 font-mono text-[11px] text-ink-3">{selectedTenant.id}</div>
+            <div className="rounded-lg border border-edge bg-surface-2 px-4 py-3">
+              <div className="text-sm font-[600] text-ink">{selectedTenant.name}</div>
+              <div className="mt-1 font-mono text-2xs text-ink-3">{selectedTenant.id}</div>
             </div>
-            {dialogMode === "suspend" && (
+
+            {dialogMode === "suspend" ? (
               <>
-                <div className="rounded-[10px] border border-warn-edge bg-warn-bg px-4 py-3 text-[12px] leading-relaxed text-ink-2">
-                  Members lose sessions, agents stop syncing, new print operations are blocked until reactivation.
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <label htmlFor="suspension-reason" className="text-[13px] font-medium text-ink">
-                      Reason
-                    </label>
-                    <span className="text-[11px] text-ink-3">{suspendReason.length}/500</span>
-                  </div>
-                  <textarea
+                <Callout tone="warn" title="What suspension does" icon={<Ban className="h-4 w-4" />}>
+                  Members lose their sessions, agents stop syncing and new print operations are
+                  blocked until the workspace is reactivated.
+                </Callout>
+                <Field
+                  label="Suspension reason"
+                  htmlFor="suspension-reason"
+                  hint="Recorded in the audit stream for compliance."
+                  required
+                >
+                  <Textarea
                     id="suspension-reason"
                     value={suspendReason}
                     onChange={(e) => setSuspendReason(e.target.value.slice(0, 500))}
@@ -205,21 +326,19 @@ export default function PlatformTenantsPage() {
                     rows={4}
                     autoFocus
                     disabled={actionLoading}
-                    className="w-full resize-none rounded-[10px] border border-edge-strong bg-surface px-3.5 py-3 text-[13px] text-ink placeholder:text-ink-4 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 disabled:opacity-60"
+                    maxLength={500}
                   />
-                </div>
+                </Field>
+                <div className="text-right text-xs text-ink-3 tabular">{suspendReason.length}/500</div>
               </>
+            ) : (
+              <Callout tone="ok" title="Access resumes immediately">
+                Active sessions and print operations can continue after this action.
+              </Callout>
             )}
-            {dialogMode === "reactivate" && (
-              <div className="rounded-[10px] border border-ok-edge bg-ok-bg px-4 py-3 text-[12px] leading-relaxed text-ink-2">
-                Active sessions and print operations can resume after this action.
-              </div>
-            )}
+
             {actionError && (
-              <div role="alert" className="flex items-start gap-2.5 rounded-[10px] border border-bad-edge bg-bad-bg px-4 py-3 text-[12px] text-bad">
-                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{actionError}</span>
-              </div>
+              <ErrorState title="Action failed" message={actionError} />
             )}
           </div>
         )}

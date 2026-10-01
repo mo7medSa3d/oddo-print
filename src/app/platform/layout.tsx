@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Activity, Building2, CreditCard, Tags, Shield } from "lucide-react";
 import { TopNavbar, type TopNavItem } from "../../components/TopNavbar";
+import { PageContainer } from "../../components/ui";
 
 const NAV_ITEMS: TopNavItem[] = [
   { href: "/platform/dashboard", label: "Overview", icon: Activity, section: "Operations" },
@@ -109,8 +110,8 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         onLogout={handleLogout}
         variant="platform"
       />
-      <main className="min-h-[calc(100vh-56px)] bg-app text-ink">
-        <div className="mx-auto w-full max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9">{children}</div>
+      <main className="page-transition min-h-[calc(100vh-56px)] bg-app text-ink">
+        <PageContainer>{children}</PageContainer>
       </main>
     </div>
   );

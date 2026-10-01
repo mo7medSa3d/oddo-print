@@ -9,6 +9,8 @@ import { hasManagerPermission } from "../../lib/authorization";
 import DashboardClient from "./dashboard-client";
 import { JobCleanupButton } from "../../components/JobCleanupButton";
 import { isAgentAvailableForJob } from "../../lib/agent-availability";
+import { Activity, Database, LifeBuoy } from "lucide-react";
+import { Button, Callout, PageContainer, PageHeader, StatusBadge } from "../../components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -121,29 +123,54 @@ export default async function DashboardPage() {
   const visibleAgents = allAgents.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" }));
 
   return (
-    <div className="mx-auto w-full max-w-[1440px] px-5 py-7 sm:px-7 lg:py-8">
-      <header className="mb-7 flex flex-col gap-4 border-b border-edge pb-6 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-[28px] font-bold leading-tight tracking-[-0.035em] text-ink">Print console</h1>
-            <span className={`inline-flex items-center gap-1.5 rounded-[8px] border px-2.5 py-1 text-[11px] font-semibold ${databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-edge-accent bg-brand-subtle text-brand-subtle-text"}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${databaseError ? "bg-bad-solid" : "bg-ok-solid"}`} aria-hidden />
-              {databaseError ? "Database unavailable" : "Live console"}
-            </span>
-          </div>
-          <p className="mt-1.5 text-[14px] leading-relaxed text-ink-3">Connected printers, Agents, and the print queue.</p>
-        </div>
-        {!databaseError ? <JobCleanupButton /> : null}
-      </header>
+    <>
+      <PageHeader
+        width="wide"
+        eyebrow="Operations"
+        icon={<Activity className="h-4 w-4" />}
+        title="Print console"
+        description="What’s connected, what’s printing, and what needs attention right now."
+        meta={
+          <StatusBadge
+            tone={databaseError ? "bad" : "ok"}
+            pulse={!databaseError}
+            label={databaseError ? "Database unavailable" : "Live"}
+          />
+        }
+        actions={
+          <>
+            <Button variant="ghost" size="sm" href="/system-health" icon={<LifeBuoy className="h-4 w-4" />}>
+              System health
+            </Button>
+            {!databaseError ? <JobCleanupButton /> : null}
+          </>
+        }
+      />
 
-      {databaseError ? (
-        <div role="alert" className="rounded-xl border border-bad-edge bg-bad-bg px-5 py-6 text-sm text-bad shadow-xs">
-          <h2 className="font-semibold">Database unavailable</h2>
-          <p className="mt-1 text-ink-2">PostgreSQL is unreachable.</p>
-        </div>
-      ) : (
-        <DashboardClient initialAgents={visibleAgents} initialPrinters={allPrinters} initialJobs={allJobs} databaseError={null} />
-      )}
-    </div>
+      <PageContainer width="wide">
+        {databaseError ? (
+          <Callout
+            tone="bad"
+            title="The database is unreachable"
+            icon={<Database className="h-4 w-4" />}
+            action={
+              <Button variant="secondary" size="sm" href="/system-health">
+                Run diagnostics
+              </Button>
+            }
+          >
+            PostgreSQL did not answer, so agents, printers and jobs cannot be listed. The Gateway
+            keeps accepting nothing new until the connection recovers — no queued job was discarded.
+          </Callout>
+        ) : (
+          <DashboardClient
+            initialAgents={visibleAgents}
+            initialPrinters={allPrinters}
+            initialJobs={allJobs}
+            databaseError={null}
+          />
+        )}
+      </PageContainer>
+    </>
   );
 }

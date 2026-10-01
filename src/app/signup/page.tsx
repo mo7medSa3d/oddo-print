@@ -3,9 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Info } from "lucide-react";
+import { ArrowRight, MailCheck } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
-import { Button, Field, Input, ErrorState } from "../../components/ui";
+import { Button, Callout, Field, Input, ErrorState } from "../../components/ui";
 
 export default function Signup() {
   const [email, setEmail] = useState("");
@@ -50,52 +50,87 @@ export default function Signup() {
   }
 
   return (
-    <AuthShell subtitle="Yaseir Print Gateway">
-      <section className="overflow-hidden rounded-[16px] border border-edge-strong bg-surface shadow-lg">
-        <div className="border-b border-edge bg-surface-2/55 px-6 py-6">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Get started</div>
-          <h1 className="mt-2 text-[28px] font-bold tracking-[-0.035em] text-ink">Create your account</h1>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-3">Use your business email. We’ll send a verification link.</p>
-        </div>
+    <AuthShell
+      subtitle="Yaseir Print Gateway"
+      eyebrow="Get started"
+      title="Create your account"
+      description="Use your business email — we’ll send a verification link to finish setup."
+      footer={
+        <>
+          Already have an account?{" "}
+          <Link href="/login" className="font-[600] text-brand hover:text-brand-hover hover:underline">
+            Sign in
+          </Link>
+        </>
+      }
+    >
+      {done ? (
+        <Callout tone="ok" icon={<MailCheck className="h-4 w-4" aria-hidden />} title="Check your email">
+          We sent a verification link to <strong className="font-[600]">{email}</strong>. Open it to
+          continue workspace setup.{" "}
+          <Link className="font-[600] underline" href="/login">
+            Return to sign in
+          </Link>
+          .
+        </Callout>
+      ) : (
+        <form className="space-y-4" onSubmit={submit}>
+          <Field label="Email" htmlFor="email" required>
+            <Input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setAccountExists(false);
+              }}
+              autoComplete="email"
+              autoFocus
+              required
+            />
+          </Field>
 
-        {done ? (
-          <div className="p-6 sm:p-7">
-            <div className="rounded-[11px] border border-ok-edge bg-ok-bg p-4 text-[13px] leading-relaxed text-ok">
-              Check your email for the verification link. <Link className="font-semibold underline" href="/login">Return to sign in</Link>.
-            </div>
-          </div>
-        ) : (
-          <form className="space-y-5 p-6 sm:p-7" onSubmit={submit}>
-            <Field label="Email" htmlFor="email">
-              <Input id="email" type="email" value={email} onChange={(e) => { setEmail(e.target.value); setAccountExists(false); }} autoComplete="email" required />
-            </Field>
-            <Field label="Password" htmlFor="password" hint="Use at least 12 characters.">
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={12} required />
-            </Field>
-            {accountExists ? (
-              <div className="rounded-[11px] border border-edge-accent bg-brand-subtle p-4">
-                <div className="flex items-start gap-2.5">
-                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand" aria-hidden />
-                  <div>
-                    <p className="text-[13px] font-semibold text-ink">Account already registered</p>
-                    <p className="mt-1 text-[12.5px] leading-relaxed text-ink-2">This email is already registered. You can sign in instead.</p>
-                    <Link href="/login" className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-brand hover:underline">
-                      Sign in
-                      <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            ) : err ? <ErrorState title="Could not create account" message={err} /> : null}
-            <Button type="submit" variant="primary" className="w-full" loading={loading} icon={<ArrowRight className="h-4 w-4" />}>
-              {loading ? "Creating…" : "Create account"}
-            </Button>
-            <p className="text-center text-[12.5px] text-ink-3">
-              Already have an account? <Link className="font-semibold text-brand hover:underline" href="/login">Sign in</Link>
-            </p>
-          </form>
-        )}
-      </section>
+          <Field
+            label="Password"
+            htmlFor="password"
+            hint="At least 12 characters. Prefer a passphrase you don’t reuse."
+            required
+          >
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+              minLength={12}
+              required
+            />
+          </Field>
+
+          {accountExists ? (
+            <Callout tone="brand" title="Account already registered">
+              This email already has a Yaseir account.{" "}
+              <Link href="/login" className="font-[600] underline">
+                Sign in instead
+              </Link>
+              .
+            </Callout>
+          ) : err ? (
+            <ErrorState title="Couldn’t create the account" message={err} />
+          ) : null}
+
+          <Button
+            type="submit"
+            variant="primary"
+            className="w-full"
+            size="lg"
+            loading={loading}
+            icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
+          >
+            {loading ? "Creating account…" : "Create account"}
+          </Button>
+        </form>
+      )}
     </AuthShell>
   );
 }

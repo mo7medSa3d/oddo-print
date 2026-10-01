@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, MailCheck } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
-import { Button, Field, Input, ErrorState } from "../../components/ui";
+import { Button, Callout, Field, Input, ErrorState } from "../../components/ui";
 
 export default function Forgot() {
   const [email, setEmail] = useState("");
@@ -41,35 +41,51 @@ export default function Forgot() {
   }
 
   return (
-    <AuthShell subtitle="Account recovery">
-      <section className="overflow-hidden rounded-[16px] border border-edge-strong bg-surface shadow-lg">
-        <div className="border-b border-edge bg-surface-2/55 px-6 py-6">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Account recovery</div>
-          <h1 className="mt-2 text-[28px] font-bold tracking-[-0.035em] text-ink">Forgot password</h1>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-3">We&apos;ll send a reset link when the account is eligible.</p>
-        </div>
-        <div className="p-6 sm:p-7">
-          {done ? (
-            <div className="rounded-[11px] border border-ok-edge bg-ok-bg p-4 text-[13px] leading-relaxed text-ok">
-              If that account exists, a reset email is on its way.{" "}
-              <Link className="font-semibold underline" href="/login">Return to sign in</Link>.
-            </div>
-          ) : (
-            <form className="space-y-5" onSubmit={submit}>
-              <Field label="Email" htmlFor="email">
-                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
-              </Field>
-              {error && <ErrorState title="Could not send reset link" message={error} />}
-              <Button variant="primary" className="w-full" loading={loading} icon={<ArrowRight className="h-4 w-4" />}>
-                {loading ? "Sending…" : "Send reset link"}
-              </Button>
-            </form>
-          )}
-          <Link href="/login" className="mt-5 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-3 hover:text-ink">
-            <ArrowLeft className="h-3.5 w-3.5" /> Back to sign in
-          </Link>
-        </div>
-      </section>
+    <AuthShell
+      subtitle="Account recovery"
+      eyebrow="Account recovery"
+      title="Reset your password"
+      description="Enter your workspace email and we’ll send a reset link if the account is eligible."
+    >
+      {done ? (
+        <Callout tone="ok" icon={<MailCheck className="h-4 w-4" aria-hidden />} title="Check your inbox">
+          If that account exists, a reset link is on its way. The link expires shortly, so use it
+          soon.
+        </Callout>
+      ) : (
+        <form className="space-y-4" onSubmit={submit}>
+          <Field label="Email" htmlFor="email" required>
+            <Input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              autoFocus
+              required
+            />
+          </Field>
+
+          {error && <ErrorState title="Couldn’t send the reset link" message={error} />}
+
+          <Button
+            variant="primary"
+            className="w-full"
+            size="lg"
+            loading={loading}
+            icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
+          >
+            {loading ? "Sending…" : "Send reset link"}
+          </Button>
+        </form>
+      )}
+
+      <Link
+        href="/login"
+        className="mt-6 inline-flex items-center gap-1.5 text-sm font-[550] text-ink-3 transition-colors hover:text-ink"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Back to sign in
+      </Link>
     </AuthShell>
   );
 }

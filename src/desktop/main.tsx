@@ -824,7 +824,7 @@ export default function App() {
                 setCollapsed(false);
                 setSidebarOpen(true);
               }}
-              className="rounded-[10px] border border-edge bg-surface p-2.5 text-ink-2 shadow-xs transition hover:bg-surface-2 lg:hidden"
+              className="rounded-md border border-edge bg-surface p-2.5 text-ink-2 shadow-xs transition hover:bg-surface-2 lg:hidden"
               aria-label="Open navigation"
             >
               <Menu className="h-5 w-5" />
@@ -929,7 +929,7 @@ export default function App() {
           </>
         }
       >
-        <p className="text-[14px] leading-relaxed text-ink-2">
+        <p className="text-base leading-relaxed text-ink-2">
           Jobs that have not started printing stay in the Gateway queue and continue automatically
           when the agent is back. A document that is at the printer right now will be interrupted:
           its result is recorded as <strong>Unknown - may have partially printed</strong> and needs
@@ -947,10 +947,10 @@ export default function App() {
           <div className="space-y-6">
             <div className="flex items-center gap-3 rounded-xl border border-edge-accent bg-surface-accent px-5 py-4">
               <StatusDot tone={printerTone(selectedPrinter.status)} />
-              <span className="text-[16px] font-semibold text-ink">
+              <span className="text-lg font-semibold text-ink">
                 {labelPrinter(selectedPrinter.status)}
               </span>
-              <span className="ml-auto text-[13px] text-ink-3">
+              <span className="ml-auto text-sm text-ink-3">
                 {humanType(selectedPrinter)}
               </span>
             </div>
@@ -1029,7 +1029,7 @@ export default function App() {
                 View jobs
               </Button>
             </div>
-            <p className="text-[13px] leading-relaxed text-ink-3">
+            <p className="text-sm leading-relaxed text-ink-3">
               This sends a test page through the Gateway queue and exercises the managed delivery path
               (queued, claimed by this agent, then delivered to the printer transport).
             </p>
@@ -1091,15 +1091,15 @@ export default function App() {
                   const unknown = outcome === "unknown";
                   return (
                     <>
-                      <div className={`flex items-center gap-2 text-[15px] font-semibold ${unknown ? "text-warn" : "text-bad"}`}>
+                      <div className={`flex items-center gap-2 text-md font-semibold ${unknown ? "text-warn" : "text-bad"}`}>
                         <AlertTriangle className="h-5 w-5" aria-hidden />
                         {unknown ? "Outcome unknown - paper may have printed" : "Print failed"}
                       </div>
-                      <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
+                      <p className="mt-2 text-base leading-relaxed text-ink-2">
                         {friendlyPrinterError(String(selectedJob.error))}
                       </p>
                       {!unknown && (
-                        <p className="mt-3 text-[13px] text-ink-3">
+                        <p className="mt-3 text-sm text-ink-3">
                           This job failed before printing started. Once the cause is fixed, resend the
                           document from its source (Odoo) - the Gateway will queue it as a new job.
                         </p>
@@ -1109,7 +1109,7 @@ export default function App() {
                 })()}
               </div>
             ) : (
-              <div className="flex items-center gap-2 rounded-xl border border-info-edge bg-info-bg px-5 py-4 text-[14px] text-info">
+              <div className="flex items-center gap-2 rounded-xl border border-info-edge bg-info-bg px-5 py-4 text-base text-info">
                 <Info className="h-5 w-5 flex-shrink-0" aria-hidden />
                 {jobGuidance(jobStatus(selectedJob), deriveOutcome(jobStatus(selectedJob), null)) || "No error recorded for this job."}
               </div>

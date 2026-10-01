@@ -1,6 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import {
+  Button,
+  Card,
+  CardHeader,
+  Callout,
+  ErrorState,
+  PageSkeleton,
+  SegmentedControl,
+  StatusBadge,
+  type Tone,
+} from "../../components/ui";
 
 type Status = "PASS" | "FAIL" | "BLOCKED" | "NOT APPLICABLE";
 type Row = {
@@ -10,6 +22,28 @@ type Row = {
   status: Status;
   evidence: string;
   rootCause?: string;
+};
+
+type SystemHealthPayload = {
+  policy?: string;
+  overall?: string;
+  [key: string]: unknown;
+};
+
+type Filter = "all" | "attention" | "pass";
+
+const STATUS_TONE: Record<Status, Tone> = {
+  PASS: "ok",
+  FAIL: "bad",
+  BLOCKED: "warn",
+  "NOT APPLICABLE": "neutral",
+};
+
+const STATUS_LABEL: Record<Status, string> = {
+  PASS: "Pass",
+  FAIL: "Fail",
+  BLOCKED: "Blocked",
+  "NOT APPLICABLE": "N/A",
 };
 
 export default function ReleaseReadinessClient() {
@@ -129,14 +163,17 @@ export default function ReleaseReadinessClient() {
     },
   ]);
 
-  const [systemHealth, setSystemHealth] = useState<any>(null);
+  const [systemHealth, setSystemHealth] = useState<SystemHealthPayload | null>(null);
+  const [showRawHealth, setShowRawHealth] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/system/health", { credentials: "include", cache: "no-store" })
       .then((r) => {
         if (!r.ok) throw new Error(`Health check unavailable (HTTP ${r.status})`);
-        return r.json() as Promise<unknown>;
+        return r.json() as Promise<SystemHealthPayload>;
       })
       .then((data) => {
         if (!cancelled) setSystemHealth(data);
@@ -150,59 +187,196 @@ export default function ReleaseReadinessClient() {
     };
   }, []);
 
-  const overall = rows.some(r=>r.status==="FAIL") ? "FAIL" : rows.some(r=>r.status==="BLOCKED") ? "BLOCKED (explicit)" : "PASS";
+  const overall = rows.some((r) => r.status === "FAIL")
+    ? "FAIL"
+    : rows.some((r) => r.status === "BLOCKED")
+      ? "BLOCKED (explicit)"
+      : "PASS";
+
+  const counts = useMemo(
+    () => ({
+      pass: rows.filter((r) => r.status === "PASS").length,
+      blocked: rows.filter((r) => r.status === "BLOCKED").length,
+      fail: rows.filter((r) => r.status === "FAIL").length,
+    }),
+    [rows],
+  );
+
+  const visibleRows = rows.filter((row) => {
+    if (filter === "attention") return row.status !== "PASS";
+    if (filter === "pass") return row.status === "PASS";
+    return true;
+  });
+
+  const tone: Tone = overall === "FAIL" ? "bad" : overall === "PASS" ? "ok" : "warn";
 
   return (
-    <div className="space-y-6">
-      <div className={`rounded-xl border px-5 py-4 ${overall==="FAIL" ? "bg-bad-bg border-bad-edge text-bad" : overall.includes("BLOCKED") ? "bg-warn-bg border-warn-edge text-warn" : "bg-ok-bg border-ok-edge text-ok"}`}>
-        <div className="text-sm font-bold">Release Decision: {overall}</div>
-        <div className="mt-1 text-xs">P0 implemented with truthful state-driven wizard, tenant-safe health, claim token redaction, evidence-based printer/agent health. BLOCKED items explicit, not hidden. No fake PASS.</div>
-      </div>
-
-      <div className="overflow-auto rounded-xl border border-edge">
-        <table className="min-w-full text-[11px]">
-          <thead className="bg-surface-2 text-[10px] uppercase text-ink-3">
-            <tr>
-              <th className="px-3 py-2 text-left">Area</th>
-              <th className="px-3 py-2">Implemented</th>
-              <th className="px-3 py-2">Runtime Verified</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2 text-left">Evidence</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} className="border-t border-edge align-top">
-                <td className="px-3 py-2 font-semibold">{r.area}</td>
-                <td className="px-3 py-2 text-center"><span className={`rounded-[8px] border px-2 py-0.5 text-[10px] font-bold ${r.implemented==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.implemented==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.implemented}</span></td>
-                <td className="px-3 py-2 text-center"><span className={`rounded-[8px] border px-2 py-0.5 text-[10px] font-bold ${r.runtimeVerified==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.runtimeVerified==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.runtimeVerified}</span></td>
-                <td className="px-3 py-2 text-center"><span className={`rounded-[8px] border px-2 py-0.5 text-[10px] font-bold ${r.status==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.status==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.status}</span></td>
-                <td className="px-3 py-2 max-w-[400px]">
-                  <div className="text-[11px] text-ink-2">{r.evidence}</div>
-                  {r.rootCause && <div className="mt-1 text-[10px] text-bad">Root cause: {r.rootCause}</div>}
-                </td>
-              </tr>
+    <div className="space-y-5">
+      <Card
+        className={`border-l-[3px] ${
+          tone === "bad" ? "border-l-bad-solid" : tone === "warn" ? "border-l-warn-solid" : "border-l-ok-solid"
+        }`}
+      >
+        <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-md font-[620] tracking-[-0.015em] text-ink">
+                Release decision: {overall}
+              </h2>
+              <StatusBadge tone={tone} label={tone === "ok" ? "Ship" : tone === "warn" ? "Conditional" : "Blocked"} />
+            </div>
+            <p className="mt-1.5 max-w-[86ch] text-sm leading-relaxed text-ink-3">
+              P0 implemented with truthful state-driven wizard, tenant-safe health, claim token
+              redaction, evidence-based printer/agent health. BLOCKED items are explicit, not hidden.
+              No fake PASS.
+            </p>
+          </div>
+          <div className="grid shrink-0 grid-cols-3 gap-px overflow-hidden rounded-lg border border-edge bg-edge-subtle">
+            {[
+              { label: "Pass", value: counts.pass, tone: "text-ok" },
+              { label: "Blocked", value: counts.blocked, tone: "text-warn" },
+              { label: "Fail", value: counts.fail, tone: "text-bad" },
+            ].map((item) => (
+              <div key={item.label} className="bg-surface px-4 py-2.5 text-center">
+                <div className={`text-lg font-[660] leading-none tabular ${item.tone}`}>{item.value}</div>
+                <div className="mt-1 text-2xs font-[600] uppercase tracking-[0.08em] text-ink-3">
+                  {item.label}
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="overflow-hidden">
+        <CardHeader
+          title="Checklist"
+          subtitle={`${visibleRows.length} of ${rows.length} checks shown`}
+          actions={
+            <SegmentedControl
+              label="Filter checks"
+              value={filter}
+              onChange={setFilter}
+              size="sm"
+              options={[
+                { value: "all", label: "All" },
+                { value: "attention", label: "Needs attention" },
+                { value: "pass", label: "Passing" },
+              ]}
+            />
+          }
+        />
+
+        {visibleRows.length === 0 ? (
+          <div className="px-5 py-10 text-center">
+            <p className="text-sm font-[550] text-ink">Nothing in this filter</p>
+            <p className="mt-1 text-sm text-ink-3">Switch back to “All” to see every check.</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-edge-subtle">
+            {visibleRows.map((row) => {
+              const open = expanded === row.area;
+              return (
+                <li key={row.area}>
+                  <div className="flex flex-wrap items-start gap-3 px-5 py-4">
+                    <StatusBadge tone={STATUS_TONE[row.status]} label={STATUS_LABEL[row.status]} />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-[600] leading-snug text-ink">{row.area}</div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
+                        <span>
+                          Implemented:{" "}
+                          <span className="font-[550] text-ink-2">{STATUS_LABEL[row.implemented]}</span>
+                        </span>
+                        <span aria-hidden>·</span>
+                        <span>
+                          Runtime verified:{" "}
+                          <span className="font-[550] text-ink-2">{STATUS_LABEL[row.runtimeVerified]}</span>
+                        </span>
+                        {row.rootCause && (
+                          <>
+                            <span aria-hidden>·</span>
+                            <span className="font-[550] text-brand">Root cause fixed</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setExpanded(open ? null : row.area)}
+                      aria-expanded={open}
+                      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink"
+                    >
+                      Evidence
+                      <ChevronDown
+                        className={`h-3.5 w-3.5 transition-transform duration-[160ms] ${open ? "rotate-180" : ""}`}
+                        aria-hidden
+                      />
+                    </button>
+                  </div>
+                  {open && (
+                    <div className="space-y-3 px-5 pb-5">
+                      <p className="max-w-[100ch] text-sm leading-relaxed text-ink-2">{row.evidence}</p>
+                      {row.rootCause && (
+                        <Callout tone="info" title="Root cause fixed">
+                          {row.rootCause}
+                        </Callout>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Card>
 
       {systemHealth && (
-        <div className="rounded-xl border border-edge bg-surface p-4">
-          <h3 className="text-sm font-semibold">System Health (live) — policy: {systemHealth.policy}</h3>
-          <pre className="mt-2 max-h-64 overflow-auto rounded bg-surface-2 p-3 text-[11px]">{JSON.stringify(systemHealth, null, 2)}</pre>
-        </div>
+        <Card>
+          <CardHeader
+            title="Live system health sample"
+            subtitle={systemHealth.policy ? `Overall policy: ${systemHealth.policy}` : undefined}
+            actions={
+              <Button variant="secondary" size="sm" onClick={() => setShowRawHealth((v) => !v)}>
+                {showRawHealth ? "Hide JSON" : "Show JSON"}
+              </Button>
+            }
+          />
+          {showRawHealth && (
+            <pre className="mx-5 my-4 max-h-64 overflow-auto rounded-lg border border-edge-subtle bg-surface-2 p-3.5 font-mono text-2xs leading-relaxed text-ink-2">
+              {JSON.stringify(systemHealth, null, 2)}
+            </pre>
+          )}
+        </Card>
       )}
 
-      <div className="rounded-xl border border-edge bg-surface p-5">
-        <h3 className="text-sm font-semibold">Compliance Notes (honest)</h3>
-        <ul className="mt-2 list-disc pl-5 text-[12px] text-ink-2 space-y-1">
-          <li><strong>OTel-inspired distributed correlation</strong> (not full OpenTelemetry): custom fields request_id/job_id/tenant_id/agent_id/printer_id/attempt_id/claim_id/spooler_job_id in logs and headers, documented as application-specific, not official OTel semantic conventions.</li>
-          <li><strong>IPP support / driverless direction</strong> (not IPP Everywhere certified): IPP/IPPS transport supported, capability matrix, but conformance testing not run, so not claiming certification.</li>
-          <li><strong>Tauri updater</strong>: no updater plugin/config found in tauri.conf.json, marked NOT IMPLEMENTED/BLOCKED, not claimed as PASS. Capabilities 21 perms least-privilege verified.</li>
-          <li><strong>Odoo/Billing health</strong>: UNKNOWN / NOT VERIFIED honest, intentionally-unverified externals cap overall at WARN (never OK) — policy prevents false green.</li>
+      <Card>
+        <CardHeader
+          title="Compliance notes (honest)"
+          subtitle="Claims are limited to what has been verified."
+        />
+        <ul className="list-disc space-y-2 pl-9 pr-5 py-5 text-sm text-ink-2">
+          <li>
+            <strong className="font-[600] text-ink">OTel-inspired distributed correlation</strong> (not full
+            OpenTelemetry): custom fields request_id/job_id/tenant_id/agent_id/printer_id/attempt_id/claim_id/spooler_job_id
+            in logs and headers, documented as application-specific, not official OTel semantic conventions.
+          </li>
+          <li>
+            <strong className="font-[600] text-ink">IPP support / driverless direction</strong> (not IPP
+            Everywhere certified): IPP/IPPS transport supported, capability matrix, but conformance
+            testing not run, so not claiming certification.
+          </li>
+          <li>
+            <strong className="font-[600] text-ink">Tauri updater</strong>: no updater plugin/config found
+            in tauri.conf.json, marked NOT IMPLEMENTED/BLOCKED, not claimed as PASS. Capabilities 21
+            perms least-privilege verified.
+          </li>
+          <li>
+            <strong className="font-[600] text-ink">Odoo/Billing health</strong>: UNKNOWN / NOT VERIFIED
+            honest, intentionally-unverified externals cap overall at WARN (never OK) — policy prevents
+            false green.
+          </li>
         </ul>
-      </div>
+      </Card>
     </div>
   );
 }

@@ -1,9 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, CreditCard, Sparkles } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Building2,
+  CheckCircle2,
+  CreditCard,
+  KeyRound,
+  Printer,
+  Server,
+  Sparkles,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Button, Card, EmptyState, ErrorState, Field, Input } from "../../components/ui";
+import {
+  Button,
+  Callout,
+  Card,
+  CardHeader,
+  EmptyState,
+  ErrorState,
+  Field,
+  Input,
+  Skeleton,
+  StatusBadge,
+} from "../../components/ui";
 
 type Plan = {
   id: string;
@@ -12,6 +33,24 @@ type Plan = {
   interval: string | null;
   entitlements: Record<string, unknown>;
 };
+
+const NEXT_STEPS = [
+  {
+    icon: Server,
+    title: "Register your first agent",
+    text: "The Windows service that owns printers. Registration issues a one-time pairing code.",
+  },
+  {
+    icon: KeyRound,
+    title: "Connect Odoo",
+    text: "Generate a workspace credential and paste it into the Yaseir module in Odoo.",
+  },
+  {
+    icon: Printer,
+    title: "Send the first job",
+    text: "Print a test page from the console, then verify the delivery state end to end.",
+  },
+];
 
 export default function Onboarding() {
   const [name, setName] = useState("");
@@ -124,109 +163,223 @@ export default function Onboarding() {
   }
 
   const canContinue = name.trim().length >= 2 && !!planId && !plansLoading && !plansError;
+  const selectedPlan = plans.find((plan) => plan.id === planId) ?? null;
 
   return (
-    <main className="canvas-wash min-h-screen px-4 py-10 sm:px-6 lg:py-12">
-      <div className="mx-auto w-full max-w-[900px]">
-        <div className="mx-auto max-w-2xl text-center">
-          <div className="inline-flex items-center gap-2 rounded-[8px] border border-edge-accent bg-brand-subtle px-3 py-1.5 text-xs font-semibold text-brand-subtle-text">
+    <main className="ambient-surface min-h-screen px-4 py-10 sm:px-6 lg:py-14">
+      <div className="mx-auto w-full max-w-[1080px]">
+        <header className="mx-auto max-w-2xl text-center">
+          <span className="inline-flex items-center gap-2 rounded-sm border border-edge-accent bg-brand-subtle px-3 py-1.5 text-xs font-[600] text-brand-subtle-text">
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
-            Get started
-          </div>
-          <h1 className="mt-4 text-[34px] font-bold tracking-[-0.04em] text-ink sm:text-[42px]">Set up your workspace</h1>
-          <p className="mx-auto mt-2 text-sm leading-6 text-ink-3 sm:text-base">Create your workspace and choose a plan.</p>
-        </div>
+            Workspace setup
+          </span>
+          <h1 className="mt-4 text-4xl font-[670] tracking-[-0.035em] text-ink sm:text-5xl">
+            Set up your workspace
+          </h1>
+          <p className="mx-auto mt-3 max-w-xl text-base leading-relaxed text-ink-3">
+            Name the workspace and choose a plan. You can change plans later from Billing.
+          </p>
+        </header>
 
-        <Card className="mt-8 p-6 sm:p-8">
-          <div className="grid gap-8">
-            <Field label="Workspace name" htmlFor="workspace-name">
-              <Input
-                id="workspace-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                minLength={2}
-                maxLength={120}
-                autoComplete="organization"
-                placeholder="e.g. Acme Warehouse"
+        <div className="mt-9 grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.85fr)]">
+          <Card>
+            <CardHeader
+              title="Workspace and plan"
+              subtitle="Two fields — then you are in the console."
+              icon={<Building2 className="h-4 w-4" />}
+              actions={
+                <ol className="flex items-center gap-2 text-xs font-[600] text-ink-3" aria-label="Setup progress">
+                  <li className="inline-flex items-center gap-1.5">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand text-2xs font-[700] text-brand-contrast">1</span>
+                    Workspace
+                  </li>
+                  <li aria-hidden className="h-px w-4 bg-edge-strong" />
+                  <li className="inline-flex items-center gap-1.5">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full border border-edge-strong bg-surface-2 text-2xs font-[700] text-ink-3">2</span>
+                    Plan
+                  </li>
+                </ol>
+              }
+            />
+
+            <div className="space-y-6 px-5 py-6">
+              <Field
+                label="Workspace name"
+                htmlFor="workspace-name"
+                hint="Appears in the console, on audit records and in the Odoo integration."
                 required
-                disabled={loading}
-              />
-            </Field>
+              >
+                <Input
+                  id="workspace-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  minLength={2}
+                  maxLength={120}
+                  autoComplete="organization"
+                  placeholder="e.g. Acme Warehouse"
+                  required
+                  autoFocus
+                  disabled={loading}
+                />
+              </Field>
 
-            <div>
-              <div className="flex items-end justify-between gap-4">
-                <div>
-                  <label className="text-sm font-semibold text-ink">Choose a plan</label>
-                </div>
-                {plans.length > 0 && <span className="text-xs font-medium text-ink-3">{plans.length} available</span>}
-              </div>
+              <fieldset disabled={loading}>
+                <legend className="flex w-full items-end justify-between gap-4 pb-3">
+                  <span className="text-sm font-[600] text-ink">Choose a plan</span>
+                  {plans.length > 0 && (
+                    <span className="text-xs font-[550] text-ink-3">{plans.length} available</span>
+                  )}
+                </legend>
 
-              {plansLoading ? (
-                <div className="mt-3 grid gap-3 md:grid-cols-2" role="status" aria-label="Loading plans">
-                  {[0, 1].map((item) => (
-                    <div key={item} className="rounded-[14px] border border-edge bg-surface-2 p-5 shadow-xs">
-                      <div className="skeleton h-4 w-28" />
-                      <div className="mt-3 skeleton h-3 w-20" />
-                      <div className="mt-4 skeleton h-3 w-full" />
-                      <div className="mt-2 skeleton h-3 w-3/4" />
-                    </div>
-                  ))}
-                  <span className="sr-only">Loading plans…</span>
-                </div>
-              ) : plansError ? (
-                <div className="mt-3"><ErrorState title="Plans could not be loaded" message={plansError} retry={() => void loadPlans()} /></div>
-              ) : plans.length === 0 ? (
-                <div className="mt-3"><EmptyState icon={<CreditCard className="h-9 w-9" />} title="No plans are available" description="The workspace cannot be activated until a public billing plan is configured." /></div>
-              ) : (
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  {plans.map((plan) => {
-                    const selected = planId === plan.id;
-                    const included = Object.entries(plan.entitlements ?? {}).slice(0, 4);
-                    const cardClass = "rounded-[14px] border p-5 text-left transition-[border-color,background-color,box-shadow] duration-150 focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] " +
-                      (selected ? "border-brand bg-brand-subtle shadow-xs" : "border-edge bg-surface hover:border-edge-strong hover:bg-surface-2") +
-                      (loading ? " pointer-events-none opacity-60" : "");
-                    return (
-                      <button key={plan.id} type="button" disabled={loading} aria-pressed={selected} onClick={() => setPlanId(plan.id)} className={cardClass}>
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className="text-[15px] font-semibold text-ink">{plan.name}</div>
-                            <div className="mt-1 text-xs font-medium text-ink-3">
-                              {plan.currency ? plan.currency.toUpperCase() : ""}{plan.interval ? " / " + plan.interval : ""}
-                            </div>
-                          </div>
-                          {selected && <CheckCircle2 className="h-5 w-5 shrink-0 text-brand" aria-hidden />}
-                        </div>
-                        {included.length > 0 && (
-                          <div className="mt-4 space-y-2 border-t border-edge pt-3">
-                            {included.map(([key, value]) => (
-                              <div key={key} className="flex items-center justify-between gap-4 text-xs">
-                                <span className="capitalize text-ink-3">{key.replace(/^max_/, "").replace(/_/g, " ")}</span>
-                                <span className="font-semibold text-ink">{typeof value === "boolean" ? (value ? "Included" : "Not included") : String(value)}</span>
+                {plansLoading ? (
+                  <div className="grid gap-3 md:grid-cols-2" role="status" aria-label="Loading plans">
+                    {[0, 1].map((item) => (
+                      <div key={item} className="space-y-3 rounded-xl border border-edge bg-surface-2 p-4">
+                        <Skeleton className="h-4 w-28" />
+                        <Skeleton className="h-3 w-20" />
+                        <Skeleton className="h-3 w-full" />
+                        <Skeleton className="h-3 w-3/4" />
+                      </div>
+                    ))}
+                    <span className="sr-only">Loading plans…</span>
+                  </div>
+                ) : plansError ? (
+                  <ErrorState
+                    title="Plans could not be loaded"
+                    message={plansError}
+                    retry={() => void loadPlans()}
+                  />
+                ) : plans.length === 0 ? (
+                  <EmptyState
+                    icon={<CreditCard className="h-5 w-5" />}
+                    title="No plans are available"
+                    description="The workspace cannot be activated until a public billing plan is configured."
+                  />
+                ) : (
+                  <div role="radiogroup" aria-label="Choose a plan" className="grid gap-3 md:grid-cols-2">
+                    {plans.map((plan) => {
+                      const selected = planId === plan.id;
+                      const included = Object.entries(plan.entitlements ?? {}).slice(0, 4);
+                      return (
+                        <button
+                          key={plan.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          disabled={loading}
+                          onClick={() => setPlanId(plan.id)}
+                          className={`rounded-xl border p-4 text-left transition-[border-color,background-color,box-shadow] duration-[160ms] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] ${
+                            selected
+                              ? "border-brand bg-brand-subtle shadow-xs"
+                              : "border-edge bg-surface hover:border-edge-strong hover:bg-surface-2"
+                          } ${loading ? "pointer-events-none opacity-60" : ""}`}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="text-md font-[620] text-ink">{plan.name}</div>
+                              <div className="mt-1 text-xs font-[550] text-ink-3">
+                                {plan.currency ? plan.currency.toUpperCase() : "—"}
+                                {plan.interval ? ` / ${plan.interval}` : ""}
                               </div>
-                            ))}
+                            </div>
+                            {selected ? (
+                              <CheckCircle2 className="h-5 w-5 shrink-0 text-brand" aria-hidden />
+                            ) : (
+                              <span className="h-4 w-4 shrink-0 rounded-full border border-edge-strong" aria-hidden />
+                            )}
                           </div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
+                          {included.length > 0 && (
+                            <dl className="mt-3.5 space-y-2 border-t border-edge-subtle pt-3 text-xs">
+                              {included.map(([key, value]) => (
+                                <div key={key} className="flex items-center justify-between gap-4">
+                                  <dt className="capitalize text-ink-3">
+                                    {key.replace(/^max_/, "").replace(/_/g, " ")}
+                                  </dt>
+                                  <dd className="font-[600] tabular text-ink">
+                                    {typeof value === "boolean" ? (value ? "Included" : "Not included") : String(value)}
+                                  </dd>
+                                </div>
+                              ))}
+                            </dl>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </fieldset>
+
+              {err && (
+                <Callout tone="bad" title="Workspace setup failed" icon={<AlertTriangle className="h-4 w-4" />}>
+                  {err}
+                </Callout>
               )}
             </div>
 
-            {err && (
-              <div className="flex items-start gap-3 rounded-xl border border-bad-edge bg-bad-bg px-4 py-3.5 text-sm text-bad" role="alert">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                <span>{err}</span>
+            <div className="flex flex-col gap-3 border-t border-edge-subtle px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-ink-3">
+                {selectedPlan ? (
+                  <>
+                    Selected <span className="font-[600] text-ink">{selectedPlan.name}</span> — trial
+                    starts immediately, no card required.
+                  </>
+                ) : (
+                  "Choose a plan to continue."
+                )}
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="primary"
+                  disabled={!canContinue || loading}
+                  loading={loading}
+                  onClick={() => void submit(true)}
+                  icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
+                >
+                  Start free trial
+                </Button>
+                <Button variant="secondary" disabled={!canContinue || loading} onClick={() => void submit(false)}>
+                  Continue to checkout
+                </Button>
               </div>
-            )}
-
-            <div className="flex flex-col gap-3 border-t border-edge pt-6 sm:flex-row">
-              <Button variant="primary" disabled={!canContinue || loading} loading={loading} onClick={() => void submit(true)} className="sm:flex-1">Start trial</Button>
-              <Button variant="secondary" disabled={!canContinue || loading} onClick={() => void submit(false)} className="sm:flex-1">Continue to checkout</Button>
             </div>
+          </Card>
 
-          </div>
-        </Card>
+          <aside className="space-y-5">
+            <Card>
+              <CardHeader
+                title="What happens next"
+                subtitle="Three steps to your first printed page."
+                icon={<Sparkles className="h-4 w-4" />}
+              />
+              <ol className="space-y-4 px-5 py-5">
+                {NEXT_STEPS.map((step, index) => (
+                  <li key={step.title} className="flex gap-3">
+                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-edge bg-surface-2 text-ink-3">
+                      <step.icon className="h-3.5 w-3.5" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-baseline gap-2">
+                        <h3 className="text-sm font-[600] text-ink">{step.title}</h3>
+                        <span className="font-mono text-2xs tabular text-ink-4">0{index + 1}</span>
+                      </div>
+                      <p className="mt-0.5 text-sm leading-relaxed text-ink-3">{step.text}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </Card>
+
+            <Callout tone="info" title="No card required for the trial">
+              Start with a trial, add a payment method only when you are ready to subscribe. Print
+              credits and limits follow the selected plan.
+            </Callout>
+
+            <div className="flex items-center gap-2 text-sm text-ink-3">
+              <StatusBadge tone="ok" label="Odoo 19 ready" size="sm" />
+              <span>Gateway and agent download included.</span>
+            </div>
+          </aside>
+        </div>
       </div>
     </main>
   );

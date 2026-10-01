@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, CreditCard, ExternalLink, Loader2 } from "lucide-react";
-import { Modal } from "./ui";
+import { ArrowRight, CreditCard, ExternalLink, RotateCcw } from "lucide-react";
+import { Button, Callout, ConfirmDialog, StatusBadge } from "./ui";
 
 type PlanOption = {
   id: string;
@@ -17,6 +17,7 @@ async function post(path: string, body?: Record<string, unknown>) {
   const res = await fetch(path, {
     method: "POST",
     credentials: "include",
+    cache: "no-store",
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -31,6 +32,14 @@ async function post(path: string, body?: Record<string, unknown>) {
   return data;
 }
 
+/**
+ * Billing lifecycle actions (portal, checkout, resume, cancel).
+ *
+ * Behaviour is unchanged from the original implementation — same endpoints,
+ * same request bodies, same navigation semantics — but the controls now follow
+ * the shared button hierarchy and destructive actions are confirmed in a real
+ * dialog instead of a bare modal footer.
+ */
 export function BillingActions({
   hasSubscription,
   cancelAtPeriodEnd,
@@ -90,129 +99,137 @@ export function BillingActions({
     });
   };
 
+  const openPortal = () =>
+    run("portal", async () => {
+      const data = await post("/api/billing/portal");
+      if (typeof data.url !== "string" || !data.url) throw new Error("Billing portal URL was not returned");
+      window.location.href = data.url;
+    });
+
   return (
     <>
       <div className="space-y-4">
         {selectedPlan && (
-          <section className="rounded-[12px] border border-brand-subtle-border bg-brand-subtle px-4 py-4">
+          <section className="rounded-lg border border-brand-subtle-border bg-brand-subtle px-4 py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-subtle-text">
-                  Selected plan
+                <div className="label-caps text-brand-subtle-text">Selected plan</div>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className="text-md font-[600] text-ink">{selectedPlan.name}</span>
+                  <StatusBadge size="sm" tone="brand" label={hasSubscription ? "Change plan" : "New subscription"} />
                 </div>
-                <div className="mt-1 text-[15px] font-semibold text-ink">{selectedPlan.name}</div>
-                <div className="mt-0.5 text-[12px] text-ink-3">
-                  {selectedPlan.currency?.toUpperCase() ?? "USD"} · {selectedPlan.interval ?? "month"}
+                <div className="mt-1 text-sm text-ink-3">
+                  {selectedPlan.currency?.toUpperCase() ?? "USD"} · per {selectedPlan.interval ?? "month"}
                 </div>
               </div>
-              <button
-                type="button"
-                disabled={!!busy}
+              <Button
+                variant="primary"
                 onClick={continueWithSelectedPlan}
-                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[8px] bg-brand px-4 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md disabled:opacity-50"
+                disabled={busy !== ""}
+                loading={busy === "selected-plan"}
+                icon={<ArrowRight className="h-4 w-4" aria-hidden />}
+                className="shrink-0"
               >
-                {busy === "selected-plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {busy === "selected-plan" ? "Opening…" : hasSubscription ? "Continue to billing" : "Continue to checkout"}
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
+                {busy === "selected-plan"
+                  ? "Opening…"
+                  : hasSubscription
+                    ? "Continue to billing"
+                    : "Continue to checkout"}
+              </Button>
             </div>
           </section>
         )}
 
         <div className="flex flex-wrap gap-2.5">
-          <button
-            type="button"
-            disabled={!canOpenPortal || !!busy}
-            onClick={() => run("portal", async () => {
-              const data = await post("/api/billing/portal");
-              if (typeof data.url !== "string" || !data.url) throw new Error("Billing portal URL was not returned");
-              window.location.href = data.url;
-            })}
-            className="inline-flex h-9 items-center gap-2 rounded-[8px] border border-edge bg-surface px-3.5 text-[12.5px] font-semibold text-ink-2 shadow-xs transition hover:border-edge-strong hover:bg-surface-2 hover:text-ink disabled:opacity-50"
+          <Button
+            variant="secondary"
+            disabled={!canOpenPortal || busy !== ""}
+            loading={busy === "portal"}
+            onClick={openPortal}
+            icon={<CreditCard className="h-4 w-4" aria-hidden />}
+            title={canOpenPortal ? "Open the Stripe customer portal" : "Stripe portal is unavailable for this workspace"}
           >
-            {busy === "portal" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
-            {busy === "portal" ? "Opening…" : "Customer Portal"}
-{canOpenPortal && <ExternalLink className="h-3 w-3 text-ink-4" />}
-          </button>
+            {busy === "portal" ? "Opening…" : "Customer portal"}
+            {canOpenPortal && busy !== "portal" && (
+              <ExternalLink className="ml-1 h-3.5 w-3.5 text-ink-4" aria-hidden />
+            )}
+          </Button>
 
           {hasSubscription && subscriptionStatus !== "paused" && !cancelAtPeriodEnd && (
-            <button
-              type="button"
-              disabled={!!busy}
+            <Button
+              variant="danger"
+              disabled={busy !== ""}
               onClick={() => setConfirmCancel(true)}
-              className="inline-flex h-9 items-center rounded-[8px] border border-bad-edge bg-bad-bg px-3.5 text-[12.5px] font-semibold text-bad transition hover:brightness-95 disabled:opacity-50"
             >
               Cancel at period end
-            </button>
+            </Button>
           )}
 
           {hasSubscription && (cancelAtPeriodEnd || subscriptionStatus === "paused") && (
-            <button
-              type="button"
-              disabled={!!busy}
-              onClick={() => run("resume", async () => {
-                await post("/api/billing/resume");
-                router.refresh();
-              })}
-              className="inline-flex h-9 items-center rounded-[8px] bg-brand px-3.5 text-[12.5px] font-semibold text-white transition hover:bg-brand-hover disabled:opacity-50"
+            <Button
+              variant="primary"
+              disabled={busy !== ""}
+              loading={busy === "resume"}
+              onClick={() =>
+                run("resume", async () => {
+                  await post("/api/billing/resume");
+                  router.refresh();
+                })
+              }
+              icon={<RotateCcw className="h-4 w-4" aria-hidden />}
             >
               {busy === "resume" ? "Updating…" : "Resume subscription"}
-            </button>
+            </Button>
           )}
         </div>
 
         {!selectedPlan && subscriptionStatus === "incomplete" && checkoutUrl && (
-          <a
+          <Button
+            variant="primary"
             href={checkoutUrl}
-            className="inline-flex h-9 items-center gap-2 rounded-[8px] bg-brand px-3.5 text-[12.5px] font-semibold text-white transition hover:bg-brand-hover"
+            icon={<ArrowRight className="h-4 w-4" aria-hidden />}
           >
             Continue existing checkout
-            <ArrowRight className="h-3.5 w-3.5" />
-          </a>
+          </Button>
         )}
 
         {error && (
-          <div role="alert" className="rounded-[10px] border border-bad-edge bg-bad-bg px-4 py-3 text-[12.5px] text-bad">
-            {error}
-          </div>
+          <Callout tone="bad" title="Billing request failed">
+            <span role="alert">{error}</span>
+          </Callout>
         )}
       </div>
 
-      <Modal
+      <ConfirmDialog
         open={confirmCancel}
-        onClose={() => { if (!busy) setConfirmCancel(false); }}
-        title="Cancel subscription?"
-        description="Your subscription will remain active until the end of the current billing period."
-        footer={
-          <>
-            <button
-              type="button"
-              onClick={() => setConfirmCancel(false)}
-              disabled={!!busy}
-              className="rounded-[9px] border border-edge bg-surface px-4 py-2 text-[13px] font-semibold text-ink transition hover:bg-surface-2 disabled:opacity-50"
-            >
-              Keep subscription
-            </button>
-            <button
-              type="button"
-              onClick={() => run("cancel", async () => {
-                await post("/api/billing/cancel");
-                setConfirmCancel(false);
-                router.refresh();
-              })}
-              disabled={!!busy}
-              className="rounded-[9px] bg-bad-solid px-4 py-2 text-[13px] font-semibold text-white transition hover:brightness-95 disabled:opacity-50"
-            >
-              {busy === "cancel" ? "Cancelling…" : "Confirm cancellation"}
-            </button>
-          </>
+        onClose={() => {
+          if (!busy) setConfirmCancel(false);
+        }}
+        onConfirm={() =>
+          run("cancel", async () => {
+            await post("/api/billing/cancel");
+            setConfirmCancel(false);
+            router.refresh();
+          })
         }
+        busy={busy === "cancel"}
+        tone="danger"
+        title="Cancel subscription?"
+        description="Your subscription stays active until the end of the current billing period."
+        confirmLabel="Cancel at period end"
+        cancelLabel="Keep subscription"
       >
-        <div className="space-y-3 text-[13px] leading-relaxed text-ink-2">
-          <p>This does not end service immediately. Stripe will keep the subscription active through the current period.</p>
-          <p>You can return here and choose <span className="font-semibold text-ink">Resume subscription</span> before the period ends.</p>
+        <div className="space-y-3 text-sm leading-relaxed text-ink-2">
+          <p>
+            This does not end service immediately — Stripe keeps the subscription active through the
+            current period.
+          </p>
+          <p>
+            You can return here and choose <span className="font-[600] text-ink">Resume subscription</span>{" "}
+            before the period ends.
+          </p>
         </div>
-      </Modal>
+      </ConfirmDialog>
     </>
   );
 }
