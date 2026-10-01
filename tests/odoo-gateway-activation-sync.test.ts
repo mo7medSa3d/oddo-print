@@ -172,7 +172,7 @@ describe("Odoo Gateway activation synchronization", () => {
       expect(page).not.toContain("Document types");
       expect(page).toContain("Retiring");
       expect(page).toContain("readOnlyUntil");
-      expect(page).toContain("Odoo access:");
+      expect(page).toContain("Access level");
     });
   });
 
@@ -272,7 +272,7 @@ describe("Operations observability presentation", () => {
   it("uses the simplified operations headings in the dashboard", () => {
     const dashboard = read("src/app/dashboard/dashboard-client.tsx");
     expect(dashboard).toContain(">Agents</h3>");
-    expect(dashboard).toContain(">Printers</h3>");
+    expect(dashboard).toContain(">Runtime Printers</h3>");
     expect(dashboard).toContain("Printer Certification");
     expect(dashboard).not.toContain("Agent Health (ONLINE/DEGRADED/OFFLINE/STARTING");
   });
