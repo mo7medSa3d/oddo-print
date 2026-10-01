@@ -56,10 +56,6 @@ func (c *Config) ReprintAfterCrashEnabled() bool {
 	return *c.Agent.ReprintAfterCrash
 }
 
-func validateServerURL(raw string) error {
-	return validateServerURLWithOptIn(raw, false)
-}
-
 func validateServerURLWithOptIn(raw string, allowInsecureHTTP bool) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {

@@ -1280,15 +1280,12 @@ class PrintGatewayJob(models.Model):
                             period_end = rate_body.get("periodEnd")
                             period_end = str(period_end) if period_end else None
 
-                            now = fields.Datetime.now()
-                            next_retry = now + datetime.timedelta(seconds=retry_after)
-                            if entitlement == "max_prints_per_period" and period_end:
-                                try:
-                                    candidate = fields.Datetime.to_datetime(period_end)
-                                    if candidate and candidate > now:
-                                        next_retry = candidate
-                                except (TypeError, ValueError):
-                                    pass
+                            # Retry-After is a relative duration calculated by
+                            # the Gateway from its own authoritative DB clock.
+                            # Never compare Gateway periodEnd against the Odoo
+                            # host clock: the two systems can legitimately have
+                            # different wall clocks/timezones.
+                            next_retry = db_now_utc(self.env.cr) + datetime.timedelta(seconds=retry_after)
 
                             values = {
                                 "status": "queued",
@@ -1296,10 +1293,7 @@ class PrintGatewayJob(models.Model):
                                 "last_error": "GATEWAY_BILLING_LIMIT_REACHED: %s (limit %s, used %s)" % (entitlement, limit or "unknown", used),
                                 "next_retry_at": next_retry,
                             }
-                            if raise_on_failure:
-                                job._persist_state(values)
-                            else:
-                                job.write(values)
+                            persist_submit_state(values)
 
                             message_map = {
                                 "max_agents": _("Your Gateway plan has reached its Agent limit."),
