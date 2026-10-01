@@ -101,7 +101,7 @@ export default function ResetPassword() {
             <Skeleton className="h-7 w-56" />
             <Skeleton className="h-4 w-full" />
             <Skeleton className="mt-6 h-10 w-full" />
-            <Skeleton className="h-11 w-full" />
+            <Skeleton className="h-10 w-full" />
             <span className="sr-only">Loading…</span>
           </div>
         </AuthShell>

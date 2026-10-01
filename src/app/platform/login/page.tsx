@@ -76,7 +76,7 @@ export default function PlatformLoginPage() {
           <Skeleton className="h-4 w-60" />
           <Skeleton className="mt-6 h-10 w-full" />
           <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-11 w-full" />
+          <Skeleton className="h-10 w-full" />
           <span className="sr-only">Checking your session…</span>
         </div>
       </AuthShell>
