@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -997,8 +998,7 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 		if typ == "discovery" {
 			discoveryID, err := readStringField(envelope, "discoveryId", true, false)
 			if err != nil {
-				log.Printf("Malformed discovery WS message: %v", err)
-				continue
+				log.Printf("Malformed discovery WS message: %v", err)				continue
 			}
 			log.Printf("[discovery] received instant WS trigger for session %s", discoveryID)
 			// Trigger discovery immediately, don't wait for 10s poll
@@ -1997,8 +1997,7 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 			entry["capabilities"] = caps
 		}
 		result = append(result, entry)
-	}
-	if observedCapabilityStateChanged {
+	}	if observedCapabilityStateChanged {
 		if err := a.persistDesiredState(); err != nil {
 			log.Printf("WARNING: failed to persist observed printer capabilities: %v", err)
 		}
@@ -2662,10 +2661,18 @@ func (a *Agent) currentClaimToken(jobID string) string {
 	return a.inFlightTokens[jobID]
 }
 
+func redactClaimTokenForLog(token string) string {
+	if token == "" {
+		return "claim_empty"
+	}
+	digest := sha256.Sum256([]byte(token))
+	return fmt.Sprintf("claim_%x", digest[:6])
+}
+
 func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken string, reason ...string) error {
 	if live := a.currentClaimToken(jobID); live != "" {
 		if claimToken != "" && claimToken != live {
-			log.Printf("Job %s: claim token override (passed %q, using live %q)", jobID, claimToken, live)
+			log.Printf("Job %s: claim token override (passed %s, using live %s)", jobID, redactClaimTokenForLog(claimToken), redactClaimTokenForLog(live))
 		}
 		claimToken = live
 	}
