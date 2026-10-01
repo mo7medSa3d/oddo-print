@@ -379,17 +379,39 @@ func TestSpoolerPartialWriteIsAbortedNotFinalized(t *testing.T) {
 	}
 }
 
-// A cancellation before any byte is written must discard the job, and it is
-// provably NOT an unknown outcome (nothing reached the printer).
-func TestSpoolerCancelledBeforeWriteIsAborted(t *testing.T) {
+// Cancellation has two very different meanings and the session must tell them
+// apart: before StartDocPrinter nothing was ever submitted (so there is no
+// spool file to discard), and after StartDocPrinter the job exists and must be
+// aborted so a partial document is never released.
+func TestSpoolerCancellationDiscardsOnlyStartedDocuments(t *testing.T) {
 	var log spoolerCallLog
 	sys := fakeSpoolerSyscalls(&log, func(hPrinter syscall.Handle, buf unsafe.Pointer, length int, bytesWritten *uint32) (uintptr, error) {
 		*bytesWritten = uint32(length)
 		return 1, nil
 	})
-	cancel := make(chan struct{})
-	close(cancel)
 
+	// Case 1 — cancelled before the document starts: no job was created, so
+	// neither AbortPrinter nor EndDocPrinter may be issued.
+	preCancel := make(chan struct{})
+	close(preCancel)
+	pre := executeSpoolerSessionWithSyscalls("PreDocCancelPrinter", []byte("receipt payload"), preCancel, sys)
+	if pre.err == nil {
+		t.Fatal("a pre-document cancellation must fail")
+	}
+	if OutcomeUnknown(pre.err) {
+		t.Fatalf("a pre-document cancellation cannot be an unknown outcome: %v", pre.err)
+	}
+	if log.abortCalls != 0 || log.endDocCalls != 0 {
+		t.Fatalf("a document that never started must not be closed (abort=%d endDoc=%d)", log.abortCalls, log.endDocCalls)
+	}
+
+	// Case 2 — cancelled after StartDocPrinter but before any byte is written:
+	// the job exists and must be discarded, never finalized.
+	cancel := make(chan struct{})
+	sys.startPagePrinter = func(hPrinter syscall.Handle) (uintptr, error) {
+		close(cancel)
+		return 1, nil
+	}
 	res := executeSpoolerSessionWithSyscalls("CancelledPrinter", []byte("receipt payload"), cancel, sys)
 	if res.err == nil {
 		t.Fatal("cancelled session must fail")
@@ -398,7 +420,7 @@ func TestSpoolerCancelledBeforeWriteIsAborted(t *testing.T) {
 		t.Fatalf("cancellation before any byte was written must not be unknown: %v", res.err)
 	}
 	if log.abortCalls != 1 || log.endDocCalls != 0 {
-		t.Fatalf("cancelled document must be aborted and never finalized (abort=%d endDoc=%d)", log.abortCalls, log.endDocCalls)
+		t.Fatalf("a cancelled document must be aborted and never finalized (abort=%d endDoc=%d)", log.abortCalls, log.endDocCalls)
 	}
 }
 

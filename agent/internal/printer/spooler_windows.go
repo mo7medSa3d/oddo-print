@@ -344,7 +344,16 @@ func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNo
 		}
 		r, writeErr := sys.writePrinter(hPrinter, unsafe.Pointer(&chunk[0]), len(chunk), &bytesWritten)
 		if r == 0 {
-			totalWritten := written + bytesWritten
+			// A failed WritePrinter may still have accepted bytes. Fold them
+			// into `written` (capped at the payload size, so a driver that
+			// over-reports cannot make a truncated job look complete) so the
+			// deferred cleanup reports the same evidence the caller returns
+			// instead of under-reporting as "0 bytes".
+			if remaining := uint32(len(data)) - written; bytesWritten > remaining {
+				bytesWritten = remaining
+			}
+			written += bytesWritten
+			totalWritten := written
 			if totalWritten > 0 {
 				return spoolerTaskResult{
 					written: totalWritten,
