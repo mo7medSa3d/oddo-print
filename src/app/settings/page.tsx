@@ -173,17 +173,16 @@ export default function SettingsPage() {
                 icon={<AlertTriangle className="h-4 w-4" />}
               />
               <div className="px-5 py-4">
-                <div className="flex flex-col gap-3 rounded-lg border border-bad-edge bg-bad-bg px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-start gap-3 rounded-lg border border-bad-edge bg-bad-bg px-4 py-3.5">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-bad" aria-hidden />
                   <div className="min-w-0">
                     <h3 className="text-sm font-[600] text-bad">Delete this workspace</h3>
                     <p className="mt-0.5 text-sm leading-relaxed text-ink-2">
                       Workspace deletion is controlled by Platform Administration, so print history
-                      and billing records stay auditable.
+                      and billing records stay auditable. Contact your platform administrator to
+                      request deletion.
                     </p>
                   </div>
-                  <Button variant="secondary" size="sm" href="/billing" className="shrink-0">
-                    Contact options
-                  </Button>
                 </div>
               </div>
             </Card>

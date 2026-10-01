@@ -19,6 +19,11 @@
 // agent/internal/printer/outcome.go, which mirror the markers below).
 //
 //   queued -> claimed -> printing -> success
+//   claimed -> success  the agent's terminal RE-REPORT of a durable local
+//                     result: the document was already executed by this agent
+//                     and the stored outcome is reported under the live claim
+//                     token instead of printing a second time (duplicate
+//                     delivery, or a printing report that never landed)
 //   claimed -> queued   ONLY via the agent's fenced, explicit rejection
 //                     reason (AGENT_REQUEUE_REASONS: the agent received the
 //                     job but provably did not touch the printer; the claim
@@ -112,7 +117,21 @@ const ALLOWED_TRANSITIONS: Record<JobStatus, ReadonlySet<JobStatus>> = {
   queued: new Set([]),
   // claimed -> queued is the agent's explicit fenced rejection path (see the
   // header). It is never a general re-queueing capability.
-  claimed: new Set(["printing", "failed", "queued"]),
+  //
+  // claimed -> success is the agent's TERMINAL RE-REPORT on a live claim. The
+  // agent never re-prints a job whose durable local ledger already holds a
+  // terminal result; it re-reports that stored result under the current claim
+  // token instead (agent/internal/agent/agent.go: "already completed locally
+  // (success). Re-reporting terminal result instead of printing again."). That
+  // path returns BEFORE the printing report, so the Gateway row is still
+  // 'claimed' — a duplicate delivery after a reclaimed stale claim, or a
+  // re-report after the printing report itself failed. This is the same
+  // physical event claimed -> printing -> success describes, reported in one
+  // step; the claim-token fence (fencedDeliveryWrite) still proves ownership,
+  // and success stamps delivery evidence, so no new authority is granted:
+  // the token owner could already reach success through the two-step path.
+  // Rejecting it would sweep a physically printed job into failed/unknown.
+  claimed: new Set(["printing", "success", "failed", "queued"]),
   printing: new Set(["success", "failed"]),
   // Terminal states have NO outgoing transitions in the general table.
   // The failed -> success late physical-outcome override is an explicitly

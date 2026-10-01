@@ -211,6 +211,16 @@ function formatCountdown(expiresAt: Date | string | null | undefined): { text: s
   };
 }
 
+/**
+ * A job still owned by an agent. Operator reprint must not be offered for
+ * these: the Reprint route answers JOB_NOT_TERMINAL for anything in flight.
+ */
+const IN_FLIGHT_JOB_STATUSES = new Set(["queued", "claimed", "printing"]);
+
+function isJobInFlight(status: string): boolean {
+  return IN_FLIGHT_JOB_STATUSES.has(status.toLowerCase());
+}
+
 async function sendGatewayReprint(jobId: string): Promise<{ jobId?: string }> {
   const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/reprint`, {
     method: "POST",
@@ -922,8 +932,11 @@ export default function DashboardClient({
 
   const jobActions = (job: Job): MenuItemSpec[] => {
     const outcome = deriveOutcome(job.status, job.error);
-    const status = job.status.toLowerCase();
-    const canReprint = status !== "queued" && status !== "claimed" && status !== "printing";
+    // Server rule (src/app/api/jobs/[id]/reprint/route.ts): reprint requires a
+    // terminal job AND rejects `success` with JOB_REPRINT_NOT_ALLOWED, because
+    // the document already printed. Offering it here would be a dead-end
+    // action that always fails, so success is excluded explicitly.
+    const canReprint = job.status.toLowerCase() !== "success" && !isJobInFlight(job.status);
     return [
       { key: "inspect", label: "Inspect details", icon: <Eye className="h-4 w-4" />, onSelect: () => setSelectedJob(job) },
       {
@@ -1161,7 +1174,7 @@ export default function DashboardClient({
       {billingUsageError && (
         <Callout
           tone="warn"
-          title="Plan usage unavailable"
+          title="Print usage is temporarily unavailable"
           action={
             <Button variant="secondary" size="sm" onClick={() => void refreshBillingUsage()}>
               Retry
@@ -1865,7 +1878,7 @@ export default function DashboardClient({
             <Button variant="secondary" onClick={() => setSelectedJob(null)}>
               Close
             </Button>
-            {selectedJob && selectedJob.status.toLowerCase() !== "queued" && selectedJob.status.toLowerCase() !== "claimed" && selectedJob.status.toLowerCase() !== "printing" && (
+            {selectedJob && selectedJob.status.toLowerCase() !== "success" && !isJobInFlight(selectedJob.status) && (
               <Button
                 variant="primary"
                 disabled={busy}

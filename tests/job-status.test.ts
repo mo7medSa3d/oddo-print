@@ -74,6 +74,55 @@ describe("job-status", () => {
     // The route gates this on an explicit fenced reason (AGENT_REQUEUE_REASONS).
     expect(canTransition("claimed", "queued")).toBe(true);
   });
+
+  it("agent terminal re-report: claimed->success", () => {
+    // The Go agent re-reports a DURABLE local terminal result instead of
+    // re-printing when a duplicate delivery arrives for a job it already
+    // completed, or when its local ledger is already terminal
+    // (agent/internal/agent/agent.go: "already completed locally (success).
+    // Re-reporting terminal result instead of printing again."). Both paths
+    // return BEFORE the "printing" report, so the Gateway row is still
+    // 'claimed' when the success report lands (the earlier printing report
+    // may have failed, or the claim was reclaimed after a lost report).
+    // Rejecting it would leave a physically printed job to be swept into
+    // failed/unknown with an ambiguity marker, so the transition must be
+    // accepted for the current, claim-token-fenced owner.
+    expect(canTransition("claimed", "success")).toBe(true);
+  });
+
+  it("every status the Go agent emits on a live claim is accepted by this table", () => {
+    // Cross-service contract: the agent is a separate program whose tests run
+    // against a recording stub, so nothing else ties its emitted statuses to
+    // this state machine. Extract them from the real source and require each
+    // one to be reachable from the states an agent can legitimately be in
+    // (the Gateway hands a job to the agent as 'claimed'; only the agent's own
+    // printing report moves it to 'printing').
+    const go = readFileSync("agent/internal/agent/agent.go", "utf8");
+    const emitted = new Set(
+      Array.from(
+        go.matchAll(/updateJobStatus\(\s*[A-Za-z_][\w.]*,\s*[A-Za-z_][\w.]*,\s*"([a-z]+)"/g),
+        (match) => match[1],
+      ),
+    );
+    // Pre-execution hand-backs are emitted by rejectJobExact, whose status is
+    // a literal in the request body rather than a parameter.
+    emitted.add("queued");
+    expect(emitted.size).toBeGreaterThan(0);
+
+    const AGENT_EMITTABLE = ["printing", "success", "failed", "queued"];
+    for (const status of emitted) {
+      expect(AGENT_EMITTABLE, `agent emits undocumented status ${status}`).toContain(status);
+      // The Gateway always hands a job to the agent as 'claimed', so every
+      // status the agent can emit must be legal FROM CLAIMED. This is the
+      // exact predicate the agent-jobs route applies; requiring it here (and
+      // not "or from printing") is what catches a claim-time re-report whose
+      // printing report never landed.
+      expect(
+        canTransition("claimed", status as JobStatus),
+        `gateway rejects agent status ${status} while the job is still claimed`,
+      ).toBe(true);
+    }
+  });
   it("agent rejection reasons cover every pre-execution runtime hand-back", () => {
     expect(AGENT_REQUEUE_REASONS).toEqual([
       "pending_full",

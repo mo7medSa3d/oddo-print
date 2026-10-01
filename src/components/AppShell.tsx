@@ -48,6 +48,19 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+/**
+ * Product lockup for the console chrome.
+ *
+ * `brandSubtitle` is the PRODUCT identity and stays constant across tenants;
+ * the tenant's own name is shown by WorkspaceMenu, so swapping the tenant into
+ * the wordmark would both lose the product line and duplicate that identity.
+ */
+function ConsoleBrand({ brandSubtitle, showWordmark = true }: { brandSubtitle: string; showWordmark?: boolean }) {
+  return (
+    <BrandMark size="sm" title="Yaseir" subtitle={brandSubtitle} showWordmark={showWordmark} variant="default" />
+  );
+}
+
 function ConsoleNav({
   pathname,
   collapsed = false,
@@ -317,13 +330,7 @@ function ConsoleShell({
             aria-label="Yaseir console home"
             className="flex min-w-0 items-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
           >
-            <BrandMark
-              size="sm"
-              title="Yaseir"
-              subtitle={workspace.name ? workspace.name : "Cloud Printing Platform"}
-              showWordmark={!collapsed}
-              variant="default"
-            />
+            <ConsoleBrand brandSubtitle="Cloud Printing Platform" showWordmark={!collapsed} />
           </Link>
           {!collapsed && (
             <button
@@ -389,7 +396,7 @@ function ConsoleShell({
             <MenuIcon className="h-4 w-4" aria-hidden />
           </button>
           <Link href="/dashboard" aria-label="Yaseir console home" className="min-w-0">
-            <BrandMark size="sm" title="Yaseir" showWordmark variant="default" />
+            <ConsoleBrand brandSubtitle="Cloud Printing Platform" />
           </Link>
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle />
@@ -416,7 +423,7 @@ function ConsoleShell({
             className="pg-slide-in-left absolute inset-y-0 left-0 flex w-[280px] max-w-[85vw] flex-col border-r border-edge-strong bg-surface shadow-2xl"
           >
             <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-edge-subtle px-3">
-              <BrandMark size="sm" title="Yaseir" subtitle={workspace.name ?? "Cloud Printing Platform"} showWordmark variant="default" />
+              <ConsoleBrand brandSubtitle="Cloud Printing Platform" />
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
