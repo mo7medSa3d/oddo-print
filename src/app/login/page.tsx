@@ -7,6 +7,7 @@ import Link from "next/link";
 import { ArrowRight, Building2, ShieldCheck } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Field, Input, ErrorState, Skeleton } from "../../components/ui";
+import { codeMessageKey } from "../../lib/api-error-keys";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -67,7 +68,10 @@ export default function LoginPage() {
         setWorkspaces(data.workspaces.filter((id: unknown): id is string => typeof id === "string"));
         return;
       }
-      if (!res.ok) throw new Error(data.error ?? t("auth.signIn.failed"));
+      if (!res.ok) {
+        throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined)
+          ?? (res.status === 429 ? "errors.tooManyAttempts" : "auth.signIn.failed")));
+      }
       router.replace(postAuthDestination());
       router.refresh();
     } catch (error) {
@@ -88,7 +92,10 @@ export default function LoginPage() {
         body: JSON.stringify({ tenantId, selectionToken }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? t("auth.signIn.selectWorkspaceFailed"));
+      if (!res.ok) {
+        throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined)
+          ?? (res.status === 429 ? "errors.tooManyAttempts" : "auth.signIn.selectWorkspaceFailed")));
+      }
       router.replace(postAuthDestination());
       router.refresh();
     } catch (error) {

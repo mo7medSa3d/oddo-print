@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, MailCheck } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Callout, Field, Input, ErrorState } from "../../components/ui";
+import { codeMessageKey } from "../../lib/api-error-keys";
 
 export default function Signup() {
   const [email, setEmail] = useState("");
@@ -38,7 +39,7 @@ export default function Signup() {
         setAccountExists(true);
         return;
       }
-      if (!response.ok) throw new Error(data.error ?? t("auth.signup.failed"));
+      if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "auth.signup.failed"));
       setDone(true);
       const planId = new URLSearchParams(window.location.search).get("plan") ?? "";
       const next = new URLSearchParams({ email });

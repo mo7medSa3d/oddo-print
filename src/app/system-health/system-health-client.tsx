@@ -86,7 +86,7 @@ export default function SystemHealthClient() {
     setError(null);
     try {
       const res = await fetch("/api/system/health", { cache: "no-store" });
-      if (!res.ok) throw new Error(`Gateway returned HTTP ${res.status}`);
+      if (!res.ok) throw new Error(t("errors.gatewayUnavailable"));
       const data = (await res.json()) as SystemHealth;
       setHealth(data);
     } catch (e) {

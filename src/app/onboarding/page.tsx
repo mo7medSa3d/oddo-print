@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
+import { codeMessageKey } from "../lib/api-error-keys";
   Button,
   Callout,
   Card,
@@ -71,7 +72,7 @@ export default function Onboarding() {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(typeof data.error === "string" ? data.error : t("onboarding.plansUnavailable"));
+      throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "onboarding.plansUnavailable"));
     }
     return Array.isArray(data.plans) ? data.plans : [];
   }, []);
@@ -140,7 +141,7 @@ export default function Onboarding() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(typeof data.error === "string" ? data.error : t("onboarding.failed"));
+        throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "onboarding.failed"));
       }
       if (trial) {
         router.replace("/dashboard");

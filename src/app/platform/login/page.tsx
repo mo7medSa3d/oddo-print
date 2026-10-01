@@ -6,6 +6,7 @@ import { ArrowRight, ShieldCheck } from "lucide-react";
 import { AuthShell } from "../../../components/AuthShell";
 import { Button, Field, Input, ErrorState, Skeleton } from "../../../components/ui";
 import { useI18n } from "../../../i18n/react";
+import { codeMessageKey } from "../../../lib/api-error-keys";
 
 export default function PlatformLoginPage() {
   const router = useRouter();
@@ -58,7 +59,8 @@ export default function PlatformLoginPage() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(data.error || t("auth.signIn.failed"));
+        throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined)
+          ?? (res.status === 429 ? "errors.tooManyAttempts" : "auth.signIn.failed")));
       }
 
       router.replace("/platform/dashboard");

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight, MailCheck } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Callout, Field, Input, ErrorState } from "../../components/ui";
+import { codeMessageKey } from "../../lib/api-error-keys";
 
 export default function Forgot() {
   const [email, setEmail] = useState("");
@@ -31,7 +32,7 @@ export default function Forgot() {
         return;
       }
       if (!response.ok) {
-        setError(typeof data.error === "string" ? data.error : t("auth.forgot.sendFailed"));
+        setError(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "auth.forgot.sendFailed"));
         return;
       }
       setDone(true);

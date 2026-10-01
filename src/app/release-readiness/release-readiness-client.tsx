@@ -173,7 +173,7 @@ export default function ReleaseReadinessClient() {
     let cancelled = false;
     fetch("/api/system/health", { credentials: "include", cache: "no-store" })
       .then((r) => {
-        if (!r.ok) throw new Error(`Health check unavailable (HTTP ${r.status})`);
+        if (!r.ok) throw new Error(t("errors.serviceUnavailable"));
         return r.json() as Promise<SystemHealthPayload>;
       })
       .then((data) => {

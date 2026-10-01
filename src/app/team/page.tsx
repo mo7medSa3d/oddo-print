@@ -37,6 +37,7 @@ import {
   type MenuItemSpec,
 } from "../../components/ui";
 import { shortId } from "../../lib/utils";
+import { codeMessageKey } from "../lib/api-error-keys";
 
 type Member = { userId: string; email: string; role: string };
 type Invitation = { id: string; email: string; role: string; expiresAt: string };
@@ -152,7 +153,7 @@ export default function TeamPage() {
         body: JSON.stringify({ email, role }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? t("team.invitationFailed"));
+      if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "team.invitationFailed"));
       setEmail("");
       showMessage(t("success.invitationSent"), "ok");
       void load();
@@ -174,7 +175,7 @@ export default function TeamPage() {
         body: JSON.stringify({ userId, role: nextRole }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : t("team.roleUpdateFailed"));
+      if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "team.roleUpdateFailed"));
       showMessage(t("success.roleUpdated"), "ok");
       await load();
     } catch (error) {
@@ -190,7 +191,7 @@ export default function TeamPage() {
     try {
       const response = await fetch(`/api/team/invitations?id=${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : t("team.invitationRevocationFailed"));
+      if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "team.invitationRevocationFailed"));
       showMessage(t("success.invitationRevoked"), "ok");
       await load();
     } catch (error) {
@@ -207,7 +208,7 @@ export default function TeamPage() {
     try {
       const response = await fetch(`/api/team/members?userId=${encodeURIComponent(userId)}`, { method: "DELETE", credentials: "include" });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : t("team.memberRemovalFailed"));
+      if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "team.memberRemovalFailed"));
       showMessage(t("success.memberRemoved"), "ok");
       await load();
     } catch (error) {
@@ -231,7 +232,7 @@ export default function TeamPage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         setBusy(false);
-        throw new Error(typeof data.error === "string" ? data.error : t("team.ownershipTransferFailed"));
+        throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "team.ownershipTransferFailed"));
       }
       router.push("/login");
     } catch (error) {

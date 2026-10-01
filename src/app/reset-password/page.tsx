@@ -7,6 +7,7 @@ import Link from "next/link";
 import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Callout, Field, Input, ErrorState, Skeleton } from "../../components/ui";
+import { codeMessageKey } from "../../lib/api-error-keys";
 
 function ResetPasswordContent() {
   const token = useSearchParams().get("token") ?? "";
@@ -29,7 +30,7 @@ function ResetPasswordContent() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setErr(typeof data.error === "string" ? data.error : t("auth.reset.failed"));
+        setErr(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "auth.reset.failed"));
         return;
       }
       setDone(true);

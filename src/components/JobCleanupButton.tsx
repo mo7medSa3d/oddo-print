@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { Button, Modal, Toast } from "./ui";
 import { useI18n } from "../i18n/react";
+import { codeMessageKey } from "../lib/api-error-keys";
 
 const RETENTION_DAYS = 30;
 
@@ -31,7 +32,7 @@ export function JobCleanupButton() {
         deleted?: number;
         error?: string;
       };
-      if (!response.ok) throw new Error(data.error ?? t("jobs.cleanup.failed"));
+      if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "jobs.cleanup.failed"));
 
       const count = Number(data.deleted ?? 0);
       setSuccessMessage(

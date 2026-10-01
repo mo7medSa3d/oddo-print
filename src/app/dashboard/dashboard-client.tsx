@@ -41,6 +41,8 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import {
+import { apiMessageKey } from "../../lib/api-error-keys";
+import type { MessageKey } from "../../i18n/messages/en";
   Button,
   Card,
   CardHeader,
@@ -134,11 +136,13 @@ export type Job = {
 
 class DashboardApiError extends Error {
   constructor(
-    message: string,
+    public readonly key: MessageKey,
     public readonly code: string,
     public readonly details: Record<string, unknown> = {},
   ) {
-    super(message);
+    // `super` stays debug-only: the operator reads `key` through `t()`, never
+    // the English string the Gateway put in the body.
+    super(key);
   }
 }
 
@@ -212,8 +216,7 @@ async function sendGatewayReprint(jobId: string): Promise<{ jobId?: string }> {
   const body = await response.json().catch(() => null) as Record<string, unknown> | null;
   if (!response.ok) {
     const code = typeof body?.code === "string" ? body.code : "HTTP_ERROR";
-    const message = typeof body?.error === "string" ? body.error : `Reprint request failed (HTTP ${response.status}).`;
-    throw new DashboardApiError(message, code, body ?? {});
+    throw new DashboardApiError(apiMessageKey(code, response.status, "errors.reprintFailed"), code, body ?? {});
   }
   return { jobId: typeof body?.jobId === "string" ? body.jobId : undefined };
 }
@@ -283,8 +286,7 @@ async function sendGatewayTestPage(printerId: string): Promise<void> {
   if (response.ok) return;
   const obj = body && typeof body === "object" ? body as Record<string, unknown> : {};
   const code = typeof obj.code === "string" ? obj.code : "HTTP_ERROR";
-  const message = typeof obj.error === "string" ? obj.error : `Test page failed (HTTP ${response.status}).`;
-  throw new DashboardApiError(message, code, obj);
+  throw new DashboardApiError(apiMessageKey(code, response.status, "errors.testPageFailed"), code, obj);
 }
 
 /* ---------- Local presentational helpers ---------- */
@@ -710,7 +712,8 @@ export default function DashboardClient({
         const limit = upgradeLimitFromLimitSignal(result.limit);
         setMessage(null);
         if (limit) setUpgradeLimit(limit);
-        else setMessage({ text: result.limit.message, type: "err" });
+        // `limit.message` is an internal exception string, not operator copy.
+        else setMessage({ text: t(apiMessageKey(result.limit.code, 429, "errors.billingBlocked")), type: "err" });
         return undefined;
       }
       if (successMsg) setMessage({ text: successMsg, type: "ok" });
@@ -744,15 +747,9 @@ export default function DashboardClient({
           setUpgradeLimit(limit);
           return;
         }
-        setMessage({
-          text: error instanceof Error ? error.message : t("errors.testPageFailed"),
-          type: "err",
-        });
+        setMessage({ text: t(error.key), type: "err" });
       } else {
-        setMessage({
-          text: error instanceof Error ? error.message : t("errors.testPageFailed"),
-          type: "err",
-        });
+        setMessage({ text: t("errors.testPageFailed"), type: "err" });
       }
     } finally {
       setTestingPrinterId(null);
@@ -789,15 +786,9 @@ export default function DashboardClient({
           setUpgradeLimit(limit);
           return;
         }
-        setMessage({
-          text: error instanceof Error ? error.message : t("errors.reprintFailed"),
-          type: "err",
-        });
+        setMessage({ text: t(error.key), type: "err" });
       } else {
-        setMessage({
-          text: error instanceof Error ? error.message : t("errors.reprintFailed"),
-          type: "err",
-        });
+        setMessage({ text: t("errors.reprintFailed"), type: "err" });
       }
     } finally {
       setBusy(false);
@@ -833,8 +824,7 @@ export default function DashboardClient({
       const body = await response.json().catch(() => null) as Record<string, unknown> | null;
       if (!response.ok) {
         const code = typeof body?.code === "string" ? body.code : "AGENT_CREATE_FAILED";
-        const message = typeof body?.error === "string" ? body.error : t("errors.agentRegistrationFailed");
-        throw new DashboardApiError(message, code, body ?? {});
+        throw new DashboardApiError(apiMessageKey(code, response.status, "errors.agentRegistrationFailed"), code, body ?? {});
       }
 
       const expiresAt = typeof body?.expiresAt === "string"
@@ -858,11 +848,10 @@ export default function DashboardClient({
           used: typeof error.details.used === "number" ? error.details.used : null,
           limit: typeof error.details.limit === "number" ? error.details.limit : null,
         });
+      } else if (error instanceof DashboardApiError) {
+        setMessage({ text: t(error.key), type: "err" });
       } else {
-        setMessage({
-          text: error instanceof Error ? error.message : t("errors.agentRegistrationFailed"),
-          type: "err",
-        });
+        setMessage({ text: t("errors.agentRegistrationFailed"), type: "err" });
       }
     } finally {
       setBusy(false);

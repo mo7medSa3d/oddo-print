@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, Clock, Loader2, MinusCircle } from "lucide
 import { Mono, Skeleton, StatusBadge, type Tone } from "./ui";
 import { useI18n } from "../i18n/react";
 import type { MessageKey } from "../i18n/messages/en";
+import { statusMessageKey } from "../lib/api-error-keys";
 
 type TimelineEvent = {
   id: string;
@@ -110,7 +111,7 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
           cache: "no-store",
           signal: controller.signal,
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw new Error(t(statusMessageKey(res.status) ?? "errors.loadFailed"));
         const data = await res.json();
         if (controller.signal.aborted) return;
         setEvents(Array.isArray(data.timeline) ? data.timeline : []);

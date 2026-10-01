@@ -2081,6 +2081,20 @@ export const en = {
   "mail.invite.text": "Accept invitation: {url}",
   "mail.tokenReuse.subject": "Yaseir security alert: refresh token reuse detected",
   "mail.tokenReuse.body": "A refresh token reuse was detected on your Yaseir session. All tokens in that session family were revoked. Sign in again to create a new session.",
+  "errors.requestRejected": "We couldn’t process that request. Check what you entered and try again.",
+  "errors.serviceUnavailable": "This service is temporarily unavailable. Try again in a moment.",
+  "errors.payloadTooLarge": "That request is too large to send. Reduce it and try again.",
+  "errors.conflict": "Something changed since this page loaded. Refresh and try again.",
+  "errors.unauthorizedAction": "You’re not allowed to do that in this workspace.",
+  "errors.agentOffline": "This agent is offline. Start the Agent service on the Windows machine, then try again.",
+  "errors.agentQueueFull": "This agent is busy with other jobs. Wait a moment and try again.",
+  "errors.deviceNotApproved": "This device has not been approved yet. Approve it on the agent, then try again.",
+  "errors.printerEndpointMissing": "This printer has no usable endpoint. Remove it and add it again.",
+  "errors.capabilityLookupFailed": "We couldn’t read this printer’s capabilities. Check the printer, then try again.",
+  "errors.apiKeyReadOnly": "This API key is read-only. Use a key with print permissions.",
+  "errors.idempotencyConflict": "That request was already sent with a different payload. Send it again with a new idempotency key.",
+  "errors.unsupportedDiscoveryTransport": "This agent cannot run printer discovery. Update the Agent, then try again.",
+  "errors.internalError": "Something went wrong on our side. Try again in a moment.",
 } as const;
 
 export type MessageKey = keyof typeof en;

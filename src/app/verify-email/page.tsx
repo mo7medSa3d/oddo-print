@@ -7,6 +7,7 @@ import Link from "next/link";
 import { CheckCircle2, MailCheck, ShieldAlert } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Callout, Field, Input, Skeleton } from "../../components/ui";
+import { codeMessageKey } from "../../lib/api-error-keys";
 
 function VerifyEmailContent() {
   const params = useSearchParams();
@@ -88,7 +89,7 @@ function VerifyEmailContent() {
         body: JSON.stringify({ email: resendEmail, planId }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? t("auth.verify.resendFailed"));
+      if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "auth.verify.resendFailed"));
       setResendMsg(t("auth.verify.resendSent"));
     } catch (error) {
       setResendMsg(error instanceof Error ? error.message : t("auth.verify.resendFailed"));
