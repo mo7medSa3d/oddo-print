@@ -17,6 +17,7 @@ import {
   formatDurationMs,
   formatNumber,
   formatRelativeTime,
+  formatTime,
 } from "./format";
 
 export type I18nValue = {
@@ -30,6 +31,7 @@ export type I18nValue = {
   formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string;
   formatDate: (value: Date | string | number | null | undefined) => string;
   formatDateTime: (value: Date | string | number | null | undefined) => string;
+  formatTime: (value: Date | string | number | null | undefined) => string;
   formatRelativeTime: (value: Date | string | number | null | undefined, now?: number) => string;
   formatDurationMs: (value: number | null | undefined) => string;
   formatBytes: (value: number | null | undefined) => string;
@@ -90,6 +92,7 @@ export function I18nProvider({ children, initialLocale = DEFAULT_LOCALE }: { chi
       formatNumber: (v, options) => formatNumber(v, locale, options),
       formatDate: (v) => formatDate(v, locale),
       formatDateTime: (v) => formatDateTime(v, locale),
+      formatTime: (v) => formatTime(v, locale),
       formatRelativeTime: (v, now) => formatRelativeTime(v, locale, now),
       formatDurationMs: (v) => formatDurationMs(v, locale),
       formatBytes: (v) => formatBytes(v, locale),
@@ -122,6 +125,7 @@ export function useI18n(): I18nValue {
       formatNumber: (v, options) => formatNumber(v, locale, options),
       formatDate: (v) => formatDate(v, locale),
       formatDateTime: (v) => formatDateTime(v, locale),
+      formatTime: (v) => formatTime(v, locale),
       formatRelativeTime: (v, now) => formatRelativeTime(v, locale, now),
       formatDurationMs: (v) => formatDurationMs(v, locale),
       formatBytes: (v) => formatBytes(v, locale),

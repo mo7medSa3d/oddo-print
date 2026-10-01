@@ -59,6 +59,16 @@ export function formatDateTime(value: Date | string | number | null | undefined,
   }
 }
 
+export function formatTime(value: Date | string | number | null | undefined, locale: Locale): string {
+  const date = toDate(value);
+  if (!date) return translate(locale, "common.notAvailable");
+  try {
+    return new Intl.DateTimeFormat(intlLocale(locale), { timeStyle: "short" }).format(date);
+  } catch {
+    return date.toISOString();
+  }
+}
+
 /**
  * Compact relative time ("3m ago" / "قبل ٣ دقائق").
  *

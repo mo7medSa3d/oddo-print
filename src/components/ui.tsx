@@ -1345,6 +1345,7 @@ export function Tabs<T extends string>({
   onChange,
   counts,
   labels,
+  ariaLabel,
   className = "",
 }: {
   tabs: readonly T[];
@@ -1352,6 +1353,7 @@ export function Tabs<T extends string>({
   onChange: (t: T) => void;
   counts?: Partial<Record<T, number>>;
   labels?: Partial<Record<T, string>>;
+  ariaLabel?: string;
   className?: string;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
@@ -1360,8 +1362,13 @@ export function Tabs<T extends string>({
     e.preventDefault();
     const idx = tabs.indexOf(active);
     let next = idx;
-    if (e.key === "ArrowRight") next = (idx + 1) % tabs.length;
-    else if (e.key === "ArrowLeft") next = (idx - 1 + tabs.length) % tabs.length;
+    // In RTL the visual order is mirrored, so "move right" must mean "previous
+    // tab" — otherwise the arrow keys fight the reading direction.
+    const rtl = typeof document !== "undefined" && document.documentElement.dir === "rtl";
+    const forward = rtl ? "ArrowLeft" : "ArrowRight";
+    const backward = rtl ? "ArrowRight" : "ArrowLeft";
+    if (e.key === forward) next = (idx + 1) % tabs.length;
+    else if (e.key === backward) next = (idx - 1 + tabs.length) % tabs.length;
     else if (e.key === "Home") next = 0;
     else if (e.key === "End") next = tabs.length - 1;
     if (next !== idx) {
@@ -1375,7 +1382,7 @@ export function Tabs<T extends string>({
     <div
       ref={listRef}
       role="tablist"
-      aria-label="Filter options"
+      aria-label={ariaLabel ?? "Filter options"}
       onKeyDown={onListKeyDown}
       className={`flex items-center gap-1 overflow-x-auto ${className}`}
     >

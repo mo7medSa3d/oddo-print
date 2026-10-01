@@ -95,6 +95,7 @@ import type {
   ToastMessage,
 } from "./types";
 import "../app/globals.css";
+import { I18nProvider } from "../i18n/react";
 /* Desktop Manager uses the shared light/dark theme tokens. */
 import "./theme-light.css";
 
@@ -1123,4 +1124,8 @@ export default function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <I18nProvider>
+    <App />
+  </I18nProvider>,
+);
