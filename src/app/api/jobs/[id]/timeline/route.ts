@@ -6,8 +6,7 @@ import { requireManagerPermission } from "../../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
 import { getJobTimeline, buildTimelineFromJobRow } from "../../../../../lib/job-timeline";
 import { runWithCorrelation, generateRequestId } from "../../../../../server/correlation";
-import { requestIdFrom, logWarn } from "../../../../../lib/log";
-import { createHash } from "node:crypto";
+import { requestIdFrom, logWarn, redactClaimToken } from "../../../../../lib/log";
 
 export const dynamic = "force-dynamic";
 
@@ -28,32 +27,6 @@ type TimelineEntry = {
   requestId?: string | null;
   metadata?: Record<string, unknown>;
 };
-
-function redactClaimToken(token?: string | null): string | undefined {
-  if (!token) return undefined;
-  // Never expose raw claim token — security primitive
-  // Return opaque redacted identifier: sha256 hash first 12 chars + length
-  try {
-    const hash = createHash("sha256").update(token).digest("hex").slice(0, 12);
-    return `claim_${hash}...(${token.length})`;
-  } catch {
-    return `claim_${token.slice(0, 4)}...redacted`;
-  }
-}
-
-function redactClaimIdForTimeline(claimId?: string | null): string | undefined {
-  if (!claimId) return undefined;
-  // If claimId looks like a UUID (claim_token), redact it
-  if (claimId.length > 20 && /^[0-9a-f-]{20,}$/i.test(claimId)) {
-    return redactClaimToken(claimId);
-  }
-  // If already opaque (attempt_ or claim_ prefix with nanoid), allow but still redact if long
-  if (claimId.startsWith("claim_") && claimId.length > 20) {
-    // It's already opaque nanoid, but still redact to be safe if it contains token
-    return claimId.slice(0, 12) + "...";
-  }
-  return claimId;
-}
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -96,7 +69,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         errorCode: e.errorCode,
         attemptId: e.attemptId,
         // Redact claimId — never expose raw claim_token
-        claimId: redactClaimIdForTimeline(e.claimId),
+        claimId: redactClaimToken(e.claimId),
         spoolerJobId: e.spoolerJobId,
         agentId: e.agentId,
         printerId: e.printerId,
