@@ -55,7 +55,7 @@ const NEXT_STEPS = [
 
 export default function Onboarding() {
   const [name, setName] = useState("");
-  const { t } = useI18n();
+  const { t, tc, formatNumber } = useI18n();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [planId, setPlanId] = useState("");
   const [err, setErr] = useState("");
@@ -173,13 +173,13 @@ export default function Onboarding() {
         <header className="mx-auto max-w-2xl text-center">
           <span className="inline-flex items-center gap-2 rounded-sm border border-edge-accent bg-brand-subtle px-3 py-1.5 text-xs font-[600] text-brand-subtle-text">
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
-            Workspace setup
+            {t("onboarding.eyebrow")}
           </span>
           <h1 className="mt-4 text-4xl font-[670] tracking-[-0.035em] text-ink sm:text-5xl">
-            Set up your workspace
+            {t("onboarding.heading")}
           </h1>
           <p className="mx-auto mt-3 max-w-xl text-base leading-relaxed text-ink-3">
-            Name the workspace and choose a plan. You can change plans later from Billing.
+            {t("onboarding.intro")}
           </p>
         </header>
 
@@ -190,15 +190,15 @@ export default function Onboarding() {
               subtitle={t("onboarding.sectionSubtitle")}
               icon={<Building2 className="h-4 w-4" />}
               actions={
-                <ol className="flex items-center gap-2 text-xs font-[600] text-ink-3" aria-label="Setup progress">
+                <ol className="flex items-center gap-2 text-xs font-[600] text-ink-3" aria-label={t("onboarding.progressAria")}>
                   <li className="inline-flex items-center gap-1.5">
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand text-2xs font-[700] text-brand-contrast">1</span>
-                    Workspace
+                    {t("onboarding.stepWorkspace")}
                   </li>
                   <li aria-hidden className="h-px w-4 bg-edge-strong" />
                   <li className="inline-flex items-center gap-1.5">
                     <span className="flex h-5 w-5 items-center justify-center rounded-full border border-edge-strong bg-surface-2 text-2xs font-[700] text-ink-3">2</span>
-                    Plan
+                    {t("onboarding.stepPlan")}
                   </li>
                 </ol>
               }
@@ -218,7 +218,7 @@ export default function Onboarding() {
                   minLength={2}
                   maxLength={120}
                   autoComplete="organization"
-                  placeholder="e.g. Acme Warehouse"
+                  placeholder={t("onboarding.namePlaceholder")}
                   required
                   autoFocus
                   disabled={loading}
@@ -227,14 +227,14 @@ export default function Onboarding() {
 
               <fieldset disabled={loading}>
                 <legend className="flex w-full items-end justify-between gap-4 pb-3">
-                  <span className="text-sm font-[600] text-ink">Choose a plan</span>
+                  <span className="text-sm font-[600] text-ink">{t("onboarding.choosePlanLegend")}</span>
                   {plans.length > 0 && (
-                    <span className="text-xs font-[550] text-ink-3">{plans.length} available</span>
+                    <span className="text-xs font-[550] text-ink-3">{tc("onboarding.plansAvailable", plans.length, { count: formatNumber(plans.length) })}</span>
                   )}
                 </legend>
 
                 {plansLoading ? (
-                  <div className="grid gap-3 md:grid-cols-2" role="status" aria-label="Loading plans">
+                  <div className="grid gap-3 md:grid-cols-2" role="status" aria-label={t("onboarding.loadingPlansAria")}>
                     {[0, 1].map((item) => (
                       <div key={item} className="space-y-3 rounded-xl border border-edge bg-surface-2 p-4">
                         <Skeleton className="h-4 w-28" />
@@ -243,7 +243,7 @@ export default function Onboarding() {
                         <Skeleton className="h-3 w-3/4" />
                       </div>
                     ))}
-                    <span className="sr-only">Loading plans…</span>
+                    <span className="sr-only">{t("onboarding.loadingPlansShort")}</span>
                   </div>
                 ) : plansError ? (
                   <ErrorState
@@ -255,10 +255,10 @@ export default function Onboarding() {
                   <EmptyState
                     icon={<CreditCard className="h-5 w-5" />}
                     title={t("onboarding.noPlans")}
-                    description={t("onboarding.noPlansBody"})
+                    description={t("onboarding.noPlansBody")}
                   />
                 ) : (
-                  <div role="radiogroup" aria-label="Choose a plan" className="grid gap-3 md:grid-cols-2">
+                  <div role="radiogroup" aria-label={t("onboarding.choosePlanAria")} className="grid gap-3 md:grid-cols-2">
                     {plans.map((plan) => {
                       const selected = planId === plan.id;
                       const included = Object.entries(plan.entitlements ?? {}).slice(0, 4);
@@ -312,7 +312,7 @@ export default function Onboarding() {
               </fieldset>
 
               {err && (
-                <Callout tone="bad" title="Workspace setup failed" icon={<AlertTriangle className="h-4 w-4" />}>
+                <Callout tone="bad" title={t("onboarding.setupFailedTitle")} icon={<AlertTriangle className="h-4 w-4" />}>
                   {err}
                 </Callout>
               )}
@@ -322,8 +322,8 @@ export default function Onboarding() {
               <p className="text-sm text-ink-3">
                 {selectedPlan ? (
                   <>
-                    Selected <span className="font-[600] text-ink">{selectedPlan.name}</span> — trial
-                    starts immediately, no card required.
+                    {t("onboarding.selectedPrefix")} <span className="font-[600] text-ink">{selectedPlan.name}</span>{" "}
+                    {t("onboarding.selectedTail")}
                   </>
                 ) : (
                   t("onboarding.choosePlan")
@@ -337,10 +337,10 @@ export default function Onboarding() {
                   onClick={() => void submit(true)}
                   icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
                 >
-                  Start free trial
+                  {t("onboarding.startFreeTrial")}
                 </Button>
                 <Button variant="secondary" disabled={!canContinue || loading} onClick={() => void submit(false)}>
-                  Continue to checkout
+                  {t("onboarding.continueToCheckout")}
                 </Button>
               </div>
             </div>
