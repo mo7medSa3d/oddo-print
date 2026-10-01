@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { AlertTriangle, ShieldAlert } from "lucide-react";
 import { Button, Modal } from "../../components/ui";
 import { closeApp } from "../lib/ipc";
+import { useI18n } from "../../i18n/react";
 
 export interface AdminPrivilegeDialogProps {
   open: boolean;
@@ -14,6 +15,7 @@ export function AdminPrivilegeDialog({
   onClose,
   onRelaunch,
 }: AdminPrivilegeDialogProps) {
+  const { t } = useI18n();
   const [closing, setClosing] = useState(false);
 
   const handleCloseAndReopen = async () => {
@@ -36,8 +38,8 @@ export function AdminPrivilegeDialog({
     <Modal
       open={open}
       onClose={onClose}
-      title="Administrator privileges required"
-      description="Elevated permissions needed to control the Windows print service"
+      title={t("desktop.admin.title")}
+      description={t("desktop.admin.description")}
       footer={
         <>
           <Button
@@ -45,7 +47,7 @@ export function AdminPrivilegeDialog({
             onClick={onClose}
             disabled={closing}
           >
-            Continue in Read-Only Mode
+            {t("desktop.admin.readOnlyCta")}
           </Button>
           <Button
             variant="primary"
@@ -53,7 +55,7 @@ export function AdminPrivilegeDialog({
             loading={closing}
             icon={<ShieldAlert className="h-4 w-4" aria-hidden="true" />}
           >
-            Close &amp; Reopen as Administrator
+            {t("desktop.admin.relaunch")}
           </Button>
         </>
       }
@@ -65,21 +67,27 @@ export function AdminPrivilegeDialog({
         >
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
           <div className="text-sm leading-normal text-ink">
-            <strong className="font-semibold text-warn">Service Management Restricted:</strong>{" "}
-            Windows requires elevated Administrator privileges to install, configure, start, and stop the background print agent service.
+            <strong className="font-semibold text-warn">{t("desktop.admin.restricted")}</strong>{" "}
+            {t("desktop.admin.restrictedBody")}
           </div>
         </div>
 
         <p className="text-ink">
-          Desktop Agent Manager must be running as Administrator to manage the Agent service. Close this window and reopen Desktop Agent Manager as Administrator.
+          {t("desktop.admin.intro")}
         </p>
 
         <div className="rounded-sg border border-edge bg-surface-2 p-3.5 text-sm text-ink-3">
-          <div className="font-medium text-ink mb-1.5">How to relaunch as Administrator:</div>
+          <div className="font-medium text-ink mb-1.5">{t("desktop.admin.howTo")}</div>
           <ol className="list-decimal ps-5 space-y-1">
-            <li>Close this application window.</li>
-            <li>Right-click the <strong>Yaseir Print Manager</strong> application shortcut or executable.</li>
-            <li>Select <strong>Run as administrator</strong> from the Windows context menu.</li>
+            <li>{t("desktop.admin.step1")}</li>
+            <li>
+              {t("desktop.admin.step2a")} <strong>{t("desktop.admin.step2b")}</strong>{" "}
+              {t("desktop.admin.step2Tail")}
+            </li>
+            <li>
+              {t("desktop.admin.step3a")} <strong>{t("desktop.admin.step3b")}</strong>{" "}
+              {t("desktop.admin.step3Tail")}
+            </li>
           </ol>
         </div>
       </div>

@@ -122,6 +122,7 @@ function useHashPage(defaultPage: Page): [Page, (p: Page) => void] {
 /* ---------- App ---------- */
 
 export default function App() {
+  const { t, locale, formatDateTime } = useI18n();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [page, navigate] = useHashPage("dashboard");
   const [version, setVersion] = useState("");
@@ -174,13 +175,13 @@ export default function App() {
       setAgentStatus(s);
       setLastStatusCheck(new Date().toISOString());
     } catch (e) {
-      setAgentStatus({ error: friendlyAgentError(errMsg(e)) });
+      setAgentStatus({ error: friendlyAgentError(errMsg(e), locale) });
     }
-  }, []);
+  }, [locale]);
 
   const refreshPrinters = useCallback(async () => {
     if (!savedGatewayUrl) {
-      setPrintersError("Gateway URL not configured");
+      setPrintersError(t("desktop.app.gatewayUrlMissing"));
       return;
     }
     setPrintersLoading(true);
@@ -189,11 +190,11 @@ export default function App() {
       const list = await fetchGatewayPrinters(savedGatewayUrl);
       setPrinters(list.filter(isProductionPrinter));
     } catch (e) {
-      setPrintersError(friendlyPrinterError(errMsg(e)));
+      setPrintersError(friendlyPrinterError(errMsg(e), locale));
     } finally {
       setPrintersLoading(false);
     }
-  }, [savedGatewayUrl]);
+  }, [savedGatewayUrl, t, locale]);
 
   const refreshJobs = useCallback(async (options?: { status?: string; search?: string; limit?: number }) => {
     if (!savedGatewayUrl) return;
@@ -207,13 +208,13 @@ export default function App() {
       const status = Number((e as { status?: number })?.status ?? 0);
       setJobsError(
         status === 401 || status === 403
-          ? "Gateway job access is unavailable — pair this PC with the Gateway and verify the connection."
-          : friendlyGatewayError(errMsg(e))
+          ? t("desktop.app.gatewayJobAccessUnavailable")
+          : friendlyGatewayError(errMsg(e), locale)
       );
     } finally {
       setJobsLoading(false);
     }
-  }, [savedGatewayUrl]);
+  }, [savedGatewayUrl, t, locale]);
 
   const probeGateway = useCallback(async (targetUrl: string): Promise<boolean> => {
     try {
@@ -222,7 +223,7 @@ export default function App() {
       setCheckedGatewayUrl(targetUrl);
       const gatewayError = (h as { error?: unknown })?.error;
       if (gatewayError) {
-        setHealthError(friendlyGatewayError(errMsg(gatewayError)));
+        setHealthError(friendlyGatewayError(errMsg(gatewayError), locale));
         return false;
       }
       setHealthError(null);
@@ -230,17 +231,17 @@ export default function App() {
     } catch (e) {
       setHealth(null);
       setCheckedGatewayUrl(targetUrl);
-      setHealthError(friendlyGatewayError(errMsg(e)));
+      setHealthError(friendlyGatewayError(errMsg(e), locale));
       return false;
     }
-  }, []);
+  }, [locale]);
 
   const checkHealth = useCallback(async () => {
     const raw = gatewayUrl.trim();
     if (!raw) {
       setHealth(null);
       setCheckedGatewayUrl("");
-      setHealthError("Gateway URL not configured");
+      setHealthError(t("desktop.app.gatewayUrlMissing"));
       return;
     }
 
@@ -278,7 +279,7 @@ export default function App() {
         return;
       }
 
-      setMsg({ text: "Gateway connection verified and saved", type: "success" });
+      setMsg({ text: t("desktop.app.connectionVerified"), type: "success" });
     } catch (e) {
       try {
         if (previousGatewayUrl && previousGatewayUrl !== target) {
@@ -289,11 +290,11 @@ export default function App() {
       } catch {
         // Preserve the primary connection error if restoration also fails.
       }
-      setMsg({ text: friendlyGatewayError(errMsg(e)), type: "error" });
+      setMsg({ text: friendlyGatewayError(errMsg(e), locale), type: "error" });
     } finally {
       setGatewayChecking(false);
     }
-  }, [gatewayUrl, probeGateway, savedGatewayUrl]);
+  }, [gatewayUrl, probeGateway, savedGatewayUrl, t, locale]);
 
   const handleDiscover = useCallback(async () => {
     if (!isTauri) return;
@@ -307,54 +308,54 @@ export default function App() {
       setPrintersError(null);
       setMsg({
         text: list.length === 0
-          ? "No physical printers were found. Connect a printer or make sure it is reachable, then try Discover again."
+          ? t("desktop.app.noPhysicalPrinters")
           : `Discovery found ${list.length} physical printer${list.length === 1 ? "" : "s"} and refreshed the Gateway inventory.`,
         type: "success",
       });
     } catch (e) {
-      setPrintersError(friendlyPrinterError(errMsg(e)));
+      setPrintersError(friendlyPrinterError(errMsg(e), locale));
     } finally {
       setPrintersLoading(false);
     }
-  }, [refreshPrinters]);
+  }, [refreshPrinters, t, locale]);
 
   const updatePrinterLifecycle = useCallback(async (id: string, lifecycle: "active" | "disabled" | "retired") => {
     if (!gatewayUrl) {
-      setMsg({ text: "Gateway URL not configured", type: "error" });
+      setMsg({ text: t("desktop.app.gatewayUrlMissing"), type: "error" });
       return;
     }
-    if (lifecycle === "retired" && !window.confirm("Retire this printer? It cannot be re-enabled after retirement.")) return;
+    if (lifecycle === "retired" && !window.confirm(t("desktop.app.retireConfirmPrompt"))) return;
     try {
       setBusyBoth(true);
       await updateGatewayPrinter(gatewayUrl, id, { lifecycle });
       await refreshPrinters();
       setSelectedPrinter((current) => current?.id === id ? null : current);
-      setMsg({ text: lifecycle === "disabled" ? "Printer disabled" : lifecycle === "retired" ? "Printer retired" : "Printer enabled", type: "success" });
+      setMsg({ text: lifecycle === "disabled" ? t("desktop.app.printerDisabled") : lifecycle === "retired" ? t("desktop.app.printerRetired") : t("desktop.app.printerEnabled"), type: "success" });
     } catch (e) {
-      setMsg({ text: friendlyPrinterError(errMsg(e)), type: "error" });
+      setMsg({ text: friendlyPrinterError(errMsg(e), locale), type: "error" });
     } finally {
       setBusyBoth(false);
     }
-  }, [gatewayUrl, refreshPrinters, setBusyBoth]);
+  }, [gatewayUrl, refreshPrinters, setBusyBoth, t, locale]);
 
   const handleTest = useCallback(
     async (id: string) => {
       try {
         setBusyBoth(true);
         if (!gatewayUrl) {
-          throw new Error("Gateway URL is not configured.");
+          throw new Error(t("desktop.app.gatewayUrlMissing"));
         }
         const result = await testGatewayPrinter(gatewayUrl, id);
         const jobId = typeof result.jobId === "string" ? result.jobId : null;
         setMsg({
           text: jobId
-            ? "Test print queued through the Gateway. Check Print Jobs for the final result."
-            : "Test print queued through the Gateway.",
+            ? t("desktop.app.testQueuedWithJobs")
+            : t("desktop.app.testQueued"),
           type: "success",
         });
         if (jobId) void refreshJobs();
       } catch (e) {
-        setMsg({ text: friendlyPrinterError(errMsg(e)), type: "error" });
+        setMsg({ text: friendlyPrinterError(errMsg(e), locale), type: "error" });
       } finally {
         setBusyBoth(false);
       }
@@ -363,8 +364,8 @@ export default function App() {
   );  const handleEditSaved = useCallback(async () => {
     setEditingPrinter(null);
     await refreshPrinters();
-    setMsg({ text: "Printer desired configuration updated", type: "success" });
-  }, [refreshPrinters]);
+    setMsg({ text: t("desktop.app.printerConfigUpdated"), type: "success" });
+  }, [refreshPrinters, t, locale]);
 
 
 
@@ -375,11 +376,11 @@ export default function App() {
       setMsg({ text: m, type: "success" });
       refreshStatus();
     } catch (e) {
-      setMsg({ text: friendlyAgentError(errMsg(e)), type: "error" });
+      setMsg({ text: friendlyAgentError(errMsg(e), locale), type: "error" });
     } finally {
       setBusyBoth(false);
     }
-  }, [refreshStatus, setBusyBoth]);
+  }, [refreshStatus, setBusyBoth, t, locale]);
 
   const stopAgent = useCallback(async () => {
     setConfirmStop(false);
@@ -389,11 +390,11 @@ export default function App() {
       setMsg({ text: m, type: "success" });
       refreshStatus();
     } catch (e) {
-      setMsg({ text: friendlyAgentError(errMsg(e)), type: "error" });
+      setMsg({ text: friendlyAgentError(errMsg(e), locale), type: "error" });
     } finally {
       setBusyBoth(false);
     }
-  }, [refreshStatus, setBusyBoth]);
+  }, [refreshStatus, setBusyBoth, locale]);
 
   const restartAgent = useCallback(async () => {
     try {
@@ -402,34 +403,34 @@ export default function App() {
       setMsg({ text: m, type: "success" });
       refreshStatus();
     } catch (e) {
-      setMsg({ text: friendlyAgentError(errMsg(e)), type: "error" });
+      setMsg({ text: friendlyAgentError(errMsg(e), locale), type: "error" });
     } finally {
       setBusyBoth(false);
     }
-  }, [refreshStatus, setBusyBoth]);
+  }, [refreshStatus, setBusyBoth, t, locale]);
 
   const pair = useCallback(async () => {
     if (!pairCode.trim()) {
-      setMsg({ text: "Enter pairing code", type: "error" });
+      setMsg({ text: t("desktop.app.enterPairingCode"), type: "error" });
       return;
     }
     if (!gatewayUrl) {
-      setMsg({ text: "Set gateway URL first", type: "error" });
+      setMsg({ text: t("desktop.app.setGatewayFirst"), type: "error" });
       return;
     }
     try {
       setBusyBoth(true);
       const r = await pairAgent(pairCode.trim(), gatewayUrl);
-      setMsg({ text: r || "Agent paired", type: "success" });
+      setMsg({ text: r || t("desktop.app.agentPaired"), type: "success" });
       setPairCode("");
       refreshStatus();
       await Promise.all([refreshPrinters(), refreshJobs()]);
     } catch (e) {
-      setMsg({ text: friendlyAgentError(errMsg(e)), type: "error" });
+      setMsg({ text: friendlyAgentError(errMsg(e), locale), type: "error" });
     } finally {
       setBusyBoth(false);
     }
-  }, [pairCode, gatewayUrl, refreshJobs, refreshPrinters, refreshStatus, setBusyBoth]);
+  }, [pairCode, gatewayUrl, refreshJobs, refreshPrinters, refreshStatus, setBusyBoth, t, locale]);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -545,7 +546,7 @@ export default function App() {
       } else {
         setHealth(null);
         setCheckedGatewayUrl("");
-        setHealthError("Gateway URL not configured");
+        setHealthError(t("desktop.app.gatewayUrlMissing"));
       }
       refreshStatus();
     })
@@ -577,10 +578,10 @@ export default function App() {
       (healthOk || agentRegistered)
   );
   const gatewaySubLabel = !savedGatewayUrl
-    ? "Set Gateway URL in Settings"
+    ? t("desktop.app.setGatewayUrlInSettings")
     : gatewayConnected
-      ? "Reachable"
-      : "Failed last check — verify the URL and network";
+      ? t("desktop.settings.reachable")
+      : t("desktop.app.failedLastCheckLong");
   const physicalPrinters = useMemo(() => printers.filter(isProductionPrinter), [printers]);
   const totalPrinters = physicalPrinters.length;
   const onlinePrinters = physicalPrinters.filter((p) => p.status === "online").length;
@@ -678,38 +679,38 @@ export default function App() {
   const nav: NavItem[] = [
     {
       id: "dashboard",
-      label: "Overview",
+      label: t("desktop.nav.overview"),
       icon: LayoutDashboard,
-      desc: isOnline ? "Operational" : "Check status",
+      desc: isOnline ? t("desktop.nav.operational") : t("desktop.nav.checkStatus"),
     },
-    { id: "printers", label: "Printers", icon: PrinterIcon, desc: `${totalPrinters} total` },
-    { id: "jobs", label: "Print Jobs", icon: ClipboardList, desc: `${pendingJobs} pending` },
+    { id: "printers", label: t("desktop.nav.printers"), icon: PrinterIcon, desc: t("desktop.nav.totalCount", { count: totalPrinters }) },
+    { id: "jobs", label: t("desktop.nav.printJobs"), icon: ClipboardList, desc: t("desktop.nav.pendingCount", { count: pendingJobs }) },
     {
       id: "agents",
-      label: "Agents",
+      label: t("desktop.nav.agents"),
       icon: Cpu,
-      desc: isOnline ? "Local online" : "Local stopped",
+      desc: isOnline ? t("desktop.nav.localOnline") : t("desktop.nav.localStopped"),
     },
-    { id: "settings", label: "Settings", icon: SettingsIcon, desc: "Gateway & agent" },
+    { id: "settings", label: t("desktop.nav.settings"), icon: SettingsIcon, desc: t("desktop.nav.gatewayAndAgent") },
   ];
 
   const pageMeta: Record<Page, { title: string; subtitle: string }> = {
     dashboard: {
-      title: "Overview",
-      subtitle: "Monitor your print infrastructure, agents, printers and jobs.",
+      title: t("desktop.nav.overview"),
+      subtitle: t("desktop.page.overviewSubtitle"),
     },
     printers: {
-      title: "Printers",
-      subtitle: "Discover, register and test the physical printers this agent can reach.",
+      title: t("desktop.nav.printers"),
+      subtitle: t("desktop.page.printersSubtitle"),
     },
     jobs: {
-      title: "Print Jobs",
-      subtitle: "Operational queue — queued, printing, delivered, failed, unknown outcome and expired.",
+      title: t("desktop.nav.printJobs"),
+      subtitle: t("desktop.page.jobsSubtitle"),
     },
-    agents: { title: "Agents", subtitle: "This PC's print agent and the gateway fleet." },
+    agents: { title: t("desktop.nav.agents"), subtitle: t("desktop.page.agentsSubtitle") },
     settings: {
-      title: "Settings",
-      subtitle: "Gateway connection, local agent and pairing.",
+      title: t("desktop.nav.settings"),
+      subtitle: t("desktop.page.settingsSubtitle"),
     },
   };
 
@@ -826,7 +827,7 @@ export default function App() {
                 setSidebarOpen(true);
               }}
               className="rounded-md border border-edge bg-surface p-2.5 text-ink-2 shadow-xs transition hover:bg-surface-2 lg:hidden"
-              aria-label="Open navigation"
+              aria-label={t("desktop.app.openNavigation")}
             >
               <Menu className="h-5 w-5" />
             </button>
@@ -838,7 +839,7 @@ export default function App() {
                   <>
                     <StatusBadge
                       tone={isOnline ? "ok" : "bad"}
-                      label={isOnline ? "Agent running" : "Agent stopped"}
+                      label={isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")}
                     />
                     <Button
                       variant="secondary"
@@ -848,9 +849,9 @@ export default function App() {
                         if (gatewayUrl) refreshJobs();
                       }}
                       icon={<RefreshCw className="h-[18px] w-[18px]" />}
-                      aria-label="Refresh all"
+                      aria-label={t("desktop.app.refreshAll")}
                     >
-                      <span className="hidden sm:inline">Refresh</span>
+                      <span className="hidden sm:inline">{t("desktop.app.refresh")}</span>
                     </Button>
                       <ThemeToggle />
                   </>
@@ -868,14 +869,14 @@ export default function App() {
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span>
-                <strong>Read-Only Mode:</strong> Application is running without Administrator privileges. Service management and configuration updates are disabled.
+                <strong>{t("desktop.app.readOnlyMode")}</strong> {t("desktop.app.readOnlyBody")}
               </span>
             </div>
             <button
               onClick={() => setAdminDismissed(false)}
               className="font-medium underline hover:text-warn/80 cursor-pointer"
             >
-              View details
+              {t("desktop.app.viewDetails")}
             </button>
           </div>
         )}
@@ -894,7 +895,7 @@ export default function App() {
         onClose={() => setShowAdd(false)}
         onSuccess={() => {
           refreshPrinters();
-          setMsg({ text: "Printer added", type: "success" });
+          setMsg({ text: t("desktop.app.printerAdded"), type: "success" });
         }}
         printers={discoveredPrinters}
         gatewayUrl={gatewayUrl}
@@ -907,41 +908,40 @@ export default function App() {
         gatewayUrl={gatewayUrl}
         onClose={() => setEditingPrinter(null)}
         onSaved={handleEditSaved}
-        onError={(message) => setMsg({ text: friendlyPrinterError(message), type: "error" })}
+        onError={(message) => setMsg({ text: friendlyPrinterError(message, locale), type: "error" })}
       />
 
       <Modal
         open={confirmStop}
         onClose={() => setConfirmStop(false)}
-        title="Stop the local agent?"
-        description="The agent will stop accepting print jobs until it is started again."
+        title={t("desktop.app.stopAgentTitle")}
+        description={t("desktop.app.stopAgentDescription")}
         footer={
           <>
             <Button variant="secondary" onClick={() => setConfirmStop(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="danger"
               onClick={stopAgent}
               icon={<Square className="h-4 w-4" />}
             >
-              Stop agent
+              {t("desktop.app.stopAgent")}
             </Button>
           </>
         }
       >
         <p className="text-base leading-relaxed text-ink-2">
-          Jobs that have not started printing stay in the Gateway queue and continue automatically
-          when the agent is back. A document that is at the printer right now will be interrupted:
-          its result is recorded as <strong>Unknown - may have partially printed</strong> and needs
-          your decision (check the tray, then reprint deliberately from the job list if needed).
+          {t("desktop.app.stopAgentBody")}{" "}
+          <strong>{t("desktop.app.unknownPartial")}</strong>{" "}
+          {t("desktop.app.unknownPartialTail")}
         </p>
       </Modal>
 
       <Drawer
         open={!!selectedPrinter}
         onClose={() => setSelectedPrinter(null)}
-        title="Printer details"
+        title={t("desktop.drawer.printerTitle")}
         description={selectedPrinter?.name}
       >
         {selectedPrinter && (
@@ -949,47 +949,52 @@ export default function App() {
             <div className="flex items-center gap-3 rounded-xl border border-edge-accent bg-surface-accent px-5 py-4">
               <StatusDot tone={printerTone(selectedPrinter.status)} />
               <span className="text-lg font-semibold text-ink">
-                {labelPrinter(selectedPrinter.status)}
+                {labelPrinter(selectedPrinter.status, locale)}
               </span>
               <span className="ms-auto text-sm text-ink-3">
-                {humanType(selectedPrinter)}
+                {humanType(selectedPrinter, locale)}
               </span>
             </div>
             <div className="divide-y divide-edge">
-              <MetaRow label="Name">
+              <MetaRow label={t("desktop.drawer.name")}>
                 <span className="block truncate">{selectedPrinter.name}</span>
               </MetaRow>
-              <MetaRow label="Connection">{humanConnection(selectedPrinter)}</MetaRow>
-              <MetaRow label="Protocol">{selectedPrinter.protocol || "—"}</MetaRow>
-              <MetaRow label="Address">
+              <MetaRow label={t("desktop.drawer.connection")}>{humanConnection(selectedPrinter, locale)}</MetaRow>
+              <MetaRow label={t("desktop.drawer.protocol")}>{selectedPrinter.protocol || "—"}</MetaRow>
+              <MetaRow label={t("desktop.drawer.address")}>
                 <Mono>{printerEndpoint(selectedPrinter)}</Mono>
               </MetaRow>
-              <MetaRow label="Stable ID">
+              <MetaRow label={t("desktop.drawer.stableId")}>
                 <Mono>{selectedPrinter.id}</Mono>
               </MetaRow>
-              <MetaRow label="Lifecycle">{selectedPrinter.lifecycle ?? "active"}</MetaRow>
-              <MetaRow label="Management">
-                {selectedPrinter.managementSource === "manager" ? "Gateway desired" : "Agent-owned"}
+              <MetaRow label={t("desktop.drawer.lifecycle")}>{selectedPrinter.lifecycle ?? "active"}</MetaRow>
+              <MetaRow label={t("desktop.drawer.management")}>
+                {selectedPrinter.managementSource === "manager" ? t("desktop.drawer.gatewayDesired") : t("desktop.drawer.agentOwned")}
               </MetaRow>
-              <MetaRow label="Desired revision">
+              <MetaRow label={t("desktop.drawer.desiredRevision")}>
                 {selectedPrinter.desiredRevision ?? 0}
               </MetaRow>
-              <MetaRow label="Applied revision">
+              <MetaRow label={t("desktop.drawer.appliedRevision")}>
                 {selectedPrinter.appliedDesiredRevision ?? 0}
                 {selectedPrinter.managementSource === "manager" && (
                   <span className="ms-2 text-ink-4">
-                    {selectedPrinter.configurationConverged ? "Applied" : "Pending"}
+                    {selectedPrinter.configurationConverged ? t("desktop.drawer.applied") : t("desktop.drawer.pending")}
                   </span>
                 )}
               </MetaRow>
-              <MetaRow label="Observed">
-                {selectedPrinter.status} · {selectedPrinter.observedDeviceClass ?? "unknown"} · revision {selectedPrinter.observedDesiredRevision ?? 0}
+              <MetaRow label={t("desktop.drawer.observed")}>
+                {t("desktop.drawer.observedLine", {
+                  status: selectedPrinter.status,
+                  deviceClass: selectedPrinter.observedDeviceClass ?? t("status.unknown").toLowerCase(),
+                  revision: selectedPrinter.observedDesiredRevision ?? 0,
+                })}
               </MetaRow>
-              <MetaRow label="Agent">
-                {selectedPrinter.agentName ?? selectedPrinter.agentId ?? "—"} · {selectedPrinter.agentStatus ?? "unknown"}
+              <MetaRow label={t("desktop.drawer.agent")}>
+                {selectedPrinter.agentName ?? selectedPrinter.agentId ?? "—"} ·{" "}
+                {selectedPrinter.agentStatus ?? t("status.unknown").toLowerCase()}
               </MetaRow>
-              <MetaRow label="Agent heartbeat">
-                {selectedPrinter.agentLastSeenAt ? new Date(selectedPrinter.agentLastSeenAt).toLocaleString() : "—"}
+              <MetaRow label={t("desktop.drawer.agentHeartbeat")}>
+                {selectedPrinter.agentLastSeenAt ? formatDateTime(selectedPrinter.agentLastSeenAt) : "—"}
               </MetaRow>
 
               {selectedPrinter.usbVid && (
@@ -1041,15 +1046,15 @@ export default function App() {
       <Drawer
         open={!!selectedJob}
         onClose={() => setSelectedJob(null)}
-        title="Job details"
-        description={selectedJob ? jobDocType(selectedJob) : undefined}
+        title={t("desktop.drawer.jobTitle")}
+        description={selectedJob ? jobDocType(selectedJob, locale) : undefined}
       >
         {selectedJob && (
           <div className="space-y-6">
             <div className="space-y-4">
               <StatusBadge
                 tone={toneJob(jobStatus(selectedJob), selectedJob.error)}
-                label={labelJob(jobStatus(selectedJob), selectedJob.error)}
+                label={labelJob(jobStatus(selectedJob), selectedJob.error, locale)}
               />
               <JobTimeline
                 status={jobStatus(selectedJob)}
@@ -1058,10 +1063,10 @@ export default function App() {
               />
             </div>
             <div className="divide-y divide-edge">
-              <MetaRow label="Job ID">
+              <MetaRow label={t("desktop.drawer.jobId")}>
                 <Mono>{jobId(selectedJob)}</Mono>
               </MetaRow>
-              <MetaRow label="Printer">
+              <MetaRow label={t("desktop.drawer.printer")}>
                 <span className="block truncate">
                   {String(
                     printers.find((p) => p.id === jobPrinterId(selectedJob))?.name ||
@@ -1070,19 +1075,15 @@ export default function App() {
                   )}
                 </span>
               </MetaRow>
-              <MetaRow label="Destination">
+              <MetaRow label={t("desktop.drawer.destination")}>
                 <span className="block truncate">{jobDestination(selectedJob) || "—"}</span>
               </MetaRow>
-              <MetaRow label="Retries">{String(selectedJob.retries ?? 0)}</MetaRow>
-              <MetaRow label="Created">
-                {selectedJob.createdAt
-                  ? new Date(String(selectedJob.createdAt)).toLocaleString()
-                  : "—"}
+              <MetaRow label={t("desktop.drawer.retries")}>{String(selectedJob.retries ?? 0)}</MetaRow>
+              <MetaRow label={t("desktop.drawer.created")}>
+                {selectedJob.createdAt ? formatDateTime(selectedJob.createdAt) : "—"}
               </MetaRow>
-              <MetaRow label="Updated">
-                {selectedJob.updatedAt
-                  ? new Date(String(selectedJob.updatedAt)).toLocaleString()
-                  : "—"}
+              <MetaRow label={t("desktop.drawer.updated")}>
+                {selectedJob.updatedAt ? formatDateTime(selectedJob.updatedAt) : "—"}
               </MetaRow>
             </div>
             {selectedJob.error ? (
@@ -1094,15 +1095,14 @@ export default function App() {
                     <>
                       <div className={`flex items-center gap-2 text-md font-semibold ${unknown ? "text-warn" : "text-bad"}`}>
                         <AlertTriangle className="h-5 w-5" aria-hidden />
-                        {unknown ? "Outcome unknown - paper may have printed" : "Print failed"}
+                        {unknown ? t("desktop.drawer.outcomeUnknown") : t("desktop.drawer.printFailed")}
                       </div>
                       <p className="mt-2 text-base leading-relaxed text-ink-2">
-                        {friendlyPrinterError(String(selectedJob.error))}
+                        {friendlyPrinterError(String(selectedJob.error), locale)}
                       </p>
                       {!unknown && (
                         <p className="mt-3 text-sm text-ink-3">
-                          This job failed before printing started. Once the cause is fixed, resend the
-                          document from its source (Odoo) - the Gateway will queue it as a new job.
+                          {t("desktop.drawer.failedBeforePrinting")}
                         </p>
                       )}
                     </>
@@ -1112,7 +1112,8 @@ export default function App() {
             ) : (
               <div className="flex items-center gap-2 rounded-xl border border-info-edge bg-info-bg px-5 py-4 text-base text-info">
                 <Info className="h-5 w-5 flex-shrink-0" aria-hidden />
-                {jobGuidance(jobStatus(selectedJob), deriveOutcome(jobStatus(selectedJob), null)) || "No error recorded for this job."}
+                {jobGuidance(jobStatus(selectedJob), deriveOutcome(jobStatus(selectedJob), null), locale) ||
+                  t("desktop.drawer.noErrorRecorded")}
               </div>
             )}
           </div>

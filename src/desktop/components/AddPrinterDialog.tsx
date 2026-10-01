@@ -11,6 +11,7 @@ import {
 import { fetchGatewayAgents, registerGatewayPrinter, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
 import { errMsg, friendlyGatewayError, isProductionPrinter } from "../lib/printers";
 import UpgradeLimitDialog, { type UpgradeLimitResource } from "../../components/UpgradeLimitDialog";
+import { useI18n } from "../../i18n/react";
 
 type Conn = "spooler" | "network" | "usb" | "ipp" | "ipps";
 
@@ -27,6 +28,7 @@ export function AddPrinterDialog({
   printers: PrinterInfo[];
   gatewayUrl: string;
 }) {
+  const { t, locale } = useI18n();
   const [name, setName] = useState("");
   const [conn, setConn] = useState<Conn>("spooler");
   const [spoolerName, setSpoolerName] = useState("");
@@ -87,36 +89,36 @@ export function AddPrinterDialog({
   );
 
   const validate = (): string | null => {
-    if (!gatewayUrl) return "Gateway URL is not configured.";
-    if (!agentId) return "Select an active Gateway agent.";
-    if (!name.trim()) return "Printer name is required.";
+    if (!gatewayUrl) return t("desktop.add.gatewayUrlMissing");
+    if (!agentId) return t("desktop.add.selectAgent");
+    if (!name.trim()) return t("desktop.add.nameRequired");
     if (conn === "spooler" && !spoolerName.trim())
-      return "Select or type a spooler printer name.";
+      return t("desktop.add.spoolerRequired");
     if (conn === "network") {
-      if (!host.trim()) return "Host is required.";
-      if (host.includes(" ")) return "Invalid host.";
+      if (!host.trim()) return t("desktop.add.hostRequired");
+      if (host.includes(" ")) return t("desktop.add.hostInvalid");
       // Deliberately no private-IP allowlist here: the shared gateway
       // validator (printer-model.ts) depends on node:net, which cannot ship
       // in the Tauri browser bundle. The Gateway re-validates every field
       // server-side (private destination + port policy) and its error is
       // surfaced below via setError, so an invalid host fails closed.
       const p = Number(port);
-      if (!Number.isInteger(p) || p !== 9100) return "Network printer port must be 9100.";
+      if (!Number.isInteger(p) || p !== 9100) return t("desktop.add.portRequired");
     }
-    if ((conn === "ipp" || conn === "ipps") && !ippUrl.trim()) return "IPP endpoint is required.";
+    if ((conn === "ipp" || conn === "ipps") && !ippUrl.trim()) return t("desktop.add.ippEndpointRequired");
     if (
       (conn === "ipp" || conn === "ipps") &&
       ippUrl.trim() &&
       !/^(https?|ipp|ipps):\/\//i.test(ippUrl)
     )
-      return "IPP URL must start with http://, https://, ipp:// or ipps://";
+      return t("desktop.add.ippSchemeInvalid");
     if (
       conn === "ipps" &&
       ippUrl.trim() &&
       !/^(https|ipps):\/\//i.test(ippUrl)
     )
-      return "IPPS requires an https:// or ipps:// endpoint.";
-    if (conn === "usb" && !usbSel) return "Select a USB printer.";
+      return t("desktop.add.ippsSchemeInvalid");
+    if (conn === "usb" && !usbSel) return t("desktop.add.selectUsb");
     return null;
   };
 
@@ -201,7 +203,7 @@ export function AddPrinterDialog({
           limit: typeof parsed.limit === "number" || parsed.limit === "unlimited" ? parsed.limit : null,
         });
       } else {
-        setError(friendlyGatewayError(raw));
+        setError(friendlyGatewayError(raw, locale));
       }
     } finally {
       setBusy(false);
@@ -213,12 +215,12 @@ export function AddPrinterDialog({
       <Modal
       open={open}
       onClose={onClose}
-      title="Add printer"
-      description="Register a printer for this agent. Discovery is preferred, but manual registration works for legacy devices."
+      title={t("desktop.add.title")}
+      description={t("desktop.add.description")}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             variant="primary"
@@ -226,19 +228,19 @@ export function AddPrinterDialog({
             loading={busy}
             icon={<Plus className="h-4 w-4" />}
           >
-            Add printer
+            {t("desktop.add.title")}
           </Button>
         </>
       }
     >
       <div className="space-y-5">
         <Field
-          label="Gateway agent"
+          label={t("desktop.add.agent")}
           htmlFor="pp-agent"
-          hint="The selected Agent owns execution; the Gateway remains authoritative for configuration."
+          hint={t("desktop.add.agentHint")}
         >
           <Select id="pp-agent" value={agentId} onFocus={loadAgents} onChange={(e) => setAgentId(e.target.value)}>
-            <option value="">Select an active agent…</option>
+            <option value="">{t("desktop.add.selectActiveAgent")}</option>
             {agents.filter((a) => a.lifecycle === "active").map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name} ({a.status || "unknown"})
@@ -246,7 +248,7 @@ export function AddPrinterDialog({
             ))}
           </Select>
         </Field>
-        <Field label="Printer name" htmlFor="pp-name">
+        <Field label={t("desktop.add.printerName")} htmlFor="pp-name">
           <Input
             id="pp-name"
             value={name}
@@ -255,27 +257,27 @@ export function AddPrinterDialog({
             autoFocus
           />
         </Field>
-        <Field label="Connection type" htmlFor="pp-conn">
+        <Field label={t("desktop.add.connectionType")} htmlFor="pp-conn">
           <Select
             id="pp-conn"
             value={conn}
             onChange={(e) => setConn(e.target.value as Conn)}
           >
-            <option value="spooler">Windows spooler</option>
-            <option value="network">Network (TCP)</option>
-            <option value="usb">USB</option>
-            <option value="ipp">IPP</option>
+            <option value="spooler">{t("desktop.connection.spooler")}</option>
+            <option value="network">{t("desktop.connection.network")}</option>
+            <option value="usb">{t("desktop.connection.usb")}</option>
+            <option value="ipp">{t("desktop.connection.ipp")}</option>
             <option value="ipps">IPPS</option>
           </Select>
         </Field>
         {conn === "spooler" && (
           <Field
-            label="Spooler printer"
+            label={t("desktop.add.spoolerPrinter")}
             htmlFor="pp-spooler"
             hint={
               physicalSpoolers.length === 0
-                ? "No physical spooler printers were discovered — run Discovery first, or type the exact Windows printer name. Virtual and redirected printers are never listed."
-                : "Only physical printers discovered on this PC are listed."
+                ? t("desktop.add.noSpoolerDiscovered")
+                : t("desktop.add.onlyPhysicalListed")
             }
           >
             <Select
@@ -283,27 +285,27 @@ export function AddPrinterDialog({
               value={spoolerName}
               onChange={(e) => setSpoolerName(e.target.value)}
             >
-              <option value="">Select…</option>
+              <option value="">{t("desktop.add.selectEllipsis")}</option>
               {physicalSpoolers.map((p) => (
                 <option key={p.id} value={p.spooler_name || p.name}>
                   {p.name}
                 </option>
               ))}
-              {physicalSpoolers.length === 0 && <option disabled>None discovered</option>}
+              {physicalSpoolers.length === 0 && <option disabled>{t("desktop.add.noneDiscovered")}</option>}
             </Select>
             {physicalSpoolers.length === 0 && (
               <Input
                 className="mt-3"
                 value={spoolerName}
                 onChange={(e) => setSpoolerName(e.target.value)}
-                placeholder="Type Windows printer name"
+                placeholder={t("desktop.add.typeWindowsName")}
               />
             )}
           </Field>
         )}
         {conn === "network" && (
           <div className="grid grid-cols-[1.6fr_1fr] gap-4">
-            <Field label="Host" htmlFor="pp-host">
+            <Field label={t("desktop.add.host")} htmlFor="pp-host">
               <Input
                 id="pp-host"
                 value={host}
@@ -311,7 +313,7 @@ export function AddPrinterDialog({
                 placeholder="192.168.1.50 (LAN IP)"
               />
             </Field>
-            <Field label="Port" htmlFor="pp-port">
+            <Field label={t("desktop.add.port")} htmlFor="pp-port">
               <Input
                 id="pp-port"
                 value={port}
@@ -321,10 +323,10 @@ export function AddPrinterDialog({
               />
             </Field>
             <Field
-              label="Protocol"
+              label={t("desktop.add.protocol")}
               htmlFor="pp-proto"
               className="col-span-2"
-              hint="RAW sends bytes as-is; ESC/POS is the usual thermal receipt language."
+              hint={t("desktop.add.protocolHint")}
             >
               <Select
                 id="pp-proto"
@@ -341,28 +343,26 @@ export function AddPrinterDialog({
         )}
         {conn === "usb" && (
           <Field
-            label="USB printer"
+            label={t("desktop.add.usbPrinter")}
             htmlFor="pp-usb"
-            hint="Only valid USB printers are listed — generic USB devices are hidden."
+            hint={t("desktop.add.usbHint")}
           >
             <Select id="pp-usb" value={usbSel} onChange={(e) => setUsbSel(e.target.value)}>
-              <option value="">Select…</option>
+              <option value="">{t("desktop.add.selectEllipsis")}</option>
               {usbPrinters.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name} {p.usbVid ? `(${p.usbVid}:${p.usbPid})` : ""}
                 </option>
               ))}
-              {usbPrinters.length === 0 && <option disabled>No USB printers discovered</option>}
+              {usbPrinters.length === 0 && <option disabled>{t("desktop.add.noUsbDiscovered")}</option>}
             </Select>
           </Field>
         )}
         {(conn === "ipp" || conn === "ipps") && (
           <Field
-            label={conn === "ipps" ? "IPPS endpoint" : "IPP endpoint"}
+            label={conn === "ipps" ? t("desktop.add.ippsEndpoint") : t("desktop.add.ippEndpoint")}
             htmlFor="pp-ipp"
-            hint={conn === "ipps"
-              ? "Use a private/link-local IPPS endpoint, e.g. ipps://192.168.1.60/ipp/print"
-              : "Use a private/link-local printer IP, e.g. ipp://192.168.1.60/ipp/print"}
+            hint={conn === "ipps" ? t("desktop.add.ippsHint") : t("desktop.add.ippHint")}
           >
             <Input
               id="pp-ipp"
@@ -372,7 +372,7 @@ export function AddPrinterDialog({
             />
           </Field>
         )}
-        {error && <ErrorState title="Cannot add printer" message={error} />}
+        {error && <ErrorState title={t("desktop.add.cannotAdd")} message={error} />}
       </div>
       </Modal>
 
