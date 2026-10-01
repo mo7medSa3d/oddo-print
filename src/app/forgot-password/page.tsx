@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useI18n } from "../../i18n/react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, MailCheck } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
@@ -8,6 +9,7 @@ import { Button, Callout, Field, Input, ErrorState } from "../../components/ui";
 
 export default function Forgot() {
   const [email, setEmail] = useState("");
+  const { t } = useI18n();
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -25,16 +27,16 @@ export default function Forgot() {
       const data = await response.json().catch(() => ({}));
       const retryAfter = Number(response.headers.get("retry-after"));
       if (Number.isFinite(retryAfter) && retryAfter > 0) {
-        setError("Too many attempts. Please try again later.");
+        setError(t("errors.tooManyAttempts"));
         return;
       }
       if (!response.ok) {
-        setError(typeof data.error === "string" ? data.error : "Unable to send reset email.");
+        setError(typeof data.error === "string" ? data.error : t("auth.forgot.sendFailed"));
         return;
       }
       setDone(true);
     } catch {
-      setError("Unable to send reset email. Please try again.");
+      setError(t("auth.forgot.sendFailed"));
     } finally {
       setLoading(false);
     }
@@ -42,10 +44,10 @@ export default function Forgot() {
 
   return (
     <AuthShell
-      subtitle="Account recovery"
-      eyebrow="Account recovery"
-      title="Reset your password"
-      description="Enter your workspace email and we’ll send a reset link if the account is eligible."
+      subtitle={t("auth.forgot.eyebrow")}
+      eyebrow={t("auth.forgot.eyebrow")}
+      title={t("auth.forgot.title")}
+      description={t("auth.forgot.description")}
     >
       {done ? (
         <Callout tone="ok" icon={<MailCheck className="h-4 w-4" aria-hidden />} title="Check your inbox">
@@ -54,7 +56,7 @@ export default function Forgot() {
         </Callout>
       ) : (
         <form className="space-y-4" onSubmit={submit}>
-          <Field label="Email" htmlFor="email" required>
+          <Field label={t("auth.email")} htmlFor="email" required>
             <Input
               id="email"
               type="email"
@@ -66,7 +68,7 @@ export default function Forgot() {
             />
           </Field>
 
-          {error && <ErrorState title="Couldn’t send the reset link" message={error} />}
+          {error && <ErrorState title={t("auth.forgot.failed")} message={error} />}
 
           <Button
             variant="primary"
@@ -75,7 +77,7 @@ export default function Forgot() {
             loading={loading}
             icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
           >
-            {loading ? "Sending…" : "Send reset link"}
+            {loading ? t("auth.forgot.submitting") : t("auth.forgot.submit")}
           </Button>
         </form>
       )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
+import { useI18n } from "../../i18n/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, MailCheck, ShieldAlert } from "lucide-react";
@@ -12,16 +13,17 @@ function VerifyEmailContent() {
   const token = params.get("token");
   const initialEmail = params.get("email") ?? "";
   const planId = params.get("plan") ?? "";
+  const { t } = useI18n();
   const router = useRouter();
   const [state, setState] = useState<"loading" | "ok" | "error" | "pending">(
     token ? "loading" : initialEmail ? "pending" : "error",
   );
   const [msg, setMsg] = useState(
     token
-      ? "Verifying your email…"
+      ? t("auth.verify.verifying")
       : initialEmail
         ? `Check your inbox (${initialEmail}) for a verification link.`
-        : "Verification link is missing or invalid.",
+        : t("auth.verify.missingLink"),
   );
   const [resendEmail, setResendEmail] = useState(initialEmail);
   const [resending, setResending] = useState(false);
@@ -52,9 +54,9 @@ function VerifyEmailContent() {
           payload = {};
         }
         if (cancelled) return;
-        if (!response.ok) throw new Error(payload.error ?? "Verification failed");
+        if (!response.ok) throw new Error(payload.error ?? t("auth.verify.failed"));
         setState("ok");
-        setMsg("Email verified. Redirecting to workspace setup…");
+        setMsg(t("auth.verify.verifiedBody"));
         redirectTimer = setTimeout(() => {
           if (cancelled) return;
           const next = planId ? `/onboarding?plan=${encodeURIComponent(planId)}` : "/onboarding";
@@ -63,7 +65,7 @@ function VerifyEmailContent() {
       } catch (error) {
         if (cancelled || controller.signal.aborted) return;
         setState("error");
-        setMsg(error instanceof Error ? error.message : "Verification failed");
+        setMsg(error instanceof Error ? error.message : t("auth.verify.failed"));
       }
     })();
 
@@ -86,20 +88,25 @@ function VerifyEmailContent() {
         body: JSON.stringify({ email: resendEmail, planId }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Failed to resend verification email");
-      setResendMsg("A new verification link has been sent if the account exists.");
+      if (!response.ok) throw new Error(data.error ?? t("auth.verify.resendFailed"));
+      setResendMsg(t("auth.verify.resendSent"));
     } catch (error) {
-      setResendMsg(error instanceof Error ? error.message : "Failed to resend verification email");
+      setResendMsg(error instanceof Error ? error.message : t("auth.verify.resendFailed"));
     } finally {
       setResending(false);
     }
   }
 
-  const title = state === "loading" ? "Verify your email" : state === "ok" ? "Email verified" : state === "pending" ? "Check your email" : "Verification failed";
-  const eyebrow = state === "ok" ? "Verified" : state === "error" ? "Action needed" : "Email verification";
+  const title =
+    state === "loading" || state === "pending"
+      ? t("auth.verify.checkEmail")
+      : state === "ok"
+        ? t("auth.verify.verified")
+        : t("auth.verify.failed");
+  const eyebrow = state === "ok" ? t("auth.verify.eyebrowDone") : state === "error" ? t("auth.verify.eyebrowError") : t("auth.verify.eyebrowPending");
 
   return (
-    <AuthShell subtitle="Email verification" eyebrow={eyebrow} title={title} description={msg}>
+    <AuthShell subtitle={t("auth.verify.eyebrowPending")} eyebrow={eyebrow} title={title} description={msg}>
       {state === "ok" ? (
         <Callout tone="ok" icon={<CheckCircle2 className="h-4 w-4" aria-hidden />} title="You’re all set">
           Continuing to workspace setup…
@@ -115,21 +122,21 @@ function VerifyEmailContent() {
                 <MailCheck className="h-4 w-4" aria-hidden />
               )
             }
-            title={state === "error" ? "This link can’t be used" : "Links expire after a short time"}
+            title={state === "error" ? t("auth.verify.linkUnusable") : t("auth.verify.linksExpire")}
           >
             {state === "error"
-              ? "Request a new verification link below, or sign in if you already verified this address."
-              : "If it doesn’t arrive within a few minutes, check spam or resend it below."}
+              ? t("auth.verify.linkUnusableBody")
+              : t("auth.verify.linksExpireBody")}
           </Callout>
 
           <form onSubmit={handleResend} className="space-y-4">
-            <Field label="Email address" htmlFor="resend-email" hint="We only send a link if the account exists.">
+            <Field label={t("auth.verify.emailAddress")} htmlFor="resend-email" hint={t("auth.verify.hint")}>
               <Input
                 id="resend-email"
                 type="email"
                 value={resendEmail}
                 onChange={(e) => setResendEmail(e.target.value)}
-                placeholder="name@example.com"
+                placeholder={t("auth.emailPlaceholder")}
                 autoComplete="email"
                 required
               />
@@ -152,7 +159,7 @@ function VerifyEmailContent() {
               loading={resending}
               disabled={resending || !resendEmail}
             >
-              {resending ? "Sending…" : "Resend verification email"}
+              {resending ? t("auth.verify.resending") : t("auth.verify.resend")}
             </Button>
           </form>
 
@@ -171,7 +178,7 @@ export default function VerifyEmail() {
   return (
     <Suspense
       fallback={
-        <AuthShell subtitle="Email verification">
+        <AuthShell subtitle={t("auth.verify.eyebrowPending")}>
           <div className="space-y-4" role="status" aria-label="Loading">
             <Skeleton className="h-7 w-48" />
             <Skeleton className="h-4 w-full" />

@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
+import { useI18n } from "../../i18n/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, CheckCircle2 } from "lucide-react";
@@ -11,6 +12,7 @@ function ResetPasswordContent() {
   const token = useSearchParams().get("token") ?? "";
   const router = useRouter();
   const [pw, setPw] = useState("");
+  const { t } = useI18n();
   const [err, setErr] = useState("");
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -27,13 +29,13 @@ function ResetPasswordContent() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setErr(typeof data.error === "string" ? data.error : "Reset failed");
+        setErr(typeof data.error === "string" ? data.error : t("auth.reset.failed"));
         return;
       }
       setDone(true);
       setTimeout(() => router.replace("/login"), 700);
     } catch {
-      setErr("Could not reset password. Please try again.");
+      setErr(t("auth.reset.failedBody"));
     } finally {
       setLoading(false);
     }
@@ -41,10 +43,10 @@ function ResetPasswordContent() {
 
   return (
     <AuthShell
-      subtitle="Account recovery"
-      eyebrow="Account recovery"
-      title="Choose a new password"
-      description="This replaces the password for your Yaseir account immediately."
+      subtitle={t("auth.forgot.eyebrow")}
+      eyebrow={t("auth.forgot.eyebrow")}
+      title={t("auth.reset.title")}
+      description={t("auth.reset.description")}
     >
       {done ? (
         <Callout tone="ok" icon={<CheckCircle2 className="h-4 w-4" aria-hidden />} title="Password updated">
@@ -57,9 +59,9 @@ function ResetPasswordContent() {
       ) : (
         <form className="space-y-4" onSubmit={submit}>
           <Field
-            label="New password"
+            label={t("auth.reset.password")}
             htmlFor="password"
-            hint="At least 12 characters."
+            hint={t("auth.passwordHint")}
             required
           >
             <Input
@@ -74,7 +76,7 @@ function ResetPasswordContent() {
             />
           </Field>
 
-          {err && <ErrorState title="Couldn’t reset the password" message={err} />}
+          {err && <ErrorState title={t("auth.reset.failed")} message={err} />}
 
           <Button
             type="submit"
@@ -84,7 +86,7 @@ function ResetPasswordContent() {
             loading={loading}
             icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
           >
-            {loading ? "Updating…" : "Update password"}
+            {loading ? t("auth.reset.submitting") : t("auth.reset.submit")}
           </Button>
         </form>
       )}
@@ -96,7 +98,7 @@ export default function ResetPassword() {
   return (
     <Suspense
       fallback={
-        <AuthShell subtitle="Account recovery">
+        <AuthShell subtitle={t("auth.forgot.eyebrow")}>
           <div className="space-y-4" role="status" aria-label="Loading">
             <Skeleton className="h-7 w-56" />
             <Skeleton className="h-4 w-full" />

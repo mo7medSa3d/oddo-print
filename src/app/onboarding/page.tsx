@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useI18n } from "../../i18n/react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -37,23 +38,24 @@ type Plan = {
 const NEXT_STEPS = [
   {
     icon: Server,
-    title: "Register your first agent",
-    text: "The Windows service that owns printers. Registration issues a one-time pairing code.",
+    title: t("onboarding.step.agent"),
+    text: t("onboarding.step.agentText"),
   },
   {
     icon: KeyRound,
-    title: "Connect Odoo",
-    text: "Generate a workspace credential and paste it into the Yaseir module in Odoo.",
+    title: t("onboarding.step.odoo"),
+    text: t("onboarding.step.odooText"),
   },
   {
     icon: Printer,
-    title: "Send the first job",
-    text: "Print a test page from the console, then verify the delivery state end to end.",
+    title: t("onboarding.step.job"),
+    text: t("onboarding.step.jobText"),
   },
 ];
 
 export default function Onboarding() {
   const [name, setName] = useState("");
+  const { t } = useI18n();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [planId, setPlanId] = useState("");
   const [err, setErr] = useState("");
@@ -69,7 +71,7 @@ export default function Onboarding() {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(typeof data.error === "string" ? data.error : "Unable to load available plans.");
+      throw new Error(typeof data.error === "string" ? data.error : t("onboarding.plansUnavailable"));
     }
     return Array.isArray(data.plans) ? data.plans : [];
   }, []);
@@ -89,7 +91,7 @@ export default function Onboarding() {
     } catch (error) {
       setPlans([]);
       setPlanId("");
-      setPlansError(error instanceof Error ? error.message : "Unable to load available plans.");
+      setPlansError(error instanceof Error ? error.message : t("onboarding.plansUnavailable"));
     } finally {
       setPlansLoading(false);
     }
@@ -112,7 +114,7 @@ export default function Onboarding() {
         if (cancelled) return;
         setPlans([]);
         setPlanId("");
-        setPlansError(error instanceof Error ? error.message : "Unable to load available plans.");
+        setPlansError(error instanceof Error ? error.message : t("onboarding.plansUnavailable"));
       })
       .finally(() => {
         if (!cancelled) setPlansLoading(false);
@@ -125,7 +127,7 @@ export default function Onboarding() {
   async function submit(trial: boolean) {
     setErr("");
     if (!name.trim() || !planId) {
-      setErr("Choose a workspace name and a plan before continuing.");
+      setErr(t("onboarding.chooseNameAndPlan"));
       return;
     }
     setLoading(true);
@@ -138,7 +140,7 @@ export default function Onboarding() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(typeof data.error === "string" ? data.error : "Workspace setup failed.");
+        throw new Error(typeof data.error === "string" ? data.error : t("onboarding.failed"));
       }
       if (trial) {
         router.replace("/dashboard");
@@ -152,11 +154,11 @@ export default function Onboarding() {
       });
       const checkoutData = await checkout.json().catch(() => ({}));
       if (!checkout.ok || typeof checkoutData.url !== "string") {
-        throw new Error(typeof checkoutData.error === "string" ? checkoutData.error : "Checkout is temporarily unavailable.");
+        throw new Error(typeof checkoutData.error === "string" ? checkoutData.error : t("onboarding.checkoutUnavailable"));
       }
       window.location.href = checkoutData.url;
     } catch (error) {
-      setErr(error instanceof Error ? error.message : "Workspace setup failed.");
+      setErr(error instanceof Error ? error.message : t("onboarding.failed"));
     } finally {
       setLoading(false);
     }
@@ -184,8 +186,8 @@ export default function Onboarding() {
         <div className="mt-9 grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.85fr)]">
           <Card>
             <CardHeader
-              title="Workspace and plan"
-              subtitle="Two fields — then you are in the console."
+              title={t("onboarding.sectionTitle")}
+              subtitle={t("onboarding.sectionSubtitle")}
               icon={<Building2 className="h-4 w-4" />}
               actions={
                 <ol className="flex items-center gap-2 text-xs font-[600] text-ink-3" aria-label="Setup progress">
@@ -204,9 +206,9 @@ export default function Onboarding() {
 
             <div className="space-y-6 px-5 py-6">
               <Field
-                label="Workspace name"
+                label={t("onboarding.workspaceName")}
                 htmlFor="workspace-name"
-                hint="Appears in the console, on audit records and in the Odoo integration."
+                hint={t("onboarding.nameHint")}
                 required
               >
                 <Input
@@ -245,15 +247,15 @@ export default function Onboarding() {
                   </div>
                 ) : plansError ? (
                   <ErrorState
-                    title="Plans could not be loaded"
+                    title={t("onboarding.plansLoadFailed")}
                     message={plansError}
                     retry={() => void loadPlans()}
                   />
                 ) : plans.length === 0 ? (
                   <EmptyState
                     icon={<CreditCard className="h-5 w-5" />}
-                    title="No plans are available"
-                    description="The workspace cannot be activated until a public billing plan is configured."
+                    title={t("onboarding.noPlans")}
+                    description={t("onboarding.noPlansBody"})
                   />
                 ) : (
                   <div role="radiogroup" aria-label="Choose a plan" className="grid gap-3 md:grid-cols-2">
@@ -296,7 +298,7 @@ export default function Onboarding() {
                                     {key.replace(/^max_/, "").replace(/_/g, " ")}
                                   </dt>
                                   <dd className="font-[600] tabular text-ink">
-                                    {typeof value === "boolean" ? (value ? "Included" : "Not included") : String(value)}
+                                    {typeof value === "boolean" ? (value ? t("onboarding.included") : t("onboarding.notIncluded")) : String(value)}
                                   </dd>
                                 </div>
                               ))}
@@ -324,7 +326,7 @@ export default function Onboarding() {
                     starts immediately, no card required.
                   </>
                 ) : (
-                  "Choose a plan to continue."
+                  t("onboarding.choosePlan")
                 )}
               </p>
               <div className="flex flex-col gap-2 sm:flex-row">
@@ -347,8 +349,8 @@ export default function Onboarding() {
           <aside className="space-y-5">
             <Card>
               <CardHeader
-                title="What happens next"
-                subtitle="Three steps to your first printed page."
+                title={t("onboarding.whatsNext")}
+                subtitle={t("onboarding.whatsNextSubtitle")}
                 icon={<Sparkles className="h-4 w-4" />}
               />
               <ol className="space-y-4 px-5 py-5">
@@ -369,14 +371,14 @@ export default function Onboarding() {
               </ol>
             </Card>
 
-            <Callout tone="info" title="No card required for the trial">
+            <Callout tone="info" title={t("onboarding.noCard")}>
               Start with a trial, add a payment method only when you are ready to subscribe. Print
               credits and limits follow the selected plan.
             </Callout>
 
             <div className="flex items-center gap-2 text-sm text-ink-3">
-              <StatusBadge tone="ok" label="Odoo 19 ready" size="sm" />
-              <span>Gateway and agent download included.</span>
+              <StatusBadge tone="ok" label={t("onboarding.odooReady")} size="sm" />
+              <span>{t("onboarding.downloadsIncluded")}</span>
             </div>
           </aside>
         </div>

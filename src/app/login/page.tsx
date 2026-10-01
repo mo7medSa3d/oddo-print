@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useI18n } from "../../i18n/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Building2, ShieldCheck } from "lucide-react";
@@ -9,6 +10,7 @@ import { Button, Field, Input, ErrorState, Skeleton } from "../../components/ui"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
+  const { t } = useI18n();
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -65,11 +67,11 @@ export default function LoginPage() {
         setWorkspaces(data.workspaces.filter((id: unknown): id is string => typeof id === "string"));
         return;
       }
-      if (!res.ok) throw new Error(data.error ?? "Unable to sign in");
+      if (!res.ok) throw new Error(data.error ?? t("auth.signIn.failed"));
       router.replace(postAuthDestination());
       router.refresh();
     } catch (error) {
-      setErr(error instanceof Error ? error.message : "Unable to sign in");
+      setErr(error instanceof Error ? error.message : t("auth.signIn.failed"));
     } finally {
       setLoading(false);
     }
@@ -86,11 +88,11 @@ export default function LoginPage() {
         body: JSON.stringify({ tenantId, selectionToken }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Workspace selection failed");
+      if (!res.ok) throw new Error(data.error ?? t("auth.signIn.selectWorkspaceFailed"));
       router.replace(postAuthDestination());
       router.refresh();
     } catch (error) {
-      setErr(error instanceof Error ? error.message : "Workspace selection failed");
+      setErr(error instanceof Error ? error.message : t("auth.signIn.selectWorkspaceFailed"));
     } finally {
       setLoading(false);
     }
@@ -114,9 +116,9 @@ export default function LoginPage() {
   return (
     <AuthShell
       subtitle="Yaseir Print Gateway"
-      eyebrow="Workspace access"
-      title="Sign in"
-      description="Use the email address associated with your Yaseir workspace."
+      eyebrow={t("auth.signIn.eyebrow")}
+      title={t("auth.signIn.title")}
+      description={t("auth.signIn.description")}
       footer={
         <>
           Need an account?{" "}
@@ -127,11 +129,11 @@ export default function LoginPage() {
       }
     >
       <form onSubmit={onSubmit} className="space-y-4">
-        <Field label="Email" htmlFor="email">
+        <Field label={t("auth.email")} htmlFor="email">
           <Input
             id="email"
             type="email"
-            placeholder="you@company.com"
+            placeholder={t("auth.emailPlaceholder")}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             autoComplete="email"
@@ -141,7 +143,7 @@ export default function LoginPage() {
         </Field>
 
         <Field
-          label="Password"
+          label={t("auth.password")}
           htmlFor="password"
           actions={
             <Link
@@ -155,7 +157,7 @@ export default function LoginPage() {
           <Input
             id="password"
             type="password"
-            placeholder="Enter password"
+            placeholder={t("auth.passwordPlaceholder")}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
@@ -163,7 +165,7 @@ export default function LoginPage() {
           />
         </Field>
 
-        {err && <ErrorState title="Couldn’t sign you in" message={err} />}
+        {err && <ErrorState title={t("auth.signIn.failed")} message={err} />}
 
         {workspaces.length > 0 && (
           <div className="rounded-sg border border-edge-accent bg-brand-subtle p-4">
@@ -199,7 +201,7 @@ export default function LoginPage() {
           size="lg"
           icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
         >
-          {loading ? "Signing in…" : "Continue"}
+          {loading ? t("auth.signIn.submitting") : t("common.continue")}
         </Button>
 
         <div className="flex items-start gap-2.5 rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-3">
