@@ -12,11 +12,27 @@
  * Run with `npm run i18n:check` (tsx) or any TS-capable Node:
  *   node --experimental-strip-types scripts/check-i18n.ts
  */
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { en } from "../src/i18n/messages/en";
 import { ar } from "../src/i18n/messages/ar";
 import { LOCALES, DEFAULT_LOCALE } from "../src/i18n/config";
 
 type Catalog = Record<string, string>;
+
+const CATEGORIES = ["zero", "one", "two", "few", "many", "other"] as const;
+
+/** Every `.ts`/`.tsx` file under `src/`, so `tc()` call sites can be audited. */
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    if (entry === "node_modules" || entry === "messages") continue;
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) out.push(...sourceFiles(full));
+    else if (/\.tsx?$/.test(entry)) out.push(full);
+  }
+  return out;
+}
 
 const catalogs: Record<string, Catalog> = { en: en as unknown as Catalog, ar: ar as unknown as Catalog };
 
@@ -88,6 +104,43 @@ for (const locale of LOCALES) {
     if (!categories.has("other")) fail(`${locale}: count family "${base}" has no ".other" fallback`);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Count families must use the separator translateCount() actually builds.
+//
+// translateCount resolves `${base}.${category}` — a dot. A family written as
+// `jobs.cleanup.removed_one` silently resolves nothing and the UI renders the
+// bare key, which is worse than an untranslated string because it looks like a
+// crash. Guarding the separator closes that hole permanently.
+// ---------------------------------------------------------------------------
+const sourceKeys = new Set(Object.keys(en));
+for (const key of sourceKeys) {
+  const slash = key.lastIndexOf("_");
+  if (slash === -1) continue;
+  const candidate = key.slice(slash + 1);
+  if ((CATEGORIES as readonly string[]).includes(candidate)) {
+    fail(`count key "${key}" uses "_${candidate}"; translateCount() builds ".${candidate}"`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Every `tc("base", …)` call site must resolve to a real message, using the
+// same lookup order as translateCount: `<base>.<category>`, `<base>.other`,
+// then `<base>`.
+// ---------------------------------------------------------------------------
+const callSites: Array<{ file: string; base: string }> = [];
+for (const file of sourceFiles("src")) {
+  const source = readFileSync(file, "utf8");
+  for (const match of source.matchAll(/\btc\(\s*"([^"]+)"/g)) {
+    callSites.push({ file, base: match[1] });
+  }
+}
+for (const { file, base } of callSites) {
+  const resolvable =
+    `${base}.one` in en || `${base}.other` in en || base in en || CATEGORIES.some((c) => `${base}.${c}` in en);
+  if (!resolvable) fail(`${file}: tc("${base}") resolves to no message — the UI would render the raw key`);
+}
+console.log(`tc() call sites: ${callSites.length}`);
 
 if (failures > 0) {
   console.error(`\n${failures} catalog problem(s).`);
