@@ -34,6 +34,7 @@ import {
   StatusDot,
   type MenuItemSpec,
 } from "../../components/ui";
+import { shortId } from "../../lib/utils";
 
 type Member = { userId: string; email: string; role: string };
 type Invitation = { id: string; email: string; role: string; expiresAt: string };
@@ -336,8 +337,12 @@ export default function TeamPage() {
               ) : (
                 <>
                   {/* Desktop table */}
-                  <div className="hidden md:block">
-                    <table className="data-table">
+                  <div className="hidden overflow-x-auto md:block">
+                    {/* `min-w` matters: the card clips its overflow, so without a
+                        floor the role badge and the actions button get cut off
+                        by the card edge when the sidebar narrows the content
+                        column. The scroller turns that clipping into a scroll. */}
+                    <table className="data-table min-w-[560px]">
                       <caption className="sr-only">Workspace members and their roles</caption>
                       <thead>
                         <tr>
@@ -354,13 +359,13 @@ export default function TeamPage() {
                                 <Avatar name={member.email} size="sm" />
                                 <div className="min-w-0">
                                   <div className="truncate text-sm font-[550] text-ink">{member.email}</div>
-                                  <div className="font-mono text-2xs text-ink-4">
-                                    {member.userId.slice(0, 8)}
+                                  <div className="font-mono text-2xs text-ink-3" title={member.userId}>
+                                    {shortId(member.userId)}
                                   </div>
                                 </div>
                               </div>
                             </td>
-                            <td>
+                            <td className="whitespace-nowrap">
                               <div className="flex items-center gap-2">
                                 {member.role === "owner" && (
                                   <Crown className="h-3.5 w-3.5 text-warn" aria-hidden />
@@ -411,8 +416,8 @@ export default function TeamPage() {
                           <Avatar name={member.email} size="sm" />
                           <div className="min-w-0 flex-1">
                             <div className="break-words text-sm font-[550] text-ink">{member.email}</div>
-                            <div className="mt-0.5 font-mono text-2xs text-ink-4">
-                              {member.userId.slice(0, 8)}
+                            <div className="mt-0.5 font-mono text-2xs text-ink-3" title={member.userId}>
+                              {shortId(member.userId)}
                             </div>
                           </div>
                           {member.role === "owner" ? (

@@ -78,6 +78,7 @@ import {
 } from "../../shared/job-vocabulary";
 import { copyTextToClipboard } from "../../lib/clipboard";
 import { generateIdempotencyKey } from "../../lib/idempotency";
+import { shortId } from "../../lib/utils";
 import { getPrinterLanguageBadges } from "../../lib/printer-capability";
 import PrintCertificationWizard from "../../components/PrintCertificationWizard";
 import JobTimeline from "../../components/JobTimeline";
@@ -321,7 +322,7 @@ function KpiCell({
   progress?: number;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 p-4">
+    <div className="flex flex-col gap-1.5 bg-surface p-4">
       <span className="label-caps">{label}</span>
       <span className="text-2xl font-[640] leading-none tracking-[-0.02em] text-ink tabular">
         {value}
@@ -1067,9 +1068,9 @@ export default function DashboardClient({
         aria-label="Fleet summary"
         className="overflow-hidden rounded-xl border border-edge bg-surface shadow-card"
       >
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge-subtle px-4 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-edge-subtle px-4 py-2.5">
           <h2 className="label-caps">Fleet summary</h2>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             {/* Class order and tokens on the nominal pill are locked by
                 tests/theme-consistency.test.ts — keep the literal string. */}
             {kpis.totalAgents > 0 && kpis.onlineAgents === kpis.totalAgents ? (
@@ -1091,7 +1092,16 @@ export default function DashboardClient({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 divide-x divide-y divide-edge-subtle sm:grid-cols-4 sm:divide-y-0">
+        {/* Separators come from 1px grid gaps over a divider-coloured
+            backdrop, not `divide-*`. Tailwind's `divide-x` applies
+            `& > :not(:last-child) { border-inline-end-width: 1px }` and
+            `divide-y` the same for `border-bottom`, i.e. every child except the
+            LAST gets a border. In the 2-column layout that draws a line on the
+            card's right edge after the first row and another along its bottom
+            edge after the third cell — stray lines hugging the card frame,
+            which read as a broken border. 1px grid gaps are column-count
+            agnostic, so no breakpoint can produce a stray edge. */}
+        <div className="grid grid-cols-2 gap-px bg-edge-subtle sm:grid-cols-4">
           <KpiCell
             label="Agents online"
             value={`${kpis.onlineAgents}/${kpis.totalAgents}`}
@@ -1280,7 +1290,7 @@ export default function DashboardClient({
                         <StatusBadge tone={view.tone} label={view.label} size="sm" pulse={view.tone === "ok"} />
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3">
-                        <span className="font-mono text-2xs">{agent.id.slice(0, 8)}</span>
+                        <span className="font-mono text-2xs" title={agent.id}>{shortId(agent.id)}</span>
                         {meta?.hostname && (
                           <>
                             <span aria-hidden>·</span>
@@ -1517,7 +1527,9 @@ export default function DashboardClient({
                       <tr key={printer.id}>
                         <td>
                           <div className="text-sm font-[550] text-ink">{printer.name}</div>
-                          <div className="mt-0.5 font-mono text-2xs text-ink-4">{printer.id.slice(0, 8)}</div>
+                          <div className="mt-0.5 truncate font-mono text-2xs text-ink-3" title={printer.id}>
+                            {shortId(printer.id)}
+                          </div>
                         </td>
                         <td className="text-sm text-ink-2">{parentAgent?.name ?? "—"}</td>
                         <td>
@@ -1660,18 +1672,23 @@ export default function DashboardClient({
                           <button
                             type="button"
                             onClick={() => setSelectedJob(job)}
+                            title={job.id}
                             className="font-mono text-xs font-[600] text-brand transition-colors hover:text-brand-hover"
                           >
-                            {job.id.slice(0, 8)}
+                            {shortId(job.id)}
                           </button>
-                          <div className="mt-0.5 text-2xs text-ink-4">
+                          <div className="mt-0.5 truncate text-2xs text-ink-3">
                             {job.deliveryAttempts ?? 0} attempt{(job.deliveryAttempts ?? 0) === 1 ? "" : "s"}
                             {job.retries ? ` · ${job.retries} retr${job.retries === 1 ? "y" : "ies"}` : ""}
                           </div>
                         </td>
                         <td>
-                          <div className="text-sm text-ink-2">{printer?.name ?? "Unknown printer"}</div>
-                          <div className="mt-0.5 font-mono text-2xs text-ink-4">{job.printerId.slice(0, 8)}</div>
+                          <div className="truncate text-sm text-ink-2" title={printer?.name}>
+                            {printer?.name ?? "Unknown printer"}
+                          </div>
+                          <div className="mt-0.5 truncate font-mono text-2xs text-ink-3" title={job.printerId}>
+                            {shortId(job.printerId)}
+                          </div>
                         </td>
                         <td>
                           <div className="max-w-[220px] truncate text-sm text-ink-2" title={job.destination ?? undefined}>
@@ -1689,7 +1706,7 @@ export default function DashboardClient({
                         </td>
                         <td className="text-right">
                           <Menu
-                            label={`Actions for job ${job.id.slice(0, 8)}`}
+                            label={`Actions for job ${shortId(job.id)}`}
                             items={jobActions(job)}
                             trigger={
                               <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
@@ -1719,9 +1736,9 @@ export default function DashboardClient({
                         className="min-w-0 flex-1 text-left"
                       >
                         <span className="block truncate text-sm font-[550] text-ink">
-                          {job.destination ?? job.id.slice(0, 8)}
+                          {job.destination ?? shortId(job.id)}
                         </span>
-                        <span className="mt-0.5 block font-mono text-2xs text-ink-4">{job.id.slice(0, 8)}</span>
+                        <span className="mt-0.5 block truncate font-mono text-2xs text-ink-3">{shortId(job.id)}</span>
                       </button>
                       <StatusBadge tone={sharedJobTone(job.status, outcome)} label={jobLabel(job.status, outcome)} size="sm" />
                     </div>
@@ -1737,7 +1754,7 @@ export default function DashboardClient({
                         Inspect
                       </Button>
                       <Menu
-                        label={`Actions for job ${job.id.slice(0, 8)}`}
+                        label={`Actions for job ${shortId(job.id)}`}
                         items={jobActions(job)}
                         trigger={
                           <span className="inline-flex h-8 items-center gap-1 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2">

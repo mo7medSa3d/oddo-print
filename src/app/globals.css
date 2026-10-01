@@ -988,7 +988,10 @@
   .data-table td,
   .data-table th {
     border-bottom: 1px solid var(--border-subtle);
-    padding: 11px 16px;
+    /* Tighter vertical rhythm: rows carry a primary line plus a secondary
+       meta line, so 22px of padding per row pushed tables past a screenful
+       without adding scannable separation (the row border already does that). */
+    padding: 9px 14px;
   }
   .data-table tbody tr:last-child td {
     border-bottom: 0;
@@ -1003,7 +1006,7 @@
   @media (max-width: 720px) {
     .data-table td,
     .data-table th {
-      padding: 10px 12px;
+      padding: 8px 12px;
     }
   }
 }

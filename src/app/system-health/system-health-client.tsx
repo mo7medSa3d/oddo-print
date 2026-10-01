@@ -188,9 +188,13 @@ export default function SystemHealthClient() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-2 divide-x divide-y divide-edge-subtle border-t border-edge-subtle sm:grid-cols-4 sm:divide-y-0">
+        {/* Same reasoning as the fleet summary card: `divide-x`/`divide-y`
+            put a border on every child except the LAST, so the 2-column
+            layout drew a stray line down the card's right edge in row 1 and
+            under its bottom-left cell. 1px grid gaps are column-count safe. */}
+        <div className="grid grid-cols-2 gap-px border-t border-edge-subtle bg-edge-subtle sm:grid-cols-4">
           {(["ok", "warn", "error", "unknown"] as HealthState[]).map((state) => (
-            <div key={state} className="flex items-center gap-2.5 px-5 py-3">
+            <div key={state} className="flex items-center gap-2.5 bg-surface px-5 py-3">
               <StateIcon state={state} className={`h-3.5 w-3.5 ${state === "ok" ? "text-ok" : state === "warn" ? "text-warn" : state === "error" ? "text-bad" : "text-ink-4"}`} />
               <span className="text-xs font-[600] text-ink-3">{STATE_LABEL[state]}</span>
               <span className="ml-auto text-sm font-[640] tabular text-ink">{counts[state]}</span>
