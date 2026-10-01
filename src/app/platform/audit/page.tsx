@@ -15,6 +15,7 @@ import {
   TableSkeleton,
   type Tone,
 } from "../../../components/ui";
+import { useI18n } from "../../../i18n/react";
 
 type ActorType = "platform" | "user" | "system" | "agent" | "odoo" | "desktop";
 
@@ -43,6 +44,7 @@ const ACTOR_TONE: Record<ActorType, Tone> = {
 type Filter = "all" | "platform" | "tenant" | "machine";
 
 export default function PlatformAuditPage() {
+  const { t, formatNumber, formatDateTime } = useI18n();
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -57,15 +59,15 @@ export default function PlatformAuditPage() {
       try {
         const res = await fetch("/api/platform/audit?limit=150");
         if (ignore) return;
-        if (!res.ok) throw new Error("Failed to fetch audit feed");
+        if (!res.ok) throw new Error(t("platform.audit.loadFailed"));
         const data = await res.json();
         if (!ignore) { setEvents(data.auditEvents || []); setError(null); }
-      } catch (err: unknown) { if (!ignore) setError(err instanceof Error ? err.message : "Error loading audit logs"); }
+      } catch { if (!ignore) setError(t("platform.audit.loadError")); }
       finally { if (!ignore) setLoading(false); }
     }
     load();
     return () => { ignore = true; };
-  }, [reloadKey]);
+  }, [reloadKey, t]);
 
   function handleRefresh() { setLoading(true); setReloadKey((k) => k + 1); }
 
@@ -102,10 +104,10 @@ export default function PlatformAuditPage() {
     <div className="space-y-5">
       <PageHeader
         variant="inline"
-        eyebrow="Compliance · Append-only"
+        eyebrow={t("platform.audit.eyebrow")}
         icon={<Shield className="h-4 w-4" aria-hidden />}
-        title="Audit stream"
-        description="Every privileged action taken by platform staff, tenants, agents and integrations."
+        title={t("platform.audit.title")}
+        description={t("platform.audit.description")}
         actions={
           <Button
             variant="secondary"
@@ -114,31 +116,31 @@ export default function PlatformAuditPage() {
             loading={loading}
             icon={loading ? undefined : <RefreshCw className="h-4 w-4" aria-hidden />}
           >
-            {loading ? "Refreshing…" : "Refresh stream"}
+            {loading ? t("platform.audit.refreshing") : t("platform.audit.refresh")}
           </Button>
         }
       />
 
       {error && (
-        <ErrorState title="Audit feed unavailable" message={error} retry={handleRefresh} />
+        <ErrorState title={t("platform.audit.unavailable")} message={error} retry={handleRefresh} />
       )}
 
       <Card className="overflow-hidden">
         <CardHeader
-          title="Events"
-          subtitle={`${filtered.length} of ${events.length} loaded`}
+          title={t("platform.audit.events")}
+          subtitle={t("platform.audit.shown", { filtered: formatNumber(filtered.length), total: formatNumber(events.length) })}
           icon={<ScrollText className="h-4 w-4" />}
           actions={
             <SegmentedControl
-              label="Filter by actor"
+              label={t("platform.audit.filterLabel")}
               value={filter}
               onChange={setFilter}
               size="sm"
               options={[
-                { value: "all", label: `All (${counts.all})` },
-                { value: "platform", label: `Staff (${counts.platform})` },
-                { value: "tenant", label: `Tenant (${counts.tenant})` },
-                { value: "machine", label: `Machine (${counts.machine})` },
+                { value: "all", label: t("platform.audit.filter.all", { count: formatNumber(counts.all) }) },
+                { value: "platform", label: t("platform.audit.filter.staff", { count: formatNumber(counts.platform) }) },
+                { value: "tenant", label: t("platform.audit.filter.tenant", { count: formatNumber(counts.tenant) }) },
+                { value: "machine", label: t("platform.audit.filter.machine", { count: formatNumber(counts.machine) }) },
               ]}
             />
           }
@@ -151,8 +153,8 @@ export default function PlatformAuditPage() {
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter by action, tenant or actor ID…"
-              aria-label="Filter audit events"
+              placeholder={t("platform.audit.searchPlaceholder")}
+              aria-label={t("platform.audit.searchLabel")}
               className="ps-9"
             />
           </div>
@@ -163,24 +165,24 @@ export default function PlatformAuditPage() {
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={<ScrollText className="h-5 w-5" />}
-            title={events.length === 0 ? "No audit events yet" : "No matching events"}
+            title={events.length === 0 ? t("platform.audit.emptyTitle") : t("platform.audit.noMatchesTitle")}
             description={
               events.length === 0
-                ? "Privileged actions are recorded here as they happen. Nothing to show so far."
-                : "Adjust the search term or switch the actor filter to see more results."
+                ? t("platform.audit.emptyBody")
+                : t("platform.audit.noMatchesBody")
             }
           />
         ) : (
           <div className="overflow-x-auto">
             <table className="data-table min-w-[900px]">
-              <caption className="sr-only">Platform audit events</caption>
+              <caption className="sr-only">{t("platform.audit.tableCaption")}</caption>
               <thead>
                 <tr>
-                  <th scope="col">Timestamp</th>
-                  <th scope="col">Action</th>
-                  <th scope="col">Actor</th>
-                  <th scope="col">Tenant</th>
-                  <th scope="col">Resource</th>
+                  <th scope="col">{t("platform.audit.timestamp")}</th>
+                  <th scope="col">{t("platform.audit.action")}</th>
+                  <th scope="col">{t("platform.audit.actor")}</th>
+                  <th scope="col">{t("platform.audit.tenant")}</th>
+                  <th scope="col">{t("platform.audit.resource")}</th>
                   <th scope="col" className="w-[1%]" />
                 </tr>
               </thead>
@@ -192,7 +194,7 @@ export default function PlatformAuditPage() {
                     <Fragment key={e.id}>
                       <tr>
                         <td className="whitespace-nowrap font-mono text-2xs tabular text-ink-3">
-                          {new Date(e.createdAt).toLocaleString()}
+                          {formatDateTime(e.createdAt)}
                         </td>
                         <td>
                           <span className="font-mono text-xs font-[600] text-ink">{e.action}</span>
@@ -218,7 +220,7 @@ export default function PlatformAuditPage() {
                               type="button"
                               onClick={() => setExpanded(open ? null : e.id)}
                               aria-expanded={open}
-                              aria-label={open ? "Hide event metadata" : "Show event metadata"}
+                              aria-label={open ? t("platform.audit.hideMetadata") : t("platform.audit.showMetadata")}
                               className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-ink-4 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink"
                             >
                               <ChevronDown className={`h-4 w-4 transition-transform duration-[160ms] ${open ? "rotate-180" : ""}`} aria-hidden />

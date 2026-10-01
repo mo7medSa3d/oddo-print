@@ -30,6 +30,8 @@ import {
   StatusBadge,
   type Tone,
 } from "../../../components/ui";
+import { useI18n } from "../../../i18n/react";
+import type { MessageKey } from "../../../i18n/messages/en";
 
 type Stats = {
   tenants: { total: number; active: number; suspended: number; deleted: number };
@@ -76,33 +78,30 @@ type SubscriptionRow = {
   createdAt: string;
 };
 
-function formatNumber(value: number) {
-  return new Intl.NumberFormat().format(value);
-}
-
 function percent(part: number, total: number) {
   return total > 0 ? Math.round((part / total) * 100) : null;
 }
 
-const SUBSCRIPTION_META: Record<SubscriptionRow["status"], { tone: Tone; label: string }> = {
-  active: { tone: "ok", label: "Active" },
-  trialing: { tone: "info", label: "Trialing" },
-  past_due: { tone: "warn", label: "Past due" },
-  incomplete: { tone: "warn", label: "Incomplete" },
-  incomplete_expired: { tone: "warn", label: "Expired" },
-  unpaid: { tone: "bad", label: "Unpaid" },
-  paused: { tone: "neutral", label: "Paused" },
-  cancelled: { tone: "bad", label: "Cancelled" },
+const SUBSCRIPTION_META: Record<SubscriptionRow["status"], { tone: Tone; key: MessageKey }> = {
+  active: { tone: "ok", key: "platform.dashboard.sub.active" },
+  trialing: { tone: "info", key: "platform.dashboard.sub.trialing" },
+  past_due: { tone: "warn", key: "platform.dashboard.sub.past_due" },
+  incomplete: { tone: "warn", key: "platform.dashboard.sub.incomplete" },
+  incomplete_expired: { tone: "warn", key: "platform.dashboard.sub.incomplete_expired" },
+  unpaid: { tone: "bad", key: "platform.dashboard.sub.unpaid" },
+  paused: { tone: "neutral", key: "platform.dashboard.sub.paused" },
+  cancelled: { tone: "bad", key: "platform.dashboard.sub.cancelled" },
 };
 
-const LIFECYCLE_META: Record<TenantRow["lifecycle"], { tone: Tone; label: string }> = {
-  active: { tone: "ok", label: "Active" },
-  suspended: { tone: "warn", label: "Suspended" },
-  deleted: { tone: "bad", label: "Deleted" },
+const LIFECYCLE_META: Record<TenantRow["lifecycle"], { tone: Tone; key: MessageKey }> = {
+  active: { tone: "ok", key: "platform.dashboard.lifecycle.active" },
+  suspended: { tone: "warn", key: "platform.dashboard.lifecycle.suspended" },
+  deleted: { tone: "bad", key: "platform.dashboard.lifecycle.deleted" },
 };
 
 export default function PlatformDashboardPage() {
   const router = useRouter();
+  const { t, formatNumber, formatDate } = useI18n();
   const [stats, setStats] = useState<Stats | null>(null);
   const [tenants, setTenants] = useState<TenantRow[]>([]);
   const [subscriptions, setSubscriptions] = useState<SubscriptionRow[]>([]);
@@ -128,7 +127,7 @@ export default function PlatformDashboardPage() {
             router.push("/platform/login");
             return;
           }
-          throw new Error("Failed to load platform statistics");
+          throw new Error(t("platform.dashboard.loadFailed"));
         }
 
         const statsData = (await statsRes.json()) as Stats;
@@ -143,9 +142,9 @@ export default function PlatformDashboardPage() {
           );
           setError(null);
         }
-      } catch (err: unknown) {
+      } catch {
         if (!ignore) {
-          setError(err instanceof Error ? err.message : "Error loading platform statistics");
+          setError(t("platform.dashboard.loadError"));
         }
       } finally {
         if (!ignore) setLoading(false);
@@ -157,7 +156,7 @@ export default function PlatformDashboardPage() {
     return () => {
       ignore = true;
     };
-  }, [router, reloadKey]);
+  }, [router, reloadKey, t]);
 
   const derived = useMemo(() => {
     const terminalJobs =
@@ -183,9 +182,9 @@ export default function PlatformDashboardPage() {
     <div className="space-y-6">
       <PageHeader
         variant="inline"
-        eyebrow="Control plane"
-        title="Platform overview"
-        description="Tenants, subscriptions and runtime activity across every workspace on this Gateway."
+        eyebrow={t("platform.dashboard.eyebrow")}
+        title={t("platform.dashboard.title")}
+        description={t("platform.dashboard.description")}
         actions={
           <>
             <Button
@@ -198,25 +197,25 @@ export default function PlatformDashboardPage() {
               loading={loading}
               icon={loading ? undefined : <RefreshCw className="h-4 w-4" aria-hidden />}
             >
-              {loading ? "Refreshing…" : "Refresh"}
+              {loading ? t("platform.dashboard.refreshing") : t("platform.dashboard.refresh")}
             </Button>
             <Button variant="primary" href="/platform/audit" icon={<ShieldCheck className="h-4 w-4" aria-hidden />}>
-              Security audit
+              {t("platform.dashboard.securityAudit")}
             </Button>
           </>
         }
       />
 
       {loading && !stats ? (
-        <div role="status" aria-label="Loading platform statistics">
+        <div role="status" aria-label={t("platform.dashboard.loadingAria")}>
           <PageSkeleton />
-          <span className="sr-only">Loading platform statistics…</span>
+          <span className="sr-only">{t("platform.dashboard.loadingShort")}</span>
         </div>
       ) : (
         <>
           {error && (
             <ErrorState
-              title="Platform statistics unavailable"
+              title={t("platform.dashboard.statsUnavailable")}
               message={error}
               retry={() => {
                 setLoading(true);
@@ -243,10 +242,10 @@ export default function PlatformDashboardPage() {
                 <div className="min-w-0">
                   <h2 className="flex items-center gap-2 text-md font-[600] tracking-[-0.015em] text-ink">
                     <Activity className="h-4 w-4 text-brand" aria-hidden />
-                    Print throughput
+                    {t("platform.dashboard.throughput")}
                   </h2>
                   <p className="mt-1 text-sm text-ink-3">
-                    Hourly print volume and outcome mix across the gateway.
+                    {t("platform.dashboard.throughputSubtitle")}
                   </p>
                 </div>
                 <div className="text-start sm:text-end">
@@ -254,8 +253,8 @@ export default function PlatformDashboardPage() {
                     {formatNumber(stats?.jobs24h.total ?? 0)}
                   </div>
                   <div className="mt-1.5 text-xs text-ink-3">
-                    jobs in 24h
-                    {derived.jobSuccessRate !== null ? ` · ${derived.jobSuccessRate}% successful` : ""}
+                    {t("platform.dashboard.jobsIn24h")}
+                    {derived.jobSuccessRate !== null ? ` ${t("platform.dashboard.successRate", { rate: formatNumber(derived.jobSuccessRate) })}` : ""}
                   </div>
                 </div>
               </div>
@@ -266,33 +265,33 @@ export default function PlatformDashboardPage() {
                 <EmptyState
                   className="mt-4 rounded-sg border border-dashed border-edge-strong bg-surface-2"
                   icon={<Activity className="h-5 w-5" />}
-                  title="No print activity yet"
-                  description="The throughput chart populates as jobs enter the gateway. Nothing is simulated."
+                  title={t("platform.dashboard.noActivity")}
+                  description={t("platform.dashboard.noActivityBody")}
                 />
               )}
 
               <dl className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-edge-subtle pt-4 text-xs text-ink-3">
                 <div className="flex items-center gap-1.5">
-                  <dt>Successful</dt>
+                  <dt>{t("platform.dashboard.successful")}</dt>
                   <dd className="font-[600] tabular text-ink">{formatNumber(stats?.jobs24h.success ?? 0)}</dd>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <dt>Failed</dt>
+                  <dt>{t("platform.dashboard.failed")}</dt>
                   <dd className="font-[600] tabular text-ink">{formatNumber(stats?.jobs24h.failed ?? 0)}</dd>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <dt>Expired</dt>
+                  <dt>{t("platform.dashboard.expired")}</dt>
                   <dd className="font-[600] tabular text-ink">{formatNumber(stats?.jobs24h.expired ?? 0)}</dd>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <dt>Open now</dt>
+                  <dt>{t("platform.dashboard.openNow")}</dt>
                   <dd className="font-[600] tabular text-ink">
                     {formatNumber((stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0))}
                   </dd>
                 </div>
                 {derived.latestHourDelta !== null && (
                   <div className="flex items-center gap-1.5">
-                    <dt>Latest hour vs previous</dt>
+                    <dt>{t("platform.dashboard.latestHourDelta")}</dt>
                     <dd className={`font-[600] tabular ${derived.latestHourDelta < 0 ? "text-warn" : "text-ink"}`}>
                       {derived.latestHourDelta > 0 ? "+" : ""}
                       {derived.latestHourDelta}%
@@ -305,12 +304,12 @@ export default function PlatformDashboardPage() {
             <Card className="p-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <h2 className="text-md font-[600] tracking-[-0.015em] text-ink">Fleet health</h2>
+                  <h2 className="text-md font-[600] tracking-[-0.015em] text-ink">{t("platform.dashboard.fleetHealth")}</h2>
                   <p className="mt-1 text-sm text-ink-3">
-                    Runtime availability derived from recent agent heartbeats.
+                    {t("platform.dashboard.fleetHealthSubtitle")}
                   </p>
                 </div>
-                <StatusBadge tone="ok" label="Live state" pulse />
+                <StatusBadge tone="ok" label={t("platform.dashboard.liveState")} pulse />
               </div>
 
               <FleetHealthChart
@@ -330,14 +329,14 @@ export default function PlatformDashboardPage() {
 
               <div className="mt-5 grid grid-cols-2 gap-4 border-t border-edge-subtle pt-4">
                 <div>
-                  <div className="label-caps">Tenants</div>
+                  <div className="label-caps">{t("platform.dashboard.tenantsLabel")}</div>
                   <div className="mt-1 text-xl font-[640] tabular text-ink">{formatNumber(stats?.tenants.active ?? 0)}</div>
-                  <div className="mt-0.5 text-xs text-ink-3">active of {formatNumber(stats?.tenants.total ?? 0)}</div>
+                  <div className="mt-0.5 text-xs text-ink-3">{t("platform.dashboard.activeOfTotal", { total: formatNumber(stats?.tenants.total ?? 0) })}</div>
                 </div>
                 <div>
-                  <div className="label-caps">Users</div>
+                  <div className="label-caps">{t("platform.dashboard.usersLabel")}</div>
                   <div className="mt-1 text-xl font-[640] tabular text-ink">{formatNumber(stats?.users.verified ?? 0)}</div>
-                  <div className="mt-0.5 text-xs text-ink-3">verified of {formatNumber(stats?.users.total ?? 0)}</div>
+                  <div className="mt-0.5 text-xs text-ink-3">{t("platform.dashboard.verifiedOfTotal", { total: formatNumber(stats?.users.total ?? 0) })}</div>
                 </div>
               </div>
             </Card>
@@ -347,16 +346,16 @@ export default function PlatformDashboardPage() {
             <Card className="p-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <h2 className="text-md font-[600] tracking-[-0.015em] text-ink">Subscription health</h2>
+                  <h2 className="text-md font-[600] tracking-[-0.015em] text-ink">{t("platform.dashboard.subscriptionHealth")}</h2>
                   <p className="mt-1 text-sm text-ink-3">
-                    Current lifecycle mix, with past-due accounts isolated for follow-up.
+                    {t("platform.dashboard.subscriptionHealthSubtitle")}
                   </p>
                 </div>
                 <Link
                   href="/platform/subscriptions"
                   className="inline-flex shrink-0 items-center gap-1 text-sm font-[550] text-brand transition-colors hover:text-brand-hover"
                 >
-                  Manage <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                  {t("platform.dashboard.manage")} <ArrowRight className="h-3.5 w-3.5" aria-hidden />
                 </Link>
               </div>
               <SubscriptionMixChart
@@ -379,36 +378,36 @@ export default function PlatformDashboardPage() {
 
             <Card>
               <CardHeader
-                title="Platform footprint"
-                subtitle="The business surface behind the runtime: customers, users and connected infrastructure."
+                title={t("platform.dashboard.footprint")}
+                subtitle={t("platform.dashboard.footprintSubtitle")}
                 icon={<Building2 className="h-4 w-4" />}
               />
               <div className="grid gap-3 px-5 py-5 sm:grid-cols-3">
                 <div className="inset-panel p-4">
                   <div className="flex items-center gap-2 text-2xs font-[600] uppercase tracking-[0.08em] text-ink-3">
                     <Building2 className="h-3.5 w-3.5" aria-hidden />
-                    Tenants
+                    {t("platform.dashboard.tenantsLabel")}
                   </div>
                   <div className="mt-2 text-2xl font-[640] tabular text-ink">{formatNumber(stats?.tenants.total ?? 0)}</div>
-                  <div className="mt-0.5 text-xs text-ink-3">{formatNumber(stats?.tenants.active ?? 0)} active</div>
+                  <div className="mt-0.5 text-xs text-ink-3">{t("platform.dashboard.tenantsCount", { count: formatNumber(stats?.tenants.active ?? 0) })}</div>
                 </div>
                 <div className="inset-panel p-4">
                   <div className="flex items-center gap-2 text-2xs font-[600] uppercase tracking-[0.08em] text-ink-3">
                     <Users className="h-3.5 w-3.5" aria-hidden />
-                    Users
+                    {t("platform.dashboard.usersLabel")}
                   </div>
                   <div className="mt-2 text-2xl font-[640] tabular text-ink">{formatNumber(stats?.users.total ?? 0)}</div>
                   <div className="mt-0.5 text-xs text-ink-3">
-                    {percent(stats?.users.verified ?? 0, stats?.users.total ?? 0) ?? 0}% verified
+                    {t("platform.dashboard.usersVerified", { percent: formatNumber(percent(stats?.users.verified ?? 0, stats?.users.total ?? 0) ?? 0) })}
                   </div>
                 </div>
                 <div className="inset-panel p-4">
                   <div className="flex items-center gap-2 text-2xs font-[600] uppercase tracking-[0.08em] text-ink-3">
                     <CreditCard className="h-3.5 w-3.5" aria-hidden />
-                    Subscriptions
+                    {t("platform.dashboard.subscriptionsLabel")}
                   </div>
                   <div className="mt-2 text-2xl font-[640] tabular text-ink">{formatNumber(stats?.subscriptions.total ?? 0)}</div>
-                  <div className="mt-0.5 text-xs text-ink-3">{formatNumber(stats?.subscriptions.active ?? 0)} active</div>
+                  <div className="mt-0.5 text-xs text-ink-3">{t("platform.dashboard.subscriptionsCount", { count: formatNumber(stats?.subscriptions.active ?? 0) })}</div>
                 </div>
               </div>
             </Card>
@@ -417,22 +416,22 @@ export default function PlatformDashboardPage() {
           <section className="grid grid-cols-1 gap-5 xl:grid-cols-2">
             <Card className="overflow-hidden">
               <CardHeader
-                title="Latest tenants"
-                subtitle="Newest workspaces to join the platform."
+                title={t("platform.dashboard.latestTenants")}
+                subtitle={t("platform.dashboard.latestTenantsSubtitle")}
                 actions={
                   <Button variant="ghost" size="sm" href="/platform/tenants">
-                    View all
+                    {t("platform.dashboard.viewAll")}
                   </Button>
                 }
               />
               <div className="overflow-x-auto">
                 <table className="data-table">
-                  <caption className="sr-only">Latest tenants</caption>
+                  <caption className="sr-only">{t("platform.dashboard.tableTenants")}</caption>
                   <thead>
                     <tr>
-                      <th scope="col">Tenant</th>
-                      <th scope="col">Status</th>
-                      <th scope="col" className="text-end">Created</th>
+                      <th scope="col">{t("platform.dashboard.tenant")}</th>
+                      <th scope="col">{t("platform.dashboard.status")}</th>
+                      <th scope="col" className="text-end">{t("platform.dashboard.created")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -442,8 +441,8 @@ export default function PlatformDashboardPage() {
                           <EmptyState
                             size="sm"
                             icon={<Building2 className="h-4 w-4" />}
-                            title="No tenants yet"
-                            description="Workspaces appear the moment a customer completes signup."
+                            title={t("platform.dashboard.noTenants")}
+                            description={t("platform.dashboard.noTenantsBody")}
                           />
                         </td>
                       </tr>
@@ -457,10 +456,10 @@ export default function PlatformDashboardPage() {
                               <div className="mt-0.5 font-mono text-2xs text-ink-4">{tenant.id}</div>
                             </td>
                             <td>
-                              <StatusBadge tone={meta.tone} label={meta.label} size="sm" />
+                              <StatusBadge tone={meta.tone} label={t(meta.key)} size="sm" />
                             </td>
                             <td className="text-end text-sm text-ink-3">
-                              {new Date(tenant.createdAt).toLocaleDateString()}
+                              {formatDate(tenant.createdAt)}
                             </td>
                           </tr>
                         );
@@ -473,23 +472,23 @@ export default function PlatformDashboardPage() {
 
             <Card className="overflow-hidden">
               <CardHeader
-                title="Latest subscriptions"
-                subtitle="Most recent commerce events per tenant."
+                title={t("platform.dashboard.latestSubscriptions")}
+                subtitle={t("platform.dashboard.latestSubscriptionsSubtitle")}
                 actions={
                   <Button variant="ghost" size="sm" href="/platform/subscriptions">
-                    View all
+                    {t("platform.dashboard.viewAll")}
                   </Button>
                 }
               />
               <div className="overflow-x-auto">
                 <table className="data-table">
-                  <caption className="sr-only">Latest subscriptions</caption>
+                  <caption className="sr-only">{t("platform.dashboard.latestSubscriptions")}</caption>
                   <thead>
                     <tr>
-                      <th scope="col">Tenant</th>
-                      <th scope="col">Plan</th>
-                      <th scope="col">Status</th>
-                      <th scope="col" className="text-end">Created</th>
+                      <th scope="col">{t("platform.dashboard.tenant")}</th>
+                      <th scope="col">{t("platform.dashboard.plan")}</th>
+                      <th scope="col">{t("platform.dashboard.status")}</th>
+                      <th scope="col" className="text-end">{t("platform.dashboard.created")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -499,8 +498,8 @@ export default function PlatformDashboardPage() {
                           <EmptyState
                             size="sm"
                             icon={<CreditCard className="h-4 w-4" />}
-                            title="No subscriptions yet"
-                            description="Stripe subscriptions appear here as soon as checkout completes."
+                            title={t("platform.dashboard.noSubscriptions")}
+                            description={t("platform.dashboard.noSubscriptionsBody")}
                           />
                         </td>
                       </tr>
@@ -514,15 +513,15 @@ export default function PlatformDashboardPage() {
                               <div className="mt-0.5 font-mono text-2xs text-ink-4">
                                 {subscription.stripeSubscriptionId
                                   ? `${subscription.stripeSubscriptionId.slice(0, 16)}…`
-                                  : "No Stripe subscription"}
+                                  : t("platform.dashboard.noStripeSubscription")}
                               </div>
                             </td>
-                            <td className="text-sm text-ink-2">{subscription.planName || "No plan"}</td>
+                            <td className="text-sm text-ink-2">{subscription.planName || t("platform.dashboard.noPlan")}</td>
                             <td>
-                              <StatusBadge tone={meta.tone} label={meta.label} size="sm" />
+                              <StatusBadge tone={meta.tone} label={t(meta.key)} size="sm" />
                             </td>
                             <td className="text-end text-sm text-ink-3">
-                              {new Date(subscription.createdAt).toLocaleDateString()}
+                              {formatDate(subscription.createdAt)}
                             </td>
                           </tr>
                         );
