@@ -16,7 +16,7 @@ describe("Stripe plan binding contract", () => {
     vi.restoreAllMocks();
   });
 
-  it("accepts an active recurring Price whose billing identity matches the Yasser plan", async () => {
+  it("accepts an active recurring Price whose billing identity matches the Yaseir plan", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({
         id: "price_business_monthly",
@@ -66,7 +66,7 @@ describe("Stripe plan binding contract", () => {
     });
   });
 
-  it("rejects inactive Prices when the Yasser plan is active", async () => {
+  it("rejects inactive Prices when the Yaseir plan is active", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({
         id: "price_inactive",
@@ -93,12 +93,12 @@ describe("Stripe plan binding contract", () => {
   it("uses the isolated HTTP test catalog without contacting Stripe", async () => {
     const previousSecret = process.env.STRIPE_SECRET_KEY;
     delete process.env.STRIPE_SECRET_KEY;
-    process.env.YASSER_HTTP_TEST_MODE = "1";
+    process.env.YASEIR_HTTP_TEST_MODE = "1";
     process.env.STRIPE_PLAN_CATALOG = JSON.stringify([
       {
         id: "http-test",
         name: "HTTP Test",
-        priceId: "price_http_test_yasser",
+        priceId: "price_http_test_yaseir",
         currency: "usd",
         interval: "month",
         entitlements: { max_agents: 5 },
@@ -108,11 +108,11 @@ describe("Stripe plan binding contract", () => {
 
     try {
       await expect(validateStripePriceBinding({
-        priceId: "price_http_test_yasser",
+        priceId: "price_http_test_yaseir",
         currency: "usd",
         interval: "month",
       })).resolves.toMatchObject({
-        id: "price_http_test_yasser",
+        id: "price_http_test_yaseir",
         active: true,
         type: "recurring",
         currency: "usd",
@@ -123,7 +123,7 @@ describe("Stripe plan binding contract", () => {
     } finally {
       if (previousSecret === undefined) delete process.env.STRIPE_SECRET_KEY;
       else process.env.STRIPE_SECRET_KEY = previousSecret;
-      delete process.env.YASSER_HTTP_TEST_MODE;
+      delete process.env.YASEIR_HTTP_TEST_MODE;
       delete process.env.STRIPE_PLAN_CATALOG;
     }
   });
@@ -131,9 +131,9 @@ describe("Stripe plan binding contract", () => {
   it("accepts an uncatalogued fake Price ID in isolated HTTP test mode without live Stripe", async () => {
     const previousSecret = process.env.STRIPE_SECRET_KEY;
     delete process.env.STRIPE_SECRET_KEY;
-    process.env.YASSER_HTTP_TEST_MODE = "1";
+    process.env.YASEIR_HTTP_TEST_MODE = "1";
     process.env.STRIPE_PLAN_CATALOG = JSON.stringify([
-      { priceId: "price_http_test_yasser", currency: "usd", interval: "month" },
+      { priceId: "price_http_test_yaseir", currency: "usd", interval: "month" },
     ]);
     globalThis.fetch = vi.fn();
 
@@ -154,7 +154,7 @@ describe("Stripe plan binding contract", () => {
     } finally {
       if (previousSecret === undefined) delete process.env.STRIPE_SECRET_KEY;
       else process.env.STRIPE_SECRET_KEY = previousSecret;
-      delete process.env.YASSER_HTTP_TEST_MODE;
+      delete process.env.YASEIR_HTTP_TEST_MODE;
       delete process.env.STRIPE_PLAN_CATALOG;
     }
   });
