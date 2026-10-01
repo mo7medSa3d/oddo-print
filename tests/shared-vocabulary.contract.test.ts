@@ -46,4 +46,18 @@ describe("shared vocabulary single-authority contracts", () => {
     expect(source).toContain("../lib/stale-threshold");
     expect(source).not.toContain("../lib/agent-availability");
   });
+  it("pins Gateway and Go device-class vocabularies to the same set", () => {
+    const gateway = read("src/lib/printer-model.ts");
+    const agent = read("agent/internal/agent/device_class.go");
+
+    const gatewayMatch = gateway.match(/export const DEVICE_CLASSES = \[(.*?)\] as const;/s);
+    const agentMatch = agent.match(/var gatewayDeviceClasses = map\[string\]struct\{\}*\{([\s\S]*?)\n\}/);
+    expect(gatewayMatch).not.toBeNull();
+    expect(agentMatch).not.toBeNull();
+
+    const gatewayClasses = Array.from(gatewayMatch?.[1].matchAll(/"([^"]+)"/g) ?? [], (m) => m[1]).sort();
+    const agentClasses = Array.from(agentMatch?.[1].matchAll(/"([^"]+)":/g) ?? [], (m) => m[1]).sort();
+    expect(agentClasses).toEqual(gatewayClasses);
+  });
+
 });
