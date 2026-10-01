@@ -386,8 +386,6 @@ describe("job claim predicate contracts", () => {
   });
 });
 
-});
-
 describe("structured logging contracts", () => {
   it("serializes Error values with their message instead of {}", async () => {
     const { logError } = await import("../src/lib/log");
