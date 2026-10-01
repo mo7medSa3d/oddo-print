@@ -33,11 +33,11 @@ import (
 // offline backlog delivered after a reconnect) would spawn one goroutine per
 // job and exhaust memory on a small POS terminal.
 //
-//	maxConcurrentJobs — jobs actually executing (HTTP status calls, printing)
-//	maxPendingJobs    — jobs accepted into the local executor, including ones
-//	                    waiting for an execution slot; overflows are dropped
-//	                    and naturally re-delivered by the gateway after the
-//	                    claim lease expires (see src/app/api/agent/jobs).
+// maxConcurrentJobs — jobs actually executing (HTTP status calls, printing)
+// maxPendingJobs    — jobs accepted into the local executor, including ones
+//                     waiting for an execution slot; overflows are dropped
+//                     and naturally re-delivered by the gateway after the
+//                     claim lease expires (see src/app/api/agent/jobs).
 const (
 	maxConcurrentJobs        = 8
 	maxPendingJobs           = 64
@@ -1061,7 +1061,7 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 
 // extractJobFromWSMessage understands both the current delivery envelope
 //
-//	{"type":"print_job","job":{...}}
+// {"type":"print_job","job":{...}}
 //
 // and the legacy bare-job message ({"id":...,"printerId":...}) so an agent
 // still works against an older gateway build.
