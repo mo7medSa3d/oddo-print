@@ -108,8 +108,8 @@ function VerifyEmailContent() {
   return (
     <AuthShell subtitle={t("auth.verify.eyebrowPending")} eyebrow={eyebrow} title={title} description={msg}>
       {state === "ok" ? (
-        <Callout tone="ok" icon={<CheckCircle2 className="h-4 w-4" aria-hidden />} title="You’re all set">
-          Continuing to workspace setup…
+        <Callout tone="ok" icon={<CheckCircle2 className="h-4 w-4" aria-hidden />} title={t("auth.verify.allSetTitle")}>
+          {t("auth.verify.continuing")}
         </Callout>
       ) : (
         <div className="space-y-5">
@@ -165,7 +165,7 @@ function VerifyEmailContent() {
 
           <div className="text-center">
             <Link href="/login" className="text-sm font-[550] text-brand hover:underline">
-              Back to sign in
+              {t("auth.verify.backToSignIn")}
             </Link>
           </div>
         </div>

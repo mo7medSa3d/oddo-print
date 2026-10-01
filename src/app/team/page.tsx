@@ -576,9 +576,8 @@ export default function TeamPage() {
             </Card>
 
             {ownerCount === 1 && (
-              <Callout tone="info" icon={<Info className="h-4 w-4" />} title="One owner per workspace">
-                Ownership can be transferred from the member row menu. Transferring signs you out and
-                demotes your account to admin.
+              <Callout tone="info" icon={<Info className="h-4 w-4" />} title={t("team.oneOwnerTitle")}>
+                {t("team.oneOwnerBody")}
               </Callout>
             )}
           </aside>
