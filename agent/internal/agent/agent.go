@@ -35,9 +35,10 @@ import (
 //
 // maxConcurrentJobs — jobs actually executing (HTTP status calls, printing)
 // maxPendingJobs    — jobs accepted into the local executor, including ones
-//                     waiting for an execution slot; overflows are dropped
-//                     and naturally re-delivered by the gateway after the
-//                     claim lease expires (see src/app/api/agent/jobs).
+//
+//	waiting for an execution slot; overflows are dropped
+//	and naturally re-delivered by the gateway after the
+//	claim lease expires (see src/app/api/agent/jobs).
 const (
 	maxConcurrentJobs        = 8
 	maxPendingJobs           = 64
