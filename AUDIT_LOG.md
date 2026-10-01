@@ -246,3 +246,205 @@ Anything not executed on this machine is marked `UNVERIFIED:` with the reason.
 - **UNVERIFIED:** rendered output — no Node toolchain (see above).
 - **Bug class to keep watching:** after any bulk `t()` replacement, run
   `grep -n '=t("'` — a literal inside a JSX attribute becomes `label=t("x")` (invalid) and needs braces.
+
+## 2026-10-02T00:40Z — i18n: desktop shell (sub-task B)
+
+- **Component:** Desktop (Tauri/Vite) · **File:** `src/desktop/**`, `src/desktop/public/theme-init.js`,
+  `src/components/ui.tsx`, `src/desktop/lib/printers.ts`
+- **Change:** The desktop app is a separate React root, so it needed its own
+  wiring: `<I18nProvider>` around `<App />` plus a pre-paint script that sets
+  `lang`/`dir` (mirroring `src/app/layout.tsx`). Every operator string moved to
+  the shared catalog; `printers.ts` helpers gained an optional `locale`
+  parameter (including the safety-critical unknown-outcome wording); dates and
+  times use the locale-aware formatters.
+- **Evidence:** catalog 1303 keys, en/ar parity and identical order, zero
+  duplicates, zero referenced-but-absent keys. Per-file paren/brace/bracket
+  balance identical to HEAD; `grep '=t("'` = 0 (no malformed JSX attributes).
+  Callback dependency arrays were checked **programmatically** — every
+  `useCallback` whose body references `t`/`locale` now lists them in its deps.
+- **UNVERIFIED:** rendered output and Tauri build — no Node toolchain here.
+
+## 2026-10-02T00:50Z — i18n: server actions
+
+- **Component:** Gateway · **File:** `src/app/actions.ts`
+- **Change:** Server-action failures read the locale cookie
+  (`getServerLocale()`) and reply in the operator's language. Internal text
+  (`LifecycleConflict`, entitlement errors) is replaced by an operator-safe
+  sentence while the machine-readable `code` is preserved.
+- **Reason:** the raw messages leaked internals ("invalid lifecycle transition:
+  active -> retired") and were English-only.
+
+## 2026-10-02 — shared shell components + remaining auth surfaces
+
+**Scope**: `src/components/*` (ui, AppShell, AuthShell, TopNavbar, JobTimeline,
+UpgradeLimitDialog, JobCleanupButton, PrintCertificationWizard, CommandPalette,
+platform/overview-charts) and the auth/routing pages
+(login, signup, invite, forgot-password, reset-password, verify-email,
+platform/login, platform/layout, error, not-found, loading).
+
+**Changes**
+- `ui.tsx` — 22 copy pairs keyed: Balance/Usage this period/Plan usage/Current
+  balance/Current plan, `ErrorState` default title, `LoadingState` and
+  `TableSkeleton` labels, Optional, Copy/Copied/Copy failed, Filter options,
+  Close dialog, Close panel, Dismiss notification. Defaults moved out of the
+  destructuring so `t()` resolves at render
+  (`title`, `LoadingState.label`, `CopyButton.label`, `ConfirmDialog.*`).
+  Note: `IconButton`, `Field` and `Checkbox` keep a *required* `label` — an
+  earlier bulk replace had wrongly defaulted those to "Copy"; reverted.
+- `AuthShell` — `TRUST_POINTS` → `TRUST_POINT_KEYS` (module-scope `t()` trap);
+  brand tagline, headline, body and the default subtitle keyed.
+- `TopNavbar` / `AppShell` — `TopNavItem.label` is now optional (English
+  fallback only); `labelKey`/`sectionKey` are authoritative. Search keywords
+  moved into an explicit `keywords` field so the ⌘K palette stays bilingual
+  without rendering English in Arabic.
+- `JobTimeline` — `STAGE_LABELS` → `STAGE_KEYS` + `stageText(stage, t)`;
+  `stageLabel(status, t)`; `formatWhen` now takes the locale-aware
+  `formatDateTime` instead of `toLocaleString(undefined, …)`.
+- `UpgradeLimitDialog` — the whole `COPY` matrix became `MessageKey`s; numbers
+  via `formatNumber`, period end via `formatDate`, retry hint pluralised via
+  `tc("limit.note.retryMinutes", …)`.
+- `JobCleanupButton` — all copy keyed, `tc("jobs.cleanup.removed", count, …)`;
+  the raw `data.error` from `DELETE /api/jobs` is no longer echoed to the
+  operator (replaced by `jobs.cleanup.failed`).
+- `PrintCertificationWizard` — all copy keyed. Step label/description resolve
+  from `step.id` via `STEP_KEYS`; **the certify API contract is untouched** —
+  it still returns English `label`/`description` and the UI only falls back to
+  them for unknown step ids (several contract tests assert on that route's
+  source, so it was deliberately not modified).
+- `platform/overview-charts` — copy keyed; local `Intl.NumberFormat()` and
+  `toLocaleTimeString([])` replaced by `formatNumber`/`formatTime` from
+  `useI18n()`.
+- `error.tsx` (client, `useI18n`), `not-found.tsx` and `loading.tsx` (async
+  server components using `makeT(await getServerLocale())`).
+
+**Bugs found and fixed while migrating**
+- `src/app/page.tsx` — `AuthenticatedHome` destructured `t`/`locale` that were
+  never declared in its props type (type error).
+- `src/app/reset-password/page.tsx` and `src/app/verify-email/page.tsx` — the
+  default-export Suspense wrapper called `t()` with no translator in scope.
+
+**Evidence**
+- Structural check over all 24 changed `.ts/.tsx` files: paren/brace/bracket
+  balance identical to HEAD for every file; `=t("` / `=tc("` count = 0
+  (no malformed JSX attributes).
+- Catalog: 1555 keys, en/ar identical order, 0 duplicates, 0 keys missing from
+  `ar`, and 0 `t("…")`/`tc("…")` references in `src/` that do not resolve.
+- No toolchain in the sandbox (`node_modules` absent, Node v22 vs the required
+  ≥24), so typecheck/lint/build are **UNVERIFIED**; the checks above are
+  text-level only.
+
+**Commit**: `b33aeea`
+
+---
+
+## 2026-10-02 — console pages, platform control plane, plan catalog
+
+**Scope**: the remaining console surfaces and the whole platform control plane.
+
+**Commits**: `b82282f`, `c048984`, `9e1f82d`, `af208e3`, `b37e1fe`, `6be0450`.
+
+**Changes**
+- `b82282f` — dashboard (job table, filters, KPI grid), team, api-keys,
+  billing, settings, system-health. Note: `SURFACE_LABELS_EN` at
+  `dashboard-client.tsx:364-368` is **locked** by
+  `tests/production-hardening-contract.test.ts:186-187` (`"Runtime Printers"`,
+  `"Recent Print Jobs"`) and was deliberately left unkeyed.
+- `c048984` — onboarding, pricing, release-readiness. Pure-server pages use
+  `makeT(await getServerLocale())`.
+- `9e1f82d` — platform audit, dashboard, subscriptions, tenants. Hit the
+  `t` inside `useEffect` without a dep-array entry trap on
+  `platform/audit/page.tsx` (`[reloadKey]` → `[reloadKey, t]`).
+- `af208e3` — the plan catalog (89 new `platform.plans.*` keys, 57/57 literal
+  replacements across the page shell and `PlanEditor`), team ownership copy,
+  verify-email. `ENTITLEMENT_LABELS: Record<EntitlementKey, string>` became
+  `ENTITLEMENT_LABEL_KEYS: Record<EntitlementKey, MessageKey>` — module scope
+  cannot call `t()`, so the map holds keys and the component renders them.
+- `b37e1fe` — the last desktop drawer labels; `dir="ltr"` on both desktop HTML
+  shells so the first paint is never in the wrong direction; and a Language
+  control in the desktop Advanced panel, wired to the shared `setLocale` so
+  Arabic flips the whole shell to RTL immediately.
+- `6be0450` — transactional email. Verification, password-reset, invitation
+  and refresh-token-reuse mail was the last user-facing English no amount of
+  UI work could reach. It now renders from the same locale cookie the console
+  writes — no schema change, no new columns. `session-tokens.ts` takes the
+  locale through `SessionRequestContext` rather than importing `next/headers`,
+  so the module still works outside a request scope (the unit tests import it
+  directly).
+
+**Evidence**: catalog 2016 keys, en/ar identical order, 0 duplicates, 0
+missing references, 0 `toLocale*String`/`Intl.NumberFormat` outside
+`src/i18n/`.
+
+---
+
+## 2026-10-02 — the Odoo addon
+
+**Commit**: `a690d78`.
+
+Two problems: the addon could not be translated end to end, and two of its
+errors leaked raw backend output.
+
+- The two OWL field widgets built templates inline with `xml`. Odoo only
+  translates templates defined in XML files —
+  https://www.odoo.com/documentation/master/developer/reference/frontend/owl_components.html
+  ("templates in Odoo should be defined in an xml file, so they can be
+  translated"). Labels, placeholders, empty states and error text moved onto
+  the component via `_t`, where the export can see them.
+- The POS receipt / kitchen / sale-details routers showed hardcoded English
+  notifications; those became `_t()` calls.
+- `i18n/ar.po` carries all 451 extracted terms (298 Python, 98 XML, 55 JS).
+- `gateway_config.py` activation-sync forwarded the Gateway's own `error`
+  field — codes and identifiers, not a sentence. Now a keyed message plus a
+  debug log.
+- `print_policy.py` interpolated `str(exc)` into a user error. A `KeyError`
+  now names the offending placeholder; anything else gets a plain explanation
+  and logs the traceback.
+
+**New guard**: `scripts/check-odoo-translations.py` (also
+`npm run i18n:odoo:check`) re-extracts the terms from source and fails on
+missing, stale, empty, untranslated, or placeholder-damaged entries. Verified
+by mutation — dropping a placeholder, blanking a translation, deleting an
+entry and inventing a placeholder each produce a failure.
+
+**Version**: `19.0.2.10.0` → `19.0.2.11.0`, with the two docs and two tests
+that pin the version updated. The migration folder `19.0.2.10.0/` was
+deliberately **not** renamed — `tests/test_final_security_hardening.py:185`
+asserts on it.
+
+---
+
+## 2026-10-02 — two defects found by verification, not by reading
+
+**Commit**: `790b2a4` — plural keys `translateCount` could never resolve.
+
+`translateCount()` builds `` `${base}.${category}` `` — a dot. Thirteen count
+families were written `jobs.cleanup.removed_one`, so `tc()` fell through
+`.one` → `.other` → the bare key, found nothing, and rendered the raw
+`"jobs.cleanup.removed"` on screen. **Eleven of the eighteen `tc()` call
+sites in the app were affected.** All 27 keys moved to the dot separator.
+`scripts/check-i18n.ts` now re-derives every `tc()` base from source, replays
+`translateCount`'s lookup order, and rejects any future `_one`/`_other` key.
+Verified by mutation.
+
+**Commit**: `d5bc3aa` — the Gateway's English error strings on screen.
+
+Every client error path displayed the API's `error` field, so an Arabic
+console answered in English with log-grade wording ("job id is required",
+`HTTP 409`). `src/lib/api-error-keys.ts` maps the code, then the HTTP status,
+to a catalog key — both are API contracts, so no server change was needed.
+`DashboardApiError` now carries a `MessageKey`, not a string, so the English
+body cannot reach the screen. A grep for `data.error ??`,
+`typeof data.error === "string" ? data.error` and `HTTP ${` under `src/app`
+and `src/components` now returns nothing.
+
+---
+
+## 2026-10-02 — canonical terminology
+
+`docs/TERMINOLOGY.md` records the vocabulary and the seven rules behind it:
+technical terms stay in English, translated product vocabulary, status
+vocabulary, buttons named for what they do, errors that say what happened /
+why it matters / what to do, loading and empty states, and locale-aware
+numbers and dates. Every console term in it was verified against
+`src/i18n/messages/ar.ts` by script (35/35 match); addon terms were verified
+against `i18n/ar.po`.

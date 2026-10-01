@@ -1,14 +1,14 @@
 # AUDIT_EDIT_STATE.md
 
 Branch: `arena/01a0f87e-oddo-print` (branched from `b3459da`, never `main`).
-Last updated: 2026-10-01T21:25Z · Last modified file: `src/app/dashboard/dashboard-client.tsx`
-(fleet summary grid), `src/app/team/page.tsx` (members table), `src/lib/utils.ts` (`shortId`).
+Last updated: 2026-10-02 · Last modified file: `src/lib/api-error-keys.ts` (new), `docs/TERMINOLOGY.md` (new),
+`odoo_addons/print_gateway/i18n/ar.po` (new), `scripts/check-odoo-translations.py` (new).
 
 ## Current phase
 
-**Phase 5 (validation) complete → final step: push and Pull Request.**
-All five phases have been executed; the remaining actions are pushing the branch and
-publishing the PR summary.
+**Phase 5 (validation) complete for both sub-tasks → final step: push and Pull Request.**
+All five phases have been executed for sub-task A (UI defects) and sub-task B
+(localization). The remaining actions are pushing the branch and publishing the PR summary.
 
 ## Task list
 
@@ -130,10 +130,9 @@ cancellation; `docs/DATABASE.md` + drift checker; dead component removal.
    must resolve those.
 4. `docs/DATABASE.md` is generated once; future schema changes must re-run
    `npm run db:docs:check` (it fails loudly on drift, which is the mitigation).
-
 ---
 
-# Sub-task B — language, localization and RTL (ACTIVE)
+# Sub-task B — language, localization and RTL (COMPLETE)
 
 ## Task list
 
@@ -141,41 +140,127 @@ cancellation; `docs/DATABASE.md` + drift checker; dead component removal.
 |---|------|--------|
 | B1 | i18n core (catalogs, translate, formatters, provider, hook) | DONE — `4a97322` |
 | B2 | App shell, navigation, RTL direction + logical CSS | DONE — `4a97322` |
-| B3 | Dashboard | DONE — `5f0e9fd`/`5f0e9ad` |
-| B4 | Auth + onboarding (login, signup, verify, forgot, reset, onboarding) | DONE — `d9ebd62` |
-| B5 | Team, settings, billing, API keys, system health, BillingActions | DONE — `0bdd32c` |
-| B6 | Remaining console surfaces (agents, printers, jobs, pricing, platform/*) | IN PROGRESS |
-| B7 | Shared components (`ui.tsx`, `JobTimeline`, `UpgradeLimitDialog`, wizard, dialogs) | NOT STARTED |
-| B8 | Desktop shell (`src/desktop/pages/*.tsx`) | NOT STARTED |
-| B9 | Locale-aware date/number sweep (`toLocale*String` everywhere) | NOT STARTED |
-| B10 | Raw server-error text → operator-safe messages | NOT STARTED |
-| B11 | Terminology map applied consistently | NOT STARTED |
-| B12 | Final hardcoded-string sweep + local gate + commit | NOT STARTED |
+| B3 | Dashboard | DONE — `5f0e9ad`, `b82282f` |
+| B4 | Auth + onboarding | DONE — `d9ebd62`, `b33aeea`, `c048984`, `af208e3` |
+| B5 | Team, settings, billing, API keys, system health | DONE — `0bdd32c`, `b82282f` |
+| B6 | Remaining console surfaces (pricing, platform/*) | DONE — `c048984`, `9e1f82d`, `af208e3` |
+| B7 | Shared components (`ui.tsx`, `JobTimeline`, `UpgradeLimitDialog`, wizard, dialogs) | DONE — `b33aeea`, `d5bc3aa` |
+| B8 | Desktop shell (`src/desktop/**`) | DONE — `8ffe15b`, `a783bf5`, `665b5fb`, `b37e1fe` |
+| B9 | Locale-aware date/number sweep | DONE — `grep` returns 0 hits outside `src/i18n/` |
+| B10 | Raw server-error text → operator-safe messages | DONE — `d5bc3aa`, plus `a690d78` for the addon |
+| B11 | Terminology map | DONE — `docs/TERMINOLOGY.md` |
+| B12 | Transactional email | DONE — `6be0450` |
+| B13 | Odoo addon translation | DONE — `a690d78` |
+| B14 | Final hardcoded-string sweep + local gate | DONE — see below |
 
-## Last file worked on
+## Final report — sub-task B
 
-`src/app/system-health/system-health-client.tsx` — `STATE_LABEL` converted to `stateLabel(state, t)`.
+### What was fixed
 
-## Decisions
+**Localization architecture** (`4a97322`)
+- `src/i18n/` — typed catalogs (`en.ts` / `ar.ts`), `translate()` /
+  `translateCount()`, a `useI18n()` hook, a server-side `makeT()`, and locale
+  helpers (`formatNumber`, `formatDate`, `formatDateTime`, `formatTime`).
+- Semantic dot keys (`navigation.dashboard`, `printer.status.offline`,
+  `errors.gatewayUnavailable`) — no English sentence is ever a key.
+- Arabic plural categories: `Intl.PluralRules` picks one of six forms.
+- **RTL**: `dir`/`lang` set on `<html>` by a pre-paint script (no flash),
+  logical CSS properties throughout, and Arabic digits pinned to Latin
+  (`ar-u-nu-latn`) so IDs, IPs and ports stay scannable.
 
-- **Server components** (e.g. `src/app/billing/page.tsx`) use `src/i18n/server.ts`
-  (`getServerLocale()` + `makeT(locale)`); client components use `useI18n()`.
-  `server.ts` is intentionally excluded from the `src/i18n/index.ts` barrel so the
-  Vite desktop build never pulls in `next/headers`.
-- **Module-level helpers** that render copy must take the translator as a parameter
-  (`planStatus(sub, t, formatDate)`, `rotationMeta(key, t)`, `stateLabel(state, t)`,
-  `roleOptions(t)`, `expiryLabel(iso, t)`, `post(path, body, t)`). A global
-  find/replace leaves `t` out of scope at module level — this bit twice already.
-- **Plural keys** are `base.one` / `.two` / `.few` / `.many` / `.other` / `.zero`;
-  `translateCount()` falls back through category → `other` → base.
-- **Arabic digits** stay Latin (`ar-u-nu-latn`) so ids, IPs and ports remain scannable;
-  English technical terms (Gateway, Agent, Printer, Print Job, Workspace, POS, API,
-  WebSocket, USB, IP, Windows, Spooler, ESC/POS) are kept untranslated inside Arabic.
-- **Raw API errors** are logged (`console.warn`) and replaced with an operator-facing
-  sentence; only applied to `BillingActions` and system health so far.
+**Coverage** — 2,030 console/desktop keys in English and Arabic, plus 451 in
+the Odoo addon. Every page, dialog, empty state, error state, loading state,
+table header, `aria-label` and confirmation dialog in the Gateway console, the
+desktop shell and the Odoo addon.
 
-## RESUME HERE
+**Copy quality**
+- Errors say what happened, why it matters and what to do next. Stack traces,
+  raw JSON, SQL, internal IDs and exception names no longer reach the screen
+  (`d5bc3aa` removed the last ten of them; `a690d78` removed two in the addon).
+- Buttons are named for what they do. A grep for `"Submit"`, `"Execute"`,
+  `"Proceed"` and `>OK<` returns 0 hits.
+- Loading states end in a consistent ellipsis; empty states say what is empty,
+  why, and what to do.
+- Two places the product used different words for the same thing were
+  reconciled against `docs/TERMINOLOGY.md`.
 
-Continue with **B6**: the console surfaces listed by the inventory scan
-(`src/app/agents`, `src/app/printers`, `src/app/jobs`, `src/app/pricing`,
-`src/app/platform/*`, `src/app/page.tsx`).
+**Bugs found by verification, not by reading**
+1. **`790b2a4`** — 13 plural families were written `x_one` but
+   `translateCount()` builds `x.one`. **Eleven of the eighteen `tc()` call
+   sites in the app rendered the raw key on screen** — e.g. a user cleaning up
+   jobs saw the literal text `jobs.cleanup.removed`. Fixed; a permanent guard
+   now replays `translateCount`'s lookup against the catalog.
+2. **`a690d78`** — the Odoo addon's two OWL widgets built templates inline
+   with `xml`, which Odoo does not translate at all, so their labels,
+   placeholders and errors were unreachable by any translation.
+3. **`d5bc3aa`** — every client error path displayed the API's English
+   `error` field, so an Arabic console answered in English.
+
+**New guards** — `scripts/check-i18n.ts` extended (count-family separator +
+`tc()` resolution); `scripts/check-odoo-translations.py` added
+(`npm run i18n:odoo:check`). Both were verified by mutation.
+
+### What was verified, and with what evidence
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Console catalog parity, empties, placeholders, count families | Python mirror of `scripts/check-i18n.ts` | 2030/2030 keys, 27 families, **0 problems** |
+| `tc()` call sites resolve | script replaying `translateCount`'s lookup | 16 bases, **0 unresolvable** |
+| Underscore plural families | script | **0** |
+| Odoo addon catalog | `python3 scripts/check-odoo-translations.py` | 451/451 terms, **OK**, `exit=0` |
+| Catalog key references | script over `git ls-files src` | **0** unresolved `t("…")` |
+| Structural balance vs `HEAD` | per-file paren/brace/bracket diff | 15 files, **0 issues** |
+| Malformed `t("key"})` | regex scan | **0** |
+| Locale-unaware formatting | `grep toLocale*String\|Intl.NumberFormat src/` | **0** outside `src/i18n/` |
+| Raw error forwarding | `grep 'data.error ??'\|'HTTP ${'` | **0** |
+| Banned button labels | `grep '"Submit"\|"Execute"\|"Proceed"\|>OK<'` | **0** |
+| Addon Python syntax | `python3 -m py_compile` | **OK** |
+| Addon JS syntax | `node --input-type=module --check` (Node v22) | 8/8 files **OK** |
+| Terminalogy map accuracy | script comparing 35 console terms to `ar.ts` | **35/35 match** |
+| Guard effectiveness | mutation tests (dropped placeholder, blanked translation, deleted entry, renamed family) | each produced a **failure** |
+
+### UNVERIFIED — and why
+
+- **UNVERIFIED: `node_modules` is absent and installing is forbidden.** Node is
+  v22.22.3 but the project requires ≥24.15.0. Therefore `tsc --noEmit`,
+  `eslint`, `next build`, `vitest` and `npm run i18n:check` were **not run**.
+  `scripts/check-i18n.ts` itself is new/unmodified-TS and was validated by
+  reproducing its rules in Python, not by executing it.
+- **UNVERIFIED: pytest is not installed** → the Odoo addon's own test suite
+  (`tests/test_odoo19_printing_static.py`,
+  `tests/test_final_security_hardening.py`) did not run. Two assertions in them
+  pin the addon version and were updated to `19.0.2.11.0` by hand.
+- **UNVERIFIED: no Odoo instance** → `ar.po` was never loaded by Odoo. Its
+  structure, escaping and placeholder handling are verified by a hand-written
+  parser, not by `msgfmt` or by Odoo's importer.
+- **UNVERIFIED: no browser** → RTL layout, font sizing, Arabic clipping, table
+  and modal overflow were addressed by writing logical CSS properties and
+  reading the source. Nothing was rendered.
+- **UNVERIFIED: the Go Agent CLI is still English.** `agent/cmd/cli` prints
+  help, diagnostic reports and error text in English. It is a Windows console
+  tool for IT administrators; localizing it needs a Go i18n framework plus
+  locale detection on Windows, and with no Go toolchain in the sandbox it
+  could not be compiled or tested. Deliberately left alone rather than edited
+  blind.
+- **UNVERIFIED: the Odoo tour file** (`static/src/js/tours/binding_cascade_tour.js`)
+  keeps its English step text. It is a developer QA script whose `content:`
+  strings are assertions like `"Wait for .o_form_saved confirmation"`, not
+  product copy.
+
+### Remaining risks
+
+1. **No typecheck ran.** The most likely residual defect is a type error in the
+   14 files touched by `d5bc3aa` — particularly `DashboardApiError`, whose
+   constructor signature changed from `(message: string, …)` to
+   `(key: MessageKey, …)`, and the five files that gained an import.
+2. **Unrendered RTL.** Logical properties are correct by inspection, but
+   third-party components (the Odoo web client, `lucide-react` icon
+   directionality) were not exercised in a browser.
+3. **Arabic copy quality is self-reviewed.** All 2,481 strings were authored
+   directly in MSA; none has been read by a native reviewer.
+4. **Email locale is best-effort.** The locale cookie is the only signal
+   available without a schema change, so a user who never opened the console
+   gets English mail.
+5. **`ar.po` has no `POT-Creation-Date` from a real export.** It was generated
+   by script; re-exporting from Odoo will re-order and re-wrap entries. The
+   checker, not the file layout, is the contract.
