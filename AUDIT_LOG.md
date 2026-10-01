@@ -66,3 +66,17 @@
 - Also removed the now-meaningless "Operations observability presentation" test block that asserted on those two dead component files (its dashboard-heading sibling test was kept), and repaired the orphaned closing brace it left behind (brace balance re-checked: 0).
 - Kept: `src/lib/printer-health.ts` (`PrinterCapabilityMatrix` type + `getPrinterCapabilityMatrix`) — alive and used by `/api/printers/capabilities` and `/api/printers/[id]/certify`. Only the dead React components went.
 - Env vars: `.env.example` has no dead keys — `APP_BASE_URL`, `PLATFORM_TENANT_ID` and `TRUST_PROXY_SECRET` look unused to a `process.env.X` grep but are read through `runtimeSecret()` in `server.ts:72-85` (verified by grep), so nothing was removed.
+
+## 2026-10-01T19:06:00Z — UI/UX: verify-email effect owned its request and redirect
+- File: `src/app/verify-email/page.tsx`.
+- Defect: the verification `fetch` had no `AbortController`, and its 500ms redirect `setTimeout` was never cleared. A navigation or a re-render with a different token let a stale response overwrite newer state, and the pending redirect could move the user back to `/onboarding` after they had already gone elsewhere.
+- Fix: the effect now owns an `AbortController`, a `cancelled` guard and the redirect timer, and its cleanup aborts the request, clears the timer and suppresses late state updates. A malformed/empty JSON body no longer throws a parse error instead of the server's message.
+- Evidence: a scan of every `useEffect` body in `src/**` for `setTimeout`/`setInterval` without `clearTimeout`/`clearInterval`/`AbortController` now returns **zero** hits (it returned this file before the fix).
+- Note: `useEffect`+timer and unguarded-`fetch` scans across `src/app` produced 13 raw hits; all others were helpers already wrapped by callers (`requestJson`, `run_bounded_command` equivalents) or `src/lib/*` server code. No other real defect found.
+
+## 2026-10-01T19:12:00Z — Tauri/Rust shell: IPC and lifecycle review (no code change)
+- Files: `src-tauri/src/{main,agent,tray,commands}.rs`, `capabilities/default.json`, `tauri.conf.json`.
+- Verified clean by review: `run_bounded_command` bounds every helper with a deadline and output budget and always kills + reaps + joins reader threads; `stop()` verifies the recorded PID's image path and creation time before `taskkill` and only force-terminates after re-verification; `main.rs` initializes logging before the Tauri builder, installs a panic hook, treats missing runtime dirs as non-fatal, and logs Exit/ExitRequested.
+- Permission map checked mechanically: all 22 commands in `tauri::generate_handler!` have a matching `allow-*` entry in `capabilities/default.json` and there is no orphan permission. CSP is strict (`script-src 'self'`, no `unsafe-eval`, `object-src 'none'`, `connect-src 'self' ipc:`); the dev CSP's localhost allowance is scoped to `devCsp`.
+- Documented as a design decision, not a bug: the owned background agent process is intentionally left running when the Manager window closes (printing must not depend on the UI); the PID + process-identity record is reconciled on the next launch.
+- UNVERIFIED: `cargo check`/`cargo build` were never run (no Rust toolchain in this workspace); this is a source review only.

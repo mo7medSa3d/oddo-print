@@ -29,23 +29,49 @@ function VerifyEmailContent() {
 
   useEffect(() => {
     if (!token) return;
-    fetch("/api/auth/verify-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    }).then(async (response) => {
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Verification failed");
-      setState("ok");
-      setMsg("Email verified. Redirecting to workspace setup…");
-      setTimeout(() => {
-        const next = planId ? `/onboarding?plan=${encodeURIComponent(planId)}` : "/onboarding";
-        router.replace(next);
-      }, 500);
-    }).catch((error) => {
-      setState("error");
-      setMsg(error instanceof Error ? error.message : "Verification failed");
-    });
+    // The request and the redirect both outlive a fast navigation if they are
+    // not owned by this effect: an in-flight verification could overwrite the
+    // state of a later render, and a pending redirect could yank the user back
+    // to onboarding after they had already moved on. Both are cancelled here.
+    const controller = new AbortController();
+    let cancelled = false;
+    let redirectTimer: ReturnType<typeof setTimeout> | undefined;
+
+    (async () => {
+      try {
+        const response = await fetch("/api/auth/verify-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+          signal: controller.signal,
+        });
+        let payload: { error?: string } = {};
+        try {
+          payload = (await response.json()) as { error?: string };
+        } catch {
+          payload = {};
+        }
+        if (cancelled) return;
+        if (!response.ok) throw new Error(payload.error ?? "Verification failed");
+        setState("ok");
+        setMsg("Email verified. Redirecting to workspace setup…");
+        redirectTimer = setTimeout(() => {
+          if (cancelled) return;
+          const next = planId ? `/onboarding?plan=${encodeURIComponent(planId)}` : "/onboarding";
+          router.replace(next);
+        }, 500);
+      } catch (error) {
+        if (cancelled || controller.signal.aborted) return;
+        setState("error");
+        setMsg(error instanceof Error ? error.message : "Verification failed");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (redirectTimer !== undefined) clearTimeout(redirectTimer);
+    };
   }, [token, planId, router]);
 
   async function handleResend(event: React.FormEvent) {
