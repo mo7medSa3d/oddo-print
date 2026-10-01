@@ -4,9 +4,10 @@ on:
   push:
     branches:
       - test/http-server-ready
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   sync:
@@ -17,7 +18,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Merge latest main into test, preferring main only on conflicting hunks
+      - name: Build merged test tree
         shell: bash
         run: |
           set -euo pipefail
@@ -26,11 +27,13 @@ jobs:
           git fetch origin main
           git checkout test/http-server-ready
           git merge --no-edit -X theirs origin/main
+          git rev-parse HEAD | tee /tmp/merged-head.txt
+          tar --exclude=.git -czf /tmp/merged-test-tree.tar.gz .
 
-      - name: Remove temporary sync workflow
-        shell: bash
-        run: |
-          set -euo pipefail
-          git rm .github/workflows/sync-main-to-test.yml
-          git commit -m "chore(test): remove temporary main sync workflow"
-          git push origin HEAD:test/http-server-ready
+      - name: Upload merged test tree
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v4
+        with:
+          name: merged-test-tree
+          path: |
+            /tmp/merged-test-tree.tar.gz
+            /tmp/merged-head.txt
