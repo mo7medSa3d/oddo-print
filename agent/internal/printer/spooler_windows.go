@@ -442,6 +442,44 @@ var openPrinterWPtrFn = openPrinterWPtr
 // getPrinterInfo2Fn is the test indirection for the PRINTER_INFO_2 query.
 var getPrinterInfo2Fn = getPrinterInfo2
 
+// Both indirections are read on helper goroutines that a bounded Win32 call
+// deliberately ABANDONS when the caller times out — that abandonment is the
+// entire point of bounding a blocking API. A test that restores a hook in
+// t.Cleanup while such a goroutine is still inside its probe therefore races
+// with it (and -race reports it), so every read and write goes through this
+// mutex rather than touching the variables directly.
+var printerHooksMu sync.RWMutex
+
+func currentOpenPrinterWPtr() func(*uint16) (syscall.Handle, error) {
+	printerHooksMu.RLock()
+	defer printerHooksMu.RUnlock()
+	return openPrinterWPtrFn
+}
+
+func currentGetPrinterInfo2() func(syscall.Handle) (*printerInfo2, []byte, error) {
+	printerHooksMu.RLock()
+	defer printerHooksMu.RUnlock()
+	return getPrinterInfo2Fn
+}
+
+// setPrinterHooks swaps both Win32 indirections and returns a restore
+// function. Tests must call it instead of assigning the variables, and must
+// not restore while a probe goroutine can still be running.
+func setPrinterHooks(
+	open func(*uint16) (syscall.Handle, error),
+	info func(syscall.Handle) (*printerInfo2, []byte, error),
+) func() {
+	printerHooksMu.Lock()
+	prevOpen, prevInfo := openPrinterWPtrFn, getPrinterInfo2Fn
+	openPrinterWPtrFn, getPrinterInfo2Fn = open, info
+	printerHooksMu.Unlock()
+	return func() {
+		printerHooksMu.Lock()
+		openPrinterWPtrFn, getPrinterInfo2Fn = prevOpen, prevInfo
+		printerHooksMu.Unlock()
+	}
+}
+
 // getPrinterInfo2 performs the documented two-call GetPrinterW(level 2)
 // pattern and returns a PRINTER_INFO_2 view of one queue: call once with a
 // zero-length buffer to learn pcbNeeded, allocate, then call again.
@@ -499,13 +537,13 @@ func preFlightSpoolerCheck(spoolerName string) error {
 		return fmt.Errorf("invalid spooler name %q: %w", spoolerName, err)
 	}
 
-	hPrinter, err := openPrinterWPtrFn(printerNamePtr)
+	hPrinter, err := currentOpenPrinterWPtr()(printerNamePtr)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrPrinterOffline, err)
 	}
 	defer procClosePrinter.Call(uintptr(hPrinter))
 
-	pi, keepBuf, err := getPrinterInfo2Fn(hPrinter)
+	pi, keepBuf, err := currentGetPrinterInfo2()(hPrinter)
 	if err != nil || pi == nil {
 		// Fail-closed: without PRINTER_INFO_2 the queue state is unproven,
 		// so readiness cannot be claimed.

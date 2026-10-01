@@ -414,17 +414,16 @@ func fakePrinterInfo2(status, attributes uint32) func(syscall.Handle) (*printerI
 	}
 }
 
-// withFakeQueue swaps the Win32 open/query calls for fakes for one test.
+// withFakeQueue swaps the Win32 open/query calls for fakes for one test and
+// restores them through setPrinterHooks, so a probe goroutine that outlived
+// its caller can never observe a torn hook write.
 func withFakeQueue(t *testing.T, status, attributes uint32) {
 	t.Helper()
-	prevOpen := openPrinterWPtrFn
-	prevInfo := getPrinterInfo2Fn
-	t.Cleanup(func() {
-		openPrinterWPtrFn = prevOpen
-		getPrinterInfo2Fn = prevInfo
-	})
-	openPrinterWPtrFn = func(printerNamePtr *uint16) (syscall.Handle, error) { return 4711, nil }
-	getPrinterInfo2Fn = fakePrinterInfo2(status, attributes)
+	restore := setPrinterHooks(
+		func(printerNamePtr *uint16) (syscall.Handle, error) { return 4711, nil },
+		fakePrinterInfo2(status, attributes),
+	)
+	t.Cleanup(restore)
 }
 
 func TestPreFlightAcceptsHealthyQueue(t *testing.T) {
@@ -463,16 +462,13 @@ func TestPreFlightRejectsPaperOutAndIsNotOffline(t *testing.T) {
 
 // A queue whose status cannot be read must fail closed, never report ready.
 func TestPreFlightFailsClosedWhenStatusUnreadable(t *testing.T) {
-	prevOpen := openPrinterWPtrFn
-	prevInfo := getPrinterInfo2Fn
-	t.Cleanup(func() {
-		openPrinterWPtrFn = prevOpen
-		getPrinterInfo2Fn = prevInfo
-	})
-	openPrinterWPtrFn = func(printerNamePtr *uint16) (syscall.Handle, error) { return 4711, nil }
-	getPrinterInfo2Fn = func(hPrinter syscall.Handle) (*printerInfo2, []byte, error) {
-		return nil, nil, fmt.Errorf("simulated GetPrinterW failure")
-	}
+	restore := setPrinterHooks(
+		func(printerNamePtr *uint16) (syscall.Handle, error) { return 4711, nil },
+		func(hPrinter syscall.Handle) (*printerInfo2, []byte, error) {
+			return nil, nil, fmt.Errorf("simulated GetPrinterW failure")
+		},
+	)
+	defer restore()
 	if err := preFlightSpoolerCheck("Unreadable Printer"); err == nil {
 		t.Fatal("an unreadable queue must not be reported as ready")
 	}
@@ -490,17 +486,17 @@ func TestSpoolerStatusUnreadableQueueIsNotOnline(t *testing.T) {
 
 	// A probe that never returns must surface as unknown (bounded), and a
 	// second call must be refused immediately instead of leaking another
-	// blocked goroutine.
-	block := make(chan struct{})
-	prevOpen := openPrinterWPtrFn
-	t.Cleanup(func() {
-		openPrinterWPtrFn = prevOpen
-		close(block)
-	})
-	openPrinterWPtrFn = func(printerNamePtr *uint16) (syscall.Handle, error) {
-		<-block
-		return 4711, nil
-	}
+	// blocked goroutine. The wedged probe is released and JOINED before the
+	// hooks are restored: restoring while the abandoned helper is still
+	// reading them is exactly the race this test used to provoke.
+	release := make(chan struct{})
+	restore := setPrinterHooks(
+		func(printerNamePtr *uint16) (syscall.Handle, error) {
+			<-release
+			return 4711, nil
+		},
+		fakePrinterInfo2(0, 0),
+	)
 	start := time.Now()
 	st := p.Status()
 	if st != "unknown" {
@@ -512,4 +508,17 @@ func TestSpoolerStatusUnreadableQueueIsNotOnline(t *testing.T) {
 	if st2 := p.Status(); st2 != "unknown" {
 		t.Fatalf("overlapping probe must be refused as unknown, got %q", st2)
 	}
+
+	// Let the abandoned helper finish, then restore. preflightActive clears
+	// only after the probe function returns, so polling it joins the helper
+	// without touching any hook.
+	close(release)
+	deadline := time.Now().Add(5 * time.Second)
+	for p.preflightActive.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if p.preflightActive.Load() {
+		t.Fatal("wedged probe never released its single-flight slot after the RPC returned")
+	}
+	restore()
 }
