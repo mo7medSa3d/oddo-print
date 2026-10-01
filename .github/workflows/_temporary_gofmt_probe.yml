@@ -1,0 +1,21 @@
+name: _temporary_gofmt_probe
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gofmt-diff:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: agent/go.mod
+      - name: Show gofmt diff
+        working-directory: agent
+        run: gofmt -d internal/agent/agent.go
