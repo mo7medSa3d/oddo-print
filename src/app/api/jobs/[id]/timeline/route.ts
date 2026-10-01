@@ -20,7 +20,7 @@ type TimelineEntry = {
   message?: string | null;
   errorCode?: string | null;
   attemptId?: string | null;
-  claimId?: string;
+  claimId?: string | null;
   spoolerJobId?: string | null;
   agentId?: string | null;
   printerId?: string | null;
