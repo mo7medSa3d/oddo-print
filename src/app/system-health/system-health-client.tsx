@@ -3,6 +3,8 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useCallback, useEffect, useState } from "react";
+import { useI18n } from "../../i18n/react";
+import type { MessageKey } from "../../i18n/messages/en";
 import {
   Activity,
   CheckCircle2,
@@ -47,12 +49,13 @@ const STATE_TONE: Record<HealthState, Tone> = {
   unknown: "neutral",
 };
 
-const STATE_LABEL: Record<HealthState, string> = {
-  ok: "Healthy",
-  warn: "Degraded",
-  error: "Failing",
-  unknown: "Not verified",
-};
+/** Built per render so status names follow the active language. */
+function stateLabel(state: HealthState, t: (key: MessageKey) => string): string {
+  if (state === "ok") return t("health.state.ok");
+  if (state === "warn") return t("health.state.warn");
+  if (state === "error") return t("health.state.error");
+  return t("health.state.unknown");
+}
 
 function StateIcon({ state, className = "h-4 w-4" }: { state: HealthState; className?: string }) {
   if (state === "ok") return <CheckCircle2 className={className} aria-hidden />;
@@ -72,6 +75,7 @@ function relativeTime(iso: string) {
 
 export default function SystemHealthClient() {
   const [health, setHealth] = useState<SystemHealth | null>(null);
+  const { t, tc } = useI18n();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +90,10 @@ export default function SystemHealthClient() {
       const data = (await res.json()) as SystemHealth;
       setHealth(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const detail = e instanceof Error ? e.message : String(e);
+      // Operator sees a plain explanation; the raw detail stays in the console.
+      console.warn("health_check_failed:", detail);
+      setError(t("health.refreshFailedBody"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -99,9 +106,9 @@ export default function SystemHealthClient() {
 
   if (loading) {
     return (
-      <div role="status" aria-label="Loading system health">
+      <div role="status" aria-label={t("health.loading")}>
         <PageSkeleton />
-        <span className="sr-only">Loading system health…</span>
+        <span className="sr-only">{t("health.loading")}</span>
       </div>
     );
   }
@@ -109,8 +116,8 @@ export default function SystemHealthClient() {
   if (error && !health) {
     return (
       <ErrorState
-        title="Health checks unavailable"
-        message={`The Gateway did not return a health report: ${error}`}
+        title={t("health.unavailable")}
+        message={t("health.unavailableBody")}
         retry={() => void fetchHealth("initial")}
       />
     );
@@ -131,7 +138,7 @@ export default function SystemHealthClient() {
   return (
     <div className="space-y-5">
       <section
-        aria-label="Overall system health"
+        aria-label={t("health.overall")}
         className={`card overflow-hidden border-s-[3px] ${
           health.overall === "ok"
             ? "border-s-ok-solid"
@@ -159,18 +166,18 @@ export default function SystemHealthClient() {
             </span>
             <div className="min-w-0">
               <h2 className="flex flex-wrap items-center gap-2 text-md font-[620] tracking-[-0.015em] text-ink">
-                {health.overall === "ok" ? "All critical systems healthy" : STATE_LABEL[health.overall]}
-                <StatusBadge tone={STATE_TONE[health.overall]} label={STATE_LABEL[health.overall]} size="sm" />
+                {health.overall === "ok" ? t("health.allCriticalHealthy") : stateLabel(health.overall, t)}
+                <StatusBadge tone={STATE_TONE[health.overall]} label={stateLabel(health.overall, t)} size="sm" />
               </h2>
               <p className="mt-1 text-sm leading-relaxed text-ink-3">
                 {criticalChecks.length === 0
-                  ? "Gateway, database, queue, agents, printers, Odoo and billing reported in this sample."
-                  : `${criticalChecks.length} check${criticalChecks.length === 1 ? "" : "s"} need attention — see the details below.`}
+                  ? t("health.sampleSummary")
+                  : tc("health.checksNeedAttention", criticalChecks.length)}
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
-                <span>Gateway v{health.version.gateway}</span>
+                <span>{t("health.versionGateway", { version: health.version.gateway })}</span>
                 <span aria-hidden>·</span>
-                <span>Schema {health.version.schema}</span>
+                <span>{t("health.versionSchema", { version: health.version.schema })}</span>
                 <span aria-hidden>·</span>
                 <span>Sampled {relativeTime(health.timestamp)}</span>
               </div>
@@ -184,7 +191,7 @@ export default function SystemHealthClient() {
             icon={refreshing ? undefined : <RefreshCw className="h-3.5 w-3.5" />}
             className="shrink-0"
           >
-            {refreshing ? "Checking…" : "Re-run checks"}
+            {refreshing ? t("health.running") : t("health.rerunChecks")}
           </Button>
         </div>
 
@@ -196,7 +203,7 @@ export default function SystemHealthClient() {
           {(["ok", "warn", "error", "unknown"] as HealthState[]).map((state) => (
             <div key={state} className="flex items-center gap-2.5 bg-surface px-5 py-3">
               <StateIcon state={state} className={`h-3.5 w-3.5 ${state === "ok" ? "text-ok" : state === "warn" ? "text-warn" : state === "error" ? "text-bad" : "text-ink-4"}`} />
-              <span className="text-xs font-[600] text-ink-3">{STATE_LABEL[state]}</span>
+              <span className="text-xs font-[600] text-ink-3">{stateLabel(state, t)}</span>
               <span className="ms-auto text-sm font-[640] tabular text-ink">{counts[state]}</span>
             </div>
           ))}
@@ -204,7 +211,7 @@ export default function SystemHealthClient() {
       </section>
 
       {error && (
-        <Callout tone="warn" title="Refresh failed">
+        <Callout tone="warn" title={t("health.refreshFailed")}>
           Showing the last successful sample: {error}
         </Callout>
       )}
@@ -215,7 +222,7 @@ export default function SystemHealthClient() {
             <CardHeader
               title={check.name}
               icon={<StateIcon state={check.state} className="h-4 w-4" />}
-              actions={<StatusBadge tone={STATE_TONE[check.state]} label={STATE_LABEL[check.state]} size="sm" />}
+              actions={<StatusBadge tone={STATE_TONE[check.state]} label={stateLabel(check.state, t)} size="sm" />}
             />
             <div className="flex flex-1 flex-col px-5 py-4">
               <p className="text-sm leading-relaxed text-ink-2">{check.message}</p>
@@ -244,8 +251,8 @@ export default function SystemHealthClient() {
 
       <Card>
         <CardHeader
-          title="Distributed tracing"
-          subtitle="Correlation IDs propagated across every hop of a print job."
+          title={t("health.tracing")}
+          subtitle={t("health.tracingText")}
           icon={<Route className="h-4 w-4" />}
           actions={
             <StatusBadge tone="info" label="X-Request-Id" />

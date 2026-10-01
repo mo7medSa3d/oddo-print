@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useI18n } from "../../i18n/react";
+import type { MessageKey } from "../../i18n/messages/en";
 import { useRouter } from "next/navigation";
 import {
   Users,
@@ -39,13 +41,18 @@ import { shortId } from "../../lib/utils";
 type Member = { userId: string; email: string; role: string };
 type Invitation = { id: string; email: string; role: string; expiresAt: string };
 
-const ROLE_OPTIONS = [
-  { value: "viewer", label: "Viewer", desc: "Read-only access to the console." },
-  { value: "operator", label: "Operator", desc: "Manage printers, agents and print jobs." },
-  { value: "admin", label: "Admin", desc: "Full workspace access including team and billing." },
-  { value: "integration_admin", label: "Integration admin", desc: "Odoo integration and API keys." },
-  { value: "billing_admin", label: "Billing admin", desc: "Subscription, plans and invoices." },
-];
+const ROLE_VALUES = ["viewer", "operator", "admin", "integration_admin", "billing_admin"] as const;
+
+/** Built per render so role names follow the active language. */
+function roleOptions(t: (key: MessageKey) => string) {
+  return [
+    { value: "viewer", label: t("team.role.viewer"), desc: t("team.role.viewerDesc") },
+    { value: "operator", label: t("team.role.operator"), desc: t("team.role.operatorDesc") },
+    { value: "admin", label: t("team.role.admin"), desc: t("team.role.adminDesc") },
+    { value: "integration_admin", label: t("team.role.integrationAdmin"), desc: t("team.role.integrationAdminDesc") },
+    { value: "billing_admin", label: t("team.role.billingAdmin"), desc: t("team.role.billingAdminDesc") },
+  ];
+}
 
 const ROLE_TONE: Record<string, "brand" | "info" | "ok" | "neutral" | "warn"> = {
   owner: "brand",
@@ -56,25 +63,26 @@ const ROLE_TONE: Record<string, "brand" | "info" | "ok" | "neutral" | "warn"> = 
   viewer: "neutral",
 };
 
-const ROLE_ORDER = ROLE_OPTIONS.map((r) => r.value);
+const ROLE_ORDER = [...ROLE_VALUES];
 
 function roleLabel(role: string) {
   return role.replace(/_/g, " ");
 }
 
-function expiryLabel(expiresAt: string) {
+function expiryLabel(expiresAt: string, t: (key: MessageKey) => string) {
   const ms = new Date(expiresAt).getTime() - Date.now();
   if (Number.isNaN(ms)) return "—";
   const hours = Math.round(ms / 3_600_000);
-  if (hours <= 0) return "Expired";
-  if (hours < 48) return `Expires in ${hours}h`;
-  return `Expires in ${Math.round(hours / 24)}d`;
+  if (hours <= 0) return t("team.expired");
+  if (hours < 48) return t("team.expiresInHours", { hours });
+  return t("team.expiresInDays", { days: Math.round(hours / 24) });
 }
 
 export default function TeamPage() {
   const router = useRouter();
   const feedbackRef = useRef<HTMLDivElement>(null);
   const [members, setMembers] = useState<Member[]>([]);
+  const { t } = useI18n();
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -103,8 +111,8 @@ export default function TeamPage() {
       if (!membersRes.ok || !invitationsRes.ok) {
         setLoadError(
           !membersRes.ok
-            ? "Could not load members. Please refresh to retry."
-            : "Could not load invitations. Please refresh to retry."
+            ? t("team.loadMembersFailed")
+            : t("team.loadInvitationsFailed")
         );
         return;
       }
@@ -112,7 +120,7 @@ export default function TeamPage() {
       setInvitations((await invitationsRes.json()).invitations ?? []);
       setLoadError(null);
     } catch {
-      setLoadError("Could not load team data. Please refresh to retry.");
+      setLoadError(t("team.loadFailed"));
     } finally {
       setLoaded(true);
     }
@@ -144,12 +152,12 @@ export default function TeamPage() {
         body: JSON.stringify({ email, role }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Invitation failed");
+      if (!response.ok) throw new Error(data.error ?? t("team.invitationFailed"));
       setEmail("");
-      showMessage("Invitation sent.", "ok");
+      showMessage(t("success.invitationSent"), "ok");
       void load();
     } catch (error) {
-      showMessage(error instanceof Error ? error.message : "Invitation failed", "err");
+      showMessage(error instanceof Error ? error.message : t("team.invitationFailed"), "err");
     } finally {
       setBusy(false);
     }
@@ -166,11 +174,11 @@ export default function TeamPage() {
         body: JSON.stringify({ userId, role: nextRole }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "Role update failed");
-      showMessage("Member role updated.", "ok");
+      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : t("team.roleUpdateFailed"));
+      showMessage(t("success.roleUpdated"), "ok");
       await load();
     } catch (error) {
-      showMessage(error instanceof Error ? error.message : "Role update failed", "err");
+      showMessage(error instanceof Error ? error.message : t("team.roleUpdateFailed"), "err");
     } finally {
       setBusy(false);
     }
@@ -182,11 +190,11 @@ export default function TeamPage() {
     try {
       const response = await fetch(`/api/team/invitations?id=${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "Invitation revocation failed");
-      showMessage("Invitation revoked.", "ok");
+      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : t("team.invitationRevocationFailed"));
+      showMessage(t("success.invitationRevoked"), "ok");
       await load();
     } catch (error) {
-      showMessage(error instanceof Error ? error.message : "Invitation revocation failed", "err");
+      showMessage(error instanceof Error ? error.message : t("team.invitationRevocationFailed"), "err");
     } finally {
       setBusy(false);
     }
@@ -199,11 +207,11 @@ export default function TeamPage() {
     try {
       const response = await fetch(`/api/team/members?userId=${encodeURIComponent(userId)}`, { method: "DELETE", credentials: "include" });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "Member removal failed");
-      showMessage("Member removed.", "ok");
+      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : t("team.memberRemovalFailed"));
+      showMessage(t("success.memberRemoved"), "ok");
       await load();
     } catch (error) {
-      showMessage(error instanceof Error ? error.message : "Member removal failed", "err");
+      showMessage(error instanceof Error ? error.message : t("team.memberRemovalFailed"), "err");
     } finally {
       setBusy(false);
     }
@@ -223,11 +231,11 @@ export default function TeamPage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         setBusy(false);
-        throw new Error(typeof data.error === "string" ? data.error : "Ownership transfer failed");
+        throw new Error(typeof data.error === "string" ? data.error : t("team.ownershipTransferFailed"));
       }
       router.push("/login");
     } catch (error) {
-      showMessage(error instanceof Error ? error.message : "Ownership transfer failed", "err");
+      showMessage(error instanceof Error ? error.message : t("team.ownershipTransferFailed"), "err");
       setBusy(false);
     }
   }
@@ -238,14 +246,14 @@ export default function TeamPage() {
     return [
       {
         key: "transfer",
-        label: "Transfer ownership…",
+        label: t("team.transferOwnership"),
         icon: <ArrowRightLeft className="h-4 w-4" />,
         disabled: busy,
         onSelect: () => setTransferTarget(member),
       },
       {
         key: "remove",
-        label: "Remove from workspace…",
+        label: t("team.removeFromWorkspace"),
         icon: <UserMinus className="h-4 w-4" />,
         tone: "danger",
         separatorBefore: true,
@@ -259,10 +267,10 @@ export default function TeamPage() {
     <>
       <PageHeader
         width="wide"
-        eyebrow="Administration"
+        eyebrow={t("nav.section.administration")}
         icon={<Users className="h-4 w-4" />}
-        title="Team"
-        description="Who can reach this workspace, and what each person is allowed to change."
+        title={t("nav.team")}
+        description={t("team.pageDescription")}
         meta={
           loaded ? (
             <div className="flex items-center gap-2">
@@ -300,8 +308,8 @@ export default function TeamPage() {
 
             <Card className="overflow-hidden">
               <CardHeader
-                title="Members"
-                subtitle="Roles apply immediately across the console and the API."
+                title={t("team.members")}
+                subtitle={t("team.membersDescription")}
                 icon={<Users className="h-4 w-4" />}
               />
 
@@ -320,7 +328,7 @@ export default function TeamPage() {
               ) : loadError ? (
                 <div className="px-5 py-5">
                   <ErrorState
-                    title="Team unavailable"
+                    title={t("team.unavailable")}
                     message={loadError}
                     retry={() => {
                       setLoadError(null);
@@ -331,8 +339,8 @@ export default function TeamPage() {
               ) : members.length === 0 ? (
                 <EmptyState
                   icon={<Users className="h-5 w-5" />}
-                  title="No members yet"
-                  description="Invite a teammate with the form beside this table to give them console access."
+                  title={t("empty.members.title")}
+                  description={t("empty.members.description")}
                 />
               ) : (
                 <>
@@ -371,7 +379,7 @@ export default function TeamPage() {
                                   <Crown className="h-3.5 w-3.5 text-warn" aria-hidden />
                                 )}
                                 {member.role === "owner" ? (
-                                  <StatusBadge tone="brand" label="Owner" />
+                                  <StatusBadge tone="brand" label={t("team.role.owner")} />
                                 ) : (
                                   <Select
                                     aria-label={`Role for ${member.email}`}
@@ -392,7 +400,7 @@ export default function TeamPage() {
                             <td className="text-end">
                               {member.role !== "owner" && (
                                 <Menu
-                                  label={`Actions for ${member.email}`}
+                                  label={t("team.actionsFor", { name: member.email })}
                                   items={memberMenu(member)}
                                   trigger={
                                     <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
@@ -421,7 +429,7 @@ export default function TeamPage() {
                             </div>
                           </div>
                           {member.role === "owner" ? (
-                            <StatusBadge tone="brand" label="Owner" />
+                            <StatusBadge tone="brand" label={t("team.role.owner")} />
                           ) : (
                             <StatusBadge tone={ROLE_TONE[member.role] ?? "neutral"} label={roleLabel(member.role)} />
                           )}
@@ -442,7 +450,7 @@ export default function TeamPage() {
                               ))}
                             </Select>
                             <Menu
-                              label={`Actions for ${member.email}`}
+                              label={t("team.actionsFor", { name: member.email })}
                               align="end"
                               items={memberMenu(member)}
                               trigger={
@@ -462,8 +470,8 @@ export default function TeamPage() {
 
             <Card className="overflow-hidden">
               <CardHeader
-                title="Pending invitations"
-                subtitle="Invitations expire automatically. Revoke any that are no longer wanted."
+                title={t("team.pendingInvitations")}
+                subtitle={t("team.invitationsHint")}
                 icon={<Clock className="h-4 w-4" />}
               />
               {!loaded ? (
@@ -476,8 +484,8 @@ export default function TeamPage() {
                 <EmptyState
                   size="sm"
                   icon={<Mail className="h-4 w-4" />}
-                  title="No invitations outstanding"
-                  description="Invite a teammate and the pending invite will be listed here until it is accepted."
+                  title={t("team.noInvitations")}
+                  description={t("team.emptyInvites")}
                 />
               ) : (
                 <ul className="divide-y divide-edge-subtle">
@@ -487,7 +495,7 @@ export default function TeamPage() {
                         <div className="truncate text-sm font-[550] text-ink">{invitation.email}</div>
                         <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-3">
                           <StatusBadge tone={ROLE_TONE[invitation.role] ?? "neutral"} label={roleLabel(invitation.role)} size="sm" />
-                          <span>{expiryLabel(invitation.expiresAt)}</span>
+                          <span>{expiryLabel(invitation.expiresAt, t)}</span>
                         </div>
                       </div>
                       <Button
@@ -508,12 +516,12 @@ export default function TeamPage() {
           <aside className="space-y-5">
             <Card>
               <CardHeader
-                title="Invite a teammate"
-                subtitle="They receive an email link to join this workspace."
+                title={t("team.inviteTitle")}
+                subtitle={t("team.inviteHint")}
                 icon={<Mail className="h-4 w-4" />}
               />
               <form onSubmit={invite} className="space-y-4 px-5 py-5">
-                <Field label="Email address" htmlFor="invite-email" required>
+                <Field label={t("team.inviteEmail")} htmlFor="invite-email" required>
                   <Input
                     id="invite-email"
                     type="email"
@@ -526,9 +534,9 @@ export default function TeamPage() {
                   />
                 </Field>
                 <Field
-                  label="Role"
+                  label={t("team.role")}
                   htmlFor="invite-role"
-                  hint={ROLE_OPTIONS.find((r) => r.value === role)?.desc}
+                  hint={roleOptions(t).find((r) => r.value === role)?.desc}
                 >
                   <Select
                     id="invite-role"
@@ -537,25 +545,25 @@ export default function TeamPage() {
                     onChange={(e) => setRole(e.target.value)}
                     className="w-full"
                   >
-                    {ROLE_OPTIONS.map((r) => (
+                    {roleOptions(t).map((r) => (
                       <option key={r.value} value={r.value}>{r.label}</option>
                     ))}
                   </Select>
                 </Field>
                 <Button type="submit" variant="primary" disabled={busy} loading={busy} className="w-full">
-                  {busy ? "Sending…" : "Send invitation"}
+                  {busy ? t("team.inviteSending") : t("team.inviteSubmit")}
                 </Button>
               </form>
             </Card>
 
             <Card>
               <CardHeader
-                title="Roles"
-                subtitle="Least privilege by default."
+                title={t("team.rolesTitle")}
+                subtitle={t("team.rolesSubtitle")}
                 icon={<Shield className="h-4 w-4" />}
               />
               <ul className="space-y-3 px-5 py-5">
-                {ROLE_OPTIONS.map((option) => (
+                {roleOptions(t).map((option) => (
                   <li key={option.value} className="flex gap-2.5">
                     <StatusDot tone={ROLE_TONE[option.value] ?? "neutral"} className="mt-1.5" />
                     <div className="min-w-0">
@@ -580,8 +588,8 @@ export default function TeamPage() {
       <Modal
         open={transferTarget !== null}
         onClose={() => setTransferTarget(null)}
-        title="Transfer workspace ownership?"
-        description="This action cannot be undone."
+        title={t("team.transferTitle")}
+        description={t("team.transferCannotUndo")}
         footer={
           <>
             <Button variant="secondary" disabled={busy} onClick={() => setTransferTarget(null)}>
@@ -603,7 +611,7 @@ export default function TeamPage() {
             <span className="font-[600] text-ink">{transferTarget?.email}</span> becomes the workspace
             owner. Your account is demoted to admin and this session is signed out immediately.
           </p>
-          <Callout tone="warn" title="Billing and ownership follow the account">
+          <Callout tone="warn" title={t("team.transferBillingNote")}>
             The new owner controls the subscription, plan changes and workspace deletion.
           </Callout>
         </div>
@@ -612,7 +620,7 @@ export default function TeamPage() {
       <Modal
         open={removeTarget !== null}
         onClose={() => setRemoveTarget(null)}
-        title="Remove this member?"
+        title={t("team.removeTitle")}
         description={removeTarget?.email}
         footer={
           <>

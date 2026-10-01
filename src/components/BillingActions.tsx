@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, CreditCard, ExternalLink, RotateCcw } from "lucide-react";
 import { Button, Callout, ConfirmDialog, StatusBadge } from "./ui";
+import { useI18n } from "../i18n/react";
+import type { MessageKey } from "../i18n/messages/en";
 
 type PlanOption = {
   id: string;
@@ -13,7 +15,9 @@ type PlanOption = {
   entitlements?: Record<string, unknown> | null;
 };
 
-async function post(path: string, body?: Record<string, unknown>) {
+type Translator = (key: MessageKey, vars?: Record<string, string | number>) => string;
+
+async function post(path: string, body: Record<string, unknown> | undefined, t: Translator) {
   const res = await fetch(path, {
     method: "POST",
     credentials: "include",
@@ -23,10 +27,11 @@ async function post(path: string, body?: Record<string, unknown>) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    // Keep raw server text out of the interface: the operator sees a plain
+    // explanation, the detail stays in the console for support.
+    if (typeof data?.error === "string" && data.error) console.warn("billing_request_failed:", data.error);
     throw new Error(
-      data?.code === "STRIPE_NOT_CONFIGURED"
-        ? "Stripe billing is not configured on this Gateway yet."
-        : (typeof data?.error === "string" ? data.error : "Billing request failed"),
+      data?.code === "STRIPE_NOT_CONFIGURED" ? t("billingActions.stripeNotConfigured") : t("billingActions.requestFailed"),
     );
   }
   return data;
@@ -56,6 +61,7 @@ export function BillingActions({
   selectedPlan?: PlanOption | null;
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [confirmCancel, setConfirmCancel] = useState(false);
@@ -66,7 +72,7 @@ export function BillingActions({
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Billing request failed");
+      setError(e instanceof Error ? e.message : t("billingActions.requestFailed"));
     } finally {
       setBusy("");
     }
@@ -82,8 +88,8 @@ export function BillingActions({
         subscriptionStatus === "unpaid" ||
         (subscriptionStatus === "incomplete" && !checkoutUrl && canOpenPortal)
       ) {
-        const data = await post("/api/billing/portal");
-        if (typeof data.url !== "string" || !data.url) throw new Error("Billing portal URL was not returned");
+        const data = await post("/api/billing/portal", undefined, t);
+        if (typeof data.url !== "string" || !data.url) throw new Error(t("billingActions.portalUrlMissing"));
         window.location.href = data.url;
         return;
       }
@@ -93,16 +99,16 @@ export function BillingActions({
         return;
       }
 
-      const data = await post("/api/billing/checkout", { planId: selectedPlan.id });
-      if (typeof data.url !== "string" || !data.url) throw new Error("Stripe checkout URL was not returned");
+      const data = await post("/api/billing/checkout", { planId: selectedPlan.id }, t);
+      if (typeof data.url !== "string" || !data.url) throw new Error(t("billingActions.checkoutUrlMissing"));
       window.location.href = data.url;
     });
   };
 
   const openPortal = () =>
     run("portal", async () => {
-      const data = await post("/api/billing/portal");
-      if (typeof data.url !== "string" || !data.url) throw new Error("Billing portal URL was not returned");
+      const data = await post("/api/billing/portal", undefined, t);
+      if (typeof data.url !== "string" || !data.url) throw new Error(t("billingActions.portalUrlMissing"));
       window.location.href = data.url;
     });
 
@@ -113,13 +119,13 @@ export function BillingActions({
           <section className="rounded-sg border border-brand-subtle-border bg-brand-subtle px-4 py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <div className="label-caps text-brand-subtle-text">Selected plan</div>
+                <div className="label-caps text-brand-subtle-text">{t("billingActions.selectedPlan")}</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <span className="text-md font-[600] text-ink">{selectedPlan.name}</span>
-                  <StatusBadge size="sm" tone="brand" label={hasSubscription ? "Change plan" : "New subscription"} />
+                  <StatusBadge size="sm" tone="brand" label={hasSubscription ? t("billingActions.changePlan") : t("billingActions.newSubscription")} />
                 </div>
                 <div className="mt-1 text-sm text-ink-3">
-                  {selectedPlan.currency?.toUpperCase() ?? "USD"} · per {selectedPlan.interval ?? "month"}
+                  {t("billingActions.perInterval", { currency: selectedPlan.currency?.toUpperCase() ?? "USD", interval: selectedPlan.interval ?? "month" })}
                 </div>
               </div>
               <Button
@@ -131,10 +137,10 @@ export function BillingActions({
                 className="shrink-0"
               >
                 {busy === "selected-plan"
-                  ? "Opening…"
+                  ? t("billingActions.opening")
                   : hasSubscription
-                    ? "Continue to billing"
-                    : "Continue to checkout"}
+                    ? t("billingActions.continueToBilling")
+                    : t("billingActions.continueToCheckout")}
               </Button>
             </div>
           </section>
@@ -147,9 +153,9 @@ export function BillingActions({
             loading={busy === "portal"}
             onClick={openPortal}
             icon={<CreditCard className="h-4 w-4" aria-hidden />}
-            title={canOpenPortal ? "Open the Stripe customer portal" : "Stripe portal is unavailable for this workspace"}
+            title={canOpenPortal ? t("billingActions.portalTitle") : t("billingActions.portalUnavailableTitle")}
           >
-            {busy === "portal" ? "Opening…" : "Customer portal"}
+            {busy === "portal" ? t("billingActions.opening") : t("billingActions.customerPortal")}
             {canOpenPortal && busy !== "portal" && (
               <ExternalLink className="ms-1 h-3.5 w-3.5 text-ink-4" aria-hidden />
             )}
@@ -161,7 +167,7 @@ export function BillingActions({
               disabled={busy !== ""}
               onClick={() => setConfirmCancel(true)}
             >
-              Cancel at period end
+              {t("billingActions.cancelAtPeriodEnd")}
             </Button>
           )}
 
@@ -172,13 +178,13 @@ export function BillingActions({
               loading={busy === "resume"}
               onClick={() =>
                 run("resume", async () => {
-                  await post("/api/billing/resume");
+                  await post("/api/billing/resume", undefined, t);
                   router.refresh();
                 })
               }
               icon={<RotateCcw className="h-4 w-4" aria-hidden />}
             >
-              {busy === "resume" ? "Updating…" : "Resume subscription"}
+              {busy === "resume" ? t("billingActions.updating") : t("billingActions.resumeSubscription")}
             </Button>
           )}
         </div>
@@ -189,12 +195,12 @@ export function BillingActions({
             href={checkoutUrl}
             icon={<ArrowRight className="h-4 w-4" aria-hidden />}
           >
-            Continue existing checkout
+            {t("billingActions.continueExistingCheckout")}
           </Button>
         )}
 
         {error && (
-          <Callout tone="bad" title="Billing request failed">
+          <Callout tone="bad" title={t("billingActions.requestFailed")}>
             <span role="alert">{error}</span>
           </Callout>
         )}
@@ -207,26 +213,24 @@ export function BillingActions({
         }}
         onConfirm={() =>
           run("cancel", async () => {
-            await post("/api/billing/cancel");
+            await post("/api/billing/cancel", undefined, t);
             setConfirmCancel(false);
             router.refresh();
           })
         }
         busy={busy === "cancel"}
         tone="danger"
-        title="Cancel subscription?"
-        description="Your subscription stays active until the end of the current billing period."
-        confirmLabel="Cancel at period end"
-        cancelLabel="Keep subscription"
+        title={t("billingActions.cancelTitle")}
+        description={t("billingActions.cancelDescription")}
+        confirmLabel={t("billingActions.cancelAtPeriodEnd")}
+        cancelLabel={t("billingActions.keepSubscription")}
       >
         <div className="space-y-3 text-sm leading-relaxed text-ink-2">
+          <p>{t("billingActions.cancelBody1")}</p>
           <p>
-            This does not end service immediately — Stripe keeps the subscription active through the
-            current period.
-          </p>
-          <p>
-            You can return here and choose <span className="font-[600] text-ink">Resume subscription</span>{" "}
-            before the period ends.
+            {t("billingActions.cancelBody2")}{" "}
+            <span className="font-[600] text-ink">{t("billingActions.resumeSubscription")}</span>{" "}
+            {t("billingActions.hint")}
           </p>
         </div>
       </ConfirmDialog>

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useI18n } from "../../i18n/react";
+import type { MessageKey } from "../../i18n/messages/en";
 import Link from "next/link";
 import {
   Copy,
@@ -45,17 +47,18 @@ type ApiKey = {
   odooEnabledUpdatedAt: string | null;
 };
 
-function rotationMeta(key: ApiKey): { label: string; tone: Tone } {
+function rotationMeta(key: ApiKey, t: (key: MessageKey) => string): { label: string; tone: Tone } {
   // Defensive: older API payloads may omit rotationState — a key that is not
   // revoked is active. Never render an undefined badge.
-  if (key.revokedAt || key.rotationState === "revoked") return { label: "Revoked", tone: "neutral" };
-  if (key.rotationState === "retiring") return { label: "Retiring", tone: "warn" };
-  return { label: "Active", tone: "ok" };
+  if (key.revokedAt || key.rotationState === "revoked") return { label: t("apiKeys.revoked"), tone: "neutral" };
+  if (key.rotationState === "retiring") return { label: t("apiKeys.retiring"), tone: "warn" };
+  return { label: t("apiKeys.active"), tone: "ok" };
 }
 
 export default function ApiKeysPage() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
-  const [name, setName] = useState("Odoo Production");
+  const { t, formatDate, formatDateTime } = useI18n();
+  const [name, setName] = useState(t("apiKeys.defaultName"));
   const [rawKey, setRawKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -66,7 +69,7 @@ export default function ApiKeysPage() {
 
   async function loadKeys() {
     const r = await fetch("/api/odoo/keys", { cache: "no-store", credentials: "include" });
-    if (!r.ok) throw new Error("Failed to load keys");
+    if (!r.ok) throw new Error(t("apiKeys.loadFailed"));
     return (await r.json()) as ApiKey[];
   }
 
@@ -111,7 +114,7 @@ export default function ApiKeysPage() {
         headers: { "content-type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          name: name.trim() || "Odoo",
+          name: name.trim() || t("apiKeys.defaultName"),
         }),
       });
       const b = await r.json();
@@ -139,7 +142,7 @@ export default function ApiKeysPage() {
   const keyMenu = (k: ApiKey): MenuItemSpec[] => [
     {
       key: "copy",
-      label: "Copy key ID",
+      label: t("apiKeys.copyKeyId"),
       icon: <Copy className="h-4 w-4" />,
       onSelect: () => void copyTextToClipboard(k.id),
     },
@@ -147,7 +150,7 @@ export default function ApiKeysPage() {
       ? [
           {
             key: "remove",
-            label: "Remove key…",
+            label: t("apiKeys.removeKey"),
             icon: <Trash2 className="h-4 w-4" />,
             tone: "danger" as const,
             separatorBefore: true,
@@ -158,7 +161,7 @@ export default function ApiKeysPage() {
       : [
           {
             key: "revoke",
-            label: "Revoke key…",
+            label: t("apiKeys.revokeKey"),
             icon: <Ban className="h-4 w-4" />,
             tone: "danger" as const,
             separatorBefore: true,
@@ -171,15 +174,15 @@ export default function ApiKeysPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Integration"
+        eyebrow={t("nav.section.integration")}
         icon={<KeyRound className="h-4 w-4" />}
-        title="Odoo integration"
-        description="Credentials Odoo uses to submit documents to this Gateway, and the state of that connection."
+        title={t("apiKeys.title")}
+        description={t("apiKeys.pageDescription")}
         meta={
           active > 0 ? (
             <StatusBadge tone={enabled > 0 ? "ok" : "warn"} label={`${active} active`} />
           ) : (
-            <StatusBadge tone="neutral" label="Not connected" />
+            <StatusBadge tone="neutral" label={t("apiKeys.notConnected")} />
           )
         }
       />
@@ -188,11 +191,11 @@ export default function ApiKeysPage() {
         <div className="space-y-6">
           {error && (
             <ErrorState
-              title="Credential operation failed"
+              title={t("apiKeys.operationFailed")}
               message={error}
               retry={() => {
                 setError(null);
-                void loadKeys().then(setKeys).catch(() => setError("Failed to load keys"));
+                void loadKeys().then(setKeys).catch(() => setError(t("apiKeys.loadFailed")));
               }}
             />
           )}
@@ -200,7 +203,7 @@ export default function ApiKeysPage() {
           {hasSubscription === false && (
             <Callout
               tone="warn"
-              title="Choose a plan before connecting Odoo"
+              title={t("apiKeys.choosePlanBeforeConnect")}
               action={
                 <Button variant="primary" size="sm" href="/billing">
                   Choose a plan
@@ -214,7 +217,7 @@ export default function ApiKeysPage() {
           {rawKey && (
             <Callout
               tone="brand"
-              title="New API key — copy it now"
+              title={t("apiKeys.newKeyTitle")}
               icon={<KeyRound className="h-4 w-4" aria-hidden />}
               action={
                 <Button
@@ -223,7 +226,7 @@ export default function ApiKeysPage() {
                   onClick={async () => { if (await copyTextToClipboard(rawKey)) setCopied(true); }}
                   icon={<Copy className="h-3.5 w-3.5" />}
                 >
-                  {copied ? "Copied" : "Copy key"}
+                  {copied ? t("success.copied") : t("apiKeys.copyKey")}
                 </Button>
               }
             >
@@ -239,7 +242,7 @@ export default function ApiKeysPage() {
             </Callout>
           )}
 
-          <section aria-label="Integration summary" className="overflow-hidden rounded-xl border border-edge bg-surface shadow-card">
+          <section aria-label={t("apiKeys.summaryLabel")} className="overflow-hidden rounded-xl border border-edge bg-surface shadow-card">
             <div className="grid grid-cols-1 divide-y divide-edge-subtle sm:grid-cols-3 sm:divide-x sm:divide-y-0">
               <div className="p-4">
                 <div className="label-caps">Active keys</div>
@@ -247,7 +250,7 @@ export default function ApiKeysPage() {
                   {loading ? "—" : active}
                 </div>
                 <div className="mt-1.5 text-xs text-ink-3">
-                  {active === 0 ? "No credential issued" : "Usable by Odoo right now"}
+                  {active === 0 ? t("apiKeys.noCredential") : t("apiKeys.usableNow")}
                 </div>
               </div>
               <div className="p-4">
@@ -256,18 +259,18 @@ export default function ApiKeysPage() {
                   {loading ? "—" : enabled}
                 </div>
                 <div className="mt-1.5 text-xs text-ink-3">
-                  {active === 0 ? "Waiting for a key" : `${disabled} disabled at the source`}
+                  {active === 0 ? t("apiKeys.waitingForKey") : `${disabled} disabled at the source`}
                 </div>
               </div>
               <div className="p-4">
                 <div className="label-caps">Access level</div>
                 <div className="mt-1.5 flex items-center gap-2 text-md font-[600] text-ink">
                   {active === 0 ? (
-                    <StatusBadge tone="neutral" label="Not connected" />
+                    <StatusBadge tone="neutral" label={t("apiKeys.notConnected")} />
                   ) : enabled === active ? (
-                    <StatusBadge tone="ok" label="Integration read / write · All documents" />
+                    <StatusBadge tone="ok" label={t("apiKeys.scope")} />
                   ) : (
-                    <StatusBadge tone="warn" label="Integration disabled in Odoo" />
+                    <StatusBadge tone="warn" label={t("apiKeys.disabledInOdoo")} />
                   )}
                 </div>
                 <div className="mt-1.5 text-xs text-ink-3">Scoped to this workspace only.</div>
@@ -279,8 +282,8 @@ export default function ApiKeysPage() {
             <div className="space-y-5">
               <Card>
                 <CardHeader
-                  title="Connect Odoo"
-                  subtitle="Generate the credential Odoo uses to reach the Gateway."
+                  title={t("apiKeys.connectOdoo")}
+                  subtitle={t("apiKeys.connectDescription")}
                   icon={<KeyRound className="h-4 w-4" />}
                 />
                 <form
@@ -288,15 +291,15 @@ export default function ApiKeysPage() {
                   className="space-y-4 px-5 py-5"
                 >
                   <Field
-                    label="Credential name"
+                    label={t("apiKeys.credentialName")}
                     htmlFor="key-name"
-                    hint="Name it after the Odoo environment so revocation is unambiguous."
+                    hint={t("apiKeys.credentialNameHint")}
                   >
                     <Input
                       id="key-name"
                       value={name}
                       onChange={e => setName(e.target.value)}
-                      placeholder="Odoo Production"
+                      placeholder={t("apiKeys.defaultName")}
                       disabled={busy}
                     />
                   </Field>
@@ -311,9 +314,9 @@ export default function ApiKeysPage() {
                       loading={busy}
                       disabled={busy || hasSubscription === false}
                       icon={busy ? undefined : <Plus className="h-4 w-4" />}
-                      title={hasSubscription === false ? "Choose a plan first" : undefined}
+                      title={hasSubscription === false ? t("apiKeys.choosePlanFirstCta") : undefined}
                     >
-                      {busy ? "Generating…" : "Generate key"}
+                      {busy ? t("apiKeys.generating") : t("apiKeys.generateKey")}
                     </Button>
                   </div>
                 </form>
@@ -321,7 +324,7 @@ export default function ApiKeysPage() {
 
               <Card className="overflow-hidden">
                 <CardHeader
-                  title="Credentials"
+                  title={t("apiKeys.credentials")}
                   subtitle={`${keys.length} issued for this workspace`}
                   icon={<ShieldCheck className="h-4 w-4" />}
                 />
@@ -342,13 +345,13 @@ export default function ApiKeysPage() {
                 ) : keys.length === 0 ? (
                   <EmptyState
                     icon={<KeyRound className="h-5 w-5" />}
-                    title="No credentials yet"
-                    description="Generate a key, then paste it into the Yaseir module settings in Odoo to start submitting documents."
+                    title={t("apiKeys.noCredentials")}
+                    description={t("apiKeys.emptyDescription")}
                   />
                 ) : (
                   <ul className="divide-y divide-edge-subtle">
                     {keys.map(k => {
-                      const rotation = rotationMeta(k);
+                      const rotation = rotationMeta(k, t);
                       return (
                         <li
                           key={k.id}
@@ -361,32 +364,32 @@ export default function ApiKeysPage() {
                               {!k.revokedAt && (
                                 <StatusBadge
                                   tone={k.odooEnabled ? "ok" : "warn"}
-                                  label={k.odooEnabled ? "Odoo enabled" : "Odoo disabled"}
+                                  label={k.odooEnabled ? t("apiKeys.odooEnabled") : t("apiKeys.odooDisabled")}
                                   size="sm"
                                 />
                               )}
                             </div>
                             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
-                              <span>Created {new Date(k.createdAt).toLocaleDateString()}</span>
+                              <span>{t("apiKeys.createdOn", { date: formatDate(k.createdAt) })}</span>
                               <span aria-hidden>·</span>
                               <span>
-                                Last used {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : "never"}
+                                {k.lastUsedAt ? t("apiKeys.lastUsedOn", { date: formatDate(k.lastUsedAt) }) : t("apiKeys.neverUsed")}
                               </span>
                               {k.odooEnabledUpdatedAt && (
                                 <>
                                   <span aria-hidden>·</span>
-                                  <span>Synced {new Date(k.odooEnabledUpdatedAt).toLocaleString()}</span>
+                                  <span>{t("apiKeys.syncedOn", { date: formatDateTime(k.odooEnabledUpdatedAt) })}</span>
                                 </>
                               )}
                             </div>
                           </div>
 
                           <Menu
-                            label={`Actions for ${k.name}`}
+                            label={t("apiKeys.actionsFor", { name: k.name })}
                             items={keyMenu(k)}
                             trigger={
                               <span className="inline-flex h-8 items-center gap-1.5 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink">
-                                {k.revokedAt ? "Manage" : "Revoke"}
+                                {k.revokedAt ? t("apiKeys.manage") : t("apiKeys.revoke")}
                               </span>
                             }
                           />
@@ -401,16 +404,16 @@ export default function ApiKeysPage() {
             <aside className="space-y-5">
               <Card>
                 <CardHeader
-                  title="How the connection works"
-                  subtitle="Four steps from Odoo to paper."
+                  title={t("apiKeys.howItWorks")}
+                  subtitle={t("apiKeys.howItWorksSubtitle")}
                   icon={<Workflow className="h-4 w-4" />}
                 />
                 <ol className="space-y-4 px-5 py-5">
                   {[
-                    ["Odoo connects", "Odoo authenticates to the Gateway with this credential."],
-                    ["Gateway validates", "The key is checked against the workspace, subscription and integration state."],
-                    ["Agent prints locally", "The job is queued, routed and executed by the Windows agent that owns the printer."],
-                    ["Rotate safely", "Create the replacement key first, confirm it works, then revoke this one."],
+                    [t("apiKeys.step1"), t("apiKeys.step1Text")],
+                    [t("apiKeys.step2"), t("apiKeys.step2Text")],
+                    [t("apiKeys.step3"), t("apiKeys.step3Text")],
+                    [t("apiKeys.step4"), t("apiKeys.step4Text")],
                   ].map(([title, body], index) => (
                     <li key={title} className="flex gap-3">
                       <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-edge bg-surface-2 text-2xs font-[650] text-ink-3 tabular">
@@ -445,12 +448,12 @@ export default function ApiKeysPage() {
       <Modal
         open={!!pending}
         onClose={() => setPending(null)}
-        title={pending?.kind === "revoke" ? "Revoke this credential?" : "Remove this credential?"}
+        title={pending?.kind === "revoke" ? t("apiKeys.revokeCredentialTitle") : t("apiKeys.removeCredentialTitle")}
         description={pending?.name}
         footer={
           <>
             <Button variant="secondary" onClick={() => setPending(null)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant={pending?.kind === "revoke" ? "primary" : "danger"}
@@ -458,18 +461,18 @@ export default function ApiKeysPage() {
               loading={busy}
               disabled={busy}
             >
-              {pending?.kind === "revoke" ? "Revoke key" : "Remove key"}
+              {pending?.kind === "revoke" ? t("apiKeys.revokeConfirm") : t("apiKeys.removeConfirm")}
             </Button>
           </>
         }
       >
         {pending?.kind === "revoke" ? (
-          <Callout tone="warn" title="Odoo loses access immediately">
+          <Callout tone="warn" title={t("apiKeys.odooLosesAccess")}>
             Documents submitted with this key stop being accepted. Create a replacement key first if
             you need uninterrupted printing.
           </Callout>
         ) : (
-          <Callout tone="bad" title="This cannot be undone">
+          <Callout tone="bad" title={t("common.cannotUndo")}>
             The credential record is deleted permanently. Only revoked keys can be removed.
           </Callout>
         )}
