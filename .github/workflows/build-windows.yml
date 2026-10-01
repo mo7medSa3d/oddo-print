@@ -16,8 +16,6 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: read
-      pull-requests: write
-      issues: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,25 +85,9 @@ jobs:
       - name: Agent Phase 0 - Go race tests
         working-directory: agent
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $output = go test -mod=readonly ./... -race 2>&1
-          $code = $LASTEXITCODE
-          if ($code -ne 0) {
-            $diag = "diag-go-test.md"
-            "### go test -race failed (exit $code)" | Out-File -FilePath $diag -Encoding utf8
-            '```text' | Out-File -FilePath $diag -Append -Encoding utf8
-            $output | Select-Object -Last 400 | Out-File -FilePath $diag -Append -Encoding utf8
-            '```' | Out-File -FilePath $diag -Append -Encoding utf8
-            $pr = gh pr list --head "${{ github.head_ref || github.ref_name }}" --state open --json number --jq '.[0].number'
-            if ($pr) {
-              gh pr comment $pr --body-file $diag
-            } else {
-              gh issue create --title "CI diagnostic: go test -race failure" --body-file $diag --label ci-diagnostic
-            }
-          }
-          exit $code
+          go test -mod=readonly ./... -race
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Tauri Phase 0 - cargo audit --target-os windows --target-arch x86_64
         working-directory: src-tauri
         shell: pwsh
