@@ -166,7 +166,7 @@ class PrintGatewayConfig(models.Model):
         copy=False,
         exportable=False,
         groups="base.group_system",
-        help="Installation key from your Yasser Print Gateway account. Stored securely and excluded from exports.",
+        help="Installation key from your Yaseir Print Gateway account. Stored securely and excluded from exports.",
     )
     runtime_agent_id = fields.Char(
         string="Legacy Runtime Agent Reference",
@@ -271,13 +271,13 @@ class PrintGatewayConfig(models.Model):
             if not record.gateway_api_key:
                 record.gateway_sync_state = "not_configured"
                 record.gateway_sync_message = _(
-                    "Enter the installation API key from your Yasser Print Gateway account to connect this company."
+                    "Enter the installation API key from your Yaseir Print Gateway account to connect this company."
                 )
                 continue
             if record.last_test_status == "revoked":
                 record.gateway_sync_state = "attention"
                 record.gateway_sync_message = _(
-                    "The installation key is no longer active. Create or select a new key in Yasser Print Gateway, then save it here."
+                    "The installation key is no longer active. Create or select a new key in Yaseir Print Gateway, then save it here."
                 )
                 continue
             if record.last_test_status == "failed":
@@ -447,7 +447,7 @@ class PrintGatewayConfig(models.Model):
                 self._write_test_result_if_current(expected_revision, {
                     "last_test_at": fields.Datetime.now(),
                     "last_test_status": "revoked",
-                    "last_test_error": _("The installation key is no longer active. Create or select a new key in Yasser Print Gateway, then save it here."),
+                    "last_test_error": _("The installation key is no longer active. Create or select a new key in Yaseir Print Gateway, then save it here."),
                     "enabled": False,
                 })
                 return False
