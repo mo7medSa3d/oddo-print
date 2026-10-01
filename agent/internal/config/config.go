@@ -13,7 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/yasser-agent/agent/internal/storage"
+	"github.com/yaseir-agent/agent/internal/storage"
 )
 
 const secretStoreKey = "agent_secret"
@@ -54,6 +54,7 @@ func (c *Config) ReprintAfterCrashEnabled() bool {
 	}
 	return *c.Agent.ReprintAfterCrash
 }
+
 
 func ValidateServerURL(raw string) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
@@ -161,9 +162,9 @@ func Ensure(path string) error {
 
 	host, err := os.Hostname()
 	if err != nil || host == "" {
-		host = "yasser-agent"
+		host = "yaseir-agent"
 	}
-	name := "Yasser Agent"
+	name := "Yaseir Agent"
 	if runtime.GOOS == "windows" {
 		name = host
 	}
@@ -259,6 +260,10 @@ func ExecutableDir() (string, error) {
 }
 
 func DefaultConfigPath() string {
+	if override := os.Getenv("YASEIR_AGENT_DATA_DIR"); override != "" {
+		return filepath.Join(override, "config.yaml")
+	}
+	// Legacy fallback: pre-migration environments set YASSER_AGENT_DATA_DIR.
 	if override := os.Getenv("YASSER_AGENT_DATA_DIR"); override != "" {
 		return filepath.Join(override, "config.yaml")
 	}
@@ -266,13 +271,17 @@ func DefaultConfigPath() string {
 		return filepath.Join(override, "config.yaml")
 	}
 	if pd := os.Getenv("PROGRAMDATA"); pd != "" {
-		newPath := filepath.Join(pd, "YasserAgent", "config.yaml")
+		newPath := filepath.Join(pd, "YaseirAgent", "config.yaml")
 		if _, err := os.Stat(newPath); err == nil {
 			return newPath
 		}
-		legacyPath := filepath.Join(pd, "OdooPrintAgent", "config.yaml")
+		legacyPath := filepath.Join(pd, "YasserAgent", "config.yaml")
 		if _, err := os.Stat(legacyPath); err == nil {
 			return legacyPath
+		}
+		veryLegacyPath := filepath.Join(pd, "OdooPrintAgent", "config.yaml")
+		if _, err := os.Stat(veryLegacyPath); err == nil {
+			return veryLegacyPath
 		}
 		return newPath
 	}
@@ -391,9 +400,10 @@ func isAllowedPrinterIP(ip net.IP) bool {
 		return false
 	}
 	// Explicitly reject IPv6 Unique Local Addresses (fd00::/8) in addition to
-	// IsPrivate() which covers fc00::/7. This keeps the ULA rejection explicit
-	// rather than relying on the Go version's IsPrivate behavior.
+	// IsPrivate() which covers fc00::/7. This makes the ULA rejection visible
+	// in the code rather than relying on the Go version's IsPrivate behavior.
 	if ip.To4() == nil {
+		// IPv6: check for ULA prefix (fd00::/8)
 		if len(ip) >= 2 && ip[0] == 0xfd {
 			return false
 		}
