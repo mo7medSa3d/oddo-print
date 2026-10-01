@@ -357,6 +357,8 @@ describe("legacy session fixture contract", () => {
     expect(source).toContain("to_timestamp($5)");
     expect(source).toContain("nowSec + LEGACY_SESSION_MAX_AGE_SECONDS");
     expect(source).not.toContain("clock_timestamp() + interval '8 hours'");
+  });
+
   it("uses one claim-token redaction format across logging and timeline surfaces", async () => {
     const { redactClaimToken } = await import("../src/lib/log");
     const raw = "raw-claim-token-value";
