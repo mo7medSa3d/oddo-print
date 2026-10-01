@@ -1,8 +1,8 @@
 # AUDIT_EDIT_STATE.md
 
 Branch: `arena/01a0f87e-oddo-print` (branched from `b3459da`, never `main`).
-Last updated: 2026-10-01T20:50Z · Last modified file: `AUDIT_LOG.md` (this pass) /
-`odoo_addons/print_gateway/controllers/runtime_printers.py` (last code change).
+Last updated: 2026-10-01T21:25Z · Last modified file: `src/app/dashboard/dashboard-client.tsx`
+(fleet summary grid), `src/app/team/page.tsx` (members table), `src/lib/utils.ts` (`shortId`).
 
 ## Current phase
 
@@ -26,6 +26,7 @@ publishing the PR summary.
 | done | Odoo — Python/XML syntax, cron fields, Odoo 19 route types, ACL/record rules, translation markers |
 | done | Phase 3 — 3 dead components removed, 4 audit snapshots archived, dead-code/env-var scans |
 | done | Phase 4 — verify-email fix; design system audited (EmptyState/ErrorState/LoadingState/focusRing already present and used) |
+| done | Phase 4b — user-reported UI defects: stray card borders, clipped team table, meaningless `printer_` id text, airy table rows |
 | blocked | Local execution of Go, Rust and Node toolchains — none installed and installing is forbidden (see UNVERIFIED) |
 | blocked | Physical printer, Windows service, live Odoo 19 and live PostgreSQL validation |
 
@@ -53,9 +54,11 @@ publishing the PR summary.
 
 ## RESUME HERE
 
-Push the branch and publish the final Pull Request summary (PR #111 already exists from
-the earlier push; update its body with the counts, the executed commands and the
-UNVERIFIED list below). No further code work is pending.
+Push the branch and update the PR description with the UI fixes (PR #111 is open).
+If the user reports that the card border glitch persists, the next hypothesis to check
+is the fleet pill + refresh button wrapping inside the 44px card header at narrow
+widths — the two reports were described in prose, not seen, so point 1 is diagnosed
+from the divider semantics rather than from the image.
 
 ## Final summary
 
