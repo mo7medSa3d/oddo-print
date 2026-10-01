@@ -1,4 +1,3 @@
-# temporary merge bridge; remove after sync
 name: Temporary main-to-test sync
 
 on:
@@ -8,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   sync:
@@ -19,7 +18,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build merged test tree
+      - name: Merge latest main into test
         shell: bash
         run: |
           set -euo pipefail
@@ -28,13 +27,4 @@ jobs:
           git fetch origin main
           git checkout test/http-server-ready
           git merge --no-edit -X theirs origin/main
-          git rev-parse HEAD | tee /tmp/merged-head.txt
-          tar --exclude=.git -czf /tmp/merged-test-tree.tar.gz .
-
-      - name: Upload merged test tree
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v4
-        with:
-          name: merged-test-tree
-          path: |
-            /tmp/merged-test-tree.tar.gz
-            /tmp/merged-head.txt
+          git push origin HEAD:test/http-server-ready
