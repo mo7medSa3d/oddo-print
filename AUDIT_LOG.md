@@ -39,3 +39,23 @@
 - Why: prove the Win32 session and status logic with fakes, with no printer, driver or spooler present.
 - Evidence: `git diff --stat` shows the test file grew; UNVERIFIED: `go test` not runnable here.
 - Still needs real hardware: actual paper output, driver rendering, XPS/EMF data types, SNMP/Standard-TCP/IP false-offline behaviour, WSD, and Windows-service (session 0) visibility of per-user queues.
+
+## 2026-10-01T18:16:00Z — Odoo addon: static syntax and API review
+- Files: all 47 Python files and 9 XML files of `odoo_addons/print_gateway`.
+- Result: **0 failures**. `py_compile` on every `.py` and `xml.dom.minidom` parse on every `.xml` (Python 3.11.2 stdlib only) both passed; command output recorded above ("python files: 47 failures: 0", "xml files: 9 cumulative failures: 0").
+- Corrected an earlier false alarm: a line-oriented grep suggested 15 `requests.*` calls had no timeout; a paren-balanced rescan of every call block showed all of them DO pass `timeout=` (5/10/15/20s). No change made.
+- Verified clean: `data/cron.xml` does not use the Odoo-17-removed `numbercall`/`doall` fields; `controllers/runtime_printers.py` already uses the Odoo 19 `type='jsonrpc'` route type (https://www.odoo.com/documentation/19.0/developer/reference/external_api.html); `print_gateway.print_router` is an AbstractModel, so its absence from `ir.model.access.csv` is correct, not a missing ACL; record rules exist for all six stored models.
+- UNVERIFIED: `point_of_sale._assets_pos` bundle name for Odoo 19 (no Odoo 19 source available offline; community reports show `_assets_pos` from 17 onwards but an Odoo 19 forum post used `assets_prod`), POS `PosController.print_sale_details` override signature, and all runtime behaviour (no Odoo server).
+
+## 2026-10-01T18:24:00Z — Gateway database: schema/migration/doc drift check + docs/DATABASE.md
+- Files: new `docs/DATABASE.md`, new `scripts/check-db-docs.py`, `package.json` (`db:docs:check`).
+- Finding: the brief stated "20 tables after migrations 0028-0036"; reality is **24 tables across 76 migration files (0000–0075)**, of which 31 tables were created and 7 legacy ones dropped (`applications`, `branches`, `destinations`, `document_types`, `local_networks`, `print_job_rate_limits`, `printer_bindings`).
+- Fix: generated `docs/DATABASE.md` mechanically from `src/db/schema.ts` + `drizzle/*.sql` (per-table creating migration, index count, late foreign keys) and added a stdlib-only checker so drift fails loudly. Every schema table is created by a migration and every created table is either in the schema or dropped later.
+- Evidence: `python3 scripts/check-db-docs.py` => "current tables: 24 … OK: schema.ts, migrations and docs/DATABASE.md are in sync." exit=0.
+- UNVERIFIED: PostgreSQL itself (no server, no `psql`), so constraint/trigger behaviour is unverified.
+
+## 2026-10-01T18:31:00Z — Gateway: route authentication sweep (no unauthenticated route found)
+- Scope: all 76 `.ts` files under `src/app/api`.
+- Method: symbol scan for every auth helper actually used in the tree (`validateWorkspaceManager` 28, `validateManager` 6, `validateOdooKey` 6, `requireManagerPermission` 5, `validateAgent` 3, `requirePlatformOwner` 12, `verifyStripeSignature` 1). Two earlier scans produced false positives because they looked for helper names that do not exist in this codebase; both were re-run with the real names before any conclusion.
+- Result: every route either authenticates or is intentionally public (`health`, `live`, login/refresh/register/reset/verify endpoints, `billing/plans`, pairing-based `agent/register`, token-based `team/invitations/accept`, and the signature-verified Stripe webhook). Rate limiting (`reserveAuthAttempt`) and body limits (`hasBodyOverLimit`) are applied on the token-guessing endpoints.
+- No code changed: this is a scan result, not a fix. UNVERIFIED: authorization (tenant scoping inside each handler) was not re-derived per route; only the presence of authentication was checked, and nothing was compiled or run.

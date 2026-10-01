@@ -55,12 +55,15 @@ Full tracked source paths were enumerated with `git ls-files` at session start. 
 | doing | Agent: remaining printer backends (network/IPP/USB/PDF), queue/idempotency, reconnect/heartbeat, config/service, CLI |
 | todo | Agent: all other printer backends, queue/idempotency, reconnect/heartbeat, config/service and CLI |
 | todo | Gateway: all auth/tenant/input/security paths, WS/job dispatch, API consumers |
-| todo | Gateway DB: schema + every migration, indexes/transactions, synchronize `docs/DATABASE.md` |
+| done | Gateway DB: schema vs 76 migrations verified in sync; `docs/DATABASE.md` generated; `scripts/check-db-docs.py` added and passing |
+| done | Odoo: Python/XML syntax (47 + 9 files), cron fields, jsonrpc routes, ACL/record-rule review |
+| done | Gateway: authentication sweep across all 76 API route files |
+| done | Cleanup: archived 4 unreferenced old audit snapshots to `archive/` |
 | todo | Tauri: IPC/permissions, child lifecycle, shutdown/error paths |
 | todo | Odoo 19: Python/XML/JS, ACLs/record rules, transport failures and official API compatibility |
 | todo | Cleanup: prove unused references before removing/moving dead code/reports |
 | todo | UI/UX: dashboard/core flow accessibility, async states, RTL, responsive polish |
-| todo | Available-only pre-push checks; fix failures or mark blocked; small scoped commits |
+| doing | Pre-push gate: run everything available locally, push, then let GitHub Actions (go build/vet/test -race, staticcheck, npm ci/typecheck/lint/test, Odoo pytest) verify the rest and fix failures |
 
 ## Architectural decisions
 - Prioritize Windows printer correctness, using Microsoft Learn contracts, preserving honest unknown-outcome semantics: never automatically retry a possibly submitted job.

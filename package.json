@@ -1,7 +1,7 @@
 {
   "name": "yasser-gateway",
   "version": "1.0.0",
-  "description": "Yaseir — Cloud Printing Platform (Next.js + PostgreSQL + Drizzle), Windows Go agent, and Tauri desktop manager",
+  "description": "Yaseir \u2014 Cloud Printing Platform (Next.js + PostgreSQL + Drizzle), Windows Go agent, and Tauri desktop manager",
   "license": "MIT",
   "private": true,
   "engines": {
@@ -31,7 +31,8 @@
     "test:odoo:static": "pytest tests/test_odoo19_printing_static.py",
     "build": "next build --webpack",
     "db:provision-plans": "tsx scripts/provision-plans.ts",
-    "platform:bootstrap": "tsx scripts/bootstrap-platform-owner.ts"
+    "platform:bootstrap": "tsx scripts/bootstrap-platform-owner.ts",
+    "db:docs:check": "python3 scripts/check-db-docs.py"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
