@@ -100,14 +100,14 @@ export default function LoginPage() {
 
   if (checkingSession) {
     return (
-      <AuthShell subtitle="Yaseir Print Gateway">
-        <div className="space-y-4" role="status" aria-label="Checking your session">
+      <AuthShell subtitle={t("auth.shell.gateway")}>
+        <div className="space-y-4" role="status" aria-label={t("auth.session.checking")}>
           <Skeleton className="h-7 w-40" />
           <Skeleton className="h-4 w-64" />
           <Skeleton className="mt-6 h-10 w-full" />
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
-          <span className="sr-only">Checking your session…</span>
+          <span className="sr-only">{t("auth.session.checkingShort")}</span>
         </div>
       </AuthShell>
     );
@@ -115,15 +115,15 @@ export default function LoginPage() {
 
   return (
     <AuthShell
-      subtitle="Yaseir Print Gateway"
+      subtitle={t("auth.shell.gateway")}
       eyebrow={t("auth.signIn.eyebrow")}
       title={t("auth.signIn.title")}
       description={t("auth.signIn.description")}
       footer={
         <>
-          Need an account?{" "}
+          {t("auth.signIn.noAccount")}{" "}
           <Link href="/signup" className="font-[600] text-brand hover:text-brand-hover hover:underline">
-            Create one
+            {t("auth.signIn.createOne")}
           </Link>
         </>
       }
@@ -150,7 +150,7 @@ export default function LoginPage() {
               href="/forgot-password"
               className="text-sm font-[550] text-ink-3 transition-colors hover:text-brand"
             >
-              Forgot password?
+              {t("auth.password.forgot")}
             </Link>
           }
         >
@@ -171,7 +171,7 @@ export default function LoginPage() {
           <div className="rounded-sg border border-edge-accent bg-brand-subtle p-4">
             <div className="flex items-center gap-2 text-sm font-[600] text-ink">
               <Building2 className="h-4 w-4 text-brand" aria-hidden />
-              Choose a workspace
+              {t("auth.signIn.chooseWorkspace")}
             </div>
             <p className="mt-1 text-sm text-ink-2">
               This account belongs to more than one workspace.

@@ -5,16 +5,18 @@ import { usePathname, useRouter } from "next/navigation";
 import { Activity, Building2, CreditCard, Tags, Shield } from "lucide-react";
 import { TopNavbar, type TopNavItem } from "../../components/TopNavbar";
 import { PageContainer } from "../../components/ui";
+import { useI18n } from "../../i18n/react";
 
 const NAV_ITEMS: TopNavItem[] = [
-  { href: "/platform/dashboard", label: "Overview", icon: Activity, section: "Operations" },
-  { href: "/platform/tenants", label: "Tenants", icon: Building2, section: "Operations" },
-  { href: "/platform/subscriptions", label: "Subscriptions", icon: CreditCard, section: "Commerce" },
-  { href: "/platform/plans", label: "Plans", icon: Tags, section: "Commerce" },
-  { href: "/platform/audit", label: "Audit", icon: Shield, section: "Security" },
+  { href: "/platform/dashboard", labelKey: "platform.nav.overview", icon: Activity, sectionKey: "platform.section.operations", keywords: "overview dashboard platform" },
+  { href: "/platform/tenants", labelKey: "platform.nav.tenants", icon: Building2, sectionKey: "platform.section.operations", keywords: "tenants customers workspaces" },
+  { href: "/platform/subscriptions", labelKey: "platform.nav.subscriptions", icon: CreditCard, sectionKey: "platform.section.commerce", keywords: "subscriptions billing invoices" },
+  { href: "/platform/plans", labelKey: "platform.nav.plans", icon: Tags, sectionKey: "platform.section.commerce", keywords: "plans pricing tiers" },
+  { href: "/platform/audit", labelKey: "platform.nav.audit", icon: Shield, sectionKey: "platform.section.security", keywords: "audit trail logs security" },
 ];
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
+  const { t } = useI18n();
   const pathname = usePathname();
   const router = useRouter();
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -87,7 +89,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
   if (authenticated === null) {
     return (
       <div className="min-h-screen bg-app" aria-busy="true">
-        <span className="sr-only">Checking session…</span>
+        <span className="sr-only">{t("platform.session.checking")}</span>
       </div>
     );
   }
@@ -95,7 +97,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
   if (authenticated === false) {
     return (
       <div className="min-h-screen bg-app" aria-busy="true">
-        <span className="sr-only">Redirecting to sign in…</span>
+        <span className="sr-only">{t("platform.session.redirecting")}</span>
       </div>
     );
   }
@@ -106,7 +108,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         items={NAV_ITEMS}
         brandHref="/platform/dashboard"
         brandTitle="Yaseir"
-        brandSubtitle="Control Plane"
+        brandSubtitle={t("platform.brand.controlPlane")}
         onLogout={handleLogout}
         variant="platform"
       />

@@ -4,11 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { Button, Modal, Toast } from "./ui";
+import { useI18n } from "../i18n/react";
 
 const RETENTION_DAYS = 30;
 
 export function JobCleanupButton() {
   const router = useRouter();
+  const { t, tc, formatNumber } = useI18n();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,19 +31,19 @@ export function JobCleanupButton() {
         deleted?: number;
         error?: string;
       };
-      if (!response.ok) throw new Error(data.error ?? "Failed to clean print jobs");
+      if (!response.ok) throw new Error(data.error ?? t("jobs.cleanup.failed"));
 
       const count = Number(data.deleted ?? 0);
       setSuccessMessage(
         count === 0
-          ? "No terminal print jobs older than 30 days were found."
-          : `Successfully cleaned ${count} print job${count === 1 ? "" : "s"}.`
+          ? t("jobs.cleanup.noneEligible", { days: RETENTION_DAYS })
+          : tc("jobs.cleanup.removed", count, { count: formatNumber(count) })
       );
       router.refresh();
       return true;
     } catch (cleanupError) {
       setError(
-        cleanupError instanceof Error ? cleanupError.message : "Failed to clean print jobs"
+        cleanupError instanceof Error ? cleanupError.message : t("jobs.cleanup.failed")
       );
       return false;
     } finally {
@@ -51,7 +53,7 @@ export function JobCleanupButton() {
 
   const runCleanup = async () => {
     if (await cleanup()) {
-      setDone("Print history cleaned");
+      setDone(t("jobs.cleanup.done"));
       setOpen(false);
     }
   };
@@ -69,7 +71,7 @@ export function JobCleanupButton() {
           }}
           icon={<Trash2 className="h-4 w-4" />}
         >
-          Clean jobs
+          {t("jobs.cleanup.action")}
         </Button>
         {successMessage ? (
           <span role="status" className="text-xs text-ok font-medium">
@@ -84,12 +86,12 @@ export function JobCleanupButton() {
         onClose={() => {
           if (!busy) setOpen(false);
         }}
-        title="Clean print jobs?"
-        description={`Remove terminal Gateway history older than ${RETENTION_DAYS} days. The operation is capped at 5,000 jobs.`}
+        title={t("jobs.cleanup.title")}
+        description={t("jobs.cleanup.description", { days: RETENTION_DAYS })}
         footer={
           <>
             <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="danger"
@@ -97,17 +99,15 @@ export function JobCleanupButton() {
               loading={busy}
               icon={<Trash2 className="h-4 w-4" />}
             >
-              Clean jobs
+              {t("jobs.cleanup.action")}
             </Button>
           </>
         }
       >
         <div className="space-y-3 text-sm text-ink-2">
-          <p>Only completed, failed and expired jobs older than {RETENTION_DAYS} days are removed.</p>
-          <p>Queued, claimed and printing jobs are never touched.</p>
-          <p className="font-medium text-warn">
-            This removes Gateway print history and cannot be undone.
-          </p>
+          <p>{t("jobs.cleanup.bodyScope", { days: RETENTION_DAYS })}</p>
+          <p>{t("jobs.cleanup.bodyActive")}</p>
+          <p className="font-medium text-warn">{t("jobs.cleanup.bodyIrreversible")}</p>
         </div>
       </Modal>
 

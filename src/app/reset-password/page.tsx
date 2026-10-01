@@ -49,10 +49,10 @@ function ResetPasswordContent() {
       description={t("auth.reset.description")}
     >
       {done ? (
-        <Callout tone="ok" icon={<CheckCircle2 className="h-4 w-4" aria-hidden />} title="Password updated">
-          Taking you to sign in…{" "}
+        <Callout tone="ok" icon={<CheckCircle2 className="h-4 w-4" aria-hidden />} title={t("auth.reset.updatedTitle")}>
+          {t("auth.reset.takingYou")}{" "}
           <Link href="/login" className="font-[600] underline">
-            Continue now
+            {t("auth.reset.continueNow")}
           </Link>
           .
         </Callout>
@@ -95,16 +95,17 @@ function ResetPasswordContent() {
 }
 
 export default function ResetPassword() {
+  const { t } = useI18n();
   return (
     <Suspense
       fallback={
         <AuthShell subtitle={t("auth.forgot.eyebrow")}>
-          <div className="space-y-4" role="status" aria-label="Loading">
+          <div className="space-y-4" role="status" aria-label={t("auth.reset.loadingAria")}>
             <Skeleton className="h-7 w-56" />
             <Skeleton className="h-4 w-full" />
             <Skeleton className="mt-6 h-10 w-full" />
             <Skeleton className="h-10 w-full" />
-            <span className="sr-only">Loading…</span>
+            <span className="sr-only">{t("auth.reset.loadingShort")}</span>
           </div>
         </AuthShell>
       }

@@ -564,6 +564,8 @@ function AuthenticatedHome({
   canBilling,
   canTeam,
 }: {
+  t: Translator;
+  locale: Locale;
   tenantName: string;
   role: string;
   planName: string | null;

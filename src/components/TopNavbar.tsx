@@ -14,14 +14,17 @@ import type { MessageKey } from "../i18n/messages/en";
 
 export type TopNavItem = {
   href: string;
-  /** English fallback, still used for search keywords and untranslated surfaces. */
-  label: string;
+  /** English fallback for items that carry no `labelKey`. */
+  label?: string;
   icon?: ComponentType<{ className?: string }>;
   section?: string;
   /** Semantic i18n key for the label. Falls back to `label` when absent. */
   labelKey?: MessageKey;
   /** Semantic i18n key for the section heading. Falls back to `section`. */
   sectionKey?: MessageKey;
+  /** Lower-case search keywords; indexed in both locales so operators can type
+   *  either the English or the translated name and still find the screen. */
+  keywords?: string;
 };
 
 type TopNavbarProps = {
@@ -99,7 +102,7 @@ export function TopNavbar({
         {isPlatform && (
           <span className="hidden shrink-0 items-center gap-1.5 rounded-sm border border-edge bg-surface-2 px-2 py-0.5 text-2xs font-[600] text-ink-3 sm:inline-flex">
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--platform-accent)" }} aria-hidden />
-            Control plane
+            {t("nav.controlPlaneBadge")}
           </span>
         )}
 

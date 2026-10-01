@@ -53,7 +53,7 @@ export default function Signup() {
 
   return (
     <AuthShell
-      subtitle="Yaseir Print Gateway"
+      subtitle={t("auth.shell.gateway")}
       eyebrow={t("auth.signup.eyebrow")}
       title={t("auth.signup.title")}
       description={t("auth.signup.description")}

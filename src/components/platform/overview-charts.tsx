@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { useI18n } from "../../i18n/react";
 
 export type OverviewHourlyPoint = {
   bucket: string;
@@ -25,10 +26,6 @@ type Subscriptions = {
   paused: number;
   cancelled: number;
 };
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat().format(value);
-}
 
 function rate(value: number, total: number) {
   return total > 0 ? Math.round((value / total) * 100) : 0;
@@ -65,6 +62,7 @@ export function PrintThroughputChart({
 }: {
   data: OverviewHourlyPoint[];
 }) {
+  const { t, formatNumber, formatTime } = useI18n();
   const width = 760;
   const height = 270;
   const top = 22;
@@ -74,23 +72,21 @@ export function PrintThroughputChart({
   const failed = data.map((point) => point.failed);
   const max = Math.max(1, ...totals);
 
-  const labels = data.map((point) =>
-    new Date(point.bucket).toLocaleTimeString([], { hour: "2-digit", hour12: false }),
-  );
+  const labels = data.map((point) => formatTime(point.bucket));
 
   return (
     <div className="mt-5">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-2xs text-ink-3">
-        <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-brand-solid" />All print jobs</span>
-        <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-ok-solid" />Successful</span>
-        <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-bad-solid" />Failed</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-brand-solid" />{t("platform.chart.allPrintJobs")}</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-ok-solid" />{t("platform.chart.successful")}</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-bad-solid" />{t("platform.chart.failed")}</span>
       </div>
       <div className="mt-3 overflow-hidden rounded-xl border border-edge bg-surface-2 px-2 py-3">
         <svg
           viewBox={`0 0 ${width} ${height}`}
           className="h-[260px] w-full"
           role="img"
-          aria-label="Print job volume over the last 24 hours"
+          aria-label={t("platform.chart.throughputAria")}
         >
           {[0, 0.25, 0.5, 0.75, 1].map((fraction) => {
             const y = top + (height - top - bottom) * (1 - fraction);
@@ -115,7 +111,7 @@ export function PrintThroughputChart({
             const y = top + (height - top - bottom) * (1 - point.total / max);
             return (
               <circle key={point.bucket} cx={x} cy={y} r="3" className="fill-brand-solid stroke-surface-2" strokeWidth="2">
-                <title>{`${labels[index]} — ${formatNumber(point.total)} jobs`}</title>
+                <title>{t("platform.chart.pointTitle", { time: labels[index] ?? "", count: formatNumber(point.total) })}</title>
               </circle>
             );
           })}
@@ -145,6 +141,7 @@ function AvailabilityRing({
   total: number;
   tone: "brand" | "ok";
 }) {
+  const { t, formatNumber } = useI18n();
   const percentage = rate(online, total);
   const radius = 38;
   const circumference = 2 * Math.PI * radius;
@@ -174,7 +171,7 @@ function AvailabilityRing({
       <div className="min-w-0">
         <div className="text-sm font-semibold text-ink">{label}</div>
         <div className="mt-1 text-xs text-ink-3">
-          {formatNumber(online)} online of {formatNumber(total)}
+          {t("platform.fleet.onlineOfTotal", { online: formatNumber(online), total: formatNumber(total) })}
         </div>
         <div
           className={`mt-2 inline-flex items-center gap-1.5 text-2xs font-[550] ${
@@ -186,7 +183,7 @@ function AvailabilityRing({
           ) : (
             <AlertTriangle className="h-3 w-3" aria-hidden />
           )}
-          {percentage >= 95 ? "Healthy coverage" : percentage >= 80 ? "Some attention needed" : "Operational risk"}
+          {percentage >= 95 ? t("platform.fleet.healthy") : percentage >= 80 ? t("platform.fleet.attention") : t("platform.fleet.risk")}
         </div>
       </div>
     </div>
@@ -194,21 +191,23 @@ function AvailabilityRing({
 }
 
 export function FleetHealthChart({ fleet }: { fleet: Fleet }) {
+  const { t } = useI18n();
   return (
     <div className="mt-5 grid gap-5 sm:grid-cols-2">
-      <AvailabilityRing label="Agents" online={fleet.agents.online} total={fleet.agents.total} tone="brand" />
-      <AvailabilityRing label="Printers" online={fleet.printers.online} total={fleet.printers.total} tone="ok" />
+      <AvailabilityRing label={t("platform.fleet.agents")} online={fleet.agents.online} total={fleet.agents.total} tone="brand" />
+      <AvailabilityRing label={t("platform.fleet.printers")} online={fleet.printers.online} total={fleet.printers.total} tone="ok" />
     </div>
   );
 }
 
 export function SubscriptionMixChart({ subscriptions }: { subscriptions: Subscriptions }) {
+  const { t, formatNumber } = useI18n();
   const segments = [
-    { label: "Active", value: subscriptions.active, className: "bg-ok-solid" },
-    { label: "Trialing", value: subscriptions.trialing, className: "bg-info-solid" },
-    { label: "Needs attention", value: subscriptions.attention, className: "bg-warn-solid" },
-    { label: "Paused", value: subscriptions.paused, className: "bg-surface-4" },
-    { label: "Cancelled", value: subscriptions.cancelled, className: "bg-bad-solid" },
+    { id: "active", label: t("platform.subs.active"), value: subscriptions.active, className: "bg-ok-solid" },
+    { id: "trialing", label: t("platform.subs.trialing"), value: subscriptions.trialing, className: "bg-info-solid" },
+    { id: "attention", label: t("platform.subs.attention"), value: subscriptions.attention, className: "bg-warn-solid" },
+    { id: "paused", label: t("platform.subs.paused"), value: subscriptions.paused, className: "bg-surface-4" },
+    { id: "cancelled", label: t("platform.subs.cancelled"), value: subscriptions.cancelled, className: "bg-bad-solid" },
   ];
   const total = Math.max(1, subscriptions.total);
 
@@ -217,16 +216,16 @@ export function SubscriptionMixChart({ subscriptions }: { subscriptions: Subscri
       <div className="flex h-3 overflow-hidden rounded-sm bg-surface-3" aria-hidden>
         {segments.map((segment) => (
           <div
-            key={segment.label}
+            key={segment.id}
             className={segment.className}
             style={{ width: `${(segment.value / total) * 100}%` }}
-            title={`${segment.label}: ${formatNumber(segment.value)}`}
+            title={t("platform.subs.segmentTitle", { label: segment.label, value: formatNumber(segment.value) })}
           />
         ))}
       </div>
       <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3">
         {segments.map((segment) => (
-          <div key={segment.label} className="flex items-center justify-between gap-3 text-xs">
+          <div key={segment.id} className="flex items-center justify-between gap-3 text-xs">
             <span className="inline-flex items-center gap-2 text-ink-3">
               <span className={`h-2 w-2 rounded-full ${segment.className}`} />
               {segment.label}
@@ -250,35 +249,41 @@ export function OperationalSignals({
   printers: { offline: number };
   pastDue: number;
 }) {
+  const { t, formatNumber } = useI18n();
   const signals = [
     {
-      label: "Print reliability",
+      id: "reliability",
+      label: t("platform.signal.reliability"),
       value: jobs.failed + jobs.expired,
-      detail: "failed + expired jobs / 24h",
+      detail: t("platform.signal.reliability.detail"),
       tone: jobs.failed + jobs.expired === 0 ? "ok" : "bad",
     },
     {
-      label: "Queue pressure",
+      id: "queue",
+      label: t("platform.signal.queuePressure"),
       value: jobs.queued + jobs.inFlight,
-      detail: "jobs currently open",
+      detail: t("platform.signal.queuePressure.detail"),
       tone: jobs.queued + jobs.inFlight === 0 ? "ok" : "warn",
     },
     {
-      label: "Offline agents",
+      id: "agents",
+      label: t("platform.signal.offlineAgents"),
       value: agents.offline,
-      detail: "agents outside healthy heartbeat window",
+      detail: t("platform.signal.offlineAgents.detail"),
       tone: agents.offline === 0 ? "ok" : "warn",
     },
     {
-      label: "Offline printers",
+      id: "printers",
+      label: t("platform.signal.offlinePrinters"),
       value: printers.offline,
-      detail: "printers not currently available",
+      detail: t("platform.signal.offlinePrinters.detail"),
       tone: printers.offline === 0 ? "ok" : "warn",
     },
     {
-      label: "Billing attention",
+      id: "billing",
+      label: t("platform.signal.billing"),
       value: pastDue,
-      detail: "subscriptions past due",
+      detail: t("platform.signal.billing.detail"),
       tone: pastDue === 0 ? "ok" : "warn",
     },
   ] as const;
@@ -286,7 +291,7 @@ export function OperationalSignals({
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {signals.map((signal) => (
-        <div key={signal.label} className="inset-panel p-4">
+        <div key={signal.id} className="inset-panel p-4">
           <div className="text-sm font-[600] text-ink-2">{signal.label}</div>
           <div className="mt-2.5 flex items-baseline gap-2">
             <span className="text-2xl font-[660] tabular-nums tracking-[-0.02em] text-ink">
@@ -302,7 +307,7 @@ export function OperationalSignals({
               ) : (
                 <AlertTriangle className="h-3 w-3" aria-hidden />
               )}
-              {signal.tone === "ok" ? "Clear" : signal.tone === "warn" ? "Watch" : "Action"}
+              {signal.tone === "ok" ? t("platform.signal.clear") : signal.tone === "warn" ? t("platform.signal.watch") : t("platform.signal.action")}
             </span>
           </div>
           <div className="mt-1 text-xs text-ink-4">{signal.detail}</div>

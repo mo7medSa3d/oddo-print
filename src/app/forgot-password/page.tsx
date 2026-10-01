@@ -50,9 +50,8 @@ export default function Forgot() {
       description={t("auth.forgot.description")}
     >
       {done ? (
-        <Callout tone="ok" icon={<MailCheck className="h-4 w-4" aria-hidden />} title="Check your inbox">
-          If that account exists, a reset link is on its way. The link expires shortly, so use it
-          soon.
+        <Callout tone="ok" icon={<MailCheck className="h-4 w-4" aria-hidden />} title={t("auth.forgot.inboxTitle")}>
+          {t("auth.forgot.inboxBody")}
         </Callout>
       ) : (
         <form className="space-y-4" onSubmit={submit}>
@@ -86,7 +85,7 @@ export default function Forgot() {
         href="/login"
         className="mt-6 inline-flex items-center gap-1.5 text-sm font-[550] text-ink-3 transition-colors hover:text-ink"
       >
-        <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Back to sign in
+        <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> {t("auth.forgot.backToSignIn")}
       </Link>
     </AuthShell>
   );

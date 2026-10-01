@@ -3,34 +3,36 @@
 import { ArrowUpRight, CircleAlert } from "lucide-react";
 import Link from "next/link";
 import { Modal } from "./ui";
+import { useI18n } from "../i18n/react";
+import type { MessageKey } from "../i18n/messages/en";
 
 export type UpgradeLimitResource = "agents" | "printers" | "prints" | "rate" | "concurrency";
 
-const COPY: Record<UpgradeLimitResource, { title: string; unit: string; description: string }> = {
+const COPY: Record<UpgradeLimitResource, { title: MessageKey; unit: MessageKey; description: MessageKey }> = {
   agents: {
-    title: "Agent limit reached",
-    unit: "active agents",
-    description: "Your current plan has reached its active Agent capacity. Upgrade the plan to pair another Agent.",
+    title: "limit.title.agents",
+    unit: "limit.unit.agents",
+    description: "limit.description.agents",
   },
   printers: {
-    title: "Printer limit reached",
-    unit: "active printers",
-    description: "Your current plan has reached its printer capacity. Upgrade the plan to provision another printer.",
+    title: "limit.title.printers",
+    unit: "limit.unit.printers",
+    description: "limit.description.printers",
   },
   prints: {
-    title: "Print limit reached",
-    unit: "print jobs",
-    description: "Your current plan has used its included print jobs for this billing period. Upgrade the plan to continue creating new print jobs.",
+    title: "limit.title.prints",
+    unit: "limit.unit.prints",
+    description: "limit.description.prints",
   },
   rate: {
-    title: "Print rate limit reached",
-    unit: "jobs per minute",
-    description: "Your current plan has reached its print throughput limit. New jobs will be accepted again when the rolling limit clears.",
+    title: "limit.title.rate",
+    unit: "limit.unit.rate",
+    description: "limit.description.rate",
   },
   concurrency: {
-    title: "Concurrent print limit reached",
-    unit: "active print jobs",
-    description: "Your current plan has reached its active print-job capacity. Wait for in-flight jobs to finish or upgrade the plan.",
+    title: "limit.title.concurrency",
+    unit: "limit.unit.concurrency",
+    description: "limit.description.concurrency",
   },
 };
 
@@ -51,12 +53,14 @@ export default function UpgradeLimitDialog({
   periodEnd?: string | Date | null;
   retryAfterSeconds?: number | null;
 }) {
+  const { t, tc, formatNumber, formatDate } = useI18n();
   const copy = COPY[resource];
-  const usedText = typeof used === "number" ? used.toLocaleString() : "—";
-  const limitText = limit === "unlimited" ? "Unlimited" : typeof limit === "number" ? limit.toLocaleString() : "—";
+  const usedText = typeof used === "number" ? formatNumber(used) : "—";
+  const limitText = limit === "unlimited" ? t("limit.unlimited") : typeof limit === "number" ? formatNumber(limit) : "—";
   const end = periodEnd ? new Date(periodEnd) : null;
-  const periodText = end && !Number.isNaN(end.getTime())
-    ? end.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+  const periodText = end && !Number.isNaN(end.getTime()) ? formatDate(end) : null;
+  const retryMinutes = typeof retryAfterSeconds === "number" && retryAfterSeconds > 0
+    ? Math.max(1, Math.ceil(retryAfterSeconds / 60))
     : null;
 
   return (
@@ -64,37 +68,35 @@ export default function UpgradeLimitDialog({
       open={open}
       onClose={onClose}
       title={copy.title}
-      description="The Gateway enforces plan limits server-side, so no new print operation or resource is admitted beyond the plan allowance."
+      description={t("limit.modalDescription")}
     >
       <div className="space-y-5">
         <div className="flex items-start gap-3 rounded-sg border border-warn-edge bg-warn-bg px-4 py-3.5 text-sm text-warn">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <p className="leading-relaxed">{copy.description}</p>
+          <p className="leading-relaxed">{t(copy.description)}</p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-sg border border-edge bg-surface-2 px-4 py-3.5">
-            <div className="text-2xs font-semibold uppercase tracking-[0.08em] text-ink-4">Used</div>
+            <div className="text-2xs font-semibold uppercase tracking-[0.08em] text-ink-4">{t("limit.used")}</div>
             <div className="mt-1.5 text-xl font-bold tabular-nums text-ink">{usedText}</div>
           </div>
           <div className="rounded-sg border border-edge bg-surface-2 px-4 py-3.5">
-            <div className="text-2xs font-semibold uppercase tracking-[0.08em] text-ink-4">Plan limit</div>
+            <div className="text-2xs font-semibold uppercase tracking-[0.08em] text-ink-4">{t("limit.planLimit")}</div>
             <div className="mt-1.5 text-xl font-bold tabular-nums text-ink">{limitText}</div>
           </div>
         </div>
 
         <p className="text-xs leading-relaxed text-ink-3">
           {resource === "prints"
-            ? "Metering unit: 1 admitted Gateway print job = 1 print credit."
+            ? t("limit.note.prints")
             : resource === "rate"
-              ? "This is a rolling 60-second limit, not a calendar-minute allowance."
+              ? t("limit.note.rate")
               : resource === "concurrency"
-                ? "This limit counts queued, claimed, and actively printing jobs."
-                : `Current capacity: ${limitText} ${copy.unit}.`}
-          {periodText ? ` The current billing period ends ${periodText}.` : ""}
-          {typeof retryAfterSeconds === "number" && retryAfterSeconds > 0
-            ? ` Try again in about ${Math.ceil(retryAfterSeconds / 60)} minute${Math.ceil(retryAfterSeconds / 60) === 1 ? "" : "s"}.`
-            : ""}
+                ? t("limit.note.concurrency")
+                : t("limit.note.capacity", { limit: limitText, unit: t(copy.unit) })}
+          {periodText ? ` ${t("limit.note.periodEnds", { date: periodText })}` : ""}
+          {retryMinutes ? ` ${tc("limit.note.retryMinutes", retryMinutes, { count: retryMinutes })}` : ""}
         </p>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -103,14 +105,14 @@ export default function UpgradeLimitDialog({
             onClick={onClose}
             className="inline-flex h-10 items-center justify-center rounded-sm border border-edge-strong bg-surface-2 px-4 text-sm font-semibold text-ink-2 transition hover:bg-surface-3 hover:text-ink"
           >
-            Close
+            {t("ui.closeDialog")}
           </button>
           <Link
             href="/billing"
             onClick={onClose}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-sm bg-brand px-4 text-sm font-semibold text-brand-contrast transition hover:bg-brand-hover"
           >
-            Upgrade plan
+            {t("limit.upgradePlan")}
             <ArrowUpRight className="h-4 w-4" />
           </Link>
         </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useI18n } from "../i18n/react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
@@ -480,20 +481,21 @@ export function BillingPremiumCard({
   actions?: React.ReactNode;
   entitlements?: Array<{ label: string; value: string }>;
 }) {
+  const { t } = useI18n();
   return (
     <div className="billing-premium p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="inline-flex items-center gap-1.5 rounded-sm border border-edge-accent bg-brand-subtle px-2 py-0.5 text-2xs font-[600] tracking-[0.02em] text-brand-subtle-text">
             <span className="h-1.5 w-1.5 rounded-full bg-brand" aria-hidden />
-            Current plan
+            {t("ui.currentPlan")}
           </div>
           <div className="mt-2.5 text-xl font-[640] tracking-[-0.02em] text-ink">{plan}</div>
           {status && <div className="mt-0.5 text-sm text-ink-3">{status}</div>}
         </div>
         {balance && (
           <div className="text-end">
-            <div className="label-caps text-ink-3">Balance</div>
+            <div className="label-caps text-ink-3">{t("ui.balance")}</div>
             <div className="mt-1 text-2xl font-[640] tracking-[-0.02em] text-ink tabular">{balance}</div>
           </div>
         )}
@@ -502,10 +504,10 @@ export function BillingPremiumCard({
       {typeof usagePercent === "number" && (
         <div className="mt-5">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-ink-3">Usage this period</span>
+            <span className="text-ink-3">{t("ui.usageThisPeriod")}</span>
             <span className="font-[600] text-ink tabular">{usagePercent}%</span>
           </div>
-          <Progress value={usagePercent} label="Plan usage" className="mt-2" tone={usagePercent >= 90 ? "warn" : "brand"} />
+          <Progress value={usagePercent} label={t("ui.planUsage")} className="mt-2" tone={usagePercent >= 90 ? "warn" : "brand"} />
         </div>
       )}
 
@@ -540,11 +542,12 @@ export function BalanceCard({
   actions?: React.ReactNode;
   footer?: React.ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <div className="balance-card p-5 sm:p-6">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="label-caps text-ink-3">Current balance</div>
+          <div className="label-caps text-ink-3">{t("ui.currentBalance")}</div>
           <div className="mt-2 text-3xl font-[640] tracking-[-0.025em] leading-none text-ink tabular">
             {amount}
           </div>
@@ -608,7 +611,7 @@ export function EmptyState({
 }
 
 export function ErrorState({
-  title = "Something went wrong",
+  title,
   message,
   retry,
   tone = "bad",
@@ -620,6 +623,7 @@ export function ErrorState({
   tone?: "bad" | "warn";
   className?: string;
 }) {
+  const { t } = useI18n();
   const icon = tone === "warn" ? AlertTriangle : CircleSlash;
   const Icon = icon;
   return (
@@ -631,12 +635,12 @@ export function ErrorState({
     >
       <Icon className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-[600]">{title}</div>
+        <div className="text-sm font-[600]">{title ?? t("ui.somethingWentWrong")}</div>
         <p className="mt-0.5 break-words text-sm leading-relaxed text-ink-2">{message}</p>
       </div>
       {retry && (
         <Button size="sm" variant="secondary" onClick={retry} className="shrink-0">
-          Try again
+          {t("common.tryAgain")}
         </Button>
       )}
     </div>
@@ -690,18 +694,19 @@ export function Skeleton({ className = "" }: { className?: string }) {
 export function LoadingState({
   rows = 3,
   className = "",
-  label = "Loading",
+  label,
 }: {
   rows?: number;
   className?: string;
   label?: string;
 }) {
+  const { t } = useI18n();
   return (
-    <div role="status" aria-label={label} className={`space-y-2.5 ${className}`}>
+    <div role="status" aria-label={label ?? t("ui.loading")} className={`space-y-2.5 ${className}`}>
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="skeleton h-9" style={{ width: `${100 - (i % 3) * 12}%` }} />
       ))}
-      <span className="sr-only">{label}…</span>
+      <span className="sr-only">{label ?? t("ui.loading")}…</span>
     </div>
   );
 }
@@ -716,8 +721,9 @@ export function TableSkeleton({
   columns?: number;
   className?: string;
 }) {
+  const { t } = useI18n();
   return (
-    <div role="status" aria-label="Loading records" className={`w-full ${className}`}>
+    <div role="status" aria-label={t("ui.loadingRecords")} className={`w-full ${className}`}>
       <div className="flex items-center gap-4 border-b border-edge bg-surface-2 px-4 py-2.5">
         {Array.from({ length: columns }).map((_, i) => (
           <Skeleton key={i} className="h-2.5 flex-1" />
@@ -730,7 +736,7 @@ export function TableSkeleton({
           ))}
         </div>
       ))}
-      <span className="sr-only">Loading records…</span>
+      <span className="sr-only">{t("ui.loadingRecords")}…</span>
     </div>
   );
 }
@@ -793,6 +799,7 @@ export function Field({
   className?: string;
   actions?: React.ReactNode;
 }) {
+  const { t } = useI18n();
   const generatedId = useId();
   const controlId = htmlFor ?? `field-${generatedId}`;
   const descriptionId = error
@@ -816,7 +823,7 @@ export function Field({
               </span>
             )}
             {optional && !required && (
-              <span className="ms-1.5 text-xs font-normal text-ink-4">Optional</span>
+              <span className="ms-1.5 text-xs font-normal text-ink-4">{t("ui.optional")}</span>
             )}
           </label>
           {actions}
@@ -1061,7 +1068,7 @@ export function TableScroll({
 export function CopyButton({
   value,
   onCopied,
-  label = "Copy",
+  label,
   className = "",
 }: {
   value: string;
@@ -1069,14 +1076,15 @@ export function CopyButton({
   label?: string;
   className?: string;
 }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
 
   return (
     <button
       type="button"
-      aria-label={label}
-      title={label}
+      aria-label={label ?? t("ui.copy")}
+      title={label ?? t("ui.copy")}
       onClick={async (e) => {
         e.stopPropagation();
         try {
@@ -1096,17 +1104,17 @@ export function CopyButton({
       {copied ? (
         <>
           <Check className="h-3 w-3 text-ok" aria-hidden />
-          <span className="text-ok">Copied</span>
+          <span className="text-ok">{t("ui.copied")}</span>
         </>
       ) : copyFailed ? (
         <>
           <AlertTriangle className="h-3 w-3 text-bad" aria-hidden />
-          <span className="text-bad">Copy failed</span>
+          <span className="text-bad">{t("ui.copyFailed")}</span>
         </>
       ) : (
         <>
           <Copy className="h-3 w-3" aria-hidden />
-          {label}
+          {label ?? t("ui.copy")}
         </>
       )}
     </button>
@@ -1356,6 +1364,7 @@ export function Tabs<T extends string>({
   ariaLabel?: string;
   className?: string;
 }) {
+  const { t } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
   const onListKeyDown = (e: React.KeyboardEvent) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
@@ -1382,7 +1391,7 @@ export function Tabs<T extends string>({
     <div
       ref={listRef}
       role="tablist"
-      aria-label={ariaLabel ?? "Filter options"}
+      aria-label={ariaLabel ?? t("ui.filterOptions")}
       onKeyDown={onListKeyDown}
       className={`flex items-center gap-1 overflow-x-auto ${className}`}
     >
@@ -1610,6 +1619,7 @@ export function Modal({
   footer?: React.ReactNode;
   wide?: boolean;
 }) {
+  const { t } = useI18n();
   const panelRef = useRef<HTMLDivElement>(null);
   const descId = useId();
   useDialog(open, onClose, panelRef);
@@ -1650,7 +1660,7 @@ export function Modal({
               </p>
             )}
           </div>
-          <IconButton label="Close dialog" onClick={onClose} className="-me-1 shrink-0">
+          <IconButton label={t("ui.closeDialog")} onClick={onClose} className="-me-1 shrink-0">
             <X className="h-4 w-4" />
           </IconButton>
         </div>
@@ -1674,8 +1684,8 @@ export function ConfirmDialog({
   onConfirm,
   title,
   description,
-  confirmLabel = "Confirm",
-  cancelLabel = "Cancel",
+  confirmLabel,
+  cancelLabel,
   tone = "danger",
   busy = false,
   children,
@@ -1691,6 +1701,7 @@ export function ConfirmDialog({
   busy?: boolean;
   children?: React.ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <Modal
       open={open}
@@ -1702,7 +1713,7 @@ export function ConfirmDialog({
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={busy}>
-            {cancelLabel}
+            {cancelLabel ?? t("common.cancel")}
           </Button>
           <Button
             variant={tone === "danger" ? "danger" : "primary"}
@@ -1710,7 +1721,7 @@ export function ConfirmDialog({
             loading={busy}
             disabled={busy}
           >
-            {confirmLabel}
+            {confirmLabel ?? t("ui.confirm")}
           </Button>
         </>
       }
@@ -1735,6 +1746,7 @@ export function Drawer({
   children: React.ReactNode;
   footer?: React.ReactNode;
 }) {
+  const { t } = useI18n();
   const panelRef = useRef<HTMLDivElement>(null);
   const descId = useId();
   useDialog(open, onClose, panelRef);
@@ -1765,7 +1777,7 @@ export function Drawer({
               </p>
             )}
           </div>
-          <IconButton label="Close panel" onClick={onClose} className="-me-1 shrink-0">
+          <IconButton label={t("ui.closePanel")} onClick={onClose} className="-me-1 shrink-0">
             <X className="h-4 w-4" />
           </IconButton>
         </div>
@@ -1910,6 +1922,7 @@ export function Toast({
   toast: { text: string; type: "success" | "error" | "info" } | null;
   onDismiss: () => void;
 }) {
+  const { t } = useI18n();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!toast) return;
@@ -1936,7 +1949,7 @@ export function Toast({
       <button
         type="button"
         onClick={onDismiss}
-        aria-label="Dismiss notification"
+        aria-label={t("ui.dismissNotification")}
         className="-me-1 ms-auto shrink-0 rounded-xs p-1 text-current opacity-60 transition-colors duration-[140ms] hover:bg-[var(--overlay-soft)] hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
       >
         <X className="h-3.5 w-3.5" />

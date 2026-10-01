@@ -31,12 +31,12 @@ import { LOCALES, LOCALE_LABELS, type Locale } from "../i18n/config";
 import type { MessageKey } from "../i18n/messages/en";
 
 const NAV_ITEMS: TopNavItem[] = [
-  { href: "/dashboard", label: "Console", labelKey: "nav.console", icon: LayoutDashboard, section: "Operations", sectionKey: "nav.section.operations" },
-  { href: "/system-health", label: "System health", labelKey: "nav.systemHealth", icon: Activity, section: "Operations", sectionKey: "nav.section.operations" },
-  { href: "/api-keys", label: "Odoo integration", labelKey: "nav.odooIntegration", icon: KeyRound, section: "Integration", sectionKey: "nav.section.integration" },
-  { href: "/team", label: "Team", labelKey: "nav.team", icon: Users, section: "Administration", sectionKey: "nav.section.administration" },
-  { href: "/billing", label: "Billing", labelKey: "nav.billing", icon: CreditCard, section: "Administration", sectionKey: "nav.section.administration" },
-  { href: "/settings", label: "Settings", labelKey: "nav.settings", icon: SettingsIcon, section: "Administration", sectionKey: "nav.section.administration" },
+  { href: "/dashboard", labelKey: "nav.console", icon: LayoutDashboard, sectionKey: "nav.section.operations", keywords: "console dashboard overview printers jobs" },
+  { href: "/system-health", labelKey: "nav.systemHealth", icon: Activity, sectionKey: "nav.section.operations", keywords: "system health monitoring uptime incidents" },
+  { href: "/api-keys", labelKey: "nav.odooIntegration", icon: KeyRound, sectionKey: "nav.section.integration", keywords: "odoo integration api keys credentials" },
+  { href: "/team", labelKey: "nav.team", icon: Users, sectionKey: "nav.section.administration", keywords: "team members roles invitations" },
+  { href: "/billing", labelKey: "nav.billing", icon: CreditCard, sectionKey: "nav.section.administration", keywords: "billing plan subscription invoices" },
+  { href: "/settings", labelKey: "nav.settings", icon: SettingsIcon, sectionKey: "nav.section.administration", keywords: "settings preferences workspace" },
 ];
 
 type WorkspaceInfo = {
@@ -65,6 +65,16 @@ function ConsoleBrand({ brandSubtitle, showWordmark = true }: { brandSubtitle: s
   );
 }
 
+function navLabel(item: TopNavItem, t: (key: MessageKey) => string): string {
+  if (item.labelKey) return t(item.labelKey);
+  return item.label ?? item.href;
+}
+
+function navSection(item: TopNavItem, t: (key: MessageKey) => string): string {
+  if (item.sectionKey) return t(item.sectionKey);
+  return item.section ?? t("nav.section.workspace");
+}
+
 function ConsoleNav({
   pathname,
   collapsed = false,
@@ -76,7 +86,7 @@ function ConsoleNav({
 }) {
   const { t } = useI18n();
   const groups = NAV_ITEMS.reduce<Array<{ section: string; items: TopNavItem[] }>>((acc, item) => {
-    const section = item.sectionKey ? t(item.sectionKey) : item.section ?? t("nav.section.workspace");
+    const section = navSection(item, t);
     const last = acc[acc.length - 1];
     if (last && last.section === section) last.items.push(item);
     else acc.push({ section, items: [item] });
@@ -97,7 +107,7 @@ function ConsoleNav({
                   <Link
                     href={item.href}
                     aria-current={active ? "page" : undefined}
-                    title={collapsed ? (item.labelKey ? t(item.labelKey) : item.label) : undefined}
+                    title={collapsed ? navLabel(item, t) : undefined}
                     onClick={onNavigate}
                     className={`sidebar-item ${active ? "sidebar-item-active" : ""} ${
                       collapsed ? "justify-center px-0" : ""
@@ -111,7 +121,7 @@ function ConsoleNav({
                         aria-hidden
                       />
                     )}
-                    {!collapsed && <span className="truncate">{item.labelKey ? t(item.labelKey) : item.label}</span>}
+                    {!collapsed && <span className="truncate">{navLabel(item, t)}</span>}
                   </Link>
                 </li>
               );
@@ -175,7 +185,7 @@ function WorkspaceMenu({
     },
   ];
 
-  const displayName = workspace.name || "Workspace";
+  const displayName = workspace.name || t("nav.workspace");
 
   return (
     <Menu
@@ -193,7 +203,7 @@ function WorkspaceMenu({
             <span className="flex min-w-0 flex-1 flex-col items-start leading-tight">
               <span className="w-full truncate text-sm font-[600] text-ink">{displayName}</span>
               <span className="w-full truncate text-xs text-ink-3">
-                {workspace.plan ?? workspace.role ?? "Signed in"}
+                {workspace.plan ?? workspace.role ?? t("nav.signedIn")}
               </span>
             </span>
           )}
@@ -319,12 +329,12 @@ function ConsoleShell({
   const commands: CommandItem[] = [
     ...NAV_ITEMS.map((item) => ({
       id: `nav-${item.href}`,
-      label: item.labelKey ? t(item.labelKey) : item.label,
-      group: item.sectionKey ? t(item.sectionKey) : item.section ?? t("nav.section.workspace"),
+      label: navLabel(item, t),
+      group: navSection(item, t),
       href: item.href,
       // English keywords stay searchable in both languages: an operator who
       // types "billing" or "team" should still find the screen in Arabic.
-      keywords: `${item.href} ${item.section ?? ""} ${item.label}`,
+      keywords: `${item.href} ${item.keywords ?? ""}`,
     })),
     { id: "action-new-agent", label: t("agent.add"), group: t("common.actions"), href: "/dashboard#agents", keywords: "pair pairing code machine agent" },
     { id: "action-theme", label: t("nav.toggleTheme"), group: t("common.actions"), onSelect: () => toggleTheme() },
@@ -351,7 +361,7 @@ function ConsoleShell({
             aria-label={t("nav.home")}
             className="flex min-w-0 items-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
           >
-            <ConsoleBrand brandSubtitle="Cloud Printing Platform" showWordmark={!collapsed} />
+            <ConsoleBrand brandSubtitle={t("brand.tagline")} showWordmark={!collapsed} />
           </Link>
           {!collapsed && (
             <button
@@ -417,7 +427,7 @@ function ConsoleShell({
             <MenuIcon className="h-4 w-4" aria-hidden />
           </button>
           <Link href="/dashboard" aria-label={t("nav.home")} className="min-w-0">
-            <ConsoleBrand brandSubtitle="Cloud Printing Platform" />
+            <ConsoleBrand brandSubtitle={t("brand.tagline")} />
           </Link>
           <div className="ms-auto flex items-center gap-1">
             <ThemeToggle />
@@ -444,7 +454,7 @@ function ConsoleShell({
             className="pg-slide-in-left absolute inset-y-0 start-0 flex w-[280px] max-w-[85vw] flex-col border-e border-edge-strong bg-surface shadow-2xl"
           >
             <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-edge-subtle px-3">
-              <ConsoleBrand brandSubtitle="Cloud Printing Platform" />
+              <ConsoleBrand brandSubtitle={t("brand.tagline")} />
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}

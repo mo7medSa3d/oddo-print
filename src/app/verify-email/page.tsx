@@ -175,15 +175,16 @@ function VerifyEmailContent() {
 }
 
 export default function VerifyEmail() {
+  const { t } = useI18n();
   return (
     <Suspense
       fallback={
         <AuthShell subtitle={t("auth.verify.eyebrowPending")}>
-          <div className="space-y-4" role="status" aria-label="Loading">
+          <div className="space-y-4" role="status" aria-label={t("common.loading")}>
             <Skeleton className="h-7 w-48" />
             <Skeleton className="h-4 w-full" />
             <Skeleton className="mt-6 h-20 w-full" />
-            <span className="sr-only">Loading…</span>
+            <span className="sr-only">{t("common.loading")}</span>
           </div>
         </AuthShell>
       }
