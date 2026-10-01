@@ -210,16 +210,16 @@ and results are de-duplicated by stable id, `address:port` and `VID:PID:serial`.
 
 ```powershell
 # Network RAW 9100 (thermal ESC/POS)
-yasser-agent-cli.exe printers add --name "Kitchen 9100" --type network --endpoint 192.168.1.50:9100 --protocol escpos --printer-type thermal
+yaseir-agent-cli.exe printers add --name "Kitchen 9100" --type network --endpoint 192.168.1.50:9100 --protocol escpos --printer-type thermal
 
 # Windows spooler queue (local, shared, or a USB printer installed as a Windows printer)
-yasser-agent-cli.exe printers add --name "Office Laser" --type spooler --spooler-name "HP LaserJet M402" --printer-type laser
+yaseir-agent-cli.exe printers add --name "Office Laser" --type spooler --spooler-name "HP LaserJet M402" --printer-type laser
 
 # USB with VID/PID (still needs a spooler queue for PDF work)
-yasser-agent-cli.exe printers add --name "Zebra Label" --type usb --vid 0A5F --pid 014E --serial 123456 --printer-type label --spooler-name "Zebra GK420d"
+yaseir-agent-cli.exe printers add --name "Zebra Label" --type usb --vid 0A5F --pid 014E --serial 123456 --printer-type label --spooler-name "Zebra GK420d"
 
 # IPP
-yasser-agent-cli.exe printers add --name "Office IPP" --type ipp --endpoint ipp://192.168.1.60/ipp/print --protocol ipp
+yaseir-agent-cli.exe printers add --name "Office IPP" --type ipp --endpoint ipp://192.168.1.60/ipp/print --protocol ipp
 ```
 
 Other CLI verbs: `printers list`, `printers discover`, `printers test <id>`,

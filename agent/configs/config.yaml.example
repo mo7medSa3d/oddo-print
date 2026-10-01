@@ -1,7 +1,7 @@
 server:
   # Production gateways MUST use HTTPS. Plain HTTP is rejected unless the
   # process is explicitly started for an isolated development/test environment
-  # with YASSER_AGENT_ALLOW_INSECURE_HTTP=1. Never enable that setting in a
+  # with YASEIR_AGENT_ALLOW_INSECURE_HTTP=1. Never enable that setting in a
   # production service.
   url: "https://your-print-gateway.example.com"
 

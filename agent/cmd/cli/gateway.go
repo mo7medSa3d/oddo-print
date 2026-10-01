@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
 const gatewayRequestMaxBody = 8 * 1024 * 1024
@@ -83,7 +83,7 @@ func handleGatewayRequest(args []string, configPath string) {
 		os.Exit(1)
 	}
 	req.Header.Set("Authorization", "Bearer "+cfg.Agent.ID+":"+cfg.Agent.Secret)
-	req.Header.Set("User-Agent", "yasser-agent-console/1")
+	req.Header.Set("User-Agent", "yaseir-agent-console/1")
 	if *body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}

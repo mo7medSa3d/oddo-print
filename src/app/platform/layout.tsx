@@ -104,7 +104,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
       <TopNavbar
         items={NAV_ITEMS}
         brandHref="/platform/dashboard"
-        brandTitle="Yasser"
+        brandTitle="Yaseir"
         brandSubtitle="Control Plane"
         onLogout={handleLogout}
         variant="platform"

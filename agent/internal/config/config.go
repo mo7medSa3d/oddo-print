@@ -13,7 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/yasser-agent/agent/internal/storage"
+	"github.com/yaseir-agent/agent/internal/storage"
 )
 
 const secretStoreKey = "agent_secret"
@@ -55,6 +55,17 @@ func (c *Config) ReprintAfterCrashEnabled() bool {
 	return *c.Agent.ReprintAfterCrash
 }
 
+// insecureHTTPAllowed reports whether plain HTTP is explicitly opted into.
+// Canonical variable is YASEIR_AGENT_ALLOW_INSECURE_HTTP; the legacy
+// YASSER_AGENT_ALLOW_INSECURE_HTTP is honored as a fallback so existing
+// development environments keep working after the brand migration.
+func insecureHTTPAllowed() bool {
+	if os.Getenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP") == "1" {
+		return true
+	}
+	return os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1"
+}
+
 func ValidateServerURL(raw string) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -72,10 +83,10 @@ func ValidateServerURL(raw string) error {
 	case "https":
 		return nil
 	case "http":
-		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" {
+		if insecureHTTPAllowed() {
 			return nil
 		}
-		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASSER_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development/test environments")
+		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASEIR_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development/test environments")
 	default:
 		return fmt.Errorf("server.url scheme must be http or https, got %q", u.Scheme)
 	}
@@ -163,9 +174,9 @@ func Ensure(path string) error {
 
 	host, err := os.Hostname()
 	if err != nil || host == "" {
-		host = "yasser-agent"
+		host = "yaseir-agent"
 	}
-	name := "Yasser Agent"
+	name := "Yaseir Agent"
 	if runtime.GOOS == "windows" {
 		name = host
 	}
@@ -261,6 +272,10 @@ func ExecutableDir() (string, error) {
 }
 
 func DefaultConfigPath() string {
+	if override := os.Getenv("YASEIR_AGENT_DATA_DIR"); override != "" {
+		return filepath.Join(override, "config.yaml")
+	}
+	// Legacy fallback: pre-migration environments set YASSER_AGENT_DATA_DIR.
 	if override := os.Getenv("YASSER_AGENT_DATA_DIR"); override != "" {
 		return filepath.Join(override, "config.yaml")
 	}
@@ -268,13 +283,17 @@ func DefaultConfigPath() string {
 		return filepath.Join(override, "config.yaml")
 	}
 	if pd := os.Getenv("PROGRAMDATA"); pd != "" {
-		newPath := filepath.Join(pd, "YasserAgent", "config.yaml")
+		newPath := filepath.Join(pd, "YaseirAgent", "config.yaml")
 		if _, err := os.Stat(newPath); err == nil {
 			return newPath
 		}
-		legacyPath := filepath.Join(pd, "OdooPrintAgent", "config.yaml")
+		legacyPath := filepath.Join(pd, "YasserAgent", "config.yaml")
 		if _, err := os.Stat(legacyPath); err == nil {
 			return legacyPath
+		}
+		veryLegacyPath := filepath.Join(pd, "OdooPrintAgent", "config.yaml")
+		if _, err := os.Stat(veryLegacyPath); err == nil {
+			return veryLegacyPath
 		}
 		return newPath
 	}

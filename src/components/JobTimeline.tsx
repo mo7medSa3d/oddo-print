@@ -71,10 +71,10 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
         <div className="absolute left-2 top-0 bottom-0 w-px bg-edge" />
         {events.map((ev, idx) => (
           <div key={ev.id} className="relative mb-4">
-            <div className={`absolute -left-6 top-1 h-3 w-3 rounded-full border ${stageColor(ev.status)}`} />
+            <div className={`absolute -left-6 top-1 h-3 w-3 rounded-[8px] border ${stageColor(ev.status)}`} />
             <div className="flex items-center gap-2">
               <span className="text-[13px] font-semibold">{ev.stage}</span>
-              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${stageColor(ev.status)}`}>{ev.status.toUpperCase()}</span>
+              <span className={`rounded-[8px] border px-2 py-0.5 text-[10px] font-bold ${stageColor(ev.status)}`}>{ev.status.toUpperCase()}</span>
               {ev.at && <span className="text-[10px] text-ink-4">{new Date(ev.at).toLocaleTimeString()}</span>}
             </div>
             {ev.message && <div className="mt-1 text-[12px] text-ink-2">{ev.message}</div>}

@@ -677,9 +677,9 @@ export async function rotateRefreshToken(
       try {
         await sendTransactionalEmail({
           to: outcome.notificationEmail,
-          subject: "Yasser security alert: refresh token reuse detected",
-          html: "<p>A refresh token reuse was detected on your Yasser session. All tokens in that session family were revoked. Sign in again to create a new session.</p>",
-          text: "A refresh token reuse was detected on your Yasser session. All tokens in that session family were revoked. Sign in again to create a new session.",
+          subject: "Yaseir security alert: refresh token reuse detected",
+          html: "<p>A refresh token reuse was detected on your Yaseir session. All tokens in that session family were revoked. Sign in again to create a new session.</p>",
+          text: "A refresh token reuse was detected on your Yaseir session. All tokens in that session family were revoked. Sign in again to create a new session.",
         });
       } catch (error) {
         logError("auth.refresh.reuse_notification_failed", {

@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-  Deterministic Windows smoke test for the installed Yasser Print Manager.
+  Deterministic Windows smoke test for the installed Yaseir Print Manager.
 
 .DESCRIPTION
   Verifies that the installed desktop app and bundled agent/CLI binaries exist,
@@ -14,7 +14,7 @@
 
 .EXAMPLE
   ./scripts/smoke-test-windows.ps1
-  ./scripts/smoke-test-windows.ps1 -InstallDir "$env:ProgramFiles\Yasser Print Manager"
+  ./scripts/smoke-test-windows.ps1 -InstallDir "$env:ProgramFiles\Yaseir Print Manager"
 #>
 param(
   [string]$InstallDir = "",
@@ -26,18 +26,18 @@ $ErrorActionPreference = "Stop"
 
 if (-not $InstallDir) {
   $candidateDirs = @(
-    (Join-Path $env:ProgramFiles "Yasser\Yasser Print Manager"),
-    (Join-Path $env:ProgramFiles "Yasser Print Manager"),
+    (Join-Path $env:ProgramFiles "Yaseir\Yaseir Print Manager"),
+    (Join-Path $env:ProgramFiles "Yaseir Print Manager"),
     (Join-Path $env:ProgramFiles "yasser-manager"),
-    (Join-Path ${env:ProgramFiles(x86)} "Yasser\Yasser Print Manager"),
-    (Join-Path ${env:ProgramFiles(x86)} "Yasser Print Manager"),
+    (Join-Path ${env:ProgramFiles(x86)} "Yaseir\Yaseir Print Manager"),
+    (Join-Path ${env:ProgramFiles(x86)} "Yaseir Print Manager"),
     (Join-Path ${env:ProgramFiles(x86)} "yasser-manager"),
-    (Join-Path $env:LOCALAPPDATA "Programs\Yasser Print Manager"),
-    (Join-Path $env:LOCALAPPDATA "Yasser Print Manager")
+    (Join-Path $env:LOCALAPPDATA "Programs\Yaseir Print Manager"),
+    (Join-Path $env:LOCALAPPDATA "Yaseir Print Manager")
   )
   $InstallDir = $candidateDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
   if (-not $InstallDir) {
-    $regKeys = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "^Yasser( Manager)?$" }
+    $regKeys = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "^Yaseir( Manager)?$" -or $_.DisplayName -match "^Yasser( Manager)?$" }  # legacy fallback for pre-migration installs
     foreach ($k in $regKeys) {
       if ($k.InstallLocation -and (Test-Path $k.InstallLocation)) {
         $InstallDir = $k.InstallLocation
@@ -46,20 +46,22 @@ if (-not $InstallDir) {
     }
   }
   if (-not $InstallDir) {
-    $candidateFiles = Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}, "$env:LOCALAPPDATA\Programs") -Filter "*Yasser*.exe" -Recurse -Depth 3 -ErrorAction SilentlyContinue
+    $candidateFiles = Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}, "$env:LOCALAPPDATA\Programs") -Filter "*Yaseir*.exe" -Recurse -Depth 3 -ErrorAction SilentlyContinue
     if ($candidateFiles) {
       $InstallDir = $candidateFiles[0].DirectoryName
     }
   }
   if (-not $InstallDir) {
-    $InstallDir = Join-Path $env:ProgramFiles "Yasser Print Manager"
+    $InstallDir = Join-Path $env:ProgramFiles "Yaseir Print Manager"
   }
 }
 
-$agentDataDir = if ($env:YASSER_AGENT_DATA_DIR) {
-  $env:YASSER_AGENT_DATA_DIR
+$agentDataDir = if ($env:YASEIR_AGENT_DATA_DIR) {
+  $env:YASEIR_AGENT_DATA_DIR
+} elseif ($env:YASSER_AGENT_DATA_DIR) {
+  $env:YASSER_AGENT_DATA_DIR  # legacy fallback
 } else {
-  Join-Path $env:ProgramData "YasserAgent"
+  Join-Path $env:ProgramData "YaseirAgent"
 }
 
 function Assert-Path {
@@ -83,45 +85,46 @@ function Assert-NotExited {
 
 $ErrorActionPreference = "Continue"
 
-Write-Host "== Yasser Print Manager Windows smoke test =="
+Write-Host "== Yaseir Print Manager Windows smoke test =="
 Write-Host "Install dir: $InstallDir"
 Write-Host "Agent data dir: $agentDataDir"
 
 # 1. Installed / bundled files -------------------------------------------------
 $candidateAppExes = @(
-  (Join-Path $InstallDir "yasser-manager.exe"),
-  (Join-Path $InstallDir "Yasser Print Manager.exe")
+  (Join-Path $InstallDir "yaseir-manager.exe"),
+  (Join-Path $InstallDir "yasser-manager.exe"),  # legacy fallback
+  (Join-Path $InstallDir "Yaseir Print Manager.exe")
 )
 $appExe = $candidateAppExes | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $appExe) {
-  $appExe = Get-ChildItem -Path $InstallDir -Filter "Yasser Print Manager*.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+  $appExe = Get-ChildItem -Path $InstallDir -Filter "Yaseir Print Manager*.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
 }
 if (-not $appExe) {
-  $appExe = Join-Path $InstallDir "yasser-manager.exe"
+  $appExe = Join-Path $InstallDir "yaseir-manager.exe"
 }
 
 $candidateAgentExes = @(
-  (Join-Path $InstallDir "resources\YasserAgent.exe"),
-  (Join-Path $InstallDir "YasserAgent.exe")
+  (Join-Path $InstallDir "resources\YaseirAgent.exe"),
+  (Join-Path $InstallDir "YaseirAgent.exe")
 )
 $agentExe = $candidateAgentExes | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $agentExe) {
-  $agentExe = Get-ChildItem -Path $InstallDir -Filter "YasserAgent.exe" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+  $agentExe = Get-ChildItem -Path $InstallDir -Filter "YaseirAgent.exe" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
 }
 if (-not $agentExe) {
-  $agentExe = Join-Path $InstallDir "resources\YasserAgent.exe"
+  $agentExe = Join-Path $InstallDir "resources\YaseirAgent.exe"
 }
 
 $candidateCliExes = @(
-  (Join-Path $InstallDir "resources\yasser-agent-cli.exe"),
-  (Join-Path $InstallDir "yasser-agent-cli.exe")
+  (Join-Path $InstallDir "resources\yaseir-agent-cli.exe"),
+  (Join-Path $InstallDir "yaseir-agent-cli.exe")
 )
 $cliExe = $candidateCliExes | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $cliExe) {
-  $cliExe = Get-ChildItem -Path $InstallDir -Filter "yasser-agent-cli.exe" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+  $cliExe = Get-ChildItem -Path $InstallDir -Filter "yaseir-agent-cli.exe" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
 }
 if (-not $cliExe) {
-  $cliExe = Join-Path $InstallDir "resources\yasser-agent-cli.exe"
+  $cliExe = Join-Path $InstallDir "resources\yaseir-agent-cli.exe"
 }
 
 Assert-Path $appExe "Installed desktop executable"
@@ -129,28 +132,28 @@ Assert-Path $agentExe "Bundled agent executable"
 Assert-Path $cliExe "Bundled CLI executable"
 
 # Start from a deterministic state so the run does not create duplicates.
-Get-Process -Name "YasserAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "YaseirAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # 2. Desktop application process ----------------------------------------------
 $desktop = $null
 try {
   $desktop = Start-Process -FilePath $appExe -PassThru
-  Assert-NotExited $desktop "Yasser Print Manager desktop process"
+  Assert-NotExited $desktop "Yaseir Print Manager desktop process"
 } finally {
   if ($desktop -and -not $desktop.HasExited) {
     Stop-Process -Id $desktop.Id -Force -ErrorAction SilentlyContinue
     Write-Host "PASS: desktop process stopped cleanly (forced process termination)."
   }
   # The desktop starts the agent detached; clean it up before the direct test.
-  Get-Process -Name "YasserAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  Get-Process -Name "YasserAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Get-Process -Name "YaseirAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Get-Process -Name "YaseirAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
 # 3. CLI help ----------------------------------------------------------------
 Write-Host "== CLI help =="
 $cliOut = & $cliExe --help 2>&1
 if ($LASTEXITCODE -ne 0) {
-  Write-Error "FAIL: yasser-agent-cli.exe --help returned exit code $LASTEXITCODE"
+  Write-Error "FAIL: yaseir-agent-cli.exe --help returned exit code $LASTEXITCODE"
   exit 1
 }
 $cliText = ($cliOut | Out-String)
@@ -163,7 +166,7 @@ Write-Host "PASS: CLI help lists -pair, -server, -config"
 # 4. Go agent first-run directory/database creation ---------------------------
 # Remove only a deliberately empty temp data dir when the caller asks for a
 # fully clean run. Never delete production ProgramData state implicitly.
-if ($env:YASSER_AGENT_DATA_DIR -and (Test-Path $agentDataDir)) {
+if (($env:YASEIR_AGENT_DATA_DIR -or $env:YASSER_AGENT_DATA_DIR) -and (Test-Path $agentDataDir)) {
   Write-Host "Using existing overridden agent data dir: $agentDataDir"
 }
 

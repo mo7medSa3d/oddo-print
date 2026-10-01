@@ -311,7 +311,7 @@ suite("shared refresh-token session rotation", () => {
     expect(sentEmails).toEqual([
       {
         to: "session@example.test",
-        subject: "Yasser security alert: refresh token reuse detected",
+        subject: "Yaseir security alert: refresh token reuse detected",
       },
     ]);
 

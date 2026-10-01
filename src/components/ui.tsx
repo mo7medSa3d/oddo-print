@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useEffect, useId, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { X, Check, Loader2, Copy, AlertTriangle, ChevronDown } from "lucide-react";
 
 /* ============================================================
-   YASSER — Premium SaaS UI Primitives 2026
+   YASEIR — Premium SaaS UI Primitives 2026
    One source for Button / Badge / Status / Card / Empty &
    error states / Modal / Drawer / Field.
    Used by Gateway (Next), Platform Admin, and Desktop (Vite)
@@ -94,10 +95,10 @@ export function Button({
 }: ButtonProps) {
   const sizes =
     size === "sm"
-      ? "h-8 px-3.5 text-[13px] gap-1.5 rounded-full"
+      ? "h-8 px-3.5 text-[13px] gap-1.5 rounded-[8px]"
       : size === "lg"
-        ? "h-12 px-7 text-[15px] gap-2.5 rounded-full"
-        : "h-10 px-5 text-[14px] gap-2 rounded-full";
+        ? "h-11 px-6 text-[15px] gap-2.5 rounded-[8px]"
+        : "h-10 px-4 text-[14px] gap-2 rounded-[8px]";
 
   const baseClasses = `inline-flex items-center justify-center font-[600] tracking-[-0.015em] transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 focus-visible:ring-offset-1 focus-visible:ring-offset-app ${buttonVariants[variant]} ${sizes} ${className}`;
 
@@ -152,7 +153,7 @@ export function IconButton({
     <button
       aria-label={label}
       title={label}
-      className={`inline-flex items-center justify-center h-9 w-9 rounded-full text-ink-3 transition-all duration-200 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 disabled:opacity-50 ${className}`}
+      className={`inline-flex items-center justify-center h-9 w-9 rounded-[8px] text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 disabled:opacity-50 ${className}`}
       {...props}
     >
       {children}
@@ -187,7 +188,7 @@ export function StatusBadge({
   const shouldPulse = pulse ?? (tone === "info");
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-[0.01em] whitespace-nowrap ${toneBg[tone]} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-[6px] border px-2 py-0.5 text-[11px] font-semibold tracking-[0.01em] whitespace-nowrap ${toneBg[tone]} ${className}`}
     >
       {icon ?? <StatusDot tone={tone} pulse={shouldPulse} />}
       {label}
@@ -246,7 +247,7 @@ export function StatCard({
           <div className="mt-2.5 flex items-center gap-2 text-[12px] leading-snug text-ink-3">
             {trend && (
               <span
-                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                className={`inline-flex items-center rounded-[8px] px-2 py-0.5 text-[11px] font-semibold ${
                   trend.positive ? "bg-ok-bg text-ok border border-ok-edge" : "bg-bad-bg text-bad border border-bad-edge"
                 }`}
               >
@@ -309,7 +310,7 @@ export function BillingPremiumCard({
     <div className="billing-premium p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-edge-accent bg-brand-subtle px-2.5 py-1 text-[11px] font-semibold tracking-wide text-brand-subtle-text">
+          <div className="inline-flex items-center gap-2 rounded-[8px] border border-edge-accent bg-brand-subtle px-2.5 py-1 text-[11px] font-semibold tracking-wide text-brand-subtle-text">
             <span className="h-1.5 w-1.5 rounded-full bg-brand" />
             PLAN
           </div>
@@ -330,9 +331,9 @@ export function BillingPremiumCard({
             <span className="text-ink-3">Usage</span>
             <span className="font-semibold text-ink tabular-nums">{usagePercent}% used</span>
           </div>
-          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-[8px] bg-surface-3">
             <div
-              className="h-full rounded-full bg-brand transition-all duration-500"
+              className="h-full rounded-[8px] bg-brand transition-all duration-500"
               style={{ width: `${Math.min(100, Math.max(0, usagePercent))}%` }}
             />
           </div>
@@ -379,7 +380,7 @@ export function BalanceCard({
           {subtitle && <div className="mt-2 text-[13px] text-ink-3">{subtitle}</div>}
         </div>
         {trend && (
-          <div className="rounded-full bg-ok-bg border border-ok-edge px-2.5 py-1 text-[11px] font-semibold text-ok">
+          <div className="rounded-[8px] bg-ok-bg border border-ok-edge px-2.5 py-1 text-[11px] font-semibold text-ok">
             {trend}
           </div>
         )}
@@ -670,6 +671,10 @@ function useDialog(
   onClose: () => void,
   panelRef: React.RefObject<HTMLDivElement | null>
 ) {
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
   useEffect(() => {
     if (!open) return;
     if (openDialogCount === 0) lockBodyScroll();
@@ -687,7 +692,7 @@ function useDialog(
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
@@ -716,7 +721,7 @@ function useDialog(
       if (openDialogCount === 0) unlockBodyScroll();
       prev?.focus?.();
     };
-  }, [open, onClose, panelRef]);
+  }, [open, panelRef]);
 }
 
 export function Modal({
@@ -739,11 +744,19 @@ export function Modal({
   const panelRef = useRef<HTMLDivElement>(null);
   const descId = useId();
   useDialog(open, onClose, panelRef);
-  if (!open) return null;
-  return (
-    <div data-dialog-root className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+  if (!open || typeof document === "undefined") return null;
+  // Portaled to document.body so viewport centering, fixed positioning, and
+  // overflow are never affected by dashboard transforms, filters,
+  // flex/grid parents, or page height. The outer layer scrolls when the
+  // viewport is short; the inner body region scrolls for long content.
+  const node = (
+    <div
+      data-dialog-root
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 sm:p-6"
+      role="presentation"
+    >
       <div
-        className="pg-fade-in absolute inset-0 backdrop-blur-[2px]"
+        className="pg-fade-in fixed inset-0"
         style={{ backgroundColor: "var(--overlay)" }}
         onClick={onClose}
         aria-hidden
@@ -755,32 +768,33 @@ export function Modal({
         aria-label={title}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
-        className={`pg-scale-in relative w-full ${
-          wide ? "sm:max-w-2xl" : "sm:max-w-[480px]"
-        } max-h-[90vh] overflow-auto rounded-t-[22px] sm:rounded-[22px] border border-edge bg-surface shadow-2xl outline-none`}
+        className={`pg-scale-in relative my-auto flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-[14px] border border-edge-strong bg-surface shadow-2xl outline-none sm:max-h-[calc(100dvh-3rem)] ${
+          wide ? "sm:max-w-3xl" : "sm:max-w-[480px]"
+        }`}
       >
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-edge bg-surface/85 px-6 py-5 backdrop-blur-xl backdrop-saturate-150">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-edge bg-surface px-5 py-4 sm:px-6">
           <div className="min-w-0">
-            <h2 className="text-[16px] font-semibold tracking-[-0.015em] text-ink">{title}</h2>
+            <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
             {description && (
               <p id={descId} className="mt-1 text-[13px] leading-snug text-ink-3">
                 {description}
               </p>
             )}
           </div>
-          <IconButton label="Close dialog" onClick={onClose} className="-mr-1">
+          <IconButton label="Close dialog" onClick={onClose} className="-mr-1 shrink-0">
             <X className="h-4 w-4" />
           </IconButton>
         </div>
-        <div className="px-6 py-5">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 py-5 sm:px-6">{children}</div>
         {footer && (
-          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-edge bg-surface-2/80 px-6 py-4 backdrop-blur-sm">
+          <div className="flex shrink-0 justify-end gap-2 border-t border-edge bg-surface-2 px-5 py-4 sm:px-6">
             {footer}
           </div>
         )}
       </div>
     </div>
   );
+  return createPortal(node, document.body);
 }
 
 export function Drawer({
@@ -799,11 +813,11 @@ export function Drawer({
   const panelRef = useRef<HTMLDivElement>(null);
   const descId = useId();
   useDialog(open, onClose, panelRef);
-  if (!open) return null;
-  return (
-    <div data-dialog-root className="fixed inset-0 z-50 flex justify-end">
+  if (!open || typeof document === "undefined") return null;
+  const node = (
+    <div data-dialog-root className="fixed inset-0 z-50 flex justify-end" role="presentation">
       <div
-        className="pg-fade-in absolute inset-0 backdrop-blur-[1px]"
+        className="pg-fade-in fixed inset-0"
         style={{ backgroundColor: "var(--overlay)" }}
         onClick={onClose}
         aria-hidden
@@ -815,25 +829,26 @@ export function Drawer({
         aria-label={title}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
-        className="pg-slide-in-right relative flex h-full w-full max-w-[480px] flex-col border-l border-edge bg-surface shadow-2xl outline-none"
+        className="pg-slide-in-right relative flex h-full max-h-dvh w-full max-w-[480px] flex-col border-l border-edge bg-surface shadow-2xl outline-none"
       >
-        <div className="flex items-start justify-between gap-4 border-b border-edge px-6 py-5">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-edge px-5 py-4 sm:px-6">
           <div className="min-w-0">
-            <h2 className="text-[16px] font-semibold tracking-[-0.015em] text-ink">{title}</h2>
+            <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
             {description && (
               <p id={descId} className="mt-1 truncate text-[13px] text-ink-3">
                 {description}
               </p>
             )}
           </div>
-          <IconButton label="Close panel" onClick={onClose} className="-mr-1">
+          <IconButton label="Close panel" onClick={onClose} className="-mr-1 shrink-0">
             <X className="h-4 w-4" />
           </IconButton>
         </div>
-        <div className="flex-1 overflow-auto px-6 py-5">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 py-5 sm:px-6">{children}</div>
       </div>
     </div>
   );
+  return createPortal(node, document.body);
 }
 
 /* ---------- Tabs ---------- */
@@ -887,16 +902,16 @@ export function Tabs<T extends string>({
             tabIndex={selected ? 0 : -1}
             data-tab={t}
             onClick={() => onChange(t)}
-            className={`relative flex items-center gap-2 whitespace-nowrap rounded-full border px-3.5 py-2 text-[13px] font-[600] tracking-[-0.01em] transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 ${
-              selected ? "border-edge-accent bg-brand-subtle text-brand-subtle-text shadow-xs" : "border-transparent text-ink-3 hover:border-edge hover:bg-surface-2 hover:text-ink"
+            className={`relative flex items-center gap-2 whitespace-nowrap rounded-[8px] border px-3 py-2 text-[13px] font-[600] tracking-[-0.01em] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 ${
+              selected ? "border-edge-strong bg-surface-2 text-ink" : "border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink"
             }`}
           >
             {selected && <Check className="h-3.5 w-3.5 shrink-0 text-brand" aria-hidden="true" />}
             <span className="capitalize">{t}</span>
             {count !== undefined && (
               <span
-                className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${
-                  selected ? "bg-brand-subtle text-brand-subtle-text" : "bg-surface-3 text-ink-3"
+                className={`rounded-[6px] px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${
+                  selected ? "bg-surface-3 text-ink" : "bg-surface-3 text-ink-3"
                 }`}
               >
                 {count}
@@ -944,7 +959,7 @@ export function CopyButton({
           setTimeout(() => setCopyFailed(false), 2500);
         }
       }}
-      className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-edge bg-surface px-3 text-[12px] font-medium text-ink-2 transition-all duration-200 hover:border-edge-accent hover:bg-brand-subtle hover:text-brand-subtle-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 ${className}`}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-edge bg-surface px-3 text-[12px] font-medium text-ink-2 transition-colors duration-150 hover:border-edge-strong hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 ${className}`}
     >
       {copied ? (
         <>

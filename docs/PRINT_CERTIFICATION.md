@@ -6,18 +6,18 @@ Prove E2E printing before client demo: Gateway → Auth → Queue → Claim → 
 ## Wizard Steps
 1. **Gateway**: Gateway reachable, X-Request-Id minted
 2. **Auth**: Tenant owns printer, printer active, agent active
-3. **Queue**: Job enqueued with idempotency, expiresAt, payload YASSER TEST PAGE (no secrets)
+3. **Queue**: Job enqueued with idempotency, expiresAt, payload YASEIR TEST PAGE (no secrets)
 4. **Claim**: Agent claim fencing via advisory lock + claim_token, check agent ONLINE (lastSeen <90s)
 5. **Agent**: Agent online, heartbeat fresh
 6. **Transport**: Transport selected (network/usb/spooler/ipp/ipps) + Protocol (raw/escpos/zpl/tspl/ipp/spooler) with capability matrix
-7. **Physical**: Paper verification — BLOCKED in sandbox, requires real printer hardware. Must verify YASSER TEST PAGE physically printed.
+7. **Physical**: Paper verification — BLOCKED in sandbox, requires real printer hardware. Must verify YASEIR TEST PAGE physically printed.
 8. **Ack**: Agent ack success via PATCH /api/agent/jobs with spoolerJobId linking
 9. **Final**: Certification complete, timeline URL, correlation IDs
 
 ## API
 `POST /api/printers/[id]/certify`
 - Body: { testPage?: boolean, documentType?: string }
-- Creates real job `cert_<nanoid>` with payload YASSER TEST PAGE base64
+- Creates real job `cert_<nanoid>` with payload YASEIR TEST PAGE base64
 - Records job_events: created, queued, blocked (physical)
 - Returns: printerId, jobId, requestId, attemptId, steps[], capability, certified (false until physical), blocked, blockedReasons, instructions, timelineUrl
 
@@ -40,12 +40,12 @@ In sandbox without physical printer, Physical step is BLOCKED by design. Certifi
 1. Ensure agent online
 2. Ensure printer reachable
 3. Check spoolerJobId linking
-4. Verify physical paper output YASSER TEST PAGE
+4. Verify physical paper output YASEIR TEST PAGE
 5. Confirm ack success
 
 ## Test Page Content
 ```
-YASSER TEST PAGE
+YASEIR TEST PAGE
 Printer: <name>
 Tenant: <tenantId>
 Job: <jobId>

@@ -134,10 +134,10 @@ export function friendlyAgentError(raw: string): string {
     lower.includes("permission denied") ||
     lower.includes("administrator privilege")
   ) {
-    return "Administrator permission is required to access the local Agent. Reopen Yasser Print Manager as Administrator and try again.";
+    return "Administrator permission is required to access the local Agent. Reopen Yaseir Print Manager as Administrator and try again.";
   }
   if (lower.includes("requires elevation") || lower.includes("elevation required")) {
-    return "Administrator permission is required for this operation. Reopen Yasser Print Manager as Administrator and try again.";
+    return "Administrator permission is required for this operation. Reopen Yaseir Print Manager as Administrator and try again.";
   }
   if (lower.includes("pairing code")) {
     return "Pairing could not be completed. Check the pairing code and make sure it has not expired.";
@@ -190,7 +190,7 @@ export function friendlyPrinterError(raw: string): string {
   // because the Tauri Gateway transport reads the local Agent config first.
   // Never expose the config path or Windows error text to operators.
   if (lower.includes("load agent config failed") || lower.includes("config.yaml")) {
-    return "Administrator permission is required to access the local Agent. Reopen Yasser Print Manager as Administrator and try again.";
+    return "Administrator permission is required to access the local Agent. Reopen Yaseir Print Manager as Administrator and try again.";
   }
   if (lower.includes("connection refused") || lower.includes("dial tcp"))
     return "Could not connect to the printer.";

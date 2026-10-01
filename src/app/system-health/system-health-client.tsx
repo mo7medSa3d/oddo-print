@@ -70,7 +70,7 @@ export default function SystemHealthClient() {
       <div className={`rounded-xl border px-5 py-4 ${badgeColor(health.overall)}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${badgeColor(health.overall)}`}>{stateLabel(health.overall)}</span>
+            <span className={`inline-flex rounded-[8px] border px-3 py-1 text-xs font-bold ${badgeColor(health.overall)}`}>{stateLabel(health.overall)}</span>
             <span className="text-sm">Overall system health — {health.timestamp}</span>
           </div>
           <button onClick={fetchHealth} className="text-xs underline">Refresh</button>
@@ -83,7 +83,7 @@ export default function SystemHealthClient() {
           <div key={c.name} className="rounded-xl border border-edge bg-surface p-4 shadow-xs">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-ink">{c.name}</h3>
-              <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-bold ${badgeColor(c.state)}`}>{stateLabel(c.state)}</span>
+              <span className={`inline-flex rounded-[8px] border px-2 py-0.5 text-[11px] font-bold ${badgeColor(c.state)}`}>{stateLabel(c.state)}</span>
             </div>
             <p className="mt-2 text-[13px] leading-relaxed text-ink-2">{c.message}</p>
             {c.latencyMs !== undefined && <div className="mt-1 text-[11px] text-ink-3">{c.latencyMs}ms</div>}

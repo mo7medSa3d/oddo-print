@@ -1,7 +1,7 @@
 {
   "name": "yasser-gateway",
   "version": "1.0.0",
-  "description": "Yasser — Cloud Printing Platform (Next.js + PostgreSQL + Drizzle), Windows Go agent, and Tauri desktop manager",
+  "description": "Yaseir — Cloud Printing Platform (Next.js + PostgreSQL + Drizzle), Windows Go agent, and Tauri desktop manager",
   "license": "MIT",
   "private": true,
   "engines": {

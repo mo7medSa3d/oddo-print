@@ -8,11 +8,11 @@ import {
 describe("desktop friendly error mapping", () => {
   it("hides local agent config paths and permission details", () => {
     const message = friendlyAgentError(
-      "load agent config failed: open C:\\ProgramData\\YasserAgent\\config.yaml: Access is denied."
+      "load agent config failed: open C:\\ProgramData\\YaseirAgent\\config.yaml: Access is denied."
     );
 
     expect(message).toBe(
-      "Administrator permission is required to access the local Agent. Reopen Yasser Print Manager as Administrator and try again."
+      "Administrator permission is required to access the local Agent. Reopen Yaseir Print Manager as Administrator and try again."
     );
     expect(message).not.toContain("ProgramData");
     expect(message).not.toContain("config.yaml");
@@ -21,11 +21,11 @@ describe("desktop friendly error mapping", () => {
 
   it("sanitizes the same Agent-config failure when it bubbles through printer loading", () => {
     const message = friendlyPrinterError(
-      "load agent config failed: open C:\\ProgramData\\YasserAgent\\config.yaml: Access is denied."
+      "load agent config failed: open C:\\ProgramData\\YaseirAgent\\config.yaml: Access is denied."
     );
 
     expect(message).toBe(
-      "Administrator permission is required to access the local Agent. Reopen Yasser Print Manager as Administrator and try again."
+      "Administrator permission is required to access the local Agent. Reopen Yaseir Print Manager as Administrator and try again."
     );
     expect(message).not.toContain("ProgramData");
     expect(message).not.toContain("Access is denied");
@@ -33,7 +33,7 @@ describe("desktop friendly error mapping", () => {
 
   it("does not expose filesystem diagnostics from unexpected printer failures", () => {
     const message = friendlyPrinterError(
-      "backend failure at C:\\ProgramData\\YasserAgent\\logs\\agent.log"
+      "backend failure at C:\\ProgramData\\YaseirAgent\\logs\\agent.log"
     );
 
     expect(message).toBe(

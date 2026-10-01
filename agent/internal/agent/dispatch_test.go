@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yasser-agent/agent/internal/config"
-	"github.com/yasser-agent/agent/internal/printer"
+	"github.com/yaseir-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/printer"
 )
 
 // TestRedeliveryKeepsOriginalClaimTokenForReports proves the full loop of the
@@ -308,7 +308,7 @@ func TestWaitForJobsNeverBlocksShutdownForever(t *testing.T) {
 // eight printing reports have been accepted, the first printer owns the
 // physical slot and the other seven are known to be waiting for that printer.
 func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
-	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1")
+	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1")
 	const blockedJobs = maxConcurrentJobs
 
 	var mu sync.Mutex

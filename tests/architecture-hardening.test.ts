@@ -238,7 +238,7 @@ describe("ambiguous Odoo submission recovery", () => {
 describe("ambiguous email side effects", () => {
   it("keeps invitation state durable when the provider response is ambiguous", () => {
     const route = readFileSync("src/app/api/team/invitations/route.ts", "utf8");
-    const start = route.indexOf('await sendTransactionalEmail({ to: email, subject: "You are invited to Yasser Print Manager"');
+    const start = route.indexOf('await sendTransactionalEmail({ to: email, subject: "You are invited to Yaseir Print Manager"');
     const end = route.indexOf('return NextResponse.json({ ok: true, id });', start);
     const block = route.slice(start, end);
     expect(block).toContain("Invitation delivery is temporarily unavailable");

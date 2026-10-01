@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     const url = `${appBaseUrl(req)}/reset-password?token=${encodeURIComponent(raw)}`;
     await sendTransactionalEmail({
       to: user.email,
-      subject: "Reset your Yasser password",
+      subject: "Reset your Yaseir password",
       html: `<p><a href="${url}">Reset password</a></p>`,
       text: `Reset your password: ${url}`,
     });

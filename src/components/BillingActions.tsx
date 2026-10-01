@@ -109,7 +109,7 @@ export function BillingActions({
                 type="button"
                 disabled={!!busy}
                 onClick={continueWithSelectedPlan}
-                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-brand px-4 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md disabled:opacity-50"
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[8px] bg-brand px-4 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md disabled:opacity-50"
               >
                 {busy === "selected-plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {busy === "selected-plan" ? "Opening…" : hasSubscription ? "Continue to billing" : "Continue to checkout"}
@@ -128,7 +128,7 @@ export function BillingActions({
               if (typeof data.url !== "string" || !data.url) throw new Error("Billing portal URL was not returned");
               window.location.href = data.url;
             })}
-            className="inline-flex h-9 items-center gap-2 rounded-full border border-edge bg-surface px-3.5 text-[12.5px] font-semibold text-ink-2 shadow-xs transition hover:border-edge-strong hover:bg-surface-2 hover:text-ink disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-2 rounded-[8px] border border-edge bg-surface px-3.5 text-[12.5px] font-semibold text-ink-2 shadow-xs transition hover:border-edge-strong hover:bg-surface-2 hover:text-ink disabled:opacity-50"
           >
             {busy === "portal" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
             {busy === "portal" ? "Opening…" : "Customer Portal"}
@@ -140,7 +140,7 @@ export function BillingActions({
               type="button"
               disabled={!!busy}
               onClick={() => setConfirmCancel(true)}
-              className="inline-flex h-9 items-center rounded-full border border-bad-edge bg-bad-bg px-3.5 text-[12.5px] font-semibold text-bad transition hover:brightness-95 disabled:opacity-50"
+              className="inline-flex h-9 items-center rounded-[8px] border border-bad-edge bg-bad-bg px-3.5 text-[12.5px] font-semibold text-bad transition hover:brightness-95 disabled:opacity-50"
             >
               Cancel at period end
             </button>
@@ -154,7 +154,7 @@ export function BillingActions({
                 await post("/api/billing/resume");
                 router.refresh();
               })}
-              className="inline-flex h-9 items-center rounded-full bg-brand px-3.5 text-[12.5px] font-semibold text-white transition hover:bg-brand-hover disabled:opacity-50"
+              className="inline-flex h-9 items-center rounded-[8px] bg-brand px-3.5 text-[12.5px] font-semibold text-white transition hover:bg-brand-hover disabled:opacity-50"
             >
               {busy === "resume" ? "Updating…" : "Resume subscription"}
             </button>
@@ -164,7 +164,7 @@ export function BillingActions({
         {!selectedPlan && subscriptionStatus === "incomplete" && checkoutUrl && (
           <a
             href={checkoutUrl}
-            className="inline-flex h-9 items-center gap-2 rounded-full bg-brand px-3.5 text-[12.5px] font-semibold text-white transition hover:bg-brand-hover"
+            className="inline-flex h-9 items-center gap-2 rounded-[8px] bg-brand px-3.5 text-[12.5px] font-semibold text-white transition hover:bg-brand-hover"
           >
             Continue existing checkout
             <ArrowRight className="h-3.5 w-3.5" />

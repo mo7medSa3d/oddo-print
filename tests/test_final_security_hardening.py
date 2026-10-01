@@ -251,13 +251,13 @@ def test_settings_does_not_duplicate_first_class_operational_pages():
     assert 'href="/api-keys"' not in page
 
 
-def test_agent_http_transport_has_one_yasser_opt_in_and_no_legacy_odoo_alias():
+def test_agent_http_transport_has_one_yaseir_opt_in_and_no_legacy_odoo_alias():
     config = read("agent/internal/config/config.go")
     pairing = read("agent/internal/agent/pairing.go")
     cli = read("agent/cmd/cli/main.go")
     example = read("agent/configs/config.yaml.example")
     assert "func ValidateServerURL(raw string) error" in config
-    assert "YASSER_AGENT_ALLOW_INSECURE_HTTP" in config
+    assert "YASEIR_AGENT_ALLOW_INSECURE_HTTP" in config
     assert "ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP" not in config
     assert "func validateServerURL" not in pairing
     assert "func validateServerURL" not in cli
@@ -271,8 +271,8 @@ def test_public_product_branding_has_no_stale_gateway_name_in_console_shell():
     layout = read("src/app/layout.tsx")
     ipc = read("src/desktop/lib/ipc.ts")
     assert 'brandSubtitle="Cloud Printing Platform"' in shell
-    assert 'title: "Yasser — Cloud Printing Platform"' in layout
-    assert 'yasser-print-manager-auth-changed' in ipc
+    assert 'title: "Yaseir — Cloud Printing Platform"' in layout
+    assert 'yaseir-print-manager-auth-changed' in ipc
     assert 'Odoo Print Gateway' not in shell + layout
     assert 'odoo-print-manager-auth-changed' not in ipc
 
@@ -507,7 +507,7 @@ def test_odoo_gateway_status_reconciliation_cannot_downgrade_terminal_state():
 
 def test_team_invitation_email_ambiguity_does_not_revoke_durable_token():
     route = read("src/app/api/team/invitations/route.ts")
-    block_start = route.index('await sendTransactionalEmail({ to: email, subject: "You are invited to Yasser Print Manager"')
+    block_start = route.index('await sendTransactionalEmail({ to: email, subject: "You are invited to Yaseir Print Manager"')
     block_end = route.index('return NextResponse.json({ ok: true, id });', block_start)
     block = route[block_start:block_end]
     assert "const revoked = await db.transaction" not in block

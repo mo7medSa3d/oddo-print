@@ -1,8 +1,8 @@
 [package]
-name = "yasser-manager"
+name = "yaseir-manager"
 version = "1.0.0"
-description = "Yasser Print Manager — desktop management for Yasser Agent"
-authors = ["Yasser"]
+description = "Yaseir Print Manager — desktop management for Yaseir Agent"
+authors = ["Yaseir"]
 license = "MIT"
 repository = "https://github.com/mo7medSa3d/oddo-print"
 edition = "2024"

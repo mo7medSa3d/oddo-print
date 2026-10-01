@@ -849,7 +849,7 @@ export default function DashboardClient({
         <div className="flex items-center gap-3">
           <div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Workspace</div><h1 className="mt-1.5 text-[30px] font-bold tracking-[-0.035em] text-ink">Print console</h1><p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-ink-3">See what’s connected, what’s printing, and what needs attention.</p></div>
           <span
-            className={`inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
+            className={`inline-flex h-6 items-center gap-1.5 rounded-[8px] border px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
               databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-ok-edge bg-ok-bg text-ok"
             }`}
           >
@@ -917,9 +917,9 @@ export default function DashboardClient({
             </div>
             {billingUsage.resources.prints.limit !== "unlimited" && (
               <div className="min-w-[220px]">
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
+                <div className="h-1.5 w-full overflow-hidden rounded-[8px] bg-surface-3">
                   <div
-                    className={`h-full rounded-full transition-all ${billingUsage.resources.prints.remaining === 0 ? "bg-bad-solid" : "bg-brand"}`}
+                    className={`h-full rounded-[8px] transition-all ${billingUsage.resources.prints.remaining === 0 ? "bg-bad-solid" : "bg-brand"}`}
                     style={{ width: `${Math.min(100, Math.max(0, (billingUsage.resources.prints.used / Math.max(1, billingUsage.resources.prints.limit)) * 100))}%` }}
                   />
                 </div>
@@ -938,7 +938,7 @@ export default function DashboardClient({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2.5">
                 <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand">Agent pairing</span>
-                <span className="inline-flex items-center rounded-full border border-edge bg-surface px-2.5 py-1 text-[10px] font-semibold tabular-nums text-ink-3">
+                <span className="inline-flex items-center rounded-[8px] border border-edge bg-surface px-2.5 py-1 text-[10px] font-semibold tabular-nums text-ink-3">
                   Expires in {countdownText}
                 </span>
               </div>
@@ -1068,7 +1068,7 @@ export default function DashboardClient({
             subtitle={`${kpis.onlinePrinters} online • ${filteredPrinters.length} shown`}
             icon={<PrinterIcon className="h-4 w-4 text-brand" />}
             actions={
-              <div className="flex items-center gap-1 rounded-full border border-edge bg-surface-2 p-0.5">
+              <div className="flex items-center gap-1 rounded-[8px] border border-edge bg-surface-2 p-0.5">
                 <button type="button" aria-pressed={printerViewMode === "grid"} onClick={() => setPrinterViewMode("grid")} className={`rounded-[7px] p-1.5 transition ${printerViewMode === "grid" ? "bg-surface text-brand shadow-xs" : "text-ink-3 hover:text-ink"}`}>
                   <LayoutGrid className="h-4 w-4" />
                 </button>
@@ -1233,7 +1233,7 @@ export default function DashboardClient({
                 <button
                   key={tab.id}
                   onClick={() => setJobStatusFilter(tab.id)}
-                  className={`rounded-full px-3 py-1.5 text-[12px] font-semibold transition ${jobStatusFilter === tab.id ? "bg-brand text-white shadow-sm" : "bg-surface-2 text-ink-3 hover:text-ink hover:bg-surface-3 border border-edge"}`}
+                  className={`rounded-[8px] px-3 py-1.5 text-[12px] font-semibold transition ${jobStatusFilter === tab.id ? "bg-brand text-white shadow-sm" : "bg-surface-2 text-ink-3 hover:text-ink hover:bg-surface-3 border border-edge"}`}
                 >
                   {tab.label}
                 </button>

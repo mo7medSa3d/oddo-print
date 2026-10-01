@@ -108,10 +108,10 @@ async function invoke<T>(
     case "get_agent_status":
       return {
         running: true,
-        service: "YasserAgent",
+        service: "YaseirAgent",
         version: "1.0.0",
         hostname: "DESKTOP-RECEPTION",
-        note: "YasserAgent.exe is running",
+        note: "YaseirAgent.exe is running",
       } as unknown as T;
     case "get_app_version":
       return "1.0.0" as unknown as T;
@@ -192,7 +192,7 @@ describe("desktop manager", () => {
 
     await waitUntil(() => text().includes("HP LaserJet Pro M404"));
 
-    expect(text()).toContain("Yasser Print Manager");
+    expect(text()).toContain("Yaseir Print Manager");
     for (const label of ["Overview", "Printers", "Print Jobs", "Agents", "Settings"]) {
       expect(text()).toContain(label);
     }

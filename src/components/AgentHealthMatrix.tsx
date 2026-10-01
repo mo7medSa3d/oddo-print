@@ -92,7 +92,7 @@ export default function AgentHealthMatrix() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-[14px] font-semibold tracking-tight text-ink truncate">{a.name}</span>
-                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${meta.cls}`}>{meta.label}</span>
+                  <span className={`rounded-[8px] border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${meta.cls}`}>{meta.label}</span>
                 </div>
                 <div className="mt-0.5 flex items-center gap-2 text-[11px] text-ink-3">
                   <span className="font-mono">{a.agentId.slice(0, 8)}</span>

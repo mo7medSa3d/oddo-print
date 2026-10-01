@@ -127,7 +127,7 @@ describe("Resend Email Verification API", () => {
     expect(sendEmailMock).toHaveBeenCalledWith(
       expect.objectContaining({
         to: "user@example.com",
-        subject: "Verify your Yasser account",
+        subject: "Verify your Yaseir account",
       })
     );
   });

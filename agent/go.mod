@@ -1,4 +1,4 @@
-module github.com/yasser-agent/agent
+module github.com/yaseir-agent/agent
 
 go 1.26
 

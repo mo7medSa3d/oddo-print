@@ -66,7 +66,7 @@ function buildDeterministicCertificationPdf(printerName: string, tenantId: strin
     "BT",
     "/F1 18 Tf",
     "50 720 Td",
-    "(YASSER TEST PAGE) Tj",
+    "(YASEIR TEST PAGE) Tj",
     "/F1 12 Tf",
     "0 -30 Td",
     `(Printer: ${escape(printerName)}) Tj`,
@@ -191,7 +191,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return NextResponse.json({ error: "invalid Idempotency-Key", code: "INVALID_REQUEST", steps }, { status: 400, headers: { "x-request-id": requestId } });
       }
 
-      // Build payload YASSER TEST PAGE in the LANGUAGE THE PRINTER SPEAKS.
+      // Build payload YASEIR TEST PAGE in the LANGUAGE THE PRINTER SPEAKS.
       // The printable payload MUST be deterministic for one idempotency key.
       // A retry after a lost HTTP response must produce the same fingerprint so
       // createPrintJobForPrinter can safely reuse the original physical attempt
@@ -207,7 +207,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         || declaredConn === "ipps" || (!isByteProtocol && declaredProtocol !== "unknown"
           && (declaredProtocol === "spooler" || declaredProtocol === "ipp" || declaredProtocol === "ipps"));
       const ticketText = testPage
-        ? `YASSER TEST PAGE\nPrinter: ${printer.name}\nTenant: ${tenantId}\nJob: ${idempotencyKey}\nTransport: ${printer.connectionType}/${printer.protocol}\n\nThis is a diagnostic test page for certification.\nNo credentials are printed.\n`.repeat(2)
+        ? `YASEIR TEST PAGE\nPrinter: ${printer.name}\nTenant: ${tenantId}\nJob: ${idempotencyKey}\nTransport: ${printer.connectionType}/${printer.protocol}\n\nThis is a diagnostic test page for certification.\nNo credentials are printed.\n`.repeat(2)
         : `CERTIFICATION ${idempotencyKey}`;
       const payload = isDocumentTransport
         ? { type: "pdf" as const, data: Buffer.from(buildDeterministicCertificationPdf(printer.name, tenantId, idempotencyKey), "utf-8").toString("base64") }
@@ -436,7 +436,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         blocked,
         blockedReasons: blockedSteps.map(s => ({ step: s.id, label: s.label, message: s.message })),
         pendingReasons: pendingSteps.map(s => ({ step: s.id, label: s.label, message: s.message })),
-        instructions: "To complete certification: 1) Ensure agent online, 2) Ensure printer reachable, 3) Check Gateway→Spooler Job linking (spoolerJobId), 4) Verify physical paper output YASSER TEST PAGE, 5) Confirm ack success. In sandbox this remains BLOCKED by design. Double-click uses same Idempotency-Key to avoid duplicates.",
+        instructions: "To complete certification: 1) Ensure agent online, 2) Ensure printer reachable, 3) Check Gateway→Spooler Job linking (spoolerJobId), 4) Verify physical paper output YASEIR TEST PAGE, 5) Confirm ack success. In sandbox this remains BLOCKED by design. Double-click uses same Idempotency-Key to avoid duplicates.",
         timelineUrl: `/api/jobs/${jobId}/timeline`,
       },
       { headers: { "x-request-id": requestId } }

@@ -20,7 +20,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
             <div className="min-w-0 flex-1"><div className="text-[13px] font-semibold text-ink">{s.gatewayConnected ? "Connected" : s.gatewayUrl ? "Unreachable" : "Not configured"}</div><div className="truncate text-[11px] text-ink-3">{s.gatewayUrl || "Enter gateway URL below"}</div></div>
             <StatusBadge tone={s.gatewayConnected ? "ok" : s.gatewayUrl ? "bad" : "neutral"} label={s.gatewayConnected ? "Connected" : s.gatewayUrl ? "Unreachable" : "Not configured"} />
           </div>
-          <Field label="Gateway URL" htmlFor="gw-url" hint="Base URL of Yasser Gateway, e.g. https://print.example.com">
+          <Field label="Gateway URL" htmlFor="gw-url" hint="Base URL of Yaseir Gateway, e.g. https://print.example.com">
             <Input id="gw-url" value={s.gatewayUrl} onChange={(e) => s.setGw(e.target.value)} placeholder="https://gateway.example.com" className="h-10 rounded-[10px]" />
           </Field>
           <div className="flex justify-end"><Button variant="primary" onClick={s.checkHealth} loading={s.gatewayChecking} icon={<Activity className="h-4 w-4" />} className="h-10 rounded-[10px]">Check connection</Button></div>
@@ -42,8 +42,8 @@ export function SettingsPage({ s }: { s: DesktopState }) {
                 try { await setAutostart(next); const st = await getAutostart(); s.setAutostartState(st.enabled); s.setMsg({ text: st.enabled ? "Launch at sign-in is on." : "Launch at sign-in is off.", type: "success" }); }
                 catch (error) { s.setMsg({ text: friendlyAgentError(error instanceof Error ? error.message : "Could not update startup preference."), type: "error" }); }
                 finally { setAutostartBusy(false); }
-              }} className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${s.autostart ? "bg-brand" : "bg-surface-3"}`}>
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${s.autostart ? "translate-x-6" : "translate-x-1"}`} />
+              }} className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-[8px] transition-colors ${s.autostart ? "bg-brand" : "bg-surface-3"}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-[8px] bg-white shadow-xs transition-transform ${s.autostart ? "translate-x-6" : "translate-x-1"}`} />
               </button>
             </div>
           </div>
@@ -58,7 +58,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
         <div className="grid gap-5 px-5 py-5 lg:grid-cols-[1fr_auto] lg:items-end">
           <ol className="space-y-2.5 text-[12px] text-ink-2">
             {["Enter Gateway URL above and verify connection.", "Generate 6-char pairing code from Central Gateway or Odoo wizard.", "Enter code below — credentials persisted securely via Windows DPAPI."].map((step, i) => (
-              <li key={step} className="flex items-center gap-2.5"><span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand text-[11px] font-bold text-white">{i + 1}</span><span>{step}</span></li>
+              <li key={step} className="flex items-center gap-2.5"><span className="flex h-5 w-5 items-center justify-center rounded-[8px] bg-brand text-[11px] font-bold text-white">{i + 1}</span><span>{step}</span></li>
             ))}
           </ol>
           <div className="flex w-full max-w-sm flex-col gap-3">
@@ -73,7 +73,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-edge bg-surface-2/30 px-5 py-4">
           <div><h2 className="text-[14px] font-semibold text-ink">Current Status</h2><p className="mt-1 text-[11px] text-ink-3">Live snapshot — full agent log at path below.</p></div>
           <Button size="sm" variant="secondary" onClick={() => {
-            const report = [`=== Yasser Agent Diagnostic Export ===`, `Generated: ${new Date().toISOString()}`, `Version: ${s.version || "unknown"}`, `Running: ${s.isOnline}`, `Gateway: ${s.gatewayUrl || "Not configured"}`, `Reachable: ${s.gatewayConnected}`, `Printers: ${s.printers.length}`, `Pending: ${s.pendingJobs}, Failed: ${s.failedJobs}`, ``, `=== Printers ===`, ...s.printers.map((p) => ` - ${p.name} [${p.status}]`), ``, `=== Paths ===`, ...paths.map(([k, v]) => ` - ${k}: ${v}`)].join("\n");
+            const report = [`=== Yaseir Agent Diagnostic Export ===`, `Generated: ${new Date().toISOString()}`, `Version: ${s.version || "unknown"}`, `Running: ${s.isOnline}`, `Gateway: ${s.gatewayUrl || "Not configured"}`, `Reachable: ${s.gatewayConnected}`, `Printers: ${s.printers.length}`, `Pending: ${s.pendingJobs}, Failed: ${s.failedJobs}`, ``, `=== Printers ===`, ...s.printers.map((p) => ` - ${p.name} [${p.status}]`), ``, `=== Paths ===`, ...paths.map(([k, v]) => ` - ${k}: ${v}`)].join("\n");
             navigator.clipboard.writeText(report).then(() => s.setMsg({ text: "Status copied", type: "success" })).catch(() => s.setMsg({ text: "Unable to copy", type: "error" }));
           }} icon={<Copy className="h-3.5 w-3.5" />} className="h-8 rounded-[8px]">Copy Summary</Button>
         </div>
@@ -94,7 +94,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
         {s.advancedOpen && (
           <div className="grid gap-5 border-t border-edge px-5 py-5 lg:grid-cols-2">
             <div><div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">Security</div><p className="text-[12px] text-ink-2 leading-relaxed">Pairing uses one-time code; credentials stored with OS-level protection, never displayed.</p><div className="mt-3 inline-flex items-center gap-2 rounded-[10px] border border-ok-edge bg-ok-bg px-3 py-2 text-[12px] font-medium text-ok"><Lock className="h-4 w-4" />Credentials stay on this PC</div></div>
-            <div><div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">Data locations</div>{paths.length > 0 ? <div className="space-y-1.5">{paths.map(([label, path]) => (<div key={label} className="flex items-center gap-2 rounded-[10px] border border-edge bg-surface-2 px-3 py-2"><span className="w-24 text-[11px] font-semibold text-ink-2">{label}</span><span className="flex-1 truncate font-mono text-[11px] text-ink-3">{path}</span><CopyButton value={path} label="Copy" onCopied={() => s.setMsg({ text: "Copied", type: "success" })} /></div>))}</div> : <p className="text-[12px] text-ink-3">Loading paths…</p>}<p className="mt-4 text-[11px] text-ink-3">Yasser Print Manager • v{s.version || "—"} • © 2026</p></div>
+            <div><div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">Data locations</div>{paths.length > 0 ? <div className="space-y-1.5">{paths.map(([label, path]) => (<div key={label} className="flex items-center gap-2 rounded-[10px] border border-edge bg-surface-2 px-3 py-2"><span className="w-24 text-[11px] font-semibold text-ink-2">{label}</span><span className="flex-1 truncate font-mono text-[11px] text-ink-3">{path}</span><CopyButton value={path} label="Copy" onCopied={() => s.setMsg({ text: "Copied", type: "success" })} /></div>))}</div> : <p className="text-[12px] text-ink-3">Loading paths…</p>}<p className="mt-4 text-[11px] text-ink-3">Yaseir Print Manager • v{s.version || "—"} • © 2026</p></div>
           </div>
         )}
       </Card>

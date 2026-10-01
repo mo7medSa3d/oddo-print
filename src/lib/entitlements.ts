@@ -23,7 +23,7 @@ export class TenantSubscriptionRequiredError extends Error {
 }
 
 /**
- * Stripe subscription states that keep the Yasser runtime provisioned.
+ * Stripe subscription states that keep the Yaseir runtime provisioned.
  * past_due remains usable while Stripe performs recovery/retry; access is
  * revoked for unpaid/canceled/paused states by the entitlement query.
  */

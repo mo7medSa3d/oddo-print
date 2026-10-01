@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
 func TestValidateServerURLAcceptsHTTPSByDefault(t *testing.T) {
@@ -13,13 +13,13 @@ func TestValidateServerURLAcceptsHTTPSByDefault(t *testing.T) {
 }
 
 func TestValidateServerURLRequiresExplicitHTTPOptIn(t *testing.T) {
-	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "")
+	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "")
 	for _, raw := range []string{"http://127.0.0.1:3000", "http://192.0.2.10:3000", "http://gateway.example.com"} {
 		if err := config.ValidateServerURL(raw); err == nil {
 			t.Fatalf("expected HTTP URL %q to be rejected without explicit opt-in", raw)
 		}
 	}
-	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1")
+	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1")
 	for _, raw := range []string{"http://127.0.0.1:3000", "http://192.0.2.10:3000", "http://gateway.example.com"} {
 		if err := config.ValidateServerURL(raw); err != nil {
 			t.Fatalf("expected explicit opt-in to permit HTTP URL %q, got %v", raw, err)

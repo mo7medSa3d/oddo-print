@@ -28,7 +28,7 @@ func IsUserDirectory(path string) bool {
 }
 
 // Store saves key/value secrets under Dir (the agent data directory, e.g.
-// C:\ProgramData\YasserAgent).
+// C:\ProgramData\YaseirAgent).
 type Store struct {
 	Dir string
 }

@@ -6,7 +6,9 @@ src-tauri/target/
 src-tauri/gen/
 
 agent/YasserAgent.exe
+agent/YaseirAgent.exe
 agent/yasser-agent-cli.exe
+agent/yaseir-agent-cli.exe
 agent/OdooPrintAgent.exe
 agent/odoo-agent-cli.exe
 

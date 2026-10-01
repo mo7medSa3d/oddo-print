@@ -16,7 +16,7 @@ describe("Stripe plan binding contract", () => {
     vi.restoreAllMocks();
   });
 
-  it("accepts an active recurring Price whose billing identity matches the Yasser plan", async () => {
+  it("accepts an active recurring Price whose billing identity matches the Yaseir plan", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({
         id: "price_business_monthly",
@@ -66,7 +66,7 @@ describe("Stripe plan binding contract", () => {
     });
   });
 
-  it("rejects inactive Prices when the Yasser plan is active", async () => {
+  it("rejects inactive Prices when the Yaseir plan is active", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({
         id: "price_inactive",

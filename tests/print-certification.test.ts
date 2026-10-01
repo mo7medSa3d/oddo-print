@@ -68,14 +68,14 @@ describe("print-certification", () => {
     expect(source).toContain("Physical verification requires real printer");
   });
 
-  it("YASSER TEST PAGE contains no secrets", () => {
+  it("YASEIR TEST PAGE contains no secrets", () => {
     const source = fs.readFileSync("src/app/api/printers/[id]/certify/route.ts", "utf8");
     // Ensure test page content in source has no secret patterns
-    expect(source).toContain("YASSER TEST PAGE");
+    expect(source).toContain("YASEIR TEST PAGE");
     expect(source).not.toMatch(/password\s*[:=]/i);
     // The payload should say No credentials are printed, not contain api key
-    const testPageSnippet = source.match(/YASSER TEST PAGE[\s\S]{0,500}/)?.[0] ?? "";
-    expect(testPageSnippet).toContain("YASSER TEST PAGE");
+    const testPageSnippet = source.match(/YASEIR TEST PAGE[\s\S]{0,500}/)?.[0] ?? "";
+    expect(testPageSnippet).toContain("YASEIR TEST PAGE");
   });
 
   it("certification job links Gateway↔Spooler via spoolerJobId and records timeline", () => {

@@ -96,7 +96,7 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
         .unwrap_or_else(|_| "unknown".into());
     let base = AgentStatus {
         running: false,
-        service: "YasserAgent".into(),
+        service: "YaseirAgent".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         hostname,
         note: String::new(),
@@ -216,7 +216,7 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
         .arg(gateway_url)
         .arg("-config")
         .arg(&config)
-        .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root());
+        .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -578,7 +578,7 @@ pub async fn gateway_agent_request(args: AgentGatewayRequestArgs, app: tauri::Ap
             .arg(&path)
             .arg("-config")
             .arg(&config)
-            .env("YASSER_AGENT_DATA_DIR", &root);
+            .env("YASEIR_AGENT_DATA_DIR", &root);
         if let Some(body) = args.body {
             request_cmd.arg("-body").arg(body);
         }
@@ -953,7 +953,7 @@ pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, 
             .arg("--json")
             .arg("-config")
             .arg(&config)
-            .env("YASSER_AGENT_DATA_DIR", &root);
+            .env("YASEIR_AGENT_DATA_DIR", &root);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -1014,7 +1014,7 @@ pub async fn test_printer(printer_id: String, app: tauri::AppHandle) -> Result<S
             .arg(&pid)
             .arg("-config")
             .arg(&config)
-            .env("YASSER_AGENT_DATA_DIR", &root);
+            .env("YASEIR_AGENT_DATA_DIR", &root);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -1105,7 +1105,7 @@ pub async fn register_printer(request: RegisterPrinterRequest, app: tauri::AppHa
             cmd.arg("--serial").arg(arg_value("USB serial", serial)?);
         }
         cmd.arg("-config").arg(&config);
-        cmd.env("YASSER_AGENT_DATA_DIR", &root);
+        cmd.env("YASEIR_AGENT_DATA_DIR", &root);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;

@@ -1,5 +1,5 @@
 """
-Structural regression: the Yasser addon must not introduce web-font requests
+Structural regression: the Yaseir addon must not introduce web-font requests
 into the POS receipt rendering path.
 
 Background
