@@ -43,6 +43,7 @@ import {
 import {
 import { apiMessageKey } from "../../lib/api-error-keys";
 import type { MessageKey } from "../../i18n/messages/en";
+import type { Translator } from "../../i18n/translate";
   Button,
   Card,
   CardHeader,
@@ -174,15 +175,15 @@ function stringifyDiagnosticPayload(payload: unknown): string {
   }
 }
 
-function diagnosticPayloadPreview(text: string): string {
+function diagnosticPayloadPreview(text: string, t: Translator): string {
   if (text.length <= MAX_DIAGNOSTIC_PREVIEW_CHARS) return text;
   return text.slice(0, MAX_DIAGNOSTIC_PREVIEW_CHARS) +
-    "\n\n… Preview truncated at 64 KiB. Use Copy Payload for the complete diagnostic payload.";
+    "\n\n" + t("job.payloadTruncated", { size: "64 KiB" });
 }
 
 function formatCountdown(
   expiresAt: Date | string | null | undefined,
-  expiredLabel: string = "Expired",
+  expiredLabel: string,
 ): { text: string; expired: boolean } {
   if (!expiresAt) return { text: "10:00", expired: false };
   const exp = typeof expiresAt === "string" ? new Date(expiresAt) : expiresAt;
@@ -736,7 +737,7 @@ export default function DashboardClient({
     try {
       await sendGatewayTestPage(printerId);
       setMessage({
-        text: `Test page submitted for ${printerName}. Track its delivery in Recent Print Jobs.`,
+        text: t("success.testPageSubmitted", { printer: printerName }),
         type: "ok",
       });
       void refreshData();
@@ -774,8 +775,8 @@ export default function DashboardClient({
       const result = await sendGatewayReprint(job.id);
       setMessage({
         text: result.jobId
-          ? `Reprint queued for ${job.printerId} (job ${result.jobId.slice(0, 12)})`
-          : `Reprint queued for ${job.printerId}`,
+          ? t("success.reprintQueuedWithJob", { printer: job.printerId, job: result.jobId.slice(0, 12) })
+          : t("success.reprintQueued", { printer: job.printerId }),
         type: "ok",
       });
       void refreshData();
@@ -837,7 +838,7 @@ export default function DashboardClient({
       setActivePairing({ id, code: pairingCode, expiresAt });
       setAgentName("");
       setMessage({
-        text: `Agent registered! Use pairing code ${pairingCode} before expiration.`,
+        text: t("success.agentRegisteredWithCode", { code: pairingCode }),
         type: "ok",
       });
       void refreshData();
@@ -1554,7 +1555,7 @@ export default function DashboardClient({
                               {testingPrinterId === printer.id ? t("printer.sending") : t("printer.testPage")}
                             </Button>
                             <Menu
-                              label={`More actions for ${printer.name}`}
+                              label={t("printer.moreActionsFor", { name: printer.name })}
                               items={printerActions(printer)}
                               trigger={
                                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
@@ -1703,7 +1704,7 @@ export default function DashboardClient({
                         </td>
                         <td className="text-end">
                           <Menu
-                            label={`Actions for job ${shortId(job.id)}`}
+                            label={t("job.actionsForJob", { id: shortId(job.id) })}
                             items={jobActions(job)}
                             trigger={
                               <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
@@ -1751,7 +1752,7 @@ export default function DashboardClient({
                         {t("job.inspect")}
                       </Button>
                       <Menu
-                        label={`Actions for job ${shortId(job.id)}`}
+                        label={t("job.actionsForJob", { id: shortId(job.id) })}
                         items={jobActions(job)}
                         trigger={
                           <span className="inline-flex h-8 items-center gap-1 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2">
@@ -1967,7 +1968,7 @@ export default function DashboardClient({
                 <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-2xs leading-relaxed text-ink-2">
                   {selectedJobPayloadLoading
                     ? t("loading.payload")
-                    : diagnosticPayloadPreview(stringifyDiagnosticPayload(selectedJobPayload ?? selectedJob.payload))}
+                    : diagnosticPayloadPreview(stringifyDiagnosticPayload(selectedJobPayload ?? selectedJob.payload), t)}
                 </pre>
               </div>
             </details>

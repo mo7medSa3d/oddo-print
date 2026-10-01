@@ -27,7 +27,7 @@ export class RuntimePrinterField extends Component {
                         <t t-esc="props.record.data[props.name]"/> (<t t-esc="labels.savedUnavailable"/>)
                     </option>
                     <option t-foreach="filteredPrinters" t-as="printer" t-key="printer.id" t-att-value="printer.id" t-att-selected="printer.id === props.record.data[props.name]">
-                        <t t-esc="printer.name"/> [<t t-esc="printer.deviceClass || 'generic'"/>] — <t t-esc="printer.status"/>
+                        <t t-esc="printer.name"/> [<t t-esc="printer.deviceClass || labels.genericClass"/>] — <t t-esc="printer.status"/>
                     </option>
                     <option t-if="!state.loading &amp;&amp; !state.error &amp;&amp; state.agentId &amp;&amp; !filteredPrinters.length &amp;&amp; !configuredPrinterMissing" value="" disabled="disabled"><t t-esc="emptyMessage"/></option>
                 </select>
@@ -55,6 +55,7 @@ export class RuntimePrinterField extends Component {
             loadError: _t("Could not load printers. Check the Print Agent connection, then retry."),
             retry: _t("Retry"),
             savedUnavailable: _t("saved / currently unavailable"),
+            genericClass: _t("generic"),
         };
 
         // Print Agent is not the field this widget renders: a prop-based reload

@@ -51,7 +51,15 @@ const I18nContext = createContext<I18nValue | null>(null);
  */
 export function I18nProvider({ children, initialLocale = DEFAULT_LOCALE }: { children: ReactNode; initialLocale?: Locale }) {
   const [locale, setLocaleState] = useState<Locale>(initialLocale);
+  // False until the stored preference has been read. The pre-paint script in
+  // the document head has already set `lang`/`dir` from the same storage key,
+  // so nothing may write to the document element before this flips — doing so
+  // would undo the script and show one left-to-right frame to an Arabic user.
+  const [resolved, setResolved] = useState(false);
 
+  // Adopt the stored preference after mount. Server and client both start from
+  // `initialLocale`, so hydration matches even when the two disagree with
+  // storage; the correction lands in the first effect pass.
   useEffect(() => {
     let stored: string | null = null;
     try {
@@ -59,15 +67,17 @@ export function I18nProvider({ children, initialLocale = DEFAULT_LOCALE }: { chi
     } catch {
       /* storage unavailable — stay on the default locale */
     }
-    const resolved = resolveLocale(stored);
-    if (resolved !== initialLocale) setLocaleState(resolved);
+    const next = resolveLocale(stored);
+    if (next !== initialLocale) setLocaleState(next);
+    setResolved(true);
   }, [initialLocale]);
 
   useEffect(() => {
+    if (!resolved) return;
     const root = document.documentElement;
     root.lang = locale;
     root.dir = dirFor(locale);
-  }, [locale]);
+  }, [locale, resolved]);
 
   const setLocale = useCallback((next: Locale) => {
     setLocaleState(next);
@@ -102,6 +112,9 @@ export function I18nProvider({ children, initialLocale = DEFAULT_LOCALE }: { chi
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 
+/** Stable no-op for callers that render outside a provider. */
+const noopSetLocale = () => undefined;
+
 /**
  * Access the active locale.
  *
@@ -112,7 +125,7 @@ export function I18nProvider({ children, initialLocale = DEFAULT_LOCALE }: { chi
 export function useI18n(): I18nValue {
   const context = useContext(I18nContext);
   const locale = context?.locale ?? DEFAULT_LOCALE;
-  const setLocale = context?.setLocale ?? (() => undefined);
+  const setLocale = context?.setLocale ?? noopSetLocale;
 
   return useMemo<I18nValue>(() => {
     const t = (key: MessageKey, vars?: MessageVars) => translate(locale, key, vars);

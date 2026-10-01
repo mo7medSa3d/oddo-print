@@ -96,6 +96,7 @@ import type {
 } from "./types";
 import "../app/globals.css";
 import { I18nProvider } from "../i18n/react";
+import { DEFAULT_LOCALE, LOCALE_STORAGE_KEY, resolveLocale, type Locale } from "../i18n/config";
 /* Desktop Manager uses the shared light/dark theme tokens. */
 import "./theme-light.css";
 
@@ -1124,8 +1125,24 @@ export default function App() {
   );
 }
 
+/**
+ * Start on the stored language.
+ *
+ * Unlike the console, the desktop bundle is never server-rendered, so there is
+ * no hydration to keep in step: reading storage during startup cannot mismatch
+ * anything, and it saves the app from rendering one English frame before the
+ * provider adopts the preference.
+ */
+function initialDesktopLocale(): Locale {
+  try {
+    return resolveLocale(window.localStorage.getItem(LOCALE_STORAGE_KEY));
+  } catch {
+    return DEFAULT_LOCALE;
+  }
+}
+
 createRoot(document.getElementById("root")!).render(
-  <I18nProvider>
+  <I18nProvider initialLocale={initialDesktopLocale()}>
     <App />
   </I18nProvider>,
 );

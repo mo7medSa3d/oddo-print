@@ -13,6 +13,9 @@ type TimelineEvent = {
   status: string;
   at?: string;
   message?: string;
+  /** Translation key for the detail line; absent for persisted audit text. */
+  messageKey?: string;
+  messageVars?: Record<string, string | number>;
   errorCode?: string;
   attemptId?: string;
   claimId?: string;
@@ -224,7 +227,13 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
                 <StatusBadge size="sm" tone={tone} label={stageLabel(ev.status, t)} />
                 {when && <span className="text-xs tabular-nums text-ink-4">{when}</span>}
               </div>
-              {ev.message && <p className="mt-1 text-sm leading-relaxed text-ink-2">{ev.message}</p>}
+              {(ev.messageKey || ev.message) && (
+                <p className="mt-1 text-sm leading-relaxed text-ink-2">
+                  {ev.messageKey
+                    ? t(ev.messageKey as MessageKey, ev.messageVars ?? undefined)
+                    : ev.message}
+                </p>
+              )}
               {ev.errorCode && (
                 <p className="mt-1 text-xs text-ink-3">
                   {t("job.errorCode")} <Mono>{ev.errorCode}</Mono>

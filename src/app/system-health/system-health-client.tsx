@@ -27,7 +27,27 @@ import {
 } from "../../components/ui";
 
 type HealthState = "ok" | "warn" | "error" | "unknown";
-type HealthCheck = { name: string; state: HealthState; message: string; latencyMs?: number; details?: Record<string, unknown> };
+type HealthCheck = {
+  name: string;
+  state: HealthState;
+  message: string;
+  /** Translation key for the detail line; `message` is the raw fallback. */
+  messageKey?: string;
+  messageVars?: Record<string, string | number>;
+  latencyMs?: number;
+  details?: Record<string, unknown>;
+};
+
+/** Health check cards come from the server with English names. */
+const CHECK_NAME_KEYS: Record<string, MessageKey> = {
+  Database: "health.check.database",
+  Queue: "health.check.queue",
+  Agents: "health.check.agents",
+  Printers: "health.check.printers",
+  Gateway: "health.check.gateway",
+  Odoo: "health.check.odoo",
+  Billing: "health.check.billing",
+};
 type SystemHealth = {
   overall: HealthState;
   timestamp: string;
@@ -212,7 +232,7 @@ export default function SystemHealthClient() {
 
       {error && (
         <Callout tone="warn" title={t("health.refreshFailed")}>
-          Showing the last successful sample: {error}
+          {t("health.showingLastSample", { error })}
         </Callout>
       )}
 
@@ -220,12 +240,16 @@ export default function SystemHealthClient() {
         {health.checks.map((check) => (
           <Card key={check.name} className="flex flex-col">
             <CardHeader
-              title={check.name}
+              title={CHECK_NAME_KEYS[check.name] ? t(CHECK_NAME_KEYS[check.name]) : check.name}
               icon={<StateIcon state={check.state} className="h-4 w-4" />}
               actions={<StatusBadge tone={STATE_TONE[check.state]} label={stateLabel(check.state, t)} size="sm" />}
             />
             <div className="flex flex-1 flex-col px-5 py-4">
-              <p className="text-sm leading-relaxed text-ink-2">{check.message}</p>
+              <p className="text-sm leading-relaxed text-ink-2">
+                {check.messageKey
+                  ? t(check.messageKey as MessageKey, check.messageVars)
+                  : check.message}
+              </p>
               <div className="mt-auto flex flex-wrap items-center gap-3 pt-3 text-xs text-ink-3">
                 {check.latencyMs !== undefined && (
                   <span className="inline-flex items-center gap-1.5 tabular">

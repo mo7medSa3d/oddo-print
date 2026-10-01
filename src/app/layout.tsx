@@ -3,12 +3,17 @@ import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import { AppShell } from "../components/AppShell";
 import { I18nProvider } from "../i18n/react";
+import { getServerLocale, makeT } from "../i18n/server";
+import { dirFor } from "../i18n/config";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "Yaseir — Cloud Printing Platform",
-  description: "Automated Odoo printing for receipts, invoices, labels, and reports across branches, stores, and warehouses.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = makeT(await getServerLocale());
+  return {
+    title: t("meta.title"),
+    description: t("meta.description"),
+  };
+}
 
 // Pre-paint locale resolution: the stored language decides `lang` and `dir`
 // before the first frame, so a right-to-left session never flashes a
@@ -22,13 +27,18 @@ const THEME_INIT = `(function(){try{var t=localStorage.getItem("theme");if(t!=="
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const nonce = (await headers()).get("x-nonce") ?? undefined;
+  // Resolve the language on the server so the first byte is already in the
+  // operator's language. The pre-paint script below still owns the final word
+  // (it reads the same cookie plus localStorage, which the server cannot see),
+  // and `suppressHydrationWarning` covers the case where the two disagree.
+  const locale = await getServerLocale();
 
   return (
-    <html lang="en" dir="ltr" suppressHydrationWarning>
+    <html lang={locale} dir={dirFor(locale)} suppressHydrationWarning>
       <body className="antialiased bg-app text-ink min-h-screen">
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: LOCALE_INIT }} />
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
-        <I18nProvider>
+        <I18nProvider initialLocale={locale}>
           <AppShell>{children}</AppShell>
         </I18nProvider>
       </body>

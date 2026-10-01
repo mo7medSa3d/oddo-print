@@ -9,6 +9,15 @@ export const catalogs: Record<Locale, Record<MessageKey, string>> = { en, ar };
 /** Variables interpolated into `{name}` placeholders inside a message. */
 export type MessageVars = Record<string, string | number>;
 
+/**
+ * A bound translator.
+ *
+ * Module-scope helpers cannot call `useI18n()`, and calling `t()` from module
+ * scope would freeze the first locale forever. Those helpers take one of these
+ * instead, so the caller decides the language.
+ */
+export type Translator = (key: MessageKey, vars?: MessageVars) => string;
+
 const PLACEHOLDER = /\{(\w+)\}/g;
 
 /**

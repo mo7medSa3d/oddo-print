@@ -23,7 +23,7 @@ function VerifyEmailContent() {
     token
       ? t("auth.verify.verifying")
       : initialEmail
-        ? `Check your inbox (${initialEmail}) for a verification link.`
+        ? t("auth.verify.checkInbox", { email: initialEmail })
         : t("auth.verify.missingLink"),
   );
   const [resendEmail, setResendEmail] = useState(initialEmail);

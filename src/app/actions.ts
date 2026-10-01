@@ -5,6 +5,7 @@ import { db } from "../db";
 import { agents, printers, printJobs, discoverySessions, discoveredDevices } from "../db/schema";
 import { eq, count, or, and, inArray, sql, desc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { lifecycleLabel } from "../lib/lifecycle-labels";
 import { cookies } from "next/headers";
 import { generatePairingCode } from "../lib/agent-auth";
 import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../lib/manager-auth";
@@ -204,7 +205,8 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
       const agentLifecycle = (agent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
       if (!agentLifecycle) throw new ActionError(t("errors.printerOwnerMissing"), 404);
       if (agentLifecycle !== "active") {
-        throw new ActionError(t("errors.printerOwnerLifecycle", { state: agentLifecycle }), 409);
+                // Translate the stored enum: it is a database identifier, not copy.
+        throw new ActionError(t("errors.printerOwnerLifecycle", { state: lifecycleLabel(t, agentLifecycle) }), 409);
       }
     }
 

@@ -143,7 +143,7 @@ export function CommandPalette({
               }
             }}
             placeholder={t("command.placeholder")}
-            aria-label="Search pages and actions"
+            aria-label={t("command.searchAria")}
             aria-controls="command-results"
             className="w-full bg-transparent text-base text-ink placeholder:text-ink-4 focus:outline-none"
           />
