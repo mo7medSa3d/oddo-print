@@ -1,3 +1,4 @@
+# temporary merge bridge; remove after sync
 name: Temporary main-to-test sync
 
 on:
