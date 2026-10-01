@@ -67,20 +67,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
 
     def _assigned_runtime_agent_ids(self, company, branch, env=None):
         env = env if env is not None else request.env
-        assignment_model = env["print_gateway.runtime_agent_assignment"].sudo()
-        domain = [
-            ("company_id", "=", company.id),
-            ("enabled", "=", True),
-        ]
-        if branch:
-            domain.append(("branch_id", "=", branch.id))
-        else:
-            domain.append(("branch_id", "=", False))
-        return {
-            assignment.runtime_agent_id.strip()
-            for assignment in assignment_model.search(domain)
-            if isinstance(assignment.runtime_agent_id, str) and assignment.runtime_agent_id.strip()
-        }
+        return env["print_gateway.runtime_agent_assignment"].assigned_agent_ids(company, branch)
 
     @http.route('/print_gateway/runtime-agents', type='jsonrpc', auth='user', methods=['POST'])
     def runtime_agents(self, company_id=None, branch_id=None, assignment_only=False):
@@ -151,16 +138,25 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         if not selected_agent_id:
             return {'enabled': True, 'selectedAgentId': False, 'printers': []}
 
-        # A branch-scoped printer inventory is an object-level discovery surface:
-        # a valid tenant Agent is not automatically authorized for every Odoo
-        # Branch. Enforce the same explicit Branch -> Agent assignment used by
-        # Binding writes, so a crafted RPC call cannot inspect another branch's
-        # printer inventory even when the caller is a system administrator.
+        # A printer inventory is an object-level discovery surface: a valid
+        # tenant Agent is not automatically authorized for every Odoo scope.
+        # Enforce the same explicit Company/Branch -> Agent assignment used
+        # by Binding writes, so a crafted RPC call cannot inspect another
+        # scope's printer inventory even when the caller is a system
+        # administrator. Branch scope is exact; root scope accepts
+        # company-wide and child-branch assignments (same single source of
+        # truth as the assignment model).
         if branch:
             allowed_agent_ids = self._assigned_runtime_agent_ids(root_company, branch)
             if selected_agent_id not in allowed_agent_ids:
                 raise Forbidden(
                     'Access Denied: The selected Gateway Agent is not assigned to this Odoo Branch.'
+                )
+        else:
+            allowed_agent_ids = self._assigned_runtime_agent_ids(root_company, False)
+            if selected_agent_id not in allowed_agent_ids:
+                raise Forbidden(
+                    'Access Denied: The selected Gateway Agent is not assigned to this Odoo Company.'
                 )
 
         # Validate that the selected Agent is active and belongs to the same
