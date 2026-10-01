@@ -33,7 +33,8 @@
     "db:provision-plans": "tsx scripts/provision-plans.ts",
     "platform:bootstrap": "tsx scripts/bootstrap-platform-owner.ts",
     "db:docs:check": "python3 scripts/check-db-docs.py",
-    "i18n:check": "tsx scripts/check-i18n.ts"
+    "i18n:check": "tsx scripts/check-i18n.ts",
+    "i18n:odoo:check": "python3 scripts/check-odoo-translations.py"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

@@ -857,14 +857,24 @@ class PrintGatewayConfig(models.Model):
                     reconciliation_reason = "conflict"
 
                 if response.status_code != 200 and response.status_code != 409:
-                    message = body.get("error") if isinstance(body.get("error"), str) else False
+                    # The Gateway's own `error` field is a diagnostic, not a
+                    # sentence: it carries codes and identifiers that mean
+                    # nothing to the person filling in the form. Show a message
+                    # that says what failed and what to do instead.
+                    _logger.debug(
+                        "gateway activation sync rejected (HTTP %s): %s",
+                        response.status_code,
+                        body.get("error"),
+                    )
                     raise ValidationError(
-                        message or _("Gateway activation synchronization failed (HTTP %s).") % response.status_code
+                        _("The Gateway rejected the printing-service setting (HTTP %s). Check the Gateway URL and installation API key, then try again.")
+                        % response.status_code
                     )
 
                 if response.status_code == 200 and body.get("ok") is not True:
+                    _logger.debug("gateway activation sync not acknowledged: %s", body.get("error"))
                     raise ValidationError(
-                        body.get("error") if isinstance(body.get("error"), str) else _("Gateway activation synchronization failed.")
+                        _("The Gateway did not confirm the printing-service setting. Check the Gateway URL and installation API key, then try again.")
                     )
 
                 if (
