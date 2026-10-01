@@ -5,6 +5,7 @@ package printer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"syscall"
 	"testing"
@@ -188,6 +189,9 @@ func TestSpoolerWritePartialBytesThenErrorIsUnknown(t *testing.T) {
 	}
 	mockSyscalls.endPagePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
 	mockSyscalls.endDocPrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	// The real AbortPrinter would be called with a fake handle here; the
+	// session cleanup path must be faked like every other syscall.
+	mockSyscalls.abortPrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
 
 	res := executeSpoolerSessionWithSyscalls("PartialErrorPrinter", []byte("receipt payload"), nil, mockSyscalls)
 	if res.err == nil {
@@ -227,6 +231,7 @@ func TestSpoolerEndPagePrinterFailureCannotSucceed(t *testing.T) {
 	mockSyscalls.endDocPrinter = func(hPrinter syscall.Handle) (uintptr, error) {
 		return 1, nil
 	}
+	mockSyscalls.abortPrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
 
 	data := []byte("receipt line 1\nreceipt line 2\n")
 	res := executeSpoolerSessionWithSyscalls("TestPrinter", data, nil, mockSyscalls)
@@ -250,5 +255,261 @@ func TestSpoolerEndPagePrinterFailureCannotSucceed(t *testing.T) {
 	}
 	if resSuccess.written != uint32(len(data)) {
 		t.Fatalf("expected %d bytes written, got %d", len(data), resSuccess.written)
+	}
+}
+
+// spoolerCallLog counts how a document session was closed.
+type spoolerCallLog struct {
+	abortCalls  int
+	endDocCalls int
+}
+
+// fakeSpoolerSyscalls builds a Win32 spooler fake. No print queue, driver or
+// spooler service is involved: every syscall in the document session is
+// replaced, so the session logic (finalize vs discard) is provable on any
+// Windows machine, including a build agent with no printers at all.
+func fakeSpoolerSyscalls(log *spoolerCallLog, write func(hPrinter syscall.Handle, buf unsafe.Pointer, length int, bytesWritten *uint32) (uintptr, error)) spoolerSyscalls {
+	sys := defaultSpoolerSyscalls
+	sys.openPrinterW = func(printerName *uint16, hPrinter *syscall.Handle) (uintptr, error) {
+		*hPrinter = 4711
+		return 1, nil
+	}
+	sys.closePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	sys.startDocPrinterW = func(hPrinter syscall.Handle, di *docInfo1) (uintptr, error) { return 7, nil }
+	sys.startPagePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	sys.endPagePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	sys.writePrinter = write
+	sys.endDocPrinter = func(hPrinter syscall.Handle) (uintptr, error) {
+		log.endDocCalls++
+		return 1, nil
+	}
+	sys.abortPrinter = func(hPrinter syscall.Handle) (uintptr, error) {
+		log.abortCalls++
+		return 1, nil
+	}
+	return sys
+}
+
+// A complete document must be RELEASED with EndDocPrinter, never discarded.
+func TestSpoolerCompleteDocumentIsFinalizedNotAborted(t *testing.T) {
+	var log spoolerCallLog
+	payload := []byte("receipt payload")
+	sys := fakeSpoolerSyscalls(&log, func(hPrinter syscall.Handle, buf unsafe.Pointer, length int, bytesWritten *uint32) (uintptr, error) {
+		*bytesWritten = uint32(length)
+		return 1, nil
+	})
+
+	res := executeSpoolerSessionWithSyscalls("CompletePrinter", payload, nil, sys)
+	if res.err != nil {
+		t.Fatalf("complete document must print cleanly, got %v", res.err)
+	}
+	if res.written != uint32(len(payload)) {
+		t.Fatalf("expected %d bytes written, got %d", len(payload), res.written)
+	}
+	if log.endDocCalls != 1 || log.abortCalls != 0 {
+		t.Fatalf("complete document must be finalized exactly once (endDoc=%d abort=%d)", log.endDocCalls, log.abortCalls)
+	}
+}
+
+// Win32 reports success through the BOOL return value; GetLastError is only
+// meaningful after a zero return. A stale non-zero error on a SUCCESSFUL
+// EndDocPrinter must not turn a real print into an ambiguous failure.
+func TestSpoolerEndDocPrinterStaleLastErrorIsNotAFailure(t *testing.T) {
+	var log spoolerCallLog
+	payload := []byte("receipt payload")
+	sys := fakeSpoolerSyscalls(&log, func(hPrinter syscall.Handle, buf unsafe.Pointer, length int, bytesWritten *uint32) (uintptr, error) {
+		*bytesWritten = uint32(length)
+		return 1, nil
+	})
+	sys.endDocPrinter = func(hPrinter syscall.Handle) (uintptr, error) {
+		log.endDocCalls++
+		return 1, syscall.Errno(5) // BOOL success, stale ERROR_ACCESS_DENIED
+	}
+
+	res := executeSpoolerSessionWithSyscalls("StaleErrorPrinter", payload, nil, sys)
+	if res.err != nil {
+		t.Fatalf("a successful EndDocPrinter with a stale last error must not fail: %v", res.err)
+	}
+	if log.abortCalls != 0 {
+		t.Fatalf("a successful document must never be aborted, abort=%d", log.abortCalls)
+	}
+}
+
+// A failed EndDocPrinter is a real failure: the spooler may discard the job,
+// so it must be reported as unknown rather than as printed.
+func TestSpoolerEndDocPrinterFailureIsUnknown(t *testing.T) {
+	var log spoolerCallLog
+	payload := []byte("receipt payload")
+	sys := fakeSpoolerSyscalls(&log, func(hPrinter syscall.Handle, buf unsafe.Pointer, length int, bytesWritten *uint32) (uintptr, error) {
+		*bytesWritten = uint32(length)
+		return 1, nil
+	})
+	sys.endDocPrinter = func(hPrinter syscall.Handle) (uintptr, error) {
+		log.endDocCalls++
+		return 0, syscall.Errno(6) // ERROR_INVALID_HANDLE
+	}
+
+	res := executeSpoolerSessionWithSyscalls("EndDocFailPrinter", payload, nil, sys)
+	if res.err == nil || !OutcomeUnknown(res.err) {
+		t.Fatalf("failed EndDocPrinter must be an unknown outcome, got %v", res.err)
+	}
+	if log.endDocCalls != 1 {
+		t.Fatalf("EndDocPrinter must not be retried by the cleanup path, calls=%d", log.endDocCalls)
+	}
+}
+
+// A truncated document must be DISCARDED with AbortPrinter. Finalizing it
+// would release a half-written receipt to the printer.
+func TestSpoolerPartialWriteIsAbortedNotFinalized(t *testing.T) {
+	var log spoolerCallLog
+	sys := fakeSpoolerSyscalls(&log, func(hPrinter syscall.Handle, buf unsafe.Pointer, length int, bytesWritten *uint32) (uintptr, error) {
+		*bytesWritten = 3
+		return 0, syscall.Errno(31) // ERROR_GEN_FAILURE
+	})
+
+	res := executeSpoolerSessionWithSyscalls("PartialPrinter", []byte("receipt payload"), nil, sys)
+	if res.err == nil || !OutcomeUnknown(res.err) {
+		t.Fatalf("partial write must be an unknown outcome, got %v", res.err)
+	}
+	if res.written != 3 {
+		t.Fatalf("partial bytes must be preserved as evidence, got %d", res.written)
+	}
+	if log.abortCalls != 1 || log.endDocCalls != 0 {
+		t.Fatalf("truncated document must be aborted once and never finalized (abort=%d endDoc=%d)", log.abortCalls, log.endDocCalls)
+	}
+}
+
+// A cancellation before any byte is written must discard the job, and it is
+// provably NOT an unknown outcome (nothing reached the printer).
+func TestSpoolerCancelledBeforeWriteIsAborted(t *testing.T) {
+	var log spoolerCallLog
+	sys := fakeSpoolerSyscalls(&log, func(hPrinter syscall.Handle, buf unsafe.Pointer, length int, bytesWritten *uint32) (uintptr, error) {
+		*bytesWritten = uint32(length)
+		return 1, nil
+	})
+	cancel := make(chan struct{})
+	close(cancel)
+
+	res := executeSpoolerSessionWithSyscalls("CancelledPrinter", []byte("receipt payload"), cancel, sys)
+	if res.err == nil {
+		t.Fatal("cancelled session must fail")
+	}
+	if OutcomeUnknown(res.err) {
+		t.Fatalf("cancellation before any byte was written must not be unknown: %v", res.err)
+	}
+	if log.abortCalls != 1 || log.endDocCalls != 0 {
+		t.Fatalf("cancelled document must be aborted and never finalized (abort=%d endDoc=%d)", log.abortCalls, log.endDocCalls)
+	}
+}
+
+// fakePrinterInfo2 returns a fake PRINTER_INFO_2 query with the given status
+// and attribute bits, so queue-state logic is testable without a queue.
+func fakePrinterInfo2(status, attributes uint32) func(syscall.Handle) (*printerInfo2, []byte, error) {
+	return func(hPrinter syscall.Handle) (*printerInfo2, []byte, error) {
+		buf := make([]byte, unsafe.Sizeof(printerInfo2{}))
+		pi := (*printerInfo2)(unsafe.Pointer(&buf[0]))
+		pi.Status = status
+		pi.Attributes = attributes
+		return pi, buf, nil
+	}
+}
+
+// withFakeQueue swaps the Win32 open/query calls for fakes for one test.
+func withFakeQueue(t *testing.T, status, attributes uint32) {
+	t.Helper()
+	prevOpen := openPrinterWPtrFn
+	prevInfo := getPrinterInfo2Fn
+	t.Cleanup(func() {
+		openPrinterWPtrFn = prevOpen
+		getPrinterInfo2Fn = prevInfo
+	})
+	openPrinterWPtrFn = func(printerNamePtr *uint16) (syscall.Handle, error) { return 4711, nil }
+	getPrinterInfo2Fn = fakePrinterInfo2(status, attributes)
+}
+
+func TestPreFlightAcceptsHealthyQueue(t *testing.T) {
+	withFakeQueue(t, 0, 0)
+	if err := preFlightSpoolerCheck("Healthy Printer"); err != nil {
+		t.Fatalf("healthy queue must pass the pre-flight check, got %v", err)
+	}
+}
+
+func TestPreFlightRejectsOfflineQueue(t *testing.T) {
+	withFakeQueue(t, PRINTER_STATUS_OFFLINE, 0)
+	err := preFlightSpoolerCheck("Offline Printer")
+	if !errors.Is(err, ErrPrinterOffline) {
+		t.Fatalf("offline queue must report ErrPrinterOffline, got %v", err)
+	}
+}
+
+func TestPreFlightRejectsWorkOfflineQueue(t *testing.T) {
+	withFakeQueue(t, 0, PRINTER_ATTRIBUTE_WORK_OFFLINE)
+	err := preFlightSpoolerCheck("Work Offline Printer")
+	if !errors.Is(err, ErrPrinterOffline) {
+		t.Fatalf("WorkOffline queue must report ErrPrinterOffline, got %v", err)
+	}
+}
+
+func TestPreFlightRejectsPaperOutAndIsNotOffline(t *testing.T) {
+	withFakeQueue(t, PRINTER_STATUS_PAPER_OUT, 0)
+	err := preFlightSpoolerCheck("Paper Out Printer")
+	if err == nil {
+		t.Fatal("paper-out queue must be refused before dispatch")
+	}
+	if errors.Is(err, ErrPrinterOffline) {
+		t.Fatalf("paper out is not an offline condition, got %v", err)
+	}
+}
+
+// A queue whose status cannot be read must fail closed, never report ready.
+func TestPreFlightFailsClosedWhenStatusUnreadable(t *testing.T) {
+	prevOpen := openPrinterWPtrFn
+	prevInfo := getPrinterInfo2Fn
+	t.Cleanup(func() {
+		openPrinterWPtrFn = prevOpen
+		getPrinterInfo2Fn = prevInfo
+	})
+	openPrinterWPtrFn = func(printerNamePtr *uint16) (syscall.Handle, error) { return 4711, nil }
+	getPrinterInfo2Fn = func(hPrinter syscall.Handle) (*printerInfo2, []byte, error) {
+		return nil, nil, fmt.Errorf("simulated GetPrinterW failure")
+	}
+	if err := preFlightSpoolerCheck("Unreadable Printer"); err == nil {
+		t.Fatal("an unreadable queue must not be reported as ready")
+	}
+}
+
+// Status() must never fabricate "online" for a queue it could not read, and
+// must never spawn a second stuck helper while one is already wedged in
+// Win32 (the single-flight guard is what prevents that leak).
+func TestSpoolerStatusUnreadableQueueIsNotOnline(t *testing.T) {
+	p := &SpoolerPrinter{Name: "T", SpoolerName: "unreadable_queue", Timeout: time.Second}
+	withFakeQueue(t, PRINTER_STATUS_OFFLINE, 0)
+	if st := p.Status(); st != "offline" {
+		t.Fatalf("offline queue must report offline, got %q", st)
+	}
+
+	// A probe that never returns must surface as unknown (bounded), and a
+	// second call must be refused immediately instead of leaking another
+	// blocked goroutine.
+	block := make(chan struct{})
+	prevOpen := openPrinterWPtrFn
+	t.Cleanup(func() {
+		openPrinterWPtrFn = prevOpen
+		close(block)
+	})
+	openPrinterWPtrFn = func(printerNamePtr *uint16) (syscall.Handle, error) {
+		<-block
+		return 4711, nil
+	}
+	start := time.Now()
+	st := p.Status()
+	if st != "unknown" {
+		t.Fatalf("a probe that never completes must report unknown, got %q", st)
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("status probe was not bounded: %v", elapsed)
+	}
+	if st2 := p.Status(); st2 != "unknown" {
+		t.Fatalf("overlapping probe must be refused as unknown, got %q", st2)
 	}
 }

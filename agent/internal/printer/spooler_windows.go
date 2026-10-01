@@ -27,6 +27,7 @@ var (
 	procWritePrinter     = modWinspool.NewProc("WritePrinter")
 	procEndPagePrinter   = modWinspool.NewProc("EndPagePrinter")
 	procEndDocPrinter    = modWinspool.NewProc("EndDocPrinter")
+	procAbortPrinter     = modWinspool.NewProc("AbortPrinter")
 	procEnumPrintersW    = modWinspool.NewProc("EnumPrintersW")
 	procGetPrinterW      = modWinspool.NewProc("GetPrinterW")
 )
@@ -101,6 +102,15 @@ func NewSpooler(spoolerName, displayName string) *SpoolerPrinter {
 // unknown outcome.
 const preflightTimeout = 5 * time.Second
 
+// ErrSpoolerUnresponsive marks a probe that never completed because the
+// spooler RPC did not answer: a hard timeout, or a refusal because an
+// earlier probe is still stuck inside Win32. It proves NOTHING about the
+// physical device, so callers reporting device status must surface
+// "unknown" instead of inventing offline/error (a queue that is merely slow
+// must not be reported as broken, and a device that is printing must never
+// be reported offline).
+var ErrSpoolerUnresponsive = errors.New("spooler RPC unresponsive")
+
 // boundedPreflight runs one readiness check with single-flight semantics
 // for this printer: if a previous check is still stuck inside Win32, fail
 // fast instead of spawning another helper goroutine. Without this, every
@@ -113,7 +123,7 @@ const preflightTimeout = 5 * time.Second
 // document bytes were ever submitted.
 func (p *SpoolerPrinter) boundedPreflight(ctx context.Context, timeout time.Duration, check func() error) error {
 	if !p.preflightActive.CompareAndSwap(false, true) {
-		return fmt.Errorf("%w: readiness probe for %q already in progress (previous probe stuck in spooler RPC)", ErrPrinterNotReady, p.SpoolerName)
+		return fmt.Errorf("%w: %w: readiness probe for %q already in progress (previous probe stuck in spooler RPC)", ErrPrinterNotReady, ErrSpoolerUnresponsive, p.SpoolerName)
 	}
 	return runPreflightBounded(p.SpoolerName, timeout, ctx, func() error {
 		defer p.preflightActive.Store(false)
@@ -141,7 +151,7 @@ func runPreflightBounded(displayName string, timeout time.Duration, ctx context.
 	case <-ctx.Done():
 		return fmt.Errorf("readiness probe for %q cancelled before dispatch (no bytes sent): %w", displayName, ctx.Err())
 	case <-timer.C:
-		return fmt.Errorf("%w: readiness probe for %q timed out after %v (spooler RPC unresponsive; fail-closed, no bytes sent)", ErrPrinterNotReady, displayName, timeout)
+		return fmt.Errorf("%w: %w: readiness probe for %q timed out after %v (fail-closed, no bytes sent)", ErrPrinterNotReady, ErrSpoolerUnresponsive, displayName, timeout)
 	}
 }
 
@@ -159,6 +169,7 @@ type spoolerSyscalls struct {
 	writePrinter     func(hPrinter syscall.Handle, buf unsafe.Pointer, len int, bytesWritten *uint32) (uintptr, error)
 	endPagePrinter   func(hPrinter syscall.Handle) (uintptr, error)
 	endDocPrinter    func(hPrinter syscall.Handle) (uintptr, error)
+	abortPrinter     func(hPrinter syscall.Handle) (uintptr, error)
 }
 
 var defaultSpoolerSyscalls = spoolerSyscalls{
@@ -203,6 +214,40 @@ var defaultSpoolerSyscalls = spoolerSyscalls{
 		r, _, err := procEndDocPrinter.Call(uintptr(hPrinter))
 		return r, err
 	},
+	abortPrinter: func(hPrinter syscall.Handle) (uintptr, error) {
+		r, _, err := procAbortPrinter.Call(uintptr(hPrinter))
+		return r, err
+	},
+}
+
+// finishSpoolerDoc closes a Win32 document session honestly.
+//
+// Per Microsoft's spooler contract
+// (https://learn.microsoft.com/en-us/windows/win32/printdocs/enddocprinter and
+// https://learn.microsoft.com/en-us/windows/win32/printdocs/abortprinter),
+// EndDocPrinter FINALIZES a job (releasing it to the printer) while
+// AbortPrinter DELETES the job's spool file. Every Win32 call reports success
+// through its BOOL return value; GetLastError is meaningful only after a
+// zero return. An incomplete document must therefore be aborted, never
+// finalized — calling EndDocPrinter on a partial RAW/ESC-POS stream releases
+// truncated output (a cut receipt, a half-printed label) that the caller is
+// about to report as failed.
+func finishSpoolerDoc(sys spoolerSyscalls, hPrinter syscall.Handle, spoolerName string, bytesWritten, bytesTotal uint32) error {
+	if bytesTotal > 0 && bytesWritten >= bytesTotal {
+		r, lastErr := sys.endDocPrinter(hPrinter)
+		if r == 0 {
+			return fmt.Errorf("EndDocPrinter(%q) failed: %w", spoolerName, lastErr)
+		}
+		return nil
+	}
+	r, lastErr := sys.abortPrinter(hPrinter)
+	if r == 0 {
+		// AbortPrinter is best-effort: the spool file could not be deleted,
+		// so a truncated job may still print. Report it — never claim success.
+		return fmt.Errorf("AbortPrinter(%q) failed after %d/%d bytes (truncated job may still print): %w", spoolerName, bytesWritten, bytesTotal, lastErr)
+	}
+	log.Printf("spooler job on %q aborted after %d/%d bytes (incomplete document discarded)", spoolerName, bytesWritten, bytesTotal)
+	return nil
 }
 
 func executeSpoolerSession(spoolerName string, data []byte, cancelNotice <-chan struct{}) spoolerTaskResult {
@@ -243,17 +288,21 @@ func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNo
 	if jobID == 0 {
 		return spoolerTaskResult{err: fmt.Errorf("StartDocPrinterW(%q) failed: %w", spoolerName, err)}
 	}
-	// EndDocPrinter must run on every path after StartDocPrinterW succeeded.
-	// On the success path it is called explicitly so its verdict can be
-	// classified honestly: a failed EndDocPrinter may cause the spooler to
-	// discard the job even though WritePrinter accepted every byte.
+	// Every path after StartDocPrinterW succeeded must close the document
+	// session: EndDocPrinter releases a COMPLETE document, AbortPrinter
+	// discards an incomplete one (see finishSpoolerDoc). The deferred call
+	// owns every early return (cancellation, StartPagePrinter failure,
+	// partial or failed writes); the success path finalizes explicitly so
+	// its verdict can be classified honestly instead of being swallowed.
+	totalBytes := uint32(len(data))
+	var written uint32
 	docCompleted := false
 	defer func() {
 		if docCompleted {
 			return
 		}
-		if _, e := sys.endDocPrinter(hPrinter); e != nil && e != syscall.Errno(0) {
-			log.Printf("EndDocPrinter warning for %s: %v", spoolerName, e)
+		if err := finishSpoolerDoc(sys, hPrinter, spoolerName, written, totalBytes); err != nil {
+			log.Printf("spooler cleanup warning for %s: %v", spoolerName, err)
 		}
 	}()
 
@@ -274,7 +323,6 @@ func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNo
 		}
 	}()
 
-	var written uint32
 	for int(written) < len(data) {
 		select {
 		case <-cancelNotice:
@@ -328,11 +376,20 @@ func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNo
 		}
 	}
 
+	// All bytes were accepted, so the document is complete and EndDocPrinter
+	// is the documented way to release it. Success is decided by the BOOL
+	// return value alone: GetLastError is only meaningful after a zero
+	// return, and trusting a stale error here reported healthy prints as
+	// ambiguous failures. docCompleted is set first so the deferred cleanup
+	// never issues EndDocPrinter a second time.
 	docCompleted = true
-	if _, endErr := sys.endDocPrinter(hPrinter); endErr != nil && endErr != syscall.Errno(0) {
+	if r, endErr := sys.endDocPrinter(hPrinter); r == 0 {
 		// WritePrinter accepted all bytes, but the Win32 doc session did not
 		// close cleanly: the spooler may discard the job. "Printed" would be
-		// a false confirmation, so the outcome stays ambiguous.
+		// a false confirmation, so the outcome stays ambiguous. The spool
+		// file is intentionally left in place (never AbortPrinter): the
+		// document is byte-complete, and destroying it could lose output
+		// that the spooler is still able to deliver.
 		return spoolerTaskResult{
 			written: written,
 			jobID:   jobID,
@@ -343,12 +400,31 @@ func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNo
 	return spoolerTaskResult{written: written, jobID: jobID, err: nil}
 }
 
-func preFlightSpoolerCheck(spoolerName string) error {
-	printerNamePtr, err := syscall.UTF16PtrFromString(spoolerName)
-	if err != nil {
-		return fmt.Errorf("invalid spooler name %q: %w", spoolerName, err)
-	}
+const (
+	// errorInsufficientBuffer is Win32 ERROR_INSUFFICIENT_BUFFER — the
+	// documented way the spooler reports the buffer size it needs.
+	errorInsufficientBuffer = uintptr(122)
+	// getPrinterMaxAttempts bounds the two-call GetPrinterW pattern. The
+	// queue can grow between the sizing call and the fetch (another client
+	// changing the queue), so the fetch may fail with
+	// ERROR_INSUFFICIENT_BUFFER again and MUST be retried
+	// (https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rprn/e35fa2d2-8ca1-4369-be52-6e606759bd0e).
+	// It is bounded so a spooler that keeps reporting a larger size can
+	// never hang discovery forever.
+	getPrinterMaxAttempts = 3
+)
 
+func isInsufficientBuffer(err error) bool {
+	errno, ok := err.(syscall.Errno)
+	return ok && uintptr(errno) == errorInsufficientBuffer
+}
+
+// openPrinterWPtr performs OpenPrinterW for one UTF-16 queue name.
+//
+// It exists as a package-level indirection (openPrinterWPtrFn) purely so the
+// printer layer can be faked in tests: no test needs a real print queue to
+// prove the PRINTER_INFO_2 status logic above it.
+func openPrinterWPtr(printerNamePtr *uint16) (syscall.Handle, error) {
 	var hPrinter syscall.Handle
 	ret, _, lastErr := procOpenPrinterW.Call(
 		uintptr(unsafe.Pointer(printerNamePtr)),
@@ -356,42 +432,90 @@ func preFlightSpoolerCheck(spoolerName string) error {
 		0,
 	)
 	if ret == 0 {
-		return fmt.Errorf("%w: OpenPrinterW(%q) failed: %w", ErrPrinterOffline, spoolerName, lastErr)
+		return 0, fmt.Errorf("OpenPrinterW failed: %w", lastErr)
+	}
+	return hPrinter, nil
+}
+
+var openPrinterWPtrFn = openPrinterWPtr
+
+// getPrinterInfo2Fn is the test indirection for the PRINTER_INFO_2 query.
+var getPrinterInfo2Fn = getPrinterInfo2
+
+// getPrinterInfo2 performs the documented two-call GetPrinterW(level 2)
+// pattern and returns a PRINTER_INFO_2 view of one queue: call once with a
+// zero-length buffer to learn pcbNeeded, allocate, then call again.
+//
+// The returned pointer points INTO the returned slice, so callers must keep
+// that slice reachable (runtime.KeepAlive) for as long as they read fields.
+// Every failure is fail-closed: a buffer smaller than PRINTER_INFO_2 is
+// never dereferenced, because doing so would read out of bounds.
+func getPrinterInfo2(hPrinter syscall.Handle) (*printerInfo2, []byte, error) {
+	minSize := unsafe.Sizeof(printerInfo2{})
+	for attempt := 0; attempt < getPrinterMaxAttempts; attempt++ {
+		var needed uint32
+		ret, _, lastErr := procGetPrinterW.Call(
+			uintptr(hPrinter),
+			2,
+			0,
+			0,
+			uintptr(unsafe.Pointer(&needed)),
+		)
+		// The sizing call is EXPECTED to fail: pcbNeeded is delivered
+		// together with ERROR_INSUFFICIENT_BUFFER. Any other error is real.
+		if ret == 0 && !isInsufficientBuffer(lastErr) {
+			return nil, nil, fmt.Errorf("GetPrinterW sizing failed: %w", lastErr)
+		}
+		if uintptr(needed) < minSize {
+			return nil, nil, fmt.Errorf("GetPrinterW returned a %d-byte buffer (minimum %d) for level 2", needed, minSize)
+		}
+
+		buf := make([]byte, needed)
+		ret, _, lastErr = procGetPrinterW.Call(
+			uintptr(hPrinter),
+			2,
+			uintptr(unsafe.Pointer(&buf[0])),
+			uintptr(needed),
+			uintptr(unsafe.Pointer(&needed)),
+		)
+		if ret != 0 {
+			if uintptr(len(buf)) < minSize {
+				return nil, nil, fmt.Errorf("GetPrinterW returned a %d-byte buffer (minimum %d)", len(buf), minSize)
+			}
+			return (*printerInfo2)(unsafe.Pointer(&buf[0])), buf, nil
+		}
+		if !isInsufficientBuffer(lastErr) {
+			return nil, nil, fmt.Errorf("GetPrinterW level 2 failed: %w", lastErr)
+		}
+		// The queue grew between the two calls; pcbNeeded now carries the
+		// larger size, so size again on the next iteration.
+	}
+	return nil, nil, fmt.Errorf("GetPrinterW level 2 still reports a short buffer after %d attempts", getPrinterMaxAttempts)
+}
+
+func preFlightSpoolerCheck(spoolerName string) error {
+	printerNamePtr, err := syscall.UTF16PtrFromString(spoolerName)
+	if err != nil {
+		return fmt.Errorf("invalid spooler name %q: %w", spoolerName, err)
+	}
+
+	hPrinter, err := openPrinterWPtrFn(printerNamePtr)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrPrinterOffline, err)
 	}
 	defer procClosePrinter.Call(uintptr(hPrinter))
 
-	minSize := uint32(unsafe.Sizeof(printerInfo2{}))
-	var needed uint32
-	procGetPrinterW.Call(
-		uintptr(hPrinter),
-		2,
-		0,
-		0,
-		uintptr(unsafe.Pointer(&needed)),
-	)
-	if needed < minSize {
-		// Fail-closed: winspool must provide at least enough bytes for printerInfo2
-		return fmt.Errorf("%w: GetPrinterW(%q) returned invalid buffer size %d (minimum %d)", ErrPrinterNotReady, spoolerName, needed, minSize)
+	pi, keepBuf, err := getPrinterInfo2Fn(hPrinter)
+	if err != nil || pi == nil {
+		// Fail-closed: without PRINTER_INFO_2 the queue state is unproven,
+		// so readiness cannot be claimed.
+		if err == nil {
+			err = fmt.Errorf("GetPrinterW(%q) returned no PRINTER_INFO_2", spoolerName)
+		}
+		return fmt.Errorf("%w: %w", ErrPrinterNotReady, err)
 	}
+	defer runtime.KeepAlive(keepBuf)
 
-	buf := make([]byte, needed)
-	ret, _, lastErr = procGetPrinterW.Call(
-		uintptr(hPrinter),
-		2,
-		uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(needed),
-		uintptr(unsafe.Pointer(&needed)),
-	)
-	if ret == 0 {
-		// Fail-closed: cannot confirm printer readiness
-		return fmt.Errorf("%w: GetPrinterW(%q) level 2 query failed: %w", ErrPrinterNotReady, spoolerName, lastErr)
-	}
-
-	if len(buf) < int(minSize) {
-		return fmt.Errorf("%w: spooler buffer size %d smaller than printerInfo2 struct %d", ErrPrinterNotReady, len(buf), minSize)
-	}
-
-	pi := (*printerInfo2)(unsafe.Pointer(&buf[0]))
 	// WorkOffline is a queue attribute the operator sets ("Use Printer
 	// Offline"), not a device report. The spooler queues jobs instead of
 	// sending them, so an attempt would strand a durable job until someone
@@ -639,39 +763,19 @@ func ProbeSpoolerQueue(spoolerName string) SpoolerProbe {
 	probe.OpenPrinterOK = true
 	defer procClosePrinter.Call(uintptr(hPrinter))
 
-	minSize := uint32(unsafe.Sizeof(printerInfo2{}))
-	var needed uint32
-	procGetPrinterW.Call(uintptr(hPrinter), 2, 0, 0, uintptr(unsafe.Pointer(&needed)))
-	if needed < minSize {
-		probe.GetPrinterError = fmt.Sprintf("GetPrinterW sizing returned %d bytes (minimum %d)", needed, minSize)
-		probe.Verdict = SpoolerStatusUnknown
-		probe.VerdictReason = "GetPrinterW sizing inconclusive; status unreadable"
-		return probe
-	}
-	buf := make([]byte, needed)
-	ret, _, lastErr = procGetPrinterW.Call(
-		uintptr(hPrinter), 2,
-		uintptr(unsafe.Pointer(&buf[0])), uintptr(needed),
-		uintptr(unsafe.Pointer(&needed)),
-	)
-	if ret == 0 {
-		if lastErr != nil {
-			probe.GetPrinterError = lastErr.Error()
+	pi, keepBuf, gpErr := getPrinterInfo2(hPrinter)
+	if gpErr != nil || pi == nil {
+		if gpErr != nil {
+			probe.GetPrinterError = gpErr.Error()
 		} else {
-			probe.GetPrinterError = "GetPrinterW level 2 returned zero"
+			probe.GetPrinterError = "GetPrinterW level 2 returned no PRINTER_INFO_2"
 		}
 		probe.Verdict = SpoolerStatusUnknown
 		probe.VerdictReason = "GetPrinterW failed; queue state unreadable"
 		return probe
 	}
+	defer runtime.KeepAlive(keepBuf)
 	probe.GetPrinterOK = true
-	if len(buf) < int(minSize) {
-		probe.GetPrinterError = fmt.Sprintf("buffer %d smaller than PRINTER_INFO_2 %d", len(buf), minSize)
-		probe.Verdict = SpoolerStatusUnknown
-		probe.VerdictReason = "short GetPrinterW buffer; status unreadable"
-		return probe
-	}
-	pi := (*printerInfo2)(unsafe.Pointer(&buf[0]))
 	probe.DriverName = utf16PtrToString(pi.pDriverName)
 	probe.PortName = utf16PtrToString(pi.pPortName)
 	probe.PrintProcessor = utf16PtrToString(pi.pPrintProcessor)
@@ -742,50 +846,55 @@ func (p *SpoolerPrinter) Status() string {
 	if timeout <= 0 {
 		timeout = 1500 * time.Millisecond
 	}
-	resCh := make(chan string, 1)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("Spooler status probe panic for %s: %v", p.SpoolerName, r)
-				resCh <- "error"
-			}
-		}()
-		if p.ProbeFunc != nil {
+	// An injected probe (tests, diagnostics) keeps its own bounded,
+	// panic-recovering contract.
+	if p.ProbeFunc != nil {
+		resCh := make(chan string, 1)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Spooler status probe panic for %s: %v", p.SpoolerName, r)
+					resCh <- "error"
+				}
+			}()
 			resCh <- p.ProbeFunc(p.SpoolerName)
-			return
+		}()
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		select {
+		case st := <-resCh:
+			return st
+		case <-timer.C:
+			return "unknown"
 		}
-		// Evaluate the same PRINTER_INFO_2 status bits as the dispatch
-		// preflight: a queue that merely OPENS (paused, error, jam, door
-		// open, paper out) must not report "online" or the gateway keeps
-		// routing jobs at a printer that refuses them. Only the gateway's
-		// status vocabulary is returned (online/offline/error); anything
-		// the probe cannot determine surfaces as "error" here and the
-		// outer timeout below stays "spooler_rpc_unresponsive" (both
-		// normalize away from online gateway-side).
-		if err := preFlightSpoolerCheck(p.SpoolerName); err != nil {
-			if errors.Is(err, ErrPrinterOffline) {
-				resCh <- "offline"
-			} else {
-				resCh <- "error"
-			}
-			return
-		}
-		resCh <- "online"
-	}()
+	}
 
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case st := <-resCh:
-		return st
-	case <-timer.C:
-		log.Printf("WARNING: Spooler status probe timed out for %q after %v", p.SpoolerName, timeout)
-		// Normalize to the gateway status vocabulary
-		// (online/offline/error/busy/unknown). A spooler RPC timeout proves
-		// nothing about the physical device, so report "unknown" — never a
-		// fabricated offline.
+	// Real spooler probe. This MUST go through boundedPreflight: the
+	// previous version spawned a fresh goroutine per call and abandoned it
+	// on timeout, so every heartbeat against a wedged spooler leaked one
+	// more blocked helper (each holding an OpenPrinter handle) for the
+	// lifetime of the process. Single-flight + bounded wait means at most
+	// one stuck helper per printer, ever.
+	//
+	// Evaluate the same PRINTER_INFO_2 status bits as the dispatch
+	// preflight: a queue that merely OPENS (paused, error, jam, door open,
+	// paper out) must not report "online" or the gateway keeps routing jobs
+	// at a printer that refuses them.
+	err := p.boundedPreflight(context.Background(), timeout, func() error {
+		return preFlightSpoolerCheck(p.SpoolerName)
+	})
+	switch {
+	case err == nil:
+		return "online"
+	case errors.Is(err, ErrSpoolerUnresponsive):
+		// Nothing was proven about the device: an unanswered RPC is not an
+		// offline printer.
+		log.Printf("WARNING: Spooler status probe for %q did not complete: %v", p.SpoolerName, err)
 		return "unknown"
+	case errors.Is(err, ErrPrinterOffline):
+		return "offline"
+	default:
+		return "error"
 	}
 }
 
@@ -850,79 +959,281 @@ func fallbackRegistryPrinters() ([]DeviceInfo, error) {
 	return out, nil
 }
 
-func EnumSpoolerPrinters() ([]DeviceInfo, error) {
+// queueDetails is the PRINTER_INFO_2 evidence discovery needs for one queue.
+type queueDetails struct {
+	portName   string
+	driverName string
+	status     uint32
+	attributes uint32
+}
+
+const (
+	// printerEnumTimeout bounds one EnumPrintersW pass. Microsoft documents
+	// EnumPrinters as a blocking synchronous call whose duration depends on
+	// network status, print server configuration and driver implementation,
+	// and warns it can make an application unresponsive
+	// (https://learn.microsoft.com/en-us/windows/win32/printdocs/enumprinters).
+	// Discovery must therefore bound it itself instead of trusting the API.
+	printerEnumTimeout = 30 * time.Second
+	// printerEnumMaxAttempts bounds the two-call buffer sizing loop. The
+	// printer list can grow between the sizing call and the fetch, which
+	// makes the fetch fail with ERROR_INSUFFICIENT_BUFFER again and again;
+	// retrying is required, looping forever is not.
+	printerEnumMaxAttempts = 4
+	// queueDetailTimeout bounds one OpenPrinterW + GetPrinterW pair.
+	queueDetailTimeout = 3 * time.Second
+	// queueDetailBudget bounds the TOTAL time spent reading queue details so
+	// a machine with dozens of stalled queues still finishes discovery.
+	queueDetailBudget = 30 * time.Second
+)
+
+// printerInfo4 is PRINTER_INFO_4 (pPrinterName, pServerName, Attributes).
+type printerInfo4 struct {
+	pPrinterName *uint16
+	pServerName  *uint16
+	Attributes   uint32
+}
+
+// printerQueueRef is a decoded queue identity. Names are copied out of the
+// spooler buffer as Go strings, so no caller can outlive the enumeration
+// buffer (the previous struct-copy approach could, in principle, leave
+// pointers into a collected buffer).
+type printerQueueRef struct {
+	name       string
+	attributes uint32
+}
+
+// enumPrinterQueues enumerates queue names and attributes with
+// EnumPrintersW level 4.
+//
+// Level 4 is deliberate. Per the EnumPrinters documentation, a level 2
+// enumeration "performs an OpenPrinter call on each remote connection": if a
+// connection is down, or the remote server or printer no longer exists, the
+// function must wait for RPC to time out — one dead \\server\queue can stall
+// discovery for minutes, or fail the whole enumeration. Level 4 returns names
+// and attributes WITHOUT opening each queue, so a single unreachable queue
+// can only ever cost one bounded per-queue query (see queueDetail).
+//
+// Level 4 supports exactly the flags used here (PRINTER_ENUM_LOCAL and
+// PRINTER_ENUM_CONNECTIONS) and requires a NULL Name, as documented.
+func enumPrinterQueues() ([]printerQueueRef, error) {
 	const (
 		printerEnumLocal       = 0x00000002
 		printerEnumConnections = 0x00000004
-		level                  = 2
+		printerEnumLevel       = 4
 	)
 	flags := uintptr(printerEnumLocal | printerEnumConnections)
-	log.Printf("[discovery] starting Windows spooler discovery (EnumPrintersW level %d, flags 0x%x)", level, flags)
+	structSize := unsafe.Sizeof(printerInfo4{})
 
-	var needed, returned uint32
-	ret, _, lastErr := procEnumPrintersW.Call(
-		flags,
-		0,
-		uintptr(level),
-		0,
-		0,
-		uintptr(unsafe.Pointer(&needed)),
-		uintptr(unsafe.Pointer(&returned)),
-	)
-	if needed == 0 {
-		// If EnumPrintersW fails (e.g. RPC unavailable, spooler stopped), fallback to registry.
-		// On success with no printers, ret != 0.
-		if ret == 0 {
-			log.Printf("[discovery] EnumPrintersW sizing failed (spooler may be stopped): %v", lastErr)
-			return fallbackRegistryPrinters()
-		}
-		return nil, nil
+	type enumResult struct {
+		queues []printerQueueRef
+		err    error
 	}
+	// Run the blocking Win32 enumeration off the discovery goroutine: a
+	// stalled spooler RPC must never hang the agent. If it overruns, the
+	// helper is abandoned (it exits on its own when the RPC finally
+	// returns) and the caller falls back to the registry.
+	done := make(chan enumResult, 1)
+	go func() {
+		for attempt := 0; attempt < printerEnumMaxAttempts; attempt++ {
+			var needed, returned uint32
+			ret, _, lastErr := procEnumPrintersW.Call(
+				flags,
+				0,
+				uintptr(printerEnumLevel),
+				0,
+				0,
+				uintptr(unsafe.Pointer(&needed)),
+				uintptr(unsafe.Pointer(&returned)),
+			)
+			// The sizing call is expected to fail with
+			// ERROR_INSUFFICIENT_BUFFER: that is how pcbNeeded is delivered.
+			if ret == 0 && !isInsufficientBuffer(lastErr) {
+				done <- enumResult{err: fmt.Errorf("EnumPrintersW level %d sizing failed: %w", printerEnumLevel, lastErr)}
+				return
+			}
+			if needed == 0 {
+				if ret == 0 {
+					done <- enumResult{err: fmt.Errorf("EnumPrintersW level %d failed: %w", printerEnumLevel, lastErr)}
+					return
+				}
+				// Success: the machine genuinely has no queues.
+				done <- enumResult{}
+				return
+			}
 
-	buf := make([]byte, needed)
-	ret, _, lastErr = procEnumPrintersW.Call(
-		flags,
-		0,
-		uintptr(level),
-		uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(needed),
-		uintptr(unsafe.Pointer(&needed)),
-		uintptr(unsafe.Pointer(&returned)),
-	)
-	if ret == 0 {
-		if needed > uint32(len(buf)) {
-			buf = make([]byte, needed)
+			buf := make([]byte, needed)
 			ret, _, lastErr = procEnumPrintersW.Call(
 				flags,
 				0,
-				uintptr(level),
+				uintptr(printerEnumLevel),
 				uintptr(unsafe.Pointer(&buf[0])),
 				uintptr(needed),
 				uintptr(unsafe.Pointer(&needed)),
 				uintptr(unsafe.Pointer(&returned)),
 			)
+			if ret != 0 {
+				// pcReturned is spooler-supplied: never index past the
+				// buffer that was actually allocated.
+				if structSize > 0 && uintptr(returned)*structSize > uintptr(len(buf)) {
+					returned = uint32(uintptr(len(buf)) / structSize)
+				}
+				queues := make([]printerQueueRef, 0, returned)
+				for i := uint32(0); i < returned; i++ {
+					offset := uintptr(i) * structSize
+					pi := (*printerInfo4)(unsafe.Pointer(uintptr(unsafe.Pointer(&buf[0])) + offset))
+					queues = append(queues, printerQueueRef{
+						name:       utf16PtrToString(pi.pPrinterName),
+						attributes: pi.Attributes,
+					})
+				}
+				runtime.KeepAlive(buf)
+				done <- enumResult{queues: queues}
+				return
+			}
+			if !isInsufficientBuffer(lastErr) {
+				done <- enumResult{err: fmt.Errorf("EnumPrintersW level %d failed: %w", printerEnumLevel, lastErr)}
+				return
+			}
+			// Queues were added between the sizing call and the fetch:
+			// pcbNeeded now carries the larger size, so size again.
 		}
+		done <- enumResult{err: fmt.Errorf("EnumPrintersW level %d still reports a short buffer after %d attempts", printerEnumLevel, printerEnumMaxAttempts)}
+	}()
+
+	timer := time.NewTimer(printerEnumTimeout)
+	defer timer.Stop()
+	select {
+	case r := <-done:
+		return r.queues, r.err
+	case <-timer.C:
+		return nil, fmt.Errorf("EnumPrintersW exceeded %v (spooler RPC stalled)", printerEnumTimeout)
+	}
+}
+
+// queueDetail reads PRINTER_INFO_2 for one queue (port, driver, status,
+// attributes) under a hard deadline. OpenPrinterW and GetPrinterW expose no
+// timeout of their own and block against a wedged spooler RPC, so the call
+// runs on a helper goroutine the caller abandons on timeout; the handle is
+// opened and closed inside that helper, so nothing is left dangling.
+func queueDetail(name string) (queueDetails, error) {
+	type detailResult struct {
+		detail queueDetails
+		err    error
+	}
+	done := make(chan detailResult, 1)
+	go func() {
+		namePtr, err := syscall.UTF16PtrFromString(name)
+		if err != nil {
+			done <- detailResult{err: fmt.Errorf("encode queue name %q: %w", name, err)}
+			return
+		}
+		var hPrinter syscall.Handle
+		ret, _, lastErr := procOpenPrinterW.Call(
+			uintptr(unsafe.Pointer(namePtr)),
+			uintptr(unsafe.Pointer(&hPrinter)),
+			0,
+		)
 		if ret == 0 {
-			log.Printf("[discovery] EnumPrintersW failed: %v", lastErr)
-			return fallbackRegistryPrinters()
+			done <- detailResult{err: fmt.Errorf("OpenPrinterW(%q) failed: %w", name, lastErr)}
+			return
 		}
+		defer procClosePrinter.Call(uintptr(hPrinter))
+
+		pi, keep, err := getPrinterInfo2(hPrinter)
+		if err == nil && pi == nil {
+			err = fmt.Errorf("GetPrinterW(%q) returned no PRINTER_INFO_2", name)
+		}
+		if err != nil {
+			done <- detailResult{err: err}
+			return
+		}
+		detail := queueDetails{
+			portName:   utf16PtrToString(pi.pPortName),
+			driverName: utf16PtrToString(pi.pDriverName),
+			status:     pi.Status,
+			attributes: pi.Attributes,
+		}
+		runtime.KeepAlive(keep)
+		done <- detailResult{detail: detail}
+	}()
+
+	timer := time.NewTimer(queueDetailTimeout)
+	defer timer.Stop()
+	select {
+	case r := <-done:
+		return r.detail, r.err
+	case <-timer.C:
+		return queueDetails{}, fmt.Errorf("queue detail for %q exceeded %v (spooler RPC stalled)", name, queueDetailTimeout)
+	}
+}
+
+// EnumSpoolerPrinters enumerates installed Windows print queues.
+//
+// Strategy, in order of authority:
+//  1. EnumPrintersW level 4 for the queue list (fast, never opens a queue).
+//  2. A bounded GetPrinterW level 2 per queue for port, driver and status.
+//  3. The registry as a last resort, so a stopped/unreachable spooler still
+//     yields the queue names an operator can act on.
+//
+// A queue whose details cannot be read is still reported — with an
+// "unknown" status rather than a fabricated "online" — because EnumPrinters
+// proved it exists.
+func EnumSpoolerPrinters() ([]DeviceInfo, error) {
+	log.Printf("[discovery] starting Windows spooler discovery (EnumPrintersW level 4 + bounded GetPrinterW level 2)")
+
+	queues, err := enumPrinterQueues()
+	if err != nil {
+		log.Printf("[discovery] EnumPrintersW unusable (%v) — falling back to registry", err)
+		return fallbackRegistryPrinters()
+	}
+	if len(queues) == 0 {
+		// An empty answer is only trustworthy if the registry agrees: a
+		// spooler that silently returned nothing must not make real
+		// printers disappear from the inventory.
+		if reg, regErr := fallbackRegistryPrinters(); regErr == nil && len(reg) > 0 {
+			log.Printf("[discovery] EnumPrintersW returned no queues but the registry lists %d — using the registry", len(reg))
+			return reg, nil
+		}
+		log.Printf("[discovery] spooler discovery found no queues")
+		return nil, nil
 	}
 
-	structSize := unsafe.Sizeof(printerInfo2{})
-	if uintptr(returned)*structSize > uintptr(len(buf)) {
-		returned = uint32(uintptr(len(buf)) / structSize)
-	}
-
-	out := make([]DeviceInfo, 0, returned)
-	for i := uint32(0); i < returned; i++ {
-		offset := uintptr(i) * structSize
-		pi := (*printerInfo2)(unsafe.Pointer(uintptr(unsafe.Pointer(&buf[0])) + offset))
-		name := utf16PtrToString(pi.pPrinterName)
-		portName := utf16PtrToString(pi.pPortName)
-		driverName := utf16PtrToString(pi.pDriverName)
+	deadline := time.Now().Add(queueDetailBudget)
+	out := make([]DeviceInfo, 0, len(queues))
+	unreadable := 0
+	for _, q := range queues {
+		name := q.name
 		if name == "" {
 			continue
 		}
+
+		var (
+			portName, driverName string
+			status, attributes   uint32
+			statusText           string
+		)
+		switch {
+		case !time.Now().Before(deadline):
+			// Out of detail budget: keep the queue with what EnumPrinters
+			// proved (its name and attributes) instead of dropping it.
+			unreadable++
+			attributes = q.attributes
+			statusText = "unknown"
+		default:
+			detail, derr := queueDetail(name)
+			if derr != nil {
+				unreadable++
+				log.Printf("[discovery] queue detail unreadable for %q: %v", name, derr)
+				attributes = q.attributes
+				statusText = "unknown"
+			} else {
+				portName, driverName = detail.portName, detail.driverName
+				status, attributes = detail.status, detail.attributes
+				statusText = mapWindowsStatus(status, attributes)
+			}
+		}
+
 		if isVirtualSpooler(portName, driverName, name) {
 			log.Printf("[discovery] hiding virtual Windows spooler queue %q (port=%q driver=%q)", name, portName, driverName)
 			continue
@@ -935,13 +1246,13 @@ func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 			PrinterType:    printerType,
 			Endpoint:       name,
 			SpoolerName:    name,
-			Status:         mapWindowsStatus(pi.Status, pi.Attributes),
+			Status:         statusText,
 			Capabilities: map[string]interface{}{
 				"port_name":   portName,
 				"driver_name": driverName,
 			},
 		})
 	}
-	runtime.KeepAlive(buf)
+	log.Printf("[discovery] spooler discovery completed: %d queues (%d with unreadable details)", len(out), unreadable)
 	return out, nil
 }
