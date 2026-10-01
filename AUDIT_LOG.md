@@ -671,3 +671,107 @@ go.mod               x/text moved indirect -> direct
   only): `snmp_discovery.go`, `wsd_discovery.go`, `ipp*.go`, `pdf_windows.go`
   (PDF rasterization), `registry.go`, and the `kardianos/service` wiring in
   `cmd/agent/main.go`.
+
+## 2026-10-02 — Agent audit, part 2: SNMP/WSD discovery + service lifecycle
+
+Continues sub-task C. Same constraint as part 1: **Go is not installed**, so
+nothing here was compiled or executed.
+
+### Fix 3 — SNMP identity split across port reachability (duplicate printers)
+
+`agent/internal/printer/snmp_discovery.go`
+
+`probeSNMPPrinterWithPort` built its `DeviceInfo` from the live TCP
+observation: reachable gave `Endpoint: "ip:9100"` with `Port: 9100`, unreachable
+gave `Endpoint: ip` with `Port: 0`. `StableIDForDevice` dispatches on
+`NetworkAddress != "" && Port != 0`, so `Port: 0` fell through to
+`StableIDFromEndpoint` instead of `StableIDFromNetwork`.
+
+**One physical printer therefore produced two different IDs**, and a printer
+whose port flapped — asleep, busy, or behind a filtered port, all routine
+states — was inventoried once per state. Duplicates accumulated in the registry
+and heartbeats, and the device was reachable under two bindings.
+
+Fix: pin the identity to the *intended* print port, which is known regardless
+of reachability, so the ID is identical in both branches.
+`TestZeroPortFallsBackToEndpointNamespace` documents the trap for future
+callers, and `TestNetworkIdentityIsPinnedByHostAndPort` pins the contract.
+
+### Fix 4 — SNMP context timeout ignored the retry budget
+
+Same file. `timeout` (600ms) was used for both the context deadline and
+`params.Timeout`, with `Retries: 1`. gosnmp waits up to `Timeout` per attempt
+and retries, so the retry could never complete inside a 600ms context:
+`Retries: 1` was silently dead configuration and the effective budget was
+smaller than the code appeared to grant. The context is now sized
+`Timeout * (Retries + 1)`.
+
+### Fix 5 — WSD discovery ignored context cancellation for up to 2.5s
+
+`agent/internal/printer/wsd_discovery.go`
+
+`SetReadDeadline` sets one absolute time, so a cancellation arriving after it
+is invisible to a goroutine already blocked in `ReadFromUDP`. A service stop
+(or a discovery timeout) could stall for the full 2.5s window. Added a watchdog
+that pulls the deadline to "now" when the context ends. It terminates on either
+`ctx.Done()` or the deferred `close(done)`, so it cannot leak.
+
+Ordering is safe: defers run LIFO, so `close(done)` runs before `conn.Close()`,
+and `net.UDPConn` methods are documented safe for concurrent use, so a
+`SetReadDeadline` racing the close returns an error rather than panicking
+(the error is deliberately discarded).
+
+### Fix 6 — data race on `program.agent` in the service lifecycle
+
+`agent/cmd/agent/main.go`
+
+The agent instance was written by the Start-owned restart-loop goroutine
+(`p.agent = app`, on every iteration) and read by `Stop`, which the service
+manager invokes on a different goroutine, with no synchronization. `Stop` could
+observe a stale nil and skip closing the SQLite queue — leaking it during
+service shutdown — or read a half-published pointer. `go test -race` would flag
+this. Guarded with a `sync.Mutex` and `setAgent`/`getAgent` accessors; the run
+call now uses the local `app` variable.
+
+### Audited and found correct — no change
+
+`cmd/agent/main.go` service lifecycle is otherwise sound and matches
+`kardianos/service` expectations: `Start` returns immediately rather than
+blocking (the blocking work runs in its own goroutine), `Stop` cancels and then
+waits on `runDone` with a 27s bound — inside the ~30s the Windows SCM grants —
+and deliberately refuses to close SQLite while `Run` may still be using it.
+Config backoff (5s doubling to 60s) avoids the SCM 1053 restart loop, and a
+file that exists but fails to parse is treated as corruption with a visible
+fatal rather than silent spinning. `snmp_discovery.go`'s keyword list already
+carries an explicit note about substring false positives ("composite",
+"restart"), so that hazard is understood in this codebase.
+
+### Tests added (NOT RUN — Go is absent)
+
+`agent/internal/printer/discovery_identity_test.go` — 4 tests covering the
+identity contract the SNMP fix depends on: host+port pinning, display-name
+independence, distinct ports staying distinct, and the `Port: 0` namespace
+fallback that callers must avoid.
+
+### Static checks actually run
+
+```
+hasPrefix collision      1 definition, then replaced with strings.HasPrefix
+brace/paren balance      5 changed files vs HEAD - ok
+import usage             sync.Mutex used; lumberjack.Logger used
+                         (the "unused" hit on lumberjack.v2 is a false
+                          positive - the package name is `lumberjack`)
+```
+
+### UNVERIFIED — and why
+
+- **Still nothing compiled.** `go`, `gofmt`, `gopls` absent; `go build`,
+  `go vet`, `go test -race`, `gofmt` all impossible. The data-race fix in
+  particular is *designed* to be proven by `go test -race` and has not been.
+- **All seven tests from parts 1 and 2 have never run.**
+- **Fixes 3 and 5 are network-behaviour fixes** that need a real SNMP printer
+  and a real WSD device plus a controllable TCP port to confirm end to end.
+  The identity half of fix 3 is covered by unit tests that cannot be executed.
+- **Not re-audited in depth this pass:** `ipp.go`, `ipp_discovery.go`,
+  `pdf_windows.go`, `registry.go`, `network_discovery.go`,
+  `discovery_extended.go` — read only as needed to trace identity call sites.

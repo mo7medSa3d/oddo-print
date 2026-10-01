@@ -123,18 +123,39 @@ email path (Python mirror of translate)  en unchanged, ar translated, URL preser
    Now asserts ERROR_INSUFFICIENT_BUFFER per the documented contract and
    surfaces real errors.
 
+### Round 2 (SNMP/WSD discovery + service lifecycle)
+
+3. **SNMP identity split across port reachability** (`snmp_discovery.go`) — the
+   ID was built from the live TCP observation, and `Port: 0` (port unreachable)
+   falls through to a different ID namespace than `Port: 9100`. **One physical
+   printer produced two IDs**, and duplicates accumulated every time the port
+   flapped. Identity is now pinned to the intended print port.
+4. **SNMP context timeout ignored the retry budget** — context was 600ms while
+   `Timeout: 600ms` + `Retries: 1` needs 1200ms, so the retry was silently dead
+   configuration.
+5. **WSD discovery ignored context cancellation for up to 2.5s** —
+   `SetReadDeadline` is one absolute time, invisible to an already-blocked
+   `ReadFromUDP`. Added a watchdog that pulls the deadline forward.
+6. **Data race on `program.agent`** (`cmd/agent/main.go`) — written by the
+   Start-owned restart loop, read by `Stop` on the SCM goroutine, unsynchronised.
+   `Stop` could skip closing the SQLite queue and leak it. Guarded with a mutex.
+
 ### Audited and found correct (no change)
 
 Spooler session lifecycle and EndDoc/Abort discipline · EnumPrinters level 4
 choice · UTF-16 handling throughout · GetLastError discipline (scanned all 113
 files, 0 real hits) · job lifecycle and duplicate prevention · payload types
 (the missing `text` type is correct — it matches the gateway's `DocumentType`) ·
-config persistence.
+config persistence · service lifecycle is otherwise sound (Start does not block,
+Stop is bounded at 27s inside the SCM's ~30s, SQLite deliberately kept open
+until `Run` returns).
 
 ### Tests added but NOT RUN
 
-`internal/printer/stable_id_unicode_test.go` — 7 tests. Go is absent, so they
-have never been executed.
+- `internal/printer/stable_id_unicode_test.go` — 7 tests (round 1).
+- `internal/printer/discovery_identity_test.go` — 4 tests (round 2).
+
+Go is absent, so none of the 11 tests have ever been executed.
 
 ### UNVERIFIED
 
@@ -149,14 +170,17 @@ have never been executed.
 
 Sub-task B is complete, pushed, and PR #111 is refreshed.
 
-Sub-task C is in progress with 2 fixes made but **not yet committed**. Before
+Sub-task C has 6 fixes across 2 rounds, all committed and pushed. Before
 continuing:
 
-1. The two fixes need `go build ./...` and `go test ./internal/printer/...` on a
-   machine with Go — that is the first thing to do, because a type error would
-   not have been caught here.
-2. Then the un-audited files listed above.
-3. Real-hardware verification is required for anything touching SetupAPI,
+1. `go build ./...`, `go vet ./...` and `go test -race ./...` on a machine with
+   Go — the first thing to do, because nothing here was ever compiled. The
+   data-race fix (round 2, item 6) is specifically designed to be proven by
+   `-race` and has not been.
+2. Then the files still un-audited: `ipp.go`, `ipp_discovery.go`,
+   `pdf_windows.go`, `registry.go`, `network_discovery.go`,
+   `discovery_extended.go`.
+3. Real-hardware verification for anything touching SetupAPI, SNMP, WSD,
    discovery accuracy and ESC/POS raster output.
 
 Highest-value remaining work outside sub-task C: a manual visual RTL pass in a
