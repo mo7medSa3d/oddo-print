@@ -548,16 +548,58 @@ func buildUSBDevicePathMap() map[string]string {
 	return out
 }
 
+// getDeviceInstanceID reads the device instance ID using the documented
+// two-call sizing pattern.
+//
+// SetupDiGetDeviceInstanceIdW
+// (https://learn.microsoft.com/en-us/windows/win32/api/setupapi/nf-setupapi-setupdigetdeviceinstanceidw)
+// takes DeviceInstanceIdSize in CHARACTERS, which for the W entry point are
+// UTF-16 code units — so []uint16 sized by requiredSize is the correct buffer.
+//
+// The first call deliberately passes a NULL buffer with a size of zero. It is
+// expected to FAIL with ERROR_INSUFFICIENT_BUFFER and populate requiredSize;
+// that failure is how the API reports the size. The return value must still be
+// checked, because any OTHER failure leaves requiredSize stale or zero and the
+// old code would have silently allocated from it.
 func getDeviceInstanceID(handle uintptr, devInfo *spDevInfoData) (string, error) {
 	var requiredSize uint32
-	procSetupDiGetDeviceInstanceIdW.Call(handle, uintptr(unsafe.Pointer(devInfo)), 0, 0, uintptr(unsafe.Pointer(&requiredSize)))
-	if requiredSize == 0 {
-		return "", fmt.Errorf("no size")
+	ret, _, err := procSetupDiGetDeviceInstanceIdW.Call(
+		handle,
+		uintptr(unsafe.Pointer(devInfo)),
+		0,
+		0,
+		uintptr(unsafe.Pointer(&requiredSize)),
+	)
+	if ret == 0 && err != windows.ERROR_INSUFFICIENT_BUFFER {
+		// A real failure (invalid handle, invalid device element). requiredSize
+		// is not meaningful, so sizing from it would be garbage.
+		if err == nil || err == syscall.Errno(0) {
+			err = fmt.Errorf("GetDeviceInstanceId sizing call failed without an error code")
+		}
+		return "", fmt.Errorf("SetupDiGetDeviceInstanceIdW sizing failed: %w", err)
 	}
+	if requiredSize == 0 {
+		if err == nil || err == syscall.Errno(0) {
+			return "", fmt.Errorf("SetupDiGetDeviceInstanceIdW reported a zero-length instance id")
+		}
+		return "", fmt.Errorf("SetupDiGetDeviceInstanceIdW reported a zero-length instance id: %w", err)
+	}
+
 	buf := make([]uint16, requiredSize)
-	ret, _, _ := procSetupDiGetDeviceInstanceIdW.Call(handle, uintptr(unsafe.Pointer(devInfo)), uintptr(unsafe.Pointer(&buf[0])), uintptr(requiredSize), uintptr(unsafe.Pointer(&requiredSize)))
+	ret, _, err = procSetupDiGetDeviceInstanceIdW.Call(
+		handle,
+		uintptr(unsafe.Pointer(devInfo)),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(requiredSize),
+		uintptr(unsafe.Pointer(&requiredSize)),
+	)
 	if ret == 0 {
-		return "", fmt.Errorf("GetDeviceInstanceId failed")
+		// Surface the real spooler/SetupAPI error instead of a bare string:
+		// GetLastError is only meaningful after a FALSE return.
+		if err == nil || err == syscall.Errno(0) {
+			err = fmt.Errorf("unspecified error")
+		}
+		return "", fmt.Errorf("SetupDiGetDeviceInstanceIdW failed: %w", err)
 	}
 	return syscall.UTF16ToString(buf), nil
 }

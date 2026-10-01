@@ -505,3 +505,169 @@ H. node --input-type=module --check      OK on both addon components
   — `t-value`/`t-valuef` are not translatable; keep copy in `t-esc`.
 - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/PluralRules
   — plural categories per locale (basis for #1).
+
+## 2026-10-02 — Windows Agent printing pipeline audit (sub-task C)
+
+Scope: `agent/` (Go). Audited against official Microsoft documentation.
+
+**Toolchain: Go is NOT installed in this environment** (`go`, `gofmt`, `gopls`
+all absent; `GOROOT` empty). Nothing was installed, per the standing
+instruction. Consequence: **no code in this section was compiled, vetted, or
+test-executed.** Every claim below comes from reading source and from
+documentation. See "UNVERIFIED" at the end.
+
+### Research (URLs recorded next to each decision)
+
+- https://learn.microsoft.com/en-us/windows/win32/api/setupapi/nf-setupapi-setupdigetdeviceinstanceidw
+  — `DeviceInstanceIdSize` is in **characters** (UTF-16 code units for the W
+  entry point), returns FALSE + GetLastError on failure, `RequiredSize` receives
+  the character count. Basis for fix #2.
+- https://learn.microsoft.com/en-us/windows/win32/printdocs/printdocs-printing
+  — spooler API overview / technology selection.
+- https://learn.microsoft.com/en-us/windows/win32/printdocs/enumprinters
+  — blocking call; **level 2 performs an OpenPrinter on each remote
+  connection** and waits for RPC timeout on dead queues; level 4 supports only
+  LOCAL|CONNECTIONS and requires a NULL Name.
+- https://learn.microsoft.com/en-us/windows/win32/printdocs/enddocprinter
+  — non-zero return is success; GetLastError meaningful only after zero; blocks.
+- https://learn.microsoft.com/en-us/windows/win32/printdocs/abortprinter
+  — deletes the job's spool file; the correct way to discard an incomplete job.
+- https://learn.microsoft.com/en-us/windows/win32/printdocs/writeprinter
+  — StartDoc/StartPage/Write/EndPage/EndDoc order; RAW must fully describe
+  DEVMODE.
+- https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rprn/e35fa2d2-8ca1-4369-be52-6e606759bd0e
+  — two-call sizing with ERROR_INSUFFICIENT_BUFFER.
+- https://unicode.org/reports/tr15/ and
+  https://learn.microsoft.com/en-us/windows/win32/intl/using-unicode-normalization-to-represent-strings
+  — basis for fix #1.
+
+### Fix 1 — Unicode normalization in stable printer IDs (Arabic queue names)
+
+`agent/internal/printer/stable_id.go`
+
+Identity was hashed from raw strings after `strings.ToLower`, with no Unicode
+normalization. Arabic is exposed because diacritics such as shadda (U+0651) and
+hamza-above (U+0654) are separate combining marks: the same visible queue name
+can arrive composed (NFC, e.g. U+0626) or decomposed (NFD, U+064A U+0654), and
+those two byte sequences hashed to **two different printer IDs**.
+
+Demonstrated before the fix (Python, mirroring `StableIDFromSpooler`):
+
+```
+NFC "طابعة الفرع الرئيسي" -> printer_spooler_68a8d1816bef4753
+NFD "طابعة الفرع الرئيسي" -> printer_spooler_b1640d2296e83310
+SAME PRINTER ID? False   <-- one physical printer inventoried twice
+```
+
+Effect: duplicated dashboard rows and heartbeat entries, and a printer reachable
+under two bindings that could each accept the same job.
+
+Added `normalizeUnicode` (NFC, with an allocation-free `IsNormalString` fast
+path) and applied it at every identity input: `normalizeIdentityValue`,
+`StableIDFromSpooler`, `StableIDFromUSBFull`, `StableIDFromNetwork`,
+`StableIDFromEndpoint`, the spooler port/driver/server/share fields of
+`physicalIdentityKey`, and the display-name fallback in `StableIDForDevice`.
+Folding is a **no-op for names already in NFC**, so existing IDs are preserved.
+The local variable `norm` in `StableIDFromSpooler` was renamed to `name` to
+avoid shadowing the newly imported `norm` package.
+
+`golang.org/x/text` promoted from indirect to direct in `agent/go.mod`
+(v0.40.0 — already in `go.sum` with both `h1:` and `/go.mod` hashes, so no
+`go.sum` change is needed and the module was already downloaded by the build).
+
+### Fix 2 — `getDeviceInstanceID` violated the documented two-call pattern
+
+`agent/internal/printer/usb_windows.go`
+
+The sizing call's return value was discarded entirely
+(`procSetupDiGetDeviceInstanceIdW.Call(...)` with all results ignored), so a
+failure other than ERROR_INSUFFICIENT_BUFFER would leave `requiredSize` stale
+or zero and the code would allocate from it. The second call also threw away
+GetLastError, returning a bare "GetDeviceInstanceId failed".
+
+Rewrote it to assert the documented contract: the first call must return FALSE
+with ERROR_INSUFFICIENT_BUFFER; any other failure is reported with its real
+error. `requiredSize` is validated non-zero before allocation, and the fetch
+call surfaces GetLastError via `%w`. Confirmed the buffer is correctly
+`[]uint16` sized by `requiredSize`, because the documented unit is characters.
+
+### Verified correct — no change made (audited, found sound)
+
+- **Spooler session lifecycle** (`executeSpoolerSessionWithSyscalls`): defer
+  ordering is right (EndPage → End/AbortDoc → ClosePrinter); success is decided
+  by the BOOL return alone; GetLastError is only read after zero; partial
+  writes are classified `UNKNOWN_PARTIAL_DELIVERY`; `AbortPrinter` is used for
+  incomplete documents and `EndDocPrinter` only for byte-complete ones, with a
+  deliberate decision to leave the spool file intact when EndDocPrinter fails.
+- **EnumPrinters level 4** chosen over level 2 with the documented reason, run
+  on a bounded goroutine with a retry cap and a total time budget.
+- **UTF-16 handling**: `windows.UTF16PtrToString` / `syscall.UTF16PtrFromString`
+  throughout — surrogates and NUL termination are handled correctly. No
+  hand-rolled UTF-16 decoding in the spooler path.
+- **GetLastError discipline**: scanned all 113 Go files for `err != nil` after
+  a `.Call(` without a `ret == 0` guard — 2 hits, both false positives
+  (`replace_file_windows.go` guards with `r != 0`).
+- **Job lifecycle / duplicate prevention** (`dispatchJobWithContexts`,
+  `processJob`): shutdown gate, WaitGroup-Add atomicity, process-local terminal
+  ledger, durable SQLite ledger with `BeginPrint` before execution, unknown-outcome
+  reprint refusal unless `reprint_after_crash` is enabled, panic recovery that
+  terminalizes the ledger before reporting.
+- **Payload types**: the agent accepts `raw|escpos|pdf|image`. There is no
+  `text` type — **verified this is correct, not a gap**: the gateway's
+  `DocumentType` (`src/lib/printer-capability.ts:17`) is
+  `raw|escpos|zpl|tspl|pdf|image`, and plain text is carried as `raw` with a
+  protocol. Agent and gateway agree exactly.
+- **Config persistence** (`replace_file_windows.go`): retry with backoff,
+  correct BOOL-first error handling, `MOVEFILE_WRITE_THROUGH`.
+
+### Tests added (NOT RUN — Go is absent)
+
+`agent/internal/printer/stable_id_unicode_test.go` — 7 tests covering NFC/NFD
+folding for spooler names, device identity, the name fallback, USB serials and
+endpoints; idempotence and empty-input safety; and a backward-compatibility
+assertion that recomputes the historical ID independently
+(`stableIDFromSpoolerUnfolded`) so NFC names provably keep their IDs.
+
+The Unicode fixtures are written as explicit `\u` escapes because the difference
+between them is a single combining mark that is invisible in source. The NFD
+form was **derived programmatically** from the NFC form, because typing a
+combining mark into source produced an incorrect fixture on the first attempt
+(an extra U+064A was inserted instead of decomposing U+0626) — the fixtures are
+verified by re-parsing the escapes:
+
+```
+nfc tail cps: 0627 0644 0631 0626 064a 0633 064a
+nfd tail cps: 0627 0644 0631 064a 0654 064a 0633 064a
+nfc is NFC: True | nfd != nfc: True | NFC(nfd) == nfc: True
+```
+
+### Static checks actually run (no compiler available)
+
+```
+name collisions      normalizeUnicode - 1 definition only
+brace/paren balance  3 changed files vs HEAD - ok
+import usage         stable_id.go - all 6 imports used
+go.sum               golang.org/x/text v0.40.0 h1: and /go.mod hashes present
+go.mod               x/text moved indirect -> direct
+```
+
+### UNVERIFIED — and why
+
+- **Nothing was compiled or executed.** `go` is absent, so `go build`,
+  `go vet`, `go test` and `gofmt` were all impossible. A type error or syntax
+  error in the changes above would not have been caught.
+- **The 7 new tests never ran.** They are written to the package's conventions
+  but are unproven.
+- **Fix #2 requires Windows + a physical USB printer.** `getDeviceInstanceID`
+  calls SetupAPI directly through a package-level `*syscall.LazyProc` that is
+  not injectable, so it cannot be unit-tested without refactoring. Left as-is
+  rather than refactor code I cannot compile; it needs a manual check on real
+  hardware.
+- **All real-hardware behaviour is unverified**: discovery accuracy against
+  physical USB/network/shared queues, ESC/POS raster output, spooler behaviour
+  under a stalled or offline queue, service start/stop, and gateway reconnect
+  under real network loss.
+- **Not re-audited in depth this pass** (read for the specific checks above
+  only): `snmp_discovery.go`, `wsd_discovery.go`, `ipp*.go`, `pdf_windows.go`
+  (PDF rasterization), `registry.go`, and the `kardianos/service` wiring in
+  `cmd/agent/main.go`.

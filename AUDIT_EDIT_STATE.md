@@ -1,10 +1,14 @@
 # Audit edit state — Odoo Print Gateway
 
 Branch: `arena/01a0f87e-oddo-print`
-Last commit: `67e1614` — `fix(i18n): Arabic plural zero forms, SSR locale, RTL hydration, lifecycle labels`
+Last commit: `b57add0` (+ uncommitted sub-task C work below)
 Updated: 2026-10-02
 
 > Full chronological history lives in the append-only `AUDIT_LOG.md`.
+
+**Sub-task C (Go Agent / Windows printing) is IN PROGRESS.** Go is not installed
+here, so nothing in it has been compiled or test-executed — see the UNVERIFIED
+block in that section before trusting any of it.
 
 ---
 
@@ -105,9 +109,56 @@ email path (Python mirror of translate)  en unchanged, ar translated, URL preser
 - Catalogs are kept set-equal and order-equal; a checker that reports 0 for a
   category that must be non-zero is broken, not passing.
 
+## Sub-task C — Windows Agent printing pipeline (Go) — **IN PROGRESS**
+
+### Fixed
+
+1. **Unicode normalization in stable printer IDs** (`internal/printer/stable_id.go`) —
+   NFC folding added at every identity input. Without it, an Arabic queue name
+   arriving in NFD hashed to a different ID than the same name in NFC, so one
+   physical printer was inventoried twice. Demonstrated before/after in
+   `AUDIT_LOG.md`. Backward compatible: folding is a no-op for NFC names.
+2. **`getDeviceInstanceID` two-call pattern** (`internal/printer/usb_windows.go`) —
+   the sizing call's return value was discarded and GetLastError was thrown away.
+   Now asserts ERROR_INSUFFICIENT_BUFFER per the documented contract and
+   surfaces real errors.
+
+### Audited and found correct (no change)
+
+Spooler session lifecycle and EndDoc/Abort discipline · EnumPrinters level 4
+choice · UTF-16 handling throughout · GetLastError discipline (scanned all 113
+files, 0 real hits) · job lifecycle and duplicate prevention · payload types
+(the missing `text` type is correct — it matches the gateway's `DocumentType`) ·
+config persistence.
+
+### Tests added but NOT RUN
+
+`internal/printer/stable_id_unicode_test.go` — 7 tests. Go is absent, so they
+have never been executed.
+
+### UNVERIFIED
+
+- Nothing compiled: `go build` / `go vet` / `go test` / `gofmt` all impossible.
+- Fix #2 needs Windows + real USB hardware; the SetupAPI proc is not injectable.
+- All real-hardware behaviour: discovery accuracy, ESC/POS raster output,
+  spooler behaviour under stall, service lifecycle, reconnect under real loss.
+- Not re-audited in depth: `snmp_discovery.go`, `wsd_discovery.go`, `ipp*.go`,
+  `pdf_windows.go`, `registry.go`, `cmd/agent/main.go` service wiring.
+
 ## RESUME HERE
 
-Sub-task B is complete and committed as `67e1614`. The remaining step is to push
-the commit and refresh PR #111. If continuing beyond that, the highest-value
-follow-up is a manual visual RTL pass in a real browser, since none of the
-rendering could be verified in this sandbox.
+Sub-task B is complete, pushed, and PR #111 is refreshed.
+
+Sub-task C is in progress with 2 fixes made but **not yet committed**. Before
+continuing:
+
+1. The two fixes need `go build ./...` and `go test ./internal/printer/...` on a
+   machine with Go — that is the first thing to do, because a type error would
+   not have been caught here.
+2. Then the un-audited files listed above.
+3. Real-hardware verification is required for anything touching SetupAPI,
+   discovery accuracy and ESC/POS raster output.
+
+Highest-value remaining work outside sub-task C: a manual visual RTL pass in a
+real browser at 1280px and 390px, EN and AR, since none of the rendering could
+be verified in this sandbox.
