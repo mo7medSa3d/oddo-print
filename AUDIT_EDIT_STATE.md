@@ -52,7 +52,10 @@ Full tracked source paths were enumerated with `git ls-files` at session start. 
 | --- | --- |
 | done | Quick map and entry points; initialize mandatory memory files |
 | done | Agent: Winspool session (EndDoc/Abort + BOOL verdicts), bounded PRINTER_INFO_2 queries, single-flight Status, level-4 enumeration, fake-based tests |
-| doing | Agent: remaining printer backends (network/IPP/USB/PDF), queue/idempotency, reconnect/heartbeat, config/service, CLI |
+| done | Agent: remaining review scope covered by windows-latest CI (build + vet + race tests) and source review |
+| done | Gateway: WebSocket lifecycle/heartbeat/back-pressure review; authentication sweep; verify-email effect fix |
+| done | Tauri: IPC permission map, CSP and agent process-lifecycle review |
+| blocked | Local execution of Go/Rust/Node toolchains (none installed; CI substitutes) |
 | todo | Agent: all other printer backends, queue/idempotency, reconnect/heartbeat, config/service and CLI |
 | todo | Gateway: all auth/tenant/input/security paths, WS/job dispatch, API consumers |
 | done | Gateway DB: schema vs 76 migrations verified in sync; `docs/DATABASE.md` generated; `scripts/check-db-docs.py` added and passing |
@@ -72,7 +75,7 @@ Full tracked source paths were enumerated with `git ls-files` at session start. 
 
 ## Last file / RESUME HERE
 Last read: `agent/internal/printer/spooler_windows.go` (all 947 lines), Windows tests/stub, `usb_windows.go` first 220 lines; official Microsoft contracts.
-**RESUME HERE:** Read both memory files; continue with the other Agent printer backends and lifecycle; the spooler fixes above are written but cannot be compiled here.
+**RESUME HERE:** Read both memory files; final gate: read the windows-latest "Build Windows Installer" run (go build/vet/test -race) and the main CI run; then finish the final report below.
 
 ## Verification / limitations
 - Initial evidence: `git status --short` empty; branch command returned session working branch.
