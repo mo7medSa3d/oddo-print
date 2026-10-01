@@ -2065,4 +2065,11 @@ export const ar: Catalog = {
   "auth.verify.allSetTitle": "كل شيء جاهز",
   "auth.verify.continuing": "جارٍ الانتقال إلى إعداد مساحة العمل…",
   "auth.verify.backToSignIn": "العودة إلى تسجيل الدخول",
+  "desktop.drawer.editConfig": "تعديل الإعدادات المطلوبة",
+  "desktop.drawer.localTest": "صفحة اختبار محلية",
+  "desktop.drawer.viewJobs": "عرض المهام",
+  "desktop.drawer.testPageNote": "يرسل هذا الإجراء صفحة اختبار عبر رصْف الـ Gateway ويختبر مسار التسليم المُدار (الرصْف، ثم استلامها بواسطة هذا الـ Agent، ثم تسليمها إلى وسيلة نقل الطابعة).",
+  "desktop.settings.language": "اللغة",
+  "desktop.settings.languageBody": "تُطبَّق فورًا على كامل Print Manager، بما في ذلك اتجاه النص.",
+  "desktop.settings.languageAria": "اختر لغة الواجهة",
 };

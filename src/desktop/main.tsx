@@ -1013,7 +1013,7 @@ export default function App() {
                   variant="secondary"
                   onClick={() => setEditingPrinter(selectedPrinter)}
                 >
-                  Edit desired configuration
+                  {t("desktop.drawer.editConfig")}
                 </Button>
               )}
               <Button
@@ -1021,7 +1021,7 @@ export default function App() {
                 onClick={() => handleTest(selectedPrinter.id)}
                 icon={<Play className="h-4 w-4" />}
               >
-                Local test page
+                {t("desktop.drawer.localTest")}
               </Button>
               <Button
                 variant="secondary"
@@ -1032,12 +1032,11 @@ export default function App() {
                 }}
                 icon={<ClipboardList className="h-4 w-4" />}
               >
-                View jobs
+                {t("desktop.drawer.viewJobs")}
               </Button>
             </div>
             <p className="text-sm leading-relaxed text-ink-3">
-              This sends a test page through the Gateway queue and exercises the managed delivery path
-              (queued, claimed by this agent, then delivered to the printer transport).
+              {t("desktop.drawer.testPageNote")}
             </p>
           </div>
         )}

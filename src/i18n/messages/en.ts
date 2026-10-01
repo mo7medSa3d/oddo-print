@@ -2060,6 +2060,13 @@ export const en = {
   "auth.verify.allSetTitle": "You’re all set",
   "auth.verify.continuing": "Continuing to workspace setup…",
   "auth.verify.backToSignIn": "Back to sign in",
+  "desktop.drawer.editConfig": "Edit desired configuration",
+  "desktop.drawer.localTest": "Local test page",
+  "desktop.drawer.viewJobs": "View jobs",
+  "desktop.drawer.testPageNote": "This sends a test page through the Gateway queue and exercises the managed delivery path (queued, claimed by this agent, then delivered to the printer transport).",
+  "desktop.settings.language": "Language",
+  "desktop.settings.languageBody": "Applies immediately across the Print Manager, including text direction.",
+  "desktop.settings.languageAria": "Select interface language",
 } as const;
 
 export type MessageKey = keyof typeof en;
