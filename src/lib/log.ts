@@ -17,6 +17,33 @@ function redactClaimId(value: unknown): unknown {
 
 export type LogFields = Record<string, unknown>;
 
+function normalizeLogValue(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (value instanceof Error) {
+    if (seen.has(value)) return "[Circular]";
+    seen.add(value);
+    const out: Record<string, unknown> = {
+      name: value.name,
+      message: value.message,
+    };
+    if (value.stack) out.stack = value.stack;
+    const cause = (value as Error & { cause?: unknown }).cause;
+    if (cause !== undefined) out.cause = normalizeLogValue(cause, seen);
+    for (const [key, nested] of Object.entries(value)) {
+      if (!(key in out)) out[key] = normalizeLogValue(nested, seen);
+    }
+    return out;
+  }
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((entry) => normalizeLogValue(entry, seen));
+  const out: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = normalizeLogValue(nested, seen);
+  }
+  return out;
+}
+
 export function requestIdFrom(req: Request): string {
   const existing =
     req.headers.get("x-request-id")?.trim() ||
@@ -41,7 +68,7 @@ function sanitize(fields: LogFields): LogFields {
       out[key] = `${value.slice(0, 200)}…(${value.length} chars)`;
       continue;
     }
-    out[key] = value;
+    out[key] = normalizeLogValue(value);
   }
   return out;
 }
