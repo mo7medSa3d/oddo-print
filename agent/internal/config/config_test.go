@@ -154,7 +154,7 @@ func TestConfigValidate(t *testing.T) {
 func TestConfigValidateAcceptsHTTPAndHTTPSOnStaging(t *testing.T) {
 	// The isolated staging branch accepts both transports directly, including
 	// when the Agent runs as a Windows service without inherited shell env.
-	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "")
+	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "")
 	for _, raw := range []string{
 		"http://127.0.0.1:3000",
 		"http://192.168.1.50:3000",
@@ -172,7 +172,7 @@ func TestConfigValidateAcceptsHTTPAndHTTPSOnStaging(t *testing.T) {
 }
 
 func TestConfigValidateAcceptsHTTPSByDefault(t *testing.T) {
-	t.Setenv("YASSER_AGENT_ALLOW_INSECURE_HTTP", "")
+	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "")
 	for _, raw := range []string{
 		"https://127.0.0.1:3000",
 		"https://192.168.1.50:3000",
