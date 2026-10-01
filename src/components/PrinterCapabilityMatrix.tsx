@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AlertTriangle, Printer as PrinterIcon } from "lucide-react";
 import { getProtocolDisplayName, getTransportDisplayName, type ProtocolType, type TransportType } from "../lib/printer-capability";
+import { EmptyState, Skeleton, StatusBadge, type Tone } from "./ui";
 
 /**
  * One row of the /api/printers/capabilities contract (see
@@ -25,27 +27,30 @@ type Row = {
   spooler?: { name?: string; status?: string };
 };
 
-function shortStatus(s: string) {
-  switch (s) {
-    case "ONLINE": return "Online";
-    case "IDLE": return "Idle";
-    case "PRINTING": return "Printing";
-    case "PAPER_OUT": return "Paper out";
-    case "OFFLINE": return "Offline";
-    case "ERROR": return "Error";
-    case "DRIVER_ERROR": return "Driver error";
-    case "SPOOLER_ERROR": return "Spooler error";
-    case "UNREACHABLE": return "Unreachable";
-    case "UNKNOWN": return "Unknown";
-    default: return s || "Unknown";
-  }
+const STATUS_LABELS: Record<string, string> = {
+  ONLINE: "Online",
+  IDLE: "Idle",
+  PRINTING: "Printing",
+  PAPER_OUT: "Paper out",
+  OFFLINE: "Offline",
+  ERROR: "Error",
+  DRIVER_ERROR: "Driver error",
+  SPOOLER_ERROR: "Spooler error",
+  UNREACHABLE: "Unreachable",
+  UNKNOWN: "Unknown",
+};
+
+function shortStatus(status: string) {
+  return STATUS_LABELS[status] ?? (status || "Unknown");
 }
 
-function statusTone(s: string) {
-  if (s === "ONLINE" || s === "IDLE") return "bg-ok-solid";
-  if (s === "PRINTING") return "bg-info-solid";
-  if (s === "OFFLINE") return "bg-ink-4";
-  return "bg-warn-solid";
+/** Tone mapping shared with the printer vocabulary used across the console. */
+function statusTone(status: string): Tone {
+  if (status === "ONLINE" || status === "IDLE") return "ok";
+  if (status === "PRINTING") return "info";
+  if (status === "OFFLINE" || status === "UNREACHABLE") return "neutral";
+  if (status === "UNKNOWN") return "neutral";
+  return "warn";
 }
 
 function featureChips(documentTypes: string[] | undefined, duplex: boolean | null | undefined, color: boolean | null | undefined) {
@@ -70,19 +75,36 @@ export default function PrinterCapabilityMatrix() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="h-24 animate-pulse rounded-xl bg-surface-3" />;
-  if (!rows || rows.length === 0) return <div className="rounded-xl border border-dashed border-edge bg-surface p-12 text-center text-[13px] font-medium text-ink-3">No printers connected.</div>;
+  if (loading) {
+    return (
+      <div className="space-y-2.5" role="status" aria-label="Loading printer capabilities">
+        {[0, 1, 2].map((i) => <Skeleton key={i} className="h-14" />)}
+        <span className="sr-only">Loading printer capabilities…</span>
+      </div>
+    );
+  }
+
+  if (!rows || rows.length === 0) {
+    return (
+      <EmptyState
+        icon={<PrinterIcon className="h-5 w-5" aria-hidden />}
+        title="No printers connected"
+        description="Printers appear here once an agent on this workspace registers them."
+        size="sm"
+      />
+    );
+  }
 
   return (
     <div className="overflow-x-auto rounded-xl border border-edge bg-surface">
-      <div className="grid min-w-[720px] grid-cols-[1.4fr_0.7fr_0.9fr_1.2fr_0.7fr_0.7fr_0.9fr] gap-0 border-b border-edge-subtle bg-surface-2 px-5 py-2.5 text-[10px] font-bold uppercase tracking-widest text-ink-4">
-        <div>Printer</div>
-        <div>Link</div>
-        <div>Protocol</div>
-        <div>Print features</div>
-        <div>Status</div>
-        <div>Driver</div>
-        <div>Spooler</div>
+      <div className="grid min-w-[720px] grid-cols-[1.4fr_0.7fr_0.9fr_1.2fr_0.7fr_0.7fr_0.9fr] gap-0 border-b border-edge-subtle bg-surface-2 px-5 py-2.5">
+        <div className="label-caps">Printer</div>
+        <div className="label-caps">Link</div>
+        <div className="label-caps">Protocol</div>
+        <div className="label-caps">Print features</div>
+        <div className="label-caps">Status</div>
+        <div className="label-caps">Driver</div>
+        <div className="label-caps">Spooler</div>
       </div>
       {rows.map(r => {
         const tone = statusTone(r.status);
@@ -92,37 +114,46 @@ export default function PrinterCapabilityMatrix() {
         const spoolerName = r.spooler?.name;
         const spoolerStatus = r.spooler?.status;
         return (
-          <div key={r.printerId} className="grid min-w-[720px] grid-cols-[1.4fr_0.7fr_0.9fr_1.2fr_0.7fr_0.7fr_0.9fr] items-center gap-0 border-b border-edge-subtle px-5 py-3.5 last:border-0 hover:bg-surface-2/70 transition">
+          <div key={r.printerId} className="row-hover grid min-w-[720px] grid-cols-[1.4fr_0.7fr_0.9fr_1.2fr_0.7fr_0.7fr_0.9fr] items-center gap-0 border-b border-edge-subtle px-5 py-3.5 last:border-0">
             <div className="min-w-0">
-              <div className="truncate text-[13px] font-semibold text-ink">{r.name}</div>
-              <div className="font-mono text-[10px] text-ink-4">{r.printerId.slice(0, 12)}</div>
+              <div className="truncate text-base font-[550] text-ink">{r.name}</div>
+              <div className="truncate font-mono text-xs text-ink-4">{r.printerId.slice(0, 12)}</div>
             </div>
-            <div className="text-[11px] font-medium text-ink-2">
+            <div className="text-xs font-[550] text-ink-2">
               {r.transport ? getTransportDisplayName(r.transport as TransportType) : "—"}
             </div>
-            <div className="text-[11px] font-medium text-ink-2">
+            <div className="text-xs font-[550] text-ink-2">
               {r.protocol ? getProtocolDisplayName(r.protocol as ProtocolType) : "—"}
             </div>
             <div className="flex flex-wrap gap-1">
               {chips.length === 0 ? (
-                <span className="text-[11px] text-ink-4">—</span>
+                <span className="text-xs text-ink-4">—</span>
               ) : (
                 chips.map(t => (
-                  <span key={t} className="rounded bg-ink px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">{t}</span>
+                  <span key={t} className="rounded-xs border border-edge bg-surface-2 px-1.5 py-0.5 text-2xs font-[550] text-ink-2">{t}</span>
                 ))
               )}
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className={`inline-flex h-1.5 w-1.5 rounded-full ${tone}`} />
-              <span className="text-[11px] font-semibold text-ink-2">{shortStatus(r.status)}</span>
+            <div className="flex items-center">
+              <StatusBadge size="sm" tone={tone} label={shortStatus(r.status)} />
             </div>
-            <div className="text-[11px] text-ink-3 truncate">
+            <div className="truncate text-xs text-ink-3">
               {driverName || "Auto"}
-              {driverHealth === "error" && <span className="ml-1 text-warn">⚠</span>}
+              {driverHealth === "error" && (
+                <span className="ml-1.5 inline-flex items-center gap-1 text-warn">
+                  <AlertTriangle className="h-3 w-3" aria-hidden />
+                  <span className="sr-only">driver error</span>
+                </span>
+              )}
             </div>
-            <div className="text-[11px] text-ink-3 truncate">
+            <div className="truncate text-xs text-ink-3">
               {spoolerName || (r.transport === "spooler" ? "Windows Spooler" : "—")}
-              {spoolerStatus === "error" && <span className="ml-1 text-warn">⚠</span>}
+              {spoolerStatus === "error" && (
+                <span className="ml-1.5 inline-flex items-center gap-1 text-warn">
+                  <AlertTriangle className="h-3 w-3" aria-hidden />
+                  <span className="sr-only">spooler error</span>
+                </span>
+              )}
             </div>
           </div>
         );

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { AuthShell } from "../../../components/AuthShell";
-import { Button, Field, Input, ErrorState } from "../../../components/ui";
+import { Button, Field, Input, ErrorState, Skeleton } from "../../../components/ui";
 
 export default function PlatformLoginPage() {
   const router = useRouter();
@@ -71,73 +71,72 @@ export default function PlatformLoginPage() {
   if (checkingSession) {
     return (
       <AuthShell subtitle="Platform Administration">
-        <div className="rounded-[14px] border border-edge bg-surface p-8 text-center shadow-card">
-          <p className="text-[13px] text-ink-3">Checking your session…</p>
+        <div className="space-y-4" role="status" aria-label="Checking your session">
+          <Skeleton className="h-7 w-44" />
+          <Skeleton className="h-4 w-60" />
+          <Skeleton className="mt-6 h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <span className="sr-only">Checking your session…</span>
         </div>
       </AuthShell>
     );
   }
 
   return (
-    <AuthShell subtitle="Platform Administration">
-      <section className="overflow-hidden rounded-[16px] border border-edge-strong bg-surface shadow-lg">
-        <div className="border-b border-edge bg-surface-2/55 px-6 py-6 sm:px-7">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">
-            Platform access
-          </div>
-          <h1 className="mt-2 text-[28px] font-bold tracking-[-0.035em] text-ink">
-            Sign in
-          </h1>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-3">
-            Use your Platform Owner account to manage tenants, plans and subscriptions.
+    <AuthShell
+      subtitle="Platform Administration"
+      eyebrow="Platform access"
+      title="Sign in"
+      description="Platform Owner credentials manage tenants, plans and subscriptions."
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Field label="Platform owner email" htmlFor="platform-email" required>
+          <Input
+            id="platform-email"
+            type="email"
+            placeholder="admin@platform.local"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            autoFocus
+            required
+          />
+        </Field>
+
+        <Field label="Password" htmlFor="platform-password" required>
+          <Input
+            id="platform-password"
+            type="password"
+            placeholder="Enter password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            required
+          />
+        </Field>
+
+        {error && <ErrorState title="Couldn’t sign you in" message={error} />}
+
+        <Button
+          variant="primary"
+          type="submit"
+          loading={loading}
+          className="w-full"
+          size="lg"
+          icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
+        >
+          {loading ? "Signing in…" : "Continue"}
+        </Button>
+
+        <div className="flex items-start gap-2.5 rounded-lg border border-edge-strong bg-surface px-3.5 py-3">
+          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
+          <p className="text-sm leading-relaxed text-ink-3">
+            Restricted to authorized Platform Owners. Control-plane access uses a separate
+            server-side session with a shorter lifetime.
           </p>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-5 p-6 sm:p-7">
-          <Field label="Platform owner email" htmlFor="platform-email">
-            <Input
-              id="platform-email"
-              type="email"
-              placeholder="admin@platform.local"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              required
-            />
-          </Field>
-
-          <Field label="Password" htmlFor="platform-password">
-            <Input
-              id="platform-password"
-              type="password"
-              placeholder="Enter password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-            />
-          </Field>
-
-          {error && <ErrorState title="Authentication error" message={error} />}
-
-          <Button
-            variant="primary"
-            type="submit"
-            loading={loading}
-            className="w-full"
-            icon={<ArrowRight className="h-4 w-4" />}
-          >
-            {loading ? "Signing in…" : "Continue"}
-          </Button>
-
-          <div className="flex items-start gap-2.5 rounded-[11px] border border-edge bg-surface-2 px-3.5 py-3">
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand" aria-hidden />
-            <p className="text-[11.5px] leading-relaxed text-ink-3">
-              This portal is restricted to authorized Platform Owners. Platform access is protected by a separate server-side session.
-            </p>
-          </div>
-        </form>
-      </section>
+      </form>
     </AuthShell>
   );
 }

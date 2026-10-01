@@ -42,7 +42,12 @@ describe("production hardening contracts", () => {
   it("fences agent-driven expiration at the database clock", () => {
     const route = read("src/app/api/agent/jobs/route.ts");
     const jobStatus = read("src/lib/job-status.ts");
-    expect(jobStatus).toContain('claimed: new Set(["printing", "failed", "queued"])');
+    // claimed -> success is the agent's fenced RE-REPORT of a durable local
+    // terminal result (duplicate delivery after a reclaim, or a re-report
+    // after the printing report was lost). The claim token is still required,
+    // so this grants no authority the token owner did not already have via
+    // claimed -> printing -> success; see tests/job-status.test.ts.
+    expect(jobStatus).toContain('claimed: new Set(["printing", "success", "failed", "queued"])');
     expect(jobStatus).toContain('printing: new Set(["success", "failed"])');
     expect(route).toContain('if (requestedStatus !== "expired") {');
     expect(route).toContain('if (!job.claimToken || !claimToken || claimToken !== job.claimToken) {');

@@ -1,8 +1,39 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Archive, CheckCircle2, CircleAlert, CreditCard, Eye, EyeOff, Pencil, Plus, RefreshCw, Search, ShieldAlert } from "lucide-react";
-import { Button, Modal } from "../../../components/ui";
+import {
+  Archive,
+  ArchiveRestore,
+  CheckCircle2,
+  CircleAlert,
+  Eye,
+  EyeOff,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+} from "lucide-react";
+import {
+  Button,
+  Callout,
+  Card,
+  CardHeader,
+  ConfirmDialog,
+  DataTableShell,
+  EmptyState,
+  ErrorState,
+  Field,
+  Input,
+  Modal,
+  Mono,
+  PageHeader,
+  Select,
+  StatusBadge,
+  TableScroll,
+  TableSkeleton,
+  Textarea,
+} from "../../../components/ui";
 
 type EntitlementKey = "max_agents" | "max_printers" | "max_jobs_per_minute" | "max_concurrent_jobs" | "max_prints_per_period";
 type Entitlements = Record<EntitlementKey, number | "unlimited">;
@@ -41,6 +72,8 @@ export default function PlatformPlansPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [editing, setEditing] = useState<Plan | null>(null);
   const [creating, setCreating] = useState(false);
+  const [archiving, setArchiving] = useState<Plan | null>(null);
+  const [archiveBusy, setArchiveBusy] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -72,13 +105,16 @@ export default function PlatformPlansPage() {
 
   async function archivePlan(plan: Plan) {
     setError(null); setNotice(null);
+    setArchiveBusy(true);
     try {
       const res = await fetch(`/api/platform/plans/${plan.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive: false }) });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "Failed to archive plan.");
       setNotice(`Plan "${plan.name}" archived. Existing subscriptions unchanged.`);
+      setArchiving(null);
       refresh(false);
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to archive plan."); }
+    finally { setArchiveBusy(false); }
   }
 
   async function save(form: ReturnType<typeof emptyForm>, isNew: boolean) {
@@ -96,59 +132,193 @@ export default function PlatformPlansPage() {
   }
 
   return (
-    <div className="space-y-5">
-      <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-[8px] border border-edge-strong bg-surface-2 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
-            <ShieldAlert className="h-3.5 w-3.5" /> Commercial Catalog
+    <div className="space-y-6">
+      <PageHeader
+        variant="inline"
+        eyebrow={
+          <span className="inline-flex items-center gap-2">
+            <ShieldAlert className="h-3.5 w-3.5" aria-hidden />
+            Commercial catalog
+          </span>
+        }
+        title="Plans"
+        description="Entitlements, Stripe linkage and catalog visibility for every subscription tier."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => refresh()}
+              disabled={loading}
+              icon={<RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} aria-hidden />}
+            >
+              Refresh
+            </Button>
+            <Button variant="primary" onClick={openCreate} icon={<Plus className="h-4 w-4" aria-hidden />}>
+              New plan
+            </Button>
           </div>
-          <h1 className="mt-4 text-[26px] font-bold tracking-[-0.02em] text-ink leading-tight">Plans</h1>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => refresh()} disabled={loading} className="inline-flex items-center gap-2 rounded-[8px] border border-edge-strong bg-surface-2 px-4 py-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink disabled:opacity-50">
-            <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} /> Refresh
-          </button>
-          <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-[8px] bg-brand text-brand-contrast px-4 py-2.5 text-[13px] font-semibold hover:bg-brand-hover transition">
-            <Plus className="h-4 w-4" /> New plan
-          </button>
-        </div>
-      </section>
+        }
+      />
 
-      {notice && <div role="status" className="flex items-start gap-3 rounded-[12px] border border-ok-edge bg-ok-bg px-4 py-3 text-[13px] text-ok"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /><span>{notice}</span></div>}
-      {error && <div role="alert" className="flex items-start gap-3 rounded-[12px] border border-bad-edge bg-bad-bg px-4 py-3 text-[13px] text-bad"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><span>{error}</span></div>}
+      {notice && (
+        <Callout tone="ok" icon={<CheckCircle2 className="h-4 w-4" aria-hidden />}>
+          <span role="status">{notice}</span>
+        </Callout>
+      )}
+      {error && !loading && (
+        <ErrorState message={error} retry={() => refresh(false)} />
+      )}
 
-      <div className="relative">
-        <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" />
-        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by plan name, ID, or Stripe Price ID…" className="w-full rounded-[12px] border border-edge-strong bg-surface py-2.5 pl-10 pr-4 text-[13px] text-ink placeholder-ink-4 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
-      </div>
+      <Card className="overflow-hidden">
+        <CardHeader
+          title="Plan catalog"
+          subtitle={loading ? "Loading catalog…" : `${filtered.length} of ${plans.length} plan${plans.length === 1 ? "" : "s"}`}
+          icon={<ShieldAlert className="h-4 w-4" aria-hidden />}
+          actions={
+            <div className="relative w-full sm:w-80">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
+              <Input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name, ID or Stripe Price ID…"
+                aria-label="Search plans"
+                className="pl-9"
+              />
+            </div>
+          }
+        />
 
-      <div className="overflow-hidden rounded-[14px] border border-edge bg-surface">
-        <div className="border-b border-edge px-5 py-4"><h2 className="text-[13px] font-semibold text-ink">Plan catalog • {filtered.length}</h2></div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-left text-[13px]">
-            <thead className="border-b border-edge bg-surface-2 text-[11px] font-semibold uppercase tracking-wide text-ink-4">
-              <tr><th className="px-5 py-3">Plan</th><th className="px-5 py-3">Visibility</th><th className="px-5 py-3">Limits</th><th className="px-5 py-3">Subscribers</th><th className="px-5 py-3">Stripe Price</th><th className="px-5 py-3 text-right">Actions</th></tr>
+        {loading ? (
+          <TableSkeleton rows={5} columns={6} />
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={<ShieldAlert className="h-5 w-5" aria-hidden />}
+            title={plans.length === 0 ? "No plans in the catalog" : "No matching plans"}
+            description={
+              plans.length === 0
+                ? "Create the first plan to define what a tenant can print, run and connect."
+                : "No plan matches this search. Try a plan name, ID, or Stripe Price ID."
+            }
+            action={
+              <Button variant="primary" onClick={openCreate} icon={<Plus className="h-4 w-4" aria-hidden />}>
+                New plan
+              </Button>
+            }
+          />
+        ) : (
+          <TableScroll>
+            <thead>
+              <tr>
+                <th scope="col">Plan</th>
+                <th scope="col">Visibility</th>
+                <th scope="col">Limits</th>
+                <th scope="col">Subscribers</th>
+                <th scope="col">Stripe price</th>
+                <th scope="col" className="text-right">Actions</th>
+              </tr>
             </thead>
-            <tbody className="divide-y divide-edge-subtle">
+            <tbody>
               {filtered.map((plan) => (
-                <tr key={plan.id} className="hover:bg-surface-hover transition">
-                  <td className="px-5 py-4"><div className="font-semibold text-ink text-[13px]">{plan.name}</div><div className="mt-1 font-mono text-[11px] text-ink-4">{plan.id}</div>{plan.description && <div className="mt-1 max-w-xs truncate text-[11px] text-ink-4">{plan.description}</div>}</td>
-                  <td className="px-5 py-4"><div className="flex flex-wrap gap-1.5"><span className={plan.isActive ? "rounded-[8px] border border-ok-edge bg-ok-bg px-2 py-0.5 text-[11px] font-medium text-ok" : "rounded-[8px] border border-edge-strong bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-ink-3"}>{plan.isActive ? "Active" : "Archived"}</span><span className={plan.isPublic ? "inline-flex items-center gap-1 rounded-[8px] border border-edge-accent bg-brand-subtle px-2 py-0.5 text-[11px] font-medium text-brand-subtle-text" : "inline-flex items-center gap-1 rounded-[8px] border border-edge-strong bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-ink-3"}>{plan.isPublic ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}{plan.isPublic ? "Public" : "Private"}</span></div></td>
-                  <td className="px-5 py-4"><div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-ink-3">{Object.entries(plan.entitlements).map(([k, v]) => (<span key={k}><span className="text-ink-4">{ENTITLEMENT_LABELS[k as EntitlementKey]}:</span> <span className="font-medium text-ink tabular-nums">{v === "unlimited" ? "Unlimited" : v}</span></span>))}</div></td>
-                  <td className="px-5 py-4 text-[11px]"><div className="text-ink font-medium tabular-nums">{plan.activeSubscriberCount} active</div><div className="mt-1 text-ink-4">{plan.subscriberCount} total</div></td>
-                  <td className="px-5 py-4"><div className="font-mono text-[11px] text-ink-3">{plan.stripePriceId || "Not linked"}</div><div className="mt-1 text-[11px] text-ink-4">{plan.currency?.toUpperCase() || "—"}{plan.interval ? ` / ${plan.interval}` : ""}</div></td>
-                  <td className="px-5 py-4 text-right"><div className="flex justify-end gap-2"><button onClick={() => openEdit(plan)} className="inline-flex items-center gap-1.5 rounded-[8px] border border-edge-strong bg-surface-2 px-3 py-1.5 text-[11px] font-semibold text-ink-2 hover:bg-surface-3 hover:text-ink"><Pencil className="h-3 w-3" /> Edit</button>{plan.isActive && <button onClick={() => void archivePlan(plan)} className="inline-flex items-center gap-1.5 rounded-[8px] border border-warn-edge bg-warn-bg px-3 py-1.5 text-[11px] font-semibold text-warn hover:brightness-95"><Archive className="h-3 w-3" /> Archive</button>}</div></td>
+                <tr key={plan.id}>
+                  <td>
+                    <div className="text-base font-[600] text-ink">{plan.name}</div>
+                    <Mono className="mt-0.5 block">{plan.id}</Mono>
+                    {plan.description && (
+                      <div className="mt-1 line-clamp-2 max-w-xs text-xs text-ink-4">{plan.description}</div>
+                    )}
+                  </td>
+                  <td>
+                    <div className="flex flex-wrap gap-1.5">
+                      {plan.isActive ? (
+                        <StatusBadge size="sm" tone="ok" label="Active" />
+                      ) : (
+                        <StatusBadge size="sm" tone="neutral" label="Archived" icon={<Archive className="h-3 w-3" aria-hidden />} />
+                      )}
+                      <StatusBadge
+                        size="sm"
+                        tone={plan.isPublic ? "brand" : "neutral"}
+                        label={plan.isPublic ? "Public" : "Private"}
+                        icon={plan.isPublic ? <Eye className="h-3 w-3" aria-hidden /> : <EyeOff className="h-3 w-3" aria-hidden />}
+                      />
+                    </div>
+                  </td>
+                  <td>
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                      {(Object.entries(plan.entitlements) as Array<[EntitlementKey, number | "unlimited"]>).map(([k, v]) => (
+                        <div key={k} className="flex items-baseline gap-1.5">
+                          <dt className="text-ink-4">{ENTITLEMENT_LABELS[k]}</dt>
+                          <dd className="font-[550] tabular-nums text-ink">{v === "unlimited" ? "Unlimited" : v}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </td>
+                  <td>
+                    <div className="text-base font-[550] tabular-nums text-ink">{plan.activeSubscriberCount} active</div>
+                    <div className="mt-0.5 text-xs text-ink-4">{plan.subscriberCount} total</div>
+                  </td>
+                  <td>
+                    <Mono className="block">{plan.stripePriceId || "Not linked"}</Mono>
+                    <div className="mt-0.5 text-xs text-ink-4">
+                      {(plan.currency ?? "usd").toUpperCase()}
+                      {plan.interval ? ` · per ${plan.interval}` : ""}
+                    </div>
+                  </td>
+                  <td className="text-right">
+                    <div className="flex justify-end gap-1.5">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => openEdit(plan)}
+                        icon={<Pencil className="h-3.5 w-3.5" aria-hidden />}
+                      >
+                        Edit
+                      </Button>
+                      {plan.isActive && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => { setArchiving(plan); setError(null); }}
+                          icon={<Archive className="h-3.5 w-3.5" aria-hidden />}
+                        >
+                          Archive
+                        </Button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
-              {!loading && filtered.length === 0 && <tr><td colSpan={6} className="px-5 py-16 text-center text-[13px] text-ink-4">No plans found.</td></tr>}
             </tbody>
-          </table>
-        </div>
-      </div>
+          </TableScroll>
+        )}
+      </Card>
 
       {(creating || editing) && (
         <PlanEditor initial={editing ? { id: editing.id, name: editing.name, description: editing.description, stripePriceId: editing.stripePriceId || "", stripeProductId: editing.stripeProductId || "", currency: editing.currency || "usd", interval: editing.interval || "month", displayOrder: editing.displayOrder, isActive: editing.isActive, isPublic: editing.isPublic, entitlements: editing.entitlements } : emptyForm()} isNew={creating} onClose={closeEditor} onSave={save} />
       )}
+
+      <ConfirmDialog
+        open={archiving !== null}
+        onClose={() => { if (!archiveBusy) setArchiving(null); }}
+        onConfirm={() => { if (archiving) void archivePlan(archiving); }}
+        busy={archiveBusy}
+        tone="primary"
+        title={archiving ? `Archive “${archiving.name}”?` : "Archive plan"}
+        description="The plan is removed from new sales. Existing subscriptions keep their entitlements."
+        confirmLabel="Archive plan"
+        cancelLabel="Keep plan"
+      >
+        {archiving && (
+          <div className="flex items-start gap-3 rounded-lg border border-edge bg-surface-2 p-3.5">
+            <ArchiveRestore className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
+            <p className="text-sm leading-relaxed text-ink-2">
+              <span className="font-[600] text-ink">{archiving.activeSubscriberCount} active</span>{" "}
+              {archiving.activeSubscriberCount === 1 ? "subscription" : "subscriptions"} will stay on{" "}
+              <span className="font-[550] text-ink">{archiving.name}</span> until they change plans.
+            </p>
+          </div>
+        )}
+      </ConfirmDialog>
     </div>
   );
 }
@@ -177,7 +347,7 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
         if (!saving) onClose();
       }}
       title={isNew ? "Create plan" : "Edit plan"}
-      description="Plan catalog"
+      description={isNew ? "Define entitlements and Stripe linkage for a new tier." : `Editing ${form.name || "plan"} — changes apply to new checkouts.`}
       wide
       footer={
         <>
@@ -191,28 +361,77 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
       }
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        {isNew && <Field label="Plan ID"><input value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value.toLowerCase() })} placeholder="business" className={INPUT} /></Field>}
-        <Field label="Name"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Business" className={INPUT} /></Field>
-        <Field label="Stripe Price ID"><input value={form.stripePriceId} onChange={(e) => setForm({ ...form, stripePriceId: e.target.value })} placeholder="price_..." className={`${INPUT} font-mono`} /></Field>
-        <Field label="Stripe Product ID (optional)"><input value={form.stripeProductId} onChange={(e) => setForm({ ...form, stripeProductId: e.target.value })} placeholder="prod_..." className={`${INPUT} font-mono`} /></Field>
-        <Field label="Currency"><input value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toLowerCase() })} maxLength={3} className={INPUT} /></Field>
-        <Field label="Billing interval"><select value={form.interval} onChange={(e) => setForm({ ...form, interval: e.target.value })} className={INPUT}><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option><option value="year">Year</option></select></Field>
-        <Field label="Display order"><input type="number" min={0} value={form.displayOrder} onChange={(e) => setForm({ ...form, displayOrder: Number(e.target.value) })} className={INPUT} /></Field>
-        <Field label="Description" full><textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} placeholder="Short description shown in public catalog." className={`${INPUT} resize-none`} /></Field>
-        <div className="sm:col-span-2 rounded-[10px] border border-edge bg-surface-2 p-4">
-          <div className="mb-3"><div className="text-[13px] font-semibold text-ink">Runtime entitlements</div></div>
-          <div className="grid gap-4 sm:grid-cols-2">{(Object.keys(ENTITLEMENT_LABELS) as EntitlementKey[]).map((key) => (<Field key={key} label={ENTITLEMENT_LABELS[key]} hint={key === "max_prints_per_period" ? "1 admitted Gateway print job = 1 print credit. Same idempotent retry does not consume another credit." : undefined}><input value={String(form.entitlements[key])} onChange={(e) => updateEntitlement(key, e.target.value)} placeholder="Unlimited or number" className={INPUT} /></Field>))}</div>
+        {isNew && (
+          <Field label="Plan ID" hint="Lowercase identifier used in API payloads. Cannot be changed later." required>
+            <Input value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value.toLowerCase() })} placeholder="business" className="font-mono" />
+          </Field>
+        )}
+        <Field label="Name" required>
+          <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Business" />
+        </Field>
+        <Field label="Stripe Price ID" hint="Required — checkouts reference this price object." required>
+          <Input value={form.stripePriceId} onChange={(e) => setForm({ ...form, stripePriceId: e.target.value })} placeholder="price_…" className="font-mono" />
+        </Field>
+        <Field label="Stripe Product ID" hint="Optional — groups prices for the same product." optional>
+          <Input value={form.stripeProductId} onChange={(e) => setForm({ ...form, stripeProductId: e.target.value })} placeholder="prod_…" className="font-mono" />
+        </Field>
+        <Field label="Currency">
+          <Input value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toLowerCase() })} maxLength={3} className="font-mono uppercase" />
+        </Field>
+        <Field label="Billing interval">
+          <Select value={form.interval} onChange={(e) => setForm({ ...form, interval: e.target.value })}>
+            <option value="day">Daily</option>
+            <option value="week">Weekly</option>
+            <option value="month">Monthly</option>
+            <option value="year">Yearly</option>
+          </Select>
+        </Field>
+        <Field label="Display order" hint="Lower numbers appear first in the public catalog.">
+          <Input type="number" min={0} value={form.displayOrder} onChange={(e) => setForm({ ...form, displayOrder: Number(e.target.value) })} className="tabular-nums" />
+        </Field>
+        <Field label="Description" className="sm:col-span-2" hint="Shown in the public pricing catalog." optional>
+          <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} placeholder="Short description shown in public catalog." className="resize-none" />
+        </Field>
+
+        <div className="sm:col-span-2 rounded-lg border border-edge bg-surface-2 p-4">
+          <div className="mb-1 text-base font-[600] text-ink">Runtime entitlements</div>
+          <p className="mb-4 text-sm leading-relaxed text-ink-3">
+            Hard limits enforced by the gateway for every tenant on this plan.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {(Object.keys(ENTITLEMENT_LABELS) as EntitlementKey[]).map((key) => (
+              <Field
+                key={key}
+                label={ENTITLEMENT_LABELS[key]}
+                hint={key === "max_prints_per_period" ? "1 admitted Gateway print job = 1 print credit. Same idempotent retry does not consume another credit." : undefined}
+              >
+                <Input value={String(form.entitlements[key])} onChange={(e) => updateEntitlement(key, e.target.value)} placeholder="Unlimited or number" className="tabular-nums" />
+              </Field>
+            ))}
+          </div>
         </div>
-        <label className="flex items-center justify-between gap-4 rounded-[10px] border border-edge bg-surface-2 px-4 py-3"><span><span className="block text-[13px] font-medium text-ink">Active for new sales</span><span className="mt-0.5 block text-[11px] text-ink-3">Archived stays valid for existing subscribers.</span></span><input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="h-4 w-4 accent-brand" /></label>
-        <label className="flex items-center justify-between gap-4 rounded-[10px] border border-edge bg-surface-2 px-4 py-3"><span><span className="block text-[13px] font-medium text-ink">Public in pricing</span><span className="mt-0.5 block text-[11px] text-ink-4">Hide private plans from public catalog.</span></span><input type="checkbox" checked={form.isPublic} onChange={(e) => setForm({ ...form, isPublic: e.target.checked })} className="h-4 w-4 accent-brand" /></label>
+
+        <label className="flex items-start justify-between gap-4 rounded-lg border border-edge bg-surface-2 px-4 py-3">
+          <span className="min-w-0">
+            <span className="block text-base font-[550] text-ink">Active for new sales</span>
+            <span className="mt-0.5 block text-sm text-ink-3">Archived stays valid for existing subscribers.</span>
+          </span>
+          <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="mt-0.5 h-4 w-4 shrink-0 accent-brand" />
+        </label>
+        <label className="flex items-start justify-between gap-4 rounded-lg border border-edge bg-surface-2 px-4 py-3">
+          <span className="min-w-0">
+            <span className="block text-base font-[550] text-ink">Public in pricing</span>
+            <span className="mt-0.5 block text-sm text-ink-3">Hide private plans from the public catalog.</span>
+          </span>
+          <input type="checkbox" checked={form.isPublic} onChange={(e) => setForm({ ...form, isPublic: e.target.checked })} className="mt-0.5 h-4 w-4 shrink-0 accent-brand" />
+        </label>
       </div>
-      {localError && <div role="alert" className="mt-4 flex items-start gap-2.5 rounded-[10px] border border-bad-edge bg-bad-bg px-4 py-3 text-[12px] text-bad"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><span>{localError}</span></div>}
+
+      {localError && (
+        <Callout tone="bad" className="mt-4" icon={<CircleAlert className="h-4 w-4" aria-hidden />}>
+          <span role="alert">{localError}</span>
+        </Callout>
+      )}
     </Modal>
   );
-}
-
-const INPUT = "w-full rounded-xl border border-edge-strong bg-surface-2 px-3.5 py-2.5 text-[13px] text-ink placeholder:text-ink-4 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
-
-function Field({ label, full, hint, children }: { label: string; full?: boolean; hint?: string; children: React.ReactNode }) {
-  return <label className={full ? "sm:col-span-2 space-y-2" : "space-y-2"}><span className="block text-[12px] font-medium text-ink-2">{label}</span>{children}{hint ? <span className="block text-[10px] leading-relaxed text-ink-4">{hint}</span> : null}</label>;
 }

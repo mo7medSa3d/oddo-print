@@ -27,8 +27,8 @@ of those remote fonts:
    keeps fallback paths, so a renderer failure degrades instead of throwing.
 """
 
-from pathlib import Path
 import re
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ADDON = ROOT / "odoo_addons" / "print_gateway"
@@ -38,11 +38,10 @@ def read(rel):
     return (ADDON / rel).read_text(encoding="utf-8")
 
 
-def strip_js_comments(source: str) -> str:
-    """Remove JS block and line comments so doc prose mentioning a token
-    is not mistaken for a real declaration or URL."""
-    source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
-    return re.sub(r"(?m)^[ \t]*//.*$", "", source)
+def strip_js_comments(source):
+    """Remove JS block/whole-line comments while preserving string literals."""
+    source = re.sub(r"/\*[\s\S]*?\*/", "", source)
+    return re.sub(r"(?m)^\s*//.*(?:\n|$)", "", source)
 
 
 def test_pos_receipt_rendering_declares_no_web_fonts():
@@ -58,9 +57,7 @@ def test_pos_receipt_rendering_declares_no_web_fonts():
     assert pos_assets, "expected POS JS/SCSS assets to scan"
     offenders = []
     for path in pos_assets:
-        source = path.read_text(encoding="utf-8")
-        if path.suffix == ".js":
-            source = strip_js_comments(source)
+        source = strip_js_comments(path.read_text(encoding="utf-8"))
         for token in ("@font-face", "NotoSans", "Noto Sans", "fonts.odoocdn.com"):
             if token in source:
                 offenders.append(f"{path.relative_to(ADDON)}: {token}")

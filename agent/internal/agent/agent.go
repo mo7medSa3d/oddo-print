@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,11 +33,12 @@ import (
 // offline backlog delivered after a reconnect) would spawn one goroutine per
 // job and exhaust memory on a small POS terminal.
 //
-//	maxConcurrentJobs — jobs actually executing (HTTP status calls, printing)
-//	maxPendingJobs    — jobs accepted into the local executor, including ones
-//	                    waiting for an execution slot; overflows are dropped
-//	                    and naturally re-delivered by the gateway after the
-//	                    claim lease expires (see src/app/api/agent/jobs).
+// maxConcurrentJobs — jobs actually executing (HTTP status calls, printing)
+// maxPendingJobs    — jobs accepted into the local executor, including ones
+//
+//	waiting for an execution slot; overflows are dropped
+//	and naturally re-delivered by the gateway after the
+//	claim lease expires (see src/app/api/agent/jobs).
 const (
 	maxConcurrentJobs        = 8
 	maxPendingJobs           = 64
@@ -1060,7 +1062,7 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 
 // extractJobFromWSMessage understands both the current delivery envelope
 //
-//	{"type":"print_job","job":{...}}
+// {"type":"print_job","job":{...}}
 //
 // and the legacy bare-job message ({"id":...,"printerId":...}) so an agent
 // still works against an older gateway build.
@@ -1778,12 +1780,11 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 	sort.Strings(ids) // deterministic order aids gateway-side diffing
 
 	statuses := make([]string, len(ids))
-	// Probe results flow back through a bounded worker pool so a large fleet
-	// can never create an unbounded number of OS/RPC goroutines. Each
-	// printer keeps single-flight semantics (at most one live probe), and
-	// the whole batch has a hard 10s budget: after that, slow printers keep
-	// their last-known status and their helpers finish in the background.
-	// A bad printer probe must never make the Agent appear offline.
+	// Probe results flow back through a bounded worker pool. The old heartbeat
+	// ceiling implicitly capped this at 500 goroutines; once inventory became
+	// paginated, keeping one goroutine per printer would turn a large fleet
+	// heartbeat into an unbounded local resource spike. Keep per-printer
+	// single-flight semantics, but cap simultaneous OS/RPC status calls.
 	type probeResult struct {
 		idx    int
 		status string
@@ -1794,27 +1795,22 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 		p     printer.Printer
 		state *printerProbeState
 	}
+
 	results := make(chan probeResult, len(ids))
 	works := make([]probeWork, 0, len(ids))
-	probed := make(map[int]bool, len(ids))
-	pendingProbes := 0
+	probed := make([]bool, len(ids))
 	for i, id := range ids {
 		state := a.getProbeState(id)
 		if !state.running.CompareAndSwap(false, true) {
 			// A previous probe is still running in the OS/RPC driver!
 			// Do NOT spawn another goroutine. Reuse the last known status.
 			statuses[i] = a.probeLastStatus(id)
-			if statuses[i] == "" {
-				statuses[i] = "unknown"
-			}
 			probed[i] = true
 			continue
 		}
-		pendingProbes++
 		works = append(works, probeWork{idx: i, pid: id, p: printerByID[id], state: state})
 	}
 
-	const maxHeartbeatProbeConcurrency = 64
 	workers := len(works)
 	if workers > maxHeartbeatProbeConcurrency {
 		workers = maxHeartbeatProbeConcurrency
@@ -1847,11 +1843,22 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 			}
 		}()
 	}
+
 	for _, work := range works {
 		workQueue <- work
 	}
 	close(workQueue)
 
+	pendingProbes := len(works)
+	// Hard probe budget: the heartbeat must never block indefinitely on a
+	// wedged driver. Each individual probe already has its own timeout
+	// (spooler 5s, network 2s, IPP 5s), but a fleet of slow printers could
+	// still exceed the heartbeat HTTP budget. After 10s total, stop waiting:
+	// slow printers keep their last-known status and their helpers finish in
+	// the background (single-flight guarantees at most one stuck helper per
+	// printer, and the bounded pool caps total helpers). The next heartbeat
+	// reuses the cached result until the stuck probe clears.
+	// A bad printer probe must never make the Agent appear offline.
 	budgetTimer := time.NewTimer(10 * time.Second)
 	defer budgetTimer.Stop()
 	var warningC <-chan time.Time = budgetTimer.C
@@ -2657,10 +2664,18 @@ func (a *Agent) currentClaimToken(jobID string) string {
 	return a.inFlightTokens[jobID]
 }
 
+func redactClaimTokenForLog(token string) string {
+	if token == "" {
+		return "claim_empty"
+	}
+	digest := sha256.Sum256([]byte(token))
+	return fmt.Sprintf("claim_%x", digest[:6])
+}
+
 func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken string, reason ...string) error {
 	if live := a.currentClaimToken(jobID); live != "" {
 		if claimToken != "" && claimToken != live {
-			log.Printf("Job %s: claim token override (passed %q, using live %q)", jobID, claimToken, live)
+			log.Printf("Job %s: claim token override (passed %s, using live %s)", jobID, redactClaimTokenForLog(claimToken), redactClaimTokenForLog(live))
 		}
 		claimToken = live
 	}

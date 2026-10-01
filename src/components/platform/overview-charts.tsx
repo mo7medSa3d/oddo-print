@@ -1,5 +1,7 @@
 "use client";
 
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
+
 export type OverviewHourlyPoint = {
   bucket: string;
   total: number;
@@ -78,7 +80,7 @@ export function PrintThroughputChart({
 
   return (
     <div className="mt-5">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] text-ink-3">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-2xs text-ink-3">
         <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-brand-solid" />All print jobs</span>
         <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-ok-solid" />Successful</span>
         <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-bad-solid" />Failed</span>
@@ -121,7 +123,7 @@ export function PrintThroughputChart({
             if (index % 4 !== 0 && index !== labels.length - 1) return null;
             const x = data.length > 1 ? (index / (data.length - 1)) * width : width / 2;
             return (
-              <text key={label} x={x} y={height - 8} textAnchor={index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle"} className="fill-ink-4 text-[11px]">
+              <text key={label} x={x} y={height - 8} textAnchor={index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle"} className="fill-ink-4 text-2xs">
                 {label}
               </text>
             );
@@ -151,7 +153,7 @@ function AvailabilityRing({
   return (
     <div className="flex items-center gap-4">
       <div className="relative h-[96px] w-[96px] shrink-0">
-        <svg viewBox="0 0 96 96" className="h-full w-full -rotate-90">
+        <svg viewBox="0 0 96 96" className="h-full w-full -rotate-90" aria-hidden>
           <circle cx="48" cy="48" r={radius} fill="none" className="stroke-surface-3" strokeWidth="8" />
           <circle
             cx="48"
@@ -165,16 +167,25 @@ function AvailabilityRing({
             strokeDashoffset={offset}
           />
         </svg>
-        <div className="absolute inset-0 flex items-center justify-center text-[18px] font-bold tabular-nums text-ink">
+        <div className="absolute inset-0 flex items-center justify-center text-xl font-bold tabular-nums text-ink">
           {percentage}%
         </div>
       </div>
       <div className="min-w-0">
-        <div className="text-[13px] font-semibold text-ink">{label}</div>
-        <div className="mt-1 text-[12px] text-ink-3">
+        <div className="text-sm font-semibold text-ink">{label}</div>
+        <div className="mt-1 text-xs text-ink-3">
           {formatNumber(online)} online of {formatNumber(total)}
         </div>
-        <div className={`mt-2 text-[11px] font-medium ${percentage >= 95 ? "text-ok" : percentage >= 80 ? "text-warn" : "text-bad"}`}>
+        <div
+          className={`mt-2 inline-flex items-center gap-1.5 text-2xs font-[550] ${
+            percentage >= 95 ? "text-ok" : percentage >= 80 ? "text-warn" : "text-bad"
+          }`}
+        >
+          {percentage >= 95 ? (
+            <CheckCircle2 className="h-3 w-3" aria-hidden />
+          ) : (
+            <AlertTriangle className="h-3 w-3" aria-hidden />
+          )}
           {percentage >= 95 ? "Healthy coverage" : percentage >= 80 ? "Some attention needed" : "Operational risk"}
         </div>
       </div>
@@ -203,7 +214,7 @@ export function SubscriptionMixChart({ subscriptions }: { subscriptions: Subscri
 
   return (
     <div className="mt-5">
-      <div className="flex h-3 overflow-hidden rounded-[8px] bg-surface-3" aria-label="Subscription status mix">
+      <div className="flex h-3 overflow-hidden rounded-sm bg-surface-3" aria-hidden>
         {segments.map((segment) => (
           <div
             key={segment.label}
@@ -215,7 +226,7 @@ export function SubscriptionMixChart({ subscriptions }: { subscriptions: Subscri
       </div>
       <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3">
         {segments.map((segment) => (
-          <div key={segment.label} className="flex items-center justify-between gap-3 text-[12px]">
+          <div key={segment.label} className="flex items-center justify-between gap-3 text-xs">
             <span className="inline-flex items-center gap-2 text-ink-3">
               <span className={`h-2 w-2 rounded-full ${segment.className}`} />
               {segment.label}
@@ -276,12 +287,25 @@ export function OperationalSignals({
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {signals.map((signal) => (
         <div key={signal.label} className="inset-panel p-4">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[12px] font-semibold text-ink-2">{signal.label}</span>
-            <span className={`h-2 w-2 rounded-full ${signal.tone === "ok" ? "bg-ok-solid" : signal.tone === "bad" ? "bg-bad-solid" : "bg-warn-solid"}`} />
+          <div className="text-sm font-[600] text-ink-2">{signal.label}</div>
+          <div className="mt-2.5 flex items-baseline gap-2">
+            <span className="text-2xl font-[660] tabular-nums tracking-[-0.02em] text-ink">
+              {formatNumber(signal.value)}
+            </span>
+            <span
+              className={`inline-flex items-center gap-1 text-2xs font-[550] ${
+                signal.tone === "ok" ? "text-ok" : signal.tone === "warn" ? "text-warn" : "text-bad"
+              }`}
+            >
+              {signal.tone === "ok" ? (
+                <CheckCircle2 className="h-3 w-3" aria-hidden />
+              ) : (
+                <AlertTriangle className="h-3 w-3" aria-hidden />
+              )}
+              {signal.tone === "ok" ? "Clear" : signal.tone === "warn" ? "Watch" : "Action"}
+            </span>
           </div>
-          <div className="mt-3 text-2xl font-bold tabular-nums text-ink">{formatNumber(signal.value)}</div>
-          <div className="mt-1 text-[11px] text-ink-4">{signal.detail}</div>
+          <div className="mt-1 text-xs text-ink-4">{signal.detail}</div>
         </div>
       ))}
     </div>

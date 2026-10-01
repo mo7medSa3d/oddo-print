@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../../lib/manager-auth";
 import { hasManagerPermission } from "../../lib/authorization";
 import ReleaseReadinessClient from "./release-readiness-client";
+import { ClipboardCheck } from "lucide-react";
+import { PageContainer, PageHeader } from "../../components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -19,12 +21,17 @@ export default async function ReleaseReadinessPage() {
   if (!hasManagerPermission(claims, "agents.read")) redirect("/");
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-7 sm:px-6 lg:py-8">
-      <header className="mb-7 border-b border-edge pb-6">
-        <h1 className="text-[26px] font-bold leading-tight tracking-[-0.02em] text-ink">Release Readiness Dashboard</h1>
-        <p className="mt-1.5 text-[14px] leading-relaxed text-ink-3">Production checks and outstanding release blockers.</p>
-      </header>
-      <ReleaseReadinessClient />
-    </div>
+    <>
+      <PageHeader
+        width="wide"
+        eyebrow="Operations"
+        icon={<ClipboardCheck className="h-4 w-4" />}
+        title="Release readiness"
+        description="Production checks, runtime evidence and outstanding release blockers."
+      />
+      <PageContainer width="wide">
+        <ReleaseReadinessClient />
+      </PageContainer>
+    </>
   );
 }

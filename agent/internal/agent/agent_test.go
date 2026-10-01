@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1286,5 +1288,42 @@ func TestDrawerSideEffectMakesLaterPlainPrintFailureUnknown(t *testing.T) {
 	}
 	if p.Calls() != 2 {
 		t.Fatalf("expected one drawer side effect and one main-print attempt, got %d calls", p.Calls())
+	}
+}
+
+func TestUpdateJobStatusRedactsClaimTokenOverride(t *testing.T) {
+	printer := &fakePrinter{}
+	ag := newTestAgent(t, "printer_1", printer)
+	jobID := "redaction-job"
+	passed := "raw-passed-claim-token-secret"
+	live := "raw-live-claim-token-secret"
+
+	ag.inFlightMu.Lock()
+	ag.inFlightTokens[jobID] = live
+	ag.inFlightMu.Unlock()
+
+	var logs bytes.Buffer
+	previousWriter := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() {
+		log.SetOutput(previousWriter)
+	})
+
+	if err := ag.updateJobStatus(context.Background(), jobID, "printing", "", passed); err != nil {
+		t.Fatalf("updateJobStatus: %v", err)
+	}
+
+	output := logs.String()
+	if strings.Contains(output, passed) {
+		t.Fatalf("log leaked passed claim token: %q", output)
+	}
+	if strings.Contains(output, live) {
+		t.Fatalf("log leaked live claim token: %q", output)
+	}
+	if !strings.Contains(output, redactClaimTokenForLog(passed)) {
+		t.Fatalf("log did not contain redacted passed claim token: %q", output)
+	}
+	if !strings.Contains(output, redactClaimTokenForLog(live)) {
+		t.Fatalf("log did not contain redacted live claim token: %q", output)
 	}
 }

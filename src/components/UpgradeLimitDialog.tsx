@@ -67,23 +67,23 @@ export default function UpgradeLimitDialog({
       description="The Gateway enforces plan limits server-side, so no new print operation or resource is admitted beyond the plan allowance."
     >
       <div className="space-y-5">
-        <div className="flex items-start gap-3 rounded-[12px] border border-warn-edge bg-warn-bg px-4 py-3.5 text-[13px] text-warn">
+        <div className="flex items-start gap-3 rounded-lg border border-warn-edge bg-warn-bg px-4 py-3.5 text-sm text-warn">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p className="leading-relaxed">{copy.description}</p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-[12px] border border-edge bg-surface-2 px-4 py-3.5">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-4">Used</div>
-            <div className="mt-1.5 text-[18px] font-bold tabular-nums text-ink">{usedText}</div>
+          <div className="rounded-lg border border-edge bg-surface-2 px-4 py-3.5">
+            <div className="text-2xs font-semibold uppercase tracking-[0.08em] text-ink-4">Used</div>
+            <div className="mt-1.5 text-xl font-bold tabular-nums text-ink">{usedText}</div>
           </div>
-          <div className="rounded-[12px] border border-edge bg-surface-2 px-4 py-3.5">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-4">Plan limit</div>
-            <div className="mt-1.5 text-[18px] font-bold tabular-nums text-ink">{limitText}</div>
+          <div className="rounded-lg border border-edge bg-surface-2 px-4 py-3.5">
+            <div className="text-2xs font-semibold uppercase tracking-[0.08em] text-ink-4">Plan limit</div>
+            <div className="mt-1.5 text-xl font-bold tabular-nums text-ink">{limitText}</div>
           </div>
         </div>
 
-        <p className="text-[12px] leading-relaxed text-ink-3">
+        <p className="text-xs leading-relaxed text-ink-3">
           {resource === "prints"
             ? "Metering unit: 1 admitted Gateway print job = 1 print credit."
             : resource === "rate"
@@ -101,14 +101,14 @@ export default function UpgradeLimitDialog({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-10 items-center justify-center rounded-[8px] border border-edge-strong bg-surface-2 px-4 text-[13px] font-semibold text-ink-2 transition hover:bg-surface-3 hover:text-ink"
+            className="inline-flex h-10 items-center justify-center rounded-sm border border-edge-strong bg-surface-2 px-4 text-sm font-semibold text-ink-2 transition hover:bg-surface-3 hover:text-ink"
           >
             Close
           </button>
           <Link
             href="/billing"
             onClick={onClose}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-[8px] bg-brand px-4 text-[13px] font-semibold text-brand-contrast transition hover:bg-brand-hover"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-sm bg-brand px-4 text-sm font-semibold text-brand-contrast transition hover:bg-brand-hover"
           >
             Upgrade plan
             <ArrowUpRight className="h-4 w-4" />
