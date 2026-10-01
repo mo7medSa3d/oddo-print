@@ -10,12 +10,41 @@ import { createHash, randomBytes } from "node:crypto";
 
 const SENSITIVE = /secret|password|passwd|token|authorization|cookie|api[_-]?key|payload|pairing/i;
 
-function redactClaimId(value: unknown): unknown {
-  if (typeof value !== "string" || !value) return value;
+export function redactClaimToken(value: unknown): string | null | undefined {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== "string" || !value) return undefined;
+  if (/^claim_[0-9a-f]{12}$/i.test(value)) return value;
   return "claim_" + createHash("sha256").update(value, "utf8").digest("hex").slice(0, 12);
 }
 
 export type LogFields = Record<string, unknown>;
+
+function normalizeLogValue(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (value instanceof Error) {
+    if (seen.has(value)) return "[Circular]";
+    seen.add(value);
+    const out: Record<string, unknown> = {
+      name: value.name,
+      message: value.message,
+    };
+    if (value.stack) out.stack = value.stack;
+    const cause = (value as Error & { cause?: unknown }).cause;
+    if (cause !== undefined) out.cause = normalizeLogValue(cause, seen);
+    for (const [key, nested] of Object.entries(value)) {
+      if (!(key in out)) out[key] = normalizeLogValue(nested, seen);
+    }
+    return out;
+  }
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((entry) => normalizeLogValue(entry, seen));
+  const out: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = normalizeLogValue(nested, seen);
+  }
+  return out;
+}
 
 export function requestIdFrom(req: Request): string {
   const existing =
@@ -29,7 +58,7 @@ function sanitize(fields: LogFields): LogFields {
   const out: LogFields = {};
   for (const [key, value] of Object.entries(fields)) {
     if (key === "claimId" || key === "claim_id") {
-      out[key] = redactClaimId(value);
+      out[key] = redactClaimToken(value);
       continue;
     }
     if (SENSITIVE.test(key)) {
@@ -41,7 +70,7 @@ function sanitize(fields: LogFields): LogFields {
       out[key] = `${value.slice(0, 200)}…(${value.length} chars)`;
       continue;
     }
-    out[key] = value;
+    out[key] = normalizeLogValue(value);
   }
   return out;
 }
@@ -61,7 +90,7 @@ function emit(level: "debug" | "info" | "warn" | "error", event: string, fields:
         agentId: ctx.agentId,
         printerId: ctx.printerId,
         attemptId: ctx.attemptId,
-        claimId: redactClaimId(ctx.claimId),
+        claimId: redactClaimToken(ctx.claimId),
         spoolerJobId: ctx.spoolerJobId,
       };
       // Remove undefined

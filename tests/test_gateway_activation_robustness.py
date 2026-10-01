@@ -19,6 +19,8 @@ unhandled exception class). The contract now requires, at the source level:
    or deleted remotely becomes visible in Odoo without a manual action.
 """
 
+import io
+import tokenize
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +29,12 @@ ADDON = ROOT / "odoo_addons" / "print_gateway"
 
 def read(rel):
     return (ADDON / rel).read_text(encoding="utf-8")
+
+
+def strip_python_comments(source):
+    """Remove Python comment tokens while preserving string literals."""
+    tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+    return tokenize.untokenize(token for token in tokens if token.type != tokenize.COMMENT)
 
 
 def test_syncing_state_is_time_bounded_by_a_revision_bound_timestamp():
@@ -123,7 +131,7 @@ def test_automatic_gateway_health_probe_detects_revoked_keys_and_network_failure
 
 
 def test_queue_invalid_credentials_does_not_open_a_second_cursor_while_write_lock_is_held():
-    source = read("models/gateway_config.py")
+    source = strip_python_comments(read("models/gateway_config.py"))
     queue_idx = source.index("def _queue_enabled_state_sync")
     queue_end = source.index("def _check_admin", queue_idx)
     queue = source[queue_idx:queue_end]

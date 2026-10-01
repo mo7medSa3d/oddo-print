@@ -1,7 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { CreditCard, Search, RefreshCw, CheckCircle, AlertTriangle, Clock, ShieldAlert } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CreditCard, Search, RefreshCw, Inbox } from "lucide-react";
+import {
+  Button,
+  Card,
+  CardHeader,
+  PageHeader,
+  EmptyState,
+  ErrorState,
+  Input,
+  SegmentedControl,
+  StatusBadge,
+  TableSkeleton,
+  type Tone,
+} from "../../../components/ui";
+
+type SubscriptionStatus = "trialing" | "active" | "past_due" | "paused" | "cancelled";
 
 type Subscription = {
   tenantId: string;
@@ -11,17 +26,32 @@ type Subscription = {
   planName: string;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
-  status: "trialing" | "active" | "past_due" | "paused" | "cancelled";
+  status: SubscriptionStatus;
   currentPeriodEnd: string | null;
   trialStartedAt: string | null;
   cancelAtPeriodEnd: boolean;
   createdAt: string;
 };
 
+const STATUS_META: Record<SubscriptionStatus, { tone: Tone; label: string }> = {
+  active: { tone: "ok", label: "Active" },
+  trialing: { tone: "brand", label: "Trialing" },
+  past_due: { tone: "bad", label: "Past due" },
+  paused: { tone: "warn", label: "Paused" },
+  cancelled: { tone: "neutral", label: "Cancelled" },
+};
+
+function statusMeta(status: string): { tone: Tone; label: string } {
+  return STATUS_META[status as SubscriptionStatus] ?? { tone: "neutral", label: status };
+}
+
+type Filter = "all" | "active" | "attention" | "other";
+
 export default function PlatformSubscriptionsPage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -44,64 +74,159 @@ export default function PlatformSubscriptionsPage() {
 
   function handleRefresh() { setLoading(true); setReloadKey((k) => k + 1); }
 
-  const filtered = subscriptions.filter(
-    (s) =>
-      s.tenantName.toLowerCase().includes(search.toLowerCase()) ||
-      s.tenantId.toLowerCase().includes(search.toLowerCase()) ||
-      (s.stripeCustomerId && s.stripeCustomerId.toLowerCase().includes(search.toLowerCase()))
+  const counts = useMemo(
+    () => ({
+      all: subscriptions.length,
+      active: subscriptions.filter((s) => s.status === "active" || s.status === "trialing").length,
+      attention: subscriptions.filter((s) => s.status === "past_due" || s.status === "paused").length,
+      other: subscriptions.filter((s) => s.status === "cancelled").length,
+    }),
+    [subscriptions],
   );
+
+  const filtered = subscriptions.filter((s) => {
+    const term = search.trim().toLowerCase();
+    const matchesSearch =
+      term.length === 0 ||
+      s.tenantName.toLowerCase().includes(term) ||
+      s.tenantId.toLowerCase().includes(term) ||
+      (s.stripeCustomerId ? s.stripeCustomerId.toLowerCase().includes(term) : false);
+    const matchesFilter =
+      filter === "all"
+        ? true
+        : filter === "active"
+          ? s.status === "active" || s.status === "trialing"
+          : filter === "attention"
+            ? s.status === "past_due" || s.status === "paused"
+            : s.status === "cancelled";
+    return matchesSearch && matchesFilter;
+  });
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-[8px] border border-edge-strong bg-surface-2 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
-            <ShieldAlert className="h-3.5 w-3.5" /> Control Plane • Billing
+      <PageHeader
+        variant="inline"
+        eyebrow="Control plane · Billing"
+        icon={<CreditCard className="h-4 w-4" aria-hidden />}
+        title="Subscriptions"
+        description="Stripe lifecycle state for every tenant on this Gateway."
+        actions={
+          <>
+            {counts.attention > 0 && (
+              <StatusBadge tone="bad" label={`${counts.attention} need attention`} />
+            )}
+            <Button
+              variant="secondary"
+              onClick={handleRefresh}
+              disabled={loading}
+              loading={loading}
+              icon={loading ? undefined : <RefreshCw className="h-4 w-4" aria-hidden />}
+            >
+              {loading ? "Refreshing…" : "Refresh"}
+            </Button>
+          </>
+        }
+      />
+
+      {error && (
+        <ErrorState
+          title="Subscriptions unavailable"
+          message={error}
+          retry={handleRefresh}
+        />
+      )}
+
+      <Card className="overflow-hidden">
+        <CardHeader
+          title="All subscriptions"
+          subtitle={`${filtered.length} of ${subscriptions.length} shown`}
+          actions={
+            <SegmentedControl
+              label="Filter by subscription status"
+              value={filter}
+              onChange={setFilter}
+              size="sm"
+              options={[
+                { value: "all", label: `All (${counts.all})` },
+                { value: "active", label: `Active (${counts.active})` },
+                { value: "attention", label: `Attention (${counts.attention})` },
+                { value: "other", label: `Cancelled (${counts.other})` },
+              ]}
+            />
+          }
+        />
+
+        <div className="border-b border-edge-subtle px-5 py-3">
+          <div className="relative max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter by tenant name, ID or Stripe customer…"
+              aria-label="Filter subscriptions"
+              className="pl-9"
+            />
           </div>
-          <h1 className="mt-4 flex items-center gap-2.5 text-[26px] font-bold tracking-[-0.02em] text-ink leading-tight">
-            <CreditCard className="h-6 w-6 text-info" /> Subscriptions
-          </h1>
         </div>
-        <button onClick={handleRefresh} disabled={loading} className="inline-flex items-center gap-2 rounded-[8px] border border-edge-strong bg-surface-2 px-4 py-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink transition disabled:opacity-50">
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
-        </button>
-      </div>
 
-      {error && <div className="rounded-[12px] border border-bad-edge bg-bad-bg px-4 py-3 text-[13px] text-bad">{error}</div>}
-
-      <div className="relative">
-        <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" />
-        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by tenant name, ID, or Stripe customer ID…" className="w-full rounded-[12px] border border-edge-strong bg-surface py-2.5 pl-10 pr-4 text-[13px] text-ink placeholder-ink-4 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
-      </div>
-
-      <div className="overflow-hidden rounded-[14px] border border-edge bg-surface">
-        <div className="border-b border-edge px-5 py-4">
-          <h2 className="text-[13px] font-semibold text-ink">Subscriptions • {filtered.length}</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-[13px] text-ink-2">
-            <thead className="border-b border-edge bg-surface-2 text-[11px] font-semibold uppercase tracking-wide text-ink-4">
-              <tr><th className="px-5 py-3">Tenant</th><th className="px-5 py-3">Plan</th><th className="px-5 py-3">Billing Status</th><th className="px-5 py-3">Stripe Customer</th><th className="px-5 py-3">Period End</th><th className="px-5 py-3">Created</th></tr>
-            </thead>
-            <tbody className="divide-y divide-edge-subtle">
-              {filtered.length === 0 ? (
-                <tr><td colSpan={6} className="px-5 py-16 text-center text-[13px] text-ink-4">No subscriptions found.</td></tr>
-              ) : filtered.map((s) => (
-                <tr key={s.tenantId} className="hover:bg-surface-hover transition">
-                  <td className="px-5 py-4"><div className="font-semibold text-ink text-[13px]">{s.tenantName}</div><div className="mt-1 font-mono text-[11px] text-ink-4">{s.tenantId}</div></td>
-                  <td className="px-5 py-4 text-[12px] font-medium text-ink">{s.planName}</td>
-                  <td className="px-5 py-4">
-                    {s.status === "active" ? <span className="inline-flex items-center gap-1.5 rounded-[8px] border border-ok-edge bg-ok-bg px-2.5 py-1 text-[11px] font-medium text-ok"><CheckCircle className="h-3 w-3" /> Active</span> : s.status === "trialing" ? <span className="inline-flex items-center gap-1.5 rounded-[8px] border border-edge-accent bg-brand-subtle px-2.5 py-1 text-[11px] font-medium text-brand-subtle-text"><Clock className="h-3 w-3" /> Trialing</span> : s.status === "past_due" ? <span className="inline-flex items-center gap-1.5 rounded-[8px] border border-bad-edge bg-bad-bg px-2.5 py-1 text-[11px] font-medium text-bad"><AlertTriangle className="h-3 w-3" /> Past Due</span> : <span className="inline-flex items-center gap-1.5 rounded-[8px] border border-edge-strong bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-ink-3">{s.status}</span>}
-                  </td>
-                  <td className="px-5 py-4 font-mono text-[11px] text-ink-3">{s.stripeCustomerId || "Unlinked (Trial)"}</td>
-                  <td className="px-5 py-4 text-[11px] text-ink-3">{s.currentPeriodEnd ? new Date(s.currentPeriodEnd).toLocaleDateString() : "N/A"}</td>
-                  <td className="px-5 py-4 text-[11px] text-ink-4">{new Date(s.createdAt).toLocaleDateString()}</td>
+        {loading && subscriptions.length === 0 ? (
+          <TableSkeleton rows={6} columns={5} />
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={<Inbox className="h-5 w-5" />}
+            title={subscriptions.length === 0 ? "No subscriptions yet" : "No matching subscriptions"}
+            description={
+              subscriptions.length === 0
+                ? "Subscriptions appear here as soon as a tenant completes Stripe checkout."
+                : "Adjust the search term or switch the status filter to see more results."
+            }
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="data-table min-w-[860px]">
+              <caption className="sr-only">Platform subscriptions</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Tenant</th>
+                  <th scope="col">Plan</th>
+                  <th scope="col">Billing status</th>
+                  <th scope="col">Stripe customer</th>
+                  <th scope="col">Period end</th>
+                  <th scope="col" className="text-right">Created</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              </thead>
+              <tbody>
+                {filtered.map((s) => {
+                  const meta = statusMeta(s.status);
+                  return (
+                    <tr key={s.tenantId}>
+                      <td>
+                        <div className="text-sm font-[550] text-ink">{s.tenantName}</div>
+                        <div className="mt-0.5 font-mono text-2xs text-ink-4">{s.tenantId}</div>
+                      </td>
+                      <td className="text-sm text-ink-2">{s.planName}</td>
+                      <td>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusBadge tone={meta.tone} label={meta.label} size="sm" />
+                          {s.cancelAtPeriodEnd && <StatusBadge tone="warn" label="Cancels at period end" size="sm" />}
+                        </div>
+                      </td>
+                      <td className="font-mono text-2xs text-ink-3">{s.stripeCustomerId || "Unlinked (trial)"}</td>
+                      <td className="text-sm text-ink-3">
+                        {s.currentPeriodEnd ? new Date(s.currentPeriodEnd).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="text-right text-sm text-ink-3">
+                        {new Date(s.createdAt).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

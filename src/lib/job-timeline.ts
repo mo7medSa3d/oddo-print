@@ -1,10 +1,9 @@
-import { createHash } from "node:crypto";
 import { db, queryWithTimeout } from "../db/client";
 import { jobEvents, printJobs } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "./nanoid";
 import { getCorrelationContext } from "../server/correlation";
-import { logInfo } from "./log";
+import { logInfo, redactClaimToken } from "./log";
 
 export type JobTimelineStage =
   | "created"
@@ -20,11 +19,6 @@ export type JobTimelineStage =
   | "blocked";
 
 export type JobTimelineStatus = "ok" | "error" | "blocked" | "pending";
-
-function redactClaimId(claimId?: string | null): string | undefined {
-  if (!claimId) return undefined;
-  return "claim_" + createHash("sha256").update(claimId, "utf8").digest("hex").slice(0, 12);
-}
 
 export interface RecordJobEventInput {
   jobId: string;
@@ -53,7 +47,7 @@ export async function recordJobEvent(input: RecordJobEventInput): Promise<void> 
     attemptId: input.attemptId ?? ctx?.attemptId,
     // `claimId` may be the live claim token. Persist only an irreversible
     // opaque identifier; the raw bearer credential must never enter timeline storage.
-    claimId: redactClaimId(input.claimId ?? ctx?.claimId),
+    claimId: redactClaimToken(input.claimId ?? ctx?.claimId),
     spoolerJobId: input.spoolerJobId ?? ctx?.spoolerJobId,
     agentId: input.agentId ?? ctx?.agentId,
     printerId: input.printerId ?? ctx?.printerId,

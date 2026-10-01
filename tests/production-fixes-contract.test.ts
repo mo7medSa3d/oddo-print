@@ -358,4 +358,64 @@ describe("legacy session fixture contract", () => {
     expect(source).toContain("nowSec + LEGACY_SESSION_MAX_AGE_SECONDS");
     expect(source).not.toContain("clock_timestamp() + interval '8 hours'");
   });
+
+  it("uses one claim-token redaction format across logging and timeline surfaces", async () => {
+    const { redactClaimToken } = await import("../src/lib/log");
+    const raw = "raw-claim-token-value";
+    const redacted = String(redactClaimToken(raw));
+
+    expect(redacted).toMatch(/^claim_[0-9a-f]{12}$/);
+    expect(redactClaimToken(redacted)).toBe(redacted);
+
+    const timeline = read("src/lib/job-timeline.ts");
+    const route = read("src/app/api/jobs/[id]/timeline/route.ts");
+    expect(timeline).toContain("redactClaimToken");
+    expect(route).toContain("redactClaimToken");
+    expect(timeline).not.toContain("createHash");
+    expect(route).not.toContain("createHash");
+  });
+
+  });
+
+describe("job claim predicate contracts", () => {
+  it("keeps printer eligibility centralized across claim candidates and re-check", () => {
+    const source = read("src/app/api/agent/jobs/route.ts");
+    expect((source.match(/\$\{printerEligibilityPredicate\}/g) ?? []).length).toBe(3);
+    expect((source.match(/pr\.management_source/g) ?? []).length).toBe(1);
+    expect((source.match(/pr\.last_seen_at <= now\(\)/g) ?? []).length).toBe(1);
+  });
+});
+
+describe("structured logging contracts", () => {
+  it("serializes Error values with their message instead of {}", async () => {
+    const { logError } = await import("../src/lib/log");
+    const originalError = console.error;
+    const lines: string[] = [];
+    console.error = (...args: unknown[]) => {
+      lines.push(args.map((arg) => String(arg)).join(" "));
+    };
+    try {
+      const cause = new Error("root cause");
+      logError("test.error.serialization", {
+        error: new Error("primary failure"),
+        context: {
+          error: cause,
+        },
+      });
+    } finally {
+      console.error = originalError;
+    }
+
+    expect(lines).toHaveLength(1);
+    const payload = JSON.parse(lines[0]);
+    expect(payload.error).toMatchObject({
+      name: "Error",
+      message: "primary failure",
+    });
+    expect(payload.context.error).toMatchObject({
+      name: "Error",
+      message: "root cause",
+    });
+    expect(lines[0]).not.toContain('"error":{}');
+  });
 });

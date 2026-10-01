@@ -57,13 +57,13 @@ export function OverviewPage({ s }: { s: DesktopState }) {
                   // class must never invent a language.
                   const badgeLabel = getPrinterLanguageBadges(p.protocol ?? "unknown", p.connection_type ?? "unknown").join(" · ") || "Unknown";
                   return (
-                    <div key={p.id} className="flex w-full items-center justify-between gap-4 rounded-[12px] border border-edge bg-surface px-4 py-3 transition-colors hover:border-edge-accent">
+                    <div key={p.id} className="flex w-full items-center justify-between gap-4 rounded-lg border border-edge bg-surface px-4 py-3 transition-colors hover:border-edge-accent">
                       <button type="button" onClick={() => s.setSelectedPrinter(p)} className="flex min-w-0 flex-1 items-center gap-3 text-left focus:outline-none">
                         <PrinterAvatar name={p.name} size="lg" tone={printerTone(p.status) === "neutral" ? "brand" : printerTone(p.status)} />
-                        <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-semibold text-ink">{p.name}</span><span className="block truncate text-[11px] text-ink-3">{humanType(p)} • {humanConnection(p)} • {printerEndpoint(p)}</span></span>
+                        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-ink">{p.name}</span><span className="block truncate text-2xs text-ink-3">{humanType(p)} • {humanConnection(p)} • {printerEndpoint(p)}</span></span>
                       </button>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="hidden sm:inline-flex rounded-[8px] border border-edge bg-surface-2 px-2 py-0.5 text-[10px] font-semibold text-ink-3">{badgeLabel}</span>
+                        <span className="hidden sm:inline-flex rounded-sm border border-edge bg-surface-2 px-2 py-0.5 text-2xs font-semibold text-ink-3">{badgeLabel}</span>
                         <StatusBadge tone={printerTone(p.status)} label={labelPrinter(p.status)} />
                         <Button size="sm" variant="secondary" onClick={() => s.handleTest(p.id)} disabled={s.busy} icon={<Activity className="h-3 w-3 text-brand" />} title={`Test ${p.name}`}>Test</Button>
                       </div>
@@ -81,15 +81,15 @@ export function OverviewPage({ s }: { s: DesktopState }) {
           <div className="px-5 pb-5">
             <DetailList rows={[
               { label: "Last check", value: <Mono>{s.lastStatusCheck ? new Date(s.lastStatusCheck).toLocaleTimeString() : "—"}</Mono> },
-              { label: "Gateway", value: <span className="block truncate text-[12px]">{s.gatewayUrl || "—"}</span> },
+              { label: "Gateway", value: <span className="block truncate text-xs">{s.gatewayUrl || "—"}</span> },
               { label: "Agent", value: s.isOnline ? "Running" : "Stopped" },
             ]} />
             <div className="mt-4 border-t border-edge pt-4 space-y-2">
-              <div className="flex items-center justify-between text-[11px]"><span className="font-semibold uppercase tracking-wide text-ink-3">Gateway Queue</span><span className={`font-semibold ${s.jobsError || s.jobsLoading ? "text-ink-3" : s.pendingJobs > 20 ? "text-warn" : s.pendingJobs > 0 ? "text-brand" : "text-ok"}`}>{s.jobsLoading ? "Checking…" : s.jobsError ? "Unavailable" : s.pendingJobs > 20 ? "Backlogged" : s.pendingJobs > 0 ? "In Flight" : "Clear"}</span></div>
-              <div className="flex items-baseline justify-between text-[12px]"><span className="font-bold text-ink tabular-nums">{s.jobsLoading || s.jobsError ? "—" : s.pendingJobs}<span className="font-normal text-ink-3"> waiting</span></span><span className="text-ink-3">last 50</span></div>
+              <div className="flex items-center justify-between text-2xs"><span className="font-semibold uppercase tracking-wide text-ink-3">Gateway Queue</span><span className={`font-semibold ${s.jobsError || s.jobsLoading ? "text-ink-3" : s.pendingJobs > 20 ? "text-warn" : s.pendingJobs > 0 ? "text-brand" : "text-ok"}`}>{s.jobsLoading ? "Checking…" : s.jobsError ? "Unavailable" : s.pendingJobs > 20 ? "Backlogged" : s.pendingJobs > 0 ? "In Flight" : "Clear"}</span></div>
+              <div className="flex items-baseline justify-between text-xs"><span className="font-bold text-ink tabular-nums">{s.jobsLoading || s.jobsError ? "—" : s.pendingJobs}<span className="font-normal text-ink-3"> waiting</span></span><span className="text-ink-3">last 50</span></div>
             </div>
             <div className="mt-4 border-t border-edge pt-4">
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">Quick actions</div>
+              <div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-ink-3">Quick actions</div>
               <div className="grid grid-cols-2 gap-2"><Button variant="primary" onClick={s.refreshStatus} icon={<RefreshCw className="h-4 w-4" />}>Refresh</Button><Button variant="secondary" onClick={s.checkHealth} icon={<Activity className="h-4 w-4" />}>Check GW</Button></div>
             </div>
           </div>
@@ -100,9 +100,9 @@ export function OverviewPage({ s }: { s: DesktopState }) {
         <CardHeader title="Recent jobs" subtitle={`${s.pendingJobs} pending • ${s.failedJobs} failed`} icon={<ClipboardList className="h-4 w-4 text-brand" />} actions={<Button size="sm" variant="ghost" onClick={() => s.navigate("jobs")}>View all</Button>} />
         {s.jobsLoading ? <div className="px-5 pb-5"><LoadingState rows={3} /></div> : s.jobsError ? <div className="px-5 pb-5"><ErrorState title="Jobs unavailable" message={s.jobsError} retry={() => { void s.refreshJobs(); }} /></div> : s.jobs.length === 0 ? <EmptyState icon={<FileText className="h-8 w-8" />} title="No print jobs yet" description="Jobs will appear here as soon as agent starts printing." /> : (
           <div className="overflow-x-auto">
-            <table className="w-full text-[13px]">
-              <thead><tr className="border-y border-edge bg-surface-2 text-left text-[11px] uppercase tracking-wide text-ink-3"><th className="px-5 py-2.5">Document</th><th className="px-4 py-2.5">Printer</th><th className="px-4 py-2.5">Status</th><th className="px-5 py-2.5 text-right">Updated</th></tr></thead>
-              <tbody>{s.jobs.slice(0, 5).map((j) => (<tr key={jobId(j)} className="border-b border-edge last:border-0 hover:bg-surface-2/50"><td className="px-5 py-3"><div className="text-[13px] font-semibold text-ink">{jobDocType(j)}</div><div className="font-mono text-[11px] text-ink-3">{jobId(j)}</div></td><td className="px-4 py-3 text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td className="px-4 py-3"><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error)} /></td><td className="px-5 py-3 text-right text-[11px] text-ink-3">{j.updatedAt ? new Date(String(j.updatedAt)).toLocaleString() : "—"}</td></tr>))}</tbody>
+            <table className="w-full text-sm">
+              <thead><tr className="border-y border-edge bg-surface-2 text-left text-2xs uppercase tracking-wide text-ink-3"><th className="px-5 py-2.5">Document</th><th className="px-4 py-2.5">Printer</th><th className="px-4 py-2.5">Status</th><th className="px-5 py-2.5 text-right">Updated</th></tr></thead>
+              <tbody>{s.jobs.slice(0, 5).map((j) => (<tr key={jobId(j)} className="border-b border-edge last:border-0 hover:bg-surface-2/50"><td className="px-5 py-3"><div className="text-sm font-semibold text-ink">{jobDocType(j)}</div><div className="font-mono text-2xs text-ink-3">{jobId(j)}</div></td><td className="px-4 py-3 text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td className="px-4 py-3"><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error)} /></td><td className="px-5 py-3 text-right text-2xs text-ink-3">{j.updatedAt ? new Date(String(j.updatedAt)).toLocaleString() : "—"}</td></tr>))}</tbody>
             </table>
           </div>
         )}
@@ -115,7 +115,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
         return (
           <Card className="p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-[10px] border border-edge bg-brand-subtle text-brand"><Activity className="h-4 w-4" /></span><div className="min-w-0"><div className="text-[13px] font-semibold text-ink">Hardware Profile Testing</div><p className="mt-1 text-[12px] text-ink-3">Verify ESC/POS, ZPL/TSPL, or Spooler rendering.</p></div></div>
+              <div className="flex items-start gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-md border border-edge bg-brand-subtle text-brand"><Activity className="h-4 w-4" /></span><div className="min-w-0"><div className="text-sm font-semibold text-ink">Hardware Profile Testing</div><p className="mt-1 text-xs text-ink-3">Verify ESC/POS, ZPL/TSPL, or Spooler rendering.</p></div></div>
               <div className="flex flex-wrap gap-2">{thermal && <Button variant="secondary" onClick={() => s.handleTest(thermal.id)} icon={<Activity className="h-4 w-4" />}>Test ESC/POS</Button>}{label && <Button variant="secondary" onClick={() => s.handleTest(label.id)} icon={<Activity className="h-4 w-4" />}>Test ZPL</Button>}{spooler && <Button variant="secondary" onClick={() => s.handleTest(spooler.id)} icon={<Activity className="h-4 w-4" />}>Test Spooler</Button>}{!thermal && !label && !spooler && <Button variant="secondary" onClick={() => s.handleTest(shownPrinters[0].id)} icon={<Play className="h-4 w-4" />}>Test {shownPrinters[0].name.slice(0, 18)}</Button>}</div>
             </div>
           </Card>

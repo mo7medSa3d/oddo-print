@@ -78,7 +78,7 @@ export function JobTimeline({ status, error = null, claimedAt = null }: Timeline
             )}
             <span className="flex flex-col items-center gap-2 px-1" aria-hidden>
               <span
-                className={`flex h-[26px] w-[26px] items-center justify-center rounded-[8px] border text-[12px] font-bold transition-colors ${
+                className={`flex h-[26px] w-[26px] items-center justify-center rounded-sm border text-xs font-bold transition-colors ${
                   step.state === "current"
                     ? "border-brand bg-brand text-brand-contrast shadow-[var(--focus-ring-shadow)]"
                     : step.state === "done"
@@ -89,7 +89,7 @@ export function JobTimeline({ status, error = null, claimedAt = null }: Timeline
                 {step.state === "done" ? "✓" : step.n}
               </span>
               <span
-                className={`min-w-max text-center text-[12px] font-semibold ${
+                className={`min-w-max text-center text-xs font-semibold ${
                   step.state === "current"
                     ? "text-ink"
                     : step.state === "done"
@@ -109,7 +109,7 @@ export function JobTimeline({ status, error = null, claimedAt = null }: Timeline
           />
           <span className="flex flex-col items-center gap-2 px-1" aria-hidden>
             <span
-              className={`flex h-[26px] w-[26px] items-center justify-center rounded-[8px] border text-[12px] font-bold transition-colors ${
+              className={`flex h-[26px] w-[26px] items-center justify-center rounded-sm border text-xs font-bold transition-colors ${
                 terminalTone === "ok"
                   ? "border-ok-edge bg-ok-solid text-on-solid"
                   : terminalTone === "warn"
@@ -122,7 +122,7 @@ export function JobTimeline({ status, error = null, claimedAt = null }: Timeline
               {done ? "✓" : failed || unknown ? (unknown ? "?" : "✕") : ""}
             </span>
             <span
-              className={`min-w-max text-center text-[12px] font-semibold ${
+              className={`min-w-max text-center text-xs font-semibold ${
                 terminalTone === "ok" ? "text-ok" : terminalTone === "bad" ? "text-bad" : terminalTone === "warn" ? "text-warn" : "text-ink-3"
               }`}
             >

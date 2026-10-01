@@ -70,6 +70,23 @@ function syncColorScheme() {
   document.documentElement.style.colorScheme = dark ? "dark" : "light";
 }
 
+/** Applies a theme everywhere it is observable (DOM, color-scheme, storage). */
+export function setTheme(next: Theme) {
+  document.documentElement.dataset.theme = next;
+  syncColorScheme();
+  try {
+    localStorage.setItem("theme", next);
+  } catch {
+    /* private mode: the attribute still applies for this visit */
+  }
+  emitThemeChange();
+}
+
+/** Flips the current theme — used by the toggle and the command menu. */
+export function toggleTheme() {
+  setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+}
+
 /**
  * Light/dark switch. The actual theme is applied by a pre-paint script in the
  * root layout (data-theme on <html>); this component flips that attribute,
@@ -79,27 +96,15 @@ function syncColorScheme() {
 export function ThemeToggle({ className = "" }: { className?: string }) {
   const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  function toggle() {
-    const next: Theme = theme === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    syncColorScheme();
-    try {
-      localStorage.setItem("theme", next);
-    } catch {
-      /* private mode: the attribute still applies for this visit */
-    }
-    emitThemeChange();
-  }
-
   const label = theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
 
   return (
     <button
       type="button"
-      onClick={toggle}
+      onClick={() => toggleTheme()}
       aria-label={label}
       title={label}
-      className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] border border-edge/70 bg-surface/70 text-ink-2 shadow-xs transition-all duration-200 hover:border-edge-strong hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 ${className}`}
+      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 ${className}`}
     >
       {theme === "dark" ? <Sun className="h-4 w-4" aria-hidden /> : <Moon className="h-4 w-4" aria-hidden />}
     </button>

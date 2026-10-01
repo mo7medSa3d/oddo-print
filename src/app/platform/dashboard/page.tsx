@@ -3,7 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Activity, Building2, CreditCard, RefreshCw, ShieldCheck, Users } from "lucide-react";
+import {
+  Activity,
+  Building2,
+  CreditCard,
+  RefreshCw,
+  ShieldCheck,
+  Users,
+  ArrowRight,
+} from "lucide-react";
 import {
   FleetHealthChart,
   OperationalSignals,
@@ -11,6 +19,17 @@ import {
   SubscriptionMixChart,
   type OverviewHourlyPoint,
 } from "../../../components/platform/overview-charts";
+import {
+  Button,
+  Card,
+  CardHeader,
+  PageHeader,
+  EmptyState,
+  ErrorState,
+  PageSkeleton,
+  StatusBadge,
+  type Tone,
+} from "../../../components/ui";
 
 type Stats = {
   tenants: { total: number; active: number; suspended: number; deleted: number };
@@ -65,28 +84,22 @@ function percent(part: number, total: number) {
   return total > 0 ? Math.round((part / total) * 100) : null;
 }
 
-function SubscriptionStatus({
-  status,
-}: {
-  status: SubscriptionRow["status"];
-}) {
-  const styles = {
-    active: "bg-ok-bg text-ok",
-    trialing: "bg-info-bg text-info",
-    past_due: "bg-warn-bg text-warn",
-    incomplete: "bg-warn-bg text-warn",
-    incomplete_expired: "bg-warn-bg text-warn",
-    unpaid: "bg-bad-bg text-bad",
-    paused: "bg-surface-3 text-ink-3",
-    cancelled: "bg-bad-bg text-bad",
-  } as const;
+const SUBSCRIPTION_META: Record<SubscriptionRow["status"], { tone: Tone; label: string }> = {
+  active: { tone: "ok", label: "Active" },
+  trialing: { tone: "info", label: "Trialing" },
+  past_due: { tone: "warn", label: "Past due" },
+  incomplete: { tone: "warn", label: "Incomplete" },
+  incomplete_expired: { tone: "warn", label: "Expired" },
+  unpaid: { tone: "bad", label: "Unpaid" },
+  paused: { tone: "neutral", label: "Paused" },
+  cancelled: { tone: "bad", label: "Cancelled" },
+};
 
-  return (
-    <span className={`inline-flex items-center rounded-[8px] px-2.5 py-0.5 text-[11px] font-semibold ${styles[status]}`}>
-      {status.replace("_", " ")}
-    </span>
-  );
-}
+const LIFECYCLE_META: Record<TenantRow["lifecycle"], { tone: Tone; label: string }> = {
+  active: { tone: "ok", label: "Active" },
+  suspended: { tone: "warn", label: "Suspended" },
+  deleted: { tone: "bad", label: "Deleted" },
+};
 
 export default function PlatformDashboardPage() {
   const router = useRouter();
@@ -166,338 +179,362 @@ export default function PlatformDashboardPage() {
       hourlyHasData: hourly.some((point) => point.total > 0),
     };
   }, [stats]);
-
   return (
-    <div className="space-y-7">
-      <header className="flex flex-col gap-5 border-b border-edge pb-6 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-display">Overview</h1>
-            <span className="inline-flex items-center gap-1.5 rounded-[8px] border border-ok-edge bg-ok-bg px-2.5 py-1 text-[11px] font-semibold text-ok">
-              <span className="h-1.5 w-1.5 rounded-full bg-ok-solid" />
-              Control plane
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => {
-              setLoading(true);
-              setReloadKey((value) => value + 1);
-            }}
-            disabled={loading}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-edge bg-surface px-3.5 text-[13px] font-medium text-ink-2 shadow-xs transition hover:bg-surface-2 hover:text-ink disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
-            Refresh
-          </button>
-          <Link
-            href="/platform/audit"
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-brand px-4 text-[13px] font-semibold text-brand-contrast shadow-xs transition hover:bg-brand-hover"
-          >
-            <ShieldCheck className="h-4 w-4" aria-hidden />
-            Security audit
-          </Link>
-        </div>
-      </header>
-
-      {error && (
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-bad-edge bg-bad-bg px-4 py-3.5 text-[13px] text-bad">
-          <span>{error}</span>
-          <button type="button" onClick={() => setReloadKey((value) => value + 1)} className="font-semibold underline">
-            Retry
-          </button>
-        </div>
-      )}
-
-      <OperationalSignals
-        jobs={{
-          failed: stats?.jobs24h.failed ?? 0,
-          expired: stats?.jobs24h.expired ?? 0,
-          queued: stats?.jobs24h.queued ?? 0,
-          inFlight: stats?.jobs24h.inFlight ?? 0,
-        }}
-        agents={{ offline: stats?.agents.offline ?? 0 }}
-        printers={{ offline: stats?.printers.offline ?? 0 }}
-        pastDue={stats?.subscriptions.attention ?? stats?.subscriptions.pastDue ?? 0}
+    <div className="space-y-6">
+      <PageHeader
+        variant="inline"
+        eyebrow="Control plane"
+        title="Platform overview"
+        description="Tenants, subscriptions and runtime activity across every workspace on this Gateway."
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setLoading(true);
+                setReloadKey((value) => value + 1);
+              }}
+              disabled={loading}
+              loading={loading}
+              icon={loading ? undefined : <RefreshCw className="h-4 w-4" aria-hidden />}
+            >
+              {loading ? "Refreshing…" : "Refresh"}
+            </Button>
+            <Button variant="primary" href="/platform/audit" icon={<ShieldCheck className="h-4 w-4" aria-hidden />}>
+              Security audit
+            </Button>
+          </>
+        }
       />
 
-      <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.55fr_0.85fr]">
-        <div className="card p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                <Activity className="h-4 w-4 text-brand" aria-hidden />
-                <h2 className="text-[17px] font-semibold text-ink">Print throughput</h2>
-              </div>
-              <p className="mt-1 text-[12px] text-ink-4">
-                Hourly print volume and outcome mix across the gateway.
-              </p>
-            </div>
-            <div className="text-left sm:text-right">
-              <div className="text-[24px] font-bold tracking-[-0.03em] text-ink tabular-nums">
-                {formatNumber(stats?.jobs24h.total ?? 0)}
-              </div>
-              <div className="mt-1 text-[11px] text-ink-4">
-                jobs in 24h
-                {derived.jobSuccessRate !== null ? ` · ${derived.jobSuccessRate}% successful` : ""}
-              </div>
-            </div>
-          </div>
-
-          {derived.hourlyHasData ? (
-            <PrintThroughputChart data={stats?.jobs24hHourly ?? []} />
-          ) : (
-            <div className="mt-5 flex h-[260px] items-center justify-center rounded-xl border border-dashed border-edge bg-surface-2 px-6 text-center">
-              <div>
-                <div className="text-[13px] font-semibold text-ink">No print activity yet</div>
-                <div className="mt-1 text-[12px] text-ink-4">The throughput chart will populate as jobs enter the gateway.</div>
-              </div>
-            </div>
+      {loading && !stats ? (
+        <div role="status" aria-label="Loading platform statistics">
+          <PageSkeleton />
+          <span className="sr-only">Loading platform statistics…</span>
+        </div>
+      ) : (
+        <>
+          {error && (
+            <ErrorState
+              title="Platform statistics unavailable"
+              message={error}
+              retry={() => {
+                setLoading(true);
+                setReloadKey((value) => value + 1);
+              }}
+            />
           )}
 
-          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-edge pt-4 text-[11px] text-ink-4">
-            <span>{formatNumber(stats?.jobs24h.success ?? 0)} successful</span>
-            <span>{formatNumber(stats?.jobs24h.failed ?? 0)} failed</span>
-            <span>{formatNumber(stats?.jobs24h.expired ?? 0)} expired</span>
-            <span>{formatNumber((stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0))} currently open</span>
-            {derived.latestHourDelta !== null && (
-              <span className={derived.latestHourDelta < 0 ? "text-warn" : "text-ink-3"}>
-                Latest hour {derived.latestHourDelta > 0 ? "+" : ""}{derived.latestHourDelta}% vs previous
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="card p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-[17px] font-semibold text-ink">Fleet health</h2>
-              <p className="mt-1 text-[12px] text-ink-4">
-                Runtime availability derived from recent agent heartbeats.
-              </p>
-            </div>
-            <span className="rounded-[8px] bg-surface-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-4">
-              Live state
-            </span>
-          </div>
-
-          <FleetHealthChart
-            fleet={{
-              agents: {
-                total: stats?.agents.total ?? 0,
-                online: stats?.agents.online ?? 0,
-                offline: stats?.agents.offline ?? 0,
-              },
-              printers: {
-                total: stats?.printers.total ?? 0,
-                online: stats?.printers.online ?? 0,
-                offline: stats?.printers.offline ?? 0,
-              },
+          <OperationalSignals
+            jobs={{
+              failed: stats?.jobs24h.failed ?? 0,
+              expired: stats?.jobs24h.expired ?? 0,
+              queued: stats?.jobs24h.queued ?? 0,
+              inFlight: stats?.jobs24h.inFlight ?? 0,
             }}
+            agents={{ offline: stats?.agents.offline ?? 0 }}
+            printers={{ offline: stats?.printers.offline ?? 0 }}
+            pastDue={stats?.subscriptions.attention ?? stats?.subscriptions.pastDue ?? 0}
           />
 
-          <div className="mt-5 grid grid-cols-2 gap-3 border-t border-edge pt-5">
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.08em] text-ink-4">Tenants</div>
-              <div className="mt-1 text-lg font-bold tabular-nums text-ink">{formatNumber(stats?.tenants.active ?? 0)}</div>
-              <div className="text-[11px] text-ink-4">active of {formatNumber(stats?.tenants.total ?? 0)}</div>
-            </div>
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.08em] text-ink-4">Users</div>
-              <div className="mt-1 text-lg font-bold tabular-nums text-ink">{formatNumber(stats?.users.verified ?? 0)}</div>
-              <div className="text-[11px] text-ink-4">verified of {formatNumber(stats?.users.total ?? 0)}</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-        <div className="card p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-[17px] font-semibold text-ink">Subscription health</h2>
-              <p className="mt-1 text-[12px] text-ink-4">
-                Current lifecycle mix, with past-due accounts isolated for follow-up.
-              </p>
-            </div>
-            <Link href="/platform/subscriptions" className="text-[12px] font-semibold text-brand hover:text-brand-hover">
-              Manage
-            </Link>
-          </div>
-          <SubscriptionMixChart
-            subscriptions={
-              stats?.subscriptions ?? {
-                total: 0,
-                active: 0,
-                trialing: 0,
-                pastDue: 0,
-                incomplete: 0,
-                incompleteExpired: 0,
-                unpaid: 0,
-                paused: 0,
-                cancelled: 0,
-                attention: 0,
-              }
-            }
-          />
-        </div>
-
-        <div className="card p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-[17px] font-semibold text-ink">Platform footprint</h2>
-              <p className="mt-1 text-[12px] text-ink-4">
-                The business surface behind the runtime: customers, users, and connected infrastructure.
-              </p>
-            </div>
-            <Building2 className="h-5 w-5 text-brand" aria-hidden />
-          </div>
-
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <div className="inset-panel p-4">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">
-                <Building2 className="h-3.5 w-3.5" aria-hidden />
-                Tenants
+          <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.55fr_0.85fr]">
+            <Card className="p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <h2 className="flex items-center gap-2 text-md font-[600] tracking-[-0.015em] text-ink">
+                    <Activity className="h-4 w-4 text-brand" aria-hidden />
+                    Print throughput
+                  </h2>
+                  <p className="mt-1 text-sm text-ink-3">
+                    Hourly print volume and outcome mix across the gateway.
+                  </p>
+                </div>
+                <div className="text-left sm:text-right">
+                  <div className="text-3xl font-[660] leading-none tracking-[-0.03em] text-ink tabular">
+                    {formatNumber(stats?.jobs24h.total ?? 0)}
+                  </div>
+                  <div className="mt-1.5 text-xs text-ink-3">
+                    jobs in 24h
+                    {derived.jobSuccessRate !== null ? ` · ${derived.jobSuccessRate}% successful` : ""}
+                  </div>
+                </div>
               </div>
-              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.tenants.total ?? 0)}</div>
-              <div className="mt-1 text-[11px] text-ink-4">{formatNumber(stats?.tenants.active ?? 0)} active</div>
-            </div>
-            <div className="inset-panel p-4">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">
-                <Users className="h-3.5 w-3.5" aria-hidden />
-                Users
-              </div>
-              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.users.total ?? 0)}</div>
-              <div className="mt-1 text-[11px] text-ink-4">
-                {percent(stats?.users.verified ?? 0, stats?.users.total ?? 0) ?? 0}% verified
-              </div>
-            </div>
-            <div className="inset-panel p-4">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-4">
-                <CreditCard className="h-3.5 w-3.5" aria-hidden />
-                Plans
-              </div>
-              <div className="mt-2 text-2xl font-bold tabular-nums text-ink">{formatNumber(stats?.subscriptions.total ?? 0)}</div>
-              <div className="mt-1 text-[11px] text-ink-4">{formatNumber(stats?.subscriptions.active ?? 0)} active</div>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      <section className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-        <div className="card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-edge px-6 py-5">
-            <div>
-              <h2 className="text-[16px] font-semibold text-ink">Latest tenants</h2>
-            </div>
-            <Link href="/platform/tenants" className="text-[12px] font-semibold text-brand hover:text-brand-hover">
-              View all
-            </Link>
-          </div>
+              {derived.hourlyHasData ? (
+                <PrintThroughputChart data={stats?.jobs24hHourly ?? []} />
+              ) : (
+                <EmptyState
+                  className="mt-4 rounded-lg border border-dashed border-edge-strong bg-surface-2"
+                  icon={<Activity className="h-5 w-5" />}
+                  title="No print activity yet"
+                  description="The throughput chart populates as jobs enter the gateway. Nothing is simulated."
+                />
+              )}
 
-          <div className="overflow-x-auto">
-            <table className="data-table text-left text-[13px]">
-              <thead>
-                <tr>
-                  <th>Tenant</th>
-                  <th>Status</th>
-                  <th className="text-right">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tenants.length === 0 ? (
-                  <tr>
-                    <td colSpan={3} className="py-10 text-center text-[12px] text-ink-4">
-                      No tenant records found.
-                    </td>
-                  </tr>
-                ) : (
-                  tenants.slice(0, 5).map((tenant) => {
-                    const lifecycleStyles = {
-                      active: "bg-ok-bg text-ok",
-                      suspended: "bg-warn-bg text-warn",
-                      deleted: "bg-bad-bg text-bad",
-                    } as const;
+              <dl className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-edge-subtle pt-4 text-xs text-ink-3">
+                <div className="flex items-center gap-1.5">
+                  <dt>Successful</dt>
+                  <dd className="font-[600] tabular text-ink">{formatNumber(stats?.jobs24h.success ?? 0)}</dd>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <dt>Failed</dt>
+                  <dd className="font-[600] tabular text-ink">{formatNumber(stats?.jobs24h.failed ?? 0)}</dd>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <dt>Expired</dt>
+                  <dd className="font-[600] tabular text-ink">{formatNumber(stats?.jobs24h.expired ?? 0)}</dd>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <dt>Open now</dt>
+                  <dd className="font-[600] tabular text-ink">
+                    {formatNumber((stats?.jobs24h.queued ?? 0) + (stats?.jobs24h.inFlight ?? 0))}
+                  </dd>
+                </div>
+                {derived.latestHourDelta !== null && (
+                  <div className="flex items-center gap-1.5">
+                    <dt>Latest hour vs previous</dt>
+                    <dd className={`font-[600] tabular ${derived.latestHourDelta < 0 ? "text-warn" : "text-ink"}`}>
+                      {derived.latestHourDelta > 0 ? "+" : ""}
+                      {derived.latestHourDelta}%
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </Card>
 
-                    return (
-                      <tr key={tenant.id} className="table-row">
-                        <td>
-                          <div className="font-semibold text-ink">{tenant.name}</div>
-                          <div className="mt-0.5 font-mono text-[10px] text-ink-4">{tenant.id}</div>
-                        </td>
-                        <td>
-                          <span className={`inline-flex rounded-[8px] px-2.5 py-0.5 text-[11px] font-semibold ${lifecycleStyles[tenant.lifecycle]}`}>
-                            {tenant.lifecycle}
-                          </span>
-                        </td>
-                        <td className="text-right text-[12px] text-ink-3">
-                          {new Date(tenant.createdAt).toLocaleDateString()}
+            <Card className="p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <h2 className="text-md font-[600] tracking-[-0.015em] text-ink">Fleet health</h2>
+                  <p className="mt-1 text-sm text-ink-3">
+                    Runtime availability derived from recent agent heartbeats.
+                  </p>
+                </div>
+                <StatusBadge tone="ok" label="Live state" pulse />
+              </div>
+
+              <FleetHealthChart
+                fleet={{
+                  agents: {
+                    total: stats?.agents.total ?? 0,
+                    online: stats?.agents.online ?? 0,
+                    offline: stats?.agents.offline ?? 0,
+                  },
+                  printers: {
+                    total: stats?.printers.total ?? 0,
+                    online: stats?.printers.online ?? 0,
+                    offline: stats?.printers.offline ?? 0,
+                  },
+                }}
+              />
+
+              <div className="mt-5 grid grid-cols-2 gap-4 border-t border-edge-subtle pt-4">
+                <div>
+                  <div className="label-caps">Tenants</div>
+                  <div className="mt-1 text-xl font-[640] tabular text-ink">{formatNumber(stats?.tenants.active ?? 0)}</div>
+                  <div className="mt-0.5 text-xs text-ink-3">active of {formatNumber(stats?.tenants.total ?? 0)}</div>
+                </div>
+                <div>
+                  <div className="label-caps">Users</div>
+                  <div className="mt-1 text-xl font-[640] tabular text-ink">{formatNumber(stats?.users.verified ?? 0)}</div>
+                  <div className="mt-0.5 text-xs text-ink-3">verified of {formatNumber(stats?.users.total ?? 0)}</div>
+                </div>
+              </div>
+            </Card>
+          </section>
+
+          <section className="grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+            <Card className="p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <h2 className="text-md font-[600] tracking-[-0.015em] text-ink">Subscription health</h2>
+                  <p className="mt-1 text-sm text-ink-3">
+                    Current lifecycle mix, with past-due accounts isolated for follow-up.
+                  </p>
+                </div>
+                <Link
+                  href="/platform/subscriptions"
+                  className="inline-flex shrink-0 items-center gap-1 text-sm font-[550] text-brand transition-colors hover:text-brand-hover"
+                >
+                  Manage <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                </Link>
+              </div>
+              <SubscriptionMixChart
+                subscriptions={
+                  stats?.subscriptions ?? {
+                    total: 0,
+                    active: 0,
+                    trialing: 0,
+                    pastDue: 0,
+                    incomplete: 0,
+                    incompleteExpired: 0,
+                    unpaid: 0,
+                    paused: 0,
+                    cancelled: 0,
+                    attention: 0,
+                  }
+                }
+              />
+            </Card>
+
+            <Card>
+              <CardHeader
+                title="Platform footprint"
+                subtitle="The business surface behind the runtime: customers, users and connected infrastructure."
+                icon={<Building2 className="h-4 w-4" />}
+              />
+              <div className="grid gap-3 px-5 py-5 sm:grid-cols-3">
+                <div className="inset-panel p-4">
+                  <div className="flex items-center gap-2 text-2xs font-[600] uppercase tracking-[0.08em] text-ink-3">
+                    <Building2 className="h-3.5 w-3.5" aria-hidden />
+                    Tenants
+                  </div>
+                  <div className="mt-2 text-2xl font-[640] tabular text-ink">{formatNumber(stats?.tenants.total ?? 0)}</div>
+                  <div className="mt-0.5 text-xs text-ink-3">{formatNumber(stats?.tenants.active ?? 0)} active</div>
+                </div>
+                <div className="inset-panel p-4">
+                  <div className="flex items-center gap-2 text-2xs font-[600] uppercase tracking-[0.08em] text-ink-3">
+                    <Users className="h-3.5 w-3.5" aria-hidden />
+                    Users
+                  </div>
+                  <div className="mt-2 text-2xl font-[640] tabular text-ink">{formatNumber(stats?.users.total ?? 0)}</div>
+                  <div className="mt-0.5 text-xs text-ink-3">
+                    {percent(stats?.users.verified ?? 0, stats?.users.total ?? 0) ?? 0}% verified
+                  </div>
+                </div>
+                <div className="inset-panel p-4">
+                  <div className="flex items-center gap-2 text-2xs font-[600] uppercase tracking-[0.08em] text-ink-3">
+                    <CreditCard className="h-3.5 w-3.5" aria-hidden />
+                    Subscriptions
+                  </div>
+                  <div className="mt-2 text-2xl font-[640] tabular text-ink">{formatNumber(stats?.subscriptions.total ?? 0)}</div>
+                  <div className="mt-0.5 text-xs text-ink-3">{formatNumber(stats?.subscriptions.active ?? 0)} active</div>
+                </div>
+              </div>
+            </Card>
+          </section>
+
+          <section className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+            <Card className="overflow-hidden">
+              <CardHeader
+                title="Latest tenants"
+                subtitle="Newest workspaces to join the platform."
+                actions={
+                  <Button variant="ghost" size="sm" href="/platform/tenants">
+                    View all
+                  </Button>
+                }
+              />
+              <div className="overflow-x-auto">
+                <table className="data-table">
+                  <caption className="sr-only">Latest tenants</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Tenant</th>
+                      <th scope="col">Status</th>
+                      <th scope="col" className="text-right">Created</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tenants.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="py-6">
+                          <EmptyState
+                            size="sm"
+                            icon={<Building2 className="h-4 w-4" />}
+                            title="No tenants yet"
+                            description="Workspaces appear the moment a customer completes signup."
+                          />
                         </td>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                    ) : (
+                      tenants.slice(0, 5).map((tenant) => {
+                        const meta = LIFECYCLE_META[tenant.lifecycle];
+                        return (
+                          <tr key={tenant.id}>
+                            <td>
+                              <div className="text-sm font-[550] text-ink">{tenant.name}</div>
+                              <div className="mt-0.5 font-mono text-2xs text-ink-4">{tenant.id}</div>
+                            </td>
+                            <td>
+                              <StatusBadge tone={meta.tone} label={meta.label} size="sm" />
+                            </td>
+                            <td className="text-right text-sm text-ink-3">
+                              {new Date(tenant.createdAt).toLocaleDateString()}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
 
-        <div className="card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-edge px-6 py-5">
-            <div>
-              <h2 className="text-[16px] font-semibold text-ink">Latest subscriptions</h2>
-            </div>
-            <Link href="/platform/subscriptions" className="text-[12px] font-semibold text-brand hover:text-brand-hover">
-              View all
-            </Link>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="data-table text-left text-[13px]">
-              <thead>
-                <tr>
-                  <th>Tenant</th>
-                  <th>Plan</th>
-                  <th>Status</th>
-                  <th className="text-right">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {subscriptions.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="py-10 text-center text-[12px] text-ink-4">
-                      No subscription records found.
-                    </td>
-                  </tr>
-                ) : (
-                  subscriptions.slice(0, 5).map((subscription) => (
-                    <tr key={subscription.tenantId} className="table-row">
-                      <td>
-                        <div className="font-semibold text-ink">{subscription.tenantName}</div>
-                        <div className="mt-0.5 font-mono text-[10px] text-ink-4">
-                          {subscription.stripeSubscriptionId ? `${subscription.stripeSubscriptionId.slice(0, 16)}…` : "No Stripe subscription"}
-                        </div>
-                      </td>
-                      <td className="font-medium text-ink-2">
-                        {subscription.planName || "No plan"}
-                      </td>
-                      <td>
-                        <SubscriptionStatus status={subscription.status} />
-                      </td>
-                      <td className="text-right text-[12px] text-ink-3">
-                        {new Date(subscription.createdAt).toLocaleDateString()}
-                      </td>
+            <Card className="overflow-hidden">
+              <CardHeader
+                title="Latest subscriptions"
+                subtitle="Most recent commerce events per tenant."
+                actions={
+                  <Button variant="ghost" size="sm" href="/platform/subscriptions">
+                    View all
+                  </Button>
+                }
+              />
+              <div className="overflow-x-auto">
+                <table className="data-table">
+                  <caption className="sr-only">Latest subscriptions</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Tenant</th>
+                      <th scope="col">Plan</th>
+                      <th scope="col">Status</th>
+                      <th scope="col" className="text-right">Created</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+                  </thead>
+                  <tbody>
+                    {subscriptions.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-6">
+                          <EmptyState
+                            size="sm"
+                            icon={<CreditCard className="h-4 w-4" />}
+                            title="No subscriptions yet"
+                            description="Stripe subscriptions appear here as soon as checkout completes."
+                          />
+                        </td>
+                      </tr>
+                    ) : (
+                      subscriptions.slice(0, 5).map((subscription) => {
+                        const meta = SUBSCRIPTION_META[subscription.status];
+                        return (
+                          <tr key={subscription.tenantId}>
+                            <td>
+                              <div className="text-sm font-[550] text-ink">{subscription.tenantName}</div>
+                              <div className="mt-0.5 font-mono text-2xs text-ink-4">
+                                {subscription.stripeSubscriptionId
+                                  ? `${subscription.stripeSubscriptionId.slice(0, 16)}…`
+                                  : "No Stripe subscription"}
+                              </div>
+                            </td>
+                            <td className="text-sm text-ink-2">{subscription.planName || "No plan"}</td>
+                            <td>
+                              <StatusBadge tone={meta.tone} label={meta.label} size="sm" />
+                            </td>
+                            <td className="text-right text-sm text-ink-3">
+                              {new Date(subscription.createdAt).toLocaleDateString()}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </section>
+        </>
+      )}
     </div>
   );
 }

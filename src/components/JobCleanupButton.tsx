@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
-import { Button, Modal } from "./ui";
+import { Button, Modal, Toast } from "./ui";
 
 const RETENTION_DAYS = 30;
 
@@ -13,8 +13,9 @@ export function JobCleanupButton() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
 
-  const cleanup = async () => {
+  const cleanup = async (): Promise<boolean> => {
     setBusy(true);
     setError(null);
     setSuccessMessage(null);
@@ -36,14 +37,22 @@ export function JobCleanupButton() {
           ? "No terminal print jobs older than 30 days were found."
           : `Successfully cleaned ${count} print job${count === 1 ? "" : "s"}.`
       );
-      setOpen(false);
       router.refresh();
+      return true;
     } catch (cleanupError) {
       setError(
         cleanupError instanceof Error ? cleanupError.message : "Failed to clean print jobs"
       );
+      return false;
     } finally {
       setBusy(false);
+    }
+  };
+
+  const runCleanup = async () => {
+    if (await cleanup()) {
+      setDone("Print history cleaned");
+      setOpen(false);
     }
   };
 
@@ -84,7 +93,7 @@ export function JobCleanupButton() {
             </Button>
             <Button
               variant="danger"
-              onClick={cleanup}
+              onClick={() => void runCleanup()}
               loading={busy}
               icon={<Trash2 className="h-4 w-4" />}
             >
@@ -101,6 +110,11 @@ export function JobCleanupButton() {
           </p>
         </div>
       </Modal>
+
+      <Toast
+        toast={done ? { text: done, type: "success" } : null}
+        onDismiss={() => setDone(null)}
+      />
     </>
   );
 }

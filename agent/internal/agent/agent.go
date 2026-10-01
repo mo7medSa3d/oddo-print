@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,11 +33,12 @@ import (
 // offline backlog delivered after a reconnect) would spawn one goroutine per
 // job and exhaust memory on a small POS terminal.
 //
-//	maxConcurrentJobs — jobs actually executing (HTTP status calls, printing)
-//	maxPendingJobs    — jobs accepted into the local executor, including ones
-//	                    waiting for an execution slot; overflows are dropped
-//	                    and naturally re-delivered by the gateway after the
-//	                    claim lease expires (see src/app/api/agent/jobs).
+// maxConcurrentJobs — jobs actually executing (HTTP status calls, printing)
+// maxPendingJobs    — jobs accepted into the local executor, including ones
+//
+//	waiting for an execution slot; overflows are dropped
+//	and naturally re-delivered by the gateway after the
+//	claim lease expires (see src/app/api/agent/jobs).
 const (
 	maxConcurrentJobs        = 8
 	maxPendingJobs           = 64
@@ -1060,7 +1062,7 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 
 // extractJobFromWSMessage understands both the current delivery envelope
 //
-//	{"type":"print_job","job":{...}}
+// {"type":"print_job","job":{...}}
 //
 // and the legacy bare-job message ({"id":...,"printerId":...}) so an agent
 // still works against an older gateway build.
@@ -2662,10 +2664,18 @@ func (a *Agent) currentClaimToken(jobID string) string {
 	return a.inFlightTokens[jobID]
 }
 
+func redactClaimTokenForLog(token string) string {
+	if token == "" {
+		return "claim_empty"
+	}
+	digest := sha256.Sum256([]byte(token))
+	return fmt.Sprintf("claim_%x", digest[:6])
+}
+
 func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken string, reason ...string) error {
 	if live := a.currentClaimToken(jobID); live != "" {
 		if claimToken != "" && claimToken != live {
-			log.Printf("Job %s: claim token override (passed %q, using live %q)", jobID, claimToken, live)
+			log.Printf("Job %s: claim token override (passed %s, using live %s)", jobID, redactClaimTokenForLog(claimToken), redactClaimTokenForLog(live))
 		}
 		claimToken = live
 	}

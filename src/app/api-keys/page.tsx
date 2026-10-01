@@ -1,9 +1,35 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copy, KeyRound, Shield } from "lucide-react";
 import Link from "next/link";
-import { Button, Card, CardHeader, Input, Modal } from "../../components/ui";
+import {
+  Copy,
+  KeyRound,
+  ShieldCheck,
+  Workflow,
+  Plus,
+  Trash2,
+  Ban,
+  Info,
+} from "lucide-react";
+import {
+  Button,
+  Card,
+  CardHeader,
+  Callout,
+  EmptyState,
+  ErrorState,
+  Field,
+  Input,
+  Menu,
+  Modal,
+  PageContainer,
+  PageHeader,
+  StatusBadge,
+  Skeleton,
+  type MenuItemSpec,
+  type Tone,
+} from "../../components/ui";
 import { copyTextToClipboard } from "../../lib/clipboard";
 
 type ApiKey = {
@@ -18,6 +44,14 @@ type ApiKey = {
   odooEnabledRevision: number;
   odooEnabledUpdatedAt: string | null;
 };
+
+function rotationMeta(key: ApiKey): { label: string; tone: Tone } {
+  // Defensive: older API payloads may omit rotationState — a key that is not
+  // revoked is active. Never render an undefined badge.
+  if (key.revokedAt || key.rotationState === "revoked") return { label: "Revoked", tone: "neutral" };
+  if (key.rotationState === "retiring") return { label: "Retiring", tone: "warn" };
+  return { label: "Active", tone: "ok" };
+}
 
 export default function ApiKeysPage() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
@@ -102,150 +136,344 @@ export default function ApiKeysPage() {
   const enabled = keys.filter(k => !k.revokedAt && k.odooEnabled).length;
   const disabled = Math.max(0, active - enabled);
 
+  const keyMenu = (k: ApiKey): MenuItemSpec[] => [
+    {
+      key: "copy",
+      label: "Copy key ID",
+      icon: <Copy className="h-4 w-4" />,
+      onSelect: () => void copyTextToClipboard(k.id),
+    },
+    ...(k.revokedAt
+      ? [
+          {
+            key: "remove",
+            label: "Remove key…",
+            icon: <Trash2 className="h-4 w-4" />,
+            tone: "danger" as const,
+            separatorBefore: true,
+            disabled: busy,
+            onSelect: () => setPending({ kind: "remove", id: k.id, name: k.name }),
+          },
+        ]
+      : [
+          {
+            key: "revoke",
+            label: "Revoke key…",
+            icon: <Ban className="h-4 w-4" />,
+            tone: "danger" as const,
+            separatorBefore: true,
+            disabled: busy,
+            onSelect: () => setPending({ kind: "revoke", id: k.id, name: k.name }),
+          },
+        ]),
+  ];
+
   return (
-    <div className="mx-auto w-full max-w-[1440px] px-5 py-8 sm:px-7 lg:px-8 lg:py-10">
-      <header className="mb-7 flex flex-col gap-4 border-b border-edge/80 pb-6 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-4"><KeyRound className="h-3.5 w-3.5" /> Odoo Gateway</div>
-          <h1 className="text-[28px] font-bold tracking-[-0.04em] text-ink">Odoo integration</h1>
-          <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-3">Connect Odoo and manage its access credentials.</p>
-        </div>
-        {active > 0 ? (
-          <span className="text-[12px] font-semibold text-ink-3">{active} active</span>
-        ) : null}
-      </header>
+    <>
+      <PageHeader
+        eyebrow="Integration"
+        icon={<KeyRound className="h-4 w-4" />}
+        title="Odoo integration"
+        description="Credentials Odoo uses to submit documents to this Gateway, and the state of that connection."
+        meta={
+          active > 0 ? (
+            <StatusBadge tone={enabled > 0 ? "ok" : "warn"} label={`${active} active`} />
+          ) : (
+            <StatusBadge tone="neutral" label="Not connected" />
+          )
+        }
+      />
 
-      {error && <div className="mb-6 rounded-xl border border-bad-edge bg-bad-bg px-4 py-3 text-[13px] font-medium text-bad">{error}</div>}
-
-      {hasSubscription === false && (
-        <div className="mb-6 flex flex-col gap-3 rounded-xl border border-warn-edge bg-warn-bg px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-[13px] font-medium text-warn">
-            Choose a plan before connecting Odoo.
-          </p>
-          <Link
-            href="/billing"
-            className="inline-flex h-9 shrink-0 items-center justify-center rounded-[8px] bg-brand px-4 text-[12.5px] font-semibold text-brand-contrast transition hover:bg-brand-hover"
-          >
-            Choose a plan
-          </Link>
-        </div>
-      )}
-
-      <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="rounded-[14px] border border-edge bg-surface px-5 py-4 shadow-card">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Active keys</div>
-          <div className="mt-2 flex items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${active ? "bg-ok-solid" : "bg-ink-4"}`} />
-            <span className="text-[13px] font-semibold text-ink">{active ? active : "None"}</span>
-          </div>
-        </div>
-        <div className="rounded-[14px] border border-edge bg-surface px-5 py-4 shadow-card">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Odoo connections</div>
-          <div className="mt-2 flex items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${enabled > 0 ? "bg-ok-solid" : "bg-ink-4"}`} />
-            <span className="text-[13px] font-semibold text-ink">{active ? `${enabled} enabled · ${disabled} disabled` : "None"}</span>
-          </div>
-          
-        </div>
-        <div className="rounded-[14px] border border-edge bg-surface px-5 py-4 shadow-card">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">API access</div>
-          <div className="mt-2 flex items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${enabled > 0 ? "bg-ok-solid" : "bg-ink-4"}`} />
-            <span className="text-[13px] font-semibold text-ink">
-              {active === 0 ? "Not connected" : enabled === active ? "Integration read / write · All documents" : "Odoo integration disabled"}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {rawKey && (
-        <div className="mb-6 rounded-xl border border-brand-200 bg-brand-50 p-5 text-ink">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-[11px] font-bold uppercase tracking-widest text-brand">New API key — copy it now</div>
-              <div className="mt-2 rounded-[10px] border border-brand-200 bg-surface px-3 py-3 font-mono text-[13px] font-medium break-all text-ink shadow-sm">{rawKey}</div>
-            </div>
-            <Button variant="secondary" size="sm" onClick={async () => { if (await copyTextToClipboard(rawKey)) setCopied(true); }} icon={<Copy className="h-4 w-4" />}>{copied ? "Copied" : "Copy"}</Button>
-          </div>
-        </div>
-      )}
-
-      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.75fr)]">
+      <PageContainer>
         <div className="space-y-6">
-      <Card>
-        <CardHeader title="Connect Odoo" subtitle="Generate the credential used by Odoo to reach the Gateway." icon={<KeyRound className="h-4 w-4 text-brand" />} />
-        <form onSubmit={e => { e.preventDefault(); void generate(); }} className="px-5 pb-5 space-y-4">
-          <div className="flex gap-3">
-            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Odoo Production" className="h-9 flex-1" aria-label="Key name" />
-            <Button type="submit" variant="primary" loading={busy} disabled={busy || hasSubscription === false} size="sm" title={hasSubscription === false ? "Choose a plan first" : undefined}>Generate</Button>
-          </div>
-          <p className="text-[12px] text-ink-3">This API key has read/write access to the Odoo integration and all supported document payloads.</p>
-        </form>
-      </Card>
+          {error && (
+            <ErrorState
+              title="Credential operation failed"
+              message={error}
+              retry={() => {
+                setError(null);
+                void loadKeys().then(setKeys).catch(() => setError("Failed to load keys"));
+              }}
+            />
+          )}
 
-      <div className="mt-6 overflow-hidden rounded-[14px] border border-edge bg-surface">
-        <div className="border-b border-edge-subtle bg-surface-2 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink-3">API keys • {keys.length}</div>
-        {loading ? <div className="p-10 text-center text-[13px] text-ink-3">Loading…</div> : keys.length === 0 ? <div className="p-12 text-center text-[13px] font-medium text-ink-3">No keys.</div> : (
-          <div className="divide-y divide-edge-subtle">
-            {keys.map(k => (
-              <div key={k.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-surface-2">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[13px] font-semibold text-ink">{k.name}</span>
-                    <span className={`rounded-[8px] px-2 py-0.5 text-[10px] font-bold uppercase ${
-                      k.rotationState === "active"
-                        ? "border border-ok-edge bg-ok-bg text-ok"
-                        : k.rotationState === "retiring"
-                          ? "border border-warning-edge bg-warning-bg text-warning"
-                          : "border border-edge bg-surface-3 text-ink-3"
-                    }`}>{
-                      k.rotationState === "retiring"
-                        ? "Retiring"
-                        : k.rotationState === "revoked"
-                          ? "Revoked"
-                          : "Active"
-                    }</span>
-                  </div>
-                  <div className="mt-1 text-[11px] text-ink-3">
-                    {new Date(k.createdAt).toLocaleDateString()} • Last used {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : "Never"}
-                    {!k.revokedAt ? (
-                      <div className="mt-2 text-[11px] font-semibold text-ink-3">
-                        Odoo access: {k.odooEnabled ? "Enabled" : "Disabled"}
-                        {k.odooEnabledUpdatedAt ? ` · Synced ${new Date(k.odooEnabledUpdatedAt).toLocaleString()}` : ""}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-                {!k.revokedAt ? <Button variant="ghost" size="sm" onClick={() => setPending({ kind: "revoke", id: k.id, name: k.name })} disabled={busy}>Revoke</Button> : <Button variant="ghost" size="sm" className="text-ink-4" onClick={() => setPending({ kind: "remove", id: k.id, name: k.name })} disabled={busy}>Remove</Button>}
+          {hasSubscription === false && (
+            <Callout
+              tone="warn"
+              title="Choose a plan before connecting Odoo"
+              action={
+                <Button variant="primary" size="sm" href="/billing">
+                  Choose a plan
+                </Button>
+              }
+            >
+              Creating credentials is disabled until the workspace has a subscription.
+            </Callout>
+          )}
+
+          {rawKey && (
+            <Callout
+              tone="brand"
+              title="New API key — copy it now"
+              icon={<KeyRound className="h-4 w-4" aria-hidden />}
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => { if (await copyTextToClipboard(rawKey)) setCopied(true); }}
+                  icon={<Copy className="h-3.5 w-3.5" />}
+                >
+                  {copied ? "Copied" : "Copy key"}
+                </Button>
+              }
+            >
+              <div className="space-y-2">
+                <p>
+                  This is the only time the full credential is shown. Paste it into the Yaseir
+                  module settings in Odoo.
+                </p>
+                <code className="block select-all break-all rounded-md border border-edge bg-surface px-3 py-2 font-mono text-xs text-ink">
+                  {rawKey}
+                </code>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-        </div>
+            </Callout>
+          )}
 
-        <aside className="space-y-6">
-          <Card>
-            <CardHeader title="Connection flow" icon={<Shield className="h-4 w-4 text-ok" />} />
-            <div className="space-y-4 px-5 pb-5 text-[13px] text-ink-2">
-              {[
-                ["01", "Odoo connects", "Odoo uses this credential to reach the Gateway."],
-                ["02", "Gateway checks access", "The credential is checked against the workspace and active integration."],
-                ["03", "Agent prints locally", "The job is queued, routed, and executed by the right Windows Agent."],
-                ["04", "Rotate safely", "Create a replacement credential before revoking the old one."],
-              ].map(([step, title, body]) => <div key={step} className="flex gap-3"><span className="font-mono text-[11px] font-bold text-brand">{step}</span><div><div className="font-semibold text-ink">{title}</div><p className="mt-1 text-[12px] leading-relaxed text-ink-3">{body}</p></div></div>)}
+          <section aria-label="Integration summary" className="overflow-hidden rounded-xl border border-edge bg-surface shadow-card">
+            <div className="grid grid-cols-1 divide-y divide-edge-subtle sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              <div className="p-4">
+                <div className="label-caps">Active keys</div>
+                <div className="mt-1.5 text-2xl font-[640] leading-none tracking-[-0.02em] text-ink tabular">
+                  {loading ? "—" : active}
+                </div>
+                <div className="mt-1.5 text-xs text-ink-3">
+                  {active === 0 ? "No credential issued" : "Usable by Odoo right now"}
+                </div>
+              </div>
+              <div className="p-4">
+                <div className="label-caps">Odoo connections</div>
+                <div className="mt-1.5 text-2xl font-[640] leading-none tracking-[-0.02em] text-ink tabular">
+                  {loading ? "—" : enabled}
+                </div>
+                <div className="mt-1.5 text-xs text-ink-3">
+                  {active === 0 ? "Waiting for a key" : `${disabled} disabled at the source`}
+                </div>
+              </div>
+              <div className="p-4">
+                <div className="label-caps">Access level</div>
+                <div className="mt-1.5 flex items-center gap-2 text-md font-[600] text-ink">
+                  {active === 0 ? (
+                    <StatusBadge tone="neutral" label="Not connected" />
+                  ) : enabled === active ? (
+                    <StatusBadge tone="ok" label="Integration read / write · All documents" />
+                  ) : (
+                    <StatusBadge tone="warn" label="Integration disabled in Odoo" />
+                  )}
+                </div>
+                <div className="mt-1.5 text-xs text-ink-3">Scoped to this workspace only.</div>
+              </div>
             </div>
-          </Card>
-        </aside>
-      </div>
+          </section>
 
-      <Modal open={!!pending} onClose={() => setPending(null)} title={pending?.kind === "revoke" ? "Revoke key?" : "Remove key?"}>
-        <div className="text-[13px] text-ink-2">{pending?.name} — {pending?.kind === "revoke" ? "Odoo will lose access immediately." : "Permanent. Cannot be undone."}</div>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setPending(null)}>Cancel</Button>
-          <Button variant={pending?.kind === "revoke" ? "secondary" : "danger"} size="sm" onClick={() => void confirm()} loading={busy}>{pending?.kind === "revoke" ? "Revoke" : "Remove"}</Button>
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.85fr)]">
+            <div className="space-y-5">
+              <Card>
+                <CardHeader
+                  title="Connect Odoo"
+                  subtitle="Generate the credential Odoo uses to reach the Gateway."
+                  icon={<KeyRound className="h-4 w-4" />}
+                />
+                <form
+                  onSubmit={(e) => { e.preventDefault(); void generate(); }}
+                  className="space-y-4 px-5 py-5"
+                >
+                  <Field
+                    label="Credential name"
+                    htmlFor="key-name"
+                    hint="Name it after the Odoo environment so revocation is unambiguous."
+                  >
+                    <Input
+                      id="key-name"
+                      value={name}
+                      onChange={e => setName(e.target.value)}
+                      placeholder="Odoo Production"
+                      disabled={busy}
+                    />
+                  </Field>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="max-w-[52ch] text-sm leading-relaxed text-ink-3">
+                      Keys carry read/write access to the Odoo integration and every supported
+                      document payload.
+                    </p>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      loading={busy}
+                      disabled={busy || hasSubscription === false}
+                      icon={busy ? undefined : <Plus className="h-4 w-4" />}
+                      title={hasSubscription === false ? "Choose a plan first" : undefined}
+                    >
+                      {busy ? "Generating…" : "Generate key"}
+                    </Button>
+                  </div>
+                </form>
+              </Card>
+
+              <Card className="overflow-hidden">
+                <CardHeader
+                  title="Credentials"
+                  subtitle={`${keys.length} issued for this workspace`}
+                  icon={<ShieldCheck className="h-4 w-4" />}
+                />
+
+                {loading ? (
+                  <div className="space-y-3 px-5 py-5" role="status" aria-label="Loading credentials">
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} className="flex items-center justify-between gap-4">
+                        <div className="space-y-2">
+                          <Skeleton className="h-3.5 w-40" />
+                          <Skeleton className="h-2.5 w-56" />
+                        </div>
+                        <Skeleton className="h-8 w-20" />
+                      </div>
+                    ))}
+                    <span className="sr-only">Loading credentials…</span>
+                  </div>
+                ) : keys.length === 0 ? (
+                  <EmptyState
+                    icon={<KeyRound className="h-5 w-5" />}
+                    title="No credentials yet"
+                    description="Generate a key, then paste it into the Yaseir module settings in Odoo to start submitting documents."
+                  />
+                ) : (
+                  <ul className="divide-y divide-edge-subtle">
+                    {keys.map(k => {
+                      const rotation = rotationMeta(k);
+                      return (
+                        <li
+                          key={k.id}
+                          className="flex flex-wrap items-start justify-between gap-3 px-5 py-4 transition-colors duration-[140ms] hover:bg-surface-hover"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-[600] text-ink">{k.name}</span>
+                              <StatusBadge tone={rotation.tone} label={rotation.label} size="sm" />
+                              {!k.revokedAt && (
+                                <StatusBadge
+                                  tone={k.odooEnabled ? "ok" : "warn"}
+                                  label={k.odooEnabled ? "Odoo enabled" : "Odoo disabled"}
+                                  size="sm"
+                                />
+                              )}
+                            </div>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
+                              <span>Created {new Date(k.createdAt).toLocaleDateString()}</span>
+                              <span aria-hidden>·</span>
+                              <span>
+                                Last used {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : "never"}
+                              </span>
+                              {k.odooEnabledUpdatedAt && (
+                                <>
+                                  <span aria-hidden>·</span>
+                                  <span>Synced {new Date(k.odooEnabledUpdatedAt).toLocaleString()}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          <Menu
+                            label={`Actions for ${k.name}`}
+                            items={keyMenu(k)}
+                            trigger={
+                              <span className="inline-flex h-8 items-center gap-1.5 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink">
+                                {k.revokedAt ? "Manage" : "Revoke"}
+                              </span>
+                            }
+                          />
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </Card>
+            </div>
+
+            <aside className="space-y-5">
+              <Card>
+                <CardHeader
+                  title="How the connection works"
+                  subtitle="Four steps from Odoo to paper."
+                  icon={<Workflow className="h-4 w-4" />}
+                />
+                <ol className="space-y-4 px-5 py-5">
+                  {[
+                    ["Odoo connects", "Odoo authenticates to the Gateway with this credential."],
+                    ["Gateway validates", "The key is checked against the workspace, subscription and integration state."],
+                    ["Agent prints locally", "The job is queued, routed and executed by the Windows agent that owns the printer."],
+                    ["Rotate safely", "Create the replacement key first, confirm it works, then revoke this one."],
+                  ].map(([title, body], index) => (
+                    <li key={title} className="flex gap-3">
+                      <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-edge bg-surface-2 text-2xs font-[650] text-ink-3 tabular">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-sm font-[600] text-ink">{title}</div>
+                        <p className="mt-0.5 text-sm leading-relaxed text-ink-3">{body}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </Card>
+
+              <Callout tone="info" icon={<Info className="h-4 w-4" />} title="Keys are shown once">
+                Yaseir stores only a hash of each credential. If a key is lost, revoke it and issue a
+                replacement — the raw value cannot be recovered.
+              </Callout>
+
+              <div className="text-sm text-ink-3">
+                Need the module?{" "}
+                <Link href="/settings" className="font-[550] text-brand hover:underline">
+                  Review workspace settings
+                </Link>
+                .
+              </div>
+            </aside>
+          </div>
         </div>
+      </PageContainer>
+
+      <Modal
+        open={!!pending}
+        onClose={() => setPending(null)}
+        title={pending?.kind === "revoke" ? "Revoke this credential?" : "Remove this credential?"}
+        description={pending?.name}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setPending(null)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              variant={pending?.kind === "revoke" ? "primary" : "danger"}
+              onClick={() => void confirm()}
+              loading={busy}
+              disabled={busy}
+            >
+              {pending?.kind === "revoke" ? "Revoke key" : "Remove key"}
+            </Button>
+          </>
+        }
+      >
+        {pending?.kind === "revoke" ? (
+          <Callout tone="warn" title="Odoo loses access immediately">
+            Documents submitted with this key stop being accepted. Create a replacement key first if
+            you need uninterrupted printing.
+          </Callout>
+        ) : (
+          <Callout tone="bad" title="This cannot be undone">
+            The credential record is deleted permanently. Only revoked keys can be removed.
+          </Callout>
+        )}
       </Modal>
-    </div>
+    </>
   );
 }

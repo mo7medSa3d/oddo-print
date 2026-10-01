@@ -75,10 +75,11 @@ describe("deep production review contracts", () => {
   it("redacts claim credentials before timeline persistence and logging", () => {
     const timeline = read("src/lib/job-timeline.ts");
     const log = read("src/lib/log.ts");
-    expect(timeline).toContain("createHash");
-    expect(timeline).toContain("redactClaimId(input.claimId ?? ctx?.claimId)");
+    expect(timeline).toContain("redactClaimToken(input.claimId ?? ctx?.claimId)");
+    expect(timeline).not.toContain("createHash");
     expect(timeline).not.toContain("claimId: input.claimId ?? ctx?.claimId");
-    expect(log).toContain("redactClaimId(ctx.claimId)");
+    expect(log).toContain("createHash");
+    expect(log).toContain("redactClaimToken(ctx.claimId)");
   });
 
   it("keeps WebSocket global socket accounting exact when evicting a socket", () => {
@@ -158,7 +159,8 @@ describe("deep production review contracts", () => {
     expect((pollClaim.match(/\bstale_candidates\s+AS\s*\(/g) ?? []).length).toBe(1);
     expect((pollClaim.match(/\bqueued_candidates\s+AS\s*\(/g) ?? []).length).toBe(1);
     expect((pollClaim.match(/\bclaimable\s+AS\s*\(/g) ?? []).length).toBe(1);
-    expect((pollClaim.match(/pr\.last_seen_at >= now\(\) - make_interval/g) ?? []).length).toBe(3);
+    expect((pollClaim.match(/pr\.last_seen_at >= now\(\) - make_interval/g) ?? []).length).toBe(1);
+    expect((pollClaim.match(/\$\{printerEligibilityPredicate\}/g) ?? []).length).toBe(3);
   });
 
   it("keeps Agent heartbeat as observed telemetry and Manager-owned desired state", async () => {
@@ -180,7 +182,7 @@ describe("deep production review contracts", () => {
   it("redacts explicit claim correlation fields in the logger", () => {
     const source = read("src/lib/log.ts");
     expect(source).toContain('if (key === "claimId" || key === "claim_id")');
-    expect(source).toContain("redactClaimId(value)");
+    expect(source).toContain("redactClaimToken(value)");
   });
 
   it("scrubs legacy raw UUID claim ids from the timeline during migration", () => {

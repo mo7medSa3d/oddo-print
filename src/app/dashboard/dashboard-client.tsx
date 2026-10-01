@@ -10,8 +10,7 @@ import {
   setPrinterLifecycle,
 } from "../actions";
 import {
-  Activity,
-  Check,
+  AlertTriangle,
   CheckCircle2,
   Copy,
   PauseCircle,
@@ -26,24 +25,46 @@ import {
   Wifi,
   Usb,
   Layers,
-  AlertTriangle,
   RotateCcw,
   Eye,
   Trash2,
   Cpu,
   ShieldCheck,
+  Clock,
+  FileText,
+  Inbox,
+  KeyRound,
+  X,
+  ChevronRight,
+  MoreHorizontal,
+  Info,
+  ArrowUpRight,
 } from "lucide-react";
 import {
   Button,
   Card,
   CardHeader,
+  Field,
   Input,
   Select,
   StatusBadge,
   Mono,
-  Drawer,
   Modal,
   CopyButton,
+  IconButton,
+  Menu,
+  Progress,
+  EmptyState,
+  ErrorState,
+  Callout,
+  TableSkeleton,
+  Tabs,
+  SegmentedControl,
+  Avatar,
+  KeyValueList,
+  Tooltip,
+  type MenuItemSpec,
+  type Tone,
 } from "../../components/ui";
 import {
   agentLiveView,
@@ -125,6 +146,13 @@ function formatRelativeTime(dateInput: Date | string | null | undefined): string
   return `${diffDays}d ago`;
 }
 
+function formatAbsoluteTime(dateInput: Date | string | null | undefined): string {
+  if (!dateInput) return "—";
+  const date = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
+  if (isNaN(date.getTime())) return "—";
+  return date.toLocaleString();
+}
+
 class DashboardApiError extends Error {
   constructor(
     message: string,
@@ -183,6 +211,16 @@ function formatCountdown(expiresAt: Date | string | null | undefined): { text: s
   };
 }
 
+/**
+ * A job still owned by an agent. Operator reprint must not be offered for
+ * these: the Reprint route answers JOB_NOT_TERMINAL for anything in flight.
+ */
+const IN_FLIGHT_JOB_STATUSES = new Set(["queued", "claimed", "printing"]);
+
+function isJobInFlight(status: string): boolean {
+  return IN_FLIGHT_JOB_STATUSES.has(status.toLowerCase());
+}
+
 async function sendGatewayReprint(jobId: string): Promise<{ jobId?: string }> {
   const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/reprint`, {
     method: "POST",
@@ -198,13 +236,10 @@ async function sendGatewayReprint(jobId: string): Promise<{ jobId?: string }> {
   return { jobId: typeof body?.jobId === "string" ? body.jobId : undefined };
 }
 
-
 function upgradeLimitResourceForEntitlement(entitlement: unknown): UpgradeLimitResource | null {
   switch (entitlement) {
     case "max_agents": return "agents";
     case "max_printers": return "printers";
-    case "max_jobs_per_minute": return "rate";
-    case "max_concurrent_jobs": return "concurrency";
     case "max_prints_per_period": return "prints";
     default: return null;
   }
@@ -217,28 +252,22 @@ function upgradeLimitFromApiError(error: DashboardApiError): {
   periodEnd?: string | null;
   retryAfterSeconds?: number | null;
 } | null {
-  if (!error.details || typeof error.details !== "object") return null;
   const resource = upgradeLimitResourceForEntitlement(error.details.entitlement);
-  if (!resource || error.details.upgradeRequired !== true) return null;
+  if (!resource) return null;
   return {
     resource,
     used: typeof error.details.used === "number" ? error.details.used : null,
     limit: typeof error.details.limit === "number" || error.details.limit === "unlimited" ? error.details.limit : null,
     periodEnd: typeof error.details.periodEnd === "string" ? error.details.periodEnd : null,
-    retryAfterSeconds: resource === "rate" || resource === "concurrency" ? 60 : null,
+    retryAfterSeconds: typeof error.details.retryAfterSeconds === "number" ? error.details.retryAfterSeconds : null,
   };
 }
 
-/**
- * Server actions cannot transport thrown error details across the RSC boundary
- * (Next.js sanitizes them in a production build), so limit trips are returned as
- * a serializable signal. This maps that signal onto the same dialog state the
- * HTTP-error path uses, keeping one rendering contract for every surface.
- */
 function upgradeLimitFromLimitSignal(limit: {
   entitlement: string;
+  message: string;
   used?: number | null;
-  limit?: number | "unlimited" | null;
+  max?: number | "unlimited" | null;
   periodEnd?: string | null;
   retryAfterSeconds?: number | null;
 }): {
@@ -252,35 +281,92 @@ function upgradeLimitFromLimitSignal(limit: {
   if (!resource) return null;
   return {
     resource,
-    used: typeof limit.used === "number" ? limit.used : null,
-    limit: typeof limit.limit === "number" || limit.limit === "unlimited" ? limit.limit : null,
-    periodEnd: typeof limit.periodEnd === "string" ? limit.periodEnd : null,
-    retryAfterSeconds: typeof limit.retryAfterSeconds === "number" ? limit.retryAfterSeconds : null,
+    used: limit.used ?? null,
+    limit: limit.max ?? null,
+    periodEnd: limit.periodEnd ?? null,
+    retryAfterSeconds: limit.retryAfterSeconds ?? null,
   };
 }
 
-async function sendGatewayTestPage(printerId: string): Promise<{ jobId?: string; status?: string }> {
+async function sendGatewayTestPage(printerId: string): Promise<void> {
   const response = await fetch(`/api/printers/${encodeURIComponent(printerId)}/test-print`, {
     method: "POST",
+    credentials: "same-origin",
     headers: {
       "content-type": "application/json",
       "Idempotency-Key": generateIdempotencyKey(),
     },
-    credentials: "same-origin",
   });
-  let body: unknown = null;
-  try { body = await response.json(); } catch { body = null; }
-  if (!response.ok) {
-    const obj = body && typeof body === "object" ? body as Record<string, unknown> : {};
-    const code = typeof obj.code === "string" ? obj.code : "HTTP_ERROR";
-    const message = typeof obj.error === "string" ? obj.error : `Test page request failed (HTTP ${response.status}).`;
-    throw new DashboardApiError(message, code, obj);
-  }
+  const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+  if (response.ok) return;
   const obj = body && typeof body === "object" ? body as Record<string, unknown> : {};
-  return {
-    jobId: typeof obj.jobId === "string" ? obj.jobId : undefined,
-    status: typeof obj.status === "string" ? obj.status : undefined,
-  };
+  const code = typeof obj.code === "string" ? obj.code : "HTTP_ERROR";
+  const message = typeof obj.error === "string" ? obj.error : `Test page failed (HTTP ${response.status}).`;
+  throw new DashboardApiError(message, code, obj);
+}
+
+/* ---------- Local presentational helpers ---------- */
+
+function KpiCell({
+  label,
+  value,
+  meta,
+  tone,
+  progress,
+}: {
+  label: string;
+  value: React.ReactNode;
+  meta?: React.ReactNode;
+  tone?: Tone;
+  progress?: number;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 p-4">
+      <span className="label-caps">{label}</span>
+      <span className="text-2xl font-[640] leading-none tracking-[-0.02em] text-ink tabular">
+        {value}
+      </span>
+      <span className="flex min-h-[16px] items-center gap-1.5 text-xs text-ink-3">
+        {tone && (
+          <span
+            aria-hidden
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+              tone === "ok" ? "bg-ok-solid" : tone === "bad" ? "bg-bad-solid" : tone === "warn" ? "bg-warn-solid" : "bg-ink-4"
+            }`}
+          />
+        )}
+        {meta}
+      </span>
+      {typeof progress === "number" && <Progress value={progress} label={label} className="mt-0.5" />}
+    </div>
+  );
+}
+
+function PrinterLanguageChips({ printer }: { printer: Printer }) {
+  // deviceClass must not invent printer languages. The declared
+  // protocol/connection are authoritative (mirrors server-side routing).
+  // See getPrinterLanguageBadges in ../lib/printer-capability.
+  const badges = getPrinterLanguageBadges(printer.protocol ?? "", printer.connectionType ?? "");
+  if (badges.length === 0) return <span className="text-xs text-ink-4">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {badges.map((label) => (
+        <span
+          key={label}
+          className="rounded-xs border border-edge-subtle bg-surface-2 px-1.5 py-0.5 text-2xs font-[600] uppercase tracking-[0.02em] text-ink-3"
+        >
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function connectionIcon(connectionType: string) {
+  const c = connectionType.toLowerCase();
+  if (c === "usb") return <Usb className="h-3.5 w-3.5 text-ink-3" aria-hidden />;
+  if (c === "network" || c === "tcp") return <Wifi className="h-3.5 w-3.5 text-ink-3" aria-hidden />;
+  return <Layers className="h-3.5 w-3.5 text-ink-3" aria-hidden />;
 }
 
 export default function DashboardClient({
@@ -390,6 +476,7 @@ export default function DashboardClient({
   const [agentToDelete, setAgentToDelete] = useState<Agent | null>(null);
   const [pendingAgentAction, setPendingAgentAction] = useState<{ agent: Agent; next: "disabled" | "retired" } | null>(null);
   const [reprintCandidate, setReprintCandidate] = useState<Job | null>(null);
+  const [registerOpen, setRegisterOpen] = useState(false);
   const [upgradeLimit, setUpgradeLimit] = useState<{
     resource: UpgradeLimitResource;
     used?: number | null;
@@ -825,474 +912,648 @@ export default function DashboardClient({
     });
   }, [jobs, jobSearch]);
 
-  const getPrinterBadges = (printer: Printer) => {
-    // deviceClass must not invent printer languages. The declared
-    // protocol/connection are authoritative (mirrors server-side routing).
-    // See getPrinterLanguageBadges in ../lib/printer-capability.
-    const badges = getPrinterLanguageBadges(
-      printer.protocol ?? "",
-      printer.connectionType ?? "",
-    );
-    return badges.map((label) => ({ label }));
+  const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
+  const printerById = useMemo(() => new Map(printers.map((p) => [p.id, p])), [printers]);
+
+  const jobFilterTabs = ["all", "active", "queued", "success", "failed", "unknown", "expired"] as const;
+  const jobTabs =
+    jobStatusFilter === "all" || (jobFilterTabs as readonly string[]).includes(jobStatusFilter)
+      ? (jobFilterTabs as unknown as string[])
+      : [jobStatusFilter, ...jobFilterTabs];
+  const jobTabLabels: Record<string, string> = {
+    all: "All",
+    active: "In flight",
+    queued: "Queued",
+    success: "Delivered",
+    failed: "Failed",
+    unknown: "Unknown",
+    expired: "Expired",
   };
 
-  const getConnectionIcon = (connectionType: string) => {
-    const c = connectionType.toLowerCase();
-    if (c === "usb") return <Usb className="h-4 w-4 text-ink-3" aria-hidden="true" />;
-    if (c === "network" || c === "tcp") return <Wifi className="h-4 w-4 text-ink-3" aria-hidden="true" />;
-    return <Layers className="h-4 w-4 text-ink-3" aria-hidden="true" />;
+  const jobActions = (job: Job): MenuItemSpec[] => {
+    const outcome = deriveOutcome(job.status, job.error);
+    // Server rule (src/app/api/jobs/[id]/reprint/route.ts): reprint requires a
+    // terminal job AND rejects `success` with JOB_REPRINT_NOT_ALLOWED, because
+    // the document already printed. Offering it here would be a dead-end
+    // action that always fails, so success is excluded explicitly.
+    const canReprint = job.status.toLowerCase() !== "success" && !isJobInFlight(job.status);
+    return [
+      { key: "inspect", label: "Inspect details", icon: <Eye className="h-4 w-4" />, onSelect: () => setSelectedJob(job) },
+      {
+        key: "copy",
+        label: "Copy job ID",
+        icon: <Copy className="h-4 w-4" />,
+        onSelect: () => void copyTextToClipboard(job.id),
+      },
+      ...(canReprint
+        ? [
+            {
+              key: "reprint",
+              label: outcome === "unknown" ? "Reprint (verify printer first)…" : "Queue reprint…",
+              icon: <RotateCcw className="h-4 w-4" />,
+              separatorBefore: true,
+              onSelect: () => setReprintCandidate(job),
+            } as MenuItemSpec,
+          ]
+        : []),
+    ];
   };
+
+  const printerActions = (printer: Printer): MenuItemSpec[] => {
+    const active = printer.lifecycle === "active";
+    return [
+      {
+        key: "test",
+        label: "Send test page",
+        icon: <PlayCircle className="h-4 w-4" />,
+        disabled: busy || testingPrinterId !== null || !active,
+        onSelect: () => void handleGatewayTestPrint(printer.id, printer.name),
+      },
+      { key: "certify", label: "Run certification", icon: <ShieldCheck className="h-4 w-4" />, onSelect: () => setCertifyPrinter(printer) },
+      {
+        key: "copy",
+        label: "Copy printer ID",
+        icon: <Copy className="h-4 w-4" />,
+        onSelect: () => void copyTextToClipboard(printer.id),
+      },
+      {
+        key: "lifecycle",
+        label: active ? "Disable printer" : "Enable printer",
+        separatorBefore: true,
+        disabled: busy,
+        onSelect: () =>
+          void runAction(
+            () => setPrinterLifecycle(printer.id, active ? "disabled" : "active"),
+            active ? "Printer disabled." : "Printer enabled.",
+          ),
+      },
+    ];
+  };
+
+  const agentActions = (agent: Agent): MenuItemSpec[] => [
+    ...(agent.lifecycle === "active"
+      ? [
+          {
+            key: "disable",
+            label: "Disable agent…",
+            icon: <PauseCircle className="h-4 w-4" />,
+            disabled: busy,
+            onSelect: () => setPendingAgentAction({ agent, next: "disabled" as const }),
+          },
+        ]
+      : []),
+    ...(agent.lifecycle === "disabled"
+      ? [
+          {
+            key: "enable",
+            label: "Re-enable agent…",
+            icon: <PlayCircle className="h-4 w-4" />,
+            disabled: busy,
+            onSelect: () => setRegisterOpen(true),
+          },
+        ]
+      : []),
+    ...(agent.lifecycle !== "retired"
+      ? [
+          {
+            key: "retire",
+            label: "Retire agent…",
+            icon: <AlertTriangle className="h-4 w-4" />,
+            disabled: busy,
+            onSelect: () => setPendingAgentAction({ agent, next: "retired" as const }),
+          },
+        ]
+      : []),
+    {
+      key: "delete",
+      label: "Delete agent…",
+      icon: <Trash2 className="h-4 w-4" />,
+      tone: "danger" as const,
+      separatorBefore: true,
+      disabled: busy,
+      onSelect: () => setAgentToDelete(agent),
+    },
+  ];
+
+  const prints = billingUsage?.resources.prints;
+  const printsLimitReached = prints && prints.limit !== "unlimited" && prints.remaining !== "unlimited" && prints.remaining === 0;
+  const printsPercent =
+    prints && prints.limit !== "unlimited" ? (prints.used / Math.max(1, prints.limit)) * 100 : null;
+  const printerStatusOptions = useMemo(() => {
+    const agentMap = new Map(agents.map((a) => [a.id, a]));
+    const statuses = new Set<string>();
+    printers.forEach((p) => statuses.add(effectivePrinterStatus(p, agentMap.get(p.agentId), nowMs).toLowerCase()));
+    return ["all", ...Array.from(statuses).sort()];
+  }, [printers, agents, nowMs]);
+
+  const onlineAgentsLabel =
+    kpis.totalAgents === 0
+      ? "No agents registered"
+      : kpis.onlineAgents === kpis.totalAgents
+        ? "All agents reachable"
+        : `${kpis.totalAgents - kpis.onlineAgents} unreachable`;
+
+  const printerMetaLabel =
+    kpis.totalPrinters === 0
+      ? "No printers bound yet"
+      : kpis.onlinePrinters === kpis.totalPrinters
+        ? "All printers available"
+        : `${kpis.totalPrinters - kpis.onlinePrinters} unavailable`;
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] space-y-6 px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
-      <header className="flex flex-col gap-3 border-b border-edge/80 pb-5 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Workspace</div><h1 className="mt-1.5 text-[30px] font-bold tracking-[-0.035em] text-ink">Print console</h1><p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-ink-3">See what’s connected, what’s printing, and what needs attention.</p></div>
-          <span
-            className={`inline-flex h-6 items-center gap-1.5 rounded-[8px] border px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
-              databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-ok-edge bg-ok-bg text-ok"
-            }`}
-          >
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${databaseError ? "bg-bad-solid" : "bg-ok-solid"}`}
-              aria-hidden
-            />
-            {databaseError ? "Down" : "Live"}
-          </span>
+    <div className="space-y-6">
+      {/* ── Fleet summary ─────────────────────────────────────────── */}
+      <section
+        aria-label="Fleet summary"
+        className="overflow-hidden rounded-xl border border-edge bg-surface shadow-card"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge-subtle px-4 py-2.5">
+          <h2 className="label-caps">Fleet summary</h2>
+          <div className="flex items-center gap-2">
+            {/* Class order and tokens on the nominal pill are locked by
+                tests/theme-consistency.test.ts — keep the literal string. */}
+            {kpis.totalAgents > 0 && kpis.onlineAgents === kpis.totalAgents ? (
+              <span className="inline-flex items-center gap-1.5 border border-ok-edge bg-ok-bg text-ok rounded-sm px-2 py-0.5 text-2xs font-[600]">
+                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ok-solid" />
+                Fleet nominal
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-sm border border-warn-edge bg-warn-bg px-2 py-0.5 text-2xs font-[600] text-warn">
+                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-warn-solid" />
+                {kpis.totalAgents === 0 ? "Waiting for first agent" : onlineAgentsLabel}
+              </span>
+            )}
+            <Tooltip label="Refresh console data">
+              <IconButton label="Refresh console data" onClick={() => void refreshData()}>
+                <RefreshCw className="h-4 w-4" aria-hidden />
+              </IconButton>
+            </Tooltip>
+          </div>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => void refreshData()} icon={<RefreshCw className="h-4 w-4" />}>Refresh</Button>
-      </header>
 
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <div className="rounded-[13px] border border-edge bg-surface px-4 py-4 shadow-card transition-all duration-150 hover:-translate-y-px hover:border-edge-accent hover:shadow-md">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Agents</div>
-          <div className="mt-1 text-[20px] font-bold tracking-tight text-ink">{kpis.onlineAgents}<span className="text-ink-4">/{kpis.totalAgents}</span></div>
+        <div className="grid grid-cols-2 divide-x divide-y divide-edge-subtle sm:grid-cols-4 sm:divide-y-0">
+          <KpiCell
+            label="Agents online"
+            value={`${kpis.onlineAgents}/${kpis.totalAgents}`}
+            tone={kpis.totalAgents === 0 ? "neutral" : kpis.onlineAgents === kpis.totalAgents ? "ok" : "warn"}
+            meta={onlineAgentsLabel}
+          />
+          <KpiCell
+            label="Printers available"
+            value={`${kpis.onlinePrinters}/${kpis.totalPrinters}`}
+            tone={kpis.totalPrinters === 0 ? "neutral" : kpis.onlinePrinters === kpis.totalPrinters ? "ok" : "warn"}
+            meta={printerMetaLabel}
+          />
+          <KpiCell
+            label="Jobs in flight"
+            value={kpis.inFlightJobs}
+            tone={kpis.inFlightJobs > 0 ? "brand" : "neutral"}
+            meta="Queued or printing now"
+          />
+          <KpiCell
+            label="Delivery rate"
+            value={kpis.successRate === null ? "—" : `${kpis.successRate}%`}
+            tone={kpis.successRate === null ? "neutral" : kpis.successRate >= 95 ? "ok" : kpis.successRate >= 80 ? "warn" : "bad"}
+            meta={`${kpis.completedJobs} delivered of ${kpis.completedJobs + kpis.failedJobs + kpis.attentionJobs + kpis.expiredJobs} resolved`}
+            progress={kpis.successRate ?? undefined}
+          />
         </div>
-        <div className="rounded-xl border border-edge bg-surface px-4 py-3.5">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Printers</div>
-          <div className="mt-1 text-[20px] font-bold tracking-tight text-ink">{kpis.onlinePrinters}<span className="text-ink-4">/{kpis.totalPrinters}</span></div>
-        </div>
-        <div className="rounded-xl border border-edge bg-surface px-4 py-3.5">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Queue</div>
-          <div className="mt-1 text-[20px] font-bold tracking-tight text-ink">{kpis.inFlightJobs}</div>
-        </div>
-        <div className="rounded-xl border border-edge bg-surface px-4 py-3.5">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-ink-4">Delivered</div>
-          <div className="mt-1 text-[20px] font-bold tracking-tight text-ink">{kpis.successRate === null ? "—" : `${kpis.successRate}%`}</div>
-        </div>
+
+        {prints && (
+          <div className="flex flex-col gap-3 border-t border-edge-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="label-caps">Print credits</span>
+                <span className="text-sm font-[600] tabular text-ink">
+                  {prints.used.toLocaleString()}
+                  {prints.limit !== "unlimited" && (
+                    <span className="font-[500] text-ink-3"> / {prints.limit.toLocaleString()}</span>
+                  )}
+                </span>
+                {prints.limit === "unlimited" && <StatusBadge tone="ok" label="Unlimited" size="sm" />}
+                {printsLimitReached && <StatusBadge tone="bad" label="Limit reached" size="sm" />}
+              </div>
+              <p className="mt-0.5 text-xs text-ink-3">
+                {billingUsage?.plan?.name ? `${billingUsage.plan.name} · ` : ""}
+                {prints.periodEnd ? `Resets ${new Date(prints.periodEnd).toLocaleDateString()}` : "Current billing period"}
+              </p>
+            </div>
+            <div className="flex items-center gap-3 sm:shrink-0">
+              {printsPercent !== null && (
+                <Progress
+                  className="w-full sm:w-[180px]"
+                  value={printsPercent}
+                  tone={printsLimitReached ? "bad" : printsPercent >= 85 ? "warn" : "brand"}
+                  label="Print credit usage"
+                />
+              )}
+              <Button variant="ghost" size="sm" href="/billing" icon={<ArrowUpRight className="h-3.5 w-3.5" />}>
+                Manage plan
+              </Button>
+            </div>
+          </div>
+        )}
       </section>
 
+      {/* ── Notices ───────────────────────────────────────────────── */}
       {message && (
-        <div
-          role={message.type === "ok" ? "status" : "alert"}
-          className={`flex items-start justify-between gap-3 rounded-[12px] border px-4 py-3 text-[13px] shadow-card ${message.type === "ok" ? "border-ok-edge bg-ok-bg text-ok" : "border-bad-edge bg-bad-bg text-bad"
-            }`}
-        >
-          <div className="flex items-start gap-2.5">
-            {message.type === "ok" ? <Check className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
-            <span className="leading-relaxed">{message.text}</span>
-          </div>
-          <button onClick={() => setMessage(null)} className="shrink-0 text-[12px] font-semibold underline opacity-80 hover:opacity-100">
-            Dismiss
-          </button>
+        <div className="flex items-start gap-2">
+          <Callout
+            tone={message.type === "ok" ? "ok" : "bad"}
+            title={message.type === "ok" ? "Done" : "Action needed"}
+            className="flex-1"
+          >
+            {message.text}
+          </Callout>
+          <IconButton label="Dismiss message" onClick={() => setMessage(null)} className="mt-1">
+            <X className="h-4 w-4" aria-hidden />
+          </IconButton>
         </div>
       )}
 
       {billingUsageError && (
-        <div role="alert" className="rounded-[12px] border border-warn-edge bg-warn-bg px-4 py-3 text-[13px] text-warn">
-          Print usage is temporarily unavailable. Retry after the billing service recovers.
-        </div>
+        <Callout
+          tone="warn"
+          title="Print usage is temporarily unavailable"
+          action={
+            <Button variant="secondary" size="sm" onClick={() => void refreshBillingUsage()}>
+              Retry
+            </Button>
+          }
+        >
+          Print credits and plan limits could not be loaded. Printing is unaffected.
+        </Callout>
       )}
 
-      {billingUsage?.resources.prints && (
-        <section className="rounded-[12px] border border-edge bg-surface px-4 py-3.5 shadow-card" aria-label="Print usage">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-4">Print credits</div>
-              <div className="mt-1 text-[13px] font-semibold text-ink">
-                {billingUsage.resources.prints.limit === "unlimited"
-                  ? `${billingUsage.resources.prints.used.toLocaleString()} jobs this period`
-                  : `${billingUsage.resources.prints.used.toLocaleString()} / ${billingUsage.resources.prints.limit.toLocaleString()} jobs`}
-              </div>
-            </div>
-            {billingUsage.resources.prints.limit !== "unlimited" && (
-              <div className="min-w-[220px]">
-                <div className="h-1.5 w-full overflow-hidden rounded-[8px] bg-surface-3">
-                  <div
-                    className={`h-full rounded-[8px] transition-all ${billingUsage.resources.prints.remaining === 0 ? "bg-bad-solid" : "bg-brand"}`}
-                    style={{ width: `${Math.min(100, Math.max(0, (billingUsage.resources.prints.used / Math.max(1, billingUsage.resources.prints.limit)) * 100))}%` }}
-                  />
-                </div>
-                <div className="mt-1.5 text-right text-[10px] text-ink-4">
-                  {billingUsage.resources.prints.remaining === 0 ? "Limit reached" : `${billingUsage.resources.prints.remaining.toLocaleString()} remaining`}
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
+      {printsLimitReached && (
+        <Callout
+          tone="bad"
+          title="Print credit limit reached"
+          action={
+            <Button variant="primary" size="sm" href="/billing">
+              Upgrade plan
+            </Button>
+          }
+        >
+          New jobs submitted to the Gateway are rejected until the period resets or the plan is
+          upgraded.
+        </Callout>
       )}
 
-      {activePairing && (
-        <div className="rounded-[14px] border border-edge-accent bg-surface-accent px-5 py-4 shadow-card sm:px-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand">Agent pairing</span>
-                <span className="inline-flex items-center rounded-[8px] border border-edge bg-surface px-2.5 py-1 text-[10px] font-semibold tabular-nums text-ink-3">
-                  Expires in {countdownText}
-                </span>
-              </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2.5">
-                <code className="inline-flex min-h-11 items-center rounded-[10px] border border-edge bg-surface px-3.5 font-mono text-[22px] font-bold tracking-[0.24em] text-ink shadow-xs">
-                  {activePairing.code}
-                </code>
-                <Button variant="secondary" size="sm" onClick={() => copyPairingCode(activePairing.code)} icon={<Copy className="h-4 w-4" />}>
-                  {copiedCode ? "Copied" : "Copy code"}
-                </Button>
-              </div>
-              <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">Enter this code in the Windows Agent to pair this machine with the Gateway.</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Main workspace */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Agents */}
-        <Card className="lg:col-span-4 flex flex-col overflow-hidden">
-          <h3 className="sr-only">Agents</h3>
-          <CardHeader
-            title="Runtime Agents"
-            subtitle={`${kpis.onlineAgents} online of ${kpis.totalAgents}`}
-            icon={<Cpu className="h-4 w-4 text-brand" />}
-            actions={
-              <Button variant="ghost" size="sm" onClick={() => void refreshData()} icon={<RefreshCw className="h-3.5 w-3.5" />}>
-                Refresh
-              </Button>
-            }
-          />
-          <div className="flex-1 space-y-4 px-5 pb-5">
-            <form
-              className="rounded-[12px] border border-edge bg-surface-2 p-3.5"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!agentName.trim()) return;
-                void handleCreateAgent(agentName.trim());
-              }}
+      {activePairing && !registerOpen && (
+        <Callout
+          tone="brand"
+          icon={<Cpu className="h-4 w-4" aria-hidden />}
+          title={`Pairing code ${activePairing.code}`}
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void copyPairingCode(activePairing.code)}
+              icon={<Copy className="h-3.5 w-3.5" />}
             >
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Register new agent</div>
-              <div className="mt-2.5 flex gap-2">
-                <Input value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="e.g. Warehouse-PC-01" disabled={busy || databaseError !== null} required maxLength={200} className="h-9" />
-                <Button type="submit" variant="primary" size="sm" disabled={busy || !agentName.trim() || databaseError !== null} icon={<Plus className="h-4 w-4" />}>
-                  Pair
-                </Button>
-              </div>
-            </form>
+              {copiedCode ? "Copied" : "Copy code"}
+            </Button>
+          }
+        >
+          Enter this code in the Yaseir agent installer on the Windows host. It expires in{" "}
+          <span className="font-[600] tabular text-ink">{countdownText}</span>.
+        </Callout>
+      )}
 
-            <div className="space-y-2.5">
-              {agents.length === 0 ? (
-                <div className="rounded-[12px] border border-dashed border-edge p-8 text-center">
-                  <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-surface-2 text-ink-3">
-                    <Cpu className="h-5 w-5" />
-                  </div>
-                  <div className="mt-3 text-[13px] font-medium text-ink">No agents yet</div>
-                  <div className="mt-1 text-[12px] text-ink-3">Register your first edge machine to start printing.</div>
-                </div>
-              ) : (
-                agents.map((agent) => {
-                  const meta = agent.metadata as { hostname?: string; os?: string } | undefined;
-                  const view = agentLiveView(agent);
-                  return (
-                    <div key={agent.id} className="group rounded-[12px] border border-edge bg-surface p-4 transition-all hover:border-edge-strong hover:shadow-card">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-[14px] font-semibold tracking-[-0.01em] text-ink">{agent.name}</div>
-                          <div className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-3">
-                            <Mono className="truncate">{agent.id.slice(0, 12)}…</Mono>
-                            {meta?.os && <span>• {meta.os}</span>}
-                          </div>
-                        </div>
-                        <StatusBadge label={view.label} tone={view.tone} pulse={view.tone === "ok"} />
+      {/* ── Fleet ─────────────────────────────────────────────────── */}
+      <div className="grid gap-5 xl:grid-cols-12">
+        <Card className="xl:col-span-4">
+          {/* Heading literals ("Agents" / "Printers" / "Recent Print Jobs") are part of the
+              operator vocabulary contracts asserted by the integration suite. */}
+          <div className="flex flex-col gap-3 border-b border-edge-subtle px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface-2 text-ink-3">
+                <Server className="h-4 w-4" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <h3 className="truncate text-md font-[600] leading-snug tracking-[-0.012em] text-ink">Agents</h3>
+                <p className="mt-0.5 text-sm leading-snug text-ink-3">
+                  {kpis.onlineAgents} online of {kpis.totalAgents}
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setRegisterOpen(true)}
+              icon={<Plus className="h-3.5 w-3.5" />}
+              disabled={busy || databaseError !== null}
+              className="shrink-0"
+            >
+              Register agent
+            </Button>
+          </div>
+
+          {agents.length === 0 ? (
+            <EmptyState
+              icon={<Server className="h-5 w-5" />}
+              title="No agents registered"
+              description="An agent is the Windows service that owns your printers and executes jobs. Register one to issue a pairing code."
+              action={
+                <Button variant="primary" size="sm" onClick={() => setRegisterOpen(true)} icon={<Plus className="h-3.5 w-3.5" />}>
+                  Register agent
+                </Button>
+              }
+            />
+          ) : (
+            <ul className="divide-y divide-edge-subtle">
+              {agents.map((agent) => {
+                const view = agentLiveView(agent, nowMs);
+                const meta = agent.metadata as { hostname?: string; os?: string; version?: string } | undefined;
+                return (
+                  <li
+                    key={agent.id}
+                    className="flex items-start gap-3 px-4 py-3.5 transition-colors duration-[140ms] hover:bg-surface-hover"
+                  >
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-edge bg-surface-2 text-ink-3">
+                      <Server className="h-4 w-4" aria-hidden />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-[600] text-ink">{agent.name}</span>
+                        <StatusBadge tone={view.tone} label={view.label} size="sm" pulse={view.tone === "ok"} />
                       </div>
-                      <div className="mt-3 flex items-center justify-between border-t border-edge-subtle pt-3 text-[11px] text-ink-3">
-                        <span className="inline-flex items-center gap-1"><PrinterIcon className="h-3 w-3" /> {agent.printerCount} printers</span>
-                        <span>{formatRelativeTime(agent.lastSeenAt)}</span>
-                      </div>
-                      <div className="mt-3 flex items-center gap-1.5">
-                        {agent.lifecycle === "active" ? (
-                          <Button size="sm" variant="secondary" onClick={() => setPendingAgentAction({ agent, next: "disabled" })} disabled={busy} icon={<PauseCircle className="h-3.5 w-3.5" />}>
-                            Disable
-                          </Button>
-                        ) : agent.lifecycle === "disabled" ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={async () => {
-                              const result = (await runAction(() => setAgentLifecycle(agent.id, "active"))) as { pairingCode?: string | null } | undefined;
-                              if (result?.pairingCode) {
-                                setActivePairing({ code: result.pairingCode, expiresAt: new Date(Date.now() + 1000 * 60 * 10) });
-                                setMessage({
-                                  text: `Agent ${agent.name} re-enabled. Pair it within 10 minutes using the code below.`,
-                                  type: "ok",
-                                });
-                              }
-                            }}
-                            disabled={busy}
-                            icon={<PlayCircle className="h-3.5 w-3.5" />}
-                          >
-                            Re-enable
-                          </Button>
-                        ) : null}
-                        {agent.lifecycle !== "retired" && (
-                          <Button size="sm" variant="ghost" onClick={() => setPendingAgentAction({ agent, next: "retired" })} disabled={busy}>
-                            Retire
-                          </Button>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3">
+                        <span className="font-mono text-2xs">{agent.id.slice(0, 8)}</span>
+                        {meta?.hostname && (
+                          <>
+                            <span aria-hidden>·</span>
+                            <span className="truncate">{meta.hostname}</span>
+                          </>
                         )}
-                        <Button size="sm" variant="ghost" className="ml-auto text-bad hover:bg-bad-bg hover:text-bad" onClick={() => setAgentToDelete(agent)} disabled={busy} icon={<Trash2 className="h-3.5 w-3.5" />}>
-                          Delete
-                        </Button>
+                        {meta?.os && (
+                          <>
+                            <span aria-hidden>·</span>
+                            <span>{meta.os}</span>
+                          </>
+                        )}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3">
+                        <span>{agent.printerCount} printer{agent.printerCount === 1 ? "" : "s"}</span>
+                        <span aria-hidden>·</span>
+                        <span title={formatAbsoluteTime(agent.lastSeenAt)}>
+                          Heartbeat {formatRelativeTime(agent.lastSeenAt)}
+                        </span>
+                        {agent.lifecycle !== "active" && (
+                          <>
+                            <span aria-hidden>·</span>
+                            <span className="font-[550] capitalize text-warn">{agent.lifecycle}</span>
+                          </>
+                        )}
                       </div>
                     </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {agent.lifecycle === "disabled" && (
+                        <Button variant="secondary" size="sm" onClick={() => setRegisterOpen(true)} disabled={busy}>
+                          Re-enable
+                        </Button>
+                      )}
+                      <Menu
+                        label={`Actions for agent ${agent.name}`}
+                        items={agentActions(agent)}
+                        trigger={
+                          <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
+                            <MoreHorizontal className="h-4 w-4" aria-hidden />
+                          </span>
+                        }
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </Card>
 
-        {/* Printers */}
-        <Card className="lg:col-span-8 flex flex-col overflow-hidden">
-          <h3 className="sr-only">Printers</h3>
-          <CardHeader
-            title="Runtime Printers"
-            subtitle={`${kpis.onlinePrinters} online • ${filteredPrinters.length} shown`}
-            icon={<PrinterIcon className="h-4 w-4 text-brand" />}
-            actions={
-              <div className="flex items-center gap-1 rounded-[8px] border border-edge bg-surface-2 p-0.5">
-                <button type="button" aria-pressed={printerViewMode === "grid"} onClick={() => setPrinterViewMode("grid")} className={`rounded-[7px] p-1.5 transition ${printerViewMode === "grid" ? "bg-surface text-brand shadow-xs" : "text-ink-3 hover:text-ink"}`}>
-                  <LayoutGrid className="h-4 w-4" />
-                </button>
-                <button type="button" aria-pressed={printerViewMode === "table"} onClick={() => setPrinterViewMode("table")} className={`rounded-[7px] p-1.5 transition ${printerViewMode === "table" ? "bg-surface text-brand shadow-xs" : "text-ink-3 hover:text-ink"}`}>
-                  <List className="h-4 w-4" />
-                </button>
+        <Card className="xl:col-span-8">
+          <div className="flex flex-col gap-3 border-b border-edge-subtle px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface-2 text-ink-3">
+                <PrinterIcon className="h-4 w-4" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <h3 className="truncate text-md font-[600] leading-snug tracking-[-0.012em] text-ink">Runtime Printers</h3>
+                <p className="mt-0.5 text-sm leading-snug text-ink-3">
+                  {kpis.onlinePrinters} available of {kpis.totalPrinters}
+                </p>
               </div>
-            }
-          />
-          <div className="flex-1 space-y-4 px-5 pb-5">
-            <div className="flex flex-col gap-2.5 sm:flex-row">
+            </div>
+            <SegmentedControl
+              label="Printer view"
+              size="sm"
+              value={printerViewMode}
+              onChange={setPrinterViewMode}
+              options={[
+                { value: "grid", label: "Cards", icon: <LayoutGrid className="h-3.5 w-3.5" /> },
+                { value: "table", label: "Table", icon: <List className="h-3.5 w-3.5" /> },
+              ]}
+            />
+          </div>
+
+          {printers.length > 0 && (
+            <div className="flex flex-col gap-2.5 border-b border-edge-subtle px-4 py-3 sm:flex-row sm:items-center">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" />
-                <Input className="pl-9 h-9" placeholder="Search printers…" value={printerSearch} onChange={(e) => setPrinterSearch(e.target.value)} />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
+                <Input
+                  type="search"
+                  value={printerSearch}
+                  onChange={(e) => setPrinterSearch(e.target.value)}
+                  placeholder="Search printers…"
+                  aria-label="Search printers"
+                  className="pl-9"
+                />
               </div>
-              <Select value={printerStatusFilter} onChange={(e) => setPrinterStatusFilter(e.target.value)} className="sm:w-[148px]">
-                <option value="all">All status</option>
-                <option value="online">Online</option>
-                <option value="offline">Offline</option>
-                <option value="busy">Busy</option>
+              <Select
+                aria-label="Filter printers by status"
+                value={printerStatusFilter}
+                onChange={(e) => setPrinterStatusFilter(e.target.value)}
+                className="sm:w-[190px]"
+              >
+                {printerStatusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {status === "all" ? "All statuses" : printerLabel(status)}
+                  </option>
+                ))}
               </Select>
             </div>
+          )}
 
-            {filteredPrinters.length === 0 ? (
-              <div className="rounded-[12px] border border-dashed border-edge p-10 text-center">
-                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-surface-2 text-ink-3">
-                  <PrinterIcon className="h-5 w-5" />
-                </div>
-                <div className="mt-3 text-[13px] text-ink-3">No printers match. Check agent connectivity.</div>
-              </div>
-            ) : printerViewMode === "grid" ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {filteredPrinters.map((printer) => {
-                  const caps = getPrinterBadges(printer);
-                  const parentAgent = agents.find((a) => a.id === printer.agentId);
-                  const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs);
-                  return (
-                    <div key={printer.id} className="group flex flex-col justify-between rounded-[12px] border border-edge bg-surface p-4 transition-all hover:border-edge-strong hover:shadow-card">
-                      <div>
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="truncate text-[14px] font-semibold text-ink">{printer.name}</div>
-                            <div className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-3">
-                              {getConnectionIcon(printer.connectionType)}
-                              <span className="capitalize">{printer.connectionType}</span>
-                              <span>•</span>
-                              <Mono className="truncate">{printer.id.slice(0, 10)}</Mono>
-                            </div>
-                          </div>
-                          <StatusBadge label={printerLabel(effStatus)} tone={sharedPrinterTone(effStatus)} />
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-1">
-                          {caps.map((c, i) => (
-                            <span key={i} className="rounded-[6px] border border-edge bg-surface-2 px-2 py-0.5 text-[10px] font-semibold text-ink-2">{c.label}</span>
-                          ))}
+          {printers.length === 0 ? (
+            <EmptyState
+              icon={<PrinterIcon className="h-5 w-5" />}
+              title="No printers discovered yet"
+              description="Printers announce themselves to the Gateway when the agent that owns them connects. Register an agent first."
+            />
+          ) : filteredPrinters.length === 0 ? (
+            <EmptyState
+              icon={<Search className="h-5 w-5" />}
+              title="No printers match these filters"
+              description="Clear the search or switch the status filter to see all discovered printers."
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setPrinterSearch("");
+                    setPrinterStatusFilter("all");
+                  }}
+                >
+                  Clear filters
+                </Button>
+              }
+            />
+          ) : printerViewMode === "grid" ? (
+            <ul className="grid gap-3 p-4 sm:grid-cols-2">
+              {filteredPrinters.map((printer) => {
+                const parentAgent = agentById.get(printer.agentId);
+                const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs).toLowerCase();
+                const active = printer.lifecycle === "active";
+                return (
+                  <li
+                    key={printer.id}
+                    className="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-3.5 transition-colors duration-[140ms] hover:bg-surface-hover"
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-edge bg-surface-2 text-ink-3">
+                        <PrinterIcon className="h-4 w-4" aria-hidden />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-[600] text-ink">{printer.name}</div>
+                        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-3">
+                          {connectionIcon(printer.connectionType)}
+                          <span className="capitalize">{printer.connectionType}</span>
+                          {printer.protocol && (
+                            <>
+                              <span aria-hidden>·</span>
+                              <span className="uppercase">{printer.protocol}</span>
+                            </>
+                          )}
                         </div>
                       </div>
-                      <div className="mt-4 flex items-center justify-between border-t border-edge-subtle pt-3">
-                        <div className="flex items-center gap-1.5">
-                          <Button size="sm" variant="secondary" onClick={() => void handleGatewayTestPrint(printer.id, printer.name)} loading={testingPrinterId === printer.id} disabled={busy || testingPrinterId !== null || printer.lifecycle !== "active"} icon={<PlayCircle className="h-3.5 w-3.5" />}>
-                            {testingPrinterId === printer.id ? "Sending…" : "Send Test Page"}
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setCertifyPrinter(printer)} disabled={busy} icon={<ShieldCheck className="h-3.5 w-3.5" />}>
-                            Certify
-                          </Button>
-                        </div>
-                        {printer.lifecycle === "active" ? (
-                          <Button size="sm" variant="ghost" onClick={() => void runAction(() => setPrinterLifecycle(printer.id, "disabled"), "Printer disabled.")} disabled={busy}>
-                            Disable
-                          </Button>
-                        ) : (
-                          <Button size="sm" variant="ghost" onClick={() => void runAction(() => setPrinterLifecycle(printer.id, "active"), "Printer enabled.")} disabled={busy}>
-                            Enable
-                          </Button>
-                        )}
+                      <StatusBadge
+                        tone={sharedPrinterTone(effStatus)}
+                        label={printerLabel(effStatus)}
+                        size="sm"
+                        pulse={effStatus === "online"}
+                      />
+                    </div>
+
+                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                      <div className="min-w-0">
+                        <dt className="text-ink-4">Agent</dt>
+                        <dd className="truncate text-ink-2" title={parentAgent?.name}>
+                          {parentAgent?.name ?? "Unknown agent"}
+                        </dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-ink-4">Languages</dt>
+                        <dd className="mt-0.5">
+                          <PrinterLanguageChips printer={printer} />
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <div className="mt-auto flex items-center justify-between gap-2 border-t border-edge-subtle pt-3">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void handleGatewayTestPrint(printer.id, printer.name)}
+                        loading={testingPrinterId === printer.id}
+                        disabled={busy || testingPrinterId !== null || !active}
+                        icon={testingPrinterId === printer.id ? undefined : <PlayCircle className="h-3.5 w-3.5" />}
+                      >
+                        {testingPrinterId === printer.id ? "Sending…" : "Send Test Page"}
+                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setCertifyPrinter(printer)}
+                          icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                        >
+                          Certify
+                        </Button>
+                        <Menu
+                          label={`More actions for ${printer.name}`}
+                          items={printerActions(printer)}
+                          trigger={
+                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
+                              <MoreHorizontal className="h-4 w-4" aria-hidden />
+                            </span>
+                          }
+                        />
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-[12px] border border-edge">
-                <table className="w-full text-left text-[13px]">
-                  <thead className="border-b border-edge bg-surface-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
-                    <tr>
-                      <th className="px-4 py-2.5">Printer</th>
-                      <th className="px-4 py-2.5">Connection</th>
-                      <th className="px-4 py-2.5">Caps</th>
-                      <th className="px-4 py-2.5">Status</th>
-                      <th className="px-4 py-2.5 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-edge">
-                    {filteredPrinters.map((printer) => {
-                      const caps = getPrinterBadges(printer);
-                      const parentAgent = agents.find((a) => a.id === printer.agentId);
-                      const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs);
-                      return (
-                        <tr key={printer.id} className="hover:bg-surface-2/60 transition-colors">
-                          <td className="px-4 py-3">
-                            <div className="font-semibold text-ink text-[13px]">{printer.name}</div>
-                            <Mono className="text-[11px]">{printer.id.slice(0, 16)}</Mono>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="inline-flex items-center gap-1.5 capitalize text-ink-2">
-                              {getConnectionIcon(printer.connectionType)} {printer.connectionType}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-wrap gap-1">
-                              {caps.map((c, i) => (
-                                <span key={i} className="rounded border border-edge bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold">{c.label}</span>
-                              ))}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3"><StatusBadge label={printerLabel(effStatus)} tone={sharedPrinterTone(effStatus)} /></td>
-                          <td className="px-4 py-3 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <Button size="sm" variant="ghost" onClick={() => setCertifyPrinter(printer)} disabled={busy} icon={<ShieldCheck className="h-3.5 w-3.5" />}>
-                                Certify
-                              </Button>
-                              <Button size="sm" variant="secondary" onClick={() => void handleGatewayTestPrint(printer.id, printer.name)} loading={testingPrinterId === printer.id} disabled={busy || testingPrinterId !== null || printer.lifecycle !== "active"}>
-                                Test
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </Card>
-      </div>
-
-      {/* Jobs */}
-      <Card className="overflow-hidden">
-        <CardHeader
-          title="Recent Print Jobs"
-          subtitle="Queue, delivery status, and job history"
-          icon={<Server className="h-4 w-4 text-brand" />}
-          actions={<Button variant="secondary" size="sm" onClick={() => void refreshData()} icon={<RefreshCw className="h-3.5 w-3.5" />}>Refresh</Button>}
-        />
-        <div className="space-y-4 px-5 pb-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative w-full lg:w-[320px]">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" />
-              <Input className="pl-9 h-9" placeholder="Search jobs…" value={jobSearch} onChange={(e) => setJobSearch(e.target.value)} />
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { id: "all", label: "All" },
-                { id: "active", label: "In Flight" },
-                { id: "queued", label: "Queued" },
-                { id: "success", label: "Delivered" },
-                { id: "failed", label: "Failed" },
-                { id: "unknown", label: "Unknown" },
-                { id: "expired", label: "Expired" },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setJobStatusFilter(tab.id)}
-                  className={`rounded-[8px] px-3 py-1.5 text-[12px] font-semibold transition ${jobStatusFilter === tab.id ? "bg-brand text-white shadow-sm" : "bg-surface-2 text-ink-3 hover:text-ink hover:bg-surface-3 border border-edge"}`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {jobsError ? (
-            <div className="rounded-[12px] border border-bad-edge bg-bad-bg p-6 text-center" role="alert">
-              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] text-bad">
-                <AlertTriangle className="h-5 w-5" />
-              </div>
-              <div className="mt-3 text-[13px] font-semibold text-bad">{jobsError}</div>
-              <Button
-                size="sm"
-                variant="secondary"
-                className="mt-3"
-                onClick={() => setJobsRetryTick((tick) => tick + 1)}
-              >
-                <RefreshCw className="h-3.5 w-3.5" /> Retry
-              </Button>
-            </div>
-          ) : jobsLoading && filteredJobs.length === 0 ? (
-            <div className="rounded-[12px] border border-dashed border-edge p-10 text-center text-[13px] text-ink-3">Loading jobs…</div>
-          ) : filteredJobs.length === 0 ? (
-            <div className="rounded-[12px] border border-dashed border-edge p-10 text-center">
-              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-surface-2 text-ink-3">
-                <Server className="h-5 w-5" />
-              </div>
-              <div className="mt-3 text-[13px] text-ink-3">No jobs match filters.</div>
-            </div>
+                  </li>
+                );
+              })}
+            </ul>
           ) : (
-            <div className="overflow-x-auto rounded-[12px] border border-edge">
-              <table className="w-full text-left text-[13px]">
-                <thead className="sticky top-0 z-10 border-b border-edge bg-surface-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
+            <div className="overflow-x-auto">
+              <table className="data-table min-w-[720px]">
+                <caption className="sr-only">Printers bound to this workspace</caption>
+                <thead>
                   <tr>
-                    <th className="px-4 py-2.5">Job</th>
-                    <th className="px-4 py-2.5">Printer</th>
-                    <th className="px-4 py-2.5">Document</th>
-                    <th className="px-4 py-2.5">Status</th>
-                    <th className="px-4 py-2.5">Created</th>
-                    <th className="px-4 py-2.5 text-right">Action</th>
+                    <th scope="col">Printer</th>
+                    <th scope="col">Agent</th>
+                    <th scope="col">Connection</th>
+                    <th scope="col">Languages</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" className="w-[1%] text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-edge">
-                  {filteredJobs.map((job) => {
-                    const outcome = deriveOutcome(job.status, job.error);
+                <tbody>
+                  {filteredPrinters.map((printer) => {
+                    const parentAgent = agentById.get(printer.agentId);
+                    const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs).toLowerCase();
+                    const active = printer.lifecycle === "active";
                     return (
-                      <tr key={job.id} onClick={() => setSelectedJob(job)} tabIndex={0} className="cursor-pointer hover:bg-surface-2/60 transition-colors focus-visible:outline-none focus-visible:bg-surface-2">
-                        <td className="px-4 py-3"><Mono>{job.id.slice(0, 12)}</Mono></td>
-                        <td className="px-4 py-3"><Mono className="text-ink-2">{job.printerId.slice(0, 10)}</Mono></td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-ink text-[13px]">{job.destination || "Direct"}</div>
-                          <div className="text-[11px] text-ink-3">{job.documentType || "—"}</div>
+                      <tr key={printer.id}>
+                        <td>
+                          <div className="text-sm font-[550] text-ink">{printer.name}</div>
+                          <div className="mt-0.5 font-mono text-2xs text-ink-4">{printer.id.slice(0, 8)}</div>
                         </td>
-                        <td className="px-4 py-3"><StatusBadge label={jobLabel(job.status, outcome)} tone={sharedJobTone(job.status, outcome)} pulse={["printing", "claimed"].includes(job.status.toLowerCase())} /></td>
-                        <td className="px-4 py-3 text-[12px] text-ink-3">{formatRelativeTime(job.createdAt)}</td>
-                        <td className="px-4 py-3 text-right">
-                          <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelectedJob(job); }} icon={<Eye className="h-3.5 w-3.5" />}>Inspect</Button>
+                        <td className="text-sm text-ink-2">{parentAgent?.name ?? "—"}</td>
+                        <td>
+                          <div className="flex items-center gap-1.5 text-xs text-ink-2">
+                            {connectionIcon(printer.connectionType)}
+                            <span className="capitalize">{printer.connectionType}</span>
+                            {printer.protocol && <span className="uppercase text-ink-4">· {printer.protocol}</span>}
+                          </div>
+                        </td>
+                        <td>
+                          <PrinterLanguageChips printer={printer} />
+                        </td>
+                        <td>
+                          <StatusBadge tone={sharedPrinterTone(effStatus)} label={printerLabel(effStatus)} size="sm" />
+                        </td>
+                        <td className="text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => void handleGatewayTestPrint(printer.id, printer.name)}
+                              loading={testingPrinterId === printer.id}
+                              disabled={busy || testingPrinterId !== null || !active}
+                            >
+                              {testingPrinterId === printer.id ? "Sending…" : "Test page"}
+                            </Button>
+                            <Menu
+                              label={`More actions for ${printer.name}`}
+                              items={printerActions(printer)}
+                              trigger={
+                                <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
+                                  <MoreHorizontal className="h-4 w-4" aria-hidden />
+                                </span>
+                              }
+                            />
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1301,145 +1562,567 @@ export default function DashboardClient({
               </table>
             </div>
           )}
+        </Card>
+      </div>
+
+      {/* ── Recent print jobs ─────────────────────────────────────── */}
+      <Card className="overflow-hidden">
+        <CardHeader
+          title="Recent Print Jobs"
+          subtitle="Newest 100 jobs matching the current filters. Physical paper output is never assumed."
+          icon={<Layers className="h-4 w-4" />}
+        />
+
+        <div className="flex flex-col gap-3 border-b border-edge-subtle px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+          <Tabs
+            tabs={jobTabs as readonly string[]}
+            active={jobStatusFilter}
+            onChange={setJobStatusFilter}
+            labels={jobTabLabels}
+            className="min-w-0"
+          />
+          <div className="flex items-center gap-2 lg:shrink-0">
+            <div className="relative flex-1 lg:w-[240px]">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
+              <Input
+                type="search"
+                value={jobSearch}
+                onChange={(e) => setJobSearch(e.target.value)}
+                placeholder="Search job, printer or document…"
+                aria-label="Search print jobs"
+                className="pl-9"
+              />
+            </div>
+          </div>
         </div>
+
+        {jobsLoading && jobs.length === 0 ? (
+          <TableSkeleton rows={6} columns={5} />
+        ) : jobsError ? (
+          <div className="px-4 py-5">
+            <ErrorState
+              title="Print jobs unavailable"
+              message={jobsError}
+              retry={() => setJobsRetryTick((tick) => tick + 1)}
+            />
+          </div>
+        ) : filteredJobs.length === 0 ? (
+          <EmptyState
+            icon={<Inbox className="h-5 w-5" />}
+            title={jobs.length === 0 ? "No print jobs yet" : "No jobs match these filters"}
+            description={
+              jobs.length === 0
+                ? "Jobs appear here the moment the Gateway admits them — from Odoo, the API or a test page."
+                : "Try another status tab or clear the search term."
+            }
+            action={
+              jobs.length === 0 ? (
+                <Button variant="secondary" size="sm" href="/api-keys" icon={<KeyRound className="h-3.5 w-3.5" />}>
+                  Connect Odoo
+                </Button>
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setJobSearch("");
+                    setJobStatusFilter("all");
+                  }}
+                >
+                  Clear filters
+                </Button>
+              )
+            }
+          />
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="data-table min-w-[860px]">
+                <caption className="sr-only">Recent print jobs</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Job</th>
+                    <th scope="col">Printer</th>
+                    <th scope="col">Document</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" className="text-right">Created</th>
+                    <th scope="col" className="w-[1%] text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredJobs.map((job) => {
+                    const outcome = deriveOutcome(job.status, job.error);
+                    const printer = printerById.get(job.printerId);
+                    return (
+                      <tr key={job.id}>
+                        <td>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedJob(job)}
+                            className="font-mono text-xs font-[600] text-brand transition-colors hover:text-brand-hover"
+                          >
+                            {job.id.slice(0, 8)}
+                          </button>
+                          <div className="mt-0.5 text-2xs text-ink-4">
+                            {job.deliveryAttempts ?? 0} attempt{(job.deliveryAttempts ?? 0) === 1 ? "" : "s"}
+                            {job.retries ? ` · ${job.retries} retr${job.retries === 1 ? "y" : "ies"}` : ""}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="text-sm text-ink-2">{printer?.name ?? "Unknown printer"}</div>
+                          <div className="mt-0.5 font-mono text-2xs text-ink-4">{job.printerId.slice(0, 8)}</div>
+                        </td>
+                        <td>
+                          <div className="max-w-[220px] truncate text-sm text-ink-2" title={job.destination ?? undefined}>
+                            {job.destination ?? "—"}
+                          </div>
+                          <div className="mt-0.5 text-2xs text-ink-4">
+                            {job.documentType?.replace(/_/g, " ") ?? "unknown type"}
+                          </div>
+                        </td>
+                        <td>
+                          <StatusBadge tone={sharedJobTone(job.status, outcome)} label={jobLabel(job.status, outcome)} size="sm" />
+                        </td>
+                        <td className="text-right text-sm text-ink-3" title={formatAbsoluteTime(job.createdAt)}>
+                          {formatRelativeTime(job.createdAt)}
+                        </td>
+                        <td className="text-right">
+                          <Menu
+                            label={`Actions for job ${job.id.slice(0, 8)}`}
+                            items={jobActions(job)}
+                            trigger={
+                              <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
+                                <MoreHorizontal className="h-4 w-4" aria-hidden />
+                              </span>
+                            }
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile list */}
+            <ul className="divide-y divide-edge-subtle md:hidden">
+              {filteredJobs.map((job) => {
+                const outcome = deriveOutcome(job.status, job.error);
+                const printer = printerById.get(job.printerId);
+                return (
+                  <li key={job.id} className="px-4 py-3.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedJob(job)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <span className="block truncate text-sm font-[550] text-ink">
+                          {job.destination ?? job.id.slice(0, 8)}
+                        </span>
+                        <span className="mt-0.5 block font-mono text-2xs text-ink-4">{job.id.slice(0, 8)}</span>
+                      </button>
+                      <StatusBadge tone={sharedJobTone(job.status, outcome)} label={jobLabel(job.status, outcome)} size="sm" />
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
+                      <span>{printer?.name ?? "Unknown printer"}</span>
+                      <span aria-hidden>·</span>
+                      <span title={formatAbsoluteTime(job.createdAt)}>{formatRelativeTime(job.createdAt)}</span>
+                      <span aria-hidden>·</span>
+                      <span>{job.documentType?.replace(/_/g, " ") ?? "unknown type"}</span>
+                    </div>
+                    <div className="mt-2.5 flex items-center gap-1.5">
+                      <Button size="sm" variant="secondary" onClick={() => setSelectedJob(job)} icon={<Eye className="h-3.5 w-3.5" />}>
+                        Inspect
+                      </Button>
+                      <Menu
+                        label={`Actions for job ${job.id.slice(0, 8)}`}
+                        items={jobActions(job)}
+                        trigger={
+                          <span className="inline-flex h-8 items-center gap-1 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2">
+                            More
+                            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                          </span>
+                        }
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+
+        {jobsLoading && jobs.length > 0 && (
+          <div className="border-t border-edge-subtle px-4 py-2 text-xs text-ink-3" role="status">
+            Refreshing job list…
+          </div>
+        )}
       </Card>
 
-      <Modal open={selectedJob !== null} onClose={() => setSelectedJob(null)} title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : "Job Details"} description="Delivery details" wide>
-        {selectedJob && (() => {
-          const outcome = deriveOutcome(selectedJob.status, selectedJob.error);
-          const isTerminal = ["success", "failed", "expired"].includes(selectedJob.status.toLowerCase());
-          return (
-            <div className="space-y-5">
-              <div className="flex items-center justify-between rounded-[12px] border border-edge bg-surface-2 p-4">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Current State</div>
-                  <div className="mt-1 text-[16px] font-bold text-ink">{jobLabel(selectedJob.status, outcome)}</div>
-                  {jobGuidance(selectedJob.status, outcome) && <p className="mt-1 max-w-md text-[12px] text-ink-3">{jobGuidance(selectedJob.status, outcome)}</p>}
-                </div>
-                <StatusBadge label={jobLabel(selectedJob.status, outcome)} tone={sharedJobTone(selectedJob.status, outcome)} pulse={["printing", "claimed"].includes(selectedJob.status.toLowerCase())} />
+      {/* ── Register agent ────────────────────────────────────────── */}
+      <Modal
+        open={registerOpen}
+        onClose={() => {
+          if (!busy) {
+            setRegisterOpen(false);
+            setActivePairing(null);
+            setCopiedCode(false);
+          }
+        }}
+        title={activePairing ? "Pair the agent" : "Register an agent"}
+        description={
+          activePairing
+            ? "Enter the pairing code on the Windows host to complete registration."
+            : "A pairing code binds one Windows host to this workspace."
+        }
+        footer={
+          activePairing ? (
+            <Button variant="primary" onClick={() => { setRegisterOpen(false); setActivePairing(null); setCopiedCode(false); }}>
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={() => setRegisterOpen(false)} disabled={busy}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                disabled={busy || agentName.trim().length < 2}
+                loading={busy}
+                onClick={() => void handleCreateAgent(agentName.trim())}
+              >
+                {busy ? "Generating code…" : "Generate pairing code"}
+              </Button>
+            </>
+          )
+        }
+      >
+        {activePairing ? (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-edge-accent bg-brand-subtle px-4 py-4">
+              <div className="label-caps text-brand-subtle-text">Pairing code</div>
+              <div className="mt-2 flex items-center gap-3">
+                <code className="select-all font-mono text-3xl font-[650] tracking-[0.12em] text-ink">
+                  {activePairing.code}
+                </code>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void copyPairingCode(activePairing.code)}
+                  icon={<Copy className="h-3.5 w-3.5" />}
+                >
+                  {copiedCode ? "Copied" : "Copy"}
+                </Button>
               </div>
-
-              {outcome === "unknown" && isTerminal && selectedJob.status.toLowerCase() !== "success" && (
-                <div className="rounded-[12px] border border-warn-edge bg-warn-bg p-4 space-y-3">
-                  <div className="flex items-start gap-2.5 text-warn">
-                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                    <div>
-                      <h4 className="text-[13px] font-bold">Outcome unknown — verify printer</h4>
-                      <p className="mt-1 text-[12px] leading-relaxed text-ink-2">Paper may have printed. Automatic retry paused to avoid duplicates. Check tray before reprinting.</p>
-                    </div>
-                  </div>
-                  <Button size="sm" variant="primary" onClick={() => setReprintCandidate(selectedJob)} disabled={busy} icon={<RotateCcw className="h-3.5 w-3.5" />}>Reprint…</Button>
-                </div>
-              )}
-
-              {selectedJob.status.toLowerCase() === "failed" && outcome === "not_printed" && (
-                <div className="rounded-[12px] border border-edge bg-surface-2 p-4 space-y-3">
-                  <p className="text-[12px] leading-relaxed text-ink-2">Failed before dispatch — safe to retry. Queues original document anew.</p>
-                  <Button size="sm" variant="secondary" onClick={() => setReprintCandidate(selectedJob)} disabled={busy} icon={<RotateCcw className="h-3.5 w-3.5" />}>Retry print…</Button>
-                </div>
-              )}
-
-              {selectedJob.error && (
-                <div className="rounded-[12px] border border-bad-edge bg-bad-bg p-4 space-y-1">
-                  <div className="flex items-center gap-2 text-[13px] font-semibold text-bad"><AlertTriangle className="h-4 w-4" />Execution Error</div>
-                  <p className="text-[11px] leading-relaxed font-mono break-all text-ink-2">{selectedJob.error}</p>
-                </div>
-              )}
-
-              <div className="rounded-[12px] border border-edge bg-surface divide-y divide-edge text-[12px]">
-                <div className="flex justify-between p-3"><span className="text-ink-3">Printer</span><Mono>{selectedJob.printerId}</Mono></div>
-                <div className="flex justify-between p-3"><span className="text-ink-3">Agent</span><Mono>{selectedJob.agentId}</Mono></div>
-                <div className="flex justify-between p-3"><span className="text-ink-3">Document</span><span className="font-semibold text-ink">{selectedJob.destination || "Direct"} · {selectedJob.documentType || "Standard"}</span></div>
-                <div className="flex justify-between p-3"><span className="text-ink-3">Retries</span><span className="font-semibold">{selectedJob.retries ?? 0}</span></div>
-                <div className="flex justify-between p-3"><span className="text-ink-3">Created</span><span>{new Date(selectedJob.createdAt).toLocaleString()}</span></div>
-                {selectedJob.deliveredAt && <div className="flex justify-between p-3"><span className="text-ink-3">Delivered</span><span>{new Date(selectedJob.deliveredAt).toLocaleString()}</span></div>}
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Job Timeline (Gateway→Spooler→Physical, claim redacted)</div>
-                {selectedJob && <JobTimeline jobId={selectedJob.id} />}
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Diagnostic Payload</span>
-                  <CopyButton value={(() => { const p = selectedJob.payload ?? selectedJobPayload; return p === undefined ? "" : stringifyDiagnosticPayload(p); })()} label="Copy" />
-                </div>
-                <div className="max-h-72 overflow-auto rounded-[12px] border border-edge bg-surface-2 p-3 font-mono text-[11px] leading-relaxed text-ink-2" aria-live="polite">
-                  {selectedJobPayloadLoading ? <span>Loading payload…</span> : <pre>{diagnosticPayloadPreview(stringifyDiagnosticPayload(selectedJob.payload ?? selectedJobPayload))}</pre>}
-                </div>
+              <div className="mt-2 flex items-center gap-2 text-sm text-ink-2">
+                <Clock className="h-3.5 w-3.5 text-ink-4" aria-hidden />
+                Expires in <span className="font-[600] tabular text-ink">{countdownText}</span>
               </div>
             </div>
-          );
-        })()}
+            <ol className="space-y-3">
+              {[
+                "Open the Yaseir Print Manager on the Windows host that owns the printer.",
+                "Enter this pairing code when the agent asks to pair.",
+                "Wait for the agent to appear as Online in this console.",
+              ].map((step, index) => (
+                <li key={step} className="flex gap-3 text-sm text-ink-2">
+                  <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-edge bg-surface-2 text-2xs font-[650] text-ink-3 tabular">
+                    {index + 1}
+                  </span>
+                  <span className="leading-relaxed">{step}</span>
+                </li>
+              ))}
+            </ol>
+            <Callout tone="info">
+              The code is single-use and expires automatically. Generating a new code invalidates
+              this one.
+            </Callout>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Field
+              label="Agent name"
+              htmlFor="agent-name"
+              hint="Use the machine’s hostname or the location it serves — this name appears in every job record."
+              required
+            >
+              <Input
+                id="agent-name"
+                value={agentName}
+                onChange={(e) => setAgentName(e.target.value)}
+                placeholder="Front desk – Berlin"
+                maxLength={80}
+                autoFocus
+                disabled={busy}
+              />
+            </Field>
+            <Callout tone="info" icon={<Info className="h-4 w-4" />}>
+              Registration issues a pairing code. The agent becomes active only after the Windows
+              service pairs with it.
+            </Callout>
+          </div>
+        )}
       </Modal>
 
+      {/* ── Job inspector ─────────────────────────────────────────── */}
+      <Modal
+        open={selectedJob !== null}
+        onClose={() => setSelectedJob(null)}
+        title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : "Job"}
+        description={selectedJob ? `${jobLabel(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error))} · created ${formatAbsoluteTime(selectedJob.createdAt)}` : undefined}
+        wide
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setSelectedJob(null)}>
+              Close
+            </Button>
+            {selectedJob && selectedJob.status.toLowerCase() !== "success" && !isJobInFlight(selectedJob.status) && (
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={() => {
+                  const job = selectedJob;
+                  setSelectedJob(null);
+                  setReprintCandidate(job);
+                }}
+                icon={<RotateCcw className="h-4 w-4" />}
+              >
+                {deriveOutcome(selectedJob.status, selectedJob.error) === "unknown"
+                  ? "Reprint (verify printer first)…"
+                  : "Queue reprint…"}
+              </Button>
+            )}
+          </>
+        }
+      >
+        {selectedJob && (
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge
+                tone={sharedJobTone(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error))}
+                label={jobLabel(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error))}
+              />
+              <span className="font-mono text-2xs text-ink-4">{selectedJob.id}</span>
+              <CopyButton value={selectedJob.id} label="Copy job ID" />
+            </div>
+
+            <p className="text-sm leading-relaxed text-ink-2">
+              {jobGuidance(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error))}
+            </p>
+
+            {deriveOutcome(selectedJob.status, selectedJob.error) === "unknown" && (
+              <Callout tone="warn" title="Verify the printer before reprinting">
+                Part or all of this job may already have printed. Automatic retry is paused to avoid
+                duplicate paper output.
+              </Callout>
+            )}
+
+            {selectedJob.error && (
+              <Callout tone="bad" title="Reported error">
+                <span className="break-words font-mono text-xs">{selectedJob.error}</span>
+              </Callout>
+            )}
+
+            <KeyValueList
+              rows={[
+                { label: "Printer", value: printerById.get(selectedJob.printerId)?.name ?? selectedJob.printerId },
+                { label: "Agent", value: agentById.get(selectedJob.agentId)?.name ?? selectedJob.agentId },
+                { label: "Document", value: selectedJob.documentType?.replace(/_/g, " ") ?? "—" },
+                { label: "Destination", value: selectedJob.destination ?? "—" },
+                { label: "Delivery attempts", value: String(selectedJob.deliveryAttempts ?? 0) },
+                { label: "Retries", value: String(selectedJob.retries ?? 0) },
+                { label: "Claimed", value: formatAbsoluteTime(selectedJob.claimedAt) },
+                { label: "Delivered to printer", value: formatAbsoluteTime(selectedJob.deliveredAt) },
+                { label: "Acknowledged", value: formatAbsoluteTime(selectedJob.ackedAt) },
+              ]}
+            />
+
+            <div>
+              <h3 className="mb-3 text-sm font-[600] text-ink">Timeline</h3>
+              <JobTimeline jobId={selectedJob.id} />
+            </div>
+
+            <details className="group rounded-lg border border-edge-subtle bg-surface-2">
+              <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-sm font-[550] text-ink-2">
+                <span className="inline-flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-ink-4" aria-hidden />
+                  Diagnostic payload
+                </span>
+                <ChevronRight className="h-4 w-4 text-ink-4 transition-transform duration-[160ms] group-open:rotate-90" aria-hidden />
+              </summary>
+              <div className="border-t border-edge-subtle p-3">
+                <div className="mb-2 flex justify-end">
+                  <CopyButton value={stringifyDiagnosticPayload(selectedJobPayload ?? selectedJob.payload)} label="Copy payload" />
+                </div>
+                <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-2xs leading-relaxed text-ink-2">
+                  {selectedJobPayloadLoading
+                    ? "Loading payload…"
+                    : diagnosticPayloadPreview(stringifyDiagnosticPayload(selectedJobPayload ?? selectedJob.payload))}
+                </pre>
+              </div>
+            </details>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Certify printer ───────────────────────────────────────── */}
       <Modal
         open={certifyPrinter !== null}
         onClose={() => setCertifyPrinter(null)}
         title={certifyPrinter ? `Certify ${certifyPrinter.name}` : "Printer Certification"}
-        description="Run a controlled real-print certification and review every stage of the delivery path."
+        description="Run a controlled real-print certification and record the physical result."
         wide
+        footer={
+          <Button variant="secondary" onClick={() => setCertifyPrinter(null)}>
+            Close
+          </Button>
+        }
       >
         {certifyPrinter && (
-          <PrintCertificationWizard key={certifyPrinter.id} printerId={certifyPrinter.id} />
+          <PrintCertificationWizard printerId={certifyPrinter.id} />
         )}
       </Modal>
 
+      {/* ── Reprint confirmation ──────────────────────────────────── */}
+      <Modal
+        open={reprintCandidate !== null}
+        onClose={() => setReprintCandidate(null)}
+        title="Queue a reprint?"
+        description="This creates a new physical print at the same printer."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setReprintCandidate(null)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => void confirmReprint()}
+              disabled={busy}
+              loading={busy}
+              icon={<RotateCcw className="h-4 w-4" />}
+            >
+              Queue reprint
+            </Button>
+          </>
+        }
+      >
+        {reprintCandidate && (
+          <div className="space-y-4">
+            <KeyValueList
+              rows={[
+                { label: "Job", value: <span className="font-mono text-xs">{reprintCandidate.id}</span> },
+                { label: "Printer", value: printerById.get(reprintCandidate.printerId)?.name ?? reprintCandidate.printerId },
+                { label: "Document", value: reprintCandidate.destination ?? "—" },
+                { label: "Original result", value: jobLabel(reprintCandidate.status, deriveOutcome(reprintCandidate.status, reprintCandidate.error)) },
+              ]}
+            />
+            {deriveOutcome(reprintCandidate.status, reprintCandidate.error) === "unknown" && (
+              <Callout tone="warn" title="Confirm the printer is clear">
+                The original job has an unknown physical outcome. Check the output tray before
+                queuing another copy.
+              </Callout>
+            )}
+            <Callout tone="info">A reprint consumes one additional print credit.</Callout>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Agent lifecycle confirmation ──────────────────────────── */}
+      <Modal
+        open={pendingAgentAction !== null}
+        onClose={() => setPendingAgentAction(null)}
+        title={pendingAgentAction?.next === "retired" ? "Retire this agent?" : "Disable this agent?"}
+        description={pendingAgentAction?.agent.name}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setPendingAgentAction(null)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              variant={pendingAgentAction?.next === "retired" ? "danger" : "primary"}
+              onClick={() => void confirmAgentAction()}
+              disabled={busy}
+              loading={busy}
+            >
+              {pendingAgentAction?.next === "retired" ? "Retire agent" : "Disable agent"}
+            </Button>
+          </>
+        }
+      >
+        {pendingAgentAction?.next === "disabled" ? (
+          <div className="space-y-4">
+            <Callout tone="warn" title="Printing stops on this host">
+              The agent’s credentials are revoked and its {pendingAgentAction.agent.printerCount}{" "}
+              printer(s) stop receiving jobs.
+            </Callout>
+            <p className="text-sm leading-relaxed text-ink-2">
+              Re-enabling requires pairing the machine again with a new code.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Callout tone="bad" title="Kept for audit history">
+              A retired agent cannot receive jobs again. Print history stays in the audit log.
+            </Callout>
+            <p className="text-sm leading-relaxed text-ink-2">
+              Retire an agent you will not use again; delete it only if you also need the record
+              gone.
+            </p>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Delete agent ──────────────────────────────────────────── */}
+      <Modal
+        open={agentToDelete !== null}
+        onClose={() => setAgentToDelete(null)}
+        title="Delete this agent?"
+        description={agentToDelete?.name}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setAgentToDelete(null)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={busy}
+              onClick={async () => {
+                if (!agentToDelete) return;
+                const id = agentToDelete.id;
+                await runAction(() => deleteAgent(id), "Agent deleted.");
+                setAgentToDelete(null);
+              }}
+              disabled={busy}
+              icon={<Trash2 className="h-4 w-4" />}
+            >
+              Delete agent
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4 text-sm text-ink-2">
+          <Callout tone="bad" title="This cannot be undone">
+            The agent must be offline. If you need the history, retire it instead of deleting.
+          </Callout>
+          <p>
+            Delete <strong className="font-[600] text-ink">{agentToDelete?.name}</strong>{" "}
+            <Mono>{agentToDelete?.id}</Mono>?
+          </p>
+        </div>
+      </Modal>
+
+      {/* ── Upgrade limit ─────────────────────────────────────────── */}
       <UpgradeLimitDialog
         open={upgradeLimit !== null}
         onClose={() => setUpgradeLimit(null)}
-        resource={upgradeLimit?.resource ?? "prints"}
-        used={upgradeLimit?.used}
-        limit={upgradeLimit?.limit}
-        periodEnd={upgradeLimit?.periodEnd}
-        retryAfterSeconds={upgradeLimit?.retryAfterSeconds}
+        resource={upgradeLimit?.resource ?? "agents"}
+        used={upgradeLimit?.used ?? null}
+        limit={upgradeLimit?.limit ?? null}
+        periodEnd={upgradeLimit?.periodEnd ?? null}
+        retryAfterSeconds={upgradeLimit?.retryAfterSeconds ?? null}
       />
-
-      <Modal open={Boolean(reprintCandidate)} onClose={() => { if (!busy) setReprintCandidate(null); }} title="Reprint this document?" description="Sends ORIGINAL document again.">
-        <div className="space-y-3 text-[13px] text-ink-2">
-          <p>Printer: <strong className="text-ink">{reprintCandidate?.printerId}</strong> · Doc: {reprintCandidate?.documentType || "standard"}</p>
-          {reprintCandidate && deriveOutcome(reprintCandidate.status, reprintCandidate.error) === "unknown" && (
-            <div className="rounded-[10px] border border-warn-edge bg-warn-bg p-3 text-[12px]">Unknown outcome — duplicate possible. Check printer first.</div>
-          )}
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="secondary" onClick={() => setReprintCandidate(null)} disabled={busy}>Cancel</Button>
-          <Button variant="danger" disabled={busy} loading={busy} onClick={() => void confirmReprint()} icon={<RotateCcw className="h-4 w-4" />}>Reprint</Button>
-        </div>
-      </Modal>
-
-      <Modal open={Boolean(pendingAgentAction)} onClose={() => { if (!busy) setPendingAgentAction(null); }} title={pendingAgentAction?.next === "retired" ? "Retire this agent?" : "Disable this agent?"} description={pendingAgentAction?.next === "retired" ? "Retirement is permanent, kept for audit." : "Disabling revokes credentials immediately."}>
-        <div className="space-y-3 text-[13px] text-ink-2">
-          {pendingAgentAction?.next === "disabled" ? (
-            <ul className="list-disc pl-5 text-[12px] space-y-1">
-              <li>Revokes secret — cannot reconnect.</li>
-              <li>Disables its {pendingAgentAction.agent.printerCount} printer(s).</li>
-              <li>Re-enabling needs fresh pairing code.</li>
-            </ul>
-          ) : (
-            <p className="text-[12px]">Retiring <strong className="text-ink">{pendingAgentAction?.agent.name}</strong> keeps history for auditing. Cannot be re-activated.</p>
-          )}
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="secondary" onClick={() => setPendingAgentAction(null)} disabled={busy}>Cancel</Button>
-          <Button variant={pendingAgentAction?.next === "retired" ? "danger" : "primary"} disabled={busy} loading={busy} onClick={async () => { await confirmAgentAction(); }}>{pendingAgentAction?.next === "retired" ? "Retire agent" : "Disable agent"}</Button>
-        </div>
-      </Modal>
-
-      <Modal open={Boolean(agentToDelete)} onClose={() => { if (!busy) setAgentToDelete(null); }} title="Delete Agent" description="Permanently removes this agent from Gateway.">
-        <div className="space-y-4 text-[13px] text-ink-2">
-          <div className="rounded-[12px] border border-bad-edge bg-bad-bg p-4 text-[12px]">
-            <div className="flex items-center gap-2 font-semibold text-bad"><AlertTriangle className="h-4 w-4" />Cannot be undone.</div>
-            <p className="mt-2 text-ink-2">Agent must be offline. Historical records may require retiring instead.</p>
-          </div>
-          <p>Delete <strong className="text-ink">{agentToDelete?.name}</strong> (<Mono>{agentToDelete?.id}</Mono>)?</p>
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="secondary" onClick={() => setAgentToDelete(null)} disabled={busy}>Cancel</Button>
-          <Button variant="danger" onClick={async () => { if (!agentToDelete) return; const id = agentToDelete.id; await runAction(() => deleteAgent(id), "Agent deleted."); setAgentToDelete(null); }} disabled={busy} loading={busy} icon={<Trash2 className="h-4 w-4" />}>Delete Agent</Button>
-        </div>
-      </Modal>
     </div>
   );
 }
