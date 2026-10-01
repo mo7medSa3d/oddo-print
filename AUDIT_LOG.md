@@ -448,3 +448,60 @@ why it matters / what to do, loading and empty states, and locale-aware
 numbers and dates. Every console term in it was verified against
 `src/i18n/messages/ar.ts` by script (35/35 match); addon terms were verified
 against `i18n/ar.po`.
+
+## 2026-10-02 — localization pass (console, desktop, Odoo addon)
+
+Committed as `67e1614`. Continues sub-task B (language / localization / RTL).
+All commands below were run locally; nothing was installed.
+
+| # | File | Change | Why | Evidence |
+|---|------|--------|-----|----------|
+| 1 | `src/i18n/messages/{en,ar}.ts` | Added `.zero` member to all 27 plural families (hand-written Arabic) | `Intl.PluralRules('ar')` selects `zero` for count 0 (English selects `other`), so `0 طابعات` rendered instead of `لا توجد طابعات`. `translateCount` only accepts a candidate present in the **English** catalog, so keys went into both. | `node -e` category probe: `categories ar: few,many,one,two,zero,other`; `ar.select(0)='zero'`, `en.select(0)='other'`. Post-fix audit: `plural families: 27 / missing .zero: 0` |
+| 2 | `src/i18n/react.tsx` | `resolved` gate: document-element effect early-returns until storage is read; `noopSetLocale` hoisted so the `useI18n` fallback stops rebuilding context each render | Pre-paint `LOCALE_INIT` sets `lang`/`dir`, then the mount effect clobbered `dir="rtl"` back to `ltr` for one frame | Source read of `src/app/layout.tsx` + `react.tsx:52-140` |
+| 3 | `src/app/layout.tsx` | `getServerLocale()` → `<html lang/dir>` and `I18nProvider initialLocale`; `metadata` → `generateMetadata()` with `meta.*` keys | Every first paint and all page metadata were English regardless of preference | `head -18 src/app/layout.tsx` |
+| 4 | `src/desktop/main.tsx` | `initialDesktopLocale()` reads storage at startup, passed as `initialLocale` | Desktop has no SSR, so reading storage during startup cannot mismatch; saves one English frame | `grep lifecycleLabel` / provider props |
+| 5 | `src/lib/lifecycle-labels.ts` (new) | `lifecycleLabel(t, value)` maps the `active\|disabled\|retired` enum to `lifecycle.*` keys; takes a `Translator` so it works in the console **and** the Vite desktop bundle | `lifecycle` is a DB enum (CHECK constraint in `src/db/schema.ts:130`), not copy | Imported by `src/app/actions.ts`, `src/desktop/pages/Printers.tsx` |
+| 6 | `src/app/actions.ts:209` | `{ state: agentLifecycle }` → `{ state: lifecycleLabel(t, agentLifecycle) }` | Raw enum interpolated into a sentence; untranslatable and worse in Arabic | grep of the throw site |
+| 7 | `src/desktop/pages/Printers.tsx:54` | `{p.lifecycle \|\| "active"}` → `{lifecycleLabel(t, p.lifecycle)}` | Raw English enum rendered as a table cell | grep of the cell |
+| 8 | `src/i18n/messages/ar.ts` | Normalised form-V verbs to diacritised spelling: `تحقق→تحقّق` (45), `تعذر→تعذّر`, `تأكد→تأكّد` | The same phrase appeared both ways (`auth.verify.checkEmail` vs `checkInbox`), which reads as sloppy to a native reader | Global replace proved safe by first asserting all 2079 keys are ASCII (no Arabic can occur outside a value). Post-check: `تحقق: 0, تحقّق: 68` |
+| 9 | `src/i18n/messages/ar.ts` | `status.printing` → `قيد الطباعة`; rewrote `errors.agentRetiredUndeletable`, `errors.agentHasHistory`, `errors.printerOwnerLifecycle` | Parallel structure with `status.queued`=`قيد الانتظار`; `تُفقد سجل المهام` and `بدلًا منه` were non-idiomatic | Manual review of the `status.*` and `errors.*` groups |
+| 10 | `odoo_addons/.../runtime_{agent,printer}_field.js` | `'offline'` → `labels.statusOffline`, `'generic'` → `labels.genericClass`, both behind `_t` | Two literals were still printed untranslated inside the OWL templates | `check-odoo-translations.py` → `453 entries / OK` |
+| 11 | `odoo_addons/print_gateway/i18n/ar.po` | Appended `msgid "generic"` / `msgid "offline"` (`عام` / `غير متصل`) | Required by #10 | `check-odoo-translations.py` OK |
+
+### Verification actually run
+
+```
+A. git state                 HEAD=3fee16b, 21 changed paths
+B. structural balance        20 files vs HEAD, brace/paren/bracket delta 0
+C. key references            19 files scanned, 0 unknown t()/tc() keys
+D. catalogs                  2105/2105 | set-equal True | order-equal True | dups 0
+E. plural audit              27 families, 0 missing .zero, 0 missing .other
+F. scripts/check-odoo-translations.py    OK: 453/453
+G. scripts/check-db-docs.py              OK: schema/migrations/docs in sync
+H. node --input-type=module --check      OK on both addon components
+```
+
+### UNVERIFIED — and why
+
+- `tsc`, `eslint`, `next build`, `vitest` — **no `node_modules`** in this
+  sandbox, and Node is **v22.22.3** while `package.json` requires `>=24.15.0`.
+  Installing is disallowed by the standing "never install" instruction.
+- `tests/test_final_security_hardening.py` — `ModuleNotFoundError: No module
+  named 'pytest'` (pytest absent).
+- `tests/resend-verification.test.ts:130` asserts the literal subject
+  `Verify your Yaseir account`. It cannot be executed here, but the English
+  catalog value is byte-identical to before the change, and the email path
+  falls back to English outside a request scope, so the assertion still holds.
+  Verified by mirroring `translate()` in Python for both locales:
+  `en -> "Verify your Yaseir account"`, `ar -> "تحقّق من حساب Yaseir"`,
+  URL interpolated untranslated.
+
+### Research URLs consulted this period
+
+- https://www.odoo.com/documentation/master/developer/reference/frontend/owl_components.html
+  — inline `xml` templates are **not** scanned for translations; strings must be
+  reachable by `_t` in JS. This is why #10 puts literals in `this.labels`.
+- https://www.odoo.com/documentation/19.0/developer/howtos/website_themes/translations.html
+  — `t-value`/`t-valuef` are not translatable; keep copy in `t-esc`.
+- https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/PluralRules
+  — plural categories per locale (basis for #1).
