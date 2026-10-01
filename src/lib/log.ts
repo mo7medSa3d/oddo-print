@@ -10,8 +10,9 @@ import { createHash, randomBytes } from "node:crypto";
 
 const SENSITIVE = /secret|password|passwd|token|authorization|cookie|api[_-]?key|payload|pairing/i;
 
-function redactClaimId(value: unknown): unknown {
+export function redactClaimToken(value: unknown): unknown {
   if (typeof value !== "string" || !value) return value;
+  if (/^claim_[0-9a-f]{12}$/i.test(value)) return value;
   return "claim_" + createHash("sha256").update(value, "utf8").digest("hex").slice(0, 12);
 }
 
@@ -56,7 +57,7 @@ function sanitize(fields: LogFields): LogFields {
   const out: LogFields = {};
   for (const [key, value] of Object.entries(fields)) {
     if (key === "claimId" || key === "claim_id") {
-      out[key] = redactClaimId(value);
+      out[key] = redactClaimToken(value);
       continue;
     }
     if (SENSITIVE.test(key)) {
@@ -88,7 +89,7 @@ function emit(level: "debug" | "info" | "warn" | "error", event: string, fields:
         agentId: ctx.agentId,
         printerId: ctx.printerId,
         attemptId: ctx.attemptId,
-        claimId: redactClaimId(ctx.claimId),
+        claimId: redactClaimToken(ctx.claimId),
         spoolerJobId: ctx.spoolerJobId,
       };
       // Remove undefined
