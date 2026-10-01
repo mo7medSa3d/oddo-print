@@ -55,14 +55,14 @@ export default function PlatformSubscriptionsPage() {
     <div className="space-y-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-edge-strong bg-surface-2 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
+          <div className="inline-flex items-center gap-2 rounded-[8px] border border-edge-strong bg-surface-2 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
             <ShieldAlert className="h-3.5 w-3.5" /> Control Plane • Billing
           </div>
           <h1 className="mt-4 flex items-center gap-2.5 text-[26px] font-bold tracking-[-0.02em] text-ink leading-tight">
             <CreditCard className="h-6 w-6 text-info" /> Subscriptions
           </h1>
         </div>
-        <button onClick={handleRefresh} disabled={loading} className="inline-flex items-center gap-2 rounded-full border border-edge-strong bg-surface-2 px-4 py-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink transition disabled:opacity-50">
+        <button onClick={handleRefresh} disabled={loading} className="inline-flex items-center gap-2 rounded-[8px] border border-edge-strong bg-surface-2 px-4 py-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink transition disabled:opacity-50">
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
         </button>
       </div>
@@ -91,7 +91,7 @@ export default function PlatformSubscriptionsPage() {
                   <td className="px-5 py-4"><div className="font-semibold text-ink text-[13px]">{s.tenantName}</div><div className="mt-1 font-mono text-[11px] text-ink-4">{s.tenantId}</div></td>
                   <td className="px-5 py-4 text-[12px] font-medium text-ink">{s.planName}</td>
                   <td className="px-5 py-4">
-                    {s.status === "active" ? <span className="inline-flex items-center gap-1.5 rounded-full border border-ok-edge bg-ok-bg px-2.5 py-1 text-[11px] font-medium text-ok"><CheckCircle className="h-3 w-3" /> Active</span> : s.status === "trialing" ? <span className="inline-flex items-center gap-1.5 rounded-full border border-edge-accent bg-brand-subtle px-2.5 py-1 text-[11px] font-medium text-brand-subtle-text"><Clock className="h-3 w-3" /> Trialing</span> : s.status === "past_due" ? <span className="inline-flex items-center gap-1.5 rounded-full border border-bad-edge bg-bad-bg px-2.5 py-1 text-[11px] font-medium text-bad"><AlertTriangle className="h-3 w-3" /> Past Due</span> : <span className="inline-flex items-center gap-1.5 rounded-full border border-edge-strong bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-ink-3">{s.status}</span>}
+                    {s.status === "active" ? <span className="inline-flex items-center gap-1.5 rounded-[8px] border border-ok-edge bg-ok-bg px-2.5 py-1 text-[11px] font-medium text-ok"><CheckCircle className="h-3 w-3" /> Active</span> : s.status === "trialing" ? <span className="inline-flex items-center gap-1.5 rounded-[8px] border border-edge-accent bg-brand-subtle px-2.5 py-1 text-[11px] font-medium text-brand-subtle-text"><Clock className="h-3 w-3" /> Trialing</span> : s.status === "past_due" ? <span className="inline-flex items-center gap-1.5 rounded-[8px] border border-bad-edge bg-bad-bg px-2.5 py-1 text-[11px] font-medium text-bad"><AlertTriangle className="h-3 w-3" /> Past Due</span> : <span className="inline-flex items-center gap-1.5 rounded-[8px] border border-edge-strong bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-ink-3">{s.status}</span>}
                   </td>
                   <td className="px-5 py-4 font-mono text-[11px] text-ink-3">{s.stripeCustomerId || "Unlinked (Trial)"}</td>
                   <td className="px-5 py-4 text-[11px] text-ink-3">{s.currentPeriodEnd ? new Date(s.currentPeriodEnd).toLocaleDateString() : "N/A"}</td>

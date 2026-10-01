@@ -21,7 +21,7 @@ export function StatusDot({ status, label }: { status: string; label?: string })
     "bg-ink-4";
   return (
     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-2">
-      <span className={cn("w-2 h-2 rounded-full", color)} />
+      <span className={cn("w-2 h-2 rounded-[8px]", color)} />
       {label ?? status}
     </span>
   );

@@ -40,7 +40,7 @@ func New(dbPath string) (*Queue, error) {
 	if dbPath == "" {
 		return nil, fmt.Errorf("queue db path is empty")
 	}
-	// A completely fresh Windows installation has no C:\ProgramData\YasserAgent
+	// A completely fresh Windows installation has no C:\ProgramData\YaseirAgent
 	// directory. Always create it before SQLite opens the database file.
 	dir := filepath.Dir(dbPath)
 	if dir == "" || dir == "." {

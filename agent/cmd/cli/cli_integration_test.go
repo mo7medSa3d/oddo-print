@@ -36,7 +36,7 @@ func TestCLICommandsAgainstStubGateway(t *testing.T) {
 
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "config.yaml")
-	binary := filepath.Join(tmp, "yasser-agent-cli")
+	binary := filepath.Join(tmp, "yaseir-agent-cli")
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
@@ -49,7 +49,7 @@ func TestCLICommandsAgainstStubGateway(t *testing.T) {
 	}
 
 	env := append([]string{}, os.Environ()...)
-	env = append(env, "YASSER_AGENT_ALLOW_INSECURE_HTTP=1")
+	env = append(env, "YASEIR_AGENT_ALLOW_INSECURE_HTTP=1")
 
 	run := func(args ...string) string {
 		t.Helper()

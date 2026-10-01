@@ -93,7 +93,7 @@ export async function POST(req: Request) {
   }
   const url = `${appBaseUrl(req)}/invite?token=${encodeURIComponent(raw)}`;
   try {
-    await sendTransactionalEmail({ to: email, subject: "You are invited to Yasser Print Manager", html: `<p>You have been invited to a Yasser Print Manager workspace.</p><p><a href="${url}">Accept invitation</a></p>`, text: `Accept invitation: ${url}` });
+    await sendTransactionalEmail({ to: email, subject: "You are invited to Yaseir Print Manager", html: `<p>You have been invited to a Yaseir Print Manager workspace.</p><p><a href="${url}">Accept invitation</a></p>`, text: `Accept invitation: ${url}` });
   } catch (error) {
     // Email delivery is an ambiguous external side effect: a provider timeout
     // or connection reset does not prove that the message was not accepted.

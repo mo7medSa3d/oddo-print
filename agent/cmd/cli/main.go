@@ -8,9 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/yasser-agent/agent/internal/agent"
-	"github.com/yasser-agent/agent/internal/config"
-	"github.com/yasser-agent/agent/internal/printer"
+	"github.com/yaseir-agent/agent/internal/agent"
+	"github.com/yaseir-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/printer"
 )
 
 func main() {
@@ -74,24 +74,24 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("Yasser Agent CLI")
+	fmt.Println("Yaseir Agent CLI")
 	fmt.Println("")
 	fmt.Println("Pairing (one-time):")
-	fmt.Println("  yasser-agent-cli.exe -pair <code> -server <url> [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe -pair <code> -server <url> [-config <path>]")
 	fmt.Println("  -server is required for pairing and must be http(s).")
 	fmt.Println("  Default config path:", config.DefaultConfigPath())
 	fmt.Println("")
 	fmt.Println("Gateway console (Agent-authenticated):")
-	fmt.Println("  yasser-agent-cli.exe gateway-request -method GET -path /api/printers [-config <path>]")
-	fmt.Println("  yasser-agent-cli.exe gateway-request -method GET -path /api/jobs?limit=50 [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe gateway-request -method GET -path /api/printers [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe gateway-request -method GET -path /api/jobs?limit=50 [-config <path>]")
 	fmt.Println("")
 	fmt.Println("Printer management:")
-	fmt.Println("  yasser-agent-cli.exe printers list [--json] [-config <path>]")
-	fmt.Println("  yasser-agent-cli.exe printers discover [--json] [-config <path>]")
-	fmt.Println("  yasser-agent-cli.exe printers test <printer-id> [-config <path>]")
-	fmt.Println("  yasser-agent-cli.exe printers add --name <name> --type <network|usb|spooler|ipp> --endpoint <ip:port|spooler_name> [--protocol raw|escpos|ipp|spooler] [--spooler-name <name>] [--id <id>] [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers list [--json] [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers discover [--json] [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers test <printer-id> [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers add --name <name> --type <network|usb|spooler|ipp> --endpoint <ip:port|spooler_name> [--protocol raw|escpos|ipp|spooler] [--spooler-name <name>] [--id <id>] [-config <path>]")
 	fmt.Println("    Optional: --device-class <thermal|laser|inkjet|label|unknown> --vid <hex> --pid <hex> --serial <serial> --enabled <true|false> --capabilities <json>")
-	fmt.Println("  yasser-agent-cli.exe printers remove <printer-id> [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers remove <printer-id> [-config <path>]")
 	fmt.Println("")
 	fmt.Println("Gateway inventory fields: id, name, printerType, deviceClass, connectionType, protocol, endpoint, spoolerName, status, capabilities")
 	fmt.Println("Examples:")
@@ -235,7 +235,7 @@ func handlePrintersDiscover(configPath string, jsonOutput bool) {
 	}
 	if len(printers) == 0 {
 		fmt.Println("No printers discovered. Try manual registration:")
-		fmt.Println("  yasser-agent-cli.exe printers add --name \"My Printer\" --type spooler --spooler-name \"HP LaserJet\"")
+		fmt.Println("  yaseir-agent-cli.exe printers add --name \"My Printer\" --type spooler --spooler-name \"HP LaserJet\"")
 	}
 }
 

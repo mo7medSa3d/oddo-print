@@ -4914,7 +4914,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "yasser-manager"
+name = "yaseir-manager"
 version = "1.0.0"
 dependencies = [
  "reqwest",

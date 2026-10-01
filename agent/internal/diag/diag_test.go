@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-const modulePrefix = "github.com/yasser-agent/agent"
+const modulePrefix = "github.com/yaseir-agent/agent"
 
 func TestCIPackageDiagnostics(t *testing.T) {
 	if os.Getenv("GITHUB_ACTIONS") != "true" {

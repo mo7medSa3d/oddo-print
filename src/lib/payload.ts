@@ -78,7 +78,7 @@ export function buildTestPrintPayload(printerName: string, agentName: string): P
   const safeAgent = String(agentName ?? "").replace(/[^\x20-\x7e]/g, "").slice(0, 60);
   const lines = [
     "\x1b\x40",
-    "Yasser Agent\n",
+    "Yaseir Agent\n",
     "Test Print\n",
     `Printer: ${safeName}\n`,
     `Agent: ${safeAgent}\n`,
@@ -118,7 +118,7 @@ export function buildTestPdfPayload(printerName: string, agentName: string): str
     "BT",
     "/F1 18 Tf",
     "50 720 Td",
-    "(YASSER TEST PAGE) Tj",
+    "(YASEIR TEST PAGE) Tj",
     "/F1 12 Tf",
     "0 -30 Td",
     `(Printer: ${safeName}) Tj`,
@@ -209,7 +209,7 @@ export function buildTestPrintPayloadForPrinter(
     const agent = safeZplField(agentName);
     const zpl = [
       "^XA",
-      "^FO50,50^A0N,36,36^FDYASSER TEST PAGE^FS",
+      "^FO50,50^A0N,36,36^FDYASEIR TEST PAGE^FS",
       "^FO50,100^GB700,2,2^FS",
       `^FO50,120^A0N,28,28^FDPrinter : ${name}^FS`,
       `^FO50,160^A0N,28,28^FDAgent   : ${agent}^FS`,
@@ -227,7 +227,7 @@ export function buildTestPrintPayloadForPrinter(
       "GAP 2 mm, 0 mm",
       "DIRECTION 1",
       "CLS",
-      'TEXT 50,40,"3",0,1,1,"YASSER TEST PAGE"',
+      'TEXT 50,40,"3",0,1,1,"YASEIR TEST PAGE"',
       `TEXT 50,80,"2",0,1,1,"Printer : ${name}"`,
       `TEXT 50,110,"2",0,1,1,"Agent   : ${agent}"`,
       `TEXT 50,140,"2",0,1,1,"Status  : OK | ${stamp}"`,
@@ -239,7 +239,7 @@ export function buildTestPrintPayloadForPrinter(
   if (byteProto === "raw") {
     const raw = [
       "================================",
-      "  YASSER TEST PAGE ",
+      "  YASEIR TEST PAGE ",
       "================================",
       `Printer : ${plainName}`,
       `Agent   : ${plainAgent}`,

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
 func TestIPPURLNormalization(t *testing.T) {

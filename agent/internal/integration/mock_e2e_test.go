@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yasser-agent/agent/internal/payload"
-	"github.com/yasser-agent/agent/internal/printer"
-	"github.com/yasser-agent/agent/internal/testutil"
+	"github.com/yaseir-agent/agent/internal/payload"
+	"github.com/yaseir-agent/agent/internal/printer"
+	"github.com/yaseir-agent/agent/internal/testutil"
 )
 
 // TestMockTCPPrinterE2E proves: Odoo-like payload → Gateway validation (payload.Parse) → Agent NetworkPrinter → TCP → captured bytes.

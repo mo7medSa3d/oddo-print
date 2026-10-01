@@ -20,7 +20,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
       return <StatusNotice tone="warn" icon={<AlertTriangle className="h-5 w-5" />} title="Gateway is unreachable" action={<Button variant="primary" onClick={s.checkHealth} icon={<Activity className="h-4 w-4" />}>Retry check</Button>}>{s.healthError ? `The gateway did not answer — ${s.healthError}` : "The gateway did not answer the last health check."}</StatusNotice>;
     }
     if (!s.isOnline) {
-      return <StatusNotice tone="warn" icon={<AlertTriangle className="h-5 w-5" />} title="Local agent is offline" action={<Button variant="primary" onClick={s.startAgent} icon={<Play className="h-4 w-4" />}>Start agent</Button>}>YasserAgent.exe is not running.</StatusNotice>;
+      return <StatusNotice tone="warn" icon={<AlertTriangle className="h-5 w-5" />} title="Local agent is offline" action={<Button variant="primary" onClick={s.startAgent} icon={<Play className="h-4 w-4" />}>Start agent</Button>}>YaseirAgent.exe is not running.</StatusNotice>;
     }
     if (offline > 0 || unknownPrinters > 0 || s.failedJobs > 0) {
       const parts: string[] = [];
@@ -37,7 +37,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
       {banner}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Agent" value={s.isOnline ? "Online" : "Offline"} sub={(s.agentStatus as Record<string, unknown> | null)?.note ? String((s.agentStatus as Record<string, unknown>).note) : s.isOnline ? "YasserAgent.exe running" : "Not running"} tone={s.isOnline ? "ok" : "bad"} icon={<Activity className="h-4 w-4" />} />
+        <StatCard label="Agent" value={s.isOnline ? "Online" : "Offline"} sub={(s.agentStatus as Record<string, unknown> | null)?.note ? String((s.agentStatus as Record<string, unknown>).note) : s.isOnline ? "YaseirAgent.exe running" : "Not running"} tone={s.isOnline ? "ok" : "bad"} icon={<Activity className="h-4 w-4" />} />
         <StatCard label="Gateway" value={s.gatewayUrl ? (s.gatewayConnected ? "Connected" : "Unreachable") : "Not configured"} sub={!s.gatewayUrl ? "Set URL in Settings" : s.gatewayConnected ? "Reachable" : "Failed last check"} tone={s.gatewayConnected ? "ok" : s.gatewayUrl ? "bad" : "neutral"} icon={<Server className="h-4 w-4" />} />
         <StatCard label="Printers" value={`${online} / ${shownPrinters.length}`} sub={offline > 0 ? `${offline} need attention` : "Online"} tone={shownPrinters.length > 0 && offline === 0 ? "ok" : shownPrinters.length === 0 ? "neutral" : "warn"} icon={<PrinterIcon className="h-4 w-4" />} />
         <StatCard label="Print jobs" value={String(s.pendingJobs)} sub={s.failedJobs > 0 ? `${s.failedJobs} failed` : "Pending"} tone={s.failedJobs > 0 ? "bad" : s.pendingJobs > 0 ? "info" : "neutral"} icon={<ClipboardList className="h-4 w-4" />} />
@@ -63,7 +63,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
                         <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-semibold text-ink">{p.name}</span><span className="block truncate text-[11px] text-ink-3">{humanType(p)} • {humanConnection(p)} • {printerEndpoint(p)}</span></span>
                       </button>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="hidden sm:inline-flex rounded-full border border-edge bg-surface-2 px-2 py-0.5 text-[10px] font-semibold text-ink-3">{badgeLabel}</span>
+                        <span className="hidden sm:inline-flex rounded-[8px] border border-edge bg-surface-2 px-2 py-0.5 text-[10px] font-semibold text-ink-3">{badgeLabel}</span>
                         <StatusBadge tone={printerTone(p.status)} label={labelPrinter(p.status)} />
                         <Button size="sm" variant="secondary" onClick={() => s.handleTest(p.id)} disabled={s.busy} icon={<Activity className="h-3 w-3 text-brand" />} title={`Test ${p.name}`}>Test</Button>
                       </div>

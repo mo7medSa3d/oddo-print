@@ -35,7 +35,7 @@ Single dashboard showing P0 must-close before Production and industry compliance
 - Driver Health Check: PASS — capability matrix driver field evidence-based
 - RAW vs Spooler/IPP distinction: PASS — printer-capability.ts, Win32 regression suite BLOCKED (requires Windows)
 - Fuzzing printer inputs: PASS — payload validation tests
-- Diagnostic Test Page: PASS — /api/printers/[id]/test-print, YASSER TEST PAGE no credentials
+- Diagnostic Test Page: PASS — /api/printers/[id]/test-print, YASEIR TEST PAGE no credentials
 - Offline Mode/Recovery Center: NOT IMPLEMENTED — queue durability exists
 - Secure Updater signed artifact: FAIL/BLOCKED — no updater config
 - Tauri Isolation: PASS — 21 caps least-privilege, origin check, method allowlist

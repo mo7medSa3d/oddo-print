@@ -192,7 +192,7 @@ export default function TeamPage() {
           <h1 className="mt-4 text-[28px] font-bold tracking-[-0.04em] text-ink">Team</h1>
           <p className="mt-2 text-[14px] leading-relaxed text-ink-3">Invite teammates and manage workspace access.</p>
         </div>
-        <div className="inline-flex w-fit max-w-full items-center gap-2 rounded-full border border-edge bg-surface-2 px-3 py-1.5 text-[12px] text-ink-3">
+        <div className="inline-flex w-fit max-w-full items-center gap-2 rounded-[8px] border border-edge bg-surface-2 px-3 py-1.5 text-[12px] text-ink-3">
           <Shield className="h-4 w-4 shrink-0" />
           <span className="truncate">{members.length} members • {invitations.length} pending</span>
         </div>

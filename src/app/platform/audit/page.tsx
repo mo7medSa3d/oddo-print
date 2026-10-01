@@ -47,12 +47,12 @@ export default function PlatformAuditPage() {
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-edge-strong bg-surface-2 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
+          <div className="inline-flex items-center gap-2 rounded-[8px] border border-edge-strong bg-surface-2 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
             <ShieldAlert className="h-3.5 w-3.5" /> Compliance • Immutable
           </div>
           <h1 className="mt-4 text-[26px] font-bold tracking-[-0.02em] text-ink leading-tight flex items-center gap-2.5"><Shield className="h-6 w-6 text-ok" /> System Audit Stream</h1>
         </div>
-        <button onClick={handleRefresh} disabled={loading} className="inline-flex items-center gap-2 rounded-full border border-edge-strong bg-surface-2 px-4 py-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink transition self-start sm:self-auto">
+        <button onClick={handleRefresh} disabled={loading} className="inline-flex items-center gap-2 rounded-[8px] border border-edge-strong bg-surface-2 px-4 py-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink transition self-start sm:self-auto">
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh stream
         </button>
       </div>
@@ -76,7 +76,7 @@ export default function PlatformAuditPage() {
                 <tr key={e.id} className="hover:bg-surface-hover transition">
                   <td className="px-5 py-3 text-ink-3 whitespace-nowrap tabular-nums">{new Date(e.createdAt).toLocaleString()}</td>
                   <td className="px-5 py-3"><span className="font-semibold text-ok">{e.action}</span></td>
-                  <td className="px-5 py-3 text-ink-2"><span className="inline-flex rounded-full border border-edge-strong bg-surface-2 px-2 py-0.5 text-[10px] font-sans mr-2 text-ink-3">{e.actorType}</span>{e.actorId || "N/A"}</td>
+                  <td className="px-5 py-3 text-ink-2"><span className="inline-flex rounded-[8px] border border-edge-strong bg-surface-2 px-2 py-0.5 text-[10px] font-sans mr-2 text-ink-3">{e.actorType}</span>{e.actorId || "N/A"}</td>
                   <td className="px-5 py-3"><div className="font-sans font-medium text-ink text-[12px]">{e.tenantName || e.tenantId || "Platform"}</div><div className="text-[10px] text-ink-4 font-mono">{e.tenantId ?? "—"}</div></td>
                   <td className="px-5 py-3 text-ink-4">{e.resourceType ? `${e.resourceType}: ${e.resourceId}` : "N/A"}</td>
                 </tr>

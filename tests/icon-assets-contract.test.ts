@@ -5,7 +5,7 @@ import { join } from "node:path";
 const root = process.cwd();
 const read = (file: string) => readFileSync(join(root, file), "utf8");
 
-describe("Yasser icon asset contract", () => {
+describe("Yaseir icon asset contract", () => {
   it("uses an Odoo module-root icon path", () => {
     const manifest = read("odoo_addons/print_gateway/__manifest__.py");
     expect(manifest).toContain("'icon': '/print_gateway/static/description/icon.png'");
@@ -18,7 +18,7 @@ describe("Yasser icon asset contract", () => {
     expect(odoo.equals(desktop)).toBe(true);
   });
 
-  it("pins the Windows installer and uninstaller to the Yasser ICO", () => {
+  it("pins the Windows installer and uninstaller to the Yaseir ICO", () => {
     const config = JSON.parse(read("src-tauri/tauri.conf.json")) as {
       bundle?: {
         icon?: string[];
@@ -30,7 +30,7 @@ describe("Yasser icon asset contract", () => {
     expect(config.bundle?.windows?.nsis?.uninstallerIcon).toBe("icons/icon.ico");
   });
 
-  it("keeps the desktop browser icon wired to the same Yasser mark", () => {
+  it("keeps the desktop browser icon wired to the same Yaseir mark", () => {
     const index = read("src/desktop/index.html");
     const desktopIcon = read("src/desktop/icon.svg");
     expect(index).toContain('rel="icon" type="image/svg+xml" href="./icon.svg"');

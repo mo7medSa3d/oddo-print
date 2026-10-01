@@ -9,7 +9,7 @@ use tauri::Manager;
 use crate::paths;
 use crate::logging;
 
-const SERVICE_NAME: &str = "YasserAgent";
+const SERVICE_NAME: &str = "YaseirAgent";
 const BACKGROUND_PID_FILE: &str = "agent.pid";
 const BACKGROUND_PID_META_FILE: &str = "agent.pid.meta";
 const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -139,11 +139,16 @@ fn system32_exe(name: &str) -> Result<PathBuf, String> {
 }
 
 pub fn agent_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    resolve_executable(app, "YasserAgent.exe")
+    // Canonical binary is YaseirAgent.exe; pre-migration bundles shipped
+    // YasserAgent.exe — accept the legacy name as a fallback so upgraded
+    // installs keep working until they reinstall.
+    resolve_executable(app, "YaseirAgent.exe")
+        .or_else(|_| resolve_executable(app, "YasserAgent.exe"))
 }
 
 pub fn cli_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    resolve_executable(app, "yasser-agent-cli.exe")
+    resolve_executable(app, "yaseir-agent-cli.exe")
+        .or_else(|_| resolve_executable(app, "yasser-agent-cli.exe"))
 }
 
 fn resolve_executable(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String> {
@@ -467,7 +472,7 @@ fn terminate_owned_background_process(
             || !record.image.eq_ignore_ascii_case(&expected)
         {
             return Err(format!(
-                "refusing to terminate PID {} because process identity does not match the owned YasserAgent.exe",
+                "refusing to terminate PID {} because process identity does not match the owned YaseirAgent.exe",
                 record.pid
             ));
         }
@@ -477,8 +482,8 @@ fn terminate_owned_background_process(
         }
         match unsafe { WaitForSingleObject(handle, 5000) } {
             WAIT_OBJECT_0 => Ok(()),
-            WAIT_TIMEOUT => Err(format!("owned YasserAgent.exe PID {} did not exit within 5 seconds", record.pid)),
-            other => Err(format!("waiting for owned YasserAgent.exe PID {} failed with status 0x{other:08x}", record.pid)),
+            WAIT_TIMEOUT => Err(format!("owned YaseirAgent.exe PID {} did not exit within 5 seconds", record.pid)),
+            other => Err(format!("waiting for owned YaseirAgent.exe PID {} failed with status 0x{other:08x}", record.pid)),
         }
     })();
 
@@ -593,7 +598,7 @@ fn spawn_background(app: &tauri::AppHandle) -> Result<u32, String> {
 
     let mut cmd = Command::new(&path);
     cmd.arg("-config").arg(&config);
-    cmd.env("YASSER_AGENT_DATA_DIR", &root);
+    cmd.env("YASEIR_AGENT_DATA_DIR", &root);
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
     cmd.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
 
@@ -605,13 +610,13 @@ fn spawn_background(app: &tauri::AppHandle) -> Result<u32, String> {
         },
         write_background_pid,
     )?;
-    logging::info(&format!("started YasserAgent.exe pid={pid} config={}", config.display()));
+    logging::info(&format!("started YaseirAgent.exe pid={pid} config={}", config.display()));
     Ok(pid)
 }
 
 #[cfg(not(windows))]
 fn spawn_background(_app: &tauri::AppHandle) -> Result<u32, String> {
-    Err("YasserAgent.exe can only be launched on Windows".into())
+    Err("YaseirAgent.exe can only be launched on Windows".into())
 }
 
 pub fn ensure_started(app: &tauri::AppHandle) -> Result<(), String> {
@@ -646,11 +651,11 @@ pub fn stop(app: &tauri::AppHandle) -> Result<(), String> {
             #[cfg(windows)]
             {
                 let record = read_background_record().ok_or_else(|| {
-                    "background agent is running but its secure ownership record is missing or legacy; refusing to kill arbitrary YasserAgent.exe processes".to_string()
+                    "background agent is running but its secure ownership record is missing or legacy; refusing to kill arbitrary YaseirAgent.exe processes".to_string()
                 })?;
                 if !background_record_matches(app, &record) {
                     return Err(format!(
-                        "refusing to stop PID {} because its image path or creation time no longer matches the owned YasserAgent.exe",
+                        "refusing to stop PID {} because its image path or creation time no longer matches the owned YaseirAgent.exe",
                         record.pid
                     ));
                 }
@@ -690,7 +695,7 @@ pub fn stop(app: &tauri::AppHandle) -> Result<(), String> {
                 }
                 if background_record_matches(app, &record) {
                     return Err(format!(
-                        "owned YasserAgent.exe PID {} is still running after forced termination",
+                        "owned YaseirAgent.exe PID {} is still running after forced termination",
                         record.pid
                     ));
                 }
@@ -715,7 +720,7 @@ pub fn status(app: &tauri::AppHandle) -> (bool, bool, String) {
     let note = if service_running {
         format!("Windows service {SERVICE_NAME} is running")
     } else if process_running {
-        format!("background process YasserAgent.exe is running (service not detected)")
+        format!("background process YaseirAgent.exe is running (service not detected)")
     } else {
         format!("agent is not running; service/process not detected")
     };
@@ -733,7 +738,7 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
             service_cmd
                 .args(["-service", action, "-config"])
                 .arg(&config)
-                .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root());
+                .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;

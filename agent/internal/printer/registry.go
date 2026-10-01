@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
 // registryMu serializes every read-modify-write of printers.json within this

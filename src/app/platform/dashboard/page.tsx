@@ -82,7 +82,7 @@ function SubscriptionStatus({
   } as const;
 
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${styles[status]}`}>
+    <span className={`inline-flex items-center rounded-[8px] px-2.5 py-0.5 text-[11px] font-semibold ${styles[status]}`}>
       {status.replace("_", " ")}
     </span>
   );
@@ -173,7 +173,7 @@ export default function PlatformDashboardPage() {
         <div>
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-display">Overview</h1>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-ok-edge bg-ok-bg px-2.5 py-1 text-[11px] font-semibold text-ok">
+            <span className="inline-flex items-center gap-1.5 rounded-[8px] border border-ok-edge bg-ok-bg px-2.5 py-1 text-[11px] font-semibold text-ok">
               <span className="h-1.5 w-1.5 rounded-full bg-ok-solid" />
               Control plane
             </span>
@@ -279,7 +279,7 @@ export default function PlatformDashboardPage() {
                 Runtime availability derived from recent agent heartbeats.
               </p>
             </div>
-            <span className="rounded-full bg-surface-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-4">
+            <span className="rounded-[8px] bg-surface-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-4">
               Live state
             </span>
           </div>
@@ -429,7 +429,7 @@ export default function PlatformDashboardPage() {
                           <div className="mt-0.5 font-mono text-[10px] text-ink-4">{tenant.id}</div>
                         </td>
                         <td>
-                          <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${lifecycleStyles[tenant.lifecycle]}`}>
+                          <span className={`inline-flex rounded-[8px] px-2.5 py-0.5 text-[11px] font-semibold ${lifecycleStyles[tenant.lifecycle]}`}>
                             {tenant.lifecycle}
                           </span>
                         </td>

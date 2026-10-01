@@ -23,7 +23,7 @@ import (
 // would, comparing the stored connection type reported for both spellings.
 func TestPrintersAddAppliesConnectionTypeAliasInBothForms(t *testing.T) {
 	tmp := t.TempDir()
-	binary := filepath.Join(tmp, "yasser-agent-cli")
+	binary := filepath.Join(tmp, "yaseir-agent-cli")
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}

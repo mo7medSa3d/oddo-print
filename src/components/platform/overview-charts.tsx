@@ -203,7 +203,7 @@ export function SubscriptionMixChart({ subscriptions }: { subscriptions: Subscri
 
   return (
     <div className="mt-5">
-      <div className="flex h-3 overflow-hidden rounded-full bg-surface-3" aria-label="Subscription status mix">
+      <div className="flex h-3 overflow-hidden rounded-[8px] bg-surface-3" aria-label="Subscription status mix">
         {segments.map((segment) => (
           <div
             key={segment.label}

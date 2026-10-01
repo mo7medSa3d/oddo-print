@@ -20,7 +20,7 @@ function statusOf(status: string): "trialing" | "active" | "past_due" | "incompl
   return "cancelled";
 }
 
-const INTERNAL_EVENT_KEY = "__yasser";
+const INTERNAL_EVENT_KEY = "__yaseir";
 
 function parseDbTime(value: Date | string | null | undefined): Date | null {
   const ms = parseDbTimeMs(value);

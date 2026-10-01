@@ -279,7 +279,7 @@ export async function POST(req: Request) {
   try {
     if (!customerId) {
       const customerParams = new URLSearchParams({
-        description: `Yasser Cloud Printing tenant ${claims.tenantId}`,
+        description: `Yaseir Cloud Printing tenant ${claims.tenantId}`,
         "metadata[tenant_id]": claims.tenantId,
       });
       const customer = await stripeRequest(

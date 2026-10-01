@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
 const pairingCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -76,7 +76,7 @@ func Register(serverURL, pairingCode, configPath string) error {
 		return fmt.Errorf("create registration request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "yasser-agent-cli/1")
+	req.Header.Set("User-Agent", "yaseir-agent-cli/1")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -119,6 +119,6 @@ func Register(serverURL, pairingCode, configPath string) error {
 	}
 
 	fmt.Printf("Success! Agent registered as %s\n", data.AgentID)
-	fmt.Println("Restart the agent (or start it from Yasser Print Manager) to begin receiving jobs.")
+	fmt.Println("Restart the agent (or start it from Yaseir Print Manager) to begin receiving jobs.")
 	return nil
 }

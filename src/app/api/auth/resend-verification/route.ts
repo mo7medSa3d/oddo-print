@@ -95,9 +95,9 @@ export async function POST(req: Request) {
     const url = `${appBaseUrl(req)}/verify-email?token=${encodeURIComponent(rawToken)}${planQuery}`;
     await sendTransactionalEmail({
       to: email,
-      subject: "Verify your Yasser account",
-      html: `<p>Verify your Yasser account.</p><p><a href="${url}">Verify email</a></p><p>This link expires in 30 minutes.</p>`,
-      text: `Verify your Yasser account: ${url}\nThis link expires in 30 minutes.`,
+      subject: "Verify your Yaseir account",
+      html: `<p>Verify your Yaseir account.</p><p><a href="${url}">Verify email</a></p><p>This link expires in 30 minutes.</p>`,
+      text: `Verify your Yaseir account: ${url}\nThis link expires in 30 minutes.`,
     });
   } catch {
     // Suppress email delivery error in response to preserve anti-enumeration

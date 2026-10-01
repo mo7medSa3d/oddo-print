@@ -174,10 +174,10 @@ async function mockInvoke<T>(cmd: string, args: Record<string, unknown> = {}): P
     case "get_agent_status":
       return {
         running: true,
-        service: "YasserAgent",
+        service: "YaseirAgent",
         version: "1.0.0",
         hostname: "DESKTOP-RECEPTION",
-        note: "YasserAgent.exe is running",
+        note: "YaseirAgent.exe is running",
       } as unknown as T;
     case "get_app_version":
       return "1.0.0" as unknown as T;
@@ -192,11 +192,11 @@ async function mockInvoke<T>(cmd: string, args: Record<string, unknown> = {}): P
     }
     case "get_runtime_paths":
       return {
-        manager_data: "C:\\ProgramData\\YasserManager",
-        settings: "C:\\ProgramData\\YasserManager\\settings.json",
-        agent_config: "C:\\ProgramData\\YasserAgent\\config.yaml",
-        manager_log: "C:\\ProgramData\\YasserManager\\logs\\yasser-manager.log",
-        agent_data: "C:\\ProgramData\\YasserAgent",
+        manager_data: "C:\\ProgramData\\YaseirManager",
+        settings: "C:\\ProgramData\\YaseirManager\\settings.json",
+        agent_config: "C:\\ProgramData\\YaseirAgent\\config.yaml",
+        manager_log: "C:\\ProgramData\\YaseirManager\\logs\\yaseir-manager.log",
+        agent_data: "C:\\ProgramData\\YaseirAgent",
       } as unknown as T;
     case "get_printers":
       return demoPrinters as unknown as T;

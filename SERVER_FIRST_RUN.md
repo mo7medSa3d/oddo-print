@@ -1,9 +1,9 @@
-# Yasser Server First-Run Guide
+# Yaseir Server First-Run Guide
 
 This is the canonical first deployment path for a fresh production server.
 
 **Repository:** https://github.com/mo7medSa3d/oddo-print  
-**Web app:** Yasser Gateway  
+**Web app:** Yaseir Gateway  
 **Customer portal:** `/signup` → `/verify-email` → `/onboarding` → `/login` → `/dashboard`  
 **Platform control plane:** `/platform/login`
 
@@ -16,12 +16,12 @@ Internet
   ↓
 Caddy :80/:443
   ↓
-Yasser Gateway :3000
+Yaseir Gateway :3000
   ↓
 PostgreSQL 16
 ```
 
-The Windows Yasser Agent/Desktop Manager runs at the customer site, not inside the Gateway server.
+The Windows Yaseir Agent/Desktop Manager runs at the customer site, not inside the Gateway server.
 
 ## 1. Prepare the server
 
@@ -39,9 +39,9 @@ sudo docker compose version
 Create the application directory:
 
 ```bash
-sudo mkdir -p /opt/yasser
-sudo chown "$USER":"$USER" /opt/yasser
-cd /opt/yasser
+sudo mkdir -p /opt/yaseir
+sudo chown "$USER":"$USER" /opt/yaseir
+cd /opt/yaseir
 ```
 
 Clone the current repository:
@@ -77,7 +77,7 @@ Do not expose PostgreSQL 5432 to the Internet.
 
 ## 3. Create production environment
 
-Create `/opt/yasser/.env`.
+Create `/opt/yaseir/.env`.
 
 Minimum production values:
 
@@ -127,7 +127,7 @@ Set:
 
 ```dotenv
 RESEND_API_KEY=<resend-api-key>
-EMAIL_FROM=Yasser <no-reply@example.com>
+EMAIL_FROM=Yaseir <no-reply@example.com>
 ```
 
 The registration endpoint deliberately keeps its response generic and suppresses provider errors to avoid account enumeration. Therefore a missing/broken email provider can look like a successful signup while leaving the user unable to verify the account. Treat transactional email as a required production dependency, not an optional first-run component.
@@ -173,7 +173,7 @@ Do not put monetary amounts in source; the plan catalog is tied to the Stripe Pr
 Start the stack:
 
 ```bash
-cd /opt/yasser
+cd /opt/yaseir
 sudo docker compose up -d --build
 sudo docker compose ps
 ```
@@ -234,7 +234,7 @@ You should get a normal HTTPS response from Caddy/Gateway.
 Because the compose stack does not automatically create the commercial plan catalog, run:
 
 ```bash
-cd /opt/yasser
+cd /opt/yaseir
 set -a
 . ./.env
 set +a
@@ -366,7 +366,7 @@ Expected shape:
 From curl, use a cookie jar:
 
 ```bash
-curl -i -c /tmp/yasser-cookies.txt \
+curl -i -c /tmp/yaseir-cookies.txt \
   -H 'Content-Type: application/json' \
   -d '{"email":"YOUR_EMAIL","password":"YOUR_PASSWORD"}' \
   https://gw.example.com/api/auth/login
@@ -375,7 +375,7 @@ curl -i -c /tmp/yasser-cookies.txt \
 Then:
 
 ```bash
-curl -i -b /tmp/yasser-cookies.txt \
+curl -i -b /tmp/yaseir-cookies.txt \
   https://gw.example.com/api/auth/me
 ```
 
@@ -384,7 +384,7 @@ Do not paste the cookie/token into tickets, chat, or logs.
 ## 13. Verify logout
 
 ```bash
-curl -i -b /tmp/yasser-cookies.txt \
+curl -i -b /tmp/yaseir-cookies.txt \
   -X POST \
   https://gw.example.com/api/auth/logout
 ```
@@ -392,13 +392,13 @@ curl -i -b /tmp/yasser-cookies.txt \
 Then:
 
 ```bash
-curl -i -b /tmp/yasser-cookies.txt \
+curl -i -b /tmp/yaseir-cookies.txt \
   https://gw.example.com/api/auth/me
 ```
 
 Expected result: `401` / `authenticated: false`.
 
-## 14. Create and pair a Yasser Agent
+## 14. Create and pair a Yaseir Agent
 
 Sign in to the customer Gateway dashboard:
 
@@ -408,17 +408,17 @@ https://gw.example.com/dashboard
 
 Create an Agent from the dashboard. The Gateway generates a one-time pairing code.
 
-On the Windows machine, install the Yasser Print Manager / Yasser Agent bundle.
+On the Windows machine, install the Yaseir Print Manager / Yaseir Agent bundle.
 
 Run the bundled CLI from an elevated Administrator terminal:
 
 ```powershell
-yasser-agent-cli.exe -pair <PAIRING_CODE> -server https://gw.example.com
+yaseir-agent-cli.exe -pair <PAIRING_CODE> -server https://gw.example.com
 ```
 
 The pairing code expires after 10 minutes.
 
-The Agent then starts using the canonical Windows service configuration under the Yasser Agent runtime data directory.
+The Agent then starts using the canonical Windows service configuration under the Yaseir Agent runtime data directory.
 
 ## 15. Verify Agent heartbeat
 
@@ -441,25 +441,25 @@ Examples:
 Network ESC/POS:
 
 ```powershell
-yasser-agent-cli.exe printers add --name "Kitchen" --type network --endpoint 192.168.1.50:9100 --protocol escpos --device-class thermal
+yaseir-agent-cli.exe printers add --name "Kitchen" --type network --endpoint 192.168.1.50:9100 --protocol escpos --device-class thermal
 ```
 
 Windows spooler:
 
 ```powershell
-yasser-agent-cli.exe printers add --name "HP LaserJet" --type spooler --spooler-name "HP LaserJet" --protocol spooler --device-class laser
+yaseir-agent-cli.exe printers add --name "HP LaserJet" --type spooler --spooler-name "HP LaserJet" --protocol spooler --device-class laser
 ```
 
 List local printers:
 
 ```powershell
-yasser-agent-cli.exe printers list
+yaseir-agent-cli.exe printers list
 ```
 
 Use discovery only when appropriate:
 
 ```powershell
-yasser-agent-cli.exe printers discover
+yaseir-agent-cli.exe printers discover
 ```
 
 The test-print path for an already selected printer does not perform a network discovery scan.
@@ -490,8 +490,8 @@ A successful HTTP submission means the job was accepted by the Gateway queue; it
 For an already registered local printer:
 
 ```powershell
-yasser-agent-cli.exe printers list
-yasser-agent-cli.exe printers test <PRINTER_ID>
+yaseir-agent-cli.exe printers list
+yaseir-agent-cli.exe printers test <PRINTER_ID>
 ```
 
 The command reports byte submission to the selected local transport.
@@ -512,7 +512,7 @@ After Gateway + Agent + Printer are healthy:
 8. Verify the job reaches the intended Agent and Printer.
 9. Verify Gateway-disabled mode still follows native Odoo printing.
 
-The Odoo addon remains the Odoo integration layer; product branding is Yasser Print Manager / Yasser Agent.
+The Odoo addon remains the Odoo integration layer; product branding is Yaseir Print Manager / Yaseir Agent.
 
 ## 20. Platform Control Plane (optional, operator-only)
 
@@ -521,7 +521,7 @@ The customer flow does not require the platform control plane.
 For platform administration, bootstrap the first Platform Owner from the server:
 
 ```bash
-cd /opt/yasser
+cd /opt/yaseir
 export PLATFORM_OWNER_EMAIL='owner@example.com'
 export PLATFORM_OWNER_PASSWORD='use-a-long-secret'
 sudo -E docker compose run --rm gateway npm run platform:bootstrap
@@ -568,7 +568,7 @@ Then verify infrastructure:
 ```text
 Gateway
   → create Agent
-  → pair Windows Yasser Agent
+  → pair Windows Yaseir Agent
   → Agent online
   → printer visible
   → Gateway Test Print

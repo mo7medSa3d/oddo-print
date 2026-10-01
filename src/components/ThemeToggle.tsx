@@ -5,7 +5,7 @@ import { Moon, Sun } from "lucide-react";
 
 type Theme = "light" | "dark";
 
-const THEME_EVENT = "yasser:theme-change";
+const THEME_EVENT = "yaseir:theme-change";
 
 function emitThemeChange() {
   window.dispatchEvent(new Event(THEME_EVENT));
@@ -99,7 +99,7 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       onClick={toggle}
       aria-label={label}
       title={label}
-      className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-edge/70 bg-surface/70 text-ink-2 shadow-xs transition-all duration-200 hover:border-edge-strong hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 ${className}`}
+      className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] border border-edge/70 bg-surface/70 text-ink-2 shadow-xs transition-all duration-200 hover:border-edge-strong hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 ${className}`}
     >
       {theme === "dark" ? <Sun className="h-4 w-4" aria-hidden /> : <Moon className="h-4 w-4" aria-hidden />}
     </button>

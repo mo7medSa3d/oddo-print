@@ -8,7 +8,7 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: "@", replacement: resolve(rootDir, "src") },
-      // The Yasser addon's pos_print_router.js imports Odoo POS modules that
+      // The Yaseir addon's pos_print_router.js imports Odoo POS modules that
       // are not installed here. Resolve every @point_of_sale/* and @web/*
       // import to the shared mock module so the real renderReceiptImage()
       // can be driven in isolation by tests/pos-receipt-font.test.ts.

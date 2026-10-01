@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/yasser-agent/agent/internal/config"
-	"github.com/yasser-agent/agent/internal/queue"
+	"github.com/yaseir-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/queue"
 )
 
 // init handles the maintenance-only `jobs cleanup` command before the legacy

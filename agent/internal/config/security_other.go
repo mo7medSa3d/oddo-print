@@ -2,7 +2,7 @@
 
 package config
 
-import "github.com/yasser-agent/agent/internal/storage"
+import "github.com/yaseir-agent/agent/internal/storage"
 
 // EnsureSecureDirectoryACL forwards to storage.EnsureSecureDirectoryACL.
 func EnsureSecureDirectoryACL(path string) error {

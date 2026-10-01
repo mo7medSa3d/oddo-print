@@ -124,7 +124,7 @@ export default function ApiKeysPage() {
           </p>
           <Link
             href="/billing"
-            className="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-brand px-4 text-[12.5px] font-semibold text-brand-contrast transition hover:bg-brand-hover"
+            className="inline-flex h-9 shrink-0 items-center justify-center rounded-[8px] bg-brand px-4 text-[12.5px] font-semibold text-brand-contrast transition hover:bg-brand-hover"
           >
             Choose a plan
           </Link>
@@ -192,7 +192,7 @@ export default function ApiKeysPage() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[13px] font-semibold text-ink">{k.name}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                    <span className={`rounded-[8px] px-2 py-0.5 text-[10px] font-bold uppercase ${
                       k.rotationState === "active"
                         ? "border border-ok-edge bg-ok-bg text-ok"
                         : k.rotationState === "retiring"

@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yasser-agent/agent/internal/config"
-	"github.com/yasser-agent/agent/internal/printer"
+	"github.com/yaseir-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/printer"
 )
 
 type desiredPrinterWire struct {

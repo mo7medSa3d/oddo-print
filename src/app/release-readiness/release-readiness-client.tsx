@@ -174,9 +174,9 @@ export default function ReleaseReadinessClient() {
             {rows.map((r, i) => (
               <tr key={i} className="border-t border-edge align-top">
                 <td className="px-3 py-2 font-semibold">{r.area}</td>
-                <td className="px-3 py-2 text-center"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${r.implemented==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.implemented==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.implemented}</span></td>
-                <td className="px-3 py-2 text-center"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${r.runtimeVerified==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.runtimeVerified==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.runtimeVerified}</span></td>
-                <td className="px-3 py-2 text-center"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${r.status==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.status==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.status}</span></td>
+                <td className="px-3 py-2 text-center"><span className={`rounded-[8px] border px-2 py-0.5 text-[10px] font-bold ${r.implemented==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.implemented==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.implemented}</span></td>
+                <td className="px-3 py-2 text-center"><span className={`rounded-[8px] border px-2 py-0.5 text-[10px] font-bold ${r.runtimeVerified==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.runtimeVerified==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.runtimeVerified}</span></td>
+                <td className="px-3 py-2 text-center"><span className={`rounded-[8px] border px-2 py-0.5 text-[10px] font-bold ${r.status==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.status==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.status}</span></td>
                 <td className="px-3 py-2 max-w-[400px]">
                   <div className="text-[11px] text-ink-2">{r.evidence}</div>
                   {r.rootCause && <div className="mt-1 text-[10px] text-bad">Root cause: {r.rootCause}</div>}

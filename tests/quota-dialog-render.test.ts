@@ -4,6 +4,9 @@
  * carries: which allowance was hit, what was used against what limit, when the
  * current billing period ends, and the upgrade path. This renders the real
  * component (no testing library) instead of asserting on source text.
+ *
+ * Dialogs are portaled to document.body (viewport-level root), so assertions
+ * read from document.body rather than the React host container.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, createElement as h } from "react";
@@ -52,12 +55,12 @@ function renderDialog(props: {
       retryAfterSeconds: props.retryAfterSeconds,
     }) as never);
   });
-  return host;
+  return document.body;
 }
 
 describe("quota-exhausted upgrade dialog", () => {
   it("renders the billing-period print limit with usage and the upgrade path", () => {
-    const host = renderDialog({
+    const body = renderDialog({
       open: true,
       resource: "prints",
       used: 500,
@@ -65,7 +68,7 @@ describe("quota-exhausted upgrade dialog", () => {
       periodEnd: "2026-10-01T00:00:00.000Z",
     });
 
-    const text = host.textContent ?? "";
+    const text = body.textContent ?? "";
     expect(text).toContain("Print limit reached");
     expect(text).toContain("used its included print jobs for this billing period");
     expect(text).toContain("Metering unit: 1 admitted Gateway print job = 1 print credit.");
@@ -77,37 +80,68 @@ describe("quota-exhausted upgrade dialog", () => {
     expect(text).toMatch(/\d{4}/);
     expect(text).not.toContain("2026-10-01T00:00:00.000Z");
 
-    const upgrade = host.querySelector('a[href="/billing"]');
+    const upgrade = body.querySelector('a[href="/billing"]');
     expect(upgrade).not.toBeNull();
     expect(upgrade?.textContent ?? "").toContain("Upgrade plan");
 
     // Server-side enforcement is stated explicitly so the user knows retrying
     // cannot bypass the allowance.
-    const description = host.querySelector('[id$="-description"], [role="dialog"]')?.textContent ?? "";
+    const description = body.querySelector('[id$="-description"], [role="dialog"]')?.textContent ?? "";
     expect(description).toContain("enforces plan limits server-side");
+
+    // Portal architecture: dialog mounts at body level, above dashboard containers.
+    const root = body.querySelector("[data-dialog-root]");
+    expect(root).not.toBeNull();
+    expect(root?.parentElement).toBe(document.body);
   });
 
   it("explains a rolling rate limit and a concurrency limit differently", () => {
-    const rate = renderDialog({ open: true, resource: "rate", used: 20, limit: 20, retryAfterSeconds: 60 });
-    expect(rate.textContent ?? "").toContain("rolling 60-second limit");
-    expect(rate.textContent ?? "").toContain("Try again in about 1 minute");
+    const body = renderDialog({ open: true, resource: "rate", used: 20, limit: 20, retryAfterSeconds: 60 });
+    // Each render appends a new portal; scope to the last dialog root.
+    const roots = body.querySelectorAll('[role="dialog"]');
+    const rateText = roots[roots.length - 1]?.textContent ?? "";
+    expect(rateText).toContain("rolling 60-second limit");
+    expect(rateText).toContain("Try again in about 1 minute");
 
-    const concurrency = renderDialog({ open: true, resource: "concurrency", used: 5, limit: 5 });
-    expect(concurrency.textContent ?? "").toContain("queued, claimed, and actively printing jobs");
+    renderDialog({ open: true, resource: "concurrency", used: 5, limit: 5 });
+    expect(body.textContent ?? "").toContain("queued, claimed, and actively printing jobs");
   });
 
   it("reports an unlimited allowance and stays closed when not opened", () => {
-    const unlimited = renderDialog({ open: true, resource: "agents", used: 3, limit: "unlimited" });
-    expect(unlimited.textContent ?? "").toContain("Unlimited");
+    const body = renderDialog({ open: true, resource: "agents", used: 3, limit: "unlimited" });
+    expect(body.textContent ?? "").toContain("Unlimited");
 
-    const closed = renderDialog({ open: false, used: 1, limit: 1 });
-    expect((closed.textContent ?? "").trim()).not.toContain("Print limit reached");
+    for (const root of roots) {
+      act(() => {
+        root.unmount();
+      });
+    }
+    roots = [];
+    for (const host of hosts) host.remove();
+    hosts = [];
+    document.body.innerHTML = "";
+    const closedHost = document.createElement("div");
+    document.body.appendChild(closedHost);
+    const closedRoot = createRoot(closedHost);
+    hosts.push(closedHost);
+    roots.push(closedRoot);
+    act(() => {
+      closedRoot.render(h(UpgradeLimitDialog, {
+        open: false,
+        onClose: () => {},
+        resource: "prints",
+        used: 1,
+        limit: 1,
+      }) as never);
+    });
+    expect((document.body.textContent ?? "").trim()).not.toContain("Print limit reached");
+    expect(document.body.querySelector("[data-dialog-root]")).toBeNull();
   });
 
   it("closes through the modal action", () => {
     const onClose = vi.fn();
-    const host = renderDialog({ open: true, used: 10, limit: 10, onClose });
-    const closeButton = Array.from(host.querySelectorAll("button")).find((b) => (b.textContent ?? "").trim() === "Close");
+    const body = renderDialog({ open: true, used: 10, limit: 10, onClose });
+    const closeButton = Array.from(body.querySelectorAll("button")).find((b) => (b.textContent ?? "").trim() === "Close");
     expect(closeButton).toBeDefined();
     act(() => {
       closeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));

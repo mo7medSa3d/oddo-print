@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yasser-agent/agent/internal/printer"
-	"github.com/yasser-agent/agent/internal/testutil"
+	"github.com/yaseir-agent/agent/internal/printer"
+	"github.com/yaseir-agent/agent/internal/testutil"
 )
 
 // TestCrashWindowSimulation proves the honest duplicate window:

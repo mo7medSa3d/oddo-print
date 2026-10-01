@@ -796,7 +796,7 @@ class PrintGatewayRouter(models.AbstractModel):
         if proto == "zpl":
             ticket_raw = (
                 "^XA\n"
-                "^FO50,40^A0N,36,36^FDYASSER PRINT GATEWAY^FS\n"
+                "^FO50,40^A0N,36,36^FDYASEIR PRINT GATEWAY^FS\n"
                 "^FO50,85^A0N,30,30^FDPRINTER TEST^FS\n"
                 "^FO50,125^GB700,2,2^FS\n"
                 f"^FO50,145^A0N,26,26^FDCompany : {company_name}^FS\n"
@@ -812,7 +812,7 @@ class PrintGatewayRouter(models.AbstractModel):
                 "GAP 2 mm, 0 mm\n"
                 "DIRECTION 1\n"
                 "CLS\n"
-                'TEXT 50,35,"3",0,1,1,"YASSER PRINT GATEWAY"\n'
+                'TEXT 50,35,"3",0,1,1,"YASEIR PRINT GATEWAY"\n'
                 'TEXT 50,70,"2",0,1,1,"PRINTER TEST"\n'
                 f'TEXT 50,105,"2",0,1,1,"Company : {company_name}"\n'
                 f'TEXT 50,135,"2",0,1,1,"Location: {branch_name}"\n'
@@ -824,7 +824,7 @@ class PrintGatewayRouter(models.AbstractModel):
         elif proto == "raw":
             ticket_raw = (
                 "================================\n"
-                "     YASSER PRINT GATEWAY\n"
+                "     YASEIR PRINT GATEWAY\n"
                 "          PRINTER TEST\n"
                 "================================\n"
                 f"Company : {company_name}\n"
@@ -839,7 +839,7 @@ class PrintGatewayRouter(models.AbstractModel):
                 "\x1b\x40",  # Initialize printer
                 "\x1b\x61\x01",  # Centered
                 "================================\n",
-                "     YASSER PRINT GATEWAY\n",
+                "     YASEIR PRINT GATEWAY\n",
                 "          PRINTER TEST\n",
                 "================================\n",
                 "\x1b\x61\x00",  # Left align
@@ -924,7 +924,7 @@ class PrintGatewayRouter(models.AbstractModel):
 
         lines = [
             "BT", "/F1 24 Tf", "72 720 Td",
-            "(YASSER PRINT GATEWAY) Tj",
+            "(YASEIR PRINT GATEWAY) Tj",
             "/F1 18 Tf", "0 -40 Td", "(PRINTER TEST PAGE) Tj",
             "/F1 12 Tf", "0 -30 Td",
             f"(Company: {_pdf_text(company_name)}) Tj",
