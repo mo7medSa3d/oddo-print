@@ -359,3 +359,37 @@ describe("legacy session fixture contract", () => {
     expect(source).not.toContain("clock_timestamp() + interval '8 hours'");
   });
 });
+
+describe("structured logging contracts", () => {
+  it("serializes Error values with their message instead of {}", async () => {
+    const { logError } = await import("../src/lib/log");
+    const originalError = console.error;
+    const lines: string[] = [];
+    console.error = (...args: unknown[]) => {
+      lines.push(args.map((arg) => String(arg)).join(" "));
+    };
+    try {
+      const cause = new Error("root cause");
+      logError("test.error.serialization", {
+        error: new Error("primary failure"),
+        context: {
+          error: cause,
+        },
+      });
+    } finally {
+      console.error = originalError;
+    }
+
+    expect(lines).toHaveLength(1);
+    const payload = JSON.parse(lines[0]);
+    expect(payload.error).toMatchObject({
+      name: "Error",
+      message: "primary failure",
+    });
+    expect(payload.context.error).toMatchObject({
+      name: "Error",
+      message: "root cause",
+    });
+    expect(lines[0]).not.toContain('"error":{}');
+  });
+});
