@@ -90,10 +90,10 @@ export default function SettingsPage() {
 
       <PageContainer width="narrow">
         {loading ? (
-          <div className="space-y-5" role="status" aria-label="Loading settings">
+          <div className="space-y-5" role="status" aria-label={t("settings.loadingAria")}>
             <Skeleton className="h-[240px] rounded-2xl" />
             <Skeleton className="h-[160px] rounded-2xl" />
-            <span className="sr-only">Loading settings…</span>
+            <span className="sr-only">{t("settings.loadingShort")}</span>
           </div>
         ) : (
           <div className="space-y-5">
@@ -107,7 +107,7 @@ export default function SettingsPage() {
                 <Field
                   label={t("onboarding.workspaceName")}
                   htmlFor="workspace-name"
-                  hint="2–120 characters. Appears on invoices and in the Odoo sync record."
+                  hint={t("settings.workspaceNameHint")}
                   required
                 >
                   <Input
@@ -178,11 +178,9 @@ export default function SettingsPage() {
                 <div className="flex items-start gap-3 rounded-sg border border-bad-edge bg-bad-bg px-4 py-3.5">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-bad" aria-hidden />
                   <div className="min-w-0">
-                    <h3 className="text-sm font-[600] text-bad">Delete this workspace</h3>
+                    <h3 className="text-sm font-[600] text-bad">{t("settings.deleteWorkspaceTitle")}</h3>
                     <p className="mt-0.5 text-sm leading-relaxed text-ink-2">
-                      Workspace deletion is controlled by Platform Administration, so print history
-                      and billing records stay auditable. Contact your platform administrator to
-                      request deletion.
+                      {t("settings.deleteWorkspaceBody")}
                     </p>
                   </div>
                 </div>

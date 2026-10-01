@@ -236,7 +236,7 @@ export default function SystemHealthClient() {
                 {check.details && (
                   <details className="group w-full">
                     <summary className="cursor-pointer select-none text-xs font-[550] text-brand transition-colors hover:text-brand-hover">
-                      Technical details
+                      {t("health.technicalDetails")}
                     </summary>
                     <pre className="mt-2 max-h-44 overflow-auto rounded-md border border-edge-subtle bg-surface-2 p-2.5 font-mono text-2xs leading-relaxed text-ink-2">
                       {JSON.stringify(check.details, null, 2)}
@@ -260,16 +260,17 @@ export default function SystemHealthClient() {
         />
         <div className="space-y-4 px-5 py-5">
           <p className="max-w-[80ch] text-sm leading-relaxed text-ink-3">
-            Each request carries <code className="font-mono text-xs">request_id</code>,{" "}
+            {t("health.tracingIdsIntro")} <code className="font-mono text-xs">request_id</code>,{" "}
             <code className="font-mono text-xs">job_id</code>,{" "}
             <code className="font-mono text-xs">tenant_id</code>,{" "}
             <code className="font-mono text-xs">agent_id</code>,{" "}
             <code className="font-mono text-xs">printer_id</code>,{" "}
             <code className="font-mono text-xs">attempt_id</code>,{" "}
-            <code className="font-mono text-xs">claim_id</code> and{" "}
-            <code className="font-mono text-xs">spooler_job_id</code> — inspect the{" "}
-            <code className="font-mono text-xs">X-Request-Id</code> response header to follow a job
-            through structured logs.
+            <code className="font-mono text-xs">claim_id</code>{" "}
+            <code className="font-mono text-xs">spooler_job_id</code>{" "}
+            {t("health.tracingIdsTail")}{" "}
+            <code className="font-mono text-xs">X-Request-Id</code>{" "}
+            {t("health.tracingIdsOutro")}
           </p>
           <pre className="overflow-x-auto rounded-sg border border-edge-subtle bg-surface-2 p-3.5 font-mono text-2xs leading-relaxed text-ink-2">
 {`{"ts":"…","level":"info","event":"print.job.success","requestId":"req_…","jobId":"job_…","tenantId":"…","agentId":"…","printerId":"…","attemptId":"attempt_…","claimId":"…","spoolerJobId":"…"}`}
@@ -277,9 +278,9 @@ export default function SystemHealthClient() {
           <div className="flex items-start gap-2.5 rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-3">
             <Activity className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
             <p className="text-sm leading-relaxed text-ink-3">
-              Unverified external dependencies (Odoo, billing) are reported as{" "}
-              <strong className="font-[600] text-ink">Not verified</strong> rather than healthy, so
-              this page never shows a green all-clear it cannot prove.
+              {t("health.unverifiedIntro")}{" "}
+              <strong className="font-[600] text-ink">{t("health.unverifiedStrong")}</strong>{" "}
+              {t("health.unverifiedTail")}
             </p>
           </div>
         </div>

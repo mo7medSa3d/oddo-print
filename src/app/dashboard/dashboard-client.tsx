@@ -1074,7 +1074,7 @@ export default function DashboardClient({
             {kpis.totalAgents > 0 && kpis.onlineAgents === kpis.totalAgents ? (
               <span className="inline-flex items-center gap-1.5 border border-ok-edge bg-ok-bg text-ok rounded-sm px-2 py-0.5 text-2xs font-[600]">
                 <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ok-solid" />
-                Fleet nominal
+                {t("dashboard.fleetNominal")}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 rounded-sm border border-warn-edge bg-warn-bg px-2 py-0.5 text-2xs font-[600] text-warn">
@@ -1188,7 +1188,7 @@ export default function DashboardClient({
           title={t("billing.usageUnavailable")}
           action={
             <Button variant="secondary" size="sm" onClick={() => void refreshBillingUsage()}>
-              Retry
+              {t("common.retry")}
             </Button>
           }
         >
@@ -1202,7 +1202,7 @@ export default function DashboardClient({
           title={t("billing.limitReachedTitle")}
           action={
             <Button variant="primary" size="sm" href="/billing">
-              Upgrade plan
+              {t("limit.upgradePlan")}
             </Button>
           }
         >
@@ -1270,10 +1270,10 @@ export default function DashboardClient({
             <EmptyState
               icon={<Server className="h-5 w-5" />}
               title={t("empty.agents.title")}
-              description="An agent is the Windows service that owns your printers and executes jobs. Register one to issue a pairing code."
+              description={t("agent.registerEmptyDescription")}
               action={
                 <Button variant="primary" size="sm" onClick={() => setRegisterOpen(true)} icon={<Plus className="h-3.5 w-3.5" />}>
-                  Register agent
+                  {t("agent.register")}
                 </Button>
               }
             />
@@ -1412,7 +1412,7 @@ export default function DashboardClient({
             <EmptyState
               icon={<Search className="h-5 w-5" />}
               title={t("printer.noMatches")}
-              description="Clear the search or switch the status filter to see all discovered printers."
+              description={t("printer.noMatchesHint")}
               action={
                 <Button
                   variant="secondary"
@@ -1422,7 +1422,7 @@ export default function DashboardClient({
                     setPrinterStatusFilter("all");
                   }}
                 >
-                  Clear filters
+                  {t("common.clearFilters")}
                 </Button>
               }
             />
@@ -1464,13 +1464,13 @@ export default function DashboardClient({
 
                     <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
                       <div className="min-w-0">
-                        <dt className="text-ink-4">Agent</dt>
+                        <dt className="text-ink-4">{t("printer.agent")}</dt>
                         <dd className="truncate text-ink-2" title={parentAgent?.name}>
                           {parentAgent?.name ?? t("printer.unknownAgent")}
                         </dd>
                       </div>
                       <div className="min-w-0">
-                        <dt className="text-ink-4">Languages</dt>
+                        <dt className="text-ink-4">{t("printer.languages")}</dt>
                         <dd className="mt-0.5">
                           <PrinterLanguageChips printer={printer} />
                         </dd>
@@ -1495,7 +1495,7 @@ export default function DashboardClient({
                           onClick={() => setCertifyPrinter(printer)}
                           icon={<ShieldCheck className="h-3.5 w-3.5" />}
                         >
-                          Certify
+                          {t("printer.certify")}
                         </Button>
                         <Menu
                           label={t("printer.moreActions", { name: printer.name })}
@@ -1515,15 +1515,15 @@ export default function DashboardClient({
           ) : (
             <div className="overflow-x-auto">
               <table className="data-table min-w-[720px]">
-                <caption className="sr-only">Printers bound to this workspace</caption>
+                <caption className="sr-only">{t("printer.tableCaption")}</caption>
                 <thead>
                   <tr>
-                    <th scope="col">Printer</th>
-                    <th scope="col">Agent</th>
-                    <th scope="col">Connection</th>
-                    <th scope="col">Languages</th>
-                    <th scope="col">Status</th>
-                    <th scope="col" className="w-[1%] text-end">Actions</th>
+                    <th scope="col">{t("printer.printer")}</th>
+                    <th scope="col">{t("printer.agent")}</th>
+                    <th scope="col">{t("printer.connection")}</th>
+                    <th scope="col">{t("printer.languages")}</th>
+                    <th scope="col">{t("common.status")}</th>
+                    <th scope="col" className="w-[1%] text-end">{t("common.actions")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1632,13 +1632,13 @@ export default function DashboardClient({
             title={jobs.length === 0 ? t("empty.jobs.title") : t("job.noMatches")}
             description={
               jobs.length === 0
-                ? "Jobs appear here the moment the Gateway admits them — from Odoo, the API or a test page."
+                ? t("job.emptySourceDescription")
                 : t("job.noMatchesHint")
             }
             action={
               jobs.length === 0 ? (
                 <Button variant="secondary" size="sm" href="/api-keys" icon={<KeyRound className="h-3.5 w-3.5" />}>
-                  Connect Odoo
+                  {t("job.connectOdoo")}
                 </Button>
               ) : (
                 <Button
@@ -1649,7 +1649,7 @@ export default function DashboardClient({
                     setJobStatusFilter("all");
                   }}
                 >
-                  Clear filters
+                  {t("common.clearFilters")}
                 </Button>
               )
             }
@@ -1659,15 +1659,15 @@ export default function DashboardClient({
             {/* Desktop table */}
             <div className="hidden overflow-x-auto md:block">
               <table className="data-table min-w-[860px]">
-                <caption className="sr-only">Recent print jobs</caption>
+                <caption className="sr-only">{t("job.tableCaption")}</caption>
                 <thead>
                   <tr>
-                    <th scope="col">Job</th>
-                    <th scope="col">Printer</th>
-                    <th scope="col">Document</th>
-                    <th scope="col">Status</th>
-                    <th scope="col" className="text-end">Created</th>
-                    <th scope="col" className="w-[1%] text-end">Actions</th>
+                    <th scope="col">{t("job.job")}</th>
+                    <th scope="col">{t("job.printer")}</th>
+                    <th scope="col">{t("job.document")}</th>
+                    <th scope="col">{t("job.status")}</th>
+                    <th scope="col" className="text-end">{t("job.created")}</th>
+                    <th scope="col" className="w-[1%] text-end">{t("common.actions")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1759,14 +1759,14 @@ export default function DashboardClient({
                     </div>
                     <div className="mt-2.5 flex items-center gap-1.5">
                       <Button size="sm" variant="secondary" onClick={() => setSelectedJob(job)} icon={<Eye className="h-3.5 w-3.5" />}>
-                        Inspect
+                        {t("job.inspect")}
                       </Button>
                       <Menu
                         label={`Actions for job ${shortId(job.id)}`}
                         items={jobActions(job)}
                         trigger={
                           <span className="inline-flex h-8 items-center gap-1 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2">
-                            More
+                            {t("job.more")}
                             <ChevronRight className="h-3.5 w-3.5" aria-hidden />
                           </span>
                         }
@@ -1808,7 +1808,7 @@ export default function DashboardClient({
           ) : (
             <>
               <Button variant="secondary" onClick={() => setRegisterOpen(false)} disabled={busy}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 variant="primary"
@@ -1866,7 +1866,7 @@ export default function DashboardClient({
             <Field
               label={t("agent.name")}
               htmlFor="agent-name"
-              hint="Use the machine’s hostname or the location it serves — this name appears in every job record."
+              hint={t("agent.nameHint")}
               required
             >
               <Input
@@ -2097,7 +2097,7 @@ export default function DashboardClient({
         footer={
           <>
             <Button variant="secondary" onClick={() => setAgentToDelete(null)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="danger"
@@ -2121,8 +2121,8 @@ export default function DashboardClient({
             {t("agent.deleteRequiresOffline")}
           </Callout>
           <p>
-            Delete <strong className="font-[600] text-ink">{agentToDelete?.name}</strong>{" "}
-            <Mono>{agentToDelete?.id}</Mono>?
+            {t("agent.deleteQuestionPrefix")} <strong className="font-[600] text-ink">{agentToDelete?.name}</strong>{" "}
+            <Mono>{agentToDelete?.id}</Mono>{t("agent.deleteQuestionSuffix")}
           </p>
         </div>
       </Modal>

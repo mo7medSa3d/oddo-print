@@ -245,7 +245,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
               <section className="card overflow-hidden">
                 <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-5">
                   <div className="min-w-0">
-                    <div className="label-caps">Current plan</div>
+                    <div className="label-caps">{t("billing.currentPlan")}</div>
                     <h2 className="mt-2 text-3xl font-[660] tracking-[-0.035em] text-ink">
                       {currentPlan?.name ?? t("billing.noPlanSelected")}
                     </h2>
@@ -262,20 +262,20 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
 
                 <div className="grid grid-cols-1 divide-y divide-edge-subtle border-y border-edge-subtle sm:grid-cols-3 sm:divide-x sm:divide-y-0">
                   <div className="px-5 py-4">
-                    <div className="label-caps">Status</div>
+                    <div className="label-caps">{t("billing.subscriptionStatus")}</div>
                     <div className="mt-1.5 text-sm font-[600] text-ink">
                       {status ? status.label : t("billing.notConfigured")}
                     </div>
                   </div>
                   <div className="px-5 py-4">
-                    <div className="label-caps">Billing cycle</div>
+                    <div className="label-caps">{t("billing.billingCycle")}</div>
                     <div className="mt-1.5 flex items-center gap-2 text-sm font-[600] capitalize text-ink">
                       <CalendarDays className="h-4 w-4 text-ink-4" aria-hidden />
                       {currentPlan?.interval ?? "—"}
                     </div>
                   </div>
                   <div className="px-5 py-4">
-                    <div className="label-caps">Renewal</div>
+                    <div className="label-caps">{t("billing.renewal")}</div>
                     <div className="mt-1.5 text-sm font-[600] text-ink">{renewalLabel}</div>
                   </div>
                 </div>
@@ -283,16 +283,16 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                 <div className="px-5 py-5">
                   <div className="flex flex-wrap items-end justify-between gap-2">
                     <div>
-                      <div className="label-caps">Included capacity</div>
+                      <div className="label-caps">{t("billing.includedCapacity")}</div>
                       <h3 className="mt-1.5 text-md font-[600] tracking-[-0.015em] text-ink">
-                        What this plan covers
+                        {t("billing.whatThisPlanCovers")}
                       </h3>
                     </div>
                     <Link
                       href="/pricing"
                       className="inline-flex items-center gap-1.5 text-sm font-[550] text-brand transition-colors hover:text-brand-hover"
                     >
-                      Compare plans <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                      {t("billing.comparePlans")} <ArrowRight className="h-3.5 w-3.5" aria-hidden />
                     </Link>
                   </div>
 
@@ -324,7 +324,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                 <Card>
                   <CardHeader
                     title={t("billing.printUsage")}
-                    subtitle="1 admitted Gateway job = 1 print credit."
+                    subtitle={t("billing.printUsageSubtitle")}
                     icon={<CreditCard className="h-4 w-4" />}
                     actions={
                       printUsage.limit !== "unlimited" ? (

@@ -57,7 +57,7 @@ function rotationMeta(key: ApiKey, t: (key: MessageKey) => string): { label: str
 
 export default function ApiKeysPage() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
-  const { t, formatDate, formatDateTime } = useI18n();
+  const { t, tc, formatDate, formatDateTime, formatNumber } = useI18n();
   const [name, setName] = useState(t("apiKeys.defaultName"));
   const [rawKey, setRawKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -206,11 +206,11 @@ export default function ApiKeysPage() {
               title={t("apiKeys.choosePlanBeforeConnect")}
               action={
                 <Button variant="primary" size="sm" href="/billing">
-                  Choose a plan
+                  {t("apiKeys.choosePlanCta")}
                 </Button>
               }
             >
-              Creating credentials is disabled until the workspace has a subscription.
+              {t("apiKeys.choosePlanBody")}
             </Callout>
           )}
 
@@ -245,7 +245,7 @@ export default function ApiKeysPage() {
           <section aria-label={t("apiKeys.summaryLabel")} className="overflow-hidden rounded-xl border border-edge bg-surface shadow-card">
             <div className="grid grid-cols-1 divide-y divide-edge-subtle sm:grid-cols-3 sm:divide-x sm:divide-y-0">
               <div className="p-4">
-                <div className="label-caps">Active keys</div>
+                <div className="label-caps">{t("apiKeys.activeKeys")}</div>
                 <div className="mt-1.5 text-2xl font-[640] leading-none tracking-[-0.02em] text-ink tabular">
                   {loading ? "—" : active}
                 </div>
@@ -254,16 +254,16 @@ export default function ApiKeysPage() {
                 </div>
               </div>
               <div className="p-4">
-                <div className="label-caps">Odoo connections</div>
+                <div className="label-caps">{t("apiKeys.odooConnections")}</div>
                 <div className="mt-1.5 text-2xl font-[640] leading-none tracking-[-0.02em] text-ink tabular">
                   {loading ? "—" : enabled}
                 </div>
                 <div className="mt-1.5 text-xs text-ink-3">
-                  {active === 0 ? t("apiKeys.waitingForKey") : `${disabled} disabled at the source`}
+                  {active === 0 ? t("apiKeys.waitingForKey") : tc("apiKeys.disabledAtSource", disabled, { count: formatNumber(disabled) })}
                 </div>
               </div>
               <div className="p-4">
-                <div className="label-caps">Access level</div>
+                <div className="label-caps">{t("apiKeys.accessLevel")}</div>
                 <div className="mt-1.5 flex items-center gap-2 text-md font-[600] text-ink">
                   {active === 0 ? (
                     <StatusBadge tone="neutral" label={t("apiKeys.notConnected")} />
@@ -340,7 +340,7 @@ export default function ApiKeysPage() {
                         <Skeleton className="h-8 w-20" />
                       </div>
                     ))}
-                    <span className="sr-only">Loading credentials…</span>
+                    <span className="sr-only">{t("apiKeys.loadingCredentials")}</span>
                   </div>
                 ) : keys.length === 0 ? (
                   <EmptyState
@@ -428,15 +428,14 @@ export default function ApiKeysPage() {
                 </ol>
               </Card>
 
-              <Callout tone="info" icon={<Info className="h-4 w-4" />} title="Keys are shown once">
-                Yaseir stores only a hash of each credential. If a key is lost, revoke it and issue a
-                replacement — the raw value cannot be recovered.
+              <Callout tone="info" icon={<Info className="h-4 w-4" />} title={t("apiKeys.shownOnceTitle")}>
+                {t("apiKeys.shownOnceBody")}
               </Callout>
 
               <div className="text-sm text-ink-3">
-                Need the module?{" "}
+                {t("apiKeys.needModule")}{" "}
                 <Link href="/settings" className="font-[550] text-brand hover:underline">
-                  Review workspace settings
+                  {t("apiKeys.reviewWorkspaceSettings")}
                 </Link>
                 .
               </div>

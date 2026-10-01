@@ -351,12 +351,12 @@ export default function TeamPage() {
                         by the card edge when the sidebar narrows the content
                         column. The scroller turns that clipping into a scroll. */}
                     <table className="data-table min-w-[560px]">
-                      <caption className="sr-only">Workspace members and their roles</caption>
+                      <caption className="sr-only">{t("team.tableCaption")}</caption>
                       <thead>
                         <tr>
-                          <th scope="col">Member</th>
-                          <th scope="col">Role</th>
-                          <th scope="col" className="w-[1%] text-end">Actions</th>
+                          <th scope="col">{t("team.member")}</th>
+                          <th scope="col">{t("team.role")}</th>
+                          <th scope="col" className="w-[1%] text-end">{t("common.actions")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -504,7 +504,7 @@ export default function TeamPage() {
                         disabled={busy}
                         onClick={() => void revokeInvitation(invitation.id)}
                       >
-                        Revoke
+                        {t("team.revoke")}
                       </Button>
                     </li>
                   ))}
@@ -593,7 +593,7 @@ export default function TeamPage() {
         footer={
           <>
             <Button variant="secondary" disabled={busy} onClick={() => setTransferTarget(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="danger"
@@ -601,18 +601,18 @@ export default function TeamPage() {
               loading={busy}
               onClick={transferTarget ? () => void transfer(transferTarget.userId) : undefined}
             >
-              Transfer ownership
+              {t("team.transferConfirm")}
             </Button>
           </>
         }
       >
         <div className="space-y-4">
           <p className="text-sm leading-relaxed text-ink-2">
-            <span className="font-[600] text-ink">{transferTarget?.email}</span> becomes the workspace
-            owner. Your account is demoted to admin and this session is signed out immediately.
+            <span className="font-[600] text-ink">{transferTarget?.email}</span>{" "}
+            {t("team.transferBodyPrefix")}
           </p>
           <Callout tone="warn" title={t("team.transferBillingNote")}>
-            The new owner controls the subscription, plan changes and workspace deletion.
+            {t("team.transferBillingNoteBody")}
           </Callout>
         </div>
       </Modal>
@@ -625,7 +625,7 @@ export default function TeamPage() {
         footer={
           <>
             <Button variant="secondary" disabled={busy} onClick={() => setRemoveTarget(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="danger"
@@ -633,7 +633,7 @@ export default function TeamPage() {
               loading={busy}
               onClick={removeTarget ? () => void remove(removeTarget.userId) : undefined}
             >
-              Remove member
+              {t("team.removeConfirm")}
             </Button>
           </>
         }

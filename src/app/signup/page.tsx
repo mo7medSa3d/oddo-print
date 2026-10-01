@@ -59,19 +59,19 @@ export default function Signup() {
       description={t("auth.signup.description")}
       footer={
         <>
-          Already have an account?{" "}
+          {t("auth.signup.haveAccount")}{" "}
           <Link href="/login" className="font-[600] text-brand hover:text-brand-hover hover:underline">
-            Sign in
+            {t("auth.signup.signIn")}
           </Link>
         </>
       }
     >
       {done ? (
-        <Callout tone="ok" icon={<MailCheck className="h-4 w-4" aria-hidden />} title="Check your email">
-          We sent a verification link to <strong className="font-[600]">{email}</strong>. Open it to
-          continue workspace setup.{" "}
+        <Callout tone="ok" icon={<MailCheck className="h-4 w-4" aria-hidden />} title={t("auth.signup.emailSentTitle")}>
+          {t("auth.signup.emailSentPrefix")} <strong className="font-[600]">{email}</strong>.{" "}
+          {t("auth.signup.emailSentTail")}{" "}
           <Link className="font-[600] underline" href="/login">
-            Return to sign in
+            {t("auth.signup.returnToSignIn")}
           </Link>
           .
         </Callout>
@@ -111,9 +111,9 @@ export default function Signup() {
 
           {accountExists ? (
             <Callout tone="brand" title={t("auth.signup.alreadyRegistered")}>
-              This email already has a Yaseir account.{" "}
+              {t("auth.signup.accountExistsBody")}{" "}
               <Link href="/login" className="font-[600] underline">
-                Sign in instead
+                {t("auth.signup.signInInstead")}
               </Link>
               .
             </Callout>
