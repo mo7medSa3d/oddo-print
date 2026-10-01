@@ -101,7 +101,7 @@ def _gateway_redirect_message(response, gateway_url):
         location = (response.headers.get("Location") if response.headers else "") or ""
     except Exception:
         location = ""
-    return (
+    return _(
         "The Gateway at %(url)s answered with a redirect (HTTP %(code)s%(location)s). "
         "Configure the final Gateway origin directly (usually the HTTPS URL) instead of an address that redirects."
     ) % {

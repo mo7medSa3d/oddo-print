@@ -2,7 +2,7 @@
 import requests
 from werkzeug.exceptions import Forbidden
 
-from odoo import http
+from odoo import http, _
 from odoo.http import request
 from odoo.exceptions import ValidationError
 
@@ -43,15 +43,15 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             if not branch:
                 branch = company
             elif branch.id != company.id and branch.parent_id.id != company.id:
-                raise ValidationError("Odoo Branch must belong directly to the selected Odoo Company.")
+                raise ValidationError(_("Odoo Branch must belong directly to the selected Odoo Company."))
             company = company.parent_id
 
         if branch and branch == company:
-            raise ValidationError("Odoo Branch must be a child Branch, not the selected root Company.")
+            raise ValidationError(_("Odoo Branch must be a child Branch, not the selected root Company."))
 
         if branch:
             if not branch.parent_id or branch.parent_id.id != company.id:
-                raise ValidationError("Odoo Branch must belong directly to the selected Odoo Company.")
+                raise ValidationError(_("Odoo Branch must belong directly to the selected Odoo Company."))
 
         return company, branch
 
@@ -86,7 +86,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 headers=config._gateway_headers(), timeout=5, allow_redirects=False,
             )
             if response.status_code != 200:
-                raise ValidationError('Gateway agent discovery failed (HTTP %s).' % response.status_code)
+                raise ValidationError(_('Gateway agent discovery failed (HTTP %s).') % response.status_code)
             body = response.json()
         except ValidationError:
             # Missing/invalid server-side configuration is not a client-side
@@ -94,10 +94,10 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             # that the Gateway connection needs attention.
             return {'enabled': False, 'selectedAgentId': False, 'agents': []}
         except (requests.RequestException, ValueError) as exc:
-            raise ValidationError('Gateway agent discovery is unavailable.') from exc
+            raise ValidationError(_('Gateway agent discovery is unavailable.')) from exc
         agents = body.get('agents') if isinstance(body, dict) else None
         if not isinstance(agents, list):
-            raise ValidationError('Gateway returned an invalid agent discovery response.')
+            raise ValidationError(_('Gateway returned an invalid agent discovery response.'))
         sanitized = []
         for agent in agents:
             if not isinstance(agent, dict):
@@ -160,13 +160,13 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 headers=config._gateway_headers(), timeout=5, allow_redirects=False,
             )
             if agent_response.status_code != 200:
-                raise ValidationError('Gateway agent discovery failed (HTTP %s).' % agent_response.status_code)
+                raise ValidationError(_('Gateway agent discovery failed (HTTP %s).') % agent_response.status_code)
             agent_body = agent_response.json() if agent_response.content else {}
             all_agents = agent_body.get('agents') if isinstance(agent_body, dict) else None
         except ValidationError:
             raise
         except (requests.RequestException, ValueError) as exc:
-            raise ValidationError('Gateway agent discovery is unavailable.') from exc
+            raise ValidationError(_('Gateway agent discovery is unavailable.')) from exc
         matched_agent = next(
             (a for a in all_agents or [] if isinstance(a, dict) and a.get('id') == selected_agent_id and a.get('lifecycle') == 'active'),
             None,
@@ -182,15 +182,15 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 timeout=5, allow_redirects=False,
             )
             if response.status_code != 200:
-                raise ValidationError('Gateway printer discovery failed (HTTP %s).' % response.status_code)
+                raise ValidationError(_('Gateway printer discovery failed (HTTP %s).') % response.status_code)
             body = response.json()
         except ValidationError:
             raise
         except (requests.RequestException, ValueError) as exc:
-            raise ValidationError('Gateway printer discovery is unavailable.') from exc
+            raise ValidationError(_('Gateway printer discovery is unavailable.')) from exc
         printers = body.get('printers') if isinstance(body, dict) else None
         if not isinstance(printers, list):
-            raise ValidationError('Gateway returned an invalid printer discovery response.')
+            raise ValidationError(_('Gateway returned an invalid printer discovery response.'))
         sanitized = []
         for printer in printers:
             if not isinstance(printer, dict):
