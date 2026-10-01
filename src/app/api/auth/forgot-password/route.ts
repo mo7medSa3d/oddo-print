@@ -7,8 +7,10 @@ import { clientIpFrom, reserveAuthAttempt, setRateLimitHeaders } from "../../../
 import { logError } from "../../../../lib/log";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
+import { getServerLocale, makeT } from "../../../../i18n/server";
 import { nanoid } from "../../../../lib/nanoid";
 export async function POST(req: Request) {
+  const t = makeT(await getServerLocale());
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   const generic = { ok: true, message: "If the account exists, a password reset email will be sent." };
   let body: { email?: unknown }; try { body = await req.json(); } catch { return NextResponse.json(generic, { status: 202 }); }
@@ -41,9 +43,9 @@ export async function POST(req: Request) {
     const url = `${appBaseUrl(req)}/reset-password?token=${encodeURIComponent(raw)}`;
     await sendTransactionalEmail({
       to: user.email,
-      subject: "Reset your Yaseir password",
-      html: `<p><a href="${url}">Reset password</a></p>`,
-      text: `Reset your password: ${url}`,
+      subject: t("mail.reset.subject"),
+      html: `<p><a href="${url}">${t("mail.reset.cta")}</a></p>`,
+      text: t("mail.reset.text", { url }),
     });
   } catch (error) {
     // Keep the response enumeration-safe, but retain an operational signal so

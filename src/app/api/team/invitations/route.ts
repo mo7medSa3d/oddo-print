@@ -6,6 +6,7 @@ import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { generateOpaqueToken, hashToken, normalizeEmail } from "../../../../lib/password";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
+import { getServerLocale, makeT } from "../../../../i18n/server";
 import { nanoid } from "../../../../lib/nanoid";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
@@ -22,6 +23,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const t = makeT(await getServerLocale());
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -93,7 +95,12 @@ export async function POST(req: Request) {
   }
   const url = `${appBaseUrl(req)}/invite?token=${encodeURIComponent(raw)}`;
   try {
-    await sendTransactionalEmail({ to: email, subject: "You are invited to Yaseir Print Manager", html: `<p>You have been invited to a Yaseir Print Manager workspace.</p><p><a href="${url}">Accept invitation</a></p>`, text: `Accept invitation: ${url}` });
+    await sendTransactionalEmail({
+      to: email,
+      subject: t("mail.invite.subject"),
+      html: `<p>${t("mail.invite.body")}</p><p><a href="${url}">${t("mail.invite.cta")}</a></p>`,
+      text: t("mail.invite.text", { url }),
+    });
   } catch (error) {
     // Email delivery is an ambiguous external side effect: a provider timeout
     // or connection reset does not prove that the message was not accepted.

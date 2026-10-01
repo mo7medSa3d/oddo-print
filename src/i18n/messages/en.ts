@@ -2067,6 +2067,20 @@ export const en = {
   "desktop.settings.language": "Language",
   "desktop.settings.languageBody": "Applies immediately across the Print Manager, including text direction.",
   "desktop.settings.languageAria": "Select interface language",
+  "mail.verify.subject": "Verify your Yaseir account",
+  "mail.verify.body": "Verify your Yaseir account.",
+  "mail.verify.cta": "Verify email",
+  "mail.verify.expires": "This link expires in 30 minutes.",
+  "mail.verify.text": "Verify your Yaseir account: {url}\nThis link expires in 30 minutes.",
+  "mail.reset.subject": "Reset your Yaseir password",
+  "mail.reset.cta": "Reset password",
+  "mail.reset.text": "Reset your password: {url}",
+  "mail.invite.subject": "You are invited to Yaseir Print Manager",
+  "mail.invite.body": "You have been invited to a Yaseir Print Manager workspace.",
+  "mail.invite.cta": "Accept invitation",
+  "mail.invite.text": "Accept invitation: {url}",
+  "mail.tokenReuse.subject": "Yaseir security alert: refresh token reuse detected",
+  "mail.tokenReuse.body": "A refresh token reuse was detected on your Yaseir session. All tokens in that session family were revoked. Sign in again to create a new session.",
 } as const;
 
 export type MessageKey = keyof typeof en;

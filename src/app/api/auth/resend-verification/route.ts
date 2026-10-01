@@ -5,6 +5,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { generateOpaqueToken, hashToken, normalizeEmail, validEmail } from "../../../../lib/password";
 import { nanoid } from "../../../../lib/nanoid";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
+import { getServerLocale, makeT } from "../../../../i18n/server";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { clientIpFrom, reserveAuthAttempt, setRateLimitHeaders } from "../../../../lib/auth-rate-limit";
 import { logError } from "../../../../lib/log";
@@ -12,6 +13,7 @@ import { logError } from "../../../../lib/log";
 const GENERIC = { ok: true, message: "If the account exists and is unverified, a new verification link has been sent." };
 
 export async function POST(req: Request) {
+  const t = makeT(await getServerLocale());
   if (hasBodyOverLimit(req, 64 * 1024)) {
     return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   }
@@ -95,9 +97,9 @@ export async function POST(req: Request) {
     const url = `${appBaseUrl(req)}/verify-email?token=${encodeURIComponent(rawToken)}${planQuery}`;
     await sendTransactionalEmail({
       to: email,
-      subject: "Verify your Yaseir account",
-      html: `<p>Verify your Yaseir account.</p><p><a href="${url}">Verify email</a></p><p>This link expires in 30 minutes.</p>`,
-      text: `Verify your Yaseir account: ${url}\nThis link expires in 30 minutes.`,
+      subject: t("mail.verify.subject"),
+      html: `<p>${t("mail.verify.body")}</p><p><a href="${url}">${t("mail.verify.cta")}</a></p><p>${t("mail.verify.expires")}</p>`,
+      text: t("mail.verify.text", { url }),
     });
   } catch {
     // Suppress email delivery error in response to preserve anti-enumeration
