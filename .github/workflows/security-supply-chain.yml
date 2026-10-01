@@ -66,7 +66,7 @@ jobs:
           trap 'rm -rf "$fixture"' EXIT
           cat > "$fixture/package.json" <<'EOF'
           {
-            "name": "yasser-audit-gate-fixture",
+            "name": "yaseir-audit-gate-fixture",
             "version": "1.0.0",
             "private": true,
             "dependencies": {
