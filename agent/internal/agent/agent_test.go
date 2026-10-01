@@ -999,7 +999,8 @@ func TestPollJobsBoundsOversizedBatch(t *testing.T) {
 	cfg.Agent.Secret = "secret"
 	cfg.Server.URL = server.URL
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
-	ag, err := New(cfg, configPath)	if err != nil {
+	ag, err := New(cfg, configPath)
+	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	defer func() { _ = ag.Close() }()
