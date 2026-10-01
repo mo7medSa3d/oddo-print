@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/kardianos/service"
-	"github.com/yasser-agent/agent/internal/agent"
-	"github.com/yasser-agent/agent/internal/config"
-	"github.com/yasser-agent/agent/internal/queue"
+	"github.com/yaseir-agent/agent/internal/agent"
+	"github.com/yaseir-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/queue"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -168,7 +168,7 @@ func (p *program) Stop(s service.Service) error {
 }
 
 // setupLogging opens a continuously rotating log file beside the config file
-// (%PROGRAMDATA%\YasserAgent\logs\agent.log on Windows). The agent never
+// (%PROGRAMDATA%\YaseirAgent\logs\agent.log on Windows). The agent never
 // writes to Program Files; the config path is the writable runtime root.
 func setupLogging(configPath string) (*lumberjack.Logger, error) {
 	logDir := filepath.Dir(configPath)
@@ -248,9 +248,9 @@ func configureServiceRecovery(serviceName string) {
 
 func handleServiceControl(rawAction, configPath string) error {
 	svcConfig := &service.Config{
-		Name:         "YasserAgent",
-		DisplayName:  "Yasser Agent",
-		Description:  "Local print gateway agent for Yasser Cloud Printing Platform — outbound Gateway HTTP/HTTPS and WebSocket transport only, no inbound ports. This isolated test build supports HTTP/WS; production remains HTTPS/WSS.",
+		Name:         "YaseirAgent",
+		DisplayName:  "Yaseir Agent",
+		Description:  "Local print gateway agent for Yaseir Cloud Printing Platform — outbound Gateway HTTP/HTTPS and WebSocket transport only, no inbound ports. This isolated test build supports HTTP/WS; production remains HTTPS/WSS.",
 		Arguments:    []string{"-config", configPath},
 		Dependencies: []string{"Tcpip"},
 	}
@@ -269,11 +269,11 @@ func handleServiceControl(rawAction, configPath string) error {
 		}
 		switch status {
 		case service.StatusRunning:
-			fmt.Println("YasserAgent service is running")
+			fmt.Println("YaseirAgent service is running")
 		case service.StatusStopped:
-			fmt.Println("YasserAgent service is stopped")
+			fmt.Println("YaseirAgent service is stopped")
 		default:
-			fmt.Println("YasserAgent service status is unknown")
+			fmt.Println("YaseirAgent service status is unknown")
 		}
 		return nil
 	case "install":
@@ -281,31 +281,31 @@ func handleServiceControl(rawAction, configPath string) error {
 			return fmt.Errorf("install service failed: %w", err)
 		}
 		configureServiceRecovery(svcConfig.Name)
-		fmt.Println("YasserAgent service installed successfully")
+		fmt.Println("YaseirAgent service installed successfully")
 		return nil
 	case "uninstall":
 		if err := s.Uninstall(); err != nil {
 			return fmt.Errorf("uninstall service failed: %w", err)
 		}
-		fmt.Println("YasserAgent service uninstalled successfully")
+		fmt.Println("YaseirAgent service uninstalled successfully")
 		return nil
 	case "start":
 		if err := s.Start(); err != nil {
 			return fmt.Errorf("start service failed: %w", err)
 		}
-		fmt.Println("YasserAgent service started successfully")
+		fmt.Println("YaseirAgent service started successfully")
 		return nil
 	case "stop":
 		if err := s.Stop(); err != nil {
 			return fmt.Errorf("stop service failed: %w", err)
 		}
-		fmt.Println("YasserAgent service stopped successfully")
+		fmt.Println("YaseirAgent service stopped successfully")
 		return nil
 	case "restart":
 		if err := s.Restart(); err != nil {
 			return fmt.Errorf("restart service failed: %w", err)
 		}
-		fmt.Println("YasserAgent service restarted successfully")
+		fmt.Println("YaseirAgent service restarted successfully")
 		return nil
 	default:
 		return fmt.Errorf("unknown service action: %q (expected install, uninstall, start, stop, restart, status)", rawAction)
@@ -337,9 +337,9 @@ func main() {
 	log.Printf("Using config file: %s", *configPath)
 
 	svcConfig := &service.Config{
-		Name:         "YasserAgent",
-		DisplayName:  "Yasser Agent",
-		Description:  "Local print gateway agent for Yasser Cloud Printing Platform — outbound Gateway HTTP/HTTPS and WebSocket transport only, no inbound ports. This isolated test build supports HTTP/WS; production remains HTTPS/WSS.",
+		Name:         "YaseirAgent",
+		DisplayName:  "Yaseir Agent",
+		Description:  "Local print gateway agent for Yaseir Cloud Printing Platform — outbound Gateway HTTP/HTTPS and WebSocket transport only, no inbound ports. This isolated test build supports HTTP/WS; production remains HTTPS/WSS.",
 		Arguments:    []string{"-config", *configPath},
 		Dependencies: []string{"Tcpip"},
 	}
