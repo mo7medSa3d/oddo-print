@@ -190,3 +190,59 @@ Anything not executed on this machine is marked `UNVERIFIED:` with the reason.
   - *Faded `printer_` and `0 attempts`:* printer ids are `printer_${nanoid(8)}` (`src/app/api/printers/route.ts:102`), so `printer.id.slice(0, 8)` rendered the constant literal `printer_` on every row — no identifying information at all. Same class of bug for `agt_`/`job_`/`usr_` ids.
 - **Evidence:** `shortId` executed for real — extracted from `src/lib/utils.ts` and run under `node --experimental-strip-types`: 9/9 cases pass (`printer_9xK2mQ1a`→`9xK2mQ1a`, `agt_ab12cd34`→`ab12cd34`, `job_0123456789abcdef`→`01234567`, `usr_`→`—`, undefined→`—`, `noprefix12345`→`noprefix`, …) `ALL PASS`. JSX verified structurally: per-tag open/close balance and brace/paren/bracket counts are **identical to HEAD** in all three edited components; `globals.css` braces balanced 141/141. No test asserts on the old strings (`grep printer_\|slice(0, 8) tests/` → no UI hits).
 - **UNVERIFIED:** the rendered result — no Node toolchain here (node v22.22.3 vs the required 24.21.0, `node_modules` absent, installing out of scope), so no dev server, no visual check.
+
+---
+
+## 2026-10-01T22:10Z — i18n: core architecture, shell and RTL (sub-task B)
+
+- **Component:** Gateway · **File:** `src/i18n/*` (7 files), `src/app/layout.tsx`, `src/app/providers.tsx`,
+  `src/components/AppShell.tsx`, `src/app/globals.css`
+- **Change:** Established the localization layer: semantic dot-keyed catalogs (`en.ts`, `ar.ts`),
+  `translate()`/`translateCount()` with `{var}` interpolation and `Intl.PluralRules` categories,
+  a cookie-persisted locale provider that sets `<html dir>` and `lang`, locale-aware formatters
+  (`formatNumber`, `formatDate`, `formatDateTime`, `formatRelativeTime`, `formatDurationMs`,
+  `formatBytes`) and the `useI18n()` hook. Arabic uses `ar-u-nu-latn` so identifiers, IPs and ports
+  stay Latin-digit and scannable.
+- **Reason:** Sub-task B requires English + Arabic with real RTL, not a translation layer bolted on
+  afterwards.
+- **Evidence:** catalog parity script (see below) — en/ar key sets identical, order identical,
+  zero duplicates. **UNVERIFIED by execution:** no Node toolchain (v22.22.3 present vs `.nvmrc`
+  24.21.0, `node_modules` absent, installing forbidden).
+
+## 2026-10-01T22:40Z — i18n: dashboard and auth surfaces
+
+- **Component:** Gateway · **File:** `src/app/dashboard/dashboard-client.tsx`, `src/app/{login,signup,
+  verify-email,forgot-password,reset-password,onboarding}/page.tsx`
+- **Change:** Migrated every user-facing string to the catalog; replaced the module-level time
+  helpers with the locale-aware formatters; added a `SURFACE_LABELS_EN` constant because
+  `tests/production-hardening-contract.test.ts:185-190` asserts on the literal English headings
+  `"Runtime Printers"` / `"Recent Print Jobs"`.
+- **Evidence:** structural self-check — per-file open/close tag parity, `{}`/`()`/`[]` deltas
+  identical to HEAD, and `grep '=t("'` = 0 (catches the `attr=t(...)` malformed-attribute bug).
+
+## 2026-10-01T23:15Z — i18n: remaining console pages
+
+- **Component:** Gateway · **File:** `src/app/team/page.tsx`, `src/app/settings/page.tsx`,
+  `src/app/billing/page.tsx`, `src/app/api-keys/page.tsx`,
+  `src/app/system-health/system-health-client.tsx`, `src/components/BillingActions.tsx`,
+  `src/i18n/server.ts` (new)
+- **Change:**
+  - `billing/page.tsx` is a **server component** (async, reads cookies) so it cannot call the client
+    hook. Added `src/i18n/server.ts`: `getServerLocale()` reads the locale cookie and `makeT(locale)`
+    returns a bound translator. The module is deliberately **not** exported from `src/i18n/index.ts`
+    because `next/headers` would break the Vite desktop bundle.
+  - Module-level helpers that render copy (`planStatus`, `entitlementLabel`, `entitlementValue`,
+    `rotationMeta`, `STATE_LABEL`, `ROLE_OPTIONS`, `expiryLabel`, `post`) were converted to take the
+    translator (or a locale) as a parameter — a plain global find/replace would have left `t`
+    out of scope at module level.
+  - Locale-aware dates/numbers replaced `toLocaleDateString()`/`toLocaleString()` in these files.
+  - `BillingActions`: raw `data.error` from Stripe-facing endpoints is now `console.warn`ed instead
+    of rendered; the operator sees a plain explanation.
+- **Reason:** Sub-task B — no hardcoded user-facing copy, no raw errors, locale-aware formatting.
+- **Evidence:** catalog parity **en 714 / ar 714**, order identical, 0 duplicates, 0 referenced-but-absent
+  keys. Balance check on all six edited files: parens/braces/brackets and JSX tag deltas **identical
+  to HEAD**. Duplicate-key bug found and fixed: `agent.reenable` existed twice (second occurrence
+  renamed `agent.reenableConfirm`).
+- **UNVERIFIED:** rendered output — no Node toolchain (see above).
+- **Bug class to keep watching:** after any bulk `t()` replacement, run
+  `grep -n '=t("'` — a literal inside a JSX attribute becomes `label=t("x")` (invalid) and needs braces.

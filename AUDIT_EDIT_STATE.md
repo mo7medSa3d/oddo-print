@@ -130,3 +130,52 @@ cancellation; `docs/DATABASE.md` + drift checker; dead component removal.
    must resolve those.
 4. `docs/DATABASE.md` is generated once; future schema changes must re-run
    `npm run db:docs:check` (it fails loudly on drift, which is the mitigation).
+
+---
+
+# Sub-task B — language, localization and RTL (ACTIVE)
+
+## Task list
+
+| # | Task | Status |
+|---|------|--------|
+| B1 | i18n core (catalogs, translate, formatters, provider, hook) | DONE — `4a97322` |
+| B2 | App shell, navigation, RTL direction + logical CSS | DONE — `4a97322` |
+| B3 | Dashboard | DONE — `5f0e9fd`/`5f0e9ad` |
+| B4 | Auth + onboarding (login, signup, verify, forgot, reset, onboarding) | DONE — `d9ebd62` |
+| B5 | Team, settings, billing, API keys, system health, BillingActions | DONE — `0bdd32c` |
+| B6 | Remaining console surfaces (agents, printers, jobs, pricing, platform/*) | IN PROGRESS |
+| B7 | Shared components (`ui.tsx`, `JobTimeline`, `UpgradeLimitDialog`, wizard, dialogs) | NOT STARTED |
+| B8 | Desktop shell (`src/desktop/pages/*.tsx`) | NOT STARTED |
+| B9 | Locale-aware date/number sweep (`toLocale*String` everywhere) | NOT STARTED |
+| B10 | Raw server-error text → operator-safe messages | NOT STARTED |
+| B11 | Terminology map applied consistently | NOT STARTED |
+| B12 | Final hardcoded-string sweep + local gate + commit | NOT STARTED |
+
+## Last file worked on
+
+`src/app/system-health/system-health-client.tsx` — `STATE_LABEL` converted to `stateLabel(state, t)`.
+
+## Decisions
+
+- **Server components** (e.g. `src/app/billing/page.tsx`) use `src/i18n/server.ts`
+  (`getServerLocale()` + `makeT(locale)`); client components use `useI18n()`.
+  `server.ts` is intentionally excluded from the `src/i18n/index.ts` barrel so the
+  Vite desktop build never pulls in `next/headers`.
+- **Module-level helpers** that render copy must take the translator as a parameter
+  (`planStatus(sub, t, formatDate)`, `rotationMeta(key, t)`, `stateLabel(state, t)`,
+  `roleOptions(t)`, `expiryLabel(iso, t)`, `post(path, body, t)`). A global
+  find/replace leaves `t` out of scope at module level — this bit twice already.
+- **Plural keys** are `base.one` / `.two` / `.few` / `.many` / `.other` / `.zero`;
+  `translateCount()` falls back through category → `other` → base.
+- **Arabic digits** stay Latin (`ar-u-nu-latn`) so ids, IPs and ports remain scannable;
+  English technical terms (Gateway, Agent, Printer, Print Job, Workspace, POS, API,
+  WebSocket, USB, IP, Windows, Spooler, ESC/POS) are kept untranslated inside Arabic.
+- **Raw API errors** are logged (`console.warn`) and replaced with an operator-facing
+  sentence; only applied to `BillingActions` and system health so far.
+
+## RESUME HERE
+
+Continue with **B6**: the console surfaces listed by the inventory scan
+(`src/app/agents`, `src/app/printers`, `src/app/jobs`, `src/app/pricing`,
+`src/app/platform/*`, `src/app/page.tsx`).

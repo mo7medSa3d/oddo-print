@@ -27,10 +27,18 @@ import {
 } from "../lib/manager-auth";
 import { hasManagerPermission } from "../lib/authorization";
 import { Button, StatusBadge, type Tone } from "../components/ui";
+import { getServerLocale, makeT } from "../i18n/server";
+import type { MessageKey } from "../i18n/messages/en";
+import { formatDate } from "../i18n/format";
+import type { Locale } from "../i18n/config";
 
 export const dynamic = "force-dynamic";
 
+type Translator = (key: MessageKey, vars?: Record<string, string | number>) => string;
+
 export default async function Home() {
+  const locale = await getServerLocale();
+  const t = makeT(locale);
   const cookieStore = await cookies();
   const claims = await verifyWorkspaceTokenFromCookieValues(
     cookieStore.get("cust_session")?.value ?? null,
@@ -58,7 +66,9 @@ export default async function Home() {
 
     return (
       <AuthenticatedHome
-        tenantName={tenant?.name ?? "Workspace"}
+        t={t}
+        locale={locale}
+        tenantName={tenant?.name ?? t("home.authWorkspace")}
         role={claims.role}
         planName={plan?.name ?? null}
         subscriptionStatus={subscription?.status ?? null}
@@ -69,36 +79,32 @@ export default async function Home() {
     );
   }
 
-  return <PublicHome />;
+  return <PublicHome t={t} locale={locale} />;
 }
 
 /* ============================================================
    Public marketing home
    ============================================================ */
 
-function PublicHome() {
+function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
   return (
     <div className="overflow-x-hidden">
-      <PublicHeader />
+      <PublicHeader t={t} />
 
       <main>
         {/* Hero */}
         <section className="ambient-surface border-b border-edge-subtle bg-app">
           <div className="mx-auto grid w-full max-w-[1200px] gap-12 px-6 pb-16 pt-12 sm:px-8 sm:pb-20 sm:pt-16 lg:grid-cols-[1.05fr_0.95fr] lg:items-start lg:gap-14 lg:px-8">
             <div className="relative max-w-[620px]">
-              <p className="text-eyebrow">
-                Odoo 19 · Automated printing for stores, warehouses and offices
-              </p>
+              <p className="text-eyebrow">{t("home.heroEyebrow")}</p>
 
               <h1 className="mt-4 text-4xl font-[670] leading-[1.06] tracking-[-0.035em] text-ink sm:text-5xl">
-                Print from Odoo
-                <br className="hidden sm:block" /> without the browser dialog.
+                {t("home.heroTitle1")}
+                <br className="hidden sm:block" /> {t("home.heroTitle2")}
               </h1>
 
               <p className="mt-5 max-w-[560px] text-lg leading-[1.65] text-ink-2">
-                Yaseir routes invoices, receipts, labels and reports from Odoo to the right local
-                printer automatically. Keep business rules in Odoo and let the Gateway handle
-                delivery across branches, stores and warehouses.
+                {t("home.heroBody")}
               </p>
 
               <div className="mt-7 flex flex-col gap-2.5 sm:flex-row">
@@ -108,7 +114,7 @@ function PublicHome() {
                   href="/signup"
                   icon={<ArrowRight className="h-4 w-4" />}
                 >
-                  Start your free trial
+                  {t("home.heroCta")}
                 </Button>
                 <Button
                   variant="secondary"
@@ -116,16 +122,16 @@ function PublicHome() {
                   href="#how-it-works"
                   icon={<ArrowUpRight className="h-4 w-4" />}
                 >
-                  See how it works
+                  {t("home.heroSecondary")}
                 </Button>
               </div>
 
               <ul className="mt-9 grid gap-x-6 gap-y-3 sm:grid-cols-2">
                 {[
-                  "No browser print dialogs at the counter",
-                  "Branch-aware printer routing",
-                  "Local Windows execution, tracked centrally",
-                  "Honest delivery state for every job",
+                  t("home.heroCheck1"),
+                  t("home.heroCheck2"),
+                  t("home.heroCheck3"),
+                  t("home.heroCheck4"),
                 ].map((item) => (
                   <li key={item} className="flex items-start gap-2.5 text-base text-ink-2">
                     <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand" aria-hidden />
@@ -135,7 +141,7 @@ function PublicHome() {
               </ul>
             </div>
 
-            <GatewayHeroVisual />
+            <GatewayHeroVisual t={t} />
           </div>
         </section>
 
@@ -143,29 +149,29 @@ function PublicHome() {
         <section id="product" className="scroll-mt-20 border-b border-edge-subtle bg-surface">
           <div className="mx-auto w-full max-w-[1200px] px-6 py-16 sm:px-8 sm:py-20 lg:px-8">
             <SectionIntro
-              eyebrow="Product"
-              title="One managed path from Odoo to paper."
-              text="Automate everyday printing across offices, stores, warehouses and branches — without relying on browser print dialogs or manual handoffs."
+              eyebrow={t("home.productEyebrow")}
+              title={t("home.productTitle")}
+              text={t("home.productText")}
             />
 
             <div className="mt-10 grid gap-4 lg:grid-cols-3">
               <ProductCard
                 icon={<Workflow className="h-4 w-4" />}
-                title="Invoices and documents"
-                text="Send invoices, reports, sales documents and delivery paperwork to the printer assigned to the job."
-                items={["Odoo reports", "Invoice and sales documents", "Document-based routing"]}
+                title={t("home.capability1Title")}
+                text={t("home.capability1Text")}
+                items={[t("home.capability1Item1"), t("home.capability1Item2"), t("home.capability1Item3")]}
               />
               <ProductCard
                 icon={<Printer className="h-4 w-4" />}
-                title="POS and counter printing"
-                text="Print receipts where the order belongs, keep reprints tied to the original job, and remove the browser from the counter."
-                items={["POS receipts", "Duplicate-safe reprints", "Counter print paths"]}
+                title={t("home.capability2Title")}
+                text={t("home.capability2Text")}
+                items={[t("home.capability2Item1"), t("home.capability2Item2"), t("home.capability2Item3")]}
               />
               <ProductCard
                 icon={<MonitorSmartphone className="h-4 w-4" />}
-                title="Warehouse and labels"
-                text="Keep labels and operational documents close to the work with branch-aware assignments and local execution."
-                items={["Stock operations", "Labels and raw output", "Branch-aware routing"]}
+                title={t("home.capability3Title")}
+                text={t("home.capability3Text")}
+                items={[t("home.capability3Item1"), t("home.capability3Item2"), t("home.capability3Item3")]}
               />
             </div>
           </div>
@@ -176,12 +182,12 @@ function PublicHome() {
           <div className="mx-auto grid w-full max-w-[1200px] gap-10 px-6 py-16 sm:px-8 sm:py-20 lg:grid-cols-[0.9fr_1.1fr] lg:gap-14 lg:px-8">
             <div>
               <SectionIntro
-                eyebrow="How it works"
-                title="From Odoo to paper, without the browser in the middle."
-                text="Odoo decides what should print. The Gateway manages delivery. The Windows agent runs the job locally. The printer does the rest."
+                eyebrow={t("home.flowEyebrow")}
+                title={t("home.flowTitle")}
+                text={t("home.flowText")}
               />
               <p className="mt-6 inline-flex items-center gap-2 rounded-sm border border-edge bg-surface-2 px-3 py-1.5 text-xs font-[600] uppercase tracking-[0.08em] text-ink-3">
-                Business intent → runtime delivery → physical execution
+                {t("home.flowChain")}
               </p>
             </div>
 
@@ -190,25 +196,25 @@ function PublicHome() {
                 icon={<Workflow className="h-4 w-4" />}
                 number="01"
                 title="Odoo"
-                text="Creates the print job with the business and routing context."
+                text={t("home.flow1Text")}
               />
               <FlowRow
                 icon={<Server className="h-4 w-4" />}
                 number="02"
                 title="Gateway"
-                text="Queues, routes and tracks every job until the delivery outcome is known."
+                text={t("home.flow2Text")}
               />
               <FlowRow
                 icon={<MonitorSmartphone className="h-4 w-4" />}
                 number="03"
-                title="Windows agent"
-                text="Runs the job on the local Windows machine and reports the result back to the Gateway."
+                title={t("home.flow3Title")}
+                text={t("home.flow3Text")}
               />
               <FlowRow
                 icon={<Printer className="h-4 w-4" />}
                 number="04"
                 title="Printer"
-                text="Prints through the available local connection and returns the delivery result."
+                text={t("home.flow4Text")}
               />
             </ol>
           </div>
@@ -219,26 +225,26 @@ function PublicHome() {
           <div className="mx-auto w-full max-w-[1200px] px-6 py-16 sm:px-8 sm:py-20 lg:px-8">
             <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
               <SectionIntro
-                eyebrow="Reliability"
-                title="Built for busy branches, not perfect networks."
-                text="Printers go offline. Connections drop. Agents restart. The Gateway keeps the print workflow moving and makes the delivery state clear."
+                eyebrow={t("home.reliabilityEyebrow")}
+                title={t("home.reliabilityTitle")}
+                text={t("home.reliabilityText")}
               />
               <dl className="grid gap-4 sm:grid-cols-2">
                 <ReliabilityCell
-                  title="Jobs stay queued"
-                  text="A temporary network or printer issue does not erase the work waiting to print."
+                  title={t("home.reliability1Title")}
+                  text={t("home.reliability1Text")}
                 />
                 <ReliabilityCell
-                  title="Duplicate-safe retries"
-                  text="Retries keep the same job identity, so recovery does not become a second logical print."
+                  title={t("home.reliability2Title")}
+                  text={t("home.reliability2Text")}
                 />
                 <ReliabilityCell
-                  title="Stale delivery blocked"
-                  text="When ownership changes, an old delivery attempt cannot later overwrite the real job outcome."
+                  title={t("home.reliability3Title")}
+                  text={t("home.reliability3Text")}
                 />
                 <ReliabilityCell
-                  title="Honest status"
-                  text="When physical output cannot be proven, the system says so instead of claiming success."
+                  title={t("home.reliability4Title")}
+                  text={t("home.reliability4Text")}
                 />
               </dl>
             </div>
@@ -249,35 +255,34 @@ function PublicHome() {
         <section id="security" className="scroll-mt-20 border-b border-edge-subtle bg-app">
           <div className="mx-auto w-full max-w-[1200px] px-6 py-16 sm:px-8 sm:py-20 lg:px-8">
             <SectionIntro
-              eyebrow="Security and visibility"
-              title="Controlled printing for business operations."
-              text="Keep access scoped, track delivery, and see what happened to every print job across the workspace."
+              eyebrow={t("home.securityEyebrow")}
+              title={t("home.securityTitle")}
+              text={t("home.securityText")}
             />
 
             <div className="mt-10 grid gap-4 lg:grid-cols-2">
               <SecurityPanel
                 icon={<KeyRound className="h-4 w-4" />}
-                title="Controlled Odoo access"
+                title={t("home.security1Title")}
                 items={[
-                  "Each Odoo integration authenticates with its own workspace credential.",
-                  "Credentials are stored hashed, checked against the active subscription on every request, and revocable per key.",
-                  "Odoo access stays separate from operator console sessions.",
+                  t("home.security1Item1"),
+                  t("home.security1Item2"),
+                  t("home.security1Item3"),
                 ]}
               />
               <SecurityPanel
                 icon={<ShieldCheck className="h-4 w-4" />}
-                title="Operational visibility"
+                title={t("home.security2Title")}
                 items={[
-                  "See connected agents and available printers from one console.",
-                  "Track every job from admission to delivery outcome, with retries and attempts.",
-                  "Keep workspace changes and ownership history auditable.",
+                  t("home.security2Item1"),
+                  t("home.security2Item2"),
+                  t("home.security2Item3"),
                 ]}
               />
             </div>
 
             <p className="mt-6 text-sm text-ink-3">
-              Platform staff actions are recorded in an append-only audit stream, visible to
-              platform administrators.
+              {t("home.securityNote")}
             </p>
           </div>
         </section>
@@ -288,22 +293,21 @@ function PublicHome() {
             <div className="brand-hairline relative overflow-hidden rounded-2xl border border-edge bg-surface-2 px-6 py-9 sm:px-9">
               <div className="relative grid gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
                 <div className="max-w-[640px]">
-                  <p className="text-eyebrow">Operations</p>
+                  <p className="text-eyebrow">{t("home.ctaEyebrow")}</p>
                   <h2 className="mt-3 text-3xl font-[660] leading-[1.14] tracking-[-0.03em] text-ink sm:text-4xl">
-                    Make printing part of the workflow.
+                    {t("home.ctaTitle")}
                   </h2>
                   <p className="mt-3 max-w-[600px] text-base leading-relaxed text-ink-2">
-                    Connect Odoo, register the Windows agent, assign printers by branch, and let
-                    Yaseir handle the delivery path from business event to physical output.
+                    {t("home.ctaText")}
                   </p>
                 </div>
 
                 <div className="flex flex-col gap-2.5 sm:flex-row lg:flex-col lg:items-stretch">
                   <Button variant="primary" size="lg" href="/signup" icon={<ArrowRight className="h-4 w-4" />}>
-                    Create workspace
+                    {t("home.ctaPrimary")}
                   </Button>
                   <Button variant="secondary" size="lg" href="/pricing" icon={<ChevronRight className="h-4 w-4" />}>
-                    View plans
+                    {t("home.ctaSecondary")}
                   </Button>
                 </div>
               </div>
@@ -312,12 +316,12 @@ function PublicHome() {
         </section>
       </main>
 
-      <PublicFooter />
+      <PublicFooter t={t} />
     </div>
   );
 }
 
-function PublicHeader() {
+function PublicHeader({ t }: { t: Translator }) {
   return (
     <header className="glass-chrome sticky top-0 z-40 border-b border-edge">
       <div className="mx-auto flex h-16 w-full max-w-[1200px] items-center gap-4 px-6 sm:px-8 lg:px-8">
@@ -325,16 +329,16 @@ function PublicHeader() {
           <BrandMark title="Yaseir" subtitle="Print Manager" size="sm" showWordmark />
         </Link>
 
-        <nav className="hidden min-w-0 flex-1 items-center gap-1 md:flex" aria-label="Landing page">
-          <Anchor href="#product">Product</Anchor>
-          <Anchor href="#how-it-works">How it works</Anchor>
-          <Anchor href="#reliability">Reliability</Anchor>
-          <Anchor href="#security">Security</Anchor>
+        <nav className="hidden min-w-0 flex-1 items-center gap-1 md:flex" aria-label={t("home.brandAria")}>
+          <Anchor href="#product">{t("home.productEyebrow")}</Anchor>
+          <Anchor href="#how-it-works">{t("home.navHowItWorks")}</Anchor>
+          <Anchor href="#reliability">{t("home.navReliability")}</Anchor>
+          <Anchor href="#security">{t("home.navSecurity")}</Anchor>
           <Link
             href="/pricing"
             className="inline-flex h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink"
           >
-            Pricing
+            {t("home.navPricing")}
           </Link>
         </nav>
 
@@ -346,24 +350,24 @@ function PublicHeader() {
               href="/login"
               className="inline-flex h-9 items-center rounded-sm px-3.5 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink"
             >
-              Sign in
+              {t("auth.signIn.submit")}
             </Link>
             <Button variant="primary" size="md" href="/signup">
-              Start trial
+              {t("home.startTrial")}
             </Button>
           </div>
 
           <details className="relative sm:hidden">
             <summary className="flex h-9 cursor-pointer list-none items-center justify-center rounded-sm border border-edge bg-surface px-3 text-sm font-[550] text-ink-2 transition-colors hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
-              Menu
+              {t("home.navMenu")}
             </summary>
             <div className="menu-surface absolute end-0 top-11 z-50 w-56 p-1.5">
-              <Anchor href="#product" block>Product</Anchor>
-              <Anchor href="#how-it-works" block>How it works</Anchor>
-              <Anchor href="#reliability" block>Reliability</Anchor>
-              <Anchor href="#security" block>Security</Anchor>
-              <Link href="/pricing" className="menu-item">Pricing</Link>
-              <Link href="/login" className="menu-item">Sign in</Link>
+              <Anchor href="#product" block>{t("home.productEyebrow")}</Anchor>
+              <Anchor href="#how-it-works" block>{t("home.navHowItWorks")}</Anchor>
+              <Anchor href="#reliability" block>{t("home.navReliability")}</Anchor>
+              <Anchor href="#security" block>{t("home.navSecurity")}</Anchor>
+              <Link href="/pricing" className="menu-item">{t("home.navPricing")}</Link>
+              <Link href="/login" className="menu-item">{t("auth.signIn.submit")}</Link>
             </div>
           </details>
         </div>
@@ -372,21 +376,20 @@ function PublicHeader() {
   );
 }
 
-function PublicFooter() {
+function PublicFooter({ t }: { t: Translator }) {
   return (
     <footer className="border-t border-edge-subtle bg-surface">
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-6 py-10 sm:px-8 lg:flex-row lg:items-start lg:justify-between lg:px-8">
         <div>
           <BrandMark title="Yaseir" subtitle="Print Manager" size="sm" showWordmark />
           <p className="mt-3 max-w-[440px] text-sm leading-relaxed text-ink-3">
-            Automated Odoo printing for receipts, invoices, labels and reports — delivered to the
-            right printer across your operation.
+            {t("home.footerBlurb")}
           </p>
         </div>
-        <nav aria-label="Footer" className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-[550] text-ink-2">
-          <Link href="/pricing" className="transition-colors hover:text-ink">Pricing</Link>
-          <Link href="/login" className="transition-colors hover:text-ink">Sign in</Link>
-          <Link href="/signup" className="transition-colors hover:text-ink">Create account</Link>
+        <nav aria-label={t("home.footerAria")} className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-[550] text-ink-2">
+          <Link href="/pricing" className="transition-colors hover:text-ink">{t("home.navPricing")}</Link>
+          <Link href="/login" className="transition-colors hover:text-ink">{t("auth.signIn.submit")}</Link>
+          <Link href="/signup" className="transition-colors hover:text-ink">{t("auth.signup.submit")}</Link>
           <span className="text-ink-3">Odoo 19</span>
         </nav>
       </div>
@@ -410,35 +413,35 @@ function Anchor({ href, children, block = false }: { href: string; children: Rea
 }
 
 /** Static product illustration — structure of the real pipeline, not fake telemetry. */
-function GatewayHeroVisual() {
+function GatewayHeroVisual({ t }: { t: Translator }) {
   return (
     <div className="ambient-surface relative overflow-hidden rounded-2xl border border-edge bg-surface shadow-card">
       <div className="flex items-center justify-between border-b border-edge-subtle bg-surface-2/70 px-4 py-3">
-        <BrandMark title="Yaseir Gateway" subtitle="Print operations" size="sm" />
-        <StatusBadge tone="ok" label="Operational" size="sm" />
+        <BrandMark title={t("home.visualTitle")} subtitle={t("home.visualSubtitle")} size="sm" />
+        <StatusBadge tone="ok" label={t("home.visualBadge")} size="sm" />
       </div>
 
       <div className="relative px-4 py-4">
-        <div className="label-caps">Print path</div>
+        <div className="label-caps">{t("home.visualPath")}</div>
         <ol className="mt-3 divide-y divide-edge-subtle border-y border-edge-subtle">
-          <RuntimeRow index="01" icon={<Workflow className="h-3.5 w-3.5" />} title="Odoo" meta="Business intent stays in the ERP" />
-          <RuntimeRow index="02" icon={<Server className="h-3.5 w-3.5" />} title="Gateway" meta="Durable queue and branch routing" />
-          <RuntimeRow index="03" icon={<MonitorSmartphone className="h-3.5 w-3.5" />} title="Windows agent" meta="Local execution and status reporting" />
-          <RuntimeRow index="04" icon={<Printer className="h-3.5 w-3.5" />} title="Printer" meta="Spooler, raw and USB output" />
+          <RuntimeRow index="01" icon={<Workflow className="h-3.5 w-3.5" />} title={t("home.visualStep1Title")} meta={t("home.visualStep1Text")} />
+          <RuntimeRow index="02" icon={<Server className="h-3.5 w-3.5" />} title={t("home.visualStep2Title")} meta={t("home.visualStep2Text")} />
+          <RuntimeRow index="03" icon={<MonitorSmartphone className="h-3.5 w-3.5" />} title={t("home.visualStep3Title")} meta={t("home.visualStep3Text")} />
+          <RuntimeRow index="04" icon={<Printer className="h-3.5 w-3.5" />} title={t("home.visualStep4Title")} meta={t("home.visualStep4Text")} />
         </ol>
 
         <div className="mt-4">
-          <div className="label-caps">Delivery guarantees</div>
+          <div className="label-caps">{t("home.visualGuarantees")}</div>
           <ul className="mt-2 space-y-2">
-            <HeroCheck text="No browser dialogs at the counter" />
-            <HeroCheck text="Route jobs to the right branch printer" />
-            <HeroCheck text="Know what happened to every job" />
+            <HeroCheck text={t("home.heroCheck1")} />
+            <HeroCheck text={t("home.visualGuarantee2")} />
+            <HeroCheck text={t("home.visualGuarantee3")} />
           </ul>
         </div>
       </div>
 
       <div className="border-t border-edge-subtle bg-surface-2/70 px-4 py-2.5 text-xs text-ink-3">
-        Queue · branch routing · local execution · delivery tracking
+        {t("home.visualFooter")}
       </div>
     </div>
   );
@@ -551,6 +554,8 @@ function SecurityPanel({ icon, title, items }: { icon: ReactNode; title: string;
    ============================================================ */
 
 function AuthenticatedHome({
+  t,
+  locale,
   tenantName,
   role,
   planName,
@@ -583,19 +588,19 @@ function AuthenticatedHome({
       <section className="card overflow-hidden">
         <div className="flex flex-col gap-5 px-6 py-6 sm:flex-row sm:items-start sm:justify-between sm:px-7">
           <div className="min-w-0">
-            <p className="text-eyebrow">Workspace</p>
+            <p className="text-eyebrow">{t("home.authWorkspace")}</p>
             <h1 className="mt-2 text-3xl font-[660] tracking-[-0.03em] text-ink">{tenantName}</h1>
             <p className="mt-1.5 text-base text-ink-2">
-              Signed in as <span className="font-[600] capitalize text-ink">{role.replace(/_/g, " ")}</span>
+              {t("home.authSignedInAs")} <span className="font-[600] capitalize text-ink">{role.replace(/_/g, " ")}</span>
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
             <Button variant="primary" href="/dashboard" icon={<ArrowRight className="h-4 w-4" />}>
-              Open console
+              {t("home.authOpenConsole")}
             </Button>
             {canBilling && (
               <Button variant="secondary" href="/billing" icon={<CreditCard className="h-4 w-4" />}>
-                Billing
+                {t("nav.billing")}
               </Button>
             )}
           </div>
@@ -603,22 +608,22 @@ function AuthenticatedHome({
 
         <dl className="grid grid-cols-1 divide-y divide-edge-subtle border-t border-edge-subtle sm:grid-cols-3 sm:divide-x sm:divide-y-0">
           <div className="px-6 py-4">
-            <dt className="label-caps">Plan</dt>
-            <dd className="mt-1.5 text-sm font-[600] text-ink">{hasPlan ? planName : "No plan selected"}</dd>
+            <dt className="label-caps">{t("home.planLabel")}</dt>
+            <dd className="mt-1.5 text-sm font-[600] text-ink">{hasPlan ? planName : t("billing.noPlanSelected")}</dd>
           </div>
           <div className="px-6 py-4">
-            <dt className="label-caps">Subscription</dt>
+            <dt className="label-caps">{t("home.subscriptionLabel")}</dt>
             <dd className="mt-1.5">
               <StatusBadge
                 tone={statusTone}
-                label={subscriptionStatus ? formatStatus(subscriptionStatus) : "Not configured"}
+                label={subscriptionStatus ? formatStatus(subscriptionStatus, t) : t("billing.notConfigured")}
               />
             </dd>
           </div>
           <div className="px-6 py-4">
-            <dt className="label-caps">Renewal</dt>
+            <dt className="label-caps">{t("home.renewalLabel")}</dt>
             <dd className="mt-1.5 text-sm font-[600] text-ink">
-              {periodEnd ? periodEnd.toLocaleDateString() : "—"}
+              {periodEnd ? formatDate(periodEnd, locale) : "—"}
             </dd>
           </div>
         </dl>
@@ -628,42 +633,60 @@ function AuthenticatedHome({
         <QuickLink
           href="/dashboard"
           icon={<LayoutDashboard className="h-4 w-4" />}
-          title="Console"
-          text="Agents, printers and jobs in one operational view."
-          meta={hasPlan ? planName ?? "" : "Setup needed"}
+          title={t("nav.console")}
+          text={t("home.quickDashboard")}
+          meta={hasPlan ? planName ?? "" : t("home.quickDashboardMeta")}
+          t={t}
         />
         <QuickLink
           href="/api-keys"
           icon={<KeyRound className="h-4 w-4" />}
-          title="Odoo integration"
-          text="Credentials, activation state and connection health."
-          meta="Integration"
+          title={t("home.quickOdooTitle")}
+          text={t("home.quickOdooText")}
+          meta={t("home.quickOdooMeta")}
+          t={t}
         />
         {canTeam ? (
           <QuickLink
             href="/team"
             icon={<Users className="h-4 w-4" />}
-            title="Team"
-            text="Members, roles and ownership transfer."
-            meta="Administration"
+            title={t("home.quickTeamTitle")}
+            text={t("home.quickTeamText")}
+            meta={t("home.quickTeamMeta")}
+            t={t}
           />
         ) : (
           <QuickLink
             href="/settings"
             icon={<LayoutDashboard className="h-4 w-4" />}
-            title="Settings"
-            text="Workspace identity and account access."
-            meta="General"
+            title={t("home.quickSettingsTitle")}
+            text={t("home.quickSettingsText")}
+            meta={t("home.quickSettingsMeta")}
+            t={t}
           />
         )}
       </section>
 
-      <p className="mt-8 text-center text-sm text-ink-3">Odoo → Gateway → Windows agent → Printer</p>
+      <p className="mt-8 text-center text-sm text-ink-3">{t("home.printChain")}</p>
     </div>
   );
 }
 
-function QuickLink({ href, icon, title, text, meta }: { href: string; icon: ReactNode; title: string; text: string; meta: string }) {
+function QuickLink({
+  href,
+  icon,
+  title,
+  text,
+  meta,
+  t,
+}: {
+  href: string;
+  icon: ReactNode;
+  title: string;
+  text: string;
+  meta: string;
+  t: Translator;
+}) {
   return (
     <Link
       href={href}
@@ -678,12 +701,23 @@ function QuickLink({ href, icon, title, text, meta }: { href: string; icon: Reac
       </div>
       <p className="mt-1.5 text-base leading-relaxed text-ink-2">{text}</p>
       <span className="mt-3 inline-flex items-center gap-1 text-sm font-[600] text-brand">
-        Open <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+        {t("home.quickLinkOpen")} <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
       </span>
     </Link>
   );
 }
 
-function formatStatus(status: string) {
+function formatStatus(status: string, t: Translator) {
+  const known: Record<string, MessageKey> = {
+    trialing: "billing.trial",
+    active: "billing.active",
+    past_due: "billing.paymentAttention",
+    unpaid: "billing.paymentRequired",
+    paused: "billing.paused",
+    incomplete: "billing.paymentRequired",
+    incomplete_expired: "billing.checkoutExpired",
+    canceled: "billing.canceled",
+  };
+  if (known[status]) return t(known[status]);
   return status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
