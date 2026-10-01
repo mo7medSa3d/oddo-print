@@ -998,7 +998,8 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 		if typ == "discovery" {
 			discoveryID, err := readStringField(envelope, "discoveryId", true, false)
 			if err != nil {
-				log.Printf("Malformed discovery WS message: %v", err)				continue
+				log.Printf("Malformed discovery WS message: %v", err)
+				continue
 			}
 			log.Printf("[discovery] received instant WS trigger for session %s", discoveryID)
 			// Trigger discovery immediately, don't wait for 10s poll
@@ -1997,7 +1998,8 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 			entry["capabilities"] = caps
 		}
 		result = append(result, entry)
-	}	if observedCapabilityStateChanged {
+	}
+	if observedCapabilityStateChanged {
 		if err := a.persistDesiredState(); err != nil {
 			log.Printf("WARNING: failed to persist observed printer capabilities: %v", err)
 		}
