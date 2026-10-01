@@ -10,8 +10,9 @@ import { createHash, randomBytes } from "node:crypto";
 
 const SENSITIVE = /secret|password|passwd|token|authorization|cookie|api[_-]?key|payload|pairing/i;
 
-export function redactClaimToken(value: unknown): unknown {
-  if (typeof value !== "string" || !value) return value;
+export function redactClaimToken(value: unknown): string | null | undefined {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== "string" || !value) return undefined;
   if (/^claim_[0-9a-f]{12}$/i.test(value)) return value;
   return "claim_" + createHash("sha256").update(value, "utf8").digest("hex").slice(0, 12);
 }
