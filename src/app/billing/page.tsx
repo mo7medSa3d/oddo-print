@@ -290,7 +290,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                   {entitlements.length > 0 ? (
                     <ul className="mt-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
                       {entitlements.map((entry) => (
-                        <li key={entry.label} className="rounded-lg border border-edge bg-surface-2 px-4 py-3.5">
+                        <li key={entry.label} className="rounded-sg border border-edge bg-surface-2 px-4 py-3.5">
                           <div className="flex items-start gap-2">
                             <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-xs bg-ok-bg text-ok" aria-hidden>
                               <Check className="h-3 w-3" />
@@ -304,7 +304,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                       ))}
                     </ul>
                   ) : (
-                    <p className="mt-4 rounded-lg border border-dashed border-edge-strong bg-surface-2 px-4 py-5 text-sm text-ink-3">
+                    <p className="mt-4 rounded-sg border border-dashed border-edge-strong bg-surface-2 px-4 py-5 text-sm text-ink-3">
                       Plan capacity is managed by Platform Administration.
                     </p>
                   )}

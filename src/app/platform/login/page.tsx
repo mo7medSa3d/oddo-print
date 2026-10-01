@@ -129,7 +129,7 @@ export default function PlatformLoginPage() {
           {loading ? "Signing in…" : "Continue"}
         </Button>
 
-        <div className="flex items-start gap-2.5 rounded-lg border border-edge-strong bg-surface px-3.5 py-3">
+        <div className="flex items-start gap-2.5 rounded-sg border border-edge-strong bg-surface px-3.5 py-3">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
           <p className="text-sm leading-relaxed text-ink-3">
             Restricted to authorized Platform Owners. Control-plane access uses a separate

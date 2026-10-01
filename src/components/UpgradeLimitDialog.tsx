@@ -67,17 +67,17 @@ export default function UpgradeLimitDialog({
       description="The Gateway enforces plan limits server-side, so no new print operation or resource is admitted beyond the plan allowance."
     >
       <div className="space-y-5">
-        <div className="flex items-start gap-3 rounded-lg border border-warn-edge bg-warn-bg px-4 py-3.5 text-sm text-warn">
+        <div className="flex items-start gap-3 rounded-sg border border-warn-edge bg-warn-bg px-4 py-3.5 text-sm text-warn">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p className="leading-relaxed">{copy.description}</p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-lg border border-edge bg-surface-2 px-4 py-3.5">
+          <div className="rounded-sg border border-edge bg-surface-2 px-4 py-3.5">
             <div className="text-2xs font-semibold uppercase tracking-[0.08em] text-ink-4">Used</div>
             <div className="mt-1.5 text-xl font-bold tabular-nums text-ink">{usedText}</div>
           </div>
-          <div className="rounded-lg border border-edge bg-surface-2 px-4 py-3.5">
+          <div className="rounded-sg border border-edge bg-surface-2 px-4 py-3.5">
             <div className="text-2xs font-semibold uppercase tracking-[0.08em] text-ink-4">Plan limit</div>
             <div className="mt-1.5 text-xl font-bold tabular-nums text-ink">{limitText}</div>
           </div>

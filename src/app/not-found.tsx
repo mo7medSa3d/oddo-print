@@ -6,7 +6,7 @@ export default function NotFound() {
     <div className="ambient-surface flex min-h-[calc(100vh-3.5rem)] items-center justify-center py-14">
       <div className="relative z-10 mx-auto w-full max-w-[560px] px-5">
         <div className="card p-7 sm:p-8">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-edge-subtle bg-surface-2 text-ink-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-sg border border-edge-subtle bg-surface-2 text-ink-3">
             <Compass className="h-5 w-5" aria-hidden />
           </div>
 

@@ -32,7 +32,7 @@ export function Sidebar({
   isOnline: boolean; version: string; lastStatusCheck: string | null;
 }) {
   return (
-    <aside className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-edge bg-surface shadow-sm transition-all duration-180 ease-out ${collapsed ? "w-[72px]" : "w-[276px]"} ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
+    <aside className={`fixed inset-y-0 start-0 z-40 flex flex-col border-e border-edge bg-surface shadow-sm transition-all duration-180 ease-out ${collapsed ? "w-[72px]" : "w-[276px]"} ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
       <div className={`flex h-[68px] shrink-0 items-center gap-3 border-b border-edge/80 ${collapsed ? "justify-center px-0" : "px-5"}`}>
         <BrandMarkIcon size="md" className="shrink-0" />
         {!collapsed && (
@@ -41,7 +41,7 @@ export function Sidebar({
             <div className="mt-0.5 truncate text-2xs font-medium text-ink-3">Local print operations · v{version || "—"}</div>
           </div>
         )}
-        <button onClick={() => { setCollapsed(false); setSidebarOpen(false); }} className="ml-auto rounded-sm p-2 text-ink-3 transition hover:bg-surface-2 hover:text-ink lg:hidden" aria-label="Close navigation">
+        <button onClick={() => { setCollapsed(false); setSidebarOpen(false); }} className="ms-auto rounded-sm p-2 text-ink-3 transition hover:bg-surface-2 hover:text-ink lg:hidden" aria-label="Close navigation">
           <X className="h-5 w-5" />
         </button>
       </div>
@@ -58,10 +58,10 @@ export function Sidebar({
                 onClick={() => { navigate(item.id); setSidebarOpen(false); }}
                 aria-current={active ? "page" : undefined}
                 title={collapsed ? item.label : undefined}
-                className={`relative flex w-full items-center gap-3 rounded-md text-sm transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 ${collapsed ? "justify-center px-2 py-3" : "px-3 py-2.5"} ${active ? "bg-brand-subtle font-semibold text-brand shadow-xs before:absolute before:inset-y-2 before:left-0 before:w-[2px] before:rounded-sm before:bg-brand" : "font-medium text-ink-2 hover:bg-surface-2 hover:text-ink"}`}
+                className={`relative flex w-full items-center gap-3 rounded-md text-sm transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 ${collapsed ? "justify-center px-2 py-3" : "px-3 py-2.5"} ${active ? "bg-brand-subtle font-semibold text-brand shadow-xs before:absolute before:inset-y-2 before:start-0 before:w-[2px] before:rounded-sm before:bg-brand" : "font-medium text-ink-2 hover:bg-surface-2 hover:text-ink"}`}
               >
                 <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden />
-                {!collapsed && <span className="flex-1 text-left">{item.label}</span>}
+                {!collapsed && <span className="flex-1 text-start">{item.label}</span>}
                 {!collapsed && <span className={`text-2xs font-medium ${active ? "text-brand/65" : "text-ink-4"}`}>{item.desc}</span>}
               </button>
             );
@@ -77,7 +77,7 @@ export function Sidebar({
           </div>
         ) : (
           <div className="space-y-2.5">
-            <div className="rounded-lg border border-edge bg-surface-2 p-3.5 space-y-3">
+            <div className="rounded-sg border border-edge bg-surface-2 p-3.5 space-y-3">
               <StatusLine tone={gatewayConnected ? "ok" : "bad"} title={gatewayConnected ? "Gateway connected" : gatewayUrl ? "Gateway unavailable" : "Gateway not configured"} detail={gatewayUrl || "Configure a Gateway URL"} pulse={gatewayConnected} />
               <div className="h-px bg-edge" />
               <StatusLine tone={isOnline ? "ok" : "bad"} title={isOnline ? "Agent running" : "Agent stopped"} detail={`v${version || "—"} · ${lastStatusCheck ? new Date(lastStatusCheck).toLocaleTimeString() : "—"}`} pulse={isOnline} />

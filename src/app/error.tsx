@@ -19,7 +19,7 @@ export default function GlobalError({
     <div className="ambient-surface flex min-h-[calc(100vh-3.5rem)] items-center justify-center py-14">
       <div className="relative z-10 mx-auto w-full max-w-[560px] px-5">
         <div className="card p-7 sm:p-8" role="alert">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-bad-edge bg-bad-bg text-bad">
+          <div className="flex h-11 w-11 items-center justify-center rounded-sg border border-bad-edge bg-bad-bg text-bad">
             <AlertTriangle className="h-5 w-5" aria-hidden />
           </div>
 

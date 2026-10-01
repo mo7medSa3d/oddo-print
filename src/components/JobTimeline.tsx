@@ -137,7 +137,7 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
 
   if (error) {
     return (
-      <div role="alert" className="flex flex-col gap-3 rounded-lg border border-bad-edge bg-bad-bg px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+      <div role="alert" className="flex flex-col gap-3 rounded-sg border border-bad-edge bg-bad-bg px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-2.5 text-sm text-bad">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <span>Timeline unavailable — {error}</span>
@@ -156,7 +156,7 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
 
   if (!events || events.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-edge-strong bg-surface-2 px-5 py-8 text-center">
+      <div className="flex flex-col items-center gap-2 rounded-sg border border-dashed border-edge-strong bg-surface-2 px-5 py-8 text-center">
         <Clock className="h-5 w-5 text-ink-4" aria-hidden />
         <p className="text-base font-[550] text-ink">No timeline events yet</p>
         <p className="max-w-sm text-sm leading-relaxed text-ink-3">
@@ -173,7 +173,7 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
   return (
     <div className="space-y-4">
       {correlated.length > 0 && (
-        <dl className="rounded-lg border border-edge bg-surface-2 px-3.5 py-3">
+        <dl className="rounded-sg border border-edge bg-surface-2 px-3.5 py-3">
           <div className="label-caps">Correlation IDs</div>
           <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
             {correlated.map(([key, value]) => (
@@ -188,8 +188,8 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
         </dl>
       )}
 
-      <ol className="relative space-y-4 pl-7">
-        <span className="absolute left-[9px] top-2 bottom-2 w-px bg-edge" aria-hidden />
+      <ol className="relative space-y-4 ps-7">
+        <span className="absolute start-[9px] top-2 bottom-2 w-px bg-edge" aria-hidden />
         {events.map((ev) => {
           const tone = stageTone(ev.status);
           const when = formatWhen(ev.at);
@@ -197,7 +197,7 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
             <li key={ev.id} className="relative">
               <span
                 aria-hidden
-                className={`absolute -left-7 top-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full border ${
+                className={`absolute -start-7 top-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full border ${
                   tone === "ok"
                     ? "border-ok-edge bg-ok-bg text-ok"
                     : tone === "bad"

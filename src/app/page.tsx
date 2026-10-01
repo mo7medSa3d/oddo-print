@@ -338,7 +338,7 @@ function PublicHeader() {
           </Link>
         </nav>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ms-auto flex items-center gap-2">
           <ThemeToggle />
 
           <div className="hidden items-center gap-2 sm:flex">
@@ -357,7 +357,7 @@ function PublicHeader() {
             <summary className="flex h-9 cursor-pointer list-none items-center justify-center rounded-sm border border-edge bg-surface px-3 text-sm font-[550] text-ink-2 transition-colors hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
               Menu
             </summary>
-            <div className="menu-surface absolute right-0 top-11 z-50 w-56 p-1.5">
+            <div className="menu-surface absolute end-0 top-11 z-50 w-56 p-1.5">
               <Anchor href="#product" block>Product</Anchor>
               <Anchor href="#how-it-works" block>How it works</Anchor>
               <Anchor href="#reliability" block>Reliability</Anchor>

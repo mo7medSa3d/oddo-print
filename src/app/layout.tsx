@@ -2,12 +2,19 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import { AppShell } from "../components/AppShell";
+import { I18nProvider } from "../i18n/react";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Yaseir — Cloud Printing Platform",
   description: "Automated Odoo printing for receipts, invoices, labels, and reports across branches, stores, and warehouses.",
 };
+
+// Pre-paint locale resolution: the stored language decides `lang` and `dir`
+// before the first frame, so a right-to-left session never flashes a
+// left-to-right layout. Deliberately free of interpolation — the CSP nonce is
+// the only dynamic part of the document head.
+const LOCALE_INIT = `(function(){try{var stored=localStorage.getItem("yaseir:locale");var locale=(stored==="ar"||stored==="en")?stored:"en";var root=document.documentElement;root.lang=locale;root.dir=(locale==="ar")?"rtl":"ltr";}catch(e){}})();`;
 
 // Pre-paint theme resolution: stored choice wins, otherwise follow the OS.
 // Runs before the body renders so there is no light/dark flash.
@@ -17,10 +24,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" dir="ltr" suppressHydrationWarning>
       <body className="antialiased bg-app text-ink min-h-screen">
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: LOCALE_INIT }} />
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
-        <AppShell>{children}</AppShell>
+        <I18nProvider>
+          <AppShell>{children}</AppShell>
+        </I18nProvider>
       </body>
     </html>
   );

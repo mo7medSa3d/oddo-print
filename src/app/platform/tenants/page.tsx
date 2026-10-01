@@ -185,14 +185,14 @@ export default function PlatformTenantsPage() {
           subtitle={`${filtered.length} ${filtered.length === 1 ? "tenant" : "tenants"} · ${activeCount} active · ${suspendedCount} suspended`}
           actions={
             <div className="relative w-full sm:w-[280px]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
+              <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
               <Input
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search name or ID…"
                 aria-label="Search tenants"
-                className="pl-9"
+                className="ps-9"
               />
             </div>
           }
@@ -219,10 +219,10 @@ export default function PlatformTenantsPage() {
                   <th scope="col">Tenant</th>
                   <th scope="col">Status</th>
                   <th scope="col">Plan</th>
-                  <th scope="col" className="text-right">Members</th>
+                  <th scope="col" className="text-end">Members</th>
                   <th scope="col">Fleet</th>
-                  <th scope="col" className="text-right">Created</th>
-                  <th scope="col" className="w-[1%] text-right">Actions</th>
+                  <th scope="col" className="text-end">Created</th>
+                  <th scope="col" className="w-[1%] text-end">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -246,15 +246,15 @@ export default function PlatformTenantsPage() {
                         </div>
                       </td>
                       <td className="text-sm text-ink-2">{tenant.planName || "No plan"}</td>
-                      <td className="text-right text-sm tabular text-ink-2">{tenant.memberCount}</td>
+                      <td className="text-end text-sm tabular text-ink-2">{tenant.memberCount}</td>
                       <td className="text-xs text-ink-3">
                         <div>{tenant.agentCount} agents</div>
                         <div>{tenant.printerCount} printers</div>
                       </td>
-                      <td className="text-right text-sm text-ink-3">
+                      <td className="text-end text-sm text-ink-3">
                         {new Date(tenant.createdAt).toLocaleDateString()}
                       </td>
-                      <td className="text-right">
+                      <td className="text-end">
                         {items.length === 0 ? (
                           <span className="text-xs text-ink-4">No actions</span>
                         ) : (
@@ -301,7 +301,7 @@ export default function PlatformTenantsPage() {
       >
         {selectedTenant && (
           <div className="space-y-4">
-            <div className="rounded-lg border border-edge bg-surface-2 px-4 py-3">
+            <div className="rounded-sg border border-edge bg-surface-2 px-4 py-3">
               <div className="text-sm font-[600] text-ink">{selectedTenant.name}</div>
               <div className="mt-1 font-mono text-2xs text-ink-3">{selectedTenant.id}</div>
             </div>
@@ -329,7 +329,7 @@ export default function PlatformTenantsPage() {
                     maxLength={500}
                   />
                 </Field>
-                <div className="text-right text-xs text-ink-3 tabular">{suspendReason.length}/500</div>
+                <div className="text-end text-xs text-ink-3 tabular">{suspendReason.length}/500</div>
               </>
             ) : (
               <Callout tone="ok" title="Access resumes immediately">

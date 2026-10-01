@@ -138,7 +138,7 @@ function VerifyEmailContent() {
             {resendMsg && (
               <p
                 role="status"
-                className="rounded-lg border border-edge-subtle bg-surface-2 px-3.5 py-2.5 text-sm leading-relaxed text-ink-2"
+                className="rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-2.5 text-sm leading-relaxed text-ink-2"
               >
                 {resendMsg}
               </p>

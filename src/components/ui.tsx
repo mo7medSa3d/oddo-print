@@ -492,7 +492,7 @@ export function BillingPremiumCard({
           {status && <div className="mt-0.5 text-sm text-ink-3">{status}</div>}
         </div>
         {balance && (
-          <div className="text-right">
+          <div className="text-end">
             <div className="label-caps text-ink-3">Balance</div>
             <div className="mt-1 text-2xl font-[640] tracking-[-0.02em] text-ink tabular">{balance}</div>
           </div>
@@ -625,7 +625,7 @@ export function ErrorState({
   return (
     <div
       role="alert"
-      className={`flex flex-col gap-3 rounded-lg border px-4 py-3.5 sm:flex-row sm:items-start ${
+      className={`flex flex-col gap-3 rounded-sg border px-4 py-3.5 sm:flex-row sm:items-start ${
         tone === "warn" ? "border-warn-edge bg-warn-bg text-warn" : "border-bad-edge bg-bad-bg text-bad"
       } ${className}`}
     >
@@ -669,7 +669,7 @@ export function Callout({
   return (
     <div
       role={tone === "bad" ? "alert" : "status"}
-      className={`flex flex-col gap-3 rounded-lg border px-4 py-3.5 sm:flex-row sm:items-start ${toneBg[tone]} ${className}`}
+      className={`flex flex-col gap-3 rounded-sg border px-4 py-3.5 sm:flex-row sm:items-start ${toneBg[tone]} ${className}`}
     >
       <span aria-hidden className={`mt-0.5 shrink-0 ${toneText[tone]}`}>{icon ?? fallback}</span>
       <div className="min-w-0 flex-1">
@@ -811,12 +811,12 @@ export function Field({
           >
             {label}
             {required && (
-              <span className="ml-1 text-bad" aria-hidden>
+              <span className="ms-1 text-bad" aria-hidden>
                 *
               </span>
             )}
             {optional && !required && (
-              <span className="ml-1.5 text-xs font-normal text-ink-4">Optional</span>
+              <span className="ms-1.5 text-xs font-normal text-ink-4">Optional</span>
             )}
           </label>
           {actions}
@@ -922,14 +922,14 @@ export function Select({
         id={resolved.id}
         aria-invalid={resolved["aria-invalid"]}
         aria-describedby={resolved["aria-describedby"]}
-        className={`${inputClass} cursor-pointer appearance-none pr-8 ${
+        className={`${inputClass} cursor-pointer appearance-none pe-8 ${
           resolved.invalid ? "border-bad-edge focus:border-bad focus:ring-bad/15" : ""
         }`}
         {...props}
       >
         {children}
       </select>
-      <ChevronDown className="absolute right-2.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden="true" />
+      <ChevronDown className="absolute end-2.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden="true" />
     </span>
   );
 }
@@ -1001,7 +1001,7 @@ export function MetaRow({
   return (
     <div className="flex items-start justify-between gap-6 py-2.5">
       <dt className="shrink-0 text-sm text-ink-3">{label}</dt>
-      <dd className="min-w-0 text-right text-sm font-[550] text-ink">{children}</dd>
+      <dd className="min-w-0 text-end text-sm font-[550] text-ink">{children}</dd>
     </div>
   );
 }
@@ -1023,7 +1023,7 @@ export function KeyValueList({
           className={`flex items-start justify-between gap-6 ${dense ? "py-2" : "py-2.5"}`}
         >
           <dt className="shrink-0 text-sm text-ink-3">{row.label}</dt>
-          <dd className="min-w-0 text-right text-sm font-[550] text-ink">{row.value}</dd>
+          <dd className="min-w-0 text-end text-sm font-[550] text-ink">{row.value}</dd>
         </div>
       ))}
     </dl>
@@ -1166,8 +1166,8 @@ export function Tooltip({
   const id = useId();
   const position =
     side === "top"
-      ? "bottom-[calc(100%+6px)] left-1/2 -translate-x-1/2"
-      : "top-[calc(100%+6px)] left-1/2 -translate-x-1/2";
+      ? "bottom-[calc(100%+6px)] start-1/2 ltr:-translate-x-1/2 rtl:translate-x-1/2"
+      : "top-[calc(100%+6px)] start-1/2 ltr:-translate-x-1/2 rtl:translate-x-1/2";
   return (
     <span className={`group/tooltip relative inline-flex ${className}`} aria-describedby={id}>
       {children}
@@ -1293,7 +1293,7 @@ export function Menu({
           onKeyDown={onMenuKeyDown}
           className={`yz-menu-in menu-surface absolute z-50 min-w-[210px] p-1.5 ${
             placement === "above" ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"
-          } ${align === "end" ? "right-0" : "left-0"} ${menuClassName}`}
+          } ${align === "end" ? "end-0" : "start-0"} ${menuClassName}`}
         >
           {items.map((item) => (
             <React.Fragment key={item.key}>
@@ -1327,7 +1327,7 @@ export function Menu({
                   }}
                 >
                   {item.icon && <span className="shrink-0 text-ink-3">{item.icon}</span>}
-                  <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+                  <span className="min-w-0 flex-1 truncate text-start">{item.label}</span>
                   {item.meta && <span className="shrink-0 text-xs text-ink-4">{item.meta}</span>}
                 </button>
               )}
@@ -1643,7 +1643,7 @@ export function Modal({
               </p>
             )}
           </div>
-          <IconButton label="Close dialog" onClick={onClose} className="-mr-1 shrink-0">
+          <IconButton label="Close dialog" onClick={onClose} className="-me-1 shrink-0">
             <X className="h-4 w-4" />
           </IconButton>
         </div>
@@ -1747,7 +1747,7 @@ export function Drawer({
         aria-label={title}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
-        className="pg-slide-in-right relative flex h-full max-h-dvh w-full max-w-[480px] flex-col border-l border-edge-strong bg-surface shadow-2xl outline-none"
+        className="pg-slide-in-right relative flex h-full max-h-dvh w-full max-w-[480px] flex-col border-s border-edge-strong bg-surface shadow-2xl outline-none"
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-edge-subtle px-5 py-4 sm:px-6">
           <div className="min-w-0">
@@ -1758,7 +1758,7 @@ export function Drawer({
               </p>
             )}
           </div>
-          <IconButton label="Close panel" onClick={onClose} className="-mr-1 shrink-0">
+          <IconButton label="Close panel" onClick={onClose} className="-me-1 shrink-0">
             <X className="h-4 w-4" />
           </IconButton>
         </div>
@@ -1918,7 +1918,7 @@ export function Toast({
     <div
       role="status"
       aria-live="polite"
-      className={`pg-toast-in fixed bottom-5 right-5 z-[60] flex max-w-[420px] items-start gap-2.5 rounded-xl border px-4 py-3 text-sm shadow-xl backdrop-blur-xl ${toneBg[tone]}`}
+      className={`pg-toast-in fixed bottom-5 end-5 z-[60] flex max-w-[420px] items-start gap-2.5 rounded-xl border px-4 py-3 text-sm shadow-xl backdrop-blur-xl ${toneBg[tone]}`}
     >
       {toast.type === "success" ? (
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
@@ -1930,7 +1930,7 @@ export function Toast({
         type="button"
         onClick={onDismiss}
         aria-label="Dismiss notification"
-        className="-mr-1 ml-auto shrink-0 rounded-xs p-1 text-current opacity-60 transition-colors duration-[140ms] hover:bg-[var(--overlay-soft)] hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+        className="-me-1 ms-auto shrink-0 rounded-xs p-1 text-current opacity-60 transition-colors duration-[140ms] hover:bg-[var(--overlay-soft)] hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
       >
         <X className="h-3.5 w-3.5" />
       </button>

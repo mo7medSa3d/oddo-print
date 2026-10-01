@@ -176,14 +176,14 @@ export default function PlatformPlansPage() {
           icon={<ShieldAlert className="h-4 w-4" aria-hidden />}
           actions={
             <div className="relative w-full sm:w-80">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
+              <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
               <Input
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search name, ID or Stripe Price ID…"
                 aria-label="Search plans"
-                className="pl-9"
+                className="ps-9"
               />
             </div>
           }
@@ -215,7 +215,7 @@ export default function PlatformPlansPage() {
                 <th scope="col">Limits</th>
                 <th scope="col">Subscribers</th>
                 <th scope="col">Stripe price</th>
-                <th scope="col" className="text-right">Actions</th>
+                <th scope="col" className="text-end">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -264,7 +264,7 @@ export default function PlatformPlansPage() {
                       {plan.interval ? ` · per ${plan.interval}` : ""}
                     </div>
                   </td>
-                  <td className="text-right">
+                  <td className="text-end">
                     <div className="flex justify-end gap-1.5">
                       <Button
                         variant="secondary"
@@ -309,7 +309,7 @@ export default function PlatformPlansPage() {
         cancelLabel="Keep plan"
       >
         {archiving && (
-          <div className="flex items-start gap-3 rounded-lg border border-edge bg-surface-2 p-3.5">
+          <div className="flex items-start gap-3 rounded-sg border border-edge bg-surface-2 p-3.5">
             <ArchiveRestore className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
             <p className="text-sm leading-relaxed text-ink-2">
               <span className="font-[600] text-ink">{archiving.activeSubscriberCount} active</span>{" "}
@@ -393,7 +393,7 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
           <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} placeholder="Short description shown in public catalog." className="resize-none" />
         </Field>
 
-        <div className="sm:col-span-2 rounded-lg border border-edge bg-surface-2 p-4">
+        <div className="sm:col-span-2 rounded-sg border border-edge bg-surface-2 p-4">
           <div className="mb-1 text-base font-[600] text-ink">Runtime entitlements</div>
           <p className="mb-4 text-sm leading-relaxed text-ink-3">
             Hard limits enforced by the gateway for every tenant on this plan.
@@ -411,14 +411,14 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
           </div>
         </div>
 
-        <label className="flex items-start justify-between gap-4 rounded-lg border border-edge bg-surface-2 px-4 py-3">
+        <label className="flex items-start justify-between gap-4 rounded-sg border border-edge bg-surface-2 px-4 py-3">
           <span className="min-w-0">
             <span className="block text-base font-[550] text-ink">Active for new sales</span>
             <span className="mt-0.5 block text-sm text-ink-3">Archived stays valid for existing subscribers.</span>
           </span>
           <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="mt-0.5 h-4 w-4 shrink-0 accent-brand" />
         </label>
-        <label className="flex items-start justify-between gap-4 rounded-lg border border-edge bg-surface-2 px-4 py-3">
+        <label className="flex items-start justify-between gap-4 rounded-sg border border-edge bg-surface-2 px-4 py-3">
           <span className="min-w-0">
             <span className="block text-base font-[550] text-ink">Public in pricing</span>
             <span className="mt-0.5 block text-sm text-ink-3">Hide private plans from the public catalog.</span>

@@ -249,7 +249,7 @@ export default function PlatformDashboardPage() {
                     Hourly print volume and outcome mix across the gateway.
                   </p>
                 </div>
-                <div className="text-left sm:text-right">
+                <div className="text-start sm:text-end">
                   <div className="text-3xl font-[660] leading-none tracking-[-0.03em] text-ink tabular">
                     {formatNumber(stats?.jobs24h.total ?? 0)}
                   </div>
@@ -264,7 +264,7 @@ export default function PlatformDashboardPage() {
                 <PrintThroughputChart data={stats?.jobs24hHourly ?? []} />
               ) : (
                 <EmptyState
-                  className="mt-4 rounded-lg border border-dashed border-edge-strong bg-surface-2"
+                  className="mt-4 rounded-sg border border-dashed border-edge-strong bg-surface-2"
                   icon={<Activity className="h-5 w-5" />}
                   title="No print activity yet"
                   description="The throughput chart populates as jobs enter the gateway. Nothing is simulated."
@@ -432,7 +432,7 @@ export default function PlatformDashboardPage() {
                     <tr>
                       <th scope="col">Tenant</th>
                       <th scope="col">Status</th>
-                      <th scope="col" className="text-right">Created</th>
+                      <th scope="col" className="text-end">Created</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -459,7 +459,7 @@ export default function PlatformDashboardPage() {
                             <td>
                               <StatusBadge tone={meta.tone} label={meta.label} size="sm" />
                             </td>
-                            <td className="text-right text-sm text-ink-3">
+                            <td className="text-end text-sm text-ink-3">
                               {new Date(tenant.createdAt).toLocaleDateString()}
                             </td>
                           </tr>
@@ -489,7 +489,7 @@ export default function PlatformDashboardPage() {
                       <th scope="col">Tenant</th>
                       <th scope="col">Plan</th>
                       <th scope="col">Status</th>
-                      <th scope="col" className="text-right">Created</th>
+                      <th scope="col" className="text-end">Created</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -521,7 +521,7 @@ export default function PlatformDashboardPage() {
                             <td>
                               <StatusBadge tone={meta.tone} label={meta.label} size="sm" />
                             </td>
-                            <td className="text-right text-sm text-ink-3">
+                            <td className="text-end text-sm text-ink-3">
                               {new Date(subscription.createdAt).toLocaleDateString()}
                             </td>
                           </tr>

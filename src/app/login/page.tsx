@@ -166,7 +166,7 @@ export default function LoginPage() {
         {err && <ErrorState title="Couldn’t sign you in" message={err} />}
 
         {workspaces.length > 0 && (
-          <div className="rounded-lg border border-edge-accent bg-brand-subtle p-4">
+          <div className="rounded-sg border border-edge-accent bg-brand-subtle p-4">
             <div className="flex items-center gap-2 text-sm font-[600] text-ink">
               <Building2 className="h-4 w-4 text-brand" aria-hidden />
               Choose a workspace
@@ -181,7 +181,7 @@ export default function LoginPage() {
                   type="button"
                   disabled={loading}
                   onClick={() => void chooseWorkspace(id)}
-                  className="flex min-h-10 items-center justify-between gap-3 rounded-sm border border-edge bg-surface px-3.5 text-left text-sm font-[550] text-ink transition-colors duration-[140ms] hover:border-edge-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 disabled:opacity-50"
+                  className="flex min-h-10 items-center justify-between gap-3 rounded-sm border border-edge bg-surface px-3.5 text-start text-sm font-[550] text-ink transition-colors duration-[140ms] hover:border-edge-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 disabled:opacity-50"
                 >
                   <span className="truncate">{id}</span>
                   <ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-4" aria-hidden />
@@ -202,7 +202,7 @@ export default function LoginPage() {
           {loading ? "Signing in…" : "Continue"}
         </Button>
 
-        <div className="flex items-start gap-2.5 rounded-lg border border-edge-subtle bg-surface-2 px-3.5 py-3">
+        <div className="flex items-start gap-2.5 rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-3">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
           <p className="text-sm leading-relaxed text-ink-3">
             Sessions are protected server-side. Email verification is required before sign-in.

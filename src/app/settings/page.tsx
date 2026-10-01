@@ -156,7 +156,7 @@ export default function SettingsPage() {
                     },
                   ]}
                 />
-                <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-edge-subtle bg-surface-2 px-3.5 py-3">
+                <div className="mt-3 flex items-start gap-2.5 rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-3">
                   <Shield className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
                   <p className="text-sm leading-relaxed text-ink-3">
                     Permissions are enforced server-side per request. Changing a member’s role takes
@@ -173,7 +173,7 @@ export default function SettingsPage() {
                 icon={<AlertTriangle className="h-4 w-4" />}
               />
               <div className="px-5 py-4">
-                <div className="flex items-start gap-3 rounded-lg border border-bad-edge bg-bad-bg px-4 py-3.5">
+                <div className="flex items-start gap-3 rounded-sg border border-bad-edge bg-bad-bg px-4 py-3.5">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-bad" aria-hidden />
                   <div className="min-w-0">
                     <h3 className="text-sm font-[600] text-bad">Delete this workspace</h3>

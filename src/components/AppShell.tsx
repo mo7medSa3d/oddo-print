@@ -16,6 +16,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Moon,
+  Globe,
   Search,
   Sun,
   X,
@@ -25,14 +26,17 @@ import { Avatar, Menu, type MenuItemSpec } from "./ui";
 import { CommandHint, CommandPalette, type CommandItem } from "./CommandPalette";
 import { ThemeToggle, toggleTheme } from "./ThemeToggle";
 import { BrandMark } from "./brand";
+import { useI18n } from "../i18n/react";
+import { LOCALES, LOCALE_LABELS, type Locale } from "../i18n/config";
+import type { MessageKey } from "../i18n/messages/en";
 
 const NAV_ITEMS: TopNavItem[] = [
-  { href: "/dashboard", label: "Console", icon: LayoutDashboard, section: "Operations" },
-  { href: "/system-health", label: "System health", icon: Activity, section: "Operations" },
-  { href: "/api-keys", label: "Odoo integration", icon: KeyRound, section: "Integration" },
-  { href: "/team", label: "Team", icon: Users, section: "Administration" },
-  { href: "/billing", label: "Billing", icon: CreditCard, section: "Administration" },
-  { href: "/settings", label: "Settings", icon: SettingsIcon, section: "Administration" },
+  { href: "/dashboard", label: "Console", labelKey: "nav.console", icon: LayoutDashboard, section: "Operations", sectionKey: "nav.section.operations" },
+  { href: "/system-health", label: "System health", labelKey: "nav.systemHealth", icon: Activity, section: "Operations", sectionKey: "nav.section.operations" },
+  { href: "/api-keys", label: "Odoo integration", labelKey: "nav.odooIntegration", icon: KeyRound, section: "Integration", sectionKey: "nav.section.integration" },
+  { href: "/team", label: "Team", labelKey: "nav.team", icon: Users, section: "Administration", sectionKey: "nav.section.administration" },
+  { href: "/billing", label: "Billing", labelKey: "nav.billing", icon: CreditCard, section: "Administration", sectionKey: "nav.section.administration" },
+  { href: "/settings", label: "Settings", labelKey: "nav.settings", icon: SettingsIcon, section: "Administration", sectionKey: "nav.section.administration" },
 ];
 
 type WorkspaceInfo = {
@@ -70,8 +74,9 @@ function ConsoleNav({
   collapsed?: boolean;
   onNavigate?: () => void;
 }) {
+  const { t } = useI18n();
   const groups = NAV_ITEMS.reduce<Array<{ section: string; items: TopNavItem[] }>>((acc, item) => {
-    const section = item.section ?? "Workspace";
+    const section = item.sectionKey ? t(item.sectionKey) : item.section ?? t("nav.section.workspace");
     const last = acc[acc.length - 1];
     if (last && last.section === section) last.items.push(item);
     else acc.push({ section, items: [item] });
@@ -79,7 +84,7 @@ function ConsoleNav({
   }, []);
 
   return (
-    <nav aria-label="Console" className="flex flex-col gap-5 px-2.5">
+    <nav aria-label={t("nav.consoleNavigation")} className="flex flex-col gap-5 px-2.5">
       {groups.map((group) => (
         <div key={group.section}>
           {!collapsed && <div className="label-caps px-2 pb-1.5">{group.section}</div>}
@@ -92,7 +97,7 @@ function ConsoleNav({
                   <Link
                     href={item.href}
                     aria-current={active ? "page" : undefined}
-                    title={collapsed ? item.label : undefined}
+                    title={collapsed ? (item.labelKey ? t(item.labelKey) : item.label) : undefined}
                     onClick={onNavigate}
                     className={`sidebar-item ${active ? "sidebar-item-active" : ""} ${
                       collapsed ? "justify-center px-0" : ""
@@ -106,7 +111,7 @@ function ConsoleNav({
                         aria-hidden
                       />
                     )}
-                    {!collapsed && <span className="truncate">{item.label}</span>}
+                    {!collapsed && <span className="truncate">{item.labelKey ? t(item.labelKey) : item.label}</span>}
                   </Link>
                 </li>
               );
@@ -129,15 +134,16 @@ function WorkspaceMenu({
   onLogout: () => void;
   compact?: boolean;
 }) {
+  const { t, locale, setLocale } = useI18n();
   const items: MenuItemSpec[] = [
     ...(workspace.email
       ? [{ key: "identity", label: workspace.email, meta: workspace.role, disabled: true }]
       : []),
-    { key: "settings", label: "Workspace settings", icon: <SettingsIcon className="h-4 w-4" />, href: "/settings" },
-    { key: "billing", label: "Plan & billing", icon: <CreditCard className="h-4 w-4" />, href: "/billing", separatorBefore: true },
+    { key: "settings", label: t("nav.workspaceSettings"), icon: <SettingsIcon className="h-4 w-4" />, href: "/settings" },
+    { key: "billing", label: t("nav.planAndBilling"), icon: <CreditCard className="h-4 w-4" />, href: "/billing", separatorBefore: true },
     {
       key: "theme",
-      label: "Toggle theme",
+      label: t("nav.toggleTheme"),
       icon: (
         <>
           <Moon className="h-4 w-4 dark:hidden" />
@@ -146,9 +152,21 @@ function WorkspaceMenu({
       ),
       onSelect: () => toggleTheme(),
     },
+    // Language: names stay in their own language so an Arabic reader can find
+    // "العربية" without reading English first, and the active one is inert
+    // instead of silently re-applying itself.
+    ...LOCALES.map((code: Locale) => ({
+      key: `locale-${code}`,
+      label: LOCALE_LABELS[code],
+      icon: <Globe className="h-4 w-4" />,
+      meta: code === locale ? "✓" : undefined,
+      separatorBefore: code === LOCALES[0],
+      disabled: code === locale,
+      onSelect: () => setLocale(code),
+    })),
     {
       key: "logout",
-      label: loggingOut ? "Signing out…" : "Sign out",
+      label: loggingOut ? t("nav.signingOut") : t("nav.signOut"),
       icon: <LogOut className="h-4 w-4" />,
       tone: "danger",
       separatorBefore: true,
@@ -161,7 +179,7 @@ function WorkspaceMenu({
 
   return (
     <Menu
-      label="Account and workspace"
+      label={t("nav.accountAndWorkspace")}
       className="w-full"
       placement="above"
       trigger={
@@ -201,6 +219,7 @@ function ConsoleShell({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceInfo>({});
   const [renderedPath, setRenderedPath] = useState(pathname);
+  const { t } = useI18n();
 
   // Navigating closes the mobile sheet; doing it during render avoids painting
   // the previous route with an open drawer.
@@ -300,14 +319,16 @@ function ConsoleShell({
   const commands: CommandItem[] = [
     ...NAV_ITEMS.map((item) => ({
       id: `nav-${item.href}`,
-      label: item.label,
-      group: item.section ?? "Navigate",
+      label: item.labelKey ? t(item.labelKey) : item.label,
+      group: item.sectionKey ? t(item.sectionKey) : item.section ?? t("nav.section.workspace"),
       href: item.href,
-      keywords: `${item.href} ${item.section ?? ""}`,
+      // English keywords stay searchable in both languages: an operator who
+      // types "billing" or "team" should still find the screen in Arabic.
+      keywords: `${item.href} ${item.section ?? ""} ${item.label}`,
     })),
-    { id: "action-new-agent", label: "Register a new agent", group: "Actions", href: "/dashboard#agents", keywords: "pair pairing code machine" },
-    { id: "action-theme", label: "Toggle light / dark theme", group: "Actions", onSelect: () => toggleTheme() },
-    { id: "action-logout", label: "Sign out", group: "Actions", onSelect: onLogout, keywords: "log out exit" },
+    { id: "action-new-agent", label: t("agent.add"), group: t("common.actions"), href: "/dashboard#agents", keywords: "pair pairing code machine agent" },
+    { id: "action-theme", label: t("nav.toggleTheme"), group: t("common.actions"), onSelect: () => toggleTheme() },
+    { id: "action-logout", label: t("nav.signOut"), group: t("common.actions"), onSelect: onLogout, keywords: "log out exit" },
   ];
 
   return (
@@ -317,8 +338,8 @@ function ConsoleShell({
     >
       {/* Desktop rail */}
       <aside
-        aria-label="Console navigation"
-        className="fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-edge bg-surface lg:flex"
+        aria-label={t("nav.consoleNavigation")}
+        className="fixed inset-y-0 start-0 z-40 hidden flex-col border-e border-edge bg-surface lg:flex"
         style={{
           width: "var(--nav-w)",
           transition: hydrated ? "width var(--dur-normal) var(--ease-out)" : undefined,
@@ -327,7 +348,7 @@ function ConsoleShell({
         <div className={`flex h-14 shrink-0 items-center gap-2 border-b border-edge-subtle ${collapsed ? "justify-center px-2" : "px-3"}`}>
           <Link
             href="/dashboard"
-            aria-label="Yaseir console home"
+            aria-label={t("nav.home")}
             className="flex min-w-0 items-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
           >
             <ConsoleBrand brandSubtitle="Cloud Printing Platform" showWordmark={!collapsed} />
@@ -336,11 +357,11 @@ function ConsoleShell({
             <button
               type="button"
               onClick={toggleCollapsed}
-              aria-label="Collapse navigation"
-              title="Collapse navigation"
-              className="ml-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-ink-4 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+              aria-label={t("nav.collapseNavigation")}
+              title={t("nav.collapseNavigation")}
+              className="ms-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-ink-4 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
             >
-              <PanelLeftClose className="h-4 w-4" aria-hidden />
+              <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
             </button>
           )}
         </div>
@@ -355,8 +376,8 @@ function ConsoleShell({
               <button
                 type="button"
                 onClick={() => setPaletteOpen(true)}
-                aria-label="Search"
-                title="Search (⌘K)"
+                aria-label={t("common.search")}
+                title={t("nav.searchHint")}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
               >
                 <Search className="h-4 w-4" aria-hidden />
@@ -365,11 +386,11 @@ function ConsoleShell({
               <button
                 type="button"
                 onClick={toggleCollapsed}
-                aria-label="Expand navigation"
-                title="Expand navigation"
+                aria-label={t("nav.expandNavigation")}
+                title={t("nav.expandNavigation")}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-4 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
               >
-                <PanelLeftOpen className="h-4 w-4" aria-hidden />
+                <PanelLeftOpen className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
               </button>
             </div>
           ) : (
@@ -383,22 +404,22 @@ function ConsoleShell({
 
       {/* Content column */}
       <div
-        className="lg:pl-[var(--nav-w)] motion-safe:transition-[padding-left] motion-safe:duration-[200ms] motion-safe:ease-out"
+        className="lg:ps-[var(--nav-w)] motion-safe:transition-[padding-inline-start] motion-safe:duration-[200ms] motion-safe:ease-out"
       >
         {/* Mobile chrome */}
         <header className="glass-chrome sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-edge/80 px-3 lg:hidden">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            aria-label="Open navigation"
+            aria-label={t("nav.openNavigation")}
             className="inline-flex h-9 w-9 items-center justify-center rounded-sm border border-edge bg-surface text-ink-2 transition-colors duration-[140ms] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
           >
             <MenuIcon className="h-4 w-4" aria-hidden />
           </button>
-          <Link href="/dashboard" aria-label="Yaseir console home" className="min-w-0">
+          <Link href="/dashboard" aria-label={t("nav.home")} className="min-w-0">
             <ConsoleBrand brandSubtitle="Cloud Printing Platform" />
           </Link>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ms-auto flex items-center gap-1">
             <ThemeToggle />
             <Avatar name={workspace.name || workspace.email || "Yaseir"} tone="brand" size="sm" />
           </div>
@@ -419,15 +440,15 @@ function ConsoleShell({
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Console navigation"
-            className="pg-slide-in-left absolute inset-y-0 left-0 flex w-[280px] max-w-[85vw] flex-col border-r border-edge-strong bg-surface shadow-2xl"
+            aria-label={t("nav.consoleNavigation")}
+            className="pg-slide-in-left absolute inset-y-0 start-0 flex w-[280px] max-w-[85vw] flex-col border-e border-edge-strong bg-surface shadow-2xl"
           >
             <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-edge-subtle px-3">
               <ConsoleBrand brandSubtitle="Cloud Printing Platform" />
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
-                aria-label="Close navigation"
+                aria-label={t("nav.closeNavigation")}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
               >
                 <X className="h-4 w-4" aria-hidden />
@@ -446,7 +467,7 @@ function ConsoleShell({
                 className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-sm font-[550] text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink"
               >
                 <LogOut className="h-4 w-4 text-ink-3" aria-hidden />
-                {loggingOut ? "Signing out…" : "Sign out"}
+                {loggingOut ? t("nav.signingOut") : t("nav.signOut")}
               </button>
             </div>
           </div>

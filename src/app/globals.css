@@ -1010,3 +1010,75 @@
     }
   }
 }
+
+/* ==========================================================================
+   Right-to-left support
+   --------------------------------------------------------------------------
+   Direction comes from <html dir> (set pre-paint by the locale script in
+   src/app/layout.tsx and kept in sync by I18nProvider). Components use logical
+   Tailwind utilities (ps/pe, ms/me, start/end, text-start/text-end,
+   border-s/border-e), so nothing here has to undo a physical value — this
+   block only covers the cases CSS cannot express per-utility:
+     - animations that enter from a physical edge
+     - bidirectional content that must stay readable (identifiers, numbers,
+       emails, URLs) without being mirrored
+   ========================================================================== */
+
+@layer utilities {
+  /* Flip directional glyphs (chevrons, back/forward arrows) when the whole UI
+     mirrors. Apply to icons that carry meaning through direction only. */
+  [dir="rtl"] .rtl-flip {
+    transform: scaleX(-1);
+  }
+
+  /* The mobile navigation sheet enters from the inline-start edge, which is the
+     right in Arabic; reuse the mirrored keyframes instead of translating. */
+  [dir="rtl"] .pg-slide-in-left {
+    animation-name: yz-slide-in-right;
+  }
+
+  [dir="rtl"] .pg-slide-in-right {
+    animation-name: yz-slide-in-left;
+  }
+}
+
+@layer components {
+  /* Technical identifiers — printer ids, job ids, claim tokens, IP addresses,
+     ports, hashes, payload snippets — are Latin strings. Forcing them into RTL
+     reorders their punctuation and makes them impossible to compare or search,
+     so they keep left-to-right direction and are isolated from the surrounding
+     Arabic text with `unicode-bidi: isolate` (the surrounding sentence is
+     unaffected). */
+  [dir="rtl"] .font-mono,
+  [dir="rtl"] .tabular {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+
+  /* Form fields whose content is inherently Latin: an email, a URL or a phone
+     number is typed left-to-right even in an Arabic form. `text-align: start`
+     resolves to the start edge of the element's OWN direction (ltr here), so
+     the value hugs the side it grows from. */
+  [dir="rtl"] input[type="email"],
+  [dir="rtl"] input[type="url"],
+  [dir="rtl"] input[type="tel"],
+  [dir="rtl"] input[type="number"] {
+    direction: ltr;
+    text-align: start;
+  }
+
+  /* Tables stay readable: headers follow the writing direction and cells never
+     clip Arabic diacritics by shrinking below the text height. */
+  [dir="rtl"] .data-table th {
+    text-align: start;
+  }
+
+  /* Inline code and keyboard hints inside translated copy. */
+  [dir="rtl"] code,
+  [dir="rtl"] kbd,
+  [dir="rtl"] pre {
+    direction: ltr;
+    unicode-bidi: isolate;
+    text-align: start;
+  }
+}

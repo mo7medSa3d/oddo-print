@@ -283,7 +283,7 @@ export default function TeamPage() {
                 ref={feedbackRef}
                 tabIndex={-1}
                 role={message.type === "ok" ? "status" : "alert"}
-                className={`flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm outline-none ${
+                className={`flex items-start gap-2.5 rounded-sg border px-4 py-3 text-sm outline-none ${
                   message.type === "ok"
                     ? "border-ok-edge bg-ok-bg text-ok"
                     : "border-bad-edge bg-bad-bg text-bad"
@@ -348,7 +348,7 @@ export default function TeamPage() {
                         <tr>
                           <th scope="col">Member</th>
                           <th scope="col">Role</th>
-                          <th scope="col" className="w-[1%] text-right">Actions</th>
+                          <th scope="col" className="w-[1%] text-end">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -389,7 +389,7 @@ export default function TeamPage() {
                                 )}
                               </div>
                             </td>
-                            <td className="text-right">
+                            <td className="text-end">
                               {member.role !== "owner" && (
                                 <Menu
                                   label={`Actions for ${member.email}`}

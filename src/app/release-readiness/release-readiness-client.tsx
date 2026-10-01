@@ -213,8 +213,8 @@ export default function ReleaseReadinessClient() {
   return (
     <div className="space-y-5">
       <Card
-        className={`border-l-[3px] ${
-          tone === "bad" ? "border-l-bad-solid" : tone === "warn" ? "border-l-warn-solid" : "border-l-ok-solid"
+        className={`border-s-[3px] ${
+          tone === "bad" ? "border-s-bad-solid" : tone === "warn" ? "border-s-warn-solid" : "border-s-ok-solid"
         }`}
       >
         <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
@@ -231,7 +231,7 @@ export default function ReleaseReadinessClient() {
               No fake PASS.
             </p>
           </div>
-          <div className="grid shrink-0 grid-cols-3 gap-px overflow-hidden rounded-lg border border-edge bg-edge-subtle">
+          <div className="grid shrink-0 grid-cols-3 gap-px overflow-hidden rounded-sg border border-edge bg-edge-subtle">
             {[
               { label: "Pass", value: counts.pass, tone: "text-ok" },
               { label: "Blocked", value: counts.blocked, tone: "text-warn" },
@@ -342,7 +342,7 @@ export default function ReleaseReadinessClient() {
             }
           />
           {showRawHealth && (
-            <pre className="mx-5 my-4 max-h-64 overflow-auto rounded-lg border border-edge-subtle bg-surface-2 p-3.5 font-mono text-2xs leading-relaxed text-ink-2">
+            <pre className="mx-5 my-4 max-h-64 overflow-auto rounded-sg border border-edge-subtle bg-surface-2 p-3.5 font-mono text-2xs leading-relaxed text-ink-2">
               {JSON.stringify(systemHealth, null, 2)}
             </pre>
           )}
@@ -354,7 +354,7 @@ export default function ReleaseReadinessClient() {
           title="Compliance notes (honest)"
           subtitle="Claims are limited to what has been verified."
         />
-        <ul className="list-disc space-y-2 pl-9 pr-5 py-5 text-sm text-ink-2">
+        <ul className="list-disc space-y-2 ps-9 pe-5 py-5 text-sm text-ink-2">
           <li>
             <strong className="font-[600] text-ink">OTel-inspired distributed correlation</strong> (not full
             OpenTelemetry): custom fields request_id/job_id/tenant_id/agent_id/printer_id/attempt_id/claim_id/spooler_job_id

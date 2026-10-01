@@ -32,7 +32,7 @@ export function AuthShell({
     <main className="ambient-surface relative flex min-h-screen flex-col">
       <div className="relative z-10 flex min-h-screen flex-1 flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(420px,520px)]">
         {/* Brand rail — desktop only; small screens get the mark above the form. */}
-        <section className="relative hidden flex-col justify-between border-r border-edge-subtle bg-surface/40 px-10 py-12 lg:flex xl:px-14">
+        <section className="relative hidden flex-col justify-between border-e border-edge-subtle bg-surface/40 px-10 py-12 lg:flex xl:px-14">
           <BrandMark size="lg" title="Yaseir" subtitle="Cloud Printing Platform" />
 
           <div className="max-w-[46ch]">
@@ -91,7 +91,7 @@ export function AuthShell({
         </section>
       </div>
 
-      <div className="absolute right-4 top-4 z-20 hidden lg:block">
+      <div className="absolute end-4 top-4 z-20 hidden lg:block">
         <ThemeToggle />
       </div>
     </main>

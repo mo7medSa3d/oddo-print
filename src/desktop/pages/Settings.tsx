@@ -15,7 +15,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
     <div className="space-y-5">
       <div className="grid gap-5 xl:grid-cols-2">
         <SettingsSection title="Gateway connection" description="Where agent reports and receives jobs" icon={<Link2 className="h-4 w-4" />}>
-          <div className="flex items-center gap-3 rounded-lg border border-edge-accent bg-surface-accent p-4">
+          <div className="flex items-center gap-3 rounded-sg border border-edge-accent bg-surface-accent p-4">
             <StatusDot tone={s.gatewayConnected ? "ok" : s.gatewayUrl ? "bad" : "neutral"} pulse={s.gatewayConnected} />
             <div className="min-w-0 flex-1"><div className="text-sm font-semibold text-ink">{s.gatewayConnected ? "Connected" : s.gatewayUrl ? "Unreachable" : "Not configured"}</div><div className="truncate text-2xs text-ink-3">{s.gatewayUrl || "Enter gateway URL below"}</div></div>
             <StatusBadge tone={s.gatewayConnected ? "ok" : s.gatewayUrl ? "bad" : "neutral"} label={s.gatewayConnected ? "Connected" : s.gatewayUrl ? "Unreachable" : "Not configured"} />
@@ -28,7 +28,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
         </SettingsSection>
 
         <SettingsSection title="Local agent" description="Windows service that talks to printers" icon={<Server className="h-4 w-4" />}>
-          <div className="flex items-center gap-3 rounded-lg border border-edge-accent bg-surface-accent p-4">
+          <div className="flex items-center gap-3 rounded-sg border border-edge-accent bg-surface-accent p-4">
             <StatusDot tone={s.isOnline ? "ok" : "bad"} pulse={s.isOnline} />
             <div className="min-w-0 flex-1"><div className="text-sm font-semibold text-ink">{s.isOnline ? "Agent online" : "Agent stopped"}</div><div className="truncate text-2xs text-ink-3">{String(anyStatus?.hostname || "This PC")}</div></div>
             <StatusBadge tone={s.isOnline ? "ok" : "bad"} label={s.isOnline ? "Running" : "Stopped"} />
@@ -78,7 +78,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
           }} icon={<Copy className="h-3.5 w-3.5" />} className="h-8 rounded-sm">Copy Summary</Button>
         </div>
         <div className="p-5 space-y-3">
-          <div className="max-h-64 overflow-y-auto rounded-lg border border-edge bg-surface-2 p-3 text-xs space-y-2">
+          <div className="max-h-64 overflow-y-auto rounded-sg border border-edge bg-surface-2 p-3 text-xs space-y-2">
             <div className="flex items-center justify-between"><span className="font-medium text-ink-2">Agent service</span><span className={s.isOnline ? "font-semibold text-ok" : "font-semibold text-bad"}>{s.isOnline ? "Running" : "Stopped"}</span></div>
             <div className="flex items-center justify-between"><span className="font-medium text-ink-2">Gateway</span><span className={s.gatewayConnected ? "font-semibold text-ok" : s.gatewayUrl ? "font-semibold text-bad" : "font-semibold text-warn"}>{s.gatewayConnected ? "Reachable" : s.gatewayUrl ? "Failed check" : "Not configured"}</span></div>
             {s.healthError && <div className="rounded-sm border border-bad-edge bg-bad-bg px-2.5 py-1.5 text-2xs text-bad">{friendlyGatewayError(s.healthError)}</div>}
@@ -90,7 +90,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
       </Card>
 
       <Card className="overflow-hidden">
-        <button onClick={() => s.setAdvancedOpen(!s.advancedOpen)} className="flex w-full items-center justify-between px-5 py-4 text-left hover:bg-surface-2"><span className="text-base font-semibold text-ink">Advanced</span><ChevronRight className={`h-4 w-4 text-ink-3 transition-transform ${s.advancedOpen ? "rotate-90" : ""}`} /></button>
+        <button onClick={() => s.setAdvancedOpen(!s.advancedOpen)} className="flex w-full items-center justify-between px-5 py-4 text-start hover:bg-surface-2"><span className="text-base font-semibold text-ink">Advanced</span><ChevronRight className={`h-4 w-4 text-ink-3 transition-transform ${s.advancedOpen ? "rotate-90" : ""}`} /></button>
         {s.advancedOpen && (
           <div className="grid gap-5 border-t border-edge px-5 py-5 lg:grid-cols-2">
             <div><div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-ink-3">Security</div><p className="text-xs text-ink-2 leading-relaxed">Pairing uses one-time code; credentials stored with OS-level protection, never displayed.</p><div className="mt-3 inline-flex items-center gap-2 rounded-md border border-ok-edge bg-ok-bg px-3 py-2 text-xs font-medium text-ok"><Lock className="h-4 w-4" />Credentials stay on this PC</div></div>

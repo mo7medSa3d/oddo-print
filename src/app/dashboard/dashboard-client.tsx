@@ -1369,14 +1369,14 @@ export default function DashboardClient({
           {printers.length > 0 && (
             <div className="flex flex-col gap-2.5 border-b border-edge-subtle px-4 py-3 sm:flex-row sm:items-center">
               <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
+                <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
                 <Input
                   type="search"
                   value={printerSearch}
                   onChange={(e) => setPrinterSearch(e.target.value)}
                   placeholder="Search printers…"
                   aria-label="Search printers"
-                  className="pl-9"
+                  className="ps-9"
                 />
               </div>
               <Select
@@ -1427,7 +1427,7 @@ export default function DashboardClient({
                 return (
                   <li
                     key={printer.id}
-                    className="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-3.5 transition-colors duration-[140ms] hover:bg-surface-hover"
+                    className="flex flex-col gap-3 rounded-sg border border-edge bg-surface p-3.5 transition-colors duration-[140ms] hover:bg-surface-hover"
                   >
                     <div className="flex items-start gap-2.5">
                       <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-edge bg-surface-2 text-ink-3">
@@ -1515,7 +1515,7 @@ export default function DashboardClient({
                     <th scope="col">Connection</th>
                     <th scope="col">Languages</th>
                     <th scope="col">Status</th>
-                    <th scope="col" className="w-[1%] text-right">Actions</th>
+                    <th scope="col" className="w-[1%] text-end">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1545,7 +1545,7 @@ export default function DashboardClient({
                         <td>
                           <StatusBadge tone={sharedPrinterTone(effStatus)} label={printerLabel(effStatus)} size="sm" />
                         </td>
-                        <td className="text-right">
+                        <td className="text-end">
                           <div className="flex items-center justify-end gap-1.5">
                             <Button
                               size="sm"
@@ -1595,14 +1595,14 @@ export default function DashboardClient({
           />
           <div className="flex items-center gap-2 lg:shrink-0">
             <div className="relative flex-1 lg:w-[240px]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
+              <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
               <Input
                 type="search"
                 value={jobSearch}
                 onChange={(e) => setJobSearch(e.target.value)}
                 placeholder="Search job, printer or document…"
                 aria-label="Search print jobs"
-                className="pl-9"
+                className="ps-9"
               />
             </div>
           </div>
@@ -1658,8 +1658,8 @@ export default function DashboardClient({
                     <th scope="col">Printer</th>
                     <th scope="col">Document</th>
                     <th scope="col">Status</th>
-                    <th scope="col" className="text-right">Created</th>
-                    <th scope="col" className="w-[1%] text-right">Actions</th>
+                    <th scope="col" className="text-end">Created</th>
+                    <th scope="col" className="w-[1%] text-end">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1701,10 +1701,10 @@ export default function DashboardClient({
                         <td>
                           <StatusBadge tone={sharedJobTone(job.status, outcome)} label={jobLabel(job.status, outcome)} size="sm" />
                         </td>
-                        <td className="text-right text-sm text-ink-3" title={formatAbsoluteTime(job.createdAt)}>
+                        <td className="text-end text-sm text-ink-3" title={formatAbsoluteTime(job.createdAt)}>
                           {formatRelativeTime(job.createdAt)}
                         </td>
-                        <td className="text-right">
+                        <td className="text-end">
                           <Menu
                             label={`Actions for job ${shortId(job.id)}`}
                             items={jobActions(job)}
@@ -1733,7 +1733,7 @@ export default function DashboardClient({
                       <button
                         type="button"
                         onClick={() => setSelectedJob(job)}
-                        className="min-w-0 flex-1 text-left"
+                        className="min-w-0 flex-1 text-start"
                       >
                         <span className="block truncate text-sm font-[550] text-ink">
                           {job.destination ?? shortId(job.id)}
@@ -1818,7 +1818,7 @@ export default function DashboardClient({
       >
         {activePairing ? (
           <div className="space-y-4">
-            <div className="rounded-lg border border-edge-accent bg-brand-subtle px-4 py-4">
+            <div className="rounded-sg border border-edge-accent bg-brand-subtle px-4 py-4">
               <div className="label-caps text-brand-subtle-text">Pairing code</div>
               <div className="mt-2 flex items-center gap-3">
                 <code className="select-all font-mono text-3xl font-[650] tracking-[0.12em] text-ink">
@@ -1961,7 +1961,7 @@ export default function DashboardClient({
               <JobTimeline jobId={selectedJob.id} />
             </div>
 
-            <details className="group rounded-lg border border-edge-subtle bg-surface-2">
+            <details className="group rounded-sg border border-edge-subtle bg-surface-2">
               <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-sm font-[550] text-ink-2">
                 <span className="inline-flex items-center gap-2">
                   <FileText className="h-4 w-4 text-ink-4" aria-hidden />

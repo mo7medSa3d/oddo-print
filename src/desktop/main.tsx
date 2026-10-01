@@ -950,7 +950,7 @@ export default function App() {
               <span className="text-lg font-semibold text-ink">
                 {labelPrinter(selectedPrinter.status)}
               </span>
-              <span className="ml-auto text-sm text-ink-3">
+              <span className="ms-auto text-sm text-ink-3">
                 {humanType(selectedPrinter)}
               </span>
             </div>
@@ -976,7 +976,7 @@ export default function App() {
               <MetaRow label="Applied revision">
                 {selectedPrinter.appliedDesiredRevision ?? 0}
                 {selectedPrinter.managementSource === "manager" && (
-                  <span className="ml-2 text-ink-4">
+                  <span className="ms-2 text-ink-4">
                     {selectedPrinter.configurationConverged ? "Applied" : "Pending"}
                   </span>
                 )}

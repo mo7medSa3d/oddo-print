@@ -158,14 +158,14 @@ export default function PlatformSubscriptionsPage() {
 
         <div className="border-b border-edge-subtle px-5 py-3">
           <div className="relative max-w-md">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
+            <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
             <Input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Filter by tenant name, ID or Stripe customer…"
               aria-label="Filter subscriptions"
-              className="pl-9"
+              className="ps-9"
             />
           </div>
         </div>
@@ -193,7 +193,7 @@ export default function PlatformSubscriptionsPage() {
                   <th scope="col">Billing status</th>
                   <th scope="col">Stripe customer</th>
                   <th scope="col">Period end</th>
-                  <th scope="col" className="text-right">Created</th>
+                  <th scope="col" className="text-end">Created</th>
                 </tr>
               </thead>
               <tbody>
@@ -216,7 +216,7 @@ export default function PlatformSubscriptionsPage() {
                       <td className="text-sm text-ink-3">
                         {s.currentPeriodEnd ? new Date(s.currentPeriodEnd).toLocaleDateString() : "—"}
                       </td>
-                      <td className="text-right text-sm text-ink-3">
+                      <td className="text-end text-sm text-ink-3">
                         {new Date(s.createdAt).toLocaleDateString()}
                       </td>
                     </tr>

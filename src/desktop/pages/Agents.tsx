@@ -23,7 +23,7 @@ export function AgentsPage({ s }: { s: DesktopState }) {
         <Card className="overflow-hidden">
           <CardHeader title="This PC agent" subtitle="Agent this app supervises" icon={<Cpu className="h-4 w-4 text-brand" />} actions={<Button size="sm" variant="secondary" onClick={s.refreshStatus} icon={<RefreshCw className="h-4 w-4" />}>Refresh</Button>} />
           <div className="space-y-4 px-5 pb-5">
-            <div className="flex items-center gap-3 rounded-lg border border-edge-accent bg-surface-accent p-4">
+            <div className="flex items-center gap-3 rounded-sg border border-edge-accent bg-surface-accent p-4">
               <StatusDot tone={s.isOnline ? "ok" : "bad"} pulse={s.isOnline} />
               <div className="min-w-0 flex-1"><div className="text-base font-semibold text-ink">{s.isOnline ? "Agent running" : "Agent stopped"}</div><div className="truncate text-xs text-ink-3">{String(anyStatus?.hostname || "This PC")}</div></div>
               <StatusBadge tone={s.isOnline ? "ok" : "bad"} label={s.isOnline ? "Online" : "Offline"} />
@@ -46,7 +46,7 @@ export function AgentsPage({ s }: { s: DesktopState }) {
           <div className="px-5 pb-5">
             {!s.gatewayUrl ? <EmptyState icon={<Server className="h-8 w-8" />} title="Gateway not configured" description="Set gateway URL in Settings so agent can register." action={<Button variant="primary" onClick={() => s.navigate("settings")} icon={<Settings className="h-4 w-4" />}>Open settings</Button>} /> : s.healthError ? <ErrorState title="Gateway check failed" message={friendlyGatewayError(s.healthError)} retry={s.checkHealth} /> : s.fleetTotal !== null && s.fleetTotal > 0 ? (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3"><div className="rounded-lg border border-edge bg-surface-2 p-4"><div className="text-2xs font-semibold uppercase tracking-wide text-ink-3">Total agents</div><div className="mt-1 text-2xl font-bold tabular-nums text-ink">{s.fleetTotal}</div></div><div className="rounded-lg border border-edge bg-surface-2 p-4"><div className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-wide text-ink-3">Online<StatusDot tone={(s.fleetOnline ?? 0) > 0 ? "ok" : "bad"} /></div><div className="mt-1 flex items-baseline gap-2"><span className="text-2xl font-bold tabular-nums text-ink">{s.fleetOnline}</span><span className="text-xs text-ink-3">of {s.fleetTotal}</span></div></div></div>
+                <div className="grid grid-cols-2 gap-3"><div className="rounded-sg border border-edge bg-surface-2 p-4"><div className="text-2xs font-semibold uppercase tracking-wide text-ink-3">Total agents</div><div className="mt-1 text-2xl font-bold tabular-nums text-ink">{s.fleetTotal}</div></div><div className="rounded-sg border border-edge bg-surface-2 p-4"><div className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-wide text-ink-3">Online<StatusDot tone={(s.fleetOnline ?? 0) > 0 ? "ok" : "bad"} /></div><div className="mt-1 flex items-baseline gap-2"><span className="text-2xl font-bold tabular-nums text-ink">{s.fleetOnline}</span><span className="text-xs text-ink-3">of {s.fleetTotal}</span></div></div></div>
                 <p className="text-xs leading-relaxed text-ink-3">Health probe reports liveness only. Full management available in gateway dashboard.</p>
                 <div className="flex items-center gap-2 rounded-md border border-edge bg-surface-2 px-3 py-2"><span className="min-w-0 flex-1 truncate font-mono text-2xs text-ink-3">{s.gatewayUrl}</span><CopyButton value={s.gatewayUrl} label="Copy" onCopied={() => s.setMsg({ text: "Gateway URL copied", type: "success" })} /></div>
               </div>
@@ -64,7 +64,7 @@ export function AgentsPage({ s }: { s: DesktopState }) {
             { title: "Report honestly", body: "Heartbeats and job status flow back to gateway. Offline queue drains on reconnect.", icon: Activity },
           ].map((c) => {
             const Ic = c.icon;
-            return <div key={c.title} className="rounded-lg border border-edge p-4"><div className="flex items-center gap-2 text-sm font-semibold text-ink"><span className="flex h-7 w-7 items-center justify-center rounded-sm bg-brand-subtle text-brand border border-edge-accent"><Ic className="h-4 w-4" /></span>{c.title}</div><p className="mt-2 text-xs leading-relaxed text-ink-2">{c.body}</p></div>;
+            return <div key={c.title} className="rounded-sg border border-edge p-4"><div className="flex items-center gap-2 text-sm font-semibold text-ink"><span className="flex h-7 w-7 items-center justify-center rounded-sm bg-brand-subtle text-brand border border-edge-accent"><Ic className="h-4 w-4" /></span>{c.title}</div><p className="mt-2 text-xs leading-relaxed text-ink-2">{c.body}</p></div>;
           })}
         </div>
       </Card>

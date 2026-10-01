@@ -91,7 +91,7 @@ export default async function Pricing() {
           <Link href="/" className="shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30">
             <BrandMark title="Yaseir" subtitle="Print Manager" size="sm" showWordmark />
           </Link>
-          <nav className="ml-auto flex items-center gap-2" aria-label="Pricing navigation">
+          <nav className="ms-auto flex items-center gap-2" aria-label="Pricing navigation">
             <Link
               href="/"
               className="hidden h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink sm:inline-flex"
@@ -145,7 +145,7 @@ export default async function Pricing() {
         ) : rows.length === 0 ? (
           <Card className="mt-10 max-w-[520px]">
             <div className="flex flex-col items-center px-6 py-12 text-center">
-              <span className="flex h-11 w-11 items-center justify-center rounded-lg border border-edge bg-surface-2 text-ink-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-sg border border-edge bg-surface-2 text-ink-3">
                 <CreditCard className="h-5 w-5" aria-hidden />
               </span>
               <h2 className="mt-4 text-md font-[620] text-ink">No public plans are configured</h2>

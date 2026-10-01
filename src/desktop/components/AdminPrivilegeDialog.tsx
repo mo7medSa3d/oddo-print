@@ -60,7 +60,7 @@ export function AdminPrivilegeDialog({
     >
       <div className="space-y-4 text-base leading-relaxed text-ink-2">
         <div
-          className="flex items-start gap-3 rounded-lg border border-warn-edge bg-warn-bg p-3.5 text-warn"
+          className="flex items-start gap-3 rounded-sg border border-warn-edge bg-warn-bg p-3.5 text-warn"
           role="alert"
         >
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
@@ -74,9 +74,9 @@ export function AdminPrivilegeDialog({
           Desktop Agent Manager must be running as Administrator to manage the Agent service. Close this window and reopen Desktop Agent Manager as Administrator.
         </p>
 
-        <div className="rounded-lg border border-edge bg-surface-2 p-3.5 text-sm text-ink-3">
+        <div className="rounded-sg border border-edge bg-surface-2 p-3.5 text-sm text-ink-3">
           <div className="font-medium text-ink mb-1.5">How to relaunch as Administrator:</div>
-          <ol className="list-decimal pl-5 space-y-1">
+          <ol className="list-decimal ps-5 space-y-1">
             <li>Close this application window.</li>
             <li>Right-click the <strong>Yaseir Print Manager</strong> application shortcut or executable.</li>
             <li>Select <strong>Run as administrator</strong> from the Windows context menu.</li>

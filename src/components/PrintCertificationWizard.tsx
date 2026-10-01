@@ -103,7 +103,7 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
 
   return (
     <div className="space-y-4">
-      <section className="rounded-lg border border-edge bg-surface-2 px-4 py-4">
+      <section className="rounded-sg border border-edge bg-surface-2 px-4 py-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="label-caps flex items-center gap-2">
@@ -138,7 +138,7 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
       </section>
 
       {!steps && !loading && (
-        <section className="rounded-lg border border-dashed border-edge-strong bg-surface px-5 py-8 text-center">
+        <section className="rounded-sg border border-dashed border-edge-strong bg-surface px-5 py-8 text-center">
           <span aria-hidden className="mx-auto flex h-9 w-9 items-center justify-center rounded-md border border-edge bg-surface-2 text-ink-3">
             <ShieldCheck className="h-4 w-4" />
           </span>
@@ -151,7 +151,7 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
       )}
 
       {loading && !steps && (
-        <section className="space-y-2.5 rounded-lg border border-edge bg-surface px-5 py-5" role="status" aria-label="Running certification">
+        <section className="space-y-2.5 rounded-sg border border-edge bg-surface px-5 py-5" role="status" aria-label="Running certification">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="flex items-center gap-3">
               <Skeleton className="h-7 w-7 rounded-full" />
@@ -169,7 +169,7 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
         <>
           <section
             aria-label="Certification summary"
-            className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-edge bg-edge sm:grid-cols-3"
+            className="grid grid-cols-1 gap-px overflow-hidden rounded-sg border border-edge bg-edge sm:grid-cols-3"
           >
             <div className="bg-surface px-4 py-3.5">
               <div className="label-caps">Overall result</div>
@@ -210,7 +210,7 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
             </div>
           </section>
 
-          <section className="overflow-hidden rounded-lg border border-edge bg-surface">
+          <section className="overflow-hidden rounded-sg border border-edge bg-surface">
             <div className="border-b border-edge-subtle bg-surface-2 px-4 py-3">
               <h4 className="text-base font-[600] text-ink">Certification stages</h4>
               <p className="mt-0.5 text-sm leading-relaxed text-ink-3">
@@ -286,7 +286,7 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
           </Callout>
 
           {(requestId || timelineUrl || failedCount > 0) && (
-            <section aria-label="Certification references" className="rounded-lg border border-edge bg-surface px-4 py-3.5">
+            <section aria-label="Certification references" className="rounded-sg border border-edge bg-surface px-4 py-3.5">
               <dl className="grid gap-3 sm:grid-cols-2">
                 {requestId && (
                   <div className="min-w-0">

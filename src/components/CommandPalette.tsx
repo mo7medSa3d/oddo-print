@@ -169,7 +169,7 @@ export function CommandPalette({
                       aria-selected={selected}
                       onMouseEnter={() => setCursor(index)}
                       onClick={() => run(item)}
-                      className={`flex w-full items-center gap-2.5 rounded-sm px-3 py-2 text-left text-sm transition-colors duration-[100ms] ${
+                      className={`flex w-full items-center gap-2.5 rounded-sm px-3 py-2 text-start text-sm transition-colors duration-[100ms] ${
                         selected ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2"
                       }`}
                     >
@@ -200,7 +200,7 @@ export function CommandHint({ onOpen }: { onOpen: () => void }) {
       className="flex w-full items-center gap-2 rounded-sm border border-edge bg-surface-2 px-2.5 py-1.5 text-sm text-ink-3 transition-colors duration-[140ms] hover:border-edge-strong hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
     >
       <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span className="flex-1 truncate text-left">Search…</span>
+      <span className="flex-1 truncate text-start">Search…</span>
       <Kbd>⌘K</Kbd>
     </button>
   );

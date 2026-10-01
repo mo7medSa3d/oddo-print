@@ -132,20 +132,20 @@ export default function SystemHealthClient() {
     <div className="space-y-5">
       <section
         aria-label="Overall system health"
-        className={`card overflow-hidden border-l-[3px] ${
+        className={`card overflow-hidden border-s-[3px] ${
           health.overall === "ok"
-            ? "border-l-ok-solid"
+            ? "border-s-ok-solid"
             : health.overall === "warn"
-              ? "border-l-warn-solid"
+              ? "border-s-warn-solid"
               : health.overall === "error"
-                ? "border-l-bad-solid"
-                : "border-l-edge-strong"
+                ? "border-s-bad-solid"
+                : "border-s-edge-strong"
         }`}
       >
         <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3.5">
             <span
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border ${
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-sg border ${
                 health.overall === "ok"
                   ? "border-ok-edge bg-ok-bg text-ok"
                   : health.overall === "warn"
@@ -197,7 +197,7 @@ export default function SystemHealthClient() {
             <div key={state} className="flex items-center gap-2.5 bg-surface px-5 py-3">
               <StateIcon state={state} className={`h-3.5 w-3.5 ${state === "ok" ? "text-ok" : state === "warn" ? "text-warn" : state === "error" ? "text-bad" : "text-ink-4"}`} />
               <span className="text-xs font-[600] text-ink-3">{STATE_LABEL[state]}</span>
-              <span className="ml-auto text-sm font-[640] tabular text-ink">{counts[state]}</span>
+              <span className="ms-auto text-sm font-[640] tabular text-ink">{counts[state]}</span>
             </div>
           ))}
         </div>
@@ -264,10 +264,10 @@ export default function SystemHealthClient() {
             <code className="font-mono text-xs">X-Request-Id</code> response header to follow a job
             through structured logs.
           </p>
-          <pre className="overflow-x-auto rounded-lg border border-edge-subtle bg-surface-2 p-3.5 font-mono text-2xs leading-relaxed text-ink-2">
+          <pre className="overflow-x-auto rounded-sg border border-edge-subtle bg-surface-2 p-3.5 font-mono text-2xs leading-relaxed text-ink-2">
 {`{"ts":"…","level":"info","event":"print.job.success","requestId":"req_…","jobId":"job_…","tenantId":"…","agentId":"…","printerId":"…","attemptId":"attempt_…","claimId":"…","spoolerJobId":"…"}`}
           </pre>
-          <div className="flex items-start gap-2.5 rounded-lg border border-edge-subtle bg-surface-2 px-3.5 py-3">
+          <div className="flex items-start gap-2.5 rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-3">
             <Activity className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
             <p className="text-sm leading-relaxed text-ink-3">
               Unverified external dependencies (Odoo, billing) are reported as{" "}

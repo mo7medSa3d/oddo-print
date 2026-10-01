@@ -110,7 +110,7 @@ export function BillingActions({
     <>
       <div className="space-y-4">
         {selectedPlan && (
-          <section className="rounded-lg border border-brand-subtle-border bg-brand-subtle px-4 py-4">
+          <section className="rounded-sg border border-brand-subtle-border bg-brand-subtle px-4 py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <div className="label-caps text-brand-subtle-text">Selected plan</div>
@@ -151,7 +151,7 @@ export function BillingActions({
           >
             {busy === "portal" ? "Opening…" : "Customer portal"}
             {canOpenPortal && busy !== "portal" && (
-              <ExternalLink className="ml-1 h-3.5 w-3.5 text-ink-4" aria-hidden />
+              <ExternalLink className="ms-1 h-3.5 w-3.5 text-ink-4" aria-hidden />
             )}
           </Button>
 

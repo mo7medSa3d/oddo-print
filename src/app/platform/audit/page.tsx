@@ -146,14 +146,14 @@ export default function PlatformAuditPage() {
 
         <div className="border-b border-edge-subtle px-5 py-3">
           <div className="relative max-w-lg">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
+            <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
             <Input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Filter by action, tenant or actor ID…"
               aria-label="Filter audit events"
-              className="pl-9"
+              className="ps-9"
             />
           </div>
         </div>
@@ -212,7 +212,7 @@ export default function PlatformAuditPage() {
                         <td className="text-2xs text-ink-4">
                           {e.resourceType ? `${e.resourceType}: ${e.resourceId ?? "—"}` : "—"}
                         </td>
-                        <td className="text-right">
+                        <td className="text-end">
                           {hasMetadata && (
                             <button
                               type="button"

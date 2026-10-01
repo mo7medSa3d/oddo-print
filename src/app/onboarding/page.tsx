@@ -268,7 +268,7 @@ export default function Onboarding() {
                           aria-checked={selected}
                           disabled={loading}
                           onClick={() => setPlanId(plan.id)}
-                          className={`rounded-xl border p-4 text-left transition-[border-color,background-color,box-shadow] duration-[160ms] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] ${
+                          className={`rounded-xl border p-4 text-start transition-[border-color,background-color,box-shadow] duration-[160ms] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] ${
                             selected
                               ? "border-brand bg-brand-subtle shadow-xs"
                               : "border-edge bg-surface hover:border-edge-strong hover:bg-surface-2"

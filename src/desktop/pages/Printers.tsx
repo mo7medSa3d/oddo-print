@@ -13,8 +13,8 @@ export function PrintersPage({ s }: { s: DesktopState }) {
     <div className="space-y-5">
       <Toolbar>
         <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" aria-hidden />
-          <Input value={s.printersFilter} onChange={(e) => s.setPrintersFilter(e.target.value)} placeholder="Search by name, type or address…" className="pl-10 h-10 rounded-md" aria-label="Search printers" />
+          <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" aria-hidden />
+          <Input value={s.printersFilter} onChange={(e) => s.setPrintersFilter(e.target.value)} placeholder="Search by name, type or address…" className="ps-10 h-10 rounded-md" aria-label="Search printers" />
         </div>
         <Select value={s.statusFilter} onChange={(e) => s.setStatusFilter(e.target.value as typeof s.statusFilter)} className="lg:w-44 h-10 rounded-md" aria-label="Filter by status">
           <option value="all">All statuses</option><option value="online">Online</option><option value="busy">Busy</option><option value="offline">Offline</option><option value="error">Error</option><option value="unknown">Unknown</option>
@@ -35,7 +35,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="border-y border-edge bg-surface-2 text-left text-2xs uppercase tracking-wide text-ink-3"><th className="px-5 py-2.5">Printer</th><th className="px-4 py-2.5">Type</th><th className="px-4 py-2.5">Connection</th><th className="px-4 py-2.5">Endpoint</th><th className="px-4 py-2.5">Connectivity</th><th className="px-4 py-2.5">Lifecycle</th><th className="px-4 py-2.5">Config</th><th className="px-5 py-2.5 text-right">Actions</th></tr></thead>
+              <thead><tr className="border-y border-edge bg-surface-2 text-start text-2xs uppercase tracking-wide text-ink-3"><th className="px-5 py-2.5">Printer</th><th className="px-4 py-2.5">Type</th><th className="px-4 py-2.5">Connection</th><th className="px-4 py-2.5">Endpoint</th><th className="px-4 py-2.5">Connectivity</th><th className="px-4 py-2.5">Lifecycle</th><th className="px-4 py-2.5">Config</th><th className="px-5 py-2.5 text-end">Actions</th></tr></thead>
               <tbody>{rows.map((p) => (
                 <tr key={p.id} className="border-b border-edge last:border-0 hover:bg-surface-2/50 transition-colors">
                   <td className="px-5 py-3"><div className="flex items-center gap-3"><PrinterAvatar name={p.name} size="lg" tone={printerTone(p.status) === "neutral" ? "brand" : printerTone(p.status)} /><div className="min-w-0"><div className="truncate text-sm font-semibold text-ink">{p.name}</div><div className="truncate text-2xs text-ink-4"><Mono>{p.id}</Mono></div></div></div></td>
@@ -51,7 +51,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
             </table>
           </div>
         )}
-        {!s.printersLoading && rows.length > 0 && <div className="flex items-center gap-5 border-t border-edge px-5 py-3 text-xs text-ink-3"><span className="inline-flex items-center gap-1.5"><StatusDot tone="ok" /> {s.onlinePrinters} online</span><span className="inline-flex items-center gap-1.5"><StatusDot tone="bad" /> {s.offlinePrinters} need attention</span><span className="ml-auto inline-flex items-center gap-1.5 text-2xs"><ShieldCheck className="h-3.5 w-3.5" /> Encrypted local transport</span></div>}
+        {!s.printersLoading && rows.length > 0 && <div className="flex items-center gap-5 border-t border-edge px-5 py-3 text-xs text-ink-3"><span className="inline-flex items-center gap-1.5"><StatusDot tone="ok" /> {s.onlinePrinters} online</span><span className="inline-flex items-center gap-1.5"><StatusDot tone="bad" /> {s.offlinePrinters} need attention</span><span className="ms-auto inline-flex items-center gap-1.5 text-2xs"><ShieldCheck className="h-3.5 w-3.5" /> Encrypted local transport</span></div>}
       </Card>
     </div>
   );
