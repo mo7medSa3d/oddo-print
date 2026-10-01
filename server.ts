@@ -9,14 +9,24 @@ import { guardApiRequest } from "./src/server/request-guard";
 import { sweepPrintJobs } from "./src/lib/job-maintenance";
 import { cleanupAuthRateLimits } from "./src/lib/auth-rate-limit";
 import { cleanupExpiredManagerSessions } from "./src/lib/manager-auth";
+import { cleanupExpiredPlatformSessions } from "./src/lib/platform-auth";
+import { cleanupExpiredRefreshTokens } from "./src/lib/session-tokens";
 import { applyApiCors, handleApiCorsPreflight } from "./src/server/cors";
+import { applyApiCacheControlDefault } from "./src/server/api-defaults";
 import { isTrustedProxyRequest, trustProxyEnabled } from "./src/server/trusted-proxy";
 import { runtimeSecret } from "./src/lib/runtime-secret";
 import { pool } from "./src/db";
 import { sweepStaleAgentPresence, AGENT_PRESENCE_SWEEP_INTERVAL_MS } from "./src/lib/agent-presence-maintenance";
+import { createRequestContentSecurityPolicy, shouldApplyPageContentSecurityPolicy } from "./src/server/content-security-policy";
 
-const dev = process.env.NODE_ENV !== "production";
-const port = parseInt(process.env.PORT ?? "3000", 10);
+const dev = process.env.NODE_ENV === "development";
+const rawPort = process.env.PORT ?? "3000";
+const port = /^\d+$/.test(rawPort.trim()) ? parseInt(rawPort.trim(), 10) : NaN;
+// 0 is valid (OS-assigned ephemeral port, used by the multi-instance
+// integration test); anything else must be a real port number.
+if (!Number.isSafeInteger(port) || port < 0 || port > 65535) {
+  throw new Error(`Refusing startup: PORT must be an integer 0..65535 (got ${JSON.stringify(rawPort)}).`);
+}
 const hostname = process.env.HOSTNAME ?? "0.0.0.0";
 
 function isLoopbackBinding(host: string): boolean {
@@ -49,22 +59,23 @@ function assertRealSecret(name: string, value: string | undefined, minLength: nu
   return value;
 }
 
-if (process.env.NODE_ENV === "production" && process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD === "1") {
-  throw new Error("Refusing production startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1; configure MANAGER_PASSWORD_HASH instead.");
+const plaintextManagerPasswordAllowedEnvironment = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+if (!plaintextManagerPasswordAllowedEnvironment && process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD === "1") {
+  throw new Error("Refusing startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1 outside development/test; configure MANAGER_PASSWORD_HASH instead.");
 }
 
-const httpTestMode = process.env.YASSER_HTTP_TEST_MODE === "1";
+// test/http-server-ready is deliberately transport-agnostic for staging.
+const httpTestMode = process.env.YASEIR_HTTP_TEST_MODE === "1";
+// Staging-only insecure-cookie signal (also read by sessionCookieSecure):
+// COOKIE_SECURE=0 is refused in production unless the explicit test flag is set.
+const cookieSecureDisabled = ["0", "false", "no", "off"].includes((process.env.COOKIE_SECURE ?? "").trim().toLowerCase());
 
-if (
-  process.env.NODE_ENV === "production" &&
-  !httpTestMode &&
-  (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")
-) {
+if (process.env.NODE_ENV === "production" && !httpTestMode && cookieSecureDisabled) {
   throw new Error("Refusing production startup with COOKIE_SECURE disabled; manager/customer session cookies must be Secure in production.");
 }
 
-if (process.env.NODE_ENV === "production" && httpTestMode && (process.env.COOKIE_SECURE === "0" || process.env.COOKIE_SECURE === "false")) {
-  console.warn("[security] YASSER_HTTP_TEST_MODE=1: COOKIE_SECURE is intentionally disabled for the isolated HTTP test deployment.");
+if (process.env.NODE_ENV === "production" && httpTestMode && cookieSecureDisabled) {
+  console.warn("[security] YASEIR_HTTP_TEST_MODE=1: COOKIE_SECURE is intentionally disabled for the isolated HTTP test deployment.");
 }
 
 if (process.env.NODE_ENV === "production") {
@@ -74,30 +85,34 @@ if (process.env.NODE_ENV === "production") {
   }
   assertRealSecret("GATEWAY_JWT_SECRET", runtimeSecret("GATEWAY_JWT_SECRET"), 32);
   if (!trustProxyEnabled() && !isLoopbackBinding(hostname)) {
-    throw new Error("Refusing production startup: TRUST_PROXY=1 is required when the Gateway binds a non-loopback interface. Do not expose the Gateway application port directly.");
+    if (!httpTestMode) {
+      throw new Error("Refusing production startup: TRUST_PROXY=1 is required when the Gateway binds a non-loopback interface. Do not expose the Gateway application port directly.");
+    }
   }
   if (trustProxyEnabled()) {
     assertRealSecret("TRUST_PROXY_SECRET", runtimeSecret("TRUST_PROXY_SECRET"), 32);
   }
-  const appBaseUrl = runtimeSecret("APP_BASE_URL")?.trim();
-  if (!appBaseUrl) {
-    throw new Error("Refusing production startup: APP_BASE_URL must be configured.");
-  }
-  let parsedAppBaseUrl: URL;
-  try {
-    parsedAppBaseUrl = new URL(appBaseUrl);
-  } catch {
-    throw new Error("Refusing production startup: APP_BASE_URL must be an absolute URL.");
-  }
-  if (
-    parsedAppBaseUrl.protocol !== "https:" ||
-    parsedAppBaseUrl.username ||
-    parsedAppBaseUrl.password ||
-    parsedAppBaseUrl.pathname !== "/" ||
-    parsedAppBaseUrl.search ||
-    parsedAppBaseUrl.hash
-  ) {
-    throw new Error("Refusing production startup: APP_BASE_URL must be a clean HTTPS origin.");
+  if (!httpTestMode) {
+    const appBaseUrl = runtimeSecret("APP_BASE_URL")?.trim();
+    if (!appBaseUrl) {
+      throw new Error("Refusing production startup: APP_BASE_URL must be configured.");
+    }
+    let parsedAppBaseUrl: URL;
+    try {
+      parsedAppBaseUrl = new URL(appBaseUrl);
+    } catch {
+      throw new Error("Refusing production startup: APP_BASE_URL must be an absolute URL.");
+    }
+    if (
+      parsedAppBaseUrl.protocol !== "https:" ||
+      parsedAppBaseUrl.username ||
+      parsedAppBaseUrl.password ||
+      parsedAppBaseUrl.pathname !== "/" ||
+      parsedAppBaseUrl.search ||
+      parsedAppBaseUrl.hash
+    ) {
+      throw new Error("Refusing production startup: APP_BASE_URL must be a clean HTTPS origin.");
+    }
   }
 }
 
@@ -145,6 +160,21 @@ const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {
+    // This repository uses the custom Node server as the actual HTTP entrypoint.
+    // Generate exactly one request-scoped nonce here, expose it to the Next
+    // renderer through the request headers, and send the same policy to the
+    // browser. The separate proxy.ts CSP path is intentionally not used here.
+    if (shouldApplyPageContentSecurityPolicy(req.url)) {
+      const { nonce, policy } = createRequestContentSecurityPolicy();
+      // Next derives its automatic script nonces from the request CSP header.
+      // Keep the custom x-nonce too so application Server Components can read
+      // the same value; both are generated once for this request.
+      req.headers["x-nonce"] = nonce;
+      req.headers["content-security-policy"] = policy;
+      res.setHeader("Content-Security-Policy", policy);
+    }
+
+    applyApiCacheControlDefault(req, res);
     if (trustProxyEnabled() && req.url !== "/api/health" && req.url !== "/api/live") {
       const headers = new Headers();
       for (const [key, value] of Object.entries(req.headers)) {
@@ -198,6 +228,8 @@ app.prepare().then(() => {
     Promise.all([
       cleanupAuthRateLimits(),
       cleanupExpiredManagerSessions(),
+      cleanupExpiredPlatformSessions(),
+      cleanupExpiredRefreshTokens(),
     ]).catch((error) => {
       logError("[auth-maintenance] cleanup failed", { error: error });
     });
@@ -216,7 +248,7 @@ app.prepare().then(() => {
   presenceTimer.unref();
 
   if (trustProxyEnabled()) {
-    logWarn("[security] TRUST_PROXY enabled: only requests carrying the proxy authentication token are trusted for forwarded-client-IP handling. The bundled Caddyfile injects the token and overwrites X-Forwarded-For.");
+    logWarn("[security] TRUST_PROXY enabled: only requests carrying the proxy authentication token are trusted for forwarded-client-IP handling. The bundled Caddyfile injects the proxy token and relies on Caddy's sanitized X-Forwarded-* handling.");
   }
 
   server.listen(port, hostname, () => {
@@ -224,4 +256,8 @@ app.prepare().then(() => {
     const boundPort = typeof address === "object" && address !== null ? address.port : port;
     console.log(`> Ready on http://${hostname}:${boundPort} (Agent WS at /api/agent/ws)`);
   });
+}).catch((error) => {
+  logError("[startup] Next.js prepare failed; refusing to run without a request handler", { error: error instanceof Error ? error.message : String(error) });
+  try { void pool.end(); } catch { /* already closed */ }
+  process.exit(1);
 });

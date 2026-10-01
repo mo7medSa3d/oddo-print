@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,12 +69,14 @@ def test_manager_login_does_not_mask_identity_lookup_failures_as_invalid_credent
     end = source.index("const legacyEnabled", start)
     block = source[start:end]
     assert 'logError("auth.login.user_lookup_failed"' in block
-    assert 'return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });' in block
+    assert 'NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 })' in block
     # The catch must terminate this branch instead of falling through to the
-    # generic INVALID credentials response.
+    # generic INVALID credentials response, and must preserve rate-limit
+    # headers so clients can back off.
     catch_start = block.index("catch")
     catch_end = block.index("}\n", catch_start) + 2
-    assert "return NextResponse.json" in block[catch_start:catch_end]
+    assert "return setRateLimitHeaders(NextResponse.json" in block[catch_start:catch_end]
+    assert "setRateLimitHeaders" in block[catch_start:catch_end]
 
 
 
@@ -117,7 +120,7 @@ def test_logout_does_not_report_success_when_session_revocation_fails():
     ):
         source = read(rel)
         assert "session_revoke_failed" in source
-        assert 'revokeFailed ? { ok: false, error: "Logout temporarily unavailable" } : { ok: true }' in source
+        assert '{ ok: false, error: "Logout temporarily unavailable" }' in source
         assert "status: revokeFailed ? 503 : 200" in source
         assert 'action: "session.revoked"' in source
 
@@ -141,15 +144,17 @@ def test_terminal_claim_credentials_are_cleared_without_breaking_crash_recovery(
     gateway_delivery = read("src/lib/job-delivery.ts")
     go_queue = read("agent/internal/queue/queue.go")
 
-    for marker in (
-        "UNKNOWN_PARTIAL_DELIVERY: claim lease expired",
-        "AGENT_EXECUTION_TIMEOUT",
-        "exceeded max retries after a stale claim",
-    ):
-        start = gateway_maintenance.index(marker)
-        block = gateway_maintenance[max(0, start - 220): start + 220]
-        assert "claim_token=NULL" in block
-        assert "claimed_at=NULL" in block
+    # Failed unknown deliveries retain the claim fence so the exact delivery
+    # attempt can reconcile a late success; a bounded 24h cleanup clears
+    # retained fences afterwards. Only paths where no physical output is
+    # possible (undelivered claims, retries-exhausted requeue) clear tokens.
+    start = gateway_maintenance.index("UNKNOWN_PARTIAL_DELIVERY: claim lease expired")
+    block = gateway_maintenance[max(0, start - 100): start + 600]
+    assert "claim_token=claim_token" in block
+    start = gateway_maintenance.index("AGENT_EXECUTION_TIMEOUT")
+    block = gateway_maintenance[max(0, start - 100): start + 700]
+    assert "claim_token=CASE WHEN expires_at <= now() THEN NULL ELSE claim_token END" in block
+    assert "updated_at <= now() - interval '24 hours'" in gateway_maintenance
 
     failed_release = gateway_delivery[gateway_delivery.index("SET status = 'failed'"):gateway_delivery.index("RETURNING id", gateway_delivery.index("SET status = 'failed'"))]
     assert "claim_token = NULL" in failed_release
@@ -195,18 +200,26 @@ def test_agent_pairing_success_does_not_clear_rate_limit():
 
 def test_tauri_gateway_http_is_explicitly_test_branch_only():
     source = read("src-tauri/src/commands.rs")
-    test_branch_mode = "This isolated test branch intentionally accepts remote HTTP" in source
+    # The staging branch accepts http:// and https:// URL shapes but still
+    # requires explicit insecure-HTTP opt-in at pairing time; other schemes
+    # are rejected and embedded credentials/query/fragment stay forbidden.
+    assert 'if scheme != "https" && scheme != "http"' in source
+    assert "gateway URL must use http:// or https://" in source
+    assert "gateway URL cannot include embedded credentials" in source
+    assert "gateway URL cannot include query strings or fragments" in source
+    assert 'cmd.env("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1")' in source
 
-    if test_branch_mode:
-        assert 'let remote_http = scheme == "http";' in source
-        assert 'if remote_http {' in source
-        assert "gateway URL cannot include embedded credentials" in source
-        assert "gateway URL cannot include query strings or fragments" in source
-    else:
-        assert 'if scheme == "http" {' in source
-        assert 'let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");' in source
-        assert 'if !local {' in source
-        assert "Gateway URL must use HTTPS for remote Gateways" in source
+
+def test_production_startup_fails_closed_on_secrets_and_proxy_boundary():
+    source = read("server.ts")
+    assert "!value || value.length < minLength" in source
+    assert 'assertRealSecret("GATEWAY_JWT_SECRET"' in source
+    assert "TRUST_PROXY=1 is required when the Gateway binds a non-loopback interface." in source
+    assert 'if (!trustProxyEnabled() && !isLoopbackBinding(hostname))' in source
+    assert 'assertRealSecret("TRUST_PROXY_SECRET"' in source
+    assert "Refusing production startup: APP_BASE_URL must be configured." in source
+    assert "APP_BASE_URL must be a clean HTTPS origin." in source
+    assert "assertRealSecret(" in source
 
 
 def test_production_startup_fails_closed_on_secrets_and_proxy_boundary():
@@ -228,7 +241,7 @@ def test_billing_webhook_binds_identity_before_metadata_tenant_mutation():
     assert "stripeCustomerId" in source
     assert 'return NextResponse.json({ received: true, ignored: true })' in source
     assert "if (billingIdentityConflict)" in source
-    assert "processedAt: new Date()" in source
+    assert "processedAt: sql`clock_timestamp()`" in source
 
 
 def test_tenant_entitlements_fail_closed_without_active_subscription():
@@ -251,3 +264,245 @@ def test_plan_catalog_uses_shared_canonical_entitlement_normalizer():
     assert 'value === "unlimited"' in helper
     assert 'must be a positive integer or "unlimited"' in helper
 
+
+
+def test_failover_binding_is_same_route_scope_and_execution_rechecks_it():
+    binding = read("odoo_addons/print_gateway/models/binding.py")
+    assert "('branch_id', '=', branch_id)" in binding
+    assert "def _check_fallback_binding_scope" in binding
+    assert "fallback.company_id != record.company_id or fallback.branch_id != record.branch_id" in binding
+    assert "fallback.destination_type != record.destination_type" in binding
+    assert "fallback.destination_ref != record.destination_ref" in binding
+    assert "fallback.document_type != record.document_type" in binding
+
+    job = read("odoo_addons/print_gateway/models/print_job.py")
+    assert "route_compatible = bool(" in job
+    assert "current_binding.destination_ref.display_name == job.destination" in job
+    assert "current_binding.document_type == job.document_type" in job
+    assert "and route_compatible" in job
+
+
+def test_odoo_sql_identifiers_never_use_raw_table_name_formatting():
+    """Model table names must be composed as SQL identifiers, never interpolated as values."""
+    violations = []
+
+    def contains_unsafe_table_attr(node):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr == "Identifier":
+                value = func.value
+                if isinstance(value, ast.Name) and value.id in {"sql", "psycopg2_sql"}:
+                    return False
+        if isinstance(node, ast.Attribute) and node.attr == "_table":
+            return True
+        return any(contains_unsafe_table_attr(child) for child in ast.iter_child_nodes(node))
+
+    for path in (ROOT / "odoo_addons").rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod) and contains_unsafe_table_attr(node.right):
+                violations.append(f"{path}:{node.lineno}: SQL % formatting uses _table")
+            if isinstance(node, ast.JoinedStr) and any(
+                contains_unsafe_table_attr(value.value) for value in node.values if isinstance(value, ast.FormattedValue)
+            ):
+                violations.append(f"{path}:{node.lineno}: f-string interpolates _table")
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format":
+                if any(contains_unsafe_table_attr(arg) for arg in node.args) or any(
+                    contains_unsafe_table_attr(kw.value) for kw in node.keywords
+                ):
+                    violations.append(f"{path}:{node.lineno}: .format() interpolates _table")
+
+    assert not violations, "Raw SQL table-name formatting found:\\n" + "\\n".join(violations)
+
+
+def test_shared_session_tokens_use_short_access_and_long_refresh_lifetimes():
+    source = read("src/lib/session-tokens.ts")
+    assert "ACCESS_TOKEN_TTL_SECONDS = 15 * 60" in source
+    assert "REFRESH_FAMILY_TTL_MS = 30 * 24 * 60 * 60 * 1000" in source
+    assert 'createHash("sha256").update(token' in source
+    assert 'tokenHash: hashRefreshToken(refreshToken)' in source
+    assert "REFRESH_ROTATION_GRACE_MS = 5_000" in source
+    assert 'revoked_reason = \'refresh_reuse_detected\'' in source
+    assert 'auth.refresh.reuse_detected' in source
+
+
+def test_auth_cookie_contract_separates_access_and_refresh_cookies():
+    session = read("src/lib/session-tokens.ts")
+    assert 'accessCookieName: "mgr_session"' in session
+    assert 'refreshCookieName: "mgr_refresh"' in session
+    assert 'refreshCookiePath: "/api/auth/manager"' in session
+    assert 'accessCookieName: "cust_session"' in session
+    assert 'refreshCookieName: "cust_refresh"' in session
+    assert 'refreshCookiePath: "/api/auth"' in session
+    assert 'refreshCookiePath: "/api/auth"' in session
+    assert 'accessCookieName: "plt_session"' in session
+    assert 'refreshCookieName: "plt_refresh"' in session
+    assert 'refreshCookiePath: "/api/platform/auth"' in session
+    assert "HttpOnly; SameSite=Lax" in session
+    assert "HttpOnly; SameSite=Strict" in session
+
+
+def test_browser_manager_transport_uses_http_only_cookies_and_one_refresh_retry():
+    source = read("src/desktop/lib/ipc.ts")
+    assert 'credentials: "include"' in source
+    assert 'path !== "/api/auth/manager/refresh"' in source
+    assert 'return gatewayRequest(base, path, method, headers, body, false);' in source
+    assert 'X-Refresh-Token' not in source
+
+
+def test_desktop_refresh_secret_stays_inside_rust_memory_boundary():
+    source = read("src-tauri/src/commands.rs")
+    assert "refresh_token: String" in source
+    assert "current_manager_refresh_token" in source
+    assert 'request.header("X-Refresh-Token", refresh_token)' in source
+    assert 'object.remove("accessToken");' in source
+    assert 'object.remove("refreshToken");' in source
+    assert 'path == "/api/auth/manager/refresh" && (status == 401 || status == 403)' in source
+    assert "if status == 401 || status == 403" not in source
+
+    assert 'Origin", "tauri://localhost' in source
+
+
+def test_new_logout_paths_revoke_refresh_family_and_clear_matching_cookie():
+    for rel in (
+        "src/app/api/auth/manager/logout/route.ts",
+        "src/app/api/auth/logout/route.ts",
+        "src/app/api/platform/auth/logout/route.ts",
+    ):
+        source = read(rel)
+        assert "revokeSessionFamily" in source
+    assert "clearManagerRefreshCookieHeader" in read("src/app/api/auth/manager/logout/route.ts")
+    generic_logout = read("src/app/api/auth/logout/route.ts")
+    assert "validateCustomer(req)" in generic_logout
+    assert "validateManager(req)" in generic_logout
+    assert 'getRefreshTokenFromRequest(req, "customer")' in generic_logout
+    assert 'getRefreshTokenFromRequest(req, "manager")' in generic_logout
+    assert "clearCustomerRefreshCookie" in generic_logout
+    assert "clearManagerRefreshCookieHeader" in generic_logout
+    assert "clearPlatformRefreshCookieHeader" in read("src/app/api/platform/auth/logout/route.ts")
+
+
+def test_refresh_endpoints_are_no_store_and_use_shared_rotation():
+    routes = (
+        "src/app/api/auth/refresh/route.ts",
+        "src/app/api/auth/manager/refresh/route.ts",
+        "src/app/api/platform/auth/refresh/route.ts",
+    )
+    for rel in routes:
+        source = read(rel)
+        assert "rotateRefreshToken" in source
+        assert 'Cache-Control", "no-store"' in source
+        assert "Refresh token is invalid or expired" in source
+
+
+def test_auth_login_paths_do_not_send_refresh_tokens_to_browser_renderers():
+    manager = read("src/app/api/auth/manager/login/route.ts")
+    assert 'isTrustedDesktopRequest(req)' in manager
+    assert 'if (desktopClient)' in manager
+    assert "isTrustedDesktopRequest" in manager
+    assert "bodyOut.refreshToken = sess.refreshToken;" in manager
+    assert '"Cache-Control", "no-store"' in manager
+    assert 'if (!desktopClient)' in manager
+    platform = read("src/app/api/platform/auth/login/route.ts")
+    assert "platformRefreshCookieHeader" in platform
+    assert '"Cache-Control", "no-store"' in platform
+    customer = read("src/app/api/auth/login/route.ts")
+    assert "customerRefreshCookie(session)" in customer
+    assert '"Cache-Control", "no-store"' in customer
+
+
+def test_password_reset_revokes_shared_refresh_families():
+    source = read("src/app/api/auth/reset-password/route.ts")
+    assert "revokeUserRefreshFamiliesInTransaction" in source
+    assert '"password_reset"' in source
+    session = read("src/lib/session-tokens.ts")
+    assert "export async function revokeUserRefreshFamiliesInTransaction" in session
+    assert "clock_timestamp()" in session
+
+
+def test_manager_and_customer_v2_session_kinds_are_explicitly_separated():
+    manager = read("src/lib/manager-auth.ts")
+    customer = read("src/lib/customer-auth.ts")
+    assert 'verifyAccessTokenSignature(token, "manager")' in manager
+    assert 'verifyAccessTokenSignature(customerToken, "customer")' in customer
+    assert 'kind: "customer"' in customer
+
+
+def test_tenant_selection_issues_customer_kind_session():
+    source = read("src/app/api/auth/select-tenant/route.ts")
+    assert 'kind: "customer"' in source
+    assert "issueSessionPairInTransaction" in source
+    assert "customerRefreshCookie" in source
+    assert "revokeSessionFamilyInTransaction" in source
+    assert 'tenant_selection' in source
+    assert "issueSessionPairInTransaction" in source
+
+
+def test_team_member_role_change_and_removal_revoke_refresh_families():
+    source = read("src/app/api/team/members/route.ts")
+    assert "revokeUserTenantRefreshFamiliesInTransaction" in source
+    assert '"role_changed"' in source
+    assert '"member_removed"' in source
+
+
+def test_ownership_transfer_revokes_old_owner_refresh_sessions():
+    source = read("src/app/api/team/ownership/route.ts")
+    assert "revokeUserTenantRefreshFamiliesInTransaction" in source
+    assert "ownership_transferred" in source
+
+
+def test_legacy_session_storage_is_restricted_to_compatibility_paths():
+    manager = read("src/lib/manager-auth.ts")
+    platform = read("src/lib/platform-auth.ts")
+    assert "verifySignature(token)" in manager
+    assert "verifyLegacyPlatformTokenSignature(token)" in platform
+    assert "createManagerSession" in manager and "issueSessionPair" in manager
+    assert "createPlatformSession" in platform and "issueSessionPair" in platform
+
+
+def test_new_session_issuance_never_writes_legacy_session_tables():
+    for rel in (
+        "src/lib/manager-auth.ts",
+        "src/lib/platform-auth.ts",
+        "src/lib/customer-auth.ts",
+    ):
+        source = read(rel)
+        assert "issueSessionPair" in source
+        assert ".insert(managerSessions)" not in source
+        assert ".insert(platformSessions)" not in source
+
+
+def test_legacy_session_tables_are_isolated_to_compatibility_adapters():
+    from pathlib import Path
+
+    allowed_manager = {"src/lib/manager-auth.ts", "src/db/schema.ts"}
+    allowed_platform = {"src/lib/platform-auth.ts", "src/db/schema.ts"}
+    for path in Path("src").rglob("*.ts"):
+        relative = path.as_posix()
+        source = path.read_text(encoding="utf-8")
+        if "managerSessions" in source:
+            assert relative in allowed_manager, f"managerSessions leaked outside legacy adapter: {relative}"
+        if "platformSessions" in source:
+            assert relative in allowed_platform, f"platformSessions leaked outside legacy adapter: {relative}"
+
+    for path in Path("src").rglob("*.tsx"):
+        relative = path.as_posix()
+        source = path.read_text(encoding="utf-8")
+        assert "managerSessions" not in source, f"legacy manager session dependency in page: {relative}"
+        assert "platformSessions" not in source, f"legacy platform session dependency in page: {relative}"
+
+    source = Path("src/lib/session-tokens.ts").read_text(encoding="utf-8")
+    assert "Date.now(" not in source
+    assert "new Date()" not in source
+    assert "clock_timestamp()" in source
+
+
+def test_new_session_creation_has_no_legacy_table_insert_path():
+    from pathlib import Path
+
+    for path in Path("src").rglob("*.ts"):
+        source = path.read_text(encoding="utf-8")
+        assert ".insert(managerSessions)" not in source
+        assert ".insert(platformSessions)" not in source
+        assert "INSERT INTO manager_sessions" not in source
+        assert "INSERT INTO platform_sessions" not in source

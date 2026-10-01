@@ -10,17 +10,21 @@ endpoint answers 403 even for valid managers). Prometheus scraping therefore
 needs both a manager credential AND the platform tenant configured.
 
 ## API key rotation
-Rotating an Odoo API key while its jobs are still in flight strands status
-sync: `batch-status` and the single-job status read filter by the *current*
-key id, so jobs created under the retired key 404 and Odoo marks them
-`unknown`. Rotate keys only when the queue for that key is drained, or
-reconcile in-flight jobs manually before revoking.
+Gateway API-key rotation supports a bounded read-only grace window for in-flight
+Odoo jobs. New print submissions require the new active key, while status reads
+may continue through the retired key only during its persisted grace interval.
+Do not rely on indefinite compatibility: complete rotation and remove/revoke old
+credentials promptly after the grace window ends.
 
 ## Migration
 Run migrations before starting the application. Migration `0029` intentionally stops when it detects ambiguous legacy ownership. Migration `0032` intentionally stops when two pending pairing codes share one hash — regenerate the affected codes (disable/re-enable the agent) and re-run; collisions are never resolved automatically.
 
 ## Session invalidation
-Migration `0030` deletes manager sessions. All operators must sign in again once after the migration.
+Migration `0030` was the historical manager-session reset used when the legacy session store was introduced; it is not the refresh-token cutover mechanism.
+
+The current session migration is gradual. New logins issue a 15-minute access JWT plus a rotating refresh-token family with a 30-day absolute cap. Existing pre-v2 `manager_sessions`/`platform_sessions` sessions remain valid through their original 8-hour expiry and are verified through the legacy fallback path. No blanket logout is performed by the refresh-token migration.
+
+The Gateway's existing 5-minute housekeeping loop removes expired legacy manager/platform sessions and expired refresh-token rows.
 
 ## Runtime truth
 A configured printer may remain configured while an Agent is offline/stale. Runtime availability and physical print outcome are distinct states.

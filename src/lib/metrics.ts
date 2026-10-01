@@ -1,3 +1,4 @@
+import { agentStaleThresholdSeconds } from "./agent-availability";
 import { pool } from "../db";
 
 type Counter = { value: number };
@@ -30,8 +31,7 @@ export async function incrementMetric(name: string, value = 1): Promise<void> {
 }
 
 async function renderFleetGauges(): Promise<string> {
-  const staleSecondsRaw = Number(process.env.STALE_AGENT_THRESHOLD_SECONDS ?? "90");
-  const staleSeconds = Number.isFinite(staleSecondsRaw) && staleSecondsRaw >= 10 ? Math.min(staleSecondsRaw, 3600) : 90;
+  const staleSeconds = agentStaleThresholdSeconds();
   try {
     const [jobs, agents, printers] = await Promise.all([
       pool.query(`

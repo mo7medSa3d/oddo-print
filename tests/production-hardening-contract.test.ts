@@ -2,10 +2,32 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hasBodyOverLimit } from "../src/lib/request-limits";
+import { isDefinitiveStripeMutationError, isRetryableStripeMutationStatus, StripeRequestError } from "../src/lib/stripe";
 
 const read = (file: string) => readFileSync(resolve(process.cwd(), file), "utf8");
 
 describe("production hardening contracts", () => {
+  it("checkout releases definitively rejected Stripe intents but keeps ambiguous ones retryable", async () => {
+    const route = read("src/app/api/billing/checkout/route.ts");
+    expect(route).toContain("isDefinitiveStripeMutationError");
+    expect(route).toContain('checkoutStatus: "none"');
+    expect(route).toContain("eq(tenantSubscriptions.checkoutIdempotencyKey, state.idempotencyKey)");
+    expect(route).toContain('eq(tenantSubscriptions.checkoutStatus, "creating")');
+    expect(route).toContain('Checkout could not be created right now. Please retry.');
+  });
+
+  it("uses the transactional tenant lifecycle fence on runtime/control writes", () => {
+    expect(read("src/lib/tenant-guard.ts")).toContain("requireActiveTenantInTransaction");
+    expect(read("src/lib/tenant-guard.ts")).toContain("FOR SHARE");
+    expect(read("src/lib/agent-lifecycle.ts")).toContain("requireActiveTenantInTransaction(tx, tenantId)");
+    expect(read("src/app/actions.ts")).toContain("requireActiveTenantInTransaction(tx, manager.tenantId)");
+    expect(read("src/app/api/agent/register/route.ts")).toContain("requireActiveTenantInTransaction(tx, agent.tenantId)");
+    expect(read("src/app/api/agent/heartbeat/route.ts")).toContain("requireActiveTenantInTransaction(tx, agent.tenantId)");
+    expect(read("src/app/api/agent/discovery/route.ts")).toContain("requireActiveTenantInTransaction(tx, agent.tenantId)");
+    expect(read("src/app/api/agents/[id]/discovered-printers/[deviceId]/provision/route.ts")).toContain("requireActiveTenantInTransaction(tx, claims.tenantId)");
+    expect(read("src/app/api/printers/[id]/route.ts")).toContain("requireActiveTenantInTransaction(tx, tenantId)");
+  });
+
   it("rejects declared request bodies over the endpoint limit", () => {
     expect(hasBodyOverLimit(new Request("http://test", { headers: { "content-length": "1024" } }), 2048)).toBe(false);
     expect(hasBodyOverLimit(new Request("http://test", { headers: { "content-length": "2049" } }), 2048)).toBe(true);
@@ -22,7 +44,8 @@ describe("production hardening contracts", () => {
     const jobStatus = read("src/lib/job-status.ts");
     expect(jobStatus).toContain('claimed: new Set(["printing", "failed", "queued"])');
     expect(jobStatus).toContain('printing: new Set(["success", "failed"])');
-    expect(route).toContain('if (requestedStatus !== "expired" && job.claimToken && claimToken !== job.claimToken)');
+    expect(route).toContain('if (requestedStatus !== "expired") {');
+    expect(route).toContain('if (!job.claimToken || !claimToken || claimToken !== job.claimToken) {');
     expect(route).toContain('requestedStatus === "expired"');
     expect(route).toContain('fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken)');
     expect(route).toContain('sql`${printJobs.expiresAt} <= now()`');
@@ -53,7 +76,10 @@ describe("production hardening contracts", () => {
 
   it("keeps the bundled Caddy sanitizing forwarded-IP headers and capping request bodies", () => {
     const caddy = read("Caddyfile");
-    expect(caddy).toContain("header_up X-Forwarded-For {http.request.remote.host}");
+    // Caddy's reverse_proxy sanitizes X-Forwarded-* inputs by default. The
+    // production contract intentionally avoids a redundant explicit rewrite.
+    expect(caddy).toContain("sanitizes X-Forwarded-* inputs");
+    expect(caddy).not.toContain("header_up X-Forwarded-For");
     expect(caddy).toContain("header_up -X-Real-Ip");
     expect(caddy).toContain("max_size 8MiB");
   });
@@ -82,6 +108,42 @@ describe("production hardening contracts", () => {
     expect(read("src/db/index.ts")).toContain("runtimeSecret(\"PGPASSWORD\")");
     expect(read("src/lib/runtime-secret.ts")).toContain("${name}_FILE");
     expect(read("scripts/db-migrate.ts")).toContain("hasDatabaseSettings");
+  });
+
+  it("scopes Agent-generated printer and discovery identities to the tenant", () => {
+    const schema = read("src/db/schema.ts");
+    const printersBlock = schema.slice(schema.indexOf("export const printers = pgTable"));
+    const printersTable = printersBlock.slice(0, printersBlock.indexOf("export const apiKeys"));
+    expect(printersTable).toContain("id: text(\"id\").notNull()");
+    expect(printersTable).not.toContain("id: text(\"id\").primaryKey()");
+    expect(printersTable).toContain("unique(\"printers_tenant_id_unique\")");
+
+    const discoveredBlock = schema.slice(schema.indexOf("export const discoveredDevices = pgTable"));
+    const discoveredTable = discoveredBlock.slice(0, discoveredBlock.indexOf("export const printJobs"));
+    expect(discoveredTable).toContain("id: text(\"id\").notNull()");
+    expect(discoveredTable).not.toContain("id: text(\"id\").primaryKey()");
+    expect(discoveredTable).toContain("unique(\"discovered_devices_tenant_id_unique\")");
+
+    const heartbeat = read("src/app/api/agent/heartbeat/route.ts");
+    expect(heartbeat).toContain("onConflictDoNothing({ target: [printers.tenantId, printers.id] })");
+    expect(heartbeat).not.toContain("onConflictDoNothing({ target: printers.id })");
+
+    const discoveryReport = read("src/app/api/agent/discovery/route.ts");
+    expect(discoveryReport).toContain("onConflictDoNothing({ target: [discoveredDevices.tenantId, discoveredDevices.id] })");
+
+    const migration = read("drizzle/0072_tenant_scoped_printer_identity.sql");
+    expect(migration).toContain("DROP CONSTRAINT IF EXISTS \"printers_pkey\"");
+    expect(migration).toContain("DROP INDEX IF EXISTS \"printers_gateway_id_global_unique\"");
+    expect(migration).toContain("DROP CONSTRAINT IF EXISTS \"discovered_devices_pkey\"");
+
+    const odooPrinters = read("src/app/api/odoo/printers/route.ts");
+    expect(odooPrinters).toContain("and(eq(printers.agentId, agents.id), eq(printers.tenantId, agents.tenantId))");
+    expect(odooPrinters).not.toContain(".innerJoin(agents, eq(printers.agentId, agents.id))");
+
+    const platformStats = read("src/app/api/platform/stats/route.ts");
+    expect(platformStats).toContain("and(eq(printers.agentId, agents.id), eq(printers.tenantId, agents.tenantId))");
+
+    expect(discoveryReport).toContain("eq(discoverySessions.tenantId, agent.tenantId)");
   });
 
   it("keeps Drizzle journal entries unique and aligned with migration files", () => {
@@ -122,6 +184,22 @@ describe("production hardening contracts", () => {
     expect(dashboard).not.toContain("Technical confidence remains unchanged");
   });
 
+  it("does not silently discard drawer-kick transport failures", () => {
+    const agent = read("agent/internal/agent/agent.go");
+    expect(agent).toContain("peripheral_drawer_kick_failed");
+    expect(agent).toContain("printer.OutcomeUnknown(drawerErr)");
+    expect(agent).toContain("physicalPeripheralSideEffect = true");
+    expect(agent).toContain("UNKNOWN_PARTIAL_DELIVERY: peripheral side effect succeeded");
+  });
+
+  it("never downgrades an agent panic after BeginPrint into an ordinary retryable failure", () => {
+    const agent = read("agent/internal/agent/agent.go");
+    expect(agent).toContain('localStatus == "printing"');
+    expect(agent).toContain('panicMsg = "UNKNOWN_PARTIAL_DELIVERY: " + panicMsg');
+    expect(agent).toContain('a.queue.UpdateStatusWithError(jobID, "failed", panicMsg)');
+    expect(agent).toContain('a.rememberTerminalExecution(jobID, "failed", panicMsg, fields.ClaimToken)');
+  });
+
   it("keeps tenant scoping fail-closed in manager dashboard and agent lifecycle routes", () => {
     const dashboard = read("src/app/dashboard/page.tsx");
     const lifecycle = read("src/app/api/agents/[id]/route.ts");
@@ -134,12 +212,24 @@ describe("production hardening contracts", () => {
     expect(helper).not.toContain("tx.update(printers)");
   });
 
-  it("keeps stock validation print-policy fan-out intact", () => {
+  it("keeps stock validation automated policy dispatch centralized", () => {
     const stock = read("odoo_addons/print_gateway/models/stock_picking.py");
-    expect(stock).toContain("Multi-destination fan-out");
-    expect(stock).toContain("executed_targets = set()");
-    expect(stock).toContain("intent_model.create_and_route(policy, picking, \"picking_validated\")");
-    expect(stock).not.toMatch(/create_and_route\(policy, picking, [^\n]+\n\s*break/);
+    expect(stock).toContain("dispatch_for_record");
+    expect(stock).toContain("\"picking_validated\"");
+    expect(stock).not.toContain("resolve_for_record");
+    expect(stock).not.toContain("effective_target_key");
+    expect(stock).not.toContain("create_and_route(policy, picking");
+  });
+
+  it("keeps Gateway job expiry validation on PostgreSQL clock", () => {
+    const service = read("src/lib/print-job-service.ts");
+    const route = read("src/app/api/print/jobs/route.ts");
+    expect(service).toContain("clock_timestamp()");
+    expect(service).toContain("expiresAt must be in the future");
+    expect(service).not.toContain("new Date(Date.now() + 60 * 60 * 1000)");
+    expect(service).not.toContain("expiresAt.getTime() <= Date.now()");
+    expect(route).not.toContain("const now = Date.now()");
+    expect(route).not.toContain("parsed.getTime() <= now");
   });
 
   it("keeps direct print submission printer-scoped and payload-validated", () => {
@@ -167,6 +257,28 @@ describe("production hardening contracts", () => {
     expect(selectTenant).toContain("Selection token already used");
     expect(selectTenant).not.toContain(`catch {
           throw new Error("Selection token already used")`);
+  });
+
+  it("does not strand billing-operation claims on definitive Stripe rejection", () => {
+    expect(isRetryableStripeMutationStatus(408)).toBe(true);
+    expect(isRetryableStripeMutationStatus(409)).toBe(true);
+    expect(isRetryableStripeMutationStatus(429)).toBe(true);
+    expect(isRetryableStripeMutationStatus(500)).toBe(true);
+    expect(isRetryableStripeMutationStatus(400)).toBe(false);
+    expect(isRetryableStripeMutationStatus(401)).toBe(false);
+    expect(isRetryableStripeMutationStatus(403)).toBe(false);
+    expect(isRetryableStripeMutationStatus(404)).toBe(false);
+    expect(isRetryableStripeMutationStatus(422)).toBe(false);
+
+    const rejected = new StripeRequestError("invalid state", 400);
+    expect(rejected.status).toBe(400);
+    expect(isDefinitiveStripeMutationError(rejected)).toBe(true);
+    expect(isDefinitiveStripeMutationError(new StripeRequestError("timeout", 500))).toBe(false);
+
+    const billingOp = read("src/lib/billing-operation.ts");
+    expect(billingOp).toContain("isDefinitiveStripeMutationError(error)");
+    expect(billingOp).toContain("billingOperationId: null");
+    expect(billingOp).toContain("billingOperationSubscriptionId: null");
   });
 
   it("keeps control-plane concurrency boundaries enforced by code and schema", () => {
@@ -218,12 +330,19 @@ describe("production hardening contracts", () => {
 
     const printRoute = read("src/app/api/print/jobs/route.ts");
     expect(printRoute).not.toContain("eq(printJobs.apiKeyId, odoo.id), eq(printJobs.idempotencyKey");
-    expect(printRoute).toContain("eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.idempotencyKey");
-    expect(printRoute).toContain("eq(printJobs.id, id), eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.apiKeyId, odoo.id)");
+    expect(printRoute).toContain("eq(printJobs.tenantId, odoo.tenantId),");
+    expect(printRoute).toContain("eq(printJobs.idempotencyKey, parsed.data.idempotencyKey),");
+    expect(printRoute).toContain("eq(printJobs.tenantId, odoo.tenantId)");
+    expect(printRoute).toContain("isNotNull(printJobs.apiKeyId)");
+    expect(printRoute).toContain("eq(printJobs.idempotencyKey, parsed.data.idempotencyKey)");
+    expect(printRoute).not.toContain("eq(printJobs.id, id), eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.apiKeyId, odoo.id)");
+    const reusedBlock = printRoute.slice(printRoute.indexOf("if (result.isReused)"), printRoute.indexOf("return NextResponse.json({\n      jobId:", printRoute.indexOf("if (result.isReused)")));
+    expect(reusedBlock).toContain("isNotNull(printJobs.apiKeyId)");
 
     const batchStatus = read("src/app/api/print/jobs/batch-status/route.ts");
     expect(batchStatus).toContain("eq(printJobs.tenantId, odoo.tenantId)");
-    expect(batchStatus).toContain("eq(printJobs.apiKeyId, odoo.id)");
+    expect(batchStatus).toContain("isNotNull(printJobs.apiKeyId)");
+    expect(batchStatus).not.toContain("eq(printJobs.apiKeyId, odoo.id)");
 
     const auth = read("src/lib/manager-auth.ts");
     expect(auth).toContain("passwordHash: true");
@@ -254,3 +373,16 @@ describe("production hardening contracts", () => {
   });
 
 });
+
+it("agent crash reprint is a fenced printing->queued transition, separate from pre-execution rejection", () => {
+  const source = read("src/app/api/agent/jobs/route.ts");
+  const status = read("src/lib/job-status.ts");
+  expect(status).toContain('AGENT_REPRINT_AFTER_CRASH_REASON = "agent_reprint_after_crash"');
+  expect(source).toContain('requestedStatus === "queued" && currentStatus === "printing"');
+  expect(source).toContain('reason !== AGENT_REPRINT_AFTER_CRASH_REASON');
+  expect(source).toContain('printJobs.expiresAt} > now()');
+  expect(source).toContain('printJobs.retries} < ${MAX_RETRIES}');
+  expect(source).toContain('retries: sql`${printJobs.retries} + 1`');
+  expect(source).not.toMatch(/agent_reprint_after_crash[\s\S]{0,500}deliveryAttempts: sql`GREATEST/);
+});
+

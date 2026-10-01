@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "../../db";
 import { plans, tenantSubscriptions } from "../../db/schema";
 import { and, asc, eq } from "drizzle-orm";
-import { getManagerCookieName, validateManagerClaims, verifyManagerToken } from "../../lib/manager-auth";
+import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../../lib/manager-auth";
 import { hasManagerPermission } from "../../lib/authorization";
 import { BillingActions } from "../../components/BillingActions";
 import { ArrowRight, AlertTriangle, CalendarDays, Check, CheckCircle2, CreditCard } from "lucide-react";
@@ -76,8 +76,11 @@ function planStatus(sub: SubscriptionRow) {
 }
 
 export default async function BillingPage({ searchParams }: { searchParams: SearchParams }) {
-  const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
-  const claims = await validateManagerClaims(token ? verifyManagerToken(token) : null);
+  const cookieStore = await cookies();
+  const claims = await verifyWorkspaceTokenFromCookieValues(
+    cookieStore.get("cust_session")?.value ?? null,
+    cookieStore.get(getManagerCookieName())?.value ?? null,
+  );
   if (!claims) redirect("/login");
   if (!hasManagerPermission(claims, "billing.read")) redirect("/dashboard");
 
@@ -103,7 +106,8 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
       printUsage = await getTenantPrintUsage(db, claims.tenantId);
     } catch (error) {
       printUsageUnavailable = true;
-      logWarn("billing.print_usage_unavailable", { error });
+      // Never pass a live Error: JSON.stringify(Error) → {} loses the message.
+      logWarn("billing.print_usage_unavailable", { error: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -159,7 +163,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
         </div>
         <Link
           href="/pricing"
-          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full bg-brand px-4 text-[13px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md"
+          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[8px] bg-brand px-4 text-[13px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md"
         >
           {hasActivePlan ? "Upgrade plan" : "View plans"}
           <ArrowRight className="h-4 w-4" />
@@ -218,7 +222,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
               <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
                 <Link
                   href="/pricing"
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-brand px-5 text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-[8px] bg-brand px-5 text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-brand-hover hover:shadow-md"
                 >
                   {hasActivePlan ? "Upgrade plan" : "Choose a plan"}
                   <ArrowRight className="h-4 w-4" />
@@ -226,7 +230,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                 {hasStripeSubscription && (
                   <a
                     href="#billing-actions"
-                    className="inline-flex h-11 items-center justify-center rounded-full border border-edge bg-surface px-5 text-[13.5px] font-semibold text-ink-2 transition hover:border-edge-strong hover:bg-surface-2 hover:text-ink"
+                    className="inline-flex h-11 items-center justify-center rounded-[8px] border border-edge bg-surface px-5 text-[13.5px] font-semibold text-ink-2 transition hover:border-edge-strong hover:bg-surface-2 hover:text-ink"
                   >
                     Manage billing
                   </a>
@@ -257,7 +261,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                 {entitlements.map((entry) => (
                   <div key={entry.label} className="rounded-[12px] border border-edge bg-surface-2 px-4 py-3.5">
                     <div className="flex items-start gap-2">
-                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ok-bg text-ok">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-[8px] bg-ok-bg text-ok">
                         <Check className="h-3 w-3" />
                       </span>
                       <div className="min-w-0">
@@ -293,9 +297,9 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                   </div>
                   {printUsage.limit !== "unlimited" && (
                     <div className="w-full sm:w-[240px]">
-                      <div className="h-2 overflow-hidden rounded-full bg-surface-3">
+                      <div className="h-2 overflow-hidden rounded-[8px] bg-surface-3">
                         <div
-                          className={`h-full rounded-full ${printUsage.remaining === 0 ? "bg-bad-solid" : "bg-brand"}`}
+                          className={`h-full rounded-[8px] ${printUsage.remaining === 0 ? "bg-bad-solid" : "bg-brand"}`}
                           style={{ width: `${Math.min(100, Math.max(0, (printUsage.used / Math.max(1, printUsage.limit)) * 100))}%` }}
                         />
                       </div>

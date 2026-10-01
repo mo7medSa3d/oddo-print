@@ -7,7 +7,11 @@ import (
 )
 
 func TestWSDModernProbeUsesNormativeNamespaces(t *testing.T) {
-	msg := string(buildWSDSOAPProbe())
+	probes := buildWSDSOAPProbes()
+	if len(probes) == 0 {
+		t.Fatal("expected at least one WSD probe")
+	}
+	msg := string(probes[0])
 	for _, want := range []string{
 		`xmlns:wsa="http://www.w3.org/2005/08/addressing"`,
 		`xmlns:wsd="http://docs.oasis-open.org/ws-dd/ns/discovery/2009/01"`,

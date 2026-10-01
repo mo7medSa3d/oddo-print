@@ -22,4 +22,47 @@ describe("production TypeScript safety contracts", () => {
     const source = readFileSync(resolve(process.cwd(), "src/db/schema.ts"), "utf8");
     expect(source).toContain('capabilities: jsonb("capabilities").$type<Record<string, unknown>>()');
   });
+  it("awaits the database-backed manager token verifier on server pages", () => {
+    const managerProtectedPages = [
+      "app/billing/page.tsx",
+      "app/release-readiness/page.tsx",
+      "app/system-health/page.tsx",
+    ];
+    for (const relative of managerProtectedPages) {
+      const source = readFileSync(resolve(process.cwd(), "src", relative), "utf8");
+      if (relative === "app/billing/page.tsx") {
+        expect(source).toContain("await verifyWorkspaceTokenFromCookieValues(");
+        expect(source).not.toContain("validateManagerClaims(token ? verifyManagerToken(token) : null)");
+      } else {
+        // Workspace auth: customer sessions with the right permission reach
+        // these pages like they reach the dashboard — still through the
+        // awaited, database-backed verifier (never sync/local validation).
+        expect(source).toContain("await verifyWorkspaceTokenFromCookieValues(");
+        expect(source).toContain('hasManagerPermission(claims, "agents.read")');
+        expect(source).not.toContain("validateManagerClaims(token ? verifyManagerToken(token) : null)");
+      }
+    }
+
+    const dashboard = readFileSync(resolve(process.cwd(), "src/app/dashboard/page.tsx"), "utf8");
+    expect(dashboard).toContain("verifyWorkspaceTokenFromCookieValues(");
+    expect(dashboard).toContain("await verifyWorkspaceTokenFromCookieValues(");
+
+    const publicHome = readFileSync(resolve(process.cwd(), "src/app/page.tsx"), "utf8");
+    expect(publicHome).toContain("verifyWorkspaceTokenFromCookieValues(");
+  });
+
+  it("does not let an invalid customer cookie shadow a valid manager workspace session", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/lib/manager-auth.ts"), "utf8");
+    expect(source).toContain("const managerClaims = await verifyManagerToken(managerToken);");
+    expect(source).toContain("if (managerClaims) return managerClaims;");
+    expect(source).toContain("return customerToken ? verifyWorkspaceToken(customerToken) : null;");
+    expect(source).not.toContain("const token = customerToken ?? managerToken;");
+  });
+
+  it("keeps database-clock printer updates compatible with Drizzle update typing", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/app/api/printers/[id]/route.ts"), "utf8");
+    expect(source).toContain("updatedAt: SQL;");
+    expect(source).toContain("updatedAt: sql`now()`");
+    expect(source).not.toContain("Partial<typeof printers.$inferInsert> = { updatedAt: sql`now()` }");
+  });
 });

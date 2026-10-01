@@ -4,11 +4,10 @@ import { logError } from "../lib/log";
 import { db } from "../db";
 import { agents, printers, printJobs, discoverySessions, discoveredDevices } from "../db/schema";
 import { eq, count, or, and, inArray, sql, desc } from "drizzle-orm";
-import { nanoid } from "../lib/nanoid";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { generatePairingCode, hashPairingCode } from "../lib/agent-auth";
-import { getManagerCookieName, verifyManagerToken, validateManagerClaims } from "../lib/manager-auth";
+import { generatePairingCode } from "../lib/agent-auth";
+import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../lib/manager-auth";
 import { createPrintJobForPrinter } from "../lib/print-job-service";
 import {
   isTerminal,
@@ -22,71 +21,28 @@ import { transitionAgentLifecycle, LifecycleConflict } from "../lib/agent-lifecy
 import { ActionError } from "../lib/action-error";
 import { writeAuditEvent } from "../lib/audit";
 import { requireManagerPermission } from "../lib/authorization";
-import { enforceTenantResourceEntitlement, TenantEntitlementError, TenantPrintQuotaExceededError, isTenantBillingError } from "../lib/entitlements";
+import { entitlementLimitSignal, isTenantBillingError } from "../lib/entitlements";
+import { requireActiveTenantInTransaction } from "../lib/tenant-guard";
+import type { LimitSignalResult } from "../lib/limit-signal";
 import { isAgentAvailableForJob } from "../lib/agent-availability";
+import { gatewayNow } from "../lib/database-clock";
+import { createAgentForManager } from "../lib/agent-control";
 
 async function requireManager() {
-  const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
-  const claims = await validateManagerClaims(token ? verifyManagerToken(token) : null);
+  const cookieStore = await cookies();
+  const claims = await verifyWorkspaceTokenFromCookieValues(
+    cookieStore.get("cust_session")?.value ?? null,
+    cookieStore.get(getManagerCookieName())?.value ?? null,
+  );
   if (!claims) throw new ActionError("Your manager session has expired. Sign in again.", 401);
   return claims;
 }
 
 export async function createAgent(name: string) {
   const manager = await requireManager();
-  requireManagerPermission(manager, "agents.pair");
-  if (typeof name !== "string" || !name.trim() || name.trim().length > 200) throw new ActionError("Agent name must be 1-200 characters.", 400);
-  // 0032 guarantees that no two rows share a pending pairing-code hash
-  // (the register route looks codes up without a tenant boundary), so
-  // regenerate on the astronomically rare collision instead of letting
-  // the INSERT violate the constraint and mint an ambiguous code.
-  let pairingCode = "";
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const candidate = generatePairingCode();
-    const clash = await db.query.agents.findFirst({
-      where: eq(agents.pairingCodeHash, hashPairingCode(candidate)),
-      columns: { id: true },
-    });
-    if (!clash) {
-      pairingCode = candidate;
-      break;
-    }
-  }
-  if (!pairingCode) throw new ActionError("Could not mint a unique pairing code. Try again.", 500);
-  const id = `agt_${nanoid(8)}`;
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 10);
-  try {
-    await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('agents:' || ${manager.tenantId}))`);
-      await enforceTenantResourceEntitlement(
-        tx,
-        manager.tenantId,
-        "max_agents",
-        sql`SELECT COUNT(*)::int AS count FROM agents WHERE tenant_id = ${manager.tenantId} AND lifecycle <> 'retired'`,
-      );
-      await tx.insert(agents).values({
-        id, tenantId: manager.tenantId, name: name.trim(),
-        pairingCodeHash: hashPairingCode(pairingCode),
-        pairingCodeExpiresAt: expiresAt,
-        status: "offline", lifecycle: "active",
-      });
-    });
-  } catch (error) {
-    if (error instanceof TenantEntitlementError) {
-      const code = error.entitlement === "max_agents" ? "MAX_AGENTS_EXCEEDED" : "TENANT_ENTITLEMENT_EXCEEDED";
-      throw new ActionError(error.message, 429, code, {
-        entitlement: error.entitlement,
-        limit: error.limit,
-        used: error.used,
-        upgradeRequired: error.entitlement === "max_agents",
-      });
-    }
-    if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
-    throw error;
-  }
-  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.paired", resourceType: "agent", resourceId: id }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
+  const result = await createAgentForManager(name, manager);
   revalidatePath("/dashboard");
-  return { id, pairingCode, expiresAt, expires_at: expiresAt.toISOString() };
+  return result;
 }
 
 export async function deleteAgent(id: string) {
@@ -105,6 +61,7 @@ export async function deleteAgent(id: string) {
     `);
     const agent = (locked as unknown as { rows?: { id: string; status: string; lifecycle: string; last_seen_at?: Date | string | null }[] }).rows?.[0];
     if (!agent) throw new ActionError("Agent not found", 404);
+    await requireActiveTenantInTransaction(tx, manager.tenantId);
     if (isAgentAvailableForJob({ lifecycle: agent.lifecycle, status: agent.status, lastSeenAt: agent.last_seen_at })) {
       throw new ActionError("This agent is still connected. Stop the agent service first, then delete it.", 409);
     }
@@ -142,7 +99,7 @@ export async function deleteAgent(id: string) {
     await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ agentId })}::text)`);
   });
 
-  void writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.deleted", resourceType: "agent", resourceId: agentId }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
+  await writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.deleted", resourceType: "agent", resourceId: agentId }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   revalidatePath("/dashboard");
   return { ok: true };
 }
@@ -153,20 +110,16 @@ export async function createPrintJob(printerId: string, payload: unknown) {
   try {
     const result = await createPrintJobForPrinter(printerId, payload, { requestedBy: "manager", tenantId: manager.tenantId });
     revalidatePath("/dashboard");
-    return { id: result.id };
+    return { ok: true as const, id: result.id, reused: result.isReused === true };
   } catch (error) {
-    if (error instanceof TenantPrintQuotaExceededError) throw new ActionError(error.message, 429, error.code, {
-      entitlement: error.entitlement,
-      limit: error.limit,
-      used: error.used,
-      remaining: 0,
-      periodStart: error.periodStart.toISOString(),
-      periodEnd: error.periodEnd?.toISOString() ?? null,
-      upgradeRequired: true,
-      retryable: false,
-    });
-    if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
-    if (isTenantBillingError(error)) throw new ActionError(error.message, 403);
+    // A limit trip is RETURNED, not thrown: Next.js only serializes a sanitized
+    // message for errors thrown from a server action in a production build, so
+    // a thrown ActionError would lose the entitlement details the upgrade
+    // dialog needs. HTTP routes keep using ActionError, which they translate to
+    // a 429/403 body server-side.
+    const limit = entitlementLimitSignal(error);
+    if (limit) return { ok: false as const, limit } satisfies LimitSignalResult;
+    if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
     throw error;
   }
 }
@@ -189,6 +142,9 @@ export async function reprintJob(jobId: string) {
   if (!isTerminal(job.status as JobStatus)) {
     throw new ActionError("Only finished, failed, or expired jobs can be reprinted. The current job is still in progress.", 409);
   }
+  if (job.status === "success") {
+    throw new ActionError("Successful jobs are not eligible for operator reprint; create a new intentional print instead.", 409);
+  }
   try {
     // Reprint sequence allocation happens inside createPrintJobForPrinter's
     // tenant enqueue transaction, so concurrent double-clicks cannot derive
@@ -201,20 +157,13 @@ export async function reprintJob(jobId: string) {
       tenantId: manager.tenantId,
     });
     revalidatePath("/dashboard");
-    return { id: result.id, reused: result.isReused === true };
+    return { ok: true as const, id: result.id, reused: result.isReused === true };
   } catch (error) {
-    if (error instanceof TenantPrintQuotaExceededError) throw new ActionError(error.message, 429, error.code, {
-      entitlement: error.entitlement,
-      limit: error.limit,
-      used: error.used,
-      remaining: 0,
-      periodStart: error.periodStart.toISOString(),
-      periodEnd: error.periodEnd?.toISOString() ?? null,
-      upgradeRequired: true,
-      retryable: false,
-    });
-    if (error instanceof TenantEntitlementError) throw new ActionError(error.message, 429);
-    if (isTenantBillingError(error)) throw new ActionError(error.message, 403);
+    // Same contract as createPrintJob: the quota signal must survive the
+    // server-action boundary, so it is returned instead of thrown.
+    const limit = entitlementLimitSignal(error);
+    if (limit) return { ok: false as const, limit } satisfies LimitSignalResult;
+    if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
     throw error;
   }
 }
@@ -223,81 +172,75 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
   const manager = await requireManager();
   requireManagerPermission(manager, "printers.manage");
 
-  try {
-    await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${manager.tenantId} || ':' || ${id}))`);
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${manager.tenantId} || ':' || ${id}))`);
 
-      // Use the same lock ordering as agent heartbeats: agent row first,
-      // then printer row. The preliminary lookup does not lock either row;
-      // the authoritative printer row is locked only after the owner agent
-      // lock is acquired. This prevents an agent heartbeat from deadlocking
-      // with a concurrent lifecycle transition.
-      const owner = await tx.execute(sql`
-        SELECT agent_id
-        FROM printers
-        WHERE id = ${id} AND tenant_id = ${manager.tenantId}
-      `);
-      const ownerAgentId = (owner.rows[0] as { agent_id?: string } | undefined)?.agent_id;
-      if (!ownerAgentId) throw new ActionError("Printer not found", 404);
+    // Use the same lock ordering as agent heartbeats: agent row first,
+    // then printer row. The preliminary lookup does not lock either row;
+    // the authoritative printer row is locked only after the owner agent
+    // lock is acquired. This prevents an agent heartbeat from deadlocking
+    // with a concurrent lifecycle transition.
+    const owner = await tx.execute(sql`
+      SELECT agent_id
+      FROM printers
+      WHERE id = ${id} AND tenant_id = ${manager.tenantId}
+    `);
+    const ownerAgentId = (owner.rows[0] as { agent_id?: string } | undefined)?.agent_id;
+    if (!ownerAgentId) throw new ActionError("Printer not found", 404);
 
-      if (lifecycle === "active") {
-        const agent = await tx.execute(sql`
-          SELECT lifecycle
-          FROM agents
-          WHERE id = ${ownerAgentId} AND tenant_id = ${manager.tenantId}
-          FOR UPDATE
-        `);
-        const agentLifecycle = (agent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
-        if (!agentLifecycle) throw new ActionError("The agent that owns this printer no longer exists.", 404);
-        if (agentLifecycle !== "active") {
-          throw new ActionError(`The agent owning this printer is ${agentLifecycle}; reactivate the agent first.`, 409);
-        }
-      }
-
-      const locked = await tx.execute(sql`
-        SELECT id, agent_id, lifecycle
-        FROM printers
-        WHERE id = ${id} AND tenant_id = ${manager.tenantId}
+    if (lifecycle === "active") {
+      const agent = await tx.execute(sql`
+        SELECT lifecycle
+        FROM agents
+        WHERE id = ${ownerAgentId} AND tenant_id = ${manager.tenantId}
         FOR UPDATE
       `);
-      const printer = locked.rows[0] as { id?: string; agent_id?: string; lifecycle?: unknown } | undefined;
-      if (!printer?.id) throw new ActionError("Printer not found", 404);
-      if (typeof printer.lifecycle !== "string") throw new ActionError("Printer has an invalid lifecycle.", 500);
-
-      const current = printer.lifecycle as "active" | "disabled" | "retired";
-      if (current === lifecycle) return;
-
-      if (!canTransitionLifecycle(current, lifecycle)) {
-        throw new ActionError(`This printer cannot go from ${current} to ${lifecycle}.`, 409);
+      const agentLifecycle = (agent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
+      if (!agentLifecycle) throw new ActionError("The agent that owns this printer no longer exists.", 404);
+      if (agentLifecycle !== "active") {
+        throw new ActionError(`The agent owning this printer is ${agentLifecycle}; reactivate the agent first.`, 409);
       }
+    }
 
-      const [updated] = await tx.update(printers)
-        .set({
-          lifecycle,
-          managementSource: "manager",
-          desiredRevision: sql<number>`${printers.desiredRevision} + 1`,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(printers.id, id), eq(printers.tenantId, manager.tenantId), eq(printers.lifecycle, current)))
-        .returning({ id: printers.id, lifecycle: printers.lifecycle, desiredRevision: printers.desiredRevision });
+    const locked = await tx.execute(sql`
+      SELECT id, agent_id, lifecycle
+      FROM printers
+      WHERE id = ${id} AND tenant_id = ${manager.tenantId}
+      FOR UPDATE
+    `);
+    const printer = locked.rows[0] as { id?: string; agent_id?: string; lifecycle?: unknown } | undefined;
+    if (!printer?.id) throw new ActionError("Printer not found", 404);
+    if (typeof printer.lifecycle !== "string") throw new ActionError("Printer has an invalid lifecycle.", 500);
 
-      if (!updated) throw new ActionError("Printer lifecycle changed concurrently; refresh and try again.", 409);
+    const current = printer.lifecycle as "active" | "disabled" | "retired";
+    if (current === lifecycle) return;
 
-      await writeAuditEvent({
-        tenantId: manager.tenantId,
-        actorType: manager.userId ? "user" : "system",
-        actorId: manager.userId ?? "legacy-manager",
-        action: `printer.lifecycle.${lifecycle}`,
-        resourceType: "printer",
-        resourceId: id,
-        metadata: { from: current, to: lifecycle, desiredRevision: updated.desiredRevision },
-      }, tx);
+    if (!canTransitionLifecycle(current, lifecycle)) {
+      throw new ActionError(`This printer cannot go from ${current} to ${lifecycle}.`, 409);
+    }
+
+    const [updated] = await tx.update(printers)
+      .set({
+        lifecycle,
+        managementSource: "manager",
+        desiredRevision: sql<number>`${printers.desiredRevision} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(and(eq(printers.id, id), eq(printers.tenantId, manager.tenantId), eq(printers.lifecycle, current)))
+      .returning({ id: printers.id, lifecycle: printers.lifecycle, desiredRevision: printers.desiredRevision });
+
+    if (!updated) throw new ActionError("Printer lifecycle changed concurrently; refresh and try again.", 409);
+
+    await writeAuditEvent({
+      tenantId: manager.tenantId,
+      actorType: manager.userId ? "user" : "system",
+      actorId: manager.userId ?? "legacy-manager",
+      action: `printer.lifecycle.${lifecycle}`,
+      resourceType: "printer",
+      resourceId: id,
+      metadata: { from: current, to: lifecycle, desiredRevision: updated.desiredRevision },
+    }, tx);
     });
-  } catch (error) {
-    if (error instanceof ActionError) throw error;
-    throw error;
-  }
-
   revalidatePath("/dashboard");
 }
 
@@ -322,7 +265,9 @@ export async function setAgentLifecycle(id: string, lifecycle: "active" | "disab
 
 export async function getDashboardState() {
   const manager = await requireManager();
-  requireManagerPermission(manager, "tenant.read");
+  requireManagerPermission(manager, "agents.read");
+  requireManagerPermission(manager, "printers.read");
+  requireManagerPermission(manager, "jobs.read");
   const allAgents = await db
     .select({
       id: agents.id,
@@ -371,7 +316,7 @@ export async function getDashboardState() {
     .orderBy(desc(printJobs.createdAt))
     .limit(50);
 
-  const now = new Date();
+  const now = gatewayNow();
   const agentsForClient = allAgents.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" }));
   return { agents: agentsForClient, printers: allPrinters, jobs: allJobs };
 }
@@ -417,22 +362,30 @@ export async function getDashboardJobs(options?: {
       );
     } else if (statusParam === "unassigned") {
       conditions.push(
-        or(eq(printJobs.destination, "unassigned"), eq(printJobs.printerId, "unassigned"), sql`${printJobs.printerId} NOT IN (SELECT id FROM printers WHERE lifecycle = 'active')`, sql`${printJobs.agentId} NOT IN (SELECT id FROM agents WHERE lifecycle = 'active')`)!
+        or(eq(printJobs.destination, "unassigned"), eq(printJobs.printerId, "unassigned"), sql`${printJobs.printerId} NOT IN (SELECT id FROM printers WHERE tenant_id = ${printJobs.tenantId} AND lifecycle = 'active')`, sql`${printJobs.agentId} NOT IN (SELECT id FROM agents WHERE tenant_id = ${printJobs.tenantId} AND lifecycle = 'active')`)!
       );
     }
   }
 
   if (searchParam) {
-    const term = `%${searchParam.toLowerCase()}%`;
+    // Escape LIKE wildcards: `%`/`_` in user input must match literally and
+    // `\` is the ESCAPE character (same policy as the reprint LIKE in
+    // print-job-service.ts). Without this, a job-search term containing `_`
+    // matches far more rows than the operator typed.
+    const escaped = searchParam.toLowerCase().replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+    const term = `%${escaped}%`;
     conditions.push(
       // Non-null: or() always receives six fixed LIKE clauses.
+      // ESCAPE is literal SQL text (NOT an interpolated binding —
+      // Drizzle would send that as a parameter and Postgres would
+      // reject `LIKE $1 $2`).
       or(
-        sql`LOWER(${printJobs.id}) LIKE ${term}`,
-        sql`LOWER(COALESCE(${printJobs.destination}, '')) LIKE ${term}`,
-        sql`LOWER(COALESCE(${printJobs.documentType}, '')) LIKE ${term}`,
-        sql`LOWER(${printJobs.printerId}) LIKE ${term}`,
-        sql`LOWER(${printJobs.agentId}) LIKE ${term}`,
-        sql`LOWER(COALESCE(${printJobs.error}, '')) LIKE ${term}`
+        sql`LOWER(${printJobs.id}) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(COALESCE(${printJobs.destination}, '')) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(COALESCE(${printJobs.documentType}, '')) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(${printJobs.printerId}) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(${printJobs.agentId}) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(COALESCE(${printJobs.error}, '')) LIKE ${term} ESCAPE '\\'`
       )!
     );
   }

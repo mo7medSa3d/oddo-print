@@ -42,7 +42,10 @@ export default function TeamPage() {
   }
 
   async function load() {
-    setLoadError(null);
+    // NOTE: no optimistic setLoadError(null) here — this function runs
+    // inside the mount effect, where synchronous setState is a lint error
+    // (cascading renders). Retry buttons clear the error in their own
+    // onClick (event handlers may set state freely).
     try {
       const [membersRes, invitationsRes] = await Promise.all([
         fetch("/api/team/members", { credentials: "include", cache: "no-store" }),
@@ -67,32 +70,17 @@ export default function TeamPage() {
   }
 
   useEffect(() => {
+    // Single implementation of the initial fetch — load() is the same block,
+    // invoked on mount and after every mutation. Deferred past the effect
+    // body: calling load() synchronously here is a setState-in-effect lint
+    // error (its state updates must run in a callback, as before).
     let active = true;
-    void Promise.all([
-      fetch("/api/team/members", { credentials: "include", cache: "no-store" }),
-      fetch("/api/team/invitations", { credentials: "include", cache: "no-store" }),
-    ])
-      .then(async ([membersRes, invitationsRes]) => {
-        if (!active) return;
-        if (!membersRes.ok || !invitationsRes.ok) {
-          setLoadError(
-            !membersRes.ok
-              ? "Could not load members. Please refresh to retry."
-              : "Could not load invitations. Please refresh to retry."
-          );
-          return;
-        }
-        setMembers((await membersRes.json()).members ?? []);
-        setInvitations((await invitationsRes.json()).invitations ?? []);
-        setLoadError(null);
-      })
-      .catch(() => {
-        if (active) setLoadError("Could not load team data. Please refresh to retry.");
-      })
-      .finally(() => {
-        if (active) setLoaded(true);
-      });
-    return () => { active = false; };
+    void Promise.resolve().then(() => {
+      if (active) return load();
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function invite(event: React.FormEvent) {
@@ -204,7 +192,7 @@ export default function TeamPage() {
           <h1 className="mt-4 text-[28px] font-bold tracking-[-0.04em] text-ink">Team</h1>
           <p className="mt-2 text-[14px] leading-relaxed text-ink-3">Invite teammates and manage workspace access.</p>
         </div>
-        <div className="inline-flex w-fit max-w-full items-center gap-2 rounded-full border border-edge bg-surface-2 px-3 py-1.5 text-[12px] text-ink-3">
+        <div className="inline-flex w-fit max-w-full items-center gap-2 rounded-[8px] border border-edge bg-surface-2 px-3 py-1.5 text-[12px] text-ink-3">
           <Shield className="h-4 w-4 shrink-0" />
           <span className="truncate">{members.length} members • {invitations.length} pending</span>
         </div>
@@ -269,7 +257,7 @@ export default function TeamPage() {
                       <td colSpan={3} className="px-5 py-12">
                         <div className="flex flex-col items-center gap-3 text-center">
                           <span role="alert" className="text-[13px] text-bad">{loadError}</span>
-                          <Button variant="secondary" size="sm" onClick={() => void load()}>Retry</Button>
+                          <Button variant="secondary" size="sm" onClick={() => { setLoadError(null); void load(); }}>Retry</Button>
                         </div>
                       </td>
                     </tr>
@@ -322,7 +310,7 @@ export default function TeamPage() {
               ) : loadError ? (
                 <div className="flex flex-col items-center gap-3 px-5 py-12 text-center">
                   <span role="alert" className="text-[13px] text-bad">{loadError}</span>
-                  <Button variant="secondary" size="sm" onClick={() => void load()}>Retry</Button>
+                  <Button variant="secondary" size="sm" onClick={() => { setLoadError(null); void load(); }}>Retry</Button>
                 </div>
               ) : members.length === 0 ? (
                 <div className="px-5 py-12 text-center text-[13px] text-ink-3">No members yet.</div>

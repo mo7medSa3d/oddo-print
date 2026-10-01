@@ -66,8 +66,9 @@ describe("System Interface Contracts (Section 36)", () => {
       expect(getAgentAvailability(staleAgent, now).available).toBe(false);
       expect(getAgentAvailability(staleAgent, now).reason).toBe("stale");
 
-      // When agent is stale, printer is effectively offline but configuration is preserved
-      const printer = { lifecycle: "active", status: "online" };
+      // Printer freshness is independently required at the delivery boundary.
+      // Keep the fixture fresh so the assertion isolates agent staleness.
+      const printer = { lifecycle: "active", status: "online", lastSeenAt: now };
       expect(getEffectivePrinterStatus(printer, staleAgent, now)).toBe("offline");
       expect(getEffectivePrinterStatus(printer, freshAgent, now)).toBe("online");
     });
@@ -75,7 +76,7 @@ describe("System Interface Contracts (Section 36)", () => {
     it("verifies routing availability gating for active printers", () => {
       const now = new Date();
       const freshAgent = { lifecycle: "active", status: "online", lastSeenAt: now };
-      const onlinePrinter = { lifecycle: "active", status: "online" };
+      const onlinePrinter = { lifecycle: "active", status: "online", lastSeenAt: now };
 
       expect(isPrinterAvailableForJob(onlinePrinter, freshAgent, now)).toBe(true);
 

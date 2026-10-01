@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yasser-agent/agent/internal/config"
-	"github.com/yasser-agent/agent/internal/printer"
+	"github.com/yaseir-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/printer"
 )
 
 // TestRedeliveryKeepsOriginalClaimTokenForReports proves the full loop of the
@@ -54,6 +54,7 @@ func TestRedeliveryAdoptsLiveClaimTokenForReports(t *testing.T) {
 	p := &fakePrinter{blocked: make(chan struct{}), startedCh: make(chan string, 1)}
 	ag.printers = map[string]printer.Printer{"p1": p}
 	ag.printerConfigs = map[string]config.PrinterConfig{"p1": {ID: "p1", Name: "Test", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"}}
+	allowInjectedPrintersForTest(ag)
 
 	first := dispatchTestJob("reclaim_token_race", "p1")
 	first["claimToken"] = "tok-A"
@@ -119,11 +120,19 @@ func TestRedeliveryAdoptsLiveClaimTokenForReports(t *testing.T) {
 }
 
 func dispatchTestJob(id, printerID string) map[string]interface{} {
+	// Realistic Gateway wire shape: claimed deliveries always carry the
+	// agent identity, claimed status, and fencing claim token (see
+	// CLAIM_RETURNING in src/lib/job-delivery.ts and buildJobEnvelope in
+	// src/server/ws.ts). Tests that need other shapes override fields
+	// explicitly after calling this helper.
 	return map[string]interface{}{
-		"id":        id,
-		"printerId": printerID,
-		"payload":   makeJobPayload(id),
-		"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+		"id":         id,
+		"agentId":    "agt_test",
+		"printerId":  printerID,
+		"status":     "claimed",
+		"claimToken": "claim-" + id,
+		"payload":    makeJobPayload(id),
+		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
 	}
 }
 
@@ -299,7 +308,7 @@ func TestWaitForJobsNeverBlocksShutdownForever(t *testing.T) {
 // eight printing reports have been accepted, the first printer owns the
 // physical slot and the other seven are known to be waiting for that printer.
 func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
-	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "1")
+	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1")
 	const blockedJobs = maxConcurrentJobs
 
 	var mu sync.Mutex
@@ -349,6 +358,7 @@ func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
 		"p1": {ID: "p1", Name: "Slow", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
 		"p2": {ID: "p2", Name: "Fast", Type: "network", Endpoint: "127.0.0.1:9101", Protocol: "raw"},
 	}
+	allowInjectedPrintersForTest(ag)
 
 	for i := 0; i < blockedJobs; i++ {
 		id := fmt.Sprintf("slow_%d", i)
@@ -559,5 +569,40 @@ func TestEnqueueRejectPreservesOriginalClaimToken(t *testing.T) {
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("queued rejection was not available")
+	}
+}
+
+// A physical print may succeed while the local terminal SQLite write fails.
+// The process-local terminal fence must then block a duplicate delivery until
+// restart; otherwise the stale `printing` row is enough to re-dispatch bytes.
+func TestPhysicalSuccessWithTerminalLedgerWriteFailureCannotReprint(t *testing.T) {
+	p := &fakePrinter{}
+	ag := newTestAgent(t, "p1", p)
+	p.afterPrint = func() {
+		_ = ag.queue.Close()
+	}
+
+	job := dispatchTestJob("terminal_ledger_failure", "p1")
+	job["claimToken"] = "claim-A"
+	if !ag.dispatchJob(context.Background(), job) {
+		t.Fatal("first delivery should be accepted")
+	}
+	ag.waitForJobs()
+
+	if got := p.callsByJob["terminal_ledger_failure"]; got != 1 {
+		t.Fatalf("expected exactly one physical print after ledger failure, got %d", got)
+	}
+
+	// The Gateway may redeliver the same logical job after a lost terminal
+	// acknowledgement. Even though the durable row still says `printing`, the
+	// in-process physical fence must refuse another printer invocation.
+	duplicate := dispatchTestJob("terminal_ledger_failure", "p1")
+	duplicate["claimToken"] = "claim-A"
+	if ag.dispatchJob(context.Background(), duplicate) {
+		t.Fatal("duplicate delivery after terminal ledger failure must not be admitted to physical execution")
+	}
+	ag.waitForJobs()
+	if got := p.callsByJob["terminal_ledger_failure"]; got != 1 {
+		t.Fatalf("physical print duplicated after terminal ledger failure: got %d writes", got)
 	}
 }

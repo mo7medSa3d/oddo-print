@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yasser-agent/agent/internal/config"
-	"github.com/yasser-agent/agent/internal/printer"
+	"github.com/yaseir-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/printer"
 )
 
-// handleDiagnosePrinters implements `yasser-agent diagnose printers`.
+// handleDiagnosePrinters implements `yaseir-agent diagnose printers`.
 // Human-readable and JSON output. No secrets, tokens, or document payloads.
 func handleDiagnosePrinters(configPath string) {
 	loaded := loadConfigForCLI(configPath)
@@ -207,7 +207,7 @@ func buildDiagnosticReport(cfg *config.Config, registryPath string) DiagnosticRe
 
 func printDiagnosticReport(report DiagnosticReport) {
 	fmt.Println("========================================")
-	fmt.Println("Yasser Agent — Printer Diagnostic Report")
+	fmt.Println("Yaseir Agent — Printer Diagnostic Report")
 	fmt.Println("========================================")
 	fmt.Printf("Generated: %s\n\n", report.GeneratedAt)
 	fmt.Println("--- System ---")

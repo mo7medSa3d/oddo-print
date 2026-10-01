@@ -36,8 +36,10 @@ func TestSpoolerPrinter_Status_ProbeTimeout(t *testing.T) {
 	st := sp.Status()
 	elapsed := time.Since(start)
 
-	if st != "spooler_rpc_unresponsive" {
-		t.Fatalf("expected status 'spooler_rpc_unresponsive', got %q", st)
+	// A spooler RPC timeout proves nothing about the physical device, so
+	// the correct status is "unknown" — never a fabricated "error".
+	if st != "unknown" {
+		t.Fatalf("expected status 'unknown', got %q", st)
 	}
 	if elapsed > 300*time.Millisecond {
 		t.Fatalf("expected status to return within deadline, took %v", elapsed)

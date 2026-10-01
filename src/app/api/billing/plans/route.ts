@@ -6,7 +6,7 @@ import { PUBLIC_VARY_CACHE_CONTROL } from "../../../../lib/cache";
 
 export async function GET() {
   const rows = await queryWithTimeout(
-    db.select({
+    () => db.select({
       id: plans.id, name: plans.name, entitlements: plans.entitlements, currency: plans.currency, interval: plans.interval,
     }).from(plans).where(and(isNotNull(plans.stripePriceId), eq(plans.isActive, true), eq(plans.isPublic, true))).orderBy(asc(plans.displayOrder), asc(plans.name)),
     5_000,

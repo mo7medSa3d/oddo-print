@@ -96,10 +96,36 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
             'string="Advanced"', 'string="Printer Options"',
         ):
             self.assertIn(label, source)
-        self.assertIn('widget="gateway_runtime_agent"', source)
+        self.assertIn('widget="gateway_runtime_agent_binding"', source)
         self.assertIn('widget="gateway_runtime_printer"', source)
         # Verbose legacy labels must stay out of the simplified form.
         self.assertNotIn("Hardware Print Binding", source)
+        self.assertIn('string="Odoo Preparation Printer"', source)
+        self.assertIn("Gateway Runtime Printer remains the physical target", source)
+
+    def test_database_utc_clock_is_the_shared_scheduler_clock(self):
+        clock = (ADDON / "runtime_clock.py").read_text(encoding="utf-8")
+        self.assertIn("SELECT NOW() AT TIME ZONE 'UTC'", clock)
+        intent = (MODELS / "print_intent.py").read_text(encoding="utf-8")
+        jobs = (MODELS / "print_job.py").read_text(encoding="utf-8")
+        self.assertIn("db_now_utc", intent)
+        self.assertIn("db_now_utc", jobs)
+        gateway = (MODELS / "gateway_config.py").read_text(encoding="utf-8")
+        self.assertIn("from ..runtime_clock import db_now_utc", gateway)
+        self.assertIn("(db_now_utc(self.env.cr) - started_at).total_seconds()", gateway)
+        self.assertIn('"pending_sync_started_at": db_now_utc(self.env.cr)', gateway)
+        self.assertNotIn("fields.Datetime.now() - started_at", gateway)
+
+    def test_automated_hooks_delegate_to_policy_dispatcher(self):
+        hooks = {
+            "stock": (MODELS / "stock_picking.py").read_text(encoding="utf-8"),
+            "invoice": (MODELS / "account_move.py").read_text(encoding="utf-8"),
+            "pos": (MODELS / "pos_order.py").read_text(encoding="utf-8"),
+        }
+        for name, source in hooks.items():
+            self.assertIn("dispatch_for_record", source, f"{name} hook must use the shared policy dispatcher")
+            self.assertNotIn("effective_target_key(", source, f"{name} hook must not duplicate policy dedup logic")
+            self.assertNotIn("create_and_route(", source, f"{name} hook must not bypass the shared policy dispatcher")
 
     def test_direct_pos_controller_is_loaded_and_runtime_printer_controller_is_loaded(self):
         pos_controller = (CONTROLLERS / "pos.py").read_text(encoding="utf-8")
@@ -190,7 +216,45 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         widget_source = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
         self.assertIn("assignment_only", widget_source)
         view_source = (VIEWS / "binding_views.xml").read_text(encoding="utf-8")
-        self.assertIn("options=\"{'assignment_only': true}\"", view_source)
+        self.assertIn('widget="gateway_runtime_agent_binding"', view_source)
+        self.assertNotIn("assignment_only", view_source)
+
+    def test_policy_scope_domain_matches_backend_invariant(self):
+        model_source = (MODELS / "print_policy.py").read_text(encoding="utf-8")
+        self.assertIn("domain=\"[('company_id', '=', company_id), ('branch_id', '=', branch_id)]\"", model_source)
+        self.assertIn("Optional explicit Print Rule for this exact Odoo Company and Branch scope.", model_source)
+
+    def test_automation_binding_picker_is_scope_filtered(self):
+        source = (VIEWS / "print_policy_views.xml").read_text(encoding="utf-8")
+        self.assertIn("('company_id', '=', company_id)", source)
+        self.assertIn("('branch_id', '=', branch_id)", source)
+        policy_source = (MODELS / "print_policy.py").read_text(encoding="utf-8")
+        self.assertIn("def _check_binding_scope", policy_source)
+
+    def test_gateway_time_authority_has_no_local_agent_expiry_gate(self):
+        agent_source = (Path(__file__).resolve().parents[3] / "agent" / "internal" / "agent" / "agent.go").read_text(encoding="utf-8")
+        self.assertNotIn("Job %s expired before agent processing. Skipping.", agent_source)
+        self.assertNotIn("time.Now().UTC().After(expiresAt.UTC())", agent_source)
+
+        gateway_source = (Path(__file__).resolve().parents[3] / "src" / "app" / "api" / "agent" / "jobs" / "route.ts").read_text(encoding="utf-8")
+        self.assertIn('requestedStatus === "printing"', gateway_source)
+        self.assertIn("${printJobs.expiresAt} > now()", gateway_source)
+    def test_automated_hooks_delegate_to_one_policy_dispatcher(self):
+        for filename, trigger in (
+            ("account_move.py", "invoice_posted"),
+            ("stock_picking.py", "picking_validated"),
+            ("pos_order.py", "pos_order_paid"),
+        ):
+            source = (MODELS / filename).read_text(encoding="utf-8")
+            self.assertIn("dispatch_for_record", source)
+            self.assertNotIn("resolve_for_record(", source)
+            self.assertNotIn("effective_target_key(", source)
+            self.assertNotIn("create_and_route(", source)
+            self.assertIn(trigger, source)
+
+        policy_source = (MODELS / "print_policy.py").read_text(encoding="utf-8")
+        self.assertIn("def dispatch_for_record", policy_source)
+        self.assertIn("_logger = logging.getLogger(__name__)", policy_source)
 
     def test_agent_widget_clears_previous_printer_on_agent_change(self):
         source = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
@@ -229,6 +293,51 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         prefix = source[max(0, method_idx - 80):method_idx]
         self.assertIn("@api.private", prefix)
 
+    def test_kitchen_gateway_preserves_odoo19_preparation_category_scope(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("const gatewayCategories = this.config.printerCategories;", source)
+        self.assertNotIn('this.models["product.product"].getAll()', source)
+
+    def test_kitchen_gateway_fails_closed_on_missing_station_binding(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("missing_routes", source)
+        self.assertIn("uncovered", source)
+        self.assertIn("Printing was cancelled to prevent silently losing kitchen tickets.", source)
+        model_source = (MODELS / "pos_order.py").read_text(encoding="utf-8")
+        self.assertIn('"missing_routes": missing', model_source)
+
+    def test_kitchen_router_supports_both_odoo_19_printer_relations(self):
+        source = (MODELS / "print_router.py").read_text(encoding="utf-8")
+        self.assertIn('getattr(order.config_id, "preparation_printer_ids", None)', source)
+        self.assertIn("order.config_id.printer_ids", source)
+
+    def test_kitchen_gateway_supports_both_odoo_19_printer_relations(self):
+        source = (ADDON / "models/pos_order.py").read_text(encoding="utf-8")
+        self.assertIn('getattr(self.config_id, "preparation_printer_ids", None)', source)
+        self.assertIn("self.config_id.printer_ids", source)
+
+    def test_kitchen_gateway_preserves_odoo_preparation_printer_routing(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("get_gateway_kitchen_routes", source)
+        self.assertIn("routeCategories", source)
+        self.assertIn("pos_printer_id", source)
+        self.assertIn("const retryAttempt = printers instanceof Set;", source)
+        self.assertIn("requestedPrinterIds", source)
+        self.assertIn("kitchenRoutes.routes.filter", source)
+
+    def test_kitchen_retry_and_reprint_use_fresh_gateway_operations(self):
+        source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+        self.assertIn("if (reprint || !orderChange.__gateway_print_id)", source)
+        # Operation identities go through gatewayUuid() (crypto.randomUUID
+        # with a v4 fallback for insecure-HTTP LAN contexts where randomUUID
+        # is undefined); the retry prefix itself is unchanged.
+        self.assertIn("function gatewayUuid()", source)
+        self.assertIn('"kitchen-retry-" + gatewayUuid()', source)
+        self.assertIn("retry: () =>", source)
+        self.assertIn("const retryPrinters = new Set();", source)
+        self.assertIn("this.printChanges(order, orderChange, reprint, retryPrinters)", source)
+        self.assertNotIn("retryItems", source)
+
     def test_pos_gateway_unknown_outcome_cannot_enter_core_retry_path(self):
         source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
         self.assertIn("import { RetryPrintPopup }", source)
@@ -240,6 +349,28 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("continue;", ambiguous_block)
         self.assertNotIn("retryPrinters.add(printer)", ambiguous_block)
         self.assertIn('const recordPrintAttempt = !["failed", "unknown", "partial"].includes(result?.status);', source)
+
+    def test_report_action_preserves_odoo19_layout_configuration_gate(self):
+        source = (MODELS / "ir_actions_report.py").read_text(encoding="utf-8")
+        self.assertIn("external_report_layout_id", source)
+        self.assertIn('self.env.context.get("discard_logo_check")', source)
+        layout_idx = source.index("external_report_layout_id")
+        access_idx = source.index("_assert_report_usage_access(self.env, self)")
+        route_idx = source.index("route = router.route_report(self, records, data=data)")
+        self.assertLess(layout_idx, access_idx)
+        self.assertLess(access_idx, route_idx)
+
+    def test_report_binding_selection_is_fenced_against_dispatch_toctou(self):
+        router = (MODELS / "print_router.py").read_text(encoding="utf-8")
+        binding = (MODELS / "binding.py").read_text(encoding="utf-8")
+        self.assertIn("def route_report(self, report, records, data=None, explicit_binding=None):", router)
+        route_start = router.index("def route_report(self, report, records, data=None, explicit_binding=None):")
+        route_block = router[route_start:route_start + 2600]
+        self.assertGreaterEqual(route_block.count("explicit_binding=explicit_binding or None"), 2)
+        self.assertIn(
+            "route = router.route_report(report, records, data=data, explicit_binding=binding)",
+            binding,
+        )
 
     def test_report_interceptor_malformed_response_is_fail_closed(self):
         source = (ADDON / "static/src/js/report_interceptor.js").read_text(encoding="utf-8")
@@ -435,6 +566,12 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
                     "gateway_api_key": "test_api_key_branch_submit",
                     "enabled": True,
                 })
+            scope_env["print_gateway.runtime_agent_assignment"].create({
+                "company_id": scope_root.id,
+                "branch_id": scope_branch.id,
+                "runtime_agent_id": "agt-branch-submit-%s" % suffix,
+                "enabled": True,
+            })
             report = scope_env.ref("sale.action_report_saleorder", raise_if_not_found=False)
             self.assertTrue(report)
             scope_binding = scope_env["print_gateway.binding"].create({

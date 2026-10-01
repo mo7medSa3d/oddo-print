@@ -1,15 +1,21 @@
+import payloadContract from "../../contracts/print-payload-contract.json";
 import { z } from "zod";
 
-const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024;
+const MAX_PAYLOAD_BYTES = payloadContract.maxPayloadBytes;
+const PAYLOAD_TYPES = payloadContract.wireTypes as ["raw", "escpos", "pdf", "image"];
+const RAW_PROTOCOLS = payloadContract.rawProtocols as ["raw", "escpos", "zpl", "tspl"];
+const DRAWER_MODES = payloadContract.peripherals.drawer as ["pin2", "pin5", "none"];
+const CUTTER_MODES = payloadContract.peripherals.cutter as ["partial", "full", "none"];
+const BUZZER_MODES = payloadContract.peripherals.buzzer as ["epson_pulse", "star_bel", "none"];
 
 export const printJobPayloadSchema = z.object({
-  type: z.enum(["raw", "escpos", "pdf", "image"]),
-  encoding: z.literal("base64"),
-  protocol: z.enum(["escpos", "zpl", "tspl", "raw"]).optional(),
+  type: z.enum(PAYLOAD_TYPES),
+  encoding: z.literal(payloadContract.encoding),
+  protocol: z.enum(RAW_PROTOCOLS).optional(),
   peripherals: z.object({
-    drawer: z.enum(["pin2", "pin5", "none"]).optional(),
-    cutter: z.enum(["partial", "full", "none"]).optional(),
-    buzzer: z.enum(["epson_pulse", "star_bel", "none"]).optional(),
+    drawer: z.enum(DRAWER_MODES).optional(),
+    cutter: z.enum(CUTTER_MODES).optional(),
+    buzzer: z.enum(BUZZER_MODES).optional(),
   }).optional(),
   data: z.string().min(1).refine((value) => {
     if (value.length > (MAX_PAYLOAD_BYTES / 3) * 4 + 8) return false;
@@ -23,8 +29,8 @@ export const printJobPayloadSchema = z.object({
   }, { message: `payload.data must be valid base64 and decode to 1..${MAX_PAYLOAD_BYTES} bytes` }),
 }).superRefine((payload, ctx) => {
   const decoded = Buffer.from(payload.data, "base64");
-  const pdfSignature = Buffer.from("%PDF-");
-  const jpegSignature = decoded.length >= 3 && decoded[0] === 0xff && decoded[1] === 0xd8 && decoded[2] === 0xff;
+  const pdfSignature = Buffer.from(payloadContract.signatures.pdfPrefix);
+  const jpegSignature = decoded.length >= 3 && decoded.subarray(0, 3).equals(Buffer.from(payloadContract.signatures.jpegHexPrefix, "hex"));
   const looksLikePdf = decoded.length >= pdfSignature.length && decoded.subarray(0, pdfSignature.length).equals(pdfSignature);
 
   if (payload.type === "pdf" && !looksLikePdf) {
@@ -72,7 +78,7 @@ export function buildTestPrintPayload(printerName: string, agentName: string): P
   const safeAgent = String(agentName ?? "").replace(/[^\x20-\x7e]/g, "").slice(0, 60);
   const lines = [
     "\x1b\x40",
-    "Yasser Agent\n",
+    "Yaseir Agent\n",
     "Test Print\n",
     `Printer: ${safeName}\n`,
     `Agent: ${safeAgent}\n`,
@@ -112,7 +118,7 @@ export function buildTestPdfPayload(printerName: string, agentName: string): str
     "BT",
     "/F1 18 Tf",
     "50 720 Td",
-    "(YASSER TEST PAGE) Tj",
+    "(YASEIR TEST PAGE) Tj",
     "/F1 12 Tf",
     "0 -30 Td",
     `(Printer: ${safeName}) Tj`,
@@ -179,17 +185,17 @@ export function buildTestPrintPayloadForPrinter(
   const supported = Array.isArray(capabilities?.supported_protocols)
     ? capabilities.supported_protocols.map((p) => String(p).toLowerCase().trim())
     : [];
-  const byteCandidates = ["escpos", "zpl", "tspl", "raw"] as const;
+  const byteCandidates = RAW_PROTOCOLS;
   const declaredByteProtocol = byteCandidates.includes(declared as (typeof byteCandidates)[number])
     ? declared as (typeof byteCandidates)[number]
     : null;
   const allows = (candidate: string) => !hasExplicitCaps || supported.includes(candidate);
-  const byteTransportEligible =
-    conn === "usb" ||
-    (conn === "network" && declared !== "ipp" && declared !== "ipps");
+  // For a declared byte protocol, explicit capabilities can only confirm
+  // that protocol; they cannot replace it with another language. The Gateway
+  // routing contract fences physical byte transports to the declared protocol.
+  // Unknown byte transports remain dark until a protocol is explicitly declared.
   const byteProto =
     (declaredByteProtocol && allows(declaredByteProtocol) ? declaredByteProtocol : null) ??
-    (byteTransportEligible && hasExplicitCaps ? byteCandidates.find((candidate) => allows(candidate)) : null) ??
     "";
   const plainName = safeTestText(printerName);
   const plainAgent = safeTestText(agentName);
@@ -203,7 +209,7 @@ export function buildTestPrintPayloadForPrinter(
     const agent = safeZplField(agentName);
     const zpl = [
       "^XA",
-      "^FO50,50^A0N,36,36^FDYASSER TEST PAGE^FS",
+      "^FO50,50^A0N,36,36^FDYASEIR TEST PAGE^FS",
       "^FO50,100^GB700,2,2^FS",
       `^FO50,120^A0N,28,28^FDPrinter : ${name}^FS`,
       `^FO50,160^A0N,28,28^FDAgent   : ${agent}^FS`,
@@ -221,7 +227,7 @@ export function buildTestPrintPayloadForPrinter(
       "GAP 2 mm, 0 mm",
       "DIRECTION 1",
       "CLS",
-      'TEXT 50,40,"3",0,1,1,"YASSER TEST PAGE"',
+      'TEXT 50,40,"3",0,1,1,"YASEIR TEST PAGE"',
       `TEXT 50,80,"2",0,1,1,"Printer : ${name}"`,
       `TEXT 50,110,"2",0,1,1,"Agent   : ${agent}"`,
       `TEXT 50,140,"2",0,1,1,"Status  : OK | ${stamp}"`,
@@ -233,7 +239,7 @@ export function buildTestPrintPayloadForPrinter(
   if (byteProto === "raw") {
     const raw = [
       "================================",
-      "  YASSER TEST PAGE ",
+      "  YASEIR TEST PAGE ",
       "================================",
       `Printer : ${plainName}`,
       `Agent   : ${plainAgent}`,

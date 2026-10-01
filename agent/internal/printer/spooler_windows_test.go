@@ -131,30 +131,31 @@ func TestBoundedPreflightSingleFlightRefusesOverlap(t *testing.T) {
 	}
 }
 
-func TestSpoolerSessionTryLockRefusesOverlap(t *testing.T) {
+func TestSpoolerSessionWaitHonorsContext(t *testing.T) {
 	p := &SpoolerPrinter{Name: "T", SpoolerName: "session_mutex_test"}
-	if err := p.tryBeginSession(); err != nil {
-		t.Fatalf("first session must acquire the slot, got %v", err)
-	}
+	p.sessionMu.Lock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 	start := time.Now()
-	err := p.tryBeginSession()
+	err := p.waitBeginSession(ctx)
 	elapsed := time.Since(start)
 	if err == nil {
-		p.endSession()
-		t.Fatal("overlapping session must be refused while one is in progress")
+		t.Fatal("waitBeginSession must refuse a blocked session")
 	}
-	if !errors.Is(err, ErrPrinterNotReady) {
-		t.Fatalf("refusal must stay a typed not-ready failure, got %v", err)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("blocked session must honor context cancellation, got %v", err)
 	}
-	if elapsed > 3*time.Second {
-		t.Fatalf("refusal was not fast: waited %v", elapsed)
+	if elapsed > time.Second {
+		t.Fatalf("blocked session waited too long: %v", elapsed)
 	}
 	if HasUnknownOutcomeMarker(err.Error()) {
-		t.Fatalf("pre-dispatch refusal must not be classified unknown: %v", err)
+		t.Fatalf("pre-dispatch session refusal must not be classified unknown: %v", err)
 	}
-	p.endSession()
-	if err := p.tryBeginSession(); err != nil {
-		t.Fatalf("slot must be reusable after the session ends, got %v", err)
+
+	p.sessionMu.Unlock()
+	if err := p.waitBeginSession(context.Background()); err != nil {
+		t.Fatalf("session slot must be reusable after release, got %v", err)
 	}
 	p.endSession()
 }
@@ -169,6 +170,34 @@ func TestSpoolerStatusUnknownPrinterIsOffline(t *testing.T) {
 	}
 	if st := p.Status(); st != "offline" {
 		t.Fatalf("unknown spooler queue must report offline, got %q", st)
+	}
+}
+
+func TestSpoolerWritePartialBytesThenErrorIsUnknown(t *testing.T) {
+	mockSyscalls := defaultSpoolerSyscalls
+	mockSyscalls.openPrinterW = func(printerName *uint16, hPrinter *syscall.Handle) (uintptr, error) {
+		*hPrinter = 321
+		return 1, nil
+	}
+	mockSyscalls.closePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	mockSyscalls.startDocPrinterW = func(hPrinter syscall.Handle, di *docInfo1) (uintptr, error) { return 456, nil }
+	mockSyscalls.startPagePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	mockSyscalls.writePrinter = func(hPrinter syscall.Handle, buf unsafe.Pointer, length int, bytesWritten *uint32) (uintptr, error) {
+		*bytesWritten = 3
+		return 0, syscall.Errno(31)
+	}
+	mockSyscalls.endPagePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	mockSyscalls.endDocPrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+
+	res := executeSpoolerSessionWithSyscalls("PartialErrorPrinter", []byte("receipt payload"), nil, mockSyscalls)
+	if res.err == nil {
+		t.Fatal("partial WritePrinter bytes with failure must not report success")
+	}
+	if !OutcomeUnknown(res.err) {
+		t.Fatalf("partial WritePrinter bytes with failure must be classified unknown: %v", res.err)
+	}
+	if res.written != 3 {
+		t.Fatalf("partial bytes must be preserved as evidence, got %d", res.written)
 	}
 }
 

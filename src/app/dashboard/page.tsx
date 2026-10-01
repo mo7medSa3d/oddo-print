@@ -4,7 +4,8 @@ import { agents, printers, printJobs } from "../../db/schema";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { getManagerCookieName, verifyManagerToken, validateManagerClaims } from "../../lib/manager-auth";
+import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../../lib/manager-auth";
+import { hasManagerPermission } from "../../lib/authorization";
 import DashboardClient from "./dashboard-client";
 import { JobCleanupButton } from "../../components/JobCleanupButton";
 import { isAgentAvailableForJob } from "../../lib/agent-availability";
@@ -12,9 +13,19 @@ import { isAgentAvailableForJob } from "../../lib/agent-availability";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
-  const claims = await validateManagerClaims(token ? verifyManagerToken(token) : null);
+  const cookieStore = await cookies();
+  const claims = await verifyWorkspaceTokenFromCookieValues(
+    cookieStore.get("cust_session")?.value ?? null,
+    cookieStore.get(getManagerCookieName())?.value ?? null,
+  );
   if (!claims) redirect("/login");
+  if (
+    !hasManagerPermission(claims, "agents.read") ||
+    !hasManagerPermission(claims, "printers.read") ||
+    !hasManagerPermission(claims, "jobs.read")
+  ) {
+    redirect(hasManagerPermission(claims, "billing.read") ? "/billing" : "/");
+  }
 
   let allAgents: Array<{
     id: string;
@@ -100,7 +111,9 @@ export default async function DashboardPage() {
       .orderBy(desc(printJobs.createdAt))
       .limit(50);
   } catch (error: unknown) {
-    logError("[dashboard] database load failed", { error: error });
+    // Dotted event name (aggregation-safe) and a string message — a live
+    // Error would serialize as {} and lose the failure reason.
+    logError("dashboard.database_load_failed", { error: error instanceof Error ? error.message : String(error) });
     databaseError = "PostgreSQL unavailable";
   }
 
@@ -113,7 +126,7 @@ export default async function DashboardPage() {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-[28px] font-bold leading-tight tracking-[-0.035em] text-ink">Print console</h1>
-            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-edge-accent bg-brand-subtle text-brand-subtle-text"}`}>
+            <span className={`inline-flex items-center gap-1.5 rounded-[8px] border px-2.5 py-1 text-[11px] font-semibold ${databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-edge-accent bg-brand-subtle text-brand-subtle-text"}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${databaseError ? "bg-bad-solid" : "bg-ok-solid"}`} aria-hidden />
               {databaseError ? "Database unavailable" : "Live console"}
             </span>

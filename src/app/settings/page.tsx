@@ -6,7 +6,6 @@ import { Button, Input, Field, Card, CardHeader } from "../../components/ui";
 
 const SETTINGS_NAV = [
   { id: "general", label: "General", icon: SettingsIcon, desc: "Workspace details" },
-  { id: "security", label: "Security", icon: Shield, desc: "Account security" },
 ];
 
 export default function SettingsPage() {
@@ -74,7 +73,7 @@ export default function SettingsPage() {
           <SettingsIcon className="h-3.5 w-3.5" /> Workspace
         </div>
         <h1 className="mt-2.5 text-[28px] font-bold tracking-[-0.04em] text-ink">Settings</h1>
-        <p className="mt-2 text-[14px] leading-relaxed text-ink-3">Workspace details and account security.</p>
+        <p className="mt-2 text-[14px] leading-relaxed text-ink-3">Workspace details and account access.</p>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
@@ -160,19 +159,6 @@ export default function SettingsPage() {
             </>
           )}
 
-          {activeTab === "security" && (
-            <Card>
-              <CardHeader title="Security" subtitle="Session and connection security" icon={<Shield className="h-4 w-4 text-brand" />} />
-              <div className="space-y-4 px-6 pb-6">
-                <div className="rounded-[10px] border border-edge bg-surface-2 p-4 text-[13px]">
-                  <div className="font-medium text-ink">Session persistence</div>
-                </div>
-                <div className="rounded-[10px] border border-edge bg-surface-2 p-4 text-[13px]">
-                  <div className="font-medium text-ink">Transport</div>
-                </div>
-              </div>
-            </Card>
-          )}
         </div>
       </div>
     </div>

@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { db, queryWithTimeout } from "../db/client";
-import { jobEvents } from "../db/schema";
+import { jobEvents, printJobs } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "./nanoid";
 import { getCorrelationContext } from "../server/correlation";
@@ -19,6 +20,11 @@ export type JobTimelineStage =
   | "blocked";
 
 export type JobTimelineStatus = "ok" | "error" | "blocked" | "pending";
+
+function redactClaimId(claimId?: string | null): string | undefined {
+  if (!claimId) return undefined;
+  return "claim_" + createHash("sha256").update(claimId, "utf8").digest("hex").slice(0, 12);
+}
 
 export interface RecordJobEventInput {
   jobId: string;
@@ -45,7 +51,9 @@ export async function recordJobEvent(input: RecordJobEventInput): Promise<void> 
     stage: input.stage,
     status: input.status,
     attemptId: input.attemptId ?? ctx?.attemptId,
-    claimId: input.claimId ?? ctx?.claimId,
+    // `claimId` may be the live claim token. Persist only an irreversible
+    // opaque identifier; the raw bearer credential must never enter timeline storage.
+    claimId: redactClaimId(input.claimId ?? ctx?.claimId),
     spoolerJobId: input.spoolerJobId ?? ctx?.spoolerJobId,
     agentId: input.agentId ?? ctx?.agentId,
     printerId: input.printerId ?? ctx?.printerId,
@@ -56,7 +64,7 @@ export async function recordJobEvent(input: RecordJobEventInput): Promise<void> 
   };
   try {
     await queryWithTimeout(
-      db.insert(jobEvents).values(event as any),
+      () => db.insert(jobEvents).values(event),
       3000,
       "recordJobEvent"
     );
@@ -69,15 +77,15 @@ export async function recordJobEvent(input: RecordJobEventInput): Promise<void> 
 
 export async function getJobTimeline(tenantId: string, jobId: string) {
   const events = await queryWithTimeout(
-    db.select().from(jobEvents).where(and(eq(jobEvents.tenantId, tenantId), eq(jobEvents.jobId, jobId))).orderBy(jobEvents.createdAt),
+    () => db.select().from(jobEvents).where(and(eq(jobEvents.tenantId, tenantId), eq(jobEvents.jobId, jobId))).orderBy(jobEvents.createdAt),
     3000,
     "getJobTimeline"
   );
   return events;
 }
 
-export function buildTimelineFromJobRow(job: any): { stage: JobTimelineStage; status: JobTimelineStatus; at?: Date; message?: string }[] {
-  const timeline: { stage: JobTimelineStage; status: JobTimelineStatus; at?: Date; message?: string }[] = [];
+export function buildTimelineFromJobRow(job: typeof printJobs.$inferSelect): { stage: JobTimelineStage; status: JobTimelineStatus; at?: Date | null; message?: string }[] {
+  const timeline: { stage: JobTimelineStage; status: JobTimelineStatus; at?: Date | null; message?: string }[] = [];
   if (job.createdAt) timeline.push({ stage: "created", status: "ok", at: job.createdAt, message: "Job created in Gateway" });
   if (job.status === "queued" || job.claimedAt || job.deliveredAt || job.ackedAt) {
     timeline.push({ stage: "queued", status: "ok", at: job.createdAt, message: `Queued for agent ${job.agentId}` });

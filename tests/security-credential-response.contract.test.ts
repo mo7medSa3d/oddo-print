@@ -17,3 +17,26 @@ describe("credential response security", () => {
     }
   });
 });
+
+describe("Agent credential response security", () => {
+  it("marks one-time Agent pairing credentials as non-cacheable", () => {
+    const source = fs.readFileSync(path.join(root, "src/app/api/agent/register/route.ts"), "utf8");
+    expect(source).toContain('secret: outcome.secret');
+    expect(source).toContain('agent_secret: outcome.secret');
+    expect(source).toContain('"Cache-Control": "no-store"');
+  });
+});
+
+
+describe("session-bearing response cache policy", () => {
+  it("marks tenant selection and email verification session responses as non-cacheable", () => {
+    for (const relative of [
+      "src/app/api/auth/select-tenant/route.ts",
+      "src/app/api/auth/verify-email/route.ts",
+    ]) {
+      const source = fs.readFileSync(path.join(root, relative), "utf8");
+      expect(source).toContain('Set-Cookie');
+      expect(source).toContain('"Cache-Control", "no-store"');
+    }
+  });
+});

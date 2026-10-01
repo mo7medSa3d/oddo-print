@@ -1,8 +1,6 @@
 server:
-  # Production gateways SHOULD use HTTPS. The agent accepts both http:// and
-  # https:// for any host by design (zero-config LAN support; there is no
-  # environment opt-in gate in code). Over http:// the pairing code and agent
-  # secret travel in plaintext — use https:// outside a trusted LAN.
+  # Production gateways use HTTPS. This isolated staging branch also accepts
+  # plain HTTP so the Windows service can run against the HTTP test gateway.
   url: "https://your-print-gateway.example.com"
 
 agent:

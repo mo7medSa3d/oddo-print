@@ -3,11 +3,14 @@ import { db } from "../../../../db";
 import { agents, printers } from "../../../../db/schema";
 import { validateConsoleAuth } from "../../../../lib/console-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { canTransitionLifecycle } from "../../../../lib/lifecycle";
 import { PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, assertPrinterMetadataLimits, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { writeAuditEvent } from "../../../../lib/audit";
+import { logError } from "../../../../lib/log";
+import { isTenantBillingError } from "../../../../lib/entitlements";
+import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +71,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   try { assertPrinterMetadataLimits({ config: parsed.data.config ?? {} }); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "printer metadata exceeds limits" }, { status: 400 }); }
 
-  const result = await db.transaction(async (tx) => {
+  let result;
+  try {
+    result = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${tenantId} || ':' || ${id}))`);
 
     const existing = await tx.query.printers.findFirst({
@@ -87,9 +92,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (ownerLifecycle !== "active") return { kind: "conflict" as const, message: `cannot activate printer while agent is ${ownerLifecycle}` };
     }
 
+    await requireActiveTenantInTransaction(tx, tenantId);
+
     let connectionType = parsed.data.connectionType ?? existing.connectionType;
     let protocol = parsed.data.protocol ?? existing.protocol;
-    const cfg = (parsed.data.config ?? existing.config ?? {}) as Record<string, unknown>;
+    const cfg = { ...((existing.config ?? {}) as Record<string, unknown>), ...((parsed.data.config ?? {}) as Record<string, unknown>) };
     if (connectionType === "usb" && typeof cfg.spooler_name === "string" && cfg.spooler_name.trim()) {
       connectionType = "spooler";
       protocol = "spooler";
@@ -116,13 +123,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       parsed.data.config !== undefined ||
       parsed.data.lifecycle !== undefined;
 
-    const update: Partial<typeof printers.$inferInsert> = { updatedAt: new Date() };
+    const update: {
+      updatedAt: SQL;
+      name?: (typeof printers.$inferInsert)["name"];
+      printerType?: (typeof printers.$inferInsert)["printerType"];
+      deviceClass?: (typeof printers.$inferInsert)["deviceClass"];
+      connectionType?: (typeof printers.$inferInsert)["connectionType"];
+      protocol?: (typeof printers.$inferInsert)["protocol"];
+      config?: (typeof printers.$inferInsert)["config"];
+      lifecycle?: (typeof printers.$inferInsert)["lifecycle"];
+} = { updatedAt: sql`now()` };
     if (parsed.data.name !== undefined) update.name = parsed.data.name;
     if (parsed.data.printerType !== undefined) update.printerType = parsed.data.printerType;
     if (parsed.data.deviceClass !== undefined) update.deviceClass = parsed.data.deviceClass;
     if (parsed.data.connectionType !== undefined || connectionType !== existing.connectionType) update.connectionType = connectionType;
     if (parsed.data.protocol !== undefined || protocol !== existing.protocol) update.protocol = protocol;
-    if (parsed.data.config !== undefined) update.config = parsed.data.config;
+    if (parsed.data.config !== undefined) update.config = cfg;
     if (parsed.data.lifecycle !== undefined) update.lifecycle = parsed.data.lifecycle;
 
     const setValues = desiredStateChanged
@@ -154,7 +170,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }, tx);
 
     return { kind: "ok" as const, row };
-  });
+    });
+  } catch (error) {
+    if (isTenantBillingError(error)) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
+    logError("printers.patch.failed", { printerId: id, error: error instanceof Error ? error.message : String(error) });
+    throw error;
+  }
 
   if (result.kind === "not_found") return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (result.kind === "conflict") return NextResponse.json({ error: result.message }, { status: 409 });

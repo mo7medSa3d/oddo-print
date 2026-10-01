@@ -2,6 +2,13 @@ import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 
 describe("print-certification", () => {
+  it("certification derives timing decisions from the database clock", () => {
+    const source = fs.readFileSync("src/app/api/printers/[id]/certify/route.ts", "utf8");
+    expect(source).toContain("const certificationNowMs = await databaseNowMs();");
+    expect(source).toContain("const expiresAt = new Date(certificationNowMs + 5 * 60 * 1000);");
+    expect(source).not.toContain("const expiresAt = new Date(Date.now() + 5 * 60 * 1000);");
+  });
+
   it("certification route uses canonical pipeline (createPrintJobForPrinter)", () => {
     const source = fs.readFileSync("src/app/api/printers/[id]/certify/route.ts", "utf8");
     expect(source).toContain("createPrintJobForPrinter");
@@ -9,6 +16,19 @@ describe("print-certification", () => {
     expect(source).toContain("tenant validation");
     expect(source).toContain("idempotencyKey");
     expect(source).toContain("Idempotency-Key");
+  });
+
+
+  it("certification payload is deterministic for one idempotency key", () => {
+    const source = fs.readFileSync("src/app/api/printers/[id]/certify/route.ts", "utf8");
+    expect(source).toContain("The printable payload MUST be deterministic for one idempotency key");
+    expect(source).not.toContain("${requestId}\nTime: ${new Date().toISOString()}");
+    expect(source).not.toContain("Buffer.from(`CERTIFICATION ${idempotencyKey} ${requestId}`)");
+    // Byte transports use a deterministic raw ticket; document transports
+    // (spooler/ipp) use a deterministic PDF (a raw ticket would 422 there).
+    // Neither may embed requestId or wall-clock time.
+    expect(source).toContain("CERTIFICATION ${idempotencyKey}");
+    expect(source).toContain("buildDeterministicCertificationPdf");
   });
 
   it("certification has real idempotency key handling", () => {
@@ -48,14 +68,14 @@ describe("print-certification", () => {
     expect(source).toContain("Physical verification requires real printer");
   });
 
-  it("YASSER TEST PAGE contains no secrets", () => {
+  it("YASEIR TEST PAGE contains no secrets", () => {
     const source = fs.readFileSync("src/app/api/printers/[id]/certify/route.ts", "utf8");
     // Ensure test page content in source has no secret patterns
-    expect(source).toContain("YASSER TEST PAGE");
+    expect(source).toContain("YASEIR TEST PAGE");
     expect(source).not.toMatch(/password\s*[:=]/i);
     // The payload should say No credentials are printed, not contain api key
-    const testPageSnippet = source.match(/YASSER TEST PAGE[\s\S]{0,500}/)?.[0] ?? "";
-    expect(testPageSnippet).toContain("YASSER TEST PAGE");
+    const testPageSnippet = source.match(/YASEIR TEST PAGE[\s\S]{0,500}/)?.[0] ?? "";
+    expect(testPageSnippet).toContain("YASEIR TEST PAGE");
   });
 
   it("certification job links Gateway↔Spooler via spoolerJobId and records timeline", () => {
@@ -63,5 +83,21 @@ describe("print-certification", () => {
     expect(source).toContain("spoolerJobId");
     expect(source).toContain("recordJobEvent");
     expect(source).toContain("timelineUrl");
+  });
+
+  // This pass replaced the untyped `(e as any)?.code` conflict check with the
+  // typed narrowing already used by the sibling route (api/print/jobs/route.ts).
+  // The narrowing is deliberately stricter — it requires an Error instance —
+  // so this pin records WHY that is safe: the producer always throws a real
+  // Error carrying the code, and the sibling route's test asserts the same
+  // 409/IDEMPOTENCY_CONFLICT contract end to end.
+  it("IDEMPOTENCY_CONFLICT is detected through the typed Error narrowing, not an untyped cast", () => {
+    const source = fs.readFileSync("src/app/api/printers/[id]/certify/route.ts", "utf8");
+    expect(source).not.toContain("(e as any)?.code");
+    expect(source).toContain('e instanceof Error && (e as Error & { code?: string }).code === "IDEMPOTENCY_CONFLICT"');
+
+    const producer = fs.readFileSync("src/lib/print-job-service.ts", "utf8");
+    expect(producer).toContain('const conflictErr = new Error("IDEMPOTENCY_CONFLICT")');
+    expect(producer).toContain('Object.assign(conflictErr, { code: "IDEMPOTENCY_CONFLICT" })');
   });
 });

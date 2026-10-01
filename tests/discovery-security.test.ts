@@ -36,7 +36,18 @@ vi.mock("../src/db", () => ({
   },
 }));
 vi.mock("../src/lib/manager-auth", () => ({
-  validateManager: async () => (state.managerAuth ? { jti: "test" } as any : null),
+  validateManager: async () => (state.managerAuth ? {
+    jti: "test",
+    tenantId: "branchA",
+    userId: "userA",
+    role: "owner",
+  } as any : null),
+  validateWorkspaceManager: async () => (state.managerAuth ? {
+    jti: "test",
+    tenantId: "branchA",
+    userId: "userA",
+    role: "owner",
+  } as any : null),
 }));
 vi.mock("../src/lib/agent-auth", () => ({
   validateAgent: async () => null,

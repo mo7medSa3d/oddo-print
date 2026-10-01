@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <menuitem id="menu_print_gateway_main"
-              name="Yasser Print Gateway"
+              name="Yaseir Print Gateway"
               sequence="90"
               action="action_print_gateway_config"
               web_icon="print_gateway,static/description/icon.png"

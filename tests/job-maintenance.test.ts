@@ -9,6 +9,7 @@ import {
   type Fixture,
 } from "./helpers/pg";
 import { sweepPrintJobs, MAX_RETRIES } from "../src/lib/job-maintenance";
+import { createPrintJobForPrinter } from "../src/lib/print-job-service";
 import { GET as agentJobsGET } from "../src/app/api/agent/jobs/route";
 
 const suite = describe.skipIf(!hasTestDatabase);
@@ -36,6 +37,30 @@ suite("server-side print job maintenance", () => {
       [id, f.tenantId, f.destination, f.agentId, f.printerId, status, retries, ageSeconds, expiresOffsetSeconds],
     );
   }
+
+  it("uses the database clock for the default one-hour TTL", async () => {
+    const before = await pool().query("SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms");
+    const res = await createPrintJobForPrinter(f.printerId, {
+      type: "raw",
+      protocol: "raw",
+      encoding: "base64",
+      data: "aGVsbG8=",
+    }, {
+      tenantId: f.tenantId,
+      requestedBy: "ttl-test",
+      idempotencyKey: "db-clock-default-ttl",
+    });
+    expect(res.status).toBe("queued");
+
+    const row = await pool().query(
+      "SELECT EXTRACT(EPOCH FROM expires_at) * 1000 AS expires_ms FROM print_jobs WHERE id = $1",
+      [res.id],
+    );
+    const dbNow = Number(before.rows[0].now_ms);
+    const expires = Number(row.rows[0].expires_ms);
+    expect(expires - dbNow).toBeGreaterThan(59 * 60 * 1000);
+    expect(expires - dbNow).toBeLessThan(61 * 60 * 1000);
+  });
 
   it("expires overdue non-terminal jobs", async () => {
     await insertJob("job-expired-maintenance", "queued", 0, 120, -60);

@@ -1,14 +1,22 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { getManagerCookieName, verifyManagerToken, validateManagerClaims } from "../../lib/manager-auth";
+import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../../lib/manager-auth";
+import { hasManagerPermission } from "../../lib/authorization";
 import ReleaseReadinessClient from "./release-readiness-client";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReleaseReadinessPage() {
-  const token = (await cookies()).get(getManagerCookieName())?.value ?? null;
-  const claims = await validateManagerClaims(token ? verifyManagerToken(token) : null);
+  // Workspace auth (not manager-only): customer sessions with agents.read
+  // must reach this page like they reach the dashboard — the client below
+  // calls /api/system/health, which enforces agents.read anyway.
+  const cookieStore = await cookies();
+  const claims = await verifyWorkspaceTokenFromCookieValues(
+    cookieStore.get("cust_session")?.value ?? null,
+    cookieStore.get(getManagerCookieName())?.value ?? null,
+  );
   if (!claims) redirect("/login");
+  if (!hasManagerPermission(claims, "agents.read")) redirect("/");
 
   return (
     <div className="mx-auto w-full max-w-[1800px] px-4 py-7 sm:px-6 lg:py-8">

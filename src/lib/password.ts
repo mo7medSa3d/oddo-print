@@ -1,36 +1,37 @@
-import * as crypto from "node:crypto";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { argon2, createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-type Argon2Fn = (
-  algorithm: "argon2id",
-  params: { message: string; nonce: Buffer; parallelism: number; tagLength: number; memory: number; passes: number; version?: number },
-  cb: (err: Error | null, derivedKey?: Buffer) => void,
-) => void;
+type Argon2Fn = typeof argon2;
 
 const ARGON_MEMORY = 64 * 1024;
 const ARGON_PASSES = 3;
 const ARGON_PARALLELISM = 4;
 const ARGON_TAG_LENGTH = 32;
-const ARGON_VERSION = 0x13;
+// NOTE: verifyPassword pins stored hashes to exactly these parameters and
+// fails closed otherwise. Raising any cost parameter therefore invalidates
+// ALL existing hashes (users locked out until password reset) unless a
+// needsRehash-style upgrade path is added first. Treat a bump as a migration,
+// not a constant tweak. (No version constant: the built-in has no `version`
+// option — it always uses Argon2 v1.3, matching the `v=19` label below.)
 
-function argon2(): Argon2Fn {
-  const fn = (crypto as unknown as { argon2?: Argon2Fn }).argon2;
-  if (typeof fn !== "function") {
+function argon2OrThrow(): Argon2Fn {
+  // The built-in exists since Node 24.7 (engines pin >=24.15); feature-detect
+  // instead of assuming so a stripped runtime fails with a clear message.
+  const candidate: unknown = argon2;
+  if (typeof candidate !== "function") {
     throw new Error("Argon2id requires Node.js 24.7+ at runtime");
   }
-  return fn;
+  return candidate as Argon2Fn;
 }
 
 function derive(password: string, salt: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    argon2()("argon2id", {
+    argon2OrThrow()("argon2id", {
       message: password,
       nonce: salt,
       parallelism: ARGON_PARALLELISM,
       tagLength: ARGON_TAG_LENGTH,
       memory: ARGON_MEMORY,
       passes: ARGON_PASSES,
-      version: ARGON_VERSION,
     }, (err, key) => err ? reject(err) : resolve(key!));
   });
 }

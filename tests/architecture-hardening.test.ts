@@ -15,6 +15,36 @@ describe("architecture hardening", () => {
     expect(body).toContain("createAgentSchema");
   });
 
+  it("enforces refresh-family revocation for v2 access-token validation", () => {
+    const sessionTokens = readFileSync("src/lib/session-tokens.ts", "utf8");
+    const managerAuth = readFileSync("src/lib/manager-auth.ts", "utf8");
+    expect(sessionTokens).toContain("export async function isSessionFamilyActive(");
+    expect(sessionTokens).toContain('refreshTokens.revokedAt} IS NULL');
+    expect(sessionTokens).toContain("clock_timestamp()");
+    expect(managerAuth).toContain("isSessionFamilyActive");
+    expect(managerAuth).toContain("claims.familyId");
+  });
+  it("passes the CSP to Next through request headers for automatic script nonces", () => {
+    const src = readFileSync("server.ts", "utf8");
+    expect(src).toContain('req.headers["content-security-policy"] = policy');
+    expect(src).toContain('req.headers["x-nonce"] = nonce');
+    expect(src).toContain('res.setHeader("Content-Security-Policy", policy)');
+  });
+  it("uses the Webpack production build path for CSP nonce compatibility", () => {
+    const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { scripts?: { build?: string } };
+    expect(pkg.scripts?.build).toBe("next build --webpack");
+  });
+
+  it("uses the workspace-aware auth contract for browser onboarding", () => {
+    const src = readFileSync("src/app/api/onboarding/route.ts", "utf8");
+    const postStart = src.indexOf("export async function POST(req: Request)");
+    expect(postStart).toBeGreaterThanOrEqual(0);
+    const post = src.slice(postStart);
+    expect(src).toContain("validateWorkspaceManager");
+    expect(post).toContain("const claims = await validateWorkspaceManager(req);");
+    expect(post).not.toContain("const claims = await validateManager(req);");
+  });
+
   it("enforces terminal retired lifecycle", () => {
     expect(canTransitionLifecycle("active", "disabled")).toBe(true);
     expect(canTransitionLifecycle("disabled", "active")).toBe(true);
@@ -51,10 +81,15 @@ describe("architecture hardening", () => {
     expect(src).toContain("hashPairingCode");
     expect(src).toContain("agentId: z.string().trim().min(1).max(120).optional()");
     expect(src).not.toContain("branchId");
-    expect(src).toContain("eq(agents.pairingCodeHash, hashedCode)");
+    // Registration now uses a parameterized SQL predicate directly rather than
+    // Drizzle's object-level eq() helper. Keep the contract on the credential
+    // itself, not on an incidental query-builder syntax.
+    expect(src).toContain("WHERE pairing_code_hash = ${hashedCode}");
     expect(src).toContain("agentId: agent.id");
-    expect(src).toContain("agent_id: agent.id");
-    expect(src).toContain("agent_secret: secret");
+    // The external snake_case response is derived from the transaction outcome,
+    // after the pairing transaction has atomically consumed the credential.
+    expect(src).toContain("agent_id: outcome.agentId");
+    expect(src).toContain("agent_secret: outcome.secret");
   });
 
   it("declares discovered_devices.device_class NOT NULL and ships the reconciling migration", () => {
@@ -73,16 +108,49 @@ describe("architecture hardening", () => {
 
   it("installs security headers without forcing HSTS on development HTTP", () => {
     const src = readFileSync("next.config.ts", "utf8");
+    const proxy = readFileSync("proxy.ts", "utf8");
     expect(src).toContain("X-Content-Type-Options");
     expect(src).toContain("strict-origin-when-cross-origin");
     expect(src).toContain("X-Frame-Options");
     expect(src).toContain("Permissions-Policy");
     expect(src).toContain("NODE_ENV === \"production\"");
     expect(src).toContain("Strict-Transport-Security");
-    expect(src).toContain("connect-src 'self';");
-    expect(src).not.toContain("connect-src 'self' wss:");
-    expect(src).toContain("script-src 'self' 'unsafe-inline'");
-    expect(src).toContain("style-src 'self' 'unsafe-inline'");
+    expect(src).not.toContain("Content-Security-Policy");
+    expect(src).not.toMatch(/script-src[^;]*unsafe-inline/);
+    expect(proxy).not.toMatch(/script-src[^;]*unsafe-inline/);
+    const csp = readFileSync("src/server/content-security-policy.ts", "utf8");
+    expect(csp).toContain("connect-src 'self';");
+  });
+
+  it("uses a request-scoped CSP nonce for the only application inline script", () => {
+    const proxy = readFileSync("proxy.ts", "utf8");
+    const server = readFileSync("server.ts", "utf8");
+    const csp = readFileSync("src/server/content-security-policy.ts", "utf8");
+    const layout = readFileSync("src/app/layout.tsx", "utf8");
+    expect(csp).toContain("crypto.randomUUID()");
+    expect(csp).toContain("script-src 'self' 'nonce-\${nonce}' 'strict-dynamic'");
+    expect(csp).toContain("'strict-dynamic'");
+    expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
+    // The repository's custom Node server is the actual HTTP entrypoint, so it
+    // owns the single request-scoped nonce and passes the same CSP into Next's
+    // request headers for automatic script nonce propagation.
+    expect(server).toContain("createRequestContentSecurityPolicy");
+    expect(server).toContain('req.headers["x-nonce"] = nonce');
+    expect(server).toContain('req.headers["content-security-policy"] = policy');
+    expect(server).toContain('res.setHeader("Content-Security-Policy", policy)');
+    expect(proxy).not.toContain("createRequestContentSecurityPolicy");
+    expect(proxy).not.toContain('requestHeaders.set("x-nonce", nonce)');
+    expect(proxy).not.toContain('response.headers.set("Content-Security-Policy", policy)');
+    expect(csp).toContain("crypto.randomUUID()");
+    expect(csp).toContain("script-src 'self' 'nonce-");
+    expect(csp).toContain("connect-src 'self';");
+    expect(layout).toContain("const THEME_INIT =");
+    expect(layout).toContain('const nonce = (await headers()).get("x-nonce")');
+    expect(layout).toContain("<script nonce={nonce}");
+    expect(layout).toContain('localStorage.getItem("theme")');
+    expect(layout).not.toMatch(/THEME_INIT[\s\S]*\$\{/);
+    expect(layout).not.toContain("req.");
+    expect(layout).not.toContain("request.");
   });
 
   it("keeps agent lifecycle changes transactional in ONE shared implementation", () => {
@@ -113,5 +181,68 @@ describe("architecture hardening", () => {
     expect(block).toContain("FOR UPDATE");
     expect(block).toContain("tx.delete(agents)");
     expect(block).toContain("pg_notify('print_gateway_agent_sessions'");
+  });
+  it("does not introduce an unsigned Tauri updater path", () => {
+    const cargo = readFileSync("src-tauri/Cargo.toml", "utf8");
+    const config = readFileSync("src-tauri/tauri.conf.json", "utf8");
+    const main = readFileSync("src-tauri/src/main.rs", "utf8");
+    expect(cargo).not.toContain("tauri-plugin-updater");
+    expect(main).not.toContain("tauri_plugin_updater");
+    expect(config).not.toMatch(/"updater"\s*:/);
+  });
+
+  it("keeps external failure outcomes explicit instead of assuming success", () => {
+    const webhook = readFileSync("src/app/api/billing/webhook/route.ts", "utf8");
+    expect(webhook).toContain("ON CONFLICT (event_id) DO NOTHING");
+    expect(webhook).toContain("Unable to verify current Stripe subscription state");
+    expect(webhook).toContain("return NextResponse.json({ error: \"Unable to verify current Stripe subscription state\" }, { status: 502 });");
+
+    const ws = readFileSync("src/server/ws.ts", "utf8");
+    expect(ws).toContain("releaseUndeliveredClaim");
+    expect(ws).toContain("markJobDeliveryUnknown");
+    const evidenceStart = ws.indexOf("const evidenced = await markJobDelivered");
+    const evidenceEnd = ws.indexOf('return markedUnknown ? "delivery_unknown" : "not_claimable";', evidenceStart);
+    expect(evidenceStart).toBeGreaterThanOrEqual(0);
+    expect(evidenceEnd).toBeGreaterThan(evidenceStart);
+    expect(ws.slice(evidenceStart, evidenceEnd)).toContain("markJobDeliveryUnknown");
+
+    const odoo = readFileSync("odoo_addons/print_gateway/models/print_job.py", "utf8");
+    expect(odoo).toContain("UNKNOWN_SUBMISSION_OUTCOME:");
+    expect(odoo).toContain("Automated retries are paused to prevent duplicate prints.");
+    expect(odoo).toContain('failed_jobs = self.filtered(lambda row: row.status == "failed" and row.physical_outcome == "not_printed")');
+    expect(odoo).toContain("GATEWAY_JOB_NOT_FOUND:");
+  });
+
+});
+
+describe("ambiguous Odoo submission recovery", () => {
+  it("exposes an authenticated idempotency-key lookup without crossing the Odoo provenance boundary", () => {
+    const route = readFileSync("src/app/api/print/jobs/route.ts", "utf8");
+    expect(route).toContain('const idempotencyKey = params.get("idempotencyKey")?.trim();');
+    expect(route).toContain("Provide exactly one lookup key");
+    expect(route).toContain("eq(printJobs.idempotencyKey, idempotencyKey!)");
+    expect(route).toContain("isNotNull(printJobs.apiKeyId)");
+    expect(route).toContain('eq(printJobs.tenantId, odoo.tenantId)');
+  });
+
+  it("reconciles response-lost Odoo submissions instead of retrying the physical operation", () => {
+    const jobs = readFileSync("odoo_addons/print_gateway/models/print_job.py", "utf8");
+    expect(jobs).toContain('def _lookup_gateway_job_for_ambiguous_submission(self, job):');
+    expect(jobs).toContain('params={"idempotencyKey": job._gateway_idempotency_key()}');
+    expect(jobs).toContain('"UNKNOWN_SUBMISSION_OUTCOME:"');
+    expect(jobs).toContain('"next_retry_at": next_retry');
+    expect(jobs).toContain('next_retry = db_now_utc(self.env.cr) + datetime.timedelta(minutes=5)');
+  });
+});
+
+describe("ambiguous email side effects", () => {
+  it("keeps invitation state durable when the provider response is ambiguous", () => {
+    const route = readFileSync("src/app/api/team/invitations/route.ts", "utf8");
+    const start = route.indexOf('await sendTransactionalEmail({ to: email, subject: "You are invited to Yaseir Print Manager"');
+    const end = route.indexOf('return NextResponse.json({ ok: true, id });', start);
+    const block = route.slice(start, end);
+    expect(block).toContain("Invitation delivery is temporarily unavailable");
+    expect(block).not.toContain("set({ revokedAt:");
+    expect(block).toContain("Never revoke the durable invitation");
   });
 });

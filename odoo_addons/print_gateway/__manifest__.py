@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 {
-    'name': 'Yasser Print Gateway',
-    'version': '19.0.2.6.0',
-    'summary': 'Reliable silent printing for Odoo through Yasser Print Gateway',
+    'name': 'Yaseir Print Gateway',
+    'version': '19.0.2.10.0',
+    'summary': 'Reliable silent printing for Odoo through Yaseir Print Gateway',
     'description': """
-Yasser Print Gateway connects Odoo with the printers used by your business.
+Yaseir Print Gateway connects Odoo with the printers used by your business.
 
 Manage your printing connection, branch devices, print rules, automated printing,
 and print activity from Odoo. Documents are sent to the configured printer for
@@ -14,8 +14,8 @@ reports the result back to Odoo.
 Gateway printing is silent: when a print rule is active, Odoo sends the document
 to the printing service without opening the browser print dialog.
     """,
-    'author': 'Yasser',
-    'website': 'https://github.com/mo7medSa3d/printer-repo',
+    'author': 'Yaseir',
+    'website': 'https://github.com/mo7medSa3d/oddo-print',
     'category': 'Tools',
     'depends': ['base', 'web', 'sale', 'account', 'stock', 'purchase', 'point_of_sale'],
     'external_dependencies': {'python': ['requests', 'cryptography']},
@@ -50,5 +50,6 @@ to the printing service without opening the browser print dialog.
     },
     'installable': True,
     'application': True,
+    'icon': '/print_gateway/static/description/icon.png',
     'license': 'LGPL-3',
 }

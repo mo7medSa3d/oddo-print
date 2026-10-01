@@ -77,17 +77,20 @@ export function toneJob(status: string, error?: unknown): Tone {
 /* ---------- Human-friendly descriptions ---------- */
 
 export function humanType(p: PrinterInfo): string {
-  const t = (p.printer_type || "").toLowerCase();
-  if (t === "thermal" || t === "label") return "Thermal";
-  if (t === "laser") return "Laser";
-  if (t === "inkjet") return "Inkjet";
-  if ((p.connection_type || "").toLowerCase() === "usb") return "USB device";
-  if (t && t !== "unknown") return t.charAt(0).toUpperCase() + t.slice(1);
+  // Device class (thermal/laser/inkjet/label/other/unknown) — NOT printer_type,
+  // which is physical/virtual/redirected. Reading printer_type here made the
+  // thermal/label/laser/inkjet branches dead code.
+  const deviceClass = (p.device_class || p.deviceClass || "").toLowerCase();
+  if (deviceClass === "thermal" || deviceClass === "label") return "Thermal";
+  if (deviceClass === "laser") return "Laser";
+  if (deviceClass === "inkjet") return "Inkjet";
+  if ((p.connection_type || p.connectionType || "").toLowerCase() === "usb") return "USB device";
+  if (deviceClass && deviceClass !== "unknown") return deviceClass.charAt(0).toUpperCase() + deviceClass.slice(1);
   return "Printer";
 }
 
 export function humanConnection(p: PrinterInfo): string {
-  const c = (p.connection_type || p.printer_type || "").toLowerCase();
+  const c = (p.connection_type || p.connectionType || "").toLowerCase();
   const proto = (p.protocol || "").toLowerCase();
   if (c === "spooler" || proto === "spooler") return "Windows spooler";
   if (c === "usb") return "USB";
@@ -131,10 +134,10 @@ export function friendlyAgentError(raw: string): string {
     lower.includes("permission denied") ||
     lower.includes("administrator privilege")
   ) {
-    return "Administrator permission is required to access the local Agent. Reopen Yasser Print Manager as Administrator and try again.";
+    return "Administrator permission is required to access the local Agent. Reopen Yaseir Print Manager as Administrator and try again.";
   }
   if (lower.includes("requires elevation") || lower.includes("elevation required")) {
-    return "Administrator permission is required for this operation. Reopen Yasser Print Manager as Administrator and try again.";
+    return "Administrator permission is required for this operation. Reopen Yaseir Print Manager as Administrator and try again.";
   }
   if (lower.includes("pairing code")) {
     return "Pairing could not be completed. Check the pairing code and make sure it has not expired.";
@@ -187,7 +190,7 @@ export function friendlyPrinterError(raw: string): string {
   // because the Tauri Gateway transport reads the local Agent config first.
   // Never expose the config path or Windows error text to operators.
   if (lower.includes("load agent config failed") || lower.includes("config.yaml")) {
-    return "Administrator permission is required to access the local Agent. Reopen Yasser Print Manager as Administrator and try again.";
+    return "Administrator permission is required to access the local Agent. Reopen Yaseir Print Manager as Administrator and try again.";
   }
   if (lower.includes("connection refused") || lower.includes("dial tcp"))
     return "Could not connect to the printer.";

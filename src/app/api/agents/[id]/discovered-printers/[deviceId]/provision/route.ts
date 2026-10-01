@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../../../db";
 import { agents, discoveredDevices, printers } from "../../../../../../../db/schema";
-import { validateManager } from "../../../../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../../../lib/authorization";
 import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "../../../../../../../lib/nanoid";
 import { validateConnectionConfig } from "../../../../../../../lib/printer-model";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../../../../../lib/entitlements";
+import { requireActiveTenantInTransaction } from "../../../../../../../lib/tenant-guard";
+import { logError } from "../../../../../../../lib/log";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +24,7 @@ type ProvisionResult =
   | { kind: "created"; printerId: string };
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string; deviceId: string }> }) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "printers.manage"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   const { id: agentId, deviceId } = await params;
@@ -61,6 +63,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const rows = locked.rows as Array<{ id: string; candidate_status: string; verification: string; provisioned_printer_id: string | null }>;
     const row = rows[0];
     if (!row) return { kind: "not_found" as const };
+
+    await requireActiveTenantInTransaction(tx, claims.tenantId);
+
     if (row.candidate_status === "provisioned" && row.provisioned_printer_id) {
       return { kind: "already" as const, printerId: row.provisioned_printer_id };
     }
@@ -102,7 +107,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         const ip = cfg?.ip ?? cfg?.address;
         if (ip === device.ipAddress && cfg?.port === device.port) {
           await tx.update(discoveredDevices)
-            .set({ candidateStatus: "provisioned", provisionedPrinterId: p.id, updatedAt: new Date() })
+            .set({ candidateStatus: "provisioned", provisionedPrinterId: p.id, updatedAt: sql`now()` })
             .where(and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.tenantId, claims.tenantId), eq(discoveredDevices.candidateStatus, "verified")));
           return { kind: "already" as const, printerId: p.id };
         }
@@ -146,7 +151,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       },
     });
     await tx.update(discoveredDevices)
-      .set({ candidateStatus: "provisioned", provisionedPrinterId: printerId, updatedAt: new Date() })
+      .set({ candidateStatus: "provisioned", provisionedPrinterId: printerId, updatedAt: sql`now()` })
       .where(and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.tenantId, claims.tenantId), eq(discoveredDevices.candidateStatus, "verified")));
 
     return { kind: "created" as const, printerId };
@@ -165,6 +170,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (isTenantBillingError(error)) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
     }
+    logError("agent.provision.failed", { deviceId, error: error instanceof Error ? error.message : String(error) });
     throw error;
   }
 

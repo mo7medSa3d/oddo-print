@@ -13,12 +13,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
 const gatewayRequestMaxBody = 8 * 1024 * 1024
 
 var gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/(?:test-connection|test-print)$")
+
+// Deliberately wider than the desktop console proxy (which allows exact
+// GET /api/agents only): the operator CLI needs single-agent fetch for
+// diagnostics. Both surfaces are read-only.
 var gatewayAgentPathRe = regexp.MustCompile("^/api/agents(?:/[A-Za-z0-9._~-]+)?$")
 
 func handleGatewayRequest(args []string, configPath string) {
@@ -79,7 +83,7 @@ func handleGatewayRequest(args []string, configPath string) {
 		os.Exit(1)
 	}
 	req.Header.Set("Authorization", "Bearer "+cfg.Agent.ID+":"+cfg.Agent.Secret)
-	req.Header.Set("User-Agent", "yasser-agent-console/1")
+	req.Header.Set("User-Agent", "yaseir-agent-console/1")
 	if *body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -121,8 +125,14 @@ func handleGatewayRequest(args []string, configPath string) {
 		fmt.Fprintf(os.Stderr, "encode Gateway response failed: %v\n", err)
 		os.Exit(1)
 	}
-	_, _ = os.Stdout.Write(encoded)
-	fmt.Fprintln(os.Stdout)
+	if _, err := os.Stdout.Write(encoded); err != nil {
+		fmt.Fprintf(os.Stderr, "write Gateway response failed: %v\n", err)
+		os.Exit(1)
+	}
+	if _, err := fmt.Fprintln(os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "write Gateway response newline failed: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func isAllowedJobsPath(path string) bool {

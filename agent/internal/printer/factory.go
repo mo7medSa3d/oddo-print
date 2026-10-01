@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
 // New builds the concrete Printer backend for a configured printer.

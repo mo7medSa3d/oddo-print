@@ -129,7 +129,7 @@ export default function Onboarding() {
     <main className="canvas-wash min-h-screen px-4 py-10 sm:px-6 lg:py-12">
       <div className="mx-auto w-full max-w-[900px]">
         <div className="mx-auto max-w-2xl text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-edge-accent bg-brand-subtle px-3 py-1.5 text-xs font-semibold text-brand-subtle-text">
+          <div className="inline-flex items-center gap-2 rounded-[8px] border border-edge-accent bg-brand-subtle px-3 py-1.5 text-xs font-semibold text-brand-subtle-text">
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
             Get started
           </div>

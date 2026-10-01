@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { printJobs } from "../../../db/schema";
-import { validateManager } from "../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../lib/manager-auth";
 import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { clampListLimit } from "../../../lib/request-limits";
 import {
   isJobFilterStatus,
   derivePhysicalOutcome,
   PHYSICAL_OUTCOME_UNKNOWN_MARKERS,
 } from "../../../lib/job-status";
+import { databaseNowMs } from "../../../lib/database-clock";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +34,7 @@ export async function GET(req: Request) {
   const searchParam = (url.searchParams.get("search") ?? url.searchParams.get("q"))?.trim();
   const printerId = url.searchParams.get("printerId");
   const agentId = url.searchParams.get("agentId");
-  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50", 10) || 50, 200);
+  const limit = clampListLimit(url.searchParams.get("limit"), 50, 200);
   const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10) || 0, 0);
   if (offset > MAX_LIST_OFFSET) {
     return NextResponse.json({ error: `offset must be <= ${MAX_LIST_OFFSET}` }, { status: 400 });
@@ -132,7 +134,7 @@ export async function GET(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "jobs.cancel"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
@@ -145,7 +147,8 @@ export async function DELETE(req: Request) {
 
   const before = new Date(beforeRaw);
   if (Number.isNaN(before.getTime())) return NextResponse.json({ error: "before must be a valid ISO-8601 timestamp" }, { status: 400 });
-  if (before.getTime() > Date.now()) return NextResponse.json({ error: "before cannot be in the future" }, { status: 400 });
+  const databaseNow = await databaseNowMs();
+  if (before.getTime() > databaseNow) return NextResponse.json({ error: "before cannot be in the future" }, { status: 400 });
 
   const requestedLimit = limitRaw === null ? MAX_CLEANUP_ROWS : Number(limitRaw);
   if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > MAX_CLEANUP_ROWS) {
@@ -154,7 +157,17 @@ export async function DELETE(req: Request) {
 
   const deleted = await db.transaction(async (tx) => {
     const candidates = await tx.select({ id: printJobs.id }).from(printJobs).where(
-      and(eq(printJobs.tenantId, claims.tenantId), inArray(printJobs.status, [...TERMINAL_JOB_STATUSES]), lt(printJobs.createdAt, before)),
+      and(
+        eq(printJobs.tenantId, claims.tenantId),
+        inArray(printJobs.status, [...TERMINAL_JOB_STATUSES]),
+        lt(printJobs.createdAt, before),
+        // Never erase terminal rows whose error carries explicit physical
+        // ambiguity evidence. Those rows remain the authoritative Gateway
+        // reconciliation/reprint record until an operator handles them.
+        ...PHYSICAL_OUTCOME_UNKNOWN_MARKERS.map((marker) =>
+          sql`COALESCE(${printJobs.error}, '') NOT LIKE ${marker + "%"}`,
+        ),
+      ),
     ).orderBy(printJobs.createdAt).limit(requestedLimit);
     if (candidates.length === 0) return 0;
     const result = await tx.delete(printJobs).where(and(eq(printJobs.tenantId, claims.tenantId), inArray(printJobs.id, candidates.map((row) => row.id))));

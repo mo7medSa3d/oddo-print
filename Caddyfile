@@ -6,12 +6,10 @@
 	}
 
 	# The Gateway trusts forwarded client identity only after verifying the
-	# private proxy token. Caddy overwrites all client-controlled forwarding
-	# headers before forwarding the request.
+	# private proxy token. Caddy's reverse_proxy sanitizes X-Forwarded-* inputs
+	# by default, ignoring client-supplied forwarding values before forwarding.
 	reverse_proxy gateway:3000 {
-		header_up Host {http.request.host}
 		header_up X-Gateway-Proxy-Token {file./run/secrets/trust_proxy_secret}
-		header_up X-Forwarded-For {http.request.remote.host}
 		header_up -X-Real-Ip
 	}
 }

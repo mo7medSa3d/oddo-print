@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
+import type { InferSelectModel } from "drizzle-orm";
 import { db } from "../../../../../db";
-import { printers, agents } from "../../../../../db/schema";
-import { validateManager } from "../../../../../lib/manager-auth";
+import { printJobs, printers, agents } from "../../../../../db/schema";
+import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
-import { nanoid } from "../../../../../lib/nanoid";
 import { recordJobEvent } from "../../../../../lib/job-timeline";
 import { runWithCorrelation, generateRequestId, generateAttemptId } from "../../../../../server/correlation";
 import { requestIdFrom, logError, logWarn } from "../../../../../lib/log";
@@ -12,6 +12,11 @@ import { getPrinterCapabilityMatrix } from "../../../../../lib/printer-health";
 import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError, PrintJobCapabilityError, PrintJobInputError } from "../../../../../lib/print-job-service";
 import { TenantEntitlementError, TenantSubscriptionRequiredError, TenantEntitlementConfigError } from "../../../../../lib/entitlements";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../../lib/job-delivery";
+import { databaseNowMs, parseDbTimeMs } from "../../../../../lib/database-clock";
+import { agentStaleThresholdSeconds } from "../../../../../lib/agent-availability";
+import { hasBodyOverLimit } from "../../../../../lib/request-limits";
+
+const CERTIFY_MAX_BODY_BYTES = 16 * 1024;
 
 export const dynamic = "force-dynamic";
 
@@ -36,20 +41,84 @@ const CERTIFICATION_STEPS = [
   { id: "physical", label: "Physical", description: "Physical paper verification (BLOCKED if no hardware)" },
   { id: "ack", label: "Ack", description: "Agent ack success — observed from job status" },
   { id: "final", label: "Final", description: "Certification complete" },
-];
+] as const;
+
+type CertificationStepStatus = "ok" | "error" | "blocked" | "pending" | "running";
+type CertificationStep = (typeof CERTIFICATION_STEPS)[number] & {
+  status: CertificationStepStatus;
+  at: string | null;
+  message: string;
+  evidence: string;
+};
+type PrintJobRow = InferSelectModel<typeof printJobs>;
+type AgentRow = InferSelectModel<typeof agents>;
+type PrinterRow = InferSelectModel<typeof printers>;
+
+/**
+ * Deterministic minimal PDF ticket for spooler/IPP certification. Unlike
+ * buildTestPdfPayload (which stamps the current time), every byte here derives
+ * from (printer, tenant, idempotencyKey) so a retry after a lost HTTP response
+ * reproduces the identical fingerprint and idempotent reuse holds.
+ */
+function buildDeterministicCertificationPdf(printerName: string, tenantId: string, idempotencyKey: string): string {
+  const escape = (value: string) => value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)").slice(0, 120);
+  const streamContent = [
+    "BT",
+    "/F1 18 Tf",
+    "50 720 Td",
+    "(YASEIR TEST PAGE) Tj",
+    "/F1 12 Tf",
+    "0 -30 Td",
+    `(Printer: ${escape(printerName)}) Tj`,
+    "0 -20 Td",
+    `(Tenant: ${escape(tenantId)}) Tj`,
+    "0 -20 Td",
+    `(Job: ${escape(idempotencyKey)}) Tj`,
+    "ET",
+  ].join("\n");
+  const streamLength = Buffer.byteLength(streamContent, "utf-8");
+  const header = "%PDF-1.4\n";
+  const obj1 = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+  const obj2 = "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
+  const obj3 = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n";
+  const obj4 = "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n";
+  const obj5 = `5 0 obj\n<< /Length ${streamLength} >>\nstream\n${streamContent}\nendstream\nendobj\n`;
+  const off1 = Buffer.byteLength(header);
+  const off2 = off1 + Buffer.byteLength(obj1);
+  const off3 = off2 + Buffer.byteLength(obj2);
+  const off4 = off3 + Buffer.byteLength(obj3);
+  const off5 = off4 + Buffer.byteLength(obj4);
+  const startxref = off5 + Buffer.byteLength(obj5);
+  const pad = (n: number) => String(n).padStart(10, "0");
+  return header + obj1 + obj2 + obj3 + obj4 + obj5 + [
+    "xref",
+    "0 6",
+    "0000000000 65535 f ",
+    `${pad(off1)} 00000 n `,
+    `${pad(off2)} 00000 n `,
+    `${pad(off3)} 00000 n `,
+    `${pad(off4)} 00000 n `,
+    `${pad(off5)} 00000 n `,
+    "trailer",
+    "<< /Size 6 /Root 1 0 R >>",
+    "startxref",
+    String(startxref),
+    "%%EOF\n",
+  ].join("\n");
+}
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: printerId } = await params;
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
-  const requestId = requestIdFrom(req as any) || generateRequestId();
+  const requestId = requestIdFrom(req) || generateRequestId();
   const attemptId = generateAttemptId();
   const tenantId = claims.tenantId;
 
-  return runWithCorrelation({ requestId, tenantId, printerId, attemptId } as any, async () => {
-    const steps: any[] = CERTIFICATION_STEPS.map(s => ({ ...s, status: "pending" as const, at: null as string | null, message: "", evidence: "" }));
+  return runWithCorrelation({ requestId, tenantId, printerId, attemptId }, async () => {
+    const steps: CertificationStep[] = CERTIFICATION_STEPS.map(s => ({ ...s, status: "pending" as const, at: null, message: "", evidence: "" }));
     function setStep(id: string, status: "ok" | "error" | "blocked" | "pending" | "running", message: string, evidence?: string) {
       const st = steps.find(s => s.id === id);
       if (st) {
@@ -61,6 +130,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
 
     setStep("gateway", "ok", "Gateway reachable", `request_id=${requestId}`);
+    // Certification constructs an expiry and interprets DB last-seen timestamps,
+    // so use the same PostgreSQL clock as canonical job admission and delivery.
+    const certificationNowMs = await databaseNowMs();
 
     // Auth: tenant + printer ownership via DB, same as canonical pre-check
     const printerRows = await db.select().from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.id, printerId))).limit(1);
@@ -68,7 +140,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       setStep("auth", "error", "Printer not found or not owned by tenant", `printerId=${printerId} tenantId=${tenantId}`);
       return NextResponse.json({ printerId, requestId, steps, certified: false, blocked: false }, { headers: { "x-request-id": requestId } });
     }
-    const printer = printerRows[0] as any;
+    const printer: PrinterRow = printerRows[0];
     setStep("auth", "ok", `Printer ${printer.name} owned by tenant`, `printerId=${printerId} agentId=${printer.agentId}`);
 
     let capability;
@@ -85,17 +157,32 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     let jobStatus: string = "unknown";
     let isReused = false;
     try {
-      const body = await req.json().catch(() => ({}));
+      if (hasBodyOverLimit(req, CERTIFY_MAX_BODY_BYTES)) {
+        setStep("queue", "error", "Request body too large", `limit=${CERTIFY_MAX_BODY_BYTES}`);
+        return NextResponse.json({ error: "Request body too large", code: "INVALID_REQUEST", steps }, { status: 413, headers: { "x-request-id": requestId } });
+      }
+      let body: Record<string, unknown> = {};
+      try {
+        // Only parse when a body was actually sent: an empty POST certifies
+        // with defaults, but malformed JSON must not silently become defaults.
+        const contentLength = req.headers.get("content-length")?.trim() ?? "";
+        const hasBody = contentLength !== "" ? contentLength !== "0" : true;
+        if (hasBody) body = await req.json() as Record<string, unknown>;
+      } catch {
+        setStep("queue", "error", "Malformed JSON body", "invalid-json");
+        return NextResponse.json({ error: "Malformed JSON body", code: "INVALID_REQUEST", steps }, { status: 400, headers: { "x-request-id": requestId } });
+      }
       const testPage = body.testPage !== false;
-      const documentType = body.documentType || "raw";
+      const documentType = typeof body.documentType === "string" ? body.documentType : "raw";
       // Idempotency: header preferred, then body, then deterministic fallback per certification session
       const headerKey = req.headers.get("Idempotency-Key")?.trim();
       const bodyKey = typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : null;
       const providedKey = headerKey || bodyKey;
-      // If client provides key, use it; otherwise generate a key that will dedupe double-click within 5min window per printer
-      // Use cert:<printerId>:<requestId> is NOT idempotent across retries, so we use cert:<printerId>:<tenantId>:<minute-bucket> for auto-generated
-      // But for true idempotency, we require client to send Idempotency-Key; we generate one for this request and return it
-      const minuteBucket = Math.floor(Date.now() / 60000);
+      // If the client provides a key, preserve it across retries. Otherwise the auto-key
+      // deduplicates double-clicks for the same tenant/printer within one minute.
+      // Explicit Idempotency-Key is the contract for retry-safe response-loss recovery across time;
+      // the auto-key is intentionally short-lived convenience deduplication only
+      const minuteBucket = Math.floor(certificationNowMs / 60000);
       const autoKey = `cert:${printerId}:${tenantId}:${minuteBucket}`;
       const idempotencyKey = providedKey && providedKey.length >= 8 && providedKey.length <= 200 ? providedKey : autoKey;
 
@@ -104,22 +191,33 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return NextResponse.json({ error: "invalid Idempotency-Key", code: "INVALID_REQUEST", steps }, { status: 400, headers: { "x-request-id": requestId } });
       }
 
-      // Build payload YASSER TEST PAGE — no secrets, using raw protocol matching printer
-      const payload = testPage
-        ? {
-            type: "raw" as const,
-            protocol: (printer.protocol === "unknown" ? "raw" : printer.protocol) as any,
-            data: Buffer.from(
-              `YASSER TEST PAGE\nPrinter: ${printer.name}\nTenant: ${tenantId}\nJob: ${idempotencyKey}\nRequest: ${requestId}\nTime: ${new Date().toISOString()}\nTransport: ${printer.connectionType}/${printer.protocol}\n\nThis is a diagnostic test page for certification.\nNo credentials are printed.\n`.repeat(2)
-            ).toString("base64"),
-          }
+      // Build payload YASEIR TEST PAGE in the LANGUAGE THE PRINTER SPEAKS.
+      // The printable payload MUST be deterministic for one idempotency key.
+      // A retry after a lost HTTP response must produce the same fingerprint so
+      // createPrintJobForPrinter can safely reuse the original physical attempt
+      // instead of turning a transport ambiguity into an idempotency conflict.
+      // Byte transports (raw/escpos/zpl/tspl) get a raw ticket in the declared
+      // protocol; document transports (spooler/ipp/ipps) get a minimal PDF
+      // ticket (a raw ticket would fail capability validation with 422).
+      const declaredProtocol = String(printer.protocol ?? "unknown").toLowerCase().trim();
+      const declaredConn = String(printer.connectionType ?? "").toLowerCase().trim();
+      const isByteProtocol = declaredProtocol === "raw" || declaredProtocol === "escpos"
+        || declaredProtocol === "zpl" || declaredProtocol === "tspl";
+      const isDocumentTransport = declaredConn === "spooler" || declaredConn === "ipp"
+        || declaredConn === "ipps" || (!isByteProtocol && declaredProtocol !== "unknown"
+          && (declaredProtocol === "spooler" || declaredProtocol === "ipp" || declaredProtocol === "ipps"));
+      const ticketText = testPage
+        ? `YASEIR TEST PAGE\nPrinter: ${printer.name}\nTenant: ${tenantId}\nJob: ${idempotencyKey}\nTransport: ${printer.connectionType}/${printer.protocol}\n\nThis is a diagnostic test page for certification.\nNo credentials are printed.\n`.repeat(2)
+        : `CERTIFICATION ${idempotencyKey}`;
+      const payload = isDocumentTransport
+        ? { type: "pdf" as const, data: Buffer.from(buildDeterministicCertificationPdf(printer.name, tenantId, idempotencyKey), "utf-8").toString("base64") }
         : {
             type: "raw" as const,
-            protocol: (printer.protocol === "unknown" ? "raw" : printer.protocol) as any,
-            data: Buffer.from(`CERTIFICATION ${idempotencyKey} ${requestId}`).toString("base64"),
+            protocol: (isByteProtocol ? declaredProtocol : "raw") as "raw" | "escpos" | "zpl" | "tspl",
+            data: Buffer.from(ticketText).toString("base64"),
           };
 
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+      const expiresAt = new Date(certificationNowMs + 5 * 60 * 1000);
 
       // Canonical admission path — same as production
       const result = await createPrintJobForPrinter(printerId, payload, {
@@ -160,8 +258,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return NextResponse.json({ error: e.message, code: e.code, steps, capability }, { status: 429, headers: { "x-request-id": requestId, "Retry-After": "60" } });
       }
       if (e instanceof TenantSubscriptionRequiredError || e instanceof TenantEntitlementConfigError) {
-        setStep("queue", "error", e.message, `code=${(e as any).code}`);
-        return NextResponse.json({ error: (e as any).message, code: (e as any).code, steps, capability }, { status: 403, headers: { "x-request-id": requestId } });
+        // Both classes declare a literal `readonly code`, so the union narrowed
+        // by these two instanceof checks exposes `code`/`message` directly.
+        setStep("queue", "error", e.message, `code=${e.code}`);
+        return NextResponse.json({ error: e.message, code: e.code, steps, capability }, { status: 403, headers: { "x-request-id": requestId } });
       }
       if (e instanceof AgentQueueFullError || e instanceof AgentQueuedJobsFullError) {
         setStep("queue", "blocked", `Agent queue full: ${e.message}`, `agentId=${e.agentId} limit=${MAX_AGENT_IN_FLIGHT_JOBS}`);
@@ -175,7 +275,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         setStep("queue", "error", e.message, `code=${e.code}`);
         return NextResponse.json({ error: e.message, code: e.code, steps, capability }, { status: e.status, headers: { "x-request-id": requestId } });
       }
-      if ((e as any)?.code === "IDEMPOTENCY_CONFLICT") {
+      // Same typed-unknown idiom as api/print/jobs/route.ts: the conflict is a
+      // plain Error carrying a `code` property, so narrow before reading it.
+      if (e instanceof Error && (e as Error & { code?: string }).code === "IDEMPOTENCY_CONFLICT") {
         setStep("queue", "error", "Idempotency conflict: same key but different payload", `key conflict`);
         return NextResponse.json({ error: "Idempotency conflict", code: "IDEMPOTENCY_CONFLICT", steps, capability }, { status: 409, headers: { "x-request-id": requestId } });
       }
@@ -186,10 +288,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     // Now derive state-driven steps from actual job row, not inferred
     // Fetch fresh job row
-    let freshJob: any = null;
+    let freshJob: PrintJobRow | null = null;
     let jobStateLookupFailed = false;
     try {
-      const { printJobs } = await import("../../../../../db/schema");
       const rows = await db.select().from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.id, jobId!))).limit(1);
       freshJob = rows[0] ?? null;
       if (freshJob) jobStatus = freshJob.status;
@@ -223,7 +324,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       setStep("agent", "pending", "Waiting for job row", `jobId=${jobId}`);
     } else if (freshJob.status === "queued") {
       // Check agent health but don't claim PASS — pending unless claimed
-      let agent: any = null;
+      let agent: AgentRow | null = null;
       let agentLookupFailed = false;
       try {
         const agentRows = await db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, printer.agentId))).limit(1);
@@ -240,8 +341,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       } else if (!agent.lastSeenAt) {
         setStep("agent", "pending", "Agent never seen — waiting for heartbeat", `agentId=${printer.agentId}`);
       } else {
-        const age = Date.now() - new Date(agent.lastSeenAt).getTime();
-        if (age <= 90_000) {
+        // parseDbTimeMs: naive DB strings are UTC; new Date(str) is host-local.
+        const seenMs = parseDbTimeMs(agent.lastSeenAt);
+        const age = seenMs === null ? Number.POSITIVE_INFINITY : certificationNowMs - seenMs;
+        if (age <= agentStaleThresholdSeconds() * 1000) {
           setStep("agent", "pending", `Agent online ${Math.round(age/1000)}s ago, waiting to claim`, `agentId=${printer.agentId} lastSeen ${Math.round(age/1000)}s`);
         } else {
           setStep("agent", "blocked", `Agent offline last seen ${Math.round(age/1000)}s ago — cannot claim`, `agentId=${printer.agentId} lastSeenAt=${agent.lastSeenAt}`);
@@ -333,7 +436,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         blocked,
         blockedReasons: blockedSteps.map(s => ({ step: s.id, label: s.label, message: s.message })),
         pendingReasons: pendingSteps.map(s => ({ step: s.id, label: s.label, message: s.message })),
-        instructions: "To complete certification: 1) Ensure agent online, 2) Ensure printer reachable, 3) Check Gateway→Spooler Job linking (spoolerJobId), 4) Verify physical paper output YASSER TEST PAGE, 5) Confirm ack success. In sandbox this remains BLOCKED by design. Double-click uses same Idempotency-Key to avoid duplicates.",
+        instructions: "To complete certification: 1) Ensure agent online, 2) Ensure printer reachable, 3) Check Gateway→Spooler Job linking (spoolerJobId), 4) Verify physical paper output YASEIR TEST PAGE, 5) Confirm ack success. In sandbox this remains BLOCKED by design. Double-click uses same Idempotency-Key to avoid duplicates.",
         timelineUrl: `/api/jobs/${jobId}/timeline`,
       },
       { headers: { "x-request-id": requestId } }

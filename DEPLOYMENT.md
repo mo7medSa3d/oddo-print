@@ -62,10 +62,14 @@ DATABASE_URL="postgresql://user:pass@host:5432/print_gateway" npm run db:migrate
 ### 2. Build & Start Gateway
 
 ```bash
-npm ci --production
+npm ci
 npm run build
 NODE_ENV=production npm start
 ```
+
+> Build with the full install (`npm ci`): the Next.js build needs
+> devDependencies. `npm ci --omit=dev` is for the runtime image only
+> (as in the Dockerfile's final stage), never before `npm run build`.
 
 ### 3. Configure Reverse Proxy (Caddy Example)
 
@@ -76,7 +80,9 @@ Production startup requires `TRUST_PROXY=1` and a real `TRUST_PROXY_SECRET` when
 ```caddyfile
 gateway.example.com {
     reverse_proxy localhost:3000 {
-        header_up X-Gateway-Proxy-Token {$TRUST_PROXY_SECRET}
+        # Match the repo's secret-file pattern (see Caddyfile and
+        # docker-compose.yml); avoid inlining the raw secret in configs.
+        header_up X-Gateway-Proxy-Token {file./run/secrets/trust_proxy_secret}
     }
 }
 ```
@@ -102,7 +108,9 @@ The `docker-compose.yml` includes Gateway, PostgreSQL, and Caddy services. Compo
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /api/health` | Gateway liveness (returns 200 when operational) |
+| `GET /api/live` | Cheap unauthenticated liveness (no DB, no auth; Docker/Caddy probe) |
+| `GET /api/health` | Gateway readiness (returns 200 when DB reachable, 503 otherwise; unauthenticated liveness probe) |
+| `GET /api/system/health` | Full system health (manager auth `agents.read` required) |
 | Agent heartbeat | Agent liveness (30s interval via WebSocket or HTTP) |
 
 ## Security Checklist

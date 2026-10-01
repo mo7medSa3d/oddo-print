@@ -27,14 +27,14 @@ export default function ReleaseReadinessClient() {
       implemented: "PASS",
       runtimeVerified: "PASS",
       status: "PASS",
-      evidence: "GET /api/printers/capabilities, printer-health.ts normalizePrinterStatus evidence-based with freshness check, driver health from capabilities.driver_name + fresh, spooler health requires capabilities.spooler_status not just DB status. 5 unit tests green.",
+      evidence: "GET /api/printers/capabilities, printer-health.ts normalizePrinterStatus evidence-based with freshness check, driver health from capabilities.driver_name + fresh, spooler health requires capabilities.spooler_status not just DB status. Covered by automated regression tests; current CI status is reported by GitHub Actions.",
     },
     {
       area: "Agent Health ONLINE/DEGRADED/OFFLINE/STARTING (evidence-based, observed vs inferred)",
       implemented: "PASS",
       runtimeVerified: "PASS",
       status: "PASS",
-      evidence: "lib/agent-health.ts computeAgentHealthStatus with STARTING (createdAt<5min, never seen), ONLINE <90s, DEGRADED 90s-5m, OFFLINE >5m. Checks: Gateway observed, Queue observed, Printers observed, Version observed, Heartbeat inferred labeled. failureCount null with note NOT MEASURED. RECOVERING removed (requires history). 5 tests green.",
+      evidence: "lib/agent-health.ts computeAgentHealthStatus with STARTING (createdAt<5min, never seen), ONLINE <90s, DEGRADED 90s-5m, OFFLINE >5m. Checks: Gateway observed, Queue observed, Printers observed, Version observed, Heartbeat inferred labeled. failureCount null with note NOT MEASURED. RECOVERING removed (requires history). Covered by automated regression tests; current CI status is reported by GitHub Actions.",
     },
     {
       area: "Windows Service Recovery (SCM lifecycle, failure actions, state/start type/recovery/last restart/failure count/exit code)",
@@ -55,28 +55,28 @@ export default function ReleaseReadinessClient() {
       implemented: "PASS",
       runtimeVerified: "PASS",
       status: "PASS",
-      evidence: "GET /api/jobs/[id]/timeline returns timeline from job_events or derived, claim token REDACTED (sha256 hash), not raw. 4 tests green.",
+      evidence: "GET /api/jobs/[id]/timeline returns timeline from job_events or derived, claim token REDACTED (sha256 hash), not raw. Covered by automated regression tests; current CI status is reported by GitHub Actions.",
     },
     {
       area: "Distributed Trace correlation IDs (request_id/job_id/tenant_id/agent_id/printer_id/attempt_id/claim_id/spooler_job_id)",
       implemented: "PASS",
       runtimeVerified: "PASS",
       status: "PASS",
-      evidence: "src/server/correlation.ts AsyncLocalStorage, tracing.ts OTel-inspired (not full OTel), X-Request-Id header, log.ts auto-enrichment, docs/DISTRIBUTED_TRACING.md honest about OTel-inspired. 5 tests green.",
+      evidence: "src/server/correlation.ts AsyncLocalStorage, X-Request-Id header, log.ts auto-enrichment, docs/DISTRIBUTED_TRACING.md documents the application-specific OTel-inspired fields. Covered by automated regression tests; current CI status is reported by GitHub Actions.",
     },
     {
       area: "System Health tenant-safe + overall policy",
       implemented: "PASS",
       runtimeVerified: "PASS",
       status: "PASS",
-      evidence: "lib/system-health.ts checkQueue now requires tenantId (tenant-safe), checkAgents/Printers require tenantId, overall policy: CRITICAL ERROR→error, UNKNOWN→unknown, IMPORTANT ERROR→error, UNKNOWN→unknown, EXTERNAL UNKNOWN→unknown (prevents false OK). Policy documented. Odoo/Billing UNKNOWN honest. 3 tests green.",
+      evidence: "lib/system-health.ts checkQueue now requires tenantId (tenant-safe), checkAgents/Printers require tenantId, overall policy: CRITICAL ERROR→error, UNKNOWN→unknown, IMPORTANT ERROR→error, UNKNOWN→unknown, EXTERNAL ERROR→error, UNKNOWN/WARN→warn (intentionally unverified externals cap overall at WARN, never OK — prevents false OK). Policy documented. Odoo/Billing UNKNOWN honest. Covered by automated regression tests; current CI status is reported by GitHub Actions.",
     },
     {
       area: "Tenant isolation",
       implemented: "PASS",
       runtimeVerified: "PASS",
       status: "PASS",
-      evidence: "412 tests green, composite FKs, tenant_id scoping in all new APIs, checkQueue tenant-safe regression test.",
+      evidence: "Composite foreign keys, tenant_id scoping in the APIs, and tenant-safe system-health regression coverage are present; current CI status is reported by GitHub Actions.",
     },
     {
       area: "Claim tokens not exposed",
@@ -174,9 +174,9 @@ export default function ReleaseReadinessClient() {
             {rows.map((r, i) => (
               <tr key={i} className="border-t border-edge align-top">
                 <td className="px-3 py-2 font-semibold">{r.area}</td>
-                <td className="px-3 py-2 text-center"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${r.implemented==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.implemented==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.implemented}</span></td>
-                <td className="px-3 py-2 text-center"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${r.runtimeVerified==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.runtimeVerified==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.runtimeVerified}</span></td>
-                <td className="px-3 py-2 text-center"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${r.status==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.status==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.status}</span></td>
+                <td className="px-3 py-2 text-center"><span className={`rounded-[8px] border px-2 py-0.5 text-[10px] font-bold ${r.implemented==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.implemented==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.implemented}</span></td>
+                <td className="px-3 py-2 text-center"><span className={`rounded-[8px] border px-2 py-0.5 text-[10px] font-bold ${r.runtimeVerified==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.runtimeVerified==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.runtimeVerified}</span></td>
+                <td className="px-3 py-2 text-center"><span className={`rounded-[8px] border px-2 py-0.5 text-[10px] font-bold ${r.status==="PASS" ? "bg-ok-bg text-ok border-ok-edge" : r.status==="BLOCKED" ? "bg-warn-bg text-warn border-warn-edge" : "bg-bad-bg text-bad border-bad-edge"}`}>{r.status}</span></td>
                 <td className="px-3 py-2 max-w-[400px]">
                   <div className="text-[11px] text-ink-2">{r.evidence}</div>
                   {r.rootCause && <div className="mt-1 text-[10px] text-bad">Root cause: {r.rootCause}</div>}
@@ -200,7 +200,7 @@ export default function ReleaseReadinessClient() {
           <li><strong>OTel-inspired distributed correlation</strong> (not full OpenTelemetry): custom fields request_id/job_id/tenant_id/agent_id/printer_id/attempt_id/claim_id/spooler_job_id in logs and headers, documented as application-specific, not official OTel semantic conventions.</li>
           <li><strong>IPP support / driverless direction</strong> (not IPP Everywhere certified): IPP/IPPS transport supported, capability matrix, but conformance testing not run, so not claiming certification.</li>
           <li><strong>Tauri updater</strong>: no updater plugin/config found in tauri.conf.json, marked NOT IMPLEMENTED/BLOCKED, not claimed as PASS. Capabilities 21 perms least-privilege verified.</li>
-          <li><strong>Odoo/Billing health</strong>: UNKNOWN / NOT VERIFIED honest, overall cannot be OK when external UNKNOWN — policy prevents false green.</li>
+          <li><strong>Odoo/Billing health</strong>: UNKNOWN / NOT VERIFIED honest, intentionally-unverified externals cap overall at WARN (never OK) — policy prevents false green.</li>
         </ul>
       </div>
     </div>

@@ -2,27 +2,28 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantInvitations, users } from "../../../../db/schema";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
-import { validateManager } from "../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { generateOpaqueToken, hashToken, normalizeEmail } from "../../../../lib/password";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
 import { nanoid } from "../../../../lib/nanoid";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
+import { logError } from "../../../../lib/log";
 
 const ROLES = ["admin", "operator", "viewer", "integration_admin", "billing_admin"] as const;
 
 export async function GET(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "users.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const rows = await db.select({ id: tenantInvitations.id, email: tenantInvitations.email, role: tenantInvitations.role, expiresAt: tenantInvitations.expiresAt, createdAt: tenantInvitations.createdAt })
-    .from(tenantInvitations).where(and(eq(tenantInvitations.tenantId, claims.tenantId), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt), gt(tenantInvitations.expiresAt, new Date())));
+    .from(tenantInvitations).where(and(eq(tenantInvitations.tenantId, claims.tenantId), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt), gt(tenantInvitations.expiresAt, sql`clock_timestamp()`)));
   return NextResponse.json({ invitations: rows });
 }
 
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const inviterUserId = claims.userId;
   let body: { email?: unknown; role?: unknown };
@@ -32,7 +33,7 @@ export async function POST(req: Request) {
   if (!email || !ROLES.includes(role as (typeof ROLES)[number])) return NextResponse.json({ error: "Invalid invitation" }, { status: 400 });
   const raw = generateOpaqueToken();
   const id = `inv_${nanoid(18)}`;
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000);
+  const expiresAt = sql`clock_timestamp() + interval '7 days'`;
   try {
     await db.transaction(async (tx) => {
       // Lock the tenant row before checking for another active invitation so
@@ -54,7 +55,7 @@ export async function POST(req: Request) {
         eq(tenantInvitations.email, email),
         isNull(tenantInvitations.acceptedAt),
         isNull(tenantInvitations.revokedAt),
-        gt(tenantInvitations.expiresAt, new Date()),
+        gt(tenantInvitations.expiresAt, sql`clock_timestamp()`),
       ),
       columns: { id: true },
     });
@@ -92,50 +93,30 @@ export async function POST(req: Request) {
   }
   const url = `${appBaseUrl(req)}/invite?token=${encodeURIComponent(raw)}`;
   try {
-    await sendTransactionalEmail({ to: email, subject: "You are invited to Yasser Print Manager", html: `<p>You have been invited to a Yasser Print Manager workspace.</p><p><a href="${url}">Accept invitation</a></p>`, text: `Accept invitation: ${url}` });
-  } catch {
-    const revoked = await db.transaction(async (tx) => {
-      const result = await tx.update(tenantInvitations)
-        .set({ revokedAt: new Date() })
-        .where(and(
-          eq(tenantInvitations.id, id),
-          isNull(tenantInvitations.acceptedAt),
-          isNull(tenantInvitations.revokedAt),
-        ))
-        .returning({ id: tenantInvitations.id });
-      if (result.length === 0) return { revoked: false, accepted: false };
-
-      await writeAuditEvent({
-        tenantId: claims.tenantId,
-        actorType: "user",
-        actorId: claims.userId,
-        action: "team.invitation.delivery_failed",
-        resourceType: "tenant_invitation",
-        resourceId: id,
-      }, tx);
-      return { revoked: true, accepted: false };
+    await sendTransactionalEmail({ to: email, subject: "You are invited to Yaseir Print Manager", html: `<p>You have been invited to a Yaseir Print Manager workspace.</p><p><a href="${url}">Accept invitation</a></p>`, text: `Accept invitation: ${url}` });
+  } catch (error) {
+    // Email delivery is an ambiguous external side effect: a provider timeout
+    // or connection reset does not prove that the message was not accepted.
+    // Never revoke the durable invitation here, because doing so can invalidate
+    // a link that the invitee already received. The invitation remains bounded
+    // by its expiry/revocation/acceptance state and can be administratively
+    // revoked or replaced later.
+    logError("team.invitation_email_delivery_ambiguous", {
+      error: error instanceof Error ? error.message : "unknown",
     });
-
-    if (!revoked.revoked) {
-      const current = await db.query.tenantInvitations.findFirst({
-        where: and(eq(tenantInvitations.id, id), eq(tenantInvitations.tenantId, claims.tenantId)),
-        columns: { acceptedAt: true, revokedAt: true },
-      });
-      if (current?.acceptedAt) return NextResponse.json({ ok: true, id });
-    }
     return NextResponse.json({ error: "Invitation delivery is temporarily unavailable" }, { status: 503 });
   }
   return NextResponse.json({ ok: true, id });
 }
 
 export async function DELETE(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const id = new URL(req.url).searchParams.get("id") ?? "";
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
   try {
     await db.transaction(async (tx) => {
-      const result = await tx.update(tenantInvitations).set({ revokedAt: new Date() }).where(and(eq(tenantInvitations.id, id), eq(tenantInvitations.tenantId, claims.tenantId), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt))).returning({ id: tenantInvitations.id });
+      const result = await tx.update(tenantInvitations).set({ revokedAt: sql`now()` }).where(and(eq(tenantInvitations.id, id), eq(tenantInvitations.tenantId, claims.tenantId), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt))).returning({ id: tenantInvitations.id });
       if (result.length !== 1) throw new Error("INVITATION_NOT_FOUND");
       await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "team.invitation.revoked", resourceType: "tenant_invitation", resourceId: id }, tx);
     });

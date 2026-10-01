@@ -15,15 +15,10 @@ import (
 // Common discovery interfaces and extended discoverers for production-grade coverage.
 // Each discoverer is safe, bounded, and never prints or modifies printer state.
 
-// DiscoveryCandidate enriches DeviceInfo with confidence and verification metadata.
-type DiscoveryCandidate struct {
-	Device       DeviceInfo `json:"device"`
-	Confidence   string     `json:"confidence"`   // low/medium/high
-	Verification string     `json:"verification"` // candidate/verified
-	Sources      []string   `json:"sources"`
-}
-
 // DiscoverySource constants — discovery origin, NOT printer protocol.
+// Canonical scan values are emitted via these constants so the vocabulary
+// stays in one place; transport-specific probe labels ("tcp_port_scan",
+// "ipp_tcp_scan") remain free-form forensic detail inside capabilities.
 const (
 	SourceMDNS     = "mdns"
 	SourceIPP      = "ipp"
@@ -41,59 +36,12 @@ const (
 
 // confidence helpers
 
-func confidenceForDevice(sources []string, verification string, manufacturer, model string) string {
-	hasVerified := verification == "verified"
-	sourceCount := len(sources)
-	hasHighSignal := hasVerified && (containsDiscoverySource(sources, SourceIPP) || containsDiscoverySource(sources, SourceIPPS) || containsDiscoverySource(sources, SourceSpooler))
-	hasMultiple := sourceCount >= 2
-	hasModel := model != "" && manufacturer != ""
-	if hasHighSignal || (hasMultiple && hasModel) {
-		return "high"
-	}
-	if hasVerified || hasMultiple || hasModel {
-		return "medium"
-	}
-	return "low"
-}
-
-func containsDiscoverySource(a []string, s string) bool {
-	for _, v := range a {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
-
 // Deduplication: stable identity priority as per spec:
 // 1. UUID, 2. serial+manufacturer/model, 3. MAC, 4. IP+URI, 5. hostname+port
 
 func dedupeKey(di DeviceInfo) string {
-	if di.Capabilities != nil {
-		if v, ok := di.Capabilities["uuid"]; ok && fmt.Sprint(v) != "" {
-			return "uuid:" + strings.ToLower(fmt.Sprint(v))
-		}
-		if v, ok := di.Capabilities["printer_uuid"]; ok && fmt.Sprint(v) != "" {
-			return "uuid:" + strings.ToLower(fmt.Sprint(v))
-		}
-	}
-	if di.USBSerial != "" && di.USBVID != "" {
-		return fmt.Sprintf("usb:%s:%s:%s", strings.ToLower(di.USBVID), strings.ToLower(di.USBPID), strings.ToLower(di.USBSerial))
-	}
-	if di.Capabilities != nil {
-		if v, ok := di.Capabilities["serial"]; ok && fmt.Sprint(v) != "" {
-			s := strings.ToLower(fmt.Sprint(v))
-			m := strings.ToLower(di.Name)
-			if m != "" {
-				return "serial:" + s + ":" + m
-			}
-			return "serial:" + s
-		}
-	}
-	if di.Capabilities != nil {
-		if v, ok := di.Capabilities["mac"]; ok && fmt.Sprint(v) != "" {
-			return "mac:" + strings.ToLower(fmt.Sprint(v))
-		}
+	if key, ok := physicalIdentityKey(di); ok {
+		return key
 	}
 	if di.NetworkAddress != "" && di.Port != 0 {
 		return fmt.Sprintf("ip:%s:%d", strings.ToLower(di.NetworkAddress), di.Port)
@@ -182,7 +130,9 @@ func probeSNMPHost(ctx context.Context, host string, timeout time.Duration) *Dev
 	}
 	defer conn.Close()
 	deadline := time.Now().Add(timeout)
-	_ = conn.SetDeadline(deadline)
+	if err := conn.SetDeadline(deadline); err != nil {
+		return nil
+	}
 	if _, err := conn.Write(pkt); err != nil {
 		return nil
 	}
@@ -222,7 +172,7 @@ func probeSNMPHost(ctx context.Context, host string, timeout time.Duration) *Dev
 		NetworkAddress: host,
 		Status:         "unknown",
 		Enabled:        true,
-		Capabilities:   map[string]interface{}{"discovered_via": "snmp", "sysDescr": sysDescr, "snmp_detected": true, "verification": "device_detected_only"},
+		Capabilities:   map[string]interface{}{"discovered_via": SourceSNMP, "sysDescr": sysDescr, "snmp_detected": true, "verification": "device_detected_only"},
 	}
 	// Try to parse manufacturer/model from sysDescr
 	if parts := strings.Fields(sysDescr); len(parts) >= 2 {
@@ -248,10 +198,20 @@ func buildSNMPGet(oids []string) []byte {
 	vbLenPos := pdu.Len()
 	pdu.WriteByte(0)
 	for _, oid := range oids {
-		pdu.WriteByte(0x30)     // varbind
-		pdu.WriteByte(0x06 + 5) // approximate
-		// OID
+		pdu.WriteByte(0x30) // varbind
+		// VarBind length is the complete encoded OID TLV plus the NULL TLV.
+		// The old fixed 0x0b length was incorrect for the 9-byte OIDs used
+		// here: it declared 11 bytes while writing 13 bytes, producing malformed
+		// BER and causing compliant SNMP agents to reject the discovery request.
 		oidBytes := encodeOID(oid)
+		varbindLen := 2 + len(oidBytes) + 2
+		if varbindLen > 127 {
+			// Current discovery OIDs use BER short-form lengths. Fail closed
+			// rather than emit another malformed packet for a future long OID.
+			continue
+		}
+		pdu.WriteByte(byte(varbindLen))
+		// OID
 		pdu.WriteByte(0x06)
 		pdu.WriteByte(byte(len(oidBytes)))
 		pdu.Write(oidBytes)
@@ -390,12 +350,19 @@ func probeLPRHost(ctx context.Context, host string, timeout time.Duration) *Devi
 		return nil
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return nil
+	}
 	// LPD: send Receive job query not supported, instead send queue status request: \x04queue\n
 	// Use queue "raw"
-	_, _ = conn.Write([]byte("\x04raw\n"))
+	if _, err := conn.Write([]byte("\x04raw\n")); err != nil {
+		return nil
+	}
 	buf := make([]byte, 256)
-	n, _ := conn.Read(buf)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return nil
+	}
 	if n == 0 {
 		// Open port but no LPD banner — still candidate but low confidence
 		return nil
@@ -417,7 +384,7 @@ func probeLPRHost(ctx context.Context, host string, timeout time.Duration) *Devi
 		Port:           515,
 		Status:         "online",
 		Enabled:        true,
-		Capabilities:   map[string]interface{}{"discovered_via": "lpr", "lpr_verified": true, "queue": "raw"},
+		Capabilities:   map[string]interface{}{"discovered_via": SourceLPR, "lpr_verified": true, "queue": "raw"},
 	}
 }
 
@@ -438,14 +405,18 @@ func discoverFullMDNS(ctx context.Context) []DeviceInfo {
 		return nil
 	}
 	defer conn.Close()
-	_ = conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
+	if err := conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		return nil
+	}
 	if _, err := conn.Write(query); err != nil {
 		return nil
 	}
 	// also query _ipps._tcp and _printer._tcp
 	for _, svc := range []string{"_ipps._tcp.local", "_printer._tcp.local"} {
 		if q := buildMDNSQueryReal(svc); q != nil {
-			_, _ = conn.Write(q)
+			if _, err := conn.Write(q); err != nil {
+				log.Printf("mDNS discovery query write failed for %s: %v", svc, err)
+			}
 		}
 	}
 	buf := make([]byte, 8192)
@@ -453,7 +424,10 @@ func discoverFullMDNS(ctx context.Context) []DeviceInfo {
 	seenHostPort := make(map[string]bool)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		if err := conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+			log.Printf("mDNS discovery read deadline failed: %v", err)
+			return out
+		}
 		n, _, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
@@ -478,7 +452,7 @@ func discoverFullMDNS(ctx context.Context) []DeviceInfo {
 				port = 631
 			}
 			id := StableIDFromNetwork(h.IP, port)
-			caps := map[string]interface{}{"discovered_via": "mdns", "mdns_verified": true}
+			caps := map[string]interface{}{"discovered_via": SourceMDNS, "mdns_verified": true}
 			if h.Model != "" {
 				caps["model"] = h.Model
 			}
@@ -579,29 +553,4 @@ func parseMDNSHosts(data []byte) []mdnsHost {
 		}
 	}
 	return hosts
-}
-
-// CIDR validation per spec — reject public, loopback, malformed
-func isAllowedCIDR(cidr string) bool {
-	if cidr == "" {
-		return false
-	}
-	_, ipnet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return false
-	}
-	if !ipnet.IP.IsPrivate() {
-		return false
-	}
-	if ipnet.IP.IsLoopback() {
-		return false
-	}
-	ones, bits := ipnet.Mask.Size()
-	if bits != 32 {
-		return false
-	}
-	if ones < 16 || ones > 30 {
-		return false
-	}
-	return true
 }

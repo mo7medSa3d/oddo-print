@@ -1,7 +1,7 @@
 # Architecture Decision Records (ADR)
 
 > **Document Status**: Approved  
-> **Repository**: Yasser Cloud Printing Platform (`mo7medSa3d/oddo-print`)  
+> **Repository**: Yaseir Cloud Printing Platform (`mo7medSa3d/oddo-print`)  
 > **Last Updated**: 2026-09-15
 
 ---
@@ -9,7 +9,7 @@
 ## ADR-001: Modular Monolith vs. Microservices Architecture
 
 * **Context**: The Gateway platform requires user authentication, tenant management, billing, agent management, printer inventory, job queueing, and Odoo integration.
-* **Decision**: Adopt a **Modular Monolith** control plane (Next.js 16.3.4 App Router + custom HTTP/WebSocket server in a single codebase and deployment unit).
+* **Decision**: Adopt a **Modular Monolith** control plane (Next.js 16.3.6 App Router + custom HTTP/WebSocket server in a single codebase and deployment unit).
 * **Rationale**:
   * Eliminates distributed transaction failures, network latency between internal services, and complex service mesh overhead.
   * Simplifies CI/CD, local development, migration management, and operational debugging.
@@ -101,7 +101,7 @@
 ## ADR-009: WebSocket Primary Channel + HTTP Polling Fallback
 
 * **Context**: Low-latency print delivery is essential for POS counters, but WebSockets can be dropped by NAT firewalls, proxies, or network switches.
-* **Decision**: Use **WebSocket** (`/api/agent/ws`) as the primary real-time push transport, backed by an autonomous **HTTP Polling** loop (every 10s when offline, safety poll every 30s when online).
+* **Decision**: Use **WebSocket** (`/api/agent/ws`) as the primary real-time push transport, backed by an autonomous **HTTP Polling** loop (every 5s when offline, safety poll every 30s when online).
 * **Rationale**:
   * Sub-100ms real-time delivery during normal operation.
   * 100% reliable job delivery even under hostile corporate firewalls that terminate long-lived WebSocket connections.

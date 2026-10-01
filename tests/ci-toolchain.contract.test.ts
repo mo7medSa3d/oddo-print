@@ -46,6 +46,57 @@ describe("CI/runtime alignment", () => {
     }
   });
 
+  it("reviews dependency install scripts explicitly", () => {
+    expect(packageJson.allowScripts).toMatchObject({
+      "esbuild@0.28.2": true,
+      "unrs-resolver@1.12.2": true,
+      "fsevents@2.3.3": true,
+    });
+  });
+
+  it("pins undici to a patched release in both manifest and lockfile", () => {
+    const lock = JSON.parse(readFileSync(path.join(root, "package-lock.json"), "utf8"));
+    expect(packageJson.overrides?.undici).toBe("8.10.2");
+    expect(lock.packages?.["node_modules/undici"]?.version).toBe("8.10.2");
+  });
+
+  it("keeps Docker smoke test on an HTTP-only bind without ACME", () => {
+    const docker = readFileSync(path.join(root, ".github/workflows/docker.yml"), "utf8");
+    expect(docker).toContain('GATEWAY_DOMAIN: "http://print.example.com"');
+    expect(docker).not.toContain("GATEWAY_DOMAIN: print.example.com");
+  });
+
+  it("scopes Rust supply-chain audits to the environment they validate", () => {
+    const all = workflows();
+    const ci = all.find((workflow) => workflow.includes("name: CI"));
+    const security = all.find((workflow) => workflow.includes("name: Security and Resilience Gates"));
+    const windows = all.find((workflow) => workflow.includes("name: Build Windows Installer"));
+    expect(ci).toContain("cargo audit");
+    // CI validates the host-toolchain dependency graph on Linux.
+    expect(ci).not.toContain("cargo audit --target-os windows --target-arch x86_64");
+    // Production is a Windows desktop target, so the security and installer
+    // gates explicitly audit the Windows x86_64 target.
+    expect(security).toContain("cargo audit --target-os windows --target-arch x86_64");
+    expect(windows).toContain("cargo audit --target-os windows --target-arch x86_64");
+  });
+
+  it("keeps Caddy's forwarded-header security contract warning-free", () => {
+    const caddy = readFileSync(path.join(root, "Caddyfile"), "utf8");
+    const httpTestCaddy = readFileSync(path.join(root, "deploy/http-test/Caddyfile"), "utf8");
+    expect(caddy).not.toContain("header_up X-Forwarded-For");
+    expect(httpTestCaddy).not.toContain("header_up X-Forwarded-For");
+    expect(caddy).not.toContain("header_up Host {http.request.host}");
+    expect(httpTestCaddy).not.toContain("header_up Host {http.request.host}");
+    expect(caddy).toContain("sanitizes X-Forwarded-* inputs");
+  });
+
+  it("keeps the Rust desktop JSON contract while using idiomatic field names", () => {
+    const commands = readFileSync(path.join(root, "src-tauri/src/commands.rs"), "utf8");
+    expect(commands).toContain('#[serde(rename = "isVirtual", alias = "is_virtual")]');
+    expect(commands).toContain("pub is_virtual: Option<bool>");
+    expect(commands).not.toContain("pub isVirtual: Option<bool>");
+  });
+
   it("does not reference package scripts that do not exist", () => {
     const scripts = new Set(Object.keys(packageJson.scripts));
     for (const [index, workflow] of workflows().entries()) {

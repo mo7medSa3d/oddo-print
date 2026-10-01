@@ -10,14 +10,15 @@ Verification labels used below:
 
 ## 1. Payload types
 
-The job payload is one of three non-interchangeable kinds
-(`agent/internal/printer/document.go`):
+The job payload is one of four Gateway wire kinds (`raw`, `escpos`, `pdf`, `image`).
+`zpl` and `tspl` are printer-native protocols carried inside the `raw` wire kind rather than separate Gateway payload kinds (`agent/internal/printer/document.go`, `contracts/print-payload-contract.json`):
 
 | type | meaning | agent path |
 |---|---|---|
 | `raw` | opaque printer-native byte stream | written verbatim to the transport |
 | `escpos` | ESC/POS command stream (`ESC @` init … `GS V` cut) | written verbatim to the transport (ESC/POS is a payload dialect, not a transport) |
 | `pdf` | a real PDF document | PDF pipeline: validate → secure temp file → PDF-aware submission → wait → delete temp file |
+| `image` | JPEG raster payload | rasterized per backend; ESC/POS network printers convert JPEG to ESC/POS, spooler converts JPEG to PDF |
 
 **A PDF is never converted into RAW printer bytes, never renamed, and never "assumed
 supported because the printer accepts raw".** Sending PDF bytes to an ESC/POS byte-stream
@@ -49,8 +50,10 @@ is queued. An explicitly configured `supported_protocols` list is never overwrit
 * without a declared list the transport decides: `pdf` requires a spooler or IPP/IPPS
   printer and is refused for raw-TCP/USB devices; `raw`/`escpos` are accepted by byte-stream transports (RAW TCP, ESC/POS, and spooler RAW mode), not by IPP/IPPS.
 
-A mismatch is `CAPABILITY_MISMATCH` → HTTP **422** at job creation, and the routing layer
-tries the next binding by priority before giving up.
+A mismatch is `CAPABILITY_MISMATCH` → HTTP **422** at job creation, and it is
+terminal: neither the Gateway nor the Odoo submit path retries the next
+binding (Odoo terminalizes 400/403/404/409/422 as `failed`). Fix the binding's
+protocol/transport instead of resubmitting.
 
 **Agent** (`processJob` in `agent/internal/agent/agent.go`): re-checks `SupportsKind`
 before anything is written anywhere and fails the job with
@@ -100,8 +103,8 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Aspect | Detail |
 |---|---|
 | Protocol | Raw byte stream over TCP on canonical port 9100 (JetDirect/AppSocket). No document model, no acknowledgement |
-| Document kinds | `raw` ✅ · `escpos` ✅ · `pdf` ❌ → `CAPABILITY_MISMATCH` |
-| Configuration | `type: network` (alias `tcp`), `endpoint: <ip>:<port>`, `protocol: raw` or `escpos` |
+| Document kinds | `raw` ✅ · `escpos` ✅ · `image` ✅ only for `escpos` protocol · `pdf` ❌ → `CAPABILITY_MISMATCH` |
+| Configuration | `type: network` (alias `tcp`), `endpoint: <ip>:<port>`, `protocol: raw`, `escpos`, `zpl`, or `tspl` |
 | Capability reporting | Heartbeat reports `supported_protocols: [raw, escpos]` unless the operator pinned a list |
 | Error handling | `DialContext` with a 5 s dial timeout, deadline from the job context (else 15 s), short-write loop, refuses empty and > 5 MiB payloads. Dial/write errors are returned verbatim to the gateway |
 | Status probe | 2 s TCP dial → `online` / `offline` (a successful handshake, not paper) |
@@ -207,16 +210,16 @@ and results are de-duplicated by stable id, `address:port` and `VID:PID:serial`.
 
 ```powershell
 # Network RAW 9100 (thermal ESC/POS)
-odoo-agent-cli.exe printers add --name "Kitchen 9100" --type network --endpoint 192.168.1.50:9100 --protocol escpos --printer-type thermal
+yaseir-agent-cli.exe printers add --name "Kitchen 9100" --type network --endpoint 192.168.1.50:9100 --protocol escpos --printer-type thermal
 
 # Windows spooler queue (local, shared, or a USB printer installed as a Windows printer)
-odoo-agent-cli.exe printers add --name "Office Laser" --type spooler --spooler-name "HP LaserJet M402" --printer-type laser
+yaseir-agent-cli.exe printers add --name "Office Laser" --type spooler --spooler-name "HP LaserJet M402" --printer-type laser
 
 # USB with VID/PID (still needs a spooler queue for PDF work)
-odoo-agent-cli.exe printers add --name "Zebra Label" --type usb --vid 0A5F --pid 014E --serial 123456 --printer-type label --spooler-name "Zebra GK420d"
+yaseir-agent-cli.exe printers add --name "Zebra Label" --type usb --vid 0A5F --pid 014E --serial 123456 --printer-type label --spooler-name "Zebra GK420d"
 
 # IPP
-odoo-agent-cli.exe printers add --name "Office IPP" --type ipp --endpoint ipp://192.168.1.60/ipp/print --protocol ipp
+yaseir-agent-cli.exe printers add --name "Office IPP" --type ipp --endpoint ipp://192.168.1.60/ipp/print --protocol ipp
 ```
 
 Other CLI verbs: `printers list`, `printers discover`, `printers test <id>`,
@@ -229,7 +232,9 @@ Other CLI verbs: `printers list`, `printers discover`, `printers test <id>`,
   heartbeat reachability (`latencyMs` is always `null`; the gateway cannot dial the LAN and
   a live agent probe is not implemented).
 * `POST /api/printers/:id/test-print` — **a real job** through the normal pipeline
-  (`queued → claimed → delivery → printing → success|failed`), using an ESC/POS test payload.
+  (`queued → claimed → delivery → printing → success|failed`), using a test ticket
+  built in the language the printer declares (ESC/POS, ZPL, TSPL, raw, or a minimal
+  PDF for spooler/IPP transports) — see §10 below, not ESC/POS-only.
 
 ## 10. Success semantics (honest)
 

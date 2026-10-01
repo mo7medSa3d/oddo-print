@@ -4,6 +4,8 @@ import { agents } from "../db/schema";
 import { canTransitionLifecycle } from "./lifecycle";
 import { generatePairingCode, hashPairingCode } from "./agent-auth";
 import { writeAuditEvent, type AuditActor } from "./audit";
+import { requireTenantBillingAccess } from "./entitlements";
+import { requireActiveTenantInTransaction } from "./tenant-guard";
 
 export type AgentLifecycleResult = {
   changed: boolean;
@@ -41,6 +43,10 @@ export async function transitionAgentLifecycle(
     }
 
     const current = agent.lifecycle as "active" | "disabled" | "retired";
+    const clock = await tx.execute(sql`SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms`);
+    const nowMs = Number(clock.rows[0]?.now_ms);
+    if (!Number.isFinite(nowMs)) throw new Error("Database clock is unavailable");
+    const now = new Date(nowMs);
     if (current === next) {
       return { changed: false, lifecycle: next, pairingCode: null };
     }
@@ -48,9 +54,16 @@ export async function transitionAgentLifecycle(
       throw new LifecycleConflict(`invalid lifecycle transition: ${current} -> ${next}`);
     }
 
-    const now = new Date();
     const reenable = current === "disabled" && next === "active";
     let pairingCode: string | null = null;
+
+    // The agent row is already locked. Fence tenant lifecycle before any
+    // credential or lifecycle mutation.
+    await requireActiveTenantInTransaction(tx, tenantId);
+
+    if (reenable) {
+      await requireTenantBillingAccess(tx, tenantId);
+    }
 
     if (reenable) {
       for (let attempt = 0; attempt < 5; attempt += 1) {

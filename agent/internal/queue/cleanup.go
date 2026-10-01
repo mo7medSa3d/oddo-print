@@ -32,7 +32,7 @@ func (q *Queue) CleanupTerminal(retainDays int) (int, error) {
 	if retainDays > 0 {
 		retainClause = " AND updated_at <= datetime('now', '-" + strconv.Itoa(retainDays) + " days')"
 	}
-	result, err := q.db.Exec(`DELETE FROM print_jobs WHERE (status = 'success'
+	result, err := q.db.Exec(`DELETE FROM print_jobs WHERE claim_token IS NULL AND (status = 'success'
 		OR (status = 'failed' AND (last_error IS NULL
 			OR NOT (` + unknownMarkerSQL("last_error") + `))))` + retainClause)
 	if err != nil {

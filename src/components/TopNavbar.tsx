@@ -69,7 +69,7 @@ export function TopNavbar({
           aria-label={menuOpen ? "Close navigation" : "Open navigation"}
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((value) => !value)}
-          className="ml-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-edge bg-surface text-ink-2 transition hover:bg-surface-2 hover:text-ink lg:hidden"
+          className="ml-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] border border-edge bg-surface text-ink-2 transition hover:bg-surface-2 hover:text-ink lg:hidden"
         >
           {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
         </button>
@@ -78,7 +78,7 @@ export function TopNavbar({
           aria-label="Main"
           className={[
             menuOpen ? "flex" : "hidden",
-            "absolute left-3 right-3 top-[60px] z-50 flex-col gap-1 rounded-[14px] border border-edge bg-surface p-2 shadow-xl lg:hidden",
+            "absolute left-3 right-3 top-[60px] z-50 flex-col gap-1 rounded-[14px] border border-edge bg-surface p-2 shadow-xl",
             "lg:static lg:flex lg:min-w-0 lg:flex-1 lg:flex-row lg:items-center lg:gap-1 lg:overflow-x-auto lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none",
           ].join(" ")}
         >
@@ -100,7 +100,7 @@ export function TopNavbar({
                   aria-current={active ? "page" : undefined}
                   onClick={() => setMenuOpen(false)}
                   className={[
-                    "inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium transition-all duration-200 whitespace-nowrap",
+                    "inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[8px] px-3 text-[12.5px] font-medium transition-all duration-200 whitespace-nowrap",
                     active
                       ? "bg-brand-subtle text-brand-subtle-text font-semibold shadow-[inset_0_0_0_1px_var(--brand-subtle-border)]"
                       : "text-ink-2 hover:bg-surface-2 hover:text-ink",
@@ -129,7 +129,7 @@ export function TopNavbar({
         <button
           onClick={onLogout}
           disabled={loggingOut}
-          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-edge bg-surface px-3.5 text-[13px] font-medium text-ink-2 shadow-xs transition-all duration-200 hover:border-edge-strong hover:bg-surface-2 hover:text-ink disabled:opacity-50"
+          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[8px] border border-edge bg-surface px-3.5 text-[13px] font-medium text-ink-2 shadow-xs transition-all duration-200 hover:border-edge-strong hover:bg-surface-2 hover:text-ink disabled:opacity-50"
         >
           <LogOut className="h-4 w-4" />
           <span className="hidden xl:inline">{loggingOut ? "Signing out…" : "Sign out"}</span>

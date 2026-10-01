@@ -61,7 +61,9 @@ describe("runtime routing capability and availability", () => {
     expect(validatePayloadForPrinter({ type: "raw", protocol: "escpos" }, { protocol: "escpos", connectionType: "network" }).ok).toBe(true);
     expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, { protocol: "zpl", connectionType: "network" }).ok).toBe(false);
     expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, { protocol: "raw", connectionType: "network" }).ok).toBe(false);
-    expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, { protocol: "spooler", connectionType: "spooler" }).ok).toBe(true);
+    // Spooler queues require explicit supported_protocols for ESC/POS; raw
+    // byte passthrough is never inferred for driver-rendered office queues.
+    expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, { protocol: "spooler", connectionType: "spooler" }).ok).toBe(false);
     // An explicit capability list can narrow/confirm the byte-stream language.
     expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, {
       protocol: "spooler", connectionType: "spooler", capabilities: { supported_protocols: ["escpos"] },
@@ -96,7 +98,8 @@ describe("runtime routing capability and availability", () => {
     expect(validatePayloadForPrinter({ type: "pdf" }, { protocol: "unknown", connectionType: "spooler" }).ok).toBe(true);
     expect(validatePayloadForPrinter({ type: "image" }, { protocol: "unknown", connectionType: "spooler" }).ok).toBe(true);
     expect(validatePayloadForPrinter({ type: "pdf" }, { protocol: "unknown", connectionType: "ipp" }).ok).toBe(true);
-    expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, { protocol: "unknown", connectionType: "spooler" }).ok).toBe(true);
+    // ESC/POS on spooler requires explicit supported_protocols (same gate as declared spooler).
+    expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, { protocol: "unknown", connectionType: "spooler" }).ok).toBe(false);
     // ipp and ipps are the same document transport everywhere they are
     // checked: explicit caps, transport default, and unknown fallback.
     expect(validatePayloadForPrinter({ type: "pdf" }, { protocol: "ipps", connectionType: "ipps" }).ok).toBe(true);

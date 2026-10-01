@@ -36,5 +36,5 @@ def migrate(cr, version):
                 )
     except (CredentialKeyUnavailable, CredentialDecryptError, ValueError) as exc:
         raise RuntimeError(
-            "Yasser Print Manager credential migration requires a valid deployment-managed encryption key; plaintext fallback is forbidden."
+            "Yaseir Print Manager credential migration requires a valid deployment-managed encryption key; plaintext fallback is forbidden."
         ) from exc

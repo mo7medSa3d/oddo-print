@@ -14,31 +14,35 @@ describe("production fixes contracts (2026-09)", () => {
     expect(read("src/app/api/print/jobs/route.ts")).not.toContain("branchId");
   });
 
-  it("invalidates execution leases on terminal failure paths without changing the deliberate expired-job grace token", () => {
+  it("terminal claim credentials are cleared except for bounded late-success reconciliation attempts", () => {
     const maintenance = read("src/lib/job-maintenance.ts");
     const delivery = read("src/lib/job-delivery.ts");
-    // Terminal failures must not retain live execution credentials.
     const normalizedMaintenance = maintenance.replace(/\r\n/g, "\n");
-    expect(normalizedMaintenance).toContain("claim_token=NULL,\n      claimed_at=NULL,\n      updated_at=now()");
     const terminalFailureUpdates = [...maintenance.matchAll(/UPDATE print_jobs SET status='failed',[\s\S]*?FROM candidates\s+WHERE print_jobs\.id = candidates\.id\s+RETURNING print_jobs\.id/g)];
     expect(terminalFailureUpdates.length).toBeGreaterThanOrEqual(2);
-    for (const match of terminalFailureUpdates) {
-      expect(match[0]).toContain("claim_token=NULL");
-      expect(match[0]).toContain("claimed_at=NULL");
-    }
+    expect(normalizedMaintenance).toContain("claim_token=NULL,\n      claimed_at=NULL,\n      updated_at=now()");
+    expect(normalizedMaintenance).toContain("status = 'failed'");
+    expect(normalizedMaintenance).toContain("error LIKE 'UNKNOWN_PARTIAL_DELIVERY:%'");
+    expect(normalizedMaintenance).toContain("updated_at <= now() - interval '24 hours'");
     const normalizedDelivery = delivery.replace(/\r\n/g, "\n");
-    expect(normalizedDelivery).toContain("SET status = 'failed',\n        claim_token = NULL,\n        claimed_at = NULL,");
-    // Expired jobs intentionally retain the claim token because the agent has a
-    // bounded post-expiration physical-success reconciliation window.
+    const unknownStart = normalizedDelivery.indexOf("export async function markJobDeliveryUnknown");
+    const unknownBlock = normalizedDelivery.slice(unknownStart, normalizedDelivery.indexOf("export async function recordJobAck", unknownStart));
+    expect(unknownBlock).toContain("deliveredAt: sql`COALESCE");
+    expect(unknownBlock).toContain("claimedAt: sql`COALESCE");
+    expect(unknownBlock).not.toContain("claimToken: sql`NULL`");
+    // Failed unknown deliveries retain their fence only so the exact agent
+    // attempt can reconcile a late success; the cleanup above bounds retention.
     const agentJobs = read("src/app/api/agent/jobs/route.ts");
     expect(agentJobs).toContain('if (currentStatus === "expired" && requestedStatus === "success")');
+    expect(agentJobs).toContain('job.error?.startsWith("UNKNOWN_PARTIAL_DELIVERY")');
+    expect(agentJobs).toContain('deliveryUnknownLateSuccess && (!job.claimedAt || !job.claimToken');
   });
 
   it("keeps the print-job GET status response metadata-only", () => {
     const route = read("src/app/api/print/jobs/route.ts");
     const getSection = route.slice(route.indexOf("export async function GET"));
     expect(getSection).toContain("validateOdooKey");
-    expect(getSection).toContain('searchParams.get("id")');
+    expect(getSection).toContain('params.get("id")');
     expect(getSection).toContain("responseForRow(row)");
     expect(getSection).not.toContain("row.payload");
     expect(getSection).not.toContain('json({ payload');
@@ -51,10 +55,15 @@ describe("production fixes contracts (2026-09)", () => {
     expect(normalized).toContain("claimToken");
     // The refresh predicate must bind the lease to the exact live claim…
     expect(normalized).toContain("(id, claim_token) IN");
-    // …and legacy tokenless ids may only touch rows that never got a token.
-    expect(normalized).toContain("isNull(printJobs.claimToken)");
-    expect(normalized).toContain("eq(printJobs.agentId, agent.id)");
-    expect(normalized).toContain("inArray(printJobs.status, [\"claimed\", \"printing\"])");
+    // …and legacy tokenless ids are dropped before the refresh (they carry
+    // no proof of current-attempt ownership, so they must remain recoverable
+    // by the stale-claim sweeper instead of extending any claim).
+    expect(normalized).toContain("Tokenless legacy keep-alives are not");
+    expect(normalized).toContain("p.claimToken !== null");
+    // The bulk refresh is raw SQL (tuple-IN predicate Drizzle cannot
+    // express): agent fence and claimed/printing scope in raw form.
+    expect(normalized).toContain("AND agent_id = ${agent.id}");
+    expect(normalized).toContain("AND status IN ('claimed', 'printing')");
     // Lease refresh mutates updatedAt only - never status, never ownership.
     expect(normalized).toContain("UPDATE print_jobs SET updated_at = now()");
     expect(normalized).not.toContain("db.update(printJobs) .set({ status");
@@ -65,7 +74,10 @@ describe("production fixes contracts (2026-09)", () => {
     expect(jobs).toContain("AGENT_REQUEUE_REASONS");
     expect(jobs).toContain("pre-execution rejection reason");
     // The claim token gate makes the rejection unforgeable by a superseded attempt.
-    expect(jobs).toContain("STALE_CLAIM");
+    // The stale-claim lease follows agentStaleThresholdSeconds() (shared with
+    // the presence/claim gates); STALE_CLAIM_SECONDS remains only as the
+    // default in job-maintenance.ts.
+    expect(jobs).toMatch(/STALE_CLAIM|agentStaleThresholdSeconds/);
     const status = read("src/lib/job-status.ts");
     expect(status).toMatch(/AGENT_REQUEUE_REASONS\s*=\s*\[\s*"pending_full",\s*"printer_pending_full",\s*"printer_not_at_desired_state",\s*"agent_shutting_down",\s*"ledger_unavailable",\s*\]\s*as const/);
     const normalizedJobs = jobs.replace(/\s+/g, " ");
@@ -83,8 +95,8 @@ describe("production fixes contracts (2026-09)", () => {
     expect(doc).toContain("if _, hasDeadline := parent.Deadline(); hasDeadline {");
     // executor saturation / shutdown reject the job FENCED with the claim
     // token instead of silently dropping delivered work.
-    expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "pending_full")');
-    expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, jobClaimToken(job), "agent_shutting_down")');
+    expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, fields.ClaimToken, "pending_full")');
+    expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, fields.ClaimToken, "agent_shutting_down")');
     expect(agent).toContain("func (a *Agent) runRejectWorker(ctx context.Context)");
     expect(agent).toContain("maxRejectQueue = 32");
     expect(agent).toContain("func (a *Agent) rejectJobExact(ctx context.Context, jobID, token, reason string) error");
@@ -93,7 +105,10 @@ describe("production fixes contracts (2026-09)", () => {
     // 2025-09-21: reduced from 10s to 5s for faster offline feedback (POS best practice)
     expect(net).toMatch(/dialTimeout\s*=\s*5\s*\*\s*time\.Second/);
     expect(net).toMatch(/writeStallTimeout\s*=\s*60\s*\*\s*time\.Second/);
-    expect(net).toContain("_ = conn.SetWriteDeadline(time.Now().Add(writeStallTimeout))");
+    // Write-deadline failures used to be discarded (`_ = conn.SetWriteDeadline`).
+    // They must now surface as an error so a stalled printer is reported.
+    expect(net).toContain("if err := conn.SetWriteDeadline(time.Now().Add(writeStallTimeout)); err != nil {");
+    expect(net).toContain('fmt.Errorf("set printer write deadline: %w", err)');
   });
 
   it("print quota applies at logical job admission and does not make Agent discovery the enforcement point", () => {
@@ -163,8 +178,8 @@ describe("production fixes contracts (2026-09)", () => {
     const jobs = read("odoo_addons/print_gateway/models/print_job.py");
     // The implementation uses SQL LIMIT clauses rather than the old ORM
     // domain/limit spelling. The contract is the bounded batch size itself.
-    expect(jobs).toContain("LIMIT 50");
-    expect(jobs).toContain("LIMIT 100");
+    expect(jobs).toContain("LIMIT 25"); // pending submission batch
+    expect(jobs).toContain("LIMIT 100"); // status reconciliation batch
     expect(jobs).toContain("/api/print/jobs");
     expect(jobs).toContain("job.gateway_job_id");
     expect(jobs).not.toContain("/api/odoo/sync");
@@ -178,11 +193,12 @@ describe("production fixes contracts (2026-09)", () => {
     expect(route).toContain('if (updatedUser.length !== 1) throw new Error("Reset user missing");');
   });
 
-  it("production startup refuses plaintext manager passwords", () => {
+  it("startup refuses plaintext manager passwords outside development/test", () => {
     const server = read("server.ts");
-    expect(server).toContain("process.env.NODE_ENV === \"production\" && process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD === \"1\"");
-    expect(server).toContain("Refusing production startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1");
-    expect(server).not.toContain("ALLOW_PLAINTEXT_MANAGER_PASSWORD=1 in production: the manager password is held in the environment");
+    expect(server).toContain('const plaintextManagerPasswordAllowedEnvironment = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";');
+    expect(server).toContain('!plaintextManagerPasswordAllowedEnvironment && process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD === "1"');
+    expect(server).toContain("outside development/test");
+    expect(server).toContain("configure MANAGER_PASSWORD_HASH instead.");
   });
 
   it("active local execution never adopts a newer Gateway claim token", () => {
@@ -251,5 +267,95 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
     const source = read("src/app/api/printers/[id]/test-connection/route.ts");
     expect(source).toContain("const lastHeartbeatAt = agent.lastSeenAt;");
     expect(source).not.toContain("const lastHeartbeatAt = printer.lastSeenAt;");
+  });
+});
+
+
+describe("2026-09-24 remediation contracts", () => {
+  it("keeps dashboard job filters tenant-fenced and printer lifecycle on DB time", () => {
+    const source = read("src/app/actions.ts");
+    expect(source).toContain("tenant_id = ${printJobs.tenantId} AND lifecycle = 'active'");
+    expect(source).not.toContain("SELECT id FROM printers WHERE lifecycle = 'active'");
+    expect(source).not.toContain("SELECT id FROM agents WHERE lifecycle = 'active'");
+    expect(source).not.toContain("updatedAt: new Date()");
+  });
+
+  it("protects the explicit dashboard reprint with the shared busy guard", () => {
+    const source = read("src/app/dashboard/dashboard-client.tsx");
+    const from = source.indexOf("const confirmReprint = async () => {");
+    const to = source.indexOf("const confirmAgentAction = async () => {", from);
+    const block = source.slice(from, to);
+    expect(from).toBeGreaterThanOrEqual(0);
+    expect(to).toBeGreaterThan(from);
+    expect(block).toContain("if (!job || busy) return;");
+    expect(block).toContain("setBusy(true);");
+    expect(block).toContain("finally");
+    expect(block).toContain("setBusy(false);");
+  });
+
+  it("uses the canonical live-subscription predicate for runtime claims", () => {
+    expect(read("src/lib/entitlements.ts")).toContain("export function liveTenantSubscriptionPredicate");
+    expect(read("src/lib/job-delivery.ts")).not.toContain("FROM tenant_subscriptions ts");
+    expect(read("src/app/api/agent/jobs/route.ts")).not.toContain("FROM tenant_subscriptions ts");
+    expect(read("src/app/api/agent/register/route.ts")).not.toContain("FROM tenant_subscriptions\n");
+  });
+
+  it("keeps workspace timestamps on the database clock", () => {
+    expect(read("src/app/api/settings/route.ts")).toContain("updatedAt: sql");
+    const onboarding = read("src/app/api/onboarding/route.ts");
+    expect(onboarding).toContain("clock_timestamp()");
+    expect(onboarding).not.toContain("Date.now()");
+    expect(onboarding).not.toContain("updatedAt: new Date()");
+  });
+
+  it("removes the dead rate-limit table without removing migration history", () => {
+    expect(read("src/db/schema.ts")).not.toContain("printJobRateLimits");
+    expect(read("tests/helpers/pg.ts")).not.toContain("print_job_rate_limits");
+    expect(read("drizzle/meta/_journal.json")).toContain("0071_remove_print_job_rate_limits");
+    expect(read("drizzle/0071_remove_print_job_rate_limits.sql")).toContain("DROP TABLE IF EXISTS print_job_rate_limits;");
+  });
+
+  it("removes the empty Security placeholder and stale patch artifacts", () => {
+    const settings = read("src/app/settings/page.tsx");
+    expect(settings).not.toContain("id: \"security\"");
+    expect(settings).not.toContain("activeTab === \"security\"");
+    expect(existsSync(resolve(process.cwd(), "fix.patch"))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), "final-fix.patch"))).toBe(false);
+  });
+
+  it("fails closed when db:generate has no current snapshot", () => {
+    expect(read("package.json")).toContain("db:generate\": \"tsx scripts/db-generate.ts");
+    expect(read("scripts/db-generate.ts")).toContain("Refusing to run drizzle-kit generate");
+  });
+});
+
+describe("production fixes — authentication and observability", () => {
+  it("does not silently truncate workspace memberships in tenant selection", () => {
+    const source = read("src/lib/customer-auth.ts");
+    expect(source).not.toContain(".limit(50)");
+    expect(source).toContain("Do not silently truncate workspace memberships");
+  });
+
+  it("does not claim unmeasured Windows service diagnostics as observed", () => {
+    const source = read("src/app/api/agents/service-status/route.ts");
+    expect(source).toContain("failureCount: null");
+    expect(source).toContain("exitCode: null");
+  });
+});
+
+describe("onboarding session contract", () => {
+  it("accepts the same workspace session issued by email verification", () => {
+    const source = read("src/app/api/onboarding/route.ts");
+    expect(source).toContain("const claims = await validateWorkspaceManager(req);");
+    expect(source).not.toContain("const claims = await validateManager(req);");
+  });
+});
+
+describe("legacy session fixture contract", () => {
+  it("uses one exact expiry source for JWT and durable session state", () => {
+    const source = read("tests/session-legacy-fallback.integration.test.ts");
+    expect(source).toContain("to_timestamp($5)");
+    expect(source).toContain("nowSec + LEGACY_SESSION_MAX_AGE_SECONDS");
+    expect(source).not.toContain("clock_timestamp() + interval '8 hours'");
   });
 });

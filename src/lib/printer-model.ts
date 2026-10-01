@@ -5,7 +5,7 @@ export const PRINTER_TYPES = ["physical", "virtual", "redirected"] as const;
 export const DEVICE_CLASSES = ["thermal", "laser", "inkjet", "label", "other", "unknown"] as const;
 export const CONNECTION_TYPES = ["network", "usb", "spooler", "ipp", "ipps"] as const;
 // "unknown" means "not declared": the capability model never routes to it.
-export const PRINTER_PROTOCOLS = ["raw", "escpos", "zpl", "tspl", "ipp", "ipps", "spooler", "unknown"] as const;
+export const PRINTER_PROTOCOLS = ["raw", "escpos", "zpl", "tspl", "ipp", "ipps", "spooler", "windows_spooler", "unknown"] as const;
 
 export const printerInputSchema = z.object({
   id: z.string().regex(/^[a-z0-9_][a-z0-9_-]*$/).max(120).optional(),
@@ -49,7 +49,8 @@ export function assertPrinterMetadataLimits(input: Pick<CanonicalPrinterInput, "
  * garbage, not a half-registered device. One rule, both boundaries.
  */
 export function isAllowedPrinterDestination(ip: string): boolean {
-  const host = ip.trim();
+  // Accept bare IPv6 addresses and URL-style bracketed IPv6 literals.
+  const host = ip.trim().replace(/^\[([^\]]+)\]$/, "$1");
   // Reject the IPv4/IPv6 cloud-instance metadata endpoints even though they
   // are technically link-local/ULA destinations. A printer configuration
   // must never become a metadata-service proxy.

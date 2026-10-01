@@ -58,6 +58,68 @@ suite("print idempotency (Odoo → Gateway)", () => {
     return res.rows[0].n;
   }
 
+  it("Gateway DB clock is authoritative even when the Node clock is skewed", async () => {
+    const clock = await pool().query("SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms");
+    const dbNowMs = Number(clock.rows[0].now_ms);
+    const realNow = Date.now;
+    const skewedNow = dbNowMs + 6 * 60 * 60 * 1000;
+    const restore = Date.now;
+    Date.now = () => skewedNow;
+    try {
+      const explicitFuture = new Date(dbNowMs + 30 * 60 * 1000);
+      const result = await createPrintJobForPrinter(f.printerId, originalPayload(), {
+        requestedBy: "odoo",
+        tenantId: f.tenantId,
+        expiresAt: explicitFuture,
+        idempotencyKey: "op-db-clock-skew-explicit",
+        destination: f.destination,
+        documentType: "invoice",
+      });
+      expect(result.isReused).toBe(false);
+      const row = await pool().query("SELECT EXTRACT(EPOCH FROM expires_at) * 1000 AS expires_ms FROM print_jobs WHERE id = $1", [result.id]);
+      const expiresMs = Number(row.rows[0].expires_ms);
+      expect(expiresMs).toBeGreaterThan(dbNowMs + 29 * 60 * 1000);
+      expect(expiresMs).toBeLessThan(dbNowMs + 31 * 60 * 1000);
+
+      const defaultResult = await createPrintJobForPrinter(f.printerId, originalPayload(), {
+        requestedBy: "odoo",
+        tenantId: f.tenantId,
+        idempotencyKey: "op-db-clock-skew-default",
+        destination: f.destination,
+        documentType: "invoice",
+      });
+      const defaultRow = await pool().query("SELECT EXTRACT(EPOCH FROM expires_at) * 1000 AS expires_ms FROM print_jobs WHERE id = $1", [defaultResult.id]);
+      const defaultExpiresMs = Number(defaultRow.rows[0].expires_ms);
+      expect(defaultExpiresMs).toBeGreaterThan(dbNowMs + 59 * 60 * 1000);
+      expect(defaultExpiresMs).toBeLessThan(dbNowMs + 61 * 60 * 1000);
+    } finally {
+      Date.now = restore;
+    }
+  });
+
+  it("does not reuse an internal Manager job through the Odoo idempotency surface", async () => {
+    const key = "op-internal-collision";
+    const internal = await createPrintJobForPrinter(f.printerId, jobBody(key).payload, {
+      requestedBy: "manager",
+      tenantId: f.tenantId,
+      destination: "POS",
+      documentType: "invoice",
+      idempotencyKey: key,
+    });
+    expect(internal.isReused).toBe(false);
+
+    const res = await create(jobBody(key));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+    expect(await jobCount()).toBe(1);
+
+    const statusRes = await printJobsGET(new Request(`http://gateway.test/api/print/jobs?id=${internal.id}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${f.odooKey}` },
+    }));
+    expect(statusRes.status).toBe(404);
+  });
+
   it("first request creates one durable job", async () => {
     const res = await create(jobBody("op-first"));
     expect(res.status).toBe(201);
@@ -190,10 +252,11 @@ suite("print idempotency (Odoo → Gateway)", () => {
     expect(replayed.jobId).toBe(created.jobId);
     expect(await jobCount()).toBe(1);
 
-    const foreignRead = await printJobsGET(new Request(`http://gateway.test/api/print/jobs?id=${created.jobId}`, {
+    const rotatedRead = await printJobsGET(new Request(`http://gateway.test/api/print/jobs?id=${created.jobId}`, {
       headers: { Authorization: `Bearer ${otherKey}` },
     }));
-    expect(foreignRead.status).toBe(404);
+    expect(rotatedRead.status).toBe(200);
+    expect((await rotatedRead.json()).jobId).toBe(created.jobId);
   });
 
   it("converges concurrent operator reprints on one active reprint", async () => {

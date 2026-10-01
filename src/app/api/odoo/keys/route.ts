@@ -1,12 +1,14 @@
+import { ActionError } from "../../../../lib/action-error";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
-import { apiKeys, tenantSubscriptions } from "../../../../db/schema";
-import { validateManager } from "../../../../lib/manager-auth";
+import { apiKeys } from "../../../../db/schema";
+import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { generateOdooApiKey } from "../../../../lib/odoo-auth";
-import { eq, and, desc, isNotNull, isNull, lte, or } from "drizzle-orm";
+import { eq, and, desc, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { writeAuditEvent } from "../../../../lib/audit";
+import { isTenantBillingError, requireTenantBillingAccess } from "../../../../lib/entitlements";
 
 const keyInputSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
@@ -28,9 +30,11 @@ function pgErrorCode(error: unknown): string | null {
 }
 
 export async function GET(req: Request) {
-  const manager = await validateManager(req);
+  const manager = await validateWorkspaceManager(req);
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(manager, "integrations.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  // Same coded ActionError shape as POST/DELETE so clients parse one
+  // authorization-failure contract across the route.
+  try { requireManagerPermission(manager, "integrations.read"); } catch { const e = new ActionError("Forbidden", 403, "FORBIDDEN"); return NextResponse.json({ error: e.message, code: e.code, ...(e.details ?? {}) }, { status: e.status }); }
   // Intentionally uncapped: the list page has no pagination and revoked keys
   // must remain visible (they cannot be removed while referenced by jobs), so
   // a limit would silently hide credentials. The table is low-cardinality and
@@ -47,43 +51,26 @@ export async function GET(req: Request) {
       odooEnabled: apiKeys.odooEnabled,
       odooEnabledRevision: apiKeys.odooEnabledRevision,
       odooEnabledUpdatedAt: apiKeys.odooEnabledUpdatedAt,
+      rotationState: sql<"active" | "retiring" | "revoked">`CASE
+        WHEN ${apiKeys.revokedAt} IS NOT NULL
+          AND ${apiKeys.readOnlyUntil} IS NOT NULL
+          AND ${apiKeys.readOnlyUntil} > clock_timestamp()
+          THEN 'retiring'
+        WHEN ${apiKeys.revokedAt} IS NOT NULL THEN 'revoked'
+        ELSE 'active'
+      END`,
     })
     .from(apiKeys)
     .where(eq(apiKeys.tenantId, manager.tenantId))
     .orderBy(desc(apiKeys.createdAt));
 
-  const now = Date.now();
-  return NextResponse.json(rows.map((row) => ({
-    ...row,
-    rotationState:
-      row.revokedAt && row.readOnlyUntil && new Date(row.readOnlyUntil).getTime() > now
-        ? "retiring" as const
-        : row.revokedAt
-          ? "revoked" as const
-          : "active" as const,
-  })));
+  return NextResponse.json(rows);
 }
 
 export async function POST(req: Request) {
-  const manager = await validateManager(req);
-  if (manager) { try { requireManagerPermission(manager, "integrations.manage"); } catch { return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { "content-type": "application/json" } }); } }
+  const manager = await validateWorkspaceManager(req);
+  if (manager) { try { requireManagerPermission(manager, "integrations.manage"); } catch { const e = new ActionError("Forbidden", 403, "FORBIDDEN"); return NextResponse.json({ error: e.message, code: e.code, ...(e.details ?? {}) }, { status: e.status }); } }
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  // Configuring a Gateway requires an active plan subscription. Without it
-  // Odoo could never print (agent pairing and job execution are gated too),
-  // so fail fast with an actionable billing error instead of a key that
-  // can never converge.
-  const sub = await db.query.tenantSubscriptions.findFirst({
-    where: eq(tenantSubscriptions.tenantId, manager.tenantId),
-    columns: { status: true, currentPeriodEnd: true },
-  });
-  const periodLive = !sub?.currentPeriodEnd || new Date(sub.currentPeriodEnd) > new Date();
-  if (!sub || !["trialing", "active", "past_due"].includes(sub.status) || !periodLive) {
-    return NextResponse.json(
-      { error: "An active subscription is required before configuring a Gateway. Choose a plan in Billing first.", code: "SUBSCRIPTION_REQUIRED" },
-      { status: 403 },
-    );
-  }
 
   let body: unknown = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -95,8 +82,14 @@ export async function POST(req: Request) {
   const description = parsed.data.description?.trim() || null;
   const { raw, hashed, id } = generateOdooApiKey();
 
-  await db.transaction(async (tx) => {
-    await tx.insert(apiKeys).values({
+  try {
+    await db.transaction(async (tx) => {
+      // Creating a new Odoo credential grants runtime access. Keep the
+      // entitlement decision and credential insertion in the SAME transaction
+      // so Stripe subscription changes serialize with this control-plane write.
+      await requireTenantBillingAccess(tx, manager.tenantId);
+
+      await tx.insert(apiKeys).values({
       id,
       name,
       description,
@@ -111,8 +104,17 @@ export async function POST(req: Request) {
       resourceType: "api_key",
       resourceId: id,
       metadata: {},
-    }, tx);
-  });
+      }, tx);
+    });
+  } catch (error) {
+    if (isTenantBillingError(error)) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 403, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    throw error;
+  }
   return NextResponse.json({
     id,
     name,
@@ -123,7 +125,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const manager = await validateManager(req);
+  const manager = await validateWorkspaceManager(req);
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(manager, "integrations.manage"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   let body: unknown = {};
@@ -145,7 +147,7 @@ export async function DELETE(req: Request) {
           isNotNull(apiKeys.revokedAt),
           or(
             isNull(apiKeys.readOnlyUntil),
-            lte(apiKeys.readOnlyUntil, new Date()),
+            lte(apiKeys.readOnlyUntil, sql`clock_timestamp()`),
           ),
         ))
         .returning({ id: apiKeys.id });
@@ -163,7 +165,7 @@ export async function DELETE(req: Request) {
 
   const revoked = await db.transaction(async (tx) => {
     const result = await tx.update(apiKeys)
-      .set({ revokedAt: new Date(), odooEnabled: false })
+      .set({ revokedAt: sql`clock_timestamp()`, odooEnabled: false })
       .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId)))
       .returning({ id: apiKeys.id, revokedAt: apiKeys.revokedAt });
     if (!result.length) return null;

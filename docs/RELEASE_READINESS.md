@@ -7,22 +7,22 @@ Single dashboard showing P0 must-close before Production and industry compliance
 
 | Area | Implemented | Runtime Verified | Status | Evidence |
 | ---- | ----------- | ---------------- | ------ | -------- |
-| Real Print Certification Mode (canonical pipeline + idempotency + state-driven) | PASS | BLOCKED | BLOCKED | POST /api/printers/[id]/certify uses createPrintJobForPrinter (canonical), Idempotency-Key header, state-driven from job row (queued→pending, claimed→ok), Physical BLOCKED in sandbox, never auto-certify. 7 tests green. |
-| Printer Capability Matrix (evidence-based) | PASS | PASS | PASS | GET /api/printers/capabilities, printer-health.ts freshness check, driver health from capabilities.driver_name + fresh, spooler health requires spooler_status. 6 tests green. |
-| Agent Health ONLINE/DEGRADED/OFFLINE/STARTING (observed vs inferred) | PASS | PASS | PASS | lib/agent-health.ts STARTING from createdAt<5min never seen, ONLINE <90s, DEGRADED 90s-5m, OFFLINE >5m, checks Gateway observed, Queue observed, Printers observed, Version observed, Heartbeat inferred labeled, failureCount null NOT MEASURED. 8 tests green. |
+| Real Print Certification Mode (canonical pipeline + idempotency + state-driven) | PASS | BLOCKED | BLOCKED | POST /api/printers/[id]/certify uses createPrintJobForPrinter (canonical), Idempotency-Key header, state-driven from job row (queued→pending, claimed→ok), Physical BLOCKED in sandbox, never auto-certify.. |
+| Printer Capability Matrix (evidence-based) | PASS | PASS | PASS | GET /api/printers/capabilities, printer-health.ts freshness check, driver health from capabilities.driver_name + fresh, spooler health requires spooler_status.. |
+| Agent Health ONLINE/DEGRADED/OFFLINE/STARTING (observed vs inferred) | PASS | PASS | PASS | lib/agent-health.ts STARTING from createdAt<5min never seen, ONLINE <90s, DEGRADED 90s-5m, OFFLINE >5m, checks Gateway observed, Queue observed, Printers observed, Version observed, Heartbeat inferred labeled, failureCount null NOT MEASURED.. |
 | Windows Service Recovery | PASS | BLOCKED | BLOCKED | docs/WINDOWS_SERVICE_RECOVERY.md, /api/agents/service-status BLOCKED explicit, code hardened. Runtime requires Windows host — BLOCKED. |
 | Printer Queue Health + Gateway↔Spooler linking | PASS | PASS | PASS | Statuses with freshness, spoolerJobId linking, agent/jobs PATCH persists. |
-| Job Timeline (redacted claim tokens) | PASS | PASS | PASS | GET /api/jobs/[id]/timeline, claim token redacted via sha256, regression test. 4 tests green. |
-| Distributed Trace (OTel-inspired, not full OTel) | PASS | PASS | PASS | correlation.ts, tracing.ts OTel-inspired, X-Request-Id, log enrichment, docs honest. 5 tests green. |
-| System Health tenant-safe + overall policy | PASS | PASS | PASS | checkQueue requires tenantId (tenant-safe), overall policy prevents false OK when UNKNOWN, Odoo/Billing UNKNOWN honest. 6 tests green. |
-| Tenant isolation | PASS | PASS | PASS | 413 tests green, composite FKs, tenant scoping. |
+| Job Timeline (redacted claim tokens) | PASS | PASS | PASS | GET /api/jobs/[id]/timeline, claim token redacted via sha256, regression test.. |
+| Distributed Trace (OTel-inspired, not full OTel) | PASS | PASS | PASS | correlation.ts, X-Request-Id, log enrichment, docs/DISTRIBUTED_TRACING.md; automated regression coverage is reported by GitHub Actions. |
+| System Health tenant-safe + overall policy | PASS | PASS | PASS | checkQueue requires tenantId (tenant-safe), overall policy prevents false OK when UNKNOWN, Odoo/Billing UNKNOWN honest.. |
+| Tenant isolation | PASS | PASS | PASS | automated regression coverage, composite FKs, tenant scoping. |
 | Claim tokens not exposed | PASS | PASS | PASS | timeline redacts via hash, regression test. |
 | IPP support / driverless direction (not certified) | PASS | BLOCKED | BLOCKED | IPP/IPPS transport supported, but NOT claiming IPP Everywhere certification without conformance testing. |
 | Tauri updater signed | FAIL | BLOCKED | BLOCKED | No updater plugin/config in tauri.conf.json/Cargo.toml — NOT IMPLEMENTED, marked BLOCKED. |
 | Physical printing | PASS | BLOCKED | BLOCKED | Job row created but paper unverified, Physical BLOCKED by design. |
 | Odoo runtime | PASS | BLOCKED | BLOCKED | Views fixed, but no Odoo deployment — System health Odoo UNKNOWN honest. |
 | PostgreSQL integration | PASS | BLOCKED | BLOCKED | Code inspected, integration tests skipped without DB. |
-| Go race detector | PASS | BLOCKED | BLOCKED | No Go toolchain. |
+| Go race detector | PASS | BLOCKED | BLOCKED | The Go race suite is exercised in CI; local runtime evidence is environment-dependent. |
 
 ## P1 Features — Honest
 - System Health single page: /system-health, /api/system/health — PASS (tenant-safe, policy documented)
@@ -35,7 +35,7 @@ Single dashboard showing P0 must-close before Production and industry compliance
 - Driver Health Check: PASS — capability matrix driver field evidence-based
 - RAW vs Spooler/IPP distinction: PASS — printer-capability.ts, Win32 regression suite BLOCKED (requires Windows)
 - Fuzzing printer inputs: PASS — payload validation tests
-- Diagnostic Test Page: PASS — /api/printers/[id]/test-print, YASSER TEST PAGE no credentials
+- Diagnostic Test Page: PASS — /api/printers/[id]/test-print, YASEIR TEST PAGE no credentials
 - Offline Mode/Recovery Center: NOT IMPLEMENTED — queue durability exists
 - Secure Updater signed artifact: FAIL/BLOCKED — no updater config
 - Tauri Isolation: PASS — 21 caps least-privilege, origin check, method allowlist
@@ -54,21 +54,22 @@ Single dashboard showing P0 must-close before Production and industry compliance
 - **OTel-inspired distributed correlation** (not full OpenTelemetry): custom application-specific fields, documented as such, not official OTel semantic conventions — PASS honest
 
 ## Verification
-- `npm run test:unit` — 413+ tests green (was 387), includes new regression tests for tenant-safe, claim redaction, evidence-based health
-- `npm run build` — 53 pages green
+- `npm run test:unit` — automated unit/regression coverage; current result is reported by GitHub Actions
 - No secrets in test pages (No credentials are printed)
 - Tenant isolation preserved (checkQueue requires tenantId)
 - State machine preserved (timeline only records, doesn't mutate)
 - Security contracts preserved (claim tokens redacted)
-- No fake PASS: Windows Service, Physical printing, Odoo runtime, PG integration, Go race, Tauri updater, IPP Everywhere certification all BLOCKED explicit
+- No fake PASS: Windows Service, Physical printing, Odoo runtime, PG integration, Tauri updater, and IPP Everywhere certification remain explicitly blocked where runtime or conformance evidence is unavailable.
 
 ## Release Decision
-**RELEASE READY WITH EXPLICIT BLOCKED** — P0 implemented with truthful state-driven wizard, tenant-safe health, claim token redaction, evidence-based printer/agent health. BLOCKED items explicit:
+**NOT RELEASE-READY YET — EXTERNAL VERIFICATION GATES REMAIN**. The implemented code paths and automated contracts may be PASS where evidence exists, but the repository cannot be declared production-ready while Windows/Tauri, physical printing, Odoo runtime, PostgreSQL integration, and other explicitly blocked production-critical verification remain incomplete.
+
+BLOCKED items explicit:
 - Physical printing BLOCKED (no hardware)
 - Windows Service runtime BLOCKED (no Windows host)
 - Odoo runtime BLOCKED (no deployment)
 - PostgreSQL integration BLOCKED (no DB)
-- Go race BLOCKED (no toolchain)
+- Go race runtime status depends on the CI/runner toolchain; no local hardware/runtime claim is made here.
 - Tauri updater BLOCKED (no config)
 - IPP Everywhere certification BLOCKED (no conformance testing)
 

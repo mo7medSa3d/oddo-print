@@ -41,8 +41,15 @@ This runs `scripts/db-migrate.ts` which applies all pending migrations from `dri
 | 0057 | 1 | API key composite index |
 | 0058 | 1 | Scope Odoo activation to the installation API key |
 | 0059 | 1 | Remove API key scope and document-type restrictions |
+| 0060–0069 | 10 | Billing, usage, time authority, key rotation, job-event hardening, and claim-id redaction |
+| 0070 | 1 | Durable discovered-device identity for per-Agent sync convergence |
+| 0071 | 1 | Remove obsolete print-job rate-limit table |
+| 0072 | 1 | Tenant-scoped printer identity and discovered devices |
+| 0073 | 1 | Refresh tokens table for auth session management |
+| 0074 | 1 | Token-table delete cascades and drop of the dead applications table |
+| 0075 | 1 | Discovery state-machine CHECKs and drop of the redundant device-identity index |
 
-**Total**: 60 migrations (0000–0059)
+**Total**: 76 migrations (0000–0075)
 
 ## Migration Policy
 

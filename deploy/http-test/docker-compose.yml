@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16.15-alpine
+    image: postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     restart: unless-stopped
     environment:
       TZ: UTC
@@ -18,7 +18,7 @@ services:
       retries: 10
       start_period: 10s
     networks:
-      - yasser_http_test
+      - yaseir_http_test
 
   migrate:
     build:
@@ -40,7 +40,7 @@ services:
       - postgres_password
     command: ["npm", "run", "db:migrate"]
     networks:
-      - yasser_http_test
+      - yaseir_http_test
 
   gateway:
     build:
@@ -52,7 +52,7 @@ services:
         condition: service_completed_successfully
     environment:
       NODE_ENV: production
-      YASSER_HTTP_TEST_MODE: "1"
+      YASEIR_HTTP_TEST_MODE: "1"
       TZ: UTC
       HOSTNAME: 0.0.0.0
       PORT: 3000
@@ -70,8 +70,9 @@ services:
       TRUST_PROXY: "1"
       TRUST_PROXY_SECRET_FILE: /run/secrets/trust_proxy_secret
       APP_BASE_URL: ${APP_BASE_URL}
+      PLATFORM_TENANT_ID: ${PLATFORM_TENANT_ID}
       STRIPE_PLAN_CATALOG: ${STRIPE_PLAN_CATALOG}
-      YASSER_TEST_EMAIL_CAPTURE_FILE: /test-data/verification-email.txt
+      YASEIR_TEST_EMAIL_CAPTURE_FILE: /tmp/yaseir-http-test-verification-email.txt
     secrets:
       - postgres_password
       - gateway_jwt_secret
@@ -79,8 +80,6 @@ services:
       - trust_proxy_secret
     expose:
       - "3000"
-    volumes:
-      - ./test-data:/test-data
     command: ["node_modules/.bin/tsx", "server.ts"]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -89,22 +88,24 @@ services:
       retries: 10
       start_period: 30s
     networks:
-      - yasser_http_test
+      - yaseir_http_test
 
   caddy:
-    image: caddy:2.11.4-alpine
+    image: caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e
     restart: unless-stopped
     depends_on:
       gateway:
         condition: service_healthy
     secrets:
       - trust_proxy_secret
+    environment:
+      HTTP_TEST_HOST: ${HTTP_TEST_HOST}
     ports:
-      - "${HTTP_TEST_PORT}:80"
+      - "${HTTP_TEST_BIND_IP}:${HTTP_TEST_PORT}:80"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     networks:
-      - yasser_http_test
+      - yaseir_http_test
 
 volumes:
   postgres_http_test_data:
@@ -120,5 +121,5 @@ secrets:
     environment: TRUST_PROXY_SECRET
 
 networks:
-  yasser_http_test:
+  yaseir_http_test:
     driver: bridge

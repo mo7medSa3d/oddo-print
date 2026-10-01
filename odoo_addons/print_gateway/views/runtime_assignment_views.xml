@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Branch → Runtime Agent assignments. Written by the Pair Agent wizard
-         or created additively when a binding names a runtime target. The
-         assignment remains independent so removing one binding cannot silently
-         remove the branch's other valid agent assignments. -->
+    <!-- Branch → Runtime Agent assignments. This is the explicit source of
+         truth for which Gateway agents may serve each Odoo scope. Bindings
+         consume these assignments; creating a binding must not create or widen
+         an assignment implicitly. -->
     <record id="view_print_gateway_runtime_assignment_list" model="ir.ui.view">
         <field name="name">print_gateway.runtime_agent_assignment.list</field>
         <field name="model">print_gateway.runtime_agent_assignment</field>

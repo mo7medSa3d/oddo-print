@@ -33,6 +33,30 @@ type Payload struct {
 	Peripherals Peripherals
 }
 
+func requiredStringField(m map[string]interface{}, key string) (string, error) {
+	raw, ok := m[key]
+	if !ok || raw == nil {
+		return "", fmt.Errorf("payload.%s is required", key)
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("payload.%s must be a string", key)
+	}
+	return value, nil
+}
+
+func optionalStringField(m map[string]interface{}, key string) (string, error) {
+	raw, ok := m[key]
+	if !ok || raw == nil {
+		return "", nil
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("payload.%s must be a string", key)
+	}
+	return value, nil
+}
+
 func Parse(raw interface{}) (*Payload, error) {
 	if raw == nil {
 		return nil, fmt.Errorf("payload is missing")
@@ -42,7 +66,10 @@ func Parse(raw interface{}) (*Payload, error) {
 		return nil, fmt.Errorf("payload must be a JSON object")
 	}
 
-	typ, _ := m["type"].(string)
+	typ, err := requiredStringField(m, "type")
+	if err != nil {
+		return nil, err
+	}
 	switch Type(typ) {
 	case TypeRaw, TypeESCPOS, TypePDF, TypeImage:
 	default:
@@ -52,7 +79,10 @@ func Parse(raw interface{}) (*Payload, error) {
 		return nil, fmt.Errorf("unsupported payload type %q (expected %q, %q, %q or %q)", typ, TypeRaw, TypeESCPOS, TypePDF, TypeImage)
 	}
 
-	protocol, _ := m["protocol"].(string)
+	protocol, err := optionalStringField(m, "protocol")
+	if err != nil {
+		return nil, err
+	}
 
 	switch Type(typ) {
 	case TypeRaw:
@@ -77,11 +107,17 @@ func Parse(raw interface{}) (*Payload, error) {
 		}
 	}
 
-	encoding, _ := m["encoding"].(string)
+	encoding, err := requiredStringField(m, "encoding")
+	if err != nil {
+		return nil, err
+	}
 	if encoding != EncodingBase64 {
 		return nil, fmt.Errorf("unsupported payload encoding %q (only %q is supported)", encoding, EncodingBase64)
 	}
-	dataStr, _ := m["data"].(string)
+	dataStr, err := requiredStringField(m, "data")
+	if err != nil {
+		return nil, err
+	}
 	if dataStr == "" {
 		return nil, fmt.Errorf("payload.data is required")
 	}
@@ -113,6 +149,16 @@ func Parse(raw interface{}) (*Payload, error) {
 
 	var periph Peripherals
 	if periphMap, ok := m["peripherals"].(map[string]interface{}); ok {
+		// A present-but-non-string peripheral is a contract violation, not
+		// an absent one: the Gateway's z.enum rejects it, so silently
+		// ignoring it here would print without the requested device action.
+		for _, key := range []string{"drawer", "cutter", "buzzer"} {
+			if v, present := periphMap[key]; present {
+				if _, ok := v.(string); !ok {
+					return nil, fmt.Errorf("invalid %s mode type %T; expected string", key, v)
+				}
+			}
+		}
 		if d, ok := periphMap["drawer"].(string); ok {
 			switch d {
 			case "pin2", "pin5", "none":

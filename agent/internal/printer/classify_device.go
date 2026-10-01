@@ -8,7 +8,7 @@ import (
 /* ============================================================
    Printer classification — physical vs virtual vs redirected
    ------------------------------------------------------------
-   The Yasser Gateway must only ever route production work to
+   The Yaseir Gateway must only ever route production work to
    REAL printing hardware. Windows, however, installs a software
    print queue for a great many things that never touch paper:
 
@@ -317,6 +317,7 @@ var sessionRedirectTokens = []string{
 	"easy print",
 	"citrix",
 	"vmware virtual print",
+	"vmware universal printer",
 	"thinprint",
 	"safeguard print",
 }
@@ -432,7 +433,8 @@ func physicalEvidence(f DeviceFacts) (bool, string, string) {
 	if (conn == "network" || conn == "tcp") && strings.TrimSpace(f.NetworkAddress) != "" {
 		return true, "network-endpoint", "high"
 	}
-	switch kind, _ := portKind(f.PortName); kind {
+	kind, _ := portKind(f.PortName) // isVirtual is not relevant after virtual evidence was already evaluated.
+	switch kind {
 	case "usb", "wsd", "local", "network":
 		return true, "hardware-port:" + kind, "high"
 	case "other":

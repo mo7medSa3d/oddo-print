@@ -24,13 +24,14 @@ describe("claim-token-redaction", () => {
     expect(source).not.toMatch(/correlation:\s*\{[^}]*claimId:\s*job\.claimToken/);
   });
 
-  it("job-timeline lib does not expose claim token directly", () => {
+  it("job-timeline lib does not persist a raw claim token", () => {
     const source = fs.readFileSync("src/lib/job-timeline.ts", "utf8");
-    // recordJobEvent should not log raw claim token as message
-    expect(source).toContain("claimId");
-    // Ensure log sanitization exists
-    const logSource = fs.readFileSync("src/lib/log.ts", "utf8");
-    expect(logSource).toContain("token");
-    expect(logSource).toContain("[redacted]");
+    expect(source).toContain("redactClaimId(input.claimId ?? ctx?.claimId)");
+    expect(source).not.toContain("claimId: input.claimId ?? ctx?.claimId");
+  });
+
+  it("logger does not emit a raw claim id from correlation context", () => {
+    const source = fs.readFileSync("src/lib/log.ts", "utf8");
+    expect(source).toContain("redactClaimId(ctx.claimId)");
   });
 });

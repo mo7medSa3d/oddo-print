@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { tenants } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql, type SQL } from "drizzle-orm";
 
 /**
  * Thrown when a tenant is suspended. Maps to HTTP 403.
@@ -27,16 +27,33 @@ export class TenantDeletedError extends Error {
 export type TenantLifecycleStatus = "active" | "suspended" | "deleted";
 
 /**
- * Reusable guard that verifies a tenant is in the 'active' lifecycle state.
- *
- * Throws TenantSuspendedError or TenantDeletedError if the tenant is not
- * active. Returns the lifecycle status on success.
- *
- * This is designed to be called in auth validation paths so all
- * tenant-scoped operations are consistently gated.
+ * Transactional tenant lifecycle write fence.
+ * The shared tenant-row lock is the linearization point: a committed
+ * suspension/deletion is observed before any protected mutation, while a
+ * runtime transaction holding the fence makes lifecycle transition wait.
  */
+export async function requireActiveTenantInTransaction(
+  tx: { execute: (query: SQL) => Promise<unknown> },
+  tenantId: string,
+): Promise<TenantLifecycleStatus> {
+  const result = await tx.execute(sql`
+    SELECT lifecycle
+    FROM tenants
+    WHERE id = ${tenantId}
+    FOR SHARE
+  `) as { rows?: unknown[] };
+  const lifecycle = (result.rows?.[0] as { lifecycle?: unknown } | undefined)?.lifecycle;
+  if (lifecycle === "suspended") throw new TenantSuspendedError(tenantId);
+  if (lifecycle === "deleted" || lifecycle === undefined) throw new TenantDeletedError(tenantId);
+  if (lifecycle !== "active") throw new TenantDeletedError(tenantId);
+  return "active";
+}
+
 /**
  * Lifecycle-only convenience guard for authentication paths.
+ *
+ * Reusable guard that verifies a tenant is in the 'active' lifecycle state;
+ * throws TenantSuspendedError or TenantDeletedError otherwise.
  *
  * Expected tenant lifecycle denials become null so callers can preserve their
  * existing authentication return contract. Unexpected database/transport
@@ -70,7 +87,10 @@ export async function requireActiveTenant(tenantId: string): Promise<TenantLifec
   if (lifecycle === "suspended") {
     throw new TenantSuspendedError(tenantId);
   }
-  if (lifecycle === "deleted") {
+  // Mirror the transactional guard (requireActiveTenantInTransaction):
+  // anything that is not exactly "active" is denied, so an unexpected
+  // lifecycle value can never fall through as valid.
+  if (lifecycle !== "active") {
     throw new TenantDeletedError(tenantId);
   }
 

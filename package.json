@@ -1,7 +1,7 @@
 {
   "name": "yasser-gateway",
   "version": "1.0.0",
-  "description": "Yasser — Cloud Printing Platform (Next.js + PostgreSQL + Drizzle), Windows Go agent, and Tauri desktop manager",
+  "description": "Yaseir — Cloud Printing Platform (Next.js + PostgreSQL + Drizzle), Windows Go agent, and Tauri desktop manager",
   "license": "MIT",
   "private": true,
   "engines": {
@@ -18,7 +18,7 @@
     "test:watch": "vitest --config vitest.config.mts",
     "db:migrate": "tsx scripts/db-migrate.ts",
     "db:push": "drizzle-kit push",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "tsx scripts/db-generate.ts",
     "db:studio": "drizzle-kit studio",
     "desktop:vite:build": "vite build --config vite.desktop.config.mts",
     "desktop:build": "npm run desktop:vite:build && pwsh -File scripts/build-windows-installer.ps1",
@@ -29,7 +29,7 @@
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:e2e": "vitest run --config vitest.integration.config.mts --run tests/e2e-job-flow.test.ts",
     "test:odoo:static": "pytest tests/test_odoo19_printing_static.py",
-    "build": "next build",
+    "build": "next build --webpack",
     "db:provision-plans": "tsx scripts/provision-plans.ts",
     "platform:bootstrap": "tsx scripts/bootstrap-platform-owner.ts"
   },
@@ -38,7 +38,7 @@
     "clsx": "^2.1.1",
     "drizzle-orm": "0.45.2",
     "lucide-react": "^1.41.0",
-    "next": "16.3.4",
+    "next": "16.3.6",
     "pg": "8.23.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -57,7 +57,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "drizzle-kit": "0.31.10",
     "eslint": "^9.39.5",
-    "eslint-config-next": "16.3.4",
+    "eslint-config-next": "16.3.6",
     "jsdom": "^30.0.1",
     "postcss": "^8.5.28",
     "tailwindcss": "4.3.3",
@@ -66,6 +66,18 @@
     "vitest": "5.0.1"
   },
   "overrides": {
-    "esbuild": "0.28.2"
+    "minimatch@3.1.5": {
+      "brace-expansion": "1.1.21"
+    },
+    "minimatch@10.2.6": {
+      "brace-expansion": "5.0.12"
+    },
+    "esbuild": "0.28.2",
+    "undici": "8.10.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "unrs-resolver@1.12.2": true,
+    "fsevents@2.3.3": true
   }
 }

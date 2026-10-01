@@ -1,12 +1,12 @@
-# Yasser — Cloud Printing Platform
+# Yaseir — Cloud Printing Platform
 
-Silent Odoo enterprise printing through Yasser Gateway, Yasser Agent, and Yasser Print Manager.
+Silent Odoo enterprise printing through Yaseir Gateway, Yaseir Agent, and Yaseir Print Manager.
 
 ```text
 Odoo ERP
-  -> Yasser Gateway (HTTPS / WSS)
+  -> Yaseir Gateway (HTTPS / WSS)
   -> Central Print Router
-  -> Yasser Agent / Yasser Print Manager
+  -> Yaseir Agent / Yaseir Print Manager
   -> Physical Hardware Printers
 ```
 
@@ -47,14 +47,14 @@ Managers can generate an Odoo API key, copy the raw value once, and revoke it. G
 ## Platform plans and entitlements
 
 The Platform Control Plane manages the commercial plan catalog at `/platform/plans`.
-A plan contains the Yasser-side entitlements `max_agents`, `max_printers`, `max_jobs_per_minute`, and `max_concurrent_jobs`.
+A plan contains the Yaseir-side entitlements `max_agents`, `max_printers`, `max_jobs_per_minute`, `max_concurrent_jobs`, and `max_prints_per_period`.
 These limits are enforced server-side from the tenant's current subscription plan; they are not UI-only values.
 
-Stripe remains the source of truth for money and recurring billing. Create the Stripe Product/Price in Stripe, then bind its `price_...` (and optional `prod_...`) ID to the Yasser plan. Gateway validates that the Price is recurring and matches the plan currency/interval before a plan can become billable. Existing subscriptions continue using their current Stripe subscription price even when the plan's current price reference is changed for future checkout.
+Stripe remains the source of truth for money and recurring billing. Create the Stripe Product/Price in Stripe, then bind its `price_...` (and optional `prod_...`) ID to the Yaseir plan. Gateway validates that the Price is recurring and matches the plan currency/interval before a plan can become billable. Existing subscriptions continue using their current Stripe subscription price even when the plan's current price reference is changed for future checkout.
 
 Plan `Active` controls whether new customer checkout can use the plan. `Public` controls whether it appears in the public pricing/onboarding catalog. Archiving or hiding a plan does not remove entitlements from existing subscriptions. During Stripe `past_due` recovery, printing remains available; `unpaid`, `paused`, and canceled states do not provision runtime entitlements. A paused subscription resumes through Stripe's subscription resume API after a valid payment method is available.
 
-Customer Portal must be configured in Stripe with the Yasser subscription Prices you intend to offer for upgrades/downgrades. Portal changes are synchronized back through `customer.subscription.updated` webhooks.
+Customer Portal must be configured in Stripe with the Yaseir subscription Prices you intend to offer for upgrades/downgrades. Portal changes are synchronized back through `customer.subscription.updated` webhooks.
 
 The legacy `STRIPE_PLAN_CATALOG` / `npm run db:provision-plans` path remains available for first-boot/operator provisioning; Platform Admin changes to the managed catalog fields are preserved across subsequent provisioning runs.
 
@@ -75,5 +75,5 @@ PostgreSQL, Odoo 19, Windows, and physical-printer E2E are release gates and mus
 
 For a production server first deployment and end-to-end smoke test, follow [SERVER_FIRST_RUN.md](SERVER_FIRST_RUN.md).
 
-See [API.md](API.md), [INSTALLATION.md](INSTALLATION.md), [DEPLOYMENT.md](DEPLOYMENT.md), [OPERATIONS.md](OPERATIONS.md), and [SECURITY.md](SECURITY.md).
+See [API.md](API.md), [INSTALLATION.md](INSTALLATION.md), [DEPLOYMENT.md](DEPLOYMENT.md), [OPERATIONS.md](OPERATIONS.md), [SECURITY.md](SECURITY.md).
 

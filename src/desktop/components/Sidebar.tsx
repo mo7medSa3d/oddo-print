@@ -1,5 +1,5 @@
 import React from "react";
-import { LayoutDashboard, Printer, ClipboardList, Cpu, Settings, X, PanelLeftClose, PanelLeftOpen, ShieldCheck } from "lucide-react";
+import { X, PanelLeftClose, PanelLeftOpen, ShieldCheck } from "lucide-react";
 import { StatusDot } from "../../components/ui";
 import { BrandMarkIcon } from "../../components/brand";
 import type { Page } from "../types";
@@ -37,7 +37,7 @@ export function Sidebar({
         <BrandMarkIcon size="md" className="shrink-0" />
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[14px] font-semibold tracking-[-0.02em] text-ink">Yasser Print Manager</div>
+            <div className="truncate text-[14px] font-semibold tracking-[-0.02em] text-ink">Yaseir Print Manager</div>
             <div className="mt-0.5 truncate text-[10.5px] font-medium text-ink-3">Local print operations · v{version || "—"}</div>
           </div>
         )}
@@ -58,7 +58,7 @@ export function Sidebar({
                 onClick={() => { navigate(item.id); setSidebarOpen(false); }}
                 aria-current={active ? "page" : undefined}
                 title={collapsed ? item.label : undefined}
-                className={`relative flex w-full items-center gap-3 rounded-[10px] text-[13px] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 ${collapsed ? "justify-center px-2 py-3" : "px-3 py-2.5"} ${active ? "bg-brand-subtle font-semibold text-brand shadow-xs before:absolute before:inset-y-2 before:left-0 before:w-[2px] before:rounded-full before:bg-brand" : "font-medium text-ink-2 hover:bg-surface-2 hover:text-ink"}`}
+                className={`relative flex w-full items-center gap-3 rounded-[10px] text-[13px] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 ${collapsed ? "justify-center px-2 py-3" : "px-3 py-2.5"} ${active ? "bg-brand-subtle font-semibold text-brand shadow-xs before:absolute before:inset-y-2 before:left-0 before:w-[2px] before:rounded-[8px] before:bg-brand" : "font-medium text-ink-2 hover:bg-surface-2 hover:text-ink"}`}
               >
                 <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden />
                 {!collapsed && <span className="flex-1 text-left">{item.label}</span>}

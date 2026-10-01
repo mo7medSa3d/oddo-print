@@ -190,7 +190,7 @@ describe("DEFECT #6 — Odoo PDF Download vs Gateway Silent Printing", () => {
     const binding = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/models/binding.py"), "utf-8");
     const router = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/models/print_router.py"), "utf-8");
     expect(binding).toContain("context=None, data=None");
-    expect(binding).toContain("route_report(report, records, data=data)");
+    expect(binding).toContain("route_report(report, records, data=data, explicit_binding=binding)");
     expect(router).toContain("_render_pdf_payload(report, records, data=data)");
     expect(router).toContain("res_ids=records.ids, data=data");
   });
@@ -254,7 +254,7 @@ describe("DEFECT #6 — Agent test-print fast path", () => {
     const testPrinter = discovery.slice(discovery.indexOf("func TestPrinter"));
     expect(testPrinter).toContain("LoadRegistryPrinters(registryPath)");
     expect(testPrinter).not.toContain("DiscoverQuick(cfg, registryPath)");
-    expect(network).toContain("return p.printBytes(testCtx, []byte(\"\\x1b\\x40Hello from Yasser Agent!\\n\\n\\x1d\\x56\\x01\"), false, testPrintDialTimeout)");
+    expect(network).toContain("return p.printBytes(testCtx, []byte(\"\\x1b\\x40Hello from Yaseir Agent!\\n\\n\\x1d\\x56\\x01\"), false, testPrintDialTimeout)");
     expect(network).toContain("testPrintDialTimeout  = 3 * time.Second");
     expect(testSource).toContain("healthy test print took");
     expect(testSource).toContain("refused printer test took");

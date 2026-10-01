@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
 func TestStableID_SpoolerDeterministic(t *testing.T) {
@@ -163,6 +163,31 @@ func TestRegistryMergeDedup(t *testing.T) {
 	}
 	if merged[0].Status != "offline" {
 		t.Fatalf("expected offline status")
+	}
+}
+
+func TestUpsertRegistryPreservesCapabilitiesOnBareRediscovery(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "printers.json")
+	rich := DeviceInfo{ID: "printer_net_abc", Name: "Net Printer", ConnectionType: "network", Protocol: "raw", Status: "online", USBSerial: "CN123", Capabilities: map[string]interface{}{"driver_name": "Acme", "port_name": "IP_10.0.0.5"}}
+	if _, err := UpsertRegistry(path, []DeviceInfo{rich}); err != nil {
+		t.Fatalf("upsert1: %v", err)
+	}
+	// A bare rediscovery observation carries no capabilities/serial: the
+	// stored row must keep what was previously observed, not wipe it.
+	bare := DeviceInfo{ID: "printer_net_abc", Name: "Net Printer", ConnectionType: "network", Protocol: "raw", Status: "online"}
+	merged, err := UpsertRegistry(path, []DeviceInfo{bare})
+	if err != nil {
+		t.Fatalf("upsert2: %v", err)
+	}
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 after dedup, got %d", len(merged))
+	}
+	if merged[0].USBSerial != "CN123" {
+		t.Fatalf("bare rediscovery must not wipe the observed serial, got %q", merged[0].USBSerial)
+	}
+	if merged[0].Capabilities["driver_name"] != "Acme" {
+		t.Fatalf("bare rediscovery must not wipe observed capabilities, got %v", merged[0].Capabilities)
 	}
 }
 

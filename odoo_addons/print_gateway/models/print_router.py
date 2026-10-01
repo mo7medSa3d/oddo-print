@@ -11,6 +11,8 @@ import uuid
 from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
 
+from .binding import _assert_report_usage_access
+
 REPORT_DOCUMENT_TYPES = {
     "sale.order": "order",
     "account.move": "invoice",
@@ -110,20 +112,11 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     def _assert_branch_agent_assignment(self, gateway_company, branch, runtime_agent_id):
-        """Fail closed if a branch-scoped print target is not explicitly assigned.
-
-        Gateway Agent records are authoritative runtime identities; this Odoo mapping
-        only decides whether the current branch is allowed to route to that identity.
-        """
-        if not branch or not runtime_agent_id:
+        """Fail closed unless the Agent is assigned to the current Odoo scope."""
+        if not runtime_agent_id:
             return
-        assigned = self.env["print_gateway.runtime_agent_assignment"].sudo().search_count([
-            ("company_id", "=", gateway_company.id),
-            ("branch_id", "=", branch.id),
-            ("runtime_agent_id", "=", runtime_agent_id),
-            ("enabled", "=", True),
-        ])
-        if not assigned:
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        if not assignment_model.is_agent_assigned(gateway_company, branch, runtime_agent_id):
             raise ValidationError(
                 _("Gateway Runtime Agent '%s' is not assigned to the current Odoo Branch.") % runtime_agent_id
             )
@@ -183,7 +176,7 @@ class PrintGatewayRouter(models.AbstractModel):
                 _("Gateway printing is enabled, but no Print Binding exists for %s (%s) in %s.")
                 % (destination.display_name, dtype, branch.display_name if branch else gateway_company.display_name)
             )
-        self._assert_branch_agent_assignment(gateway_company, branch, binding.runtime_agent_id)
+        self._assert_branch_agent_assignment(gateway_company, binding.branch_id or False, binding.runtime_agent_id)
         return {
             "gateway_enabled": True,
             "native": False,
@@ -238,7 +231,8 @@ class PrintGatewayRouter(models.AbstractModel):
     def _render_pdf_payload_from_target(self, report_ref, render_target, *, context_values=None):
         try:
             renderer = self.env["ir.actions.report"].with_context(**(context_values or {}))
-            pdf_content, _ = renderer._render_qweb_pdf(report_ref, render_target)
+            res_ids = render_target.ids if hasattr(render_target, "ids") and render_target.ids else False
+            pdf_content, _ = renderer._render_qweb_pdf(report_ref, res_ids=res_ids, data=context_values)
         except Exception as exc:
             report = self.env.ref(report_ref, raise_if_not_found=False)
             label = report.display_name if report else report_ref
@@ -387,22 +381,39 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
-    def route_report(self, report, records, data=None):
+    def route_report(self, report, records, data=None, explicit_binding=None):
         report.ensure_one()
+        report = _assert_report_usage_access(self.env, report)
         records = records.exists()
         if not records:
             if self._gateway_config(self.env.company):
                 raise ValidationError(_("Gateway printing requires at least one report record."))
             return {"gateway_enabled": False, "native": True}
-        route = self.resolve_binding(report=report, record=records[0], company=self.env.company)
+
+        route = self.resolve_binding(
+            report=report,
+            record=records[0],
+            company=self.env.company,
+            explicit_binding=explicit_binding or None,
+            payload_type="pdf",
+        )
         if route.get("native"):
             return route
+
+        selected_binding_id = route["binding"].id
         for record in records[1:]:
             if hasattr(record, "company_id") and record.company_id and record.company_id != self.env.company:
                 raise ValidationError(_("Selected records belong to conflicting routing scopes."))
-            candidate = self.resolve_binding(report=report, record=record, company=self.env.company)
-            if candidate["binding"].id != route["binding"].id:
+            candidate = self.resolve_binding(
+                report=report,
+                record=record,
+                company=self.env.company,
+                explicit_binding=explicit_binding or None,
+                payload_type="pdf",
+            )
+            if candidate["binding"].id != selected_binding_id:
                 raise ValidationError(_("The selected records resolve to different Print Bindings. Print them separately."))
+
         return self._submit_route(
             route=route,
             payload=self._render_pdf_payload(report, records, data=data),
@@ -422,6 +433,7 @@ class PrintGatewayRouter(models.AbstractModel):
         if not report:
             raise ValidationError(_("The requested report is unavailable."))
         report.ensure_one()
+        report = _assert_report_usage_access(self.env, report)
         company = company or self.env.company
         self._assert_current_company(company)
         route = self.resolve_binding(
@@ -455,30 +467,42 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
-    def route_kitchen_print(self, order, native_printer, image_base64, *, reprint=False, idempotency_key=None):
+    def route_kitchen_print(self, order, image_base64, *, reprint=False, idempotency_key=None, pos_printer=None):
         order.ensure_one()
-        native_printer.ensure_one()
         self._assert_current_company(order.company_id, record=order)
         company = self.env.company
-        if native_printer.company_id != company:
-            raise ValidationError(_("Kitchen printer belongs to another Odoo company."))
         self._validate_jpeg_base64(image_base64)
+        explicit_destination = order.config_id
+        if pos_printer:
+            pos_printer.ensure_one()
+            preparation_printers = getattr(order.config_id, "preparation_printer_ids", None)
+            if preparation_printers is None:
+                preparation_printers = order.config_id.printer_ids
+            if pos_printer not in preparation_printers:
+                raise ValidationError(_("The selected Odoo Preparation Printer does not belong to this POS."))
+            explicit_destination = pos_printer
         route = self.resolve_binding(
-            record=order, company=company, document_type="kitchen", explicit_destination=native_printer,
+            record=order,
+            company=company,
+            document_type="kitchen",
+            explicit_destination=explicit_destination,
         )
         if route.get("native"):
             raise ValidationError(
-                _("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for the selected Odoo printer.")
+                _("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for the selected preparation printer.")
             )
-        stable_key = "%s:%s" % (idempotency_key or uuid.uuid4().hex, native_printer.id)
         return self._submit_route(
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},
-            company=company, source_model=order._name, source_record_id=order.id, idempotency_key=stable_key,
+            company=company, source_model=order._name, source_record_id=order.id, idempotency_key=idempotency_key,
         )
 
     @api.model
     @api.private
     def route_pos_sale_details(self, session, image_base64):
+        # NOTE — dual Sale Details paths: this POS-session path resolves
+        # explicit_destination=session.config_id, while the HTTP
+        # /pos/sale_details_report controller path resolves the destination
+        # from the report action. Bind each path in use.
         session.ensure_one()
         self._assert_current_company(session.company_id, record=session)
         self._validate_jpeg_base64(image_base64)
@@ -623,14 +647,24 @@ class PrintGatewayRouter(models.AbstractModel):
                     )
             elif current_company.parent_id:
                 # Root binding used from one of its branches: allowed as the
-                # documented find_for fallback. Nothing to reject.
+                # documented find_for fallback. The centralized runtime
+                # authorization permits an Agent assigned to this Company or
+                # to any of its direct child Branches for a company-wide rule.
                 pass
             if not binding.printer_id:
                 raise ValidationError(_("Print binding '%s' has no Gateway Runtime Printer assigned.") % binding.display_name)
             if binding.branch_id and not binding.runtime_agent_id:
                 raise ValidationError(_("Print binding '%s' has no Gateway Runtime Agent assigned.") % binding.display_name)
-            if binding.branch_id and binding.runtime_agent_id:
-                self._assert_branch_agent_assignment(binding.company_id, binding.branch_id, binding.runtime_agent_id)
+            if binding.runtime_agent_id:
+                # Authorization follows the Binding's declared scope: a Branch
+                # A Branch Binding must use an Agent assigned to that exact
+                # Branch. A root/company-wide Binding may use any assignment
+                # owned by the selected Company, including a child-Branch
+                # assignment.
+                binding_scope = binding.branch_id or False
+                self._assert_branch_agent_assignment(
+                    binding.company_id, binding_scope, binding.runtime_agent_id,
+                )
 
             target_binding = binding
             target_destination = binding.destination_ref or destination
@@ -756,7 +790,7 @@ class PrintGatewayRouter(models.AbstractModel):
         if proto == "zpl":
             ticket_raw = (
                 "^XA\n"
-                "^FO50,40^A0N,36,36^FDYASSER PRINT GATEWAY^FS\n"
+                "^FO50,40^A0N,36,36^FDYASEIR PRINT GATEWAY^FS\n"
                 "^FO50,85^A0N,30,30^FDPRINTER TEST^FS\n"
                 "^FO50,125^GB700,2,2^FS\n"
                 f"^FO50,145^A0N,26,26^FDCompany : {company_name}^FS\n"
@@ -772,7 +806,7 @@ class PrintGatewayRouter(models.AbstractModel):
                 "GAP 2 mm, 0 mm\n"
                 "DIRECTION 1\n"
                 "CLS\n"
-                'TEXT 50,35,"3",0,1,1,"YASSER PRINT GATEWAY"\n'
+                'TEXT 50,35,"3",0,1,1,"YASEIR PRINT GATEWAY"\n'
                 'TEXT 50,70,"2",0,1,1,"PRINTER TEST"\n'
                 f'TEXT 50,105,"2",0,1,1,"Company : {company_name}"\n'
                 f'TEXT 50,135,"2",0,1,1,"Location: {branch_name}"\n'
@@ -784,7 +818,7 @@ class PrintGatewayRouter(models.AbstractModel):
         elif proto == "raw":
             ticket_raw = (
                 "================================\n"
-                "     YASSER PRINT GATEWAY\n"
+                "     YASEIR PRINT GATEWAY\n"
                 "          PRINTER TEST\n"
                 "================================\n"
                 f"Company : {company_name}\n"
@@ -799,7 +833,7 @@ class PrintGatewayRouter(models.AbstractModel):
                 "\x1b\x40",  # Initialize printer
                 "\x1b\x61\x01",  # Centered
                 "================================\n",
-                "     YASSER PRINT GATEWAY\n",
+                "     YASEIR PRINT GATEWAY\n",
                 "          PRINTER TEST\n",
                 "================================\n",
                 "\x1b\x61\x00",  # Left align
@@ -884,7 +918,7 @@ class PrintGatewayRouter(models.AbstractModel):
 
         lines = [
             "BT", "/F1 24 Tf", "72 720 Td",
-            "(YASSER PRINT GATEWAY) Tj",
+            "(YASEIR PRINT GATEWAY) Tj",
             "/F1 18 Tf", "0 -40 Td", "(PRINTER TEST PAGE) Tj",
             "/F1 12 Tf", "0 -30 Td",
             f"(Company: {_pdf_text(company_name)}) Tj",

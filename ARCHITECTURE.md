@@ -1,10 +1,10 @@
-# Yasser Cloud Printing Platform — Architecture
+# Yaseir Cloud Printing Platform — Architecture
 
-> **Version**: 19.0.2.4.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
+> **Version**: 19.0.2.10.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
 
 ## 1. System Overview
 
-Yasser Cloud Printing Platform is a multi-tenant SaaS platform that enables silent, hardware-level printing from Odoo ERP to physical printers through a three-tier distributed architecture.
+Yaseir Cloud Printing Platform is a multi-tenant SaaS platform that enables silent, hardware-level printing from Odoo ERP to physical printers through a three-tier distributed architecture.
 
 ```
 ┌──────────────────┐     ┌────────────────────┐     ┌──────────────────┐
@@ -37,18 +37,18 @@ Yasser Cloud Printing Platform is a multi-tenant SaaS platform that enables sile
 
 ## 2. Component Architecture
 
-### 2.1 Central Gateway (Next.js 16.3.4 + Custom Server)
+### 2.1 Central Gateway (Next.js 16.3.6 + Custom Server)
 
 **Location**: `src/`, `server.ts`
 
-The Gateway is a Next.js 16.3.4 application with a **custom HTTP server** (`server.ts`) that:
+The Gateway is a Next.js 16.3.6 application with a **custom HTTP server** (`server.ts`) that:
 - Runs the Next.js request handler for API routes and dashboard UI
 - Attaches a WebSocket server for real-time agent communication (`/api/agent/ws`)
 - Runs periodic maintenance (job sweep, auth cleanup, agent presence sweep)
 - Enforces trusted proxy authentication (Caddy → Gateway)
 - Rejects known placeholder secrets in production mode
 
-**API Route Structure** (50 routes):
+**API Route Structure** (76 route files, verified 2026-09-28):
 - `/api/agent/*` — Agent data plane (heartbeat, jobs, register, discovery)
 - `/api/agents/*` — Agent management (CRUD, discovery sessions)
 - `/api/odoo/*` — Odoo integration endpoints (agents, printers, keys, health)
@@ -91,7 +91,7 @@ A Tauri 2 desktop application for Windows that provides:
 An Odoo 19 Community module that:
 - Owns print bindings: maps (Company/Branch, Document Type, Destination) → (Gateway Agent, Gateway Printer)
 - Intercepts `ir.actions.report` execution for silent PDF printing
-- Overrides `/report/download` controller for defense-in-depth report interception
+- Registers an OWL report-action handler (`report_interceptor.js`) for defense-in-depth silent report interception
 - Routes POS receipts and kitchen tickets as JPEG images
 - Supports raw command routing (ZPL, TSPL, ESC/POS) with protocol enforcement
 - Implements automated print policies with event-driven intent dispatch
@@ -124,6 +124,9 @@ Pool → Bridge (schema-per-tenant) → Silo (DB-per-tenant) → Cells/Stamps
 
 ## 4. State Model
 
+### Discovery synchronization
+Discovered printer candidates are Gateway runtime observations owned by the Agent. Each Agent report carries a durable `identity_key`; repeated observations for the same Agent converge through the tenant+Agent+identity uniqueness boundary. Omitted devices are not automatically deleted from runtime inventory, and cancelled/failed/partial discovery sessions remain visible for reconciliation.
+
 The system uses four DISTINCT state dimensions that must NOT be collapsed:
 
 | Dimension | Values | Owner | Purpose |
@@ -151,7 +154,7 @@ claimed → queued (fenced rejection / lease timeout)
 | Agent → Gateway | Bearer token: `{agentId}:{secret}` with SHA-256 hash comparison (timing-safe) |
 | Odoo → Gateway | API key (Bearer token) with SHA-256 hash lookup |
 | Manager → Gateway | JWT with per-session JTI, stored in `manager_sessions` |
-| Customer → Gateway | Email/password with bcrypt hash, email verification, rate limiting |
+| Customer → Gateway | Email/password with Argon2id hash; legacy scrypt hashes are upgraded on successful login, with email verification and rate limiting |
 | Proxy → Gateway | `TRUST_PROXY_SECRET` header validation (≥32 chars, reject known placeholders) |
 
 ### Rate Limiting
@@ -159,13 +162,13 @@ claimed → queued (fenced rejection / lease timeout)
 - Auth rate limiting: per-key with lockout (`auth_rate_limits` table)
 - WebSocket upgrade: per-IP rate limiting
 - WebSocket messages: per-agent token bucket (20 capacity, 5/s refill)
-- Print job submission: per-API-key minute/hour windows (`print_job_rate_limits` table)
+- Print job admission: tenant plan entitlements and bounded Agent queue/in-flight limits
 
 ### Input Validation
 
-- All API routes use Zod schema validation
+- API input validation is endpoint-specific: structured request payloads use Zod schemas, while simple probes and fixed/primitive inputs use explicit type and length checks.
 - Mutating `/api/*` requests require a valid `Content-Length`, are capped at 8 MiB, and reserve authenticated/unauthenticated concurrent-byte budgets until the response closes
-- Print job payloads are validated against `payloadContractCheck` (database CHECK constraint); PDF data must begin with `%PDF-`
+- Print job payloads are validated against the shared `contracts/print-payload-contract.json` wire contract and mirrored by the database CHECK constraint; PDF data must begin with `%PDF-`
 - Printer protocol/capability gating prevents incompatible job routing
 - Diagnostic ZPL/TSPL/ESC/POS pages sanitize user-controlled names for their target command language
 
@@ -174,7 +177,7 @@ claimed → queued (fenced rejection / lease timeout)
 ### PostgreSQL + Drizzle ORM
 
 **Schema**: 24 tables defined in `src/db/schema.ts`
-**Migrations**: 59 migrations (0000–0058) in `drizzle/`
+**Migrations**: 76 forward-only migrations (`0000`–`0075`) in `drizzle/`
 **Driver**: `pg` 8.23.0 with connection pool
 
 ### Key Design Patterns
@@ -229,3 +232,44 @@ Internet → Caddy (reverse proxy + TLS) → Next.js Gateway → PostgreSQL 16
 GitHub Actions with two jobs:
 1. **CI**: TypeScript (typecheck, lint, build), unit tests, migration replay, schema verification, integration tests, Go (build, vet, test, race)
 2. **Odoo 19**: Full Odoo 19 CE environment with addon installation and test execution (≥80 tests expected)
+
+## 10. Time Authority & Clock Discipline
+
+Print-job lifetime, presence, quota, and billing decisions are only correct if
+every component measures time on the same clock. The platform therefore assigns
+one authority per decision:
+
+| Clock | Authority for | Notes |
+| --- | --- | --- |
+| PostgreSQL `now()` / `clock_timestamp()` | Every durable Gateway timestamp and every lifetime comparison | The single authority for job expiry, claim staleness, presence freshness, quota periods, and subscription periods |
+| Database-calibrated Gateway clock (`src/lib/database-clock.ts`) | JavaScript decisions that mirror a SQL comparison | Stripe webhook tolerance, Checkout Session expiry, Retry-After arithmetic, agent/printer availability, subscription period gates |
+| Stripe event timestamps | Billing event ordering | Fenced monotonically per tenant via `stripe_last_event_created_at` |
+| Odoo database clock (`db_now_utc`) | Odoo outbox claim/retry scheduling | `next_retry_at` deferrals are derived from the Gateway's relative `Retry-After`, never from an absolute Gateway timestamp |
+| Windows Agent monotonic clock | Local dispatch/backoff/timeouts | Ownership freshness is measured only with monotonic deltas; the Agent never compares a Gateway timestamp with its own wall clock |
+
+**Rules**
+
+1. A JS process never compares a database/Stripe timestamp with the raw host
+   clock. `gatewayNowMs()` / `gatewayNow()` return host time plus the measured
+   database offset (recalibrated at most every 30s, with the round-trip midpoint
+   removed and a 2s timeout; on failure the last known offset is kept, so the
+   default is plain host time and availability never depends on the database).
+2. Every write that will later be compared by SQL uses the database clock:
+   presence (`agents.last_seen_at`, `printers.last_seen_at`), job lifetime
+   (`created_at`, `updated_at`, `expires_at`), and quota/subscription periods.
+3. Job enqueue reads the database clock exactly once and derives both
+   `expires_at` and `created_at` from that single reading, so a job's stored TTL
+   equals the requested TTL even inside a long transaction. Migration 0067 moves
+   the `print_jobs` defaults from `now()` (transaction start) to
+   `clock_timestamp()` (wall clock) for every other writer.
+4. Durations, not instants, cross system boundaries: the Gateway returns
+   `Retry-After` seconds computed on its own clock, and Odoo/Agent apply them to
+   their own clock.
+5. Manager/platform sessions and tenant-selection tokens use PostgreSQL time for
+   their signed `iat`/`exp` values and session-expiry predicates. Host wall-clock
+   time is not an authority for authentication validity; cleanup predicates also
+   use database time.
+
+**Enforcement**: `tests/database-clock.test.ts` (unit, behaviour and source
+contracts) and `tests/database-clock.integration.test.ts` (live calibration,
+single-reading TTL invariant, quota rollback).

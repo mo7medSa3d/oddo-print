@@ -1,3 +1,4 @@
+import { gatewayTestSigningKey } from "./helpers/test-secrets";
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import {
   hasTestDatabase,
@@ -35,7 +36,7 @@ suite("dashboard list queries never carry full job payloads", () => {
   let fixture: Fixture;
 
   beforeAll(async () => {
-    process.env.GATEWAY_JWT_SECRET = "test-secret-that-is-at-least-32-characters-long";
+    process.env.GATEWAY_JWT_SECRET = gatewayTestSigningKey();
     process.env.MANAGER_USERNAME = "manager";
     await applyMigrations();
   });

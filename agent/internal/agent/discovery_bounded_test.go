@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yasser-agent/agent/internal/printer"
+	"github.com/yaseir-agent/agent/internal/printer"
 )
 
 func TestRunBoundedDiscoveryReturnsBeforeUncancellableWorkerFinishes(t *testing.T) {

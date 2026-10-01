@@ -1,3 +1,4 @@
+import { gatewayTestSigningKey } from "./helpers/test-secrets";
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from "vitest";
 import {
   applyMigrations,
@@ -15,7 +16,7 @@ const suite = describe.skipIf(!hasTestDatabase);
 
 suite("printer desired-state authority", () => {
   beforeAll(async () => {
-    process.env.GATEWAY_JWT_SECRET = "test-secret-that-is-at-least-32-characters-long";
+    process.env.GATEWAY_JWT_SECRET = gatewayTestSigningKey();
     await applyMigrations();
   });
 
@@ -152,6 +153,33 @@ suite("printer desired-state authority", () => {
       [created.id],
     );
     expect(audits.rows.map((row) => row.action)).toEqual(["printer.registered", "printer.changed"]);
+  });
+
+  it("merges partial config patches instead of deleting unspecified printer settings", async () => {
+    const f = await seedFixture();
+    await pool().query(
+      "UPDATE printers SET connection_type = 'network', protocol = 'raw', config = $2::jsonb WHERE id = $1",
+      [f.printerId, JSON.stringify({ ip: "192.168.1.50", port: 9100 })],
+    );
+    const session = await createManagerSession(f.tenantId);
+    const response = await printerPATCH(
+      new Request("http://gateway.test/api/printers/" + encodeURIComponent(f.printerId), {
+        method: "PATCH",
+        headers: {
+          Authorization: "Bearer " + session.token,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ config: { ip: "192.168.1.51" } }),
+      }),
+      { params: Promise.resolve({ id: f.printerId }) },
+    );
+
+    expect(response.status).toBe(200);
+    const row = await pool().query(
+      "SELECT config FROM printers WHERE id = $1",
+      [f.printerId],
+    );
+    expect(row.rows[0].config).toEqual({ ip: "192.168.1.51", port: 9100 });
   });
 
   it("rejects protocol-only patches that contradict the existing transport", async () => {

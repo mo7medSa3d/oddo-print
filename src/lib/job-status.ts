@@ -29,7 +29,9 @@
 // accepted once a job reaches one of them. The late physical-outcome
 // override (failed -> success) is NOT part of the general table; it exists
 // only as an explicitly authorized code path via canTransition's
-// allowLateSuccess option, gated by isLateSuccessAllowed (marker + TTL).
+// allowLateSuccess option; the HTTP route fences its age atomically against PostgreSQL time.
+import { parseDbTimeMs } from "./database-clock";
+
 export const JOB_STATUSES = [
   "queued",
   "claimed",
@@ -60,11 +62,15 @@ export const PHYSICAL_OUTCOME_UNKNOWN_MARKERS = [
   "UNKNOWN_SUBMISSION_OUTCOME",
 ] as const;
 
+export function hasUnknownPhysicalOutcomeMarker(error: string | null | undefined): boolean {
+  return PHYSICAL_OUTCOME_UNKNOWN_MARKERS.some((marker) => (error ?? "").startsWith(marker));
+}
+
 export function derivePhysicalOutcome(status: JobStatus | string, error: string | null | undefined): PhysicalOutcome {
   // Current transports prove successful submission/execution, not paper
   // output. Never infer physical output from an ACK/WritePrinter result.
   if (status === "success") return "unknown";
-  if (PHYSICAL_OUTCOME_UNKNOWN_MARKERS.some((marker) => (error ?? "").startsWith(marker))) return "unknown";
+  if (hasUnknownPhysicalOutcomeMarker(error)) return "unknown";
   return "not_printed";
 }
 
@@ -142,7 +148,7 @@ export function canTransition(from: JobStatus, to: JobStatus, options: Transitio
  * refused, capability mismatch, ...). Only these may be overridden by a
  * late agent success report.
  */
-const LATE_SUCCESS_ERROR_MARKERS = ["AGENT_EXECUTION_TIMEOUT", "AGENT_RESTART_DURING_PRINT"] as const;
+export const LATE_SUCCESS_ERROR_MARKERS = ["AGENT_EXECUTION_TIMEOUT", "AGENT_RESTART_DURING_PRINT"] as const;
 
 /** A late success override is only meaningful while the failure is recent. */
 export const LATE_SUCCESS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -155,23 +161,6 @@ export const LATE_SUCCESS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
  */
 export const EXPIRED_LATE_SUCCESS_GRACE_MS = 5 * 60 * 1000;
 export const LATE_SUCCESS_POST_EXPIRATION_MARKER = "LATE_SUCCESS_POST_EXPIRATION";
-
-/**
- * Raw `db.execute()` rows surface naive UTC timestamp strings while typed
- * drizzle rows surface Date; normalize either to epoch ms without host-TZ skew.
- */
-function parseDbTimeMs(value: Date | string | null | undefined): number | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value.getTime();
-  const text = value.trim();
-  if (!text) return null;
-  let iso = text.replace(" ", "T");
-  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
-    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
-  }
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : ms;
-}
 
 export interface LateSuccessCandidate {
   status: JobStatus;
@@ -227,3 +216,9 @@ export const AGENT_REQUEUE_REASONS = [
   "agent_shutting_down",
   "ledger_unavailable",
 ] as const;
+
+// Explicit, operator-configured at-least-once recovery after an Agent restart
+// during physical printing. This is intentionally separate from pre-execution
+// rejection reasons: the previous attempt may already have produced paper, so
+// delivery/retry budgets are NOT refunded.
+export const AGENT_REPRINT_AFTER_CRASH_REASON = "agent_reprint_after_crash" as const;

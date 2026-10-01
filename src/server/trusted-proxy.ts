@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { runtimeSecret } from "../lib/runtime-secret";
+import { trustProxyEnabled } from "../lib/trust-proxy-config";
 
 function configuredProxySecret(): string | null {
   const value = runtimeSecret("TRUST_PROXY_SECRET")?.trim();
@@ -14,9 +15,7 @@ function safeEqual(left: string, right: string): boolean {
   return timingSafeEqual(digestA, digestB);
 }
 
-export function trustProxyEnabled(): boolean {
-  return process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true";
-}
+export { trustProxyEnabled } from "../lib/trust-proxy-config";
 
 
 function normalizedOrigin(value: string): string | null {
@@ -41,7 +40,9 @@ export function isAllowedWebSocketOrigin(originHeader: string | null): boolean {
   if (!supplied) return false;
 
   const configured = new Set<string>();
-  const appBaseUrl = process.env.APP_BASE_URL?.trim();
+  // Resolve via runtimeSecret (not process.env directly) so file-mounted
+  // secrets (APP_BASE_URL_FILE) work exactly like they do in server.ts.
+  const appBaseUrl = runtimeSecret("APP_BASE_URL")?.trim();
   if (appBaseUrl) {
     const origin = normalizedOrigin(appBaseUrl);
     if (origin) configured.add(origin);

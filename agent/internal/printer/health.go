@@ -147,7 +147,9 @@ func PreFlightHealthCheck(ctx context.Context, address string) error {
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
-	_ = conn.SetDeadline(deadline)
+	if err := conn.SetDeadline(deadline); err != nil {
+		return fmt.Errorf("set printer health deadline: %w", err)
+	}
 
 	_, err = QueryHealthStatus(conn)
 	if err != nil {

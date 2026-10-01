@@ -1,7 +1,12 @@
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { incrementMetric } from "./metrics";
+import { agentStaleThresholdSeconds } from "./stale-threshold";
 
+// Claim-lease staleness historically hardcoded at 90s. It now follows the same
+// STALE_AGENT_THRESHOLD_SECONDS env as the presence/claim gates so tuning the
+// env cannot diverge the UI/offline display from sweeper requeue behavior.
+// STALE_CLAIM_SECONDS is kept as the default/fallback value (deprecated alias).
 export const STALE_CLAIM_SECONDS = 90;
 export const STALE_PRINTING_SECONDS = 10 * 60;
 export const MAX_RETRIES = 5;
@@ -16,7 +21,8 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
   // of rows in a single statement, causing >30s statement timeouts and
   // cascading failures. Remaining rows are processed in subsequent sweep ticks
   // without contention (SKIP LOCKED prevents worker pile-up).
-  const SWEEP_BATCH = Number(process.env.MAINTENANCE_SWEEP_LIMIT ?? 200);
+  const parsedLimit = Number(process.env.MAINTENANCE_SWEEP_LIMIT);
+  const SWEEP_BATCH = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 200;
 
   const expired = await db.execute(sql`
     WITH candidates AS (
@@ -31,6 +37,23 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
         WHEN status='printing' THEN 'JOB_EXPIRED_DURING_PRINT: physical output is unknown (full, partial or none)'
         WHEN status='claimed' AND (delivered_at IS NOT NULL OR acked_at IS NOT NULL OR error = 'DELIVERY_EVIDENCE_PENDING')
           THEN 'UNKNOWN_PARTIAL_DELIVERY: job expired after delivery without an execution report (physical output is unknown)'
+        ELSE NULL END,
+      -- Preserve the exact execution fence only for ambiguous delivered
+      -- attempts so an in-flight Agent may reconcile a late success inside the
+      -- bounded grace window. Never preserve a token for an unclaimed or
+      -- pre-dispatch expiry. A later cleanup removes preserved tokens after the
+      -- reconciliation window closes.
+      claim_token=CASE
+        WHEN status='printing' AND claim_token IS NOT NULL THEN claim_token
+        WHEN status='claimed' AND claim_token IS NOT NULL
+          AND (delivered_at IS NOT NULL OR acked_at IS NOT NULL OR error = 'DELIVERY_EVIDENCE_PENDING')
+          THEN claim_token
+        ELSE NULL END,
+      claimed_at=CASE
+        WHEN status='printing' AND claim_token IS NOT NULL THEN claimed_at
+        WHEN status='claimed' AND claim_token IS NOT NULL
+          AND (delivered_at IS NOT NULL OR acked_at IS NOT NULL OR error = 'DELIVERY_EVIDENCE_PENDING')
+          THEN claimed_at
         ELSE NULL END,
       updated_at=now()
     FROM candidates
@@ -50,7 +73,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       SELECT id FROM print_jobs
       WHERE status='claimed' AND delivered_at IS NULL AND acked_at IS NULL
         AND COALESCE(error, '') <> 'DELIVERY_EVIDENCE_PENDING'
-        AND updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS})
+        AND updated_at < now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND retries < ${MAX_RETRIES} AND expires_at > now() ${agentFilter}
       ORDER BY updated_at ASC
       LIMIT ${SWEEP_BATCH}
@@ -73,15 +96,19 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       SELECT id FROM print_jobs
       WHERE status='claimed'
         AND (delivered_at IS NOT NULL OR acked_at IS NOT NULL OR error = 'DELIVERY_EVIDENCE_PENDING')
-        AND updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS}) ${agentFilter}
+        AND updated_at < now() - make_interval(secs => ${agentStaleThresholdSeconds()}) ${agentFilter}
       ORDER BY updated_at ASC
       LIMIT ${SWEEP_BATCH}
       FOR UPDATE SKIP LOCKED
     )
     UPDATE print_jobs SET status='failed',
-      error='UNKNOWN_PARTIAL_DELIVERY: claim lease expired after delivery without an execution report (physical output is unknown; manual reconciliation required)',
-      claim_token=NULL,
-      claimed_at=NULL,
+      error='UNKNOWN_PARTIAL_DELIVERY: claim lease expired after delivery without an execution report (physical output is unknown; reconciliation is allowed only for the same fenced attempt)',
+      -- Preserve the original claim fence and claimed_at so a delayed result
+      -- from the exact delivery attempt can still reconcile the outcome.
+      -- The late-success path imposes its own bounded age check; no automatic
+      -- retry/failover is introduced by keeping this evidence.
+      claim_token=claim_token,
+      claimed_at=claimed_at,
       updated_at=now()
     FROM candidates
     WHERE print_jobs.id = candidates.id
@@ -100,8 +127,12 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       error=CASE WHEN expires_at <= now()
         THEN 'JOB_EXPIRED_DURING_PRINT: physical output is unknown (full, partial or none)'
         ELSE 'AGENT_EXECUTION_TIMEOUT: agent execution lease expired (physical output is unknown; manual reconciliation required)' END,
-      claim_token=NULL,
-      claimed_at=NULL,
+      -- Preserve the original claim token for AGENT_EXECUTION_TIMEOUT so a
+      -- late success from that exact execution attempt can still be reconciled
+      -- inside the 24-hour fenced window. Expiry-at-print is not eligible for
+      -- failed->success reconciliation, so its token can be cleared normally.
+      claim_token=CASE WHEN expires_at <= now() THEN NULL ELSE claim_token END,
+      claimed_at=CASE WHEN expires_at <= now() THEN NULL ELSE claimed_at END,
       updated_at=now()
     FROM candidates
     WHERE print_jobs.id = candidates.id
@@ -113,7 +144,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       SELECT id FROM print_jobs
       WHERE status='claimed' AND delivered_at IS NULL AND acked_at IS NULL
         AND COALESCE(error, '') <> 'DELIVERY_EVIDENCE_PENDING'
-        AND updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS})
+        AND updated_at < now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND retries >= ${MAX_RETRIES} ${agentFilter}
       ORDER BY updated_at ASC
       LIMIT ${SWEEP_BATCH}
@@ -146,6 +177,43 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
     FROM candidates
     WHERE print_jobs.id = candidates.id
     RETURNING print_jobs.id
+  `);
+
+  // Once the bounded late-success reconciliation windows close, remove
+  // preserved execution fences from terminal rows. Keeping them longer would
+  // retain stale execution credentials after their recovery purpose expires.
+  // Bounded like every other sweep statement: a post-outage backlog of
+  // ambiguous rows must not hold one long UPDATE past statement_timeout.
+  await db.execute(sql`
+    WITH candidates AS (
+      SELECT id FROM print_jobs
+      WHERE status = 'expired'
+        AND claim_token IS NOT NULL
+        AND expires_at <= now() - interval '5 minutes'
+        ${agentFilter}
+      LIMIT ${SWEEP_BATCH}
+      FOR UPDATE SKIP LOCKED
+    )
+    UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL, updated_at = now()
+    FROM candidates WHERE print_jobs.id = candidates.id
+  `);
+  await db.execute(sql`
+    WITH candidates AS (
+      SELECT id FROM print_jobs
+      WHERE status = 'failed'
+        AND claim_token IS NOT NULL
+        AND (
+          error LIKE 'UNKNOWN_PARTIAL_DELIVERY:%'
+          OR error LIKE 'AGENT_EXECUTION_TIMEOUT:%'
+          OR error LIKE 'AGENT_RESTART_DURING_PRINT:%'
+        )
+        AND updated_at <= now() - interval '24 hours'
+        ${agentFilter}
+      LIMIT ${SWEEP_BATCH}
+      FOR UPDATE SKIP LOCKED
+    )
+    UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL, updated_at = now()
+    FROM candidates WHERE print_jobs.id = candidates.id
   `);
 
   const result = {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
-import { authenticatePlatformOwner, createPlatformSession, platformCookieHeader } from "../../../../../lib/platform-auth";
-import { clientIpFrom, reserveAuthAttempt, recordAuthSuccess } from "../../../../../lib/auth-rate-limit";
+import { authenticatePlatformOwner, createPlatformSession, platformCookieHeader, platformRefreshCookieHeader } from "../../../../../lib/platform-auth";
+import { clientIpFrom, reserveAuthAttempt, recordAuthSuccess, setRateLimitHeaders } from "../../../../../lib/auth-rate-limit";
 import { logError } from "../../../../../lib/log";
 import { writeAuditEvent } from "../../../../../lib/audit";
 
@@ -25,23 +25,36 @@ export async function POST(req: Request) {
   }
 
   const clientIp = clientIpFrom(req);
-  const decision = await reserveAuthAttempt(clientIp, email);
+  let decision: Awaited<ReturnType<typeof reserveAuthAttempt>>;
+  try {
+    decision = await reserveAuthAttempt(clientIp, email);
+  } catch (error) {
+    logError("auth.rate_limit.store_unavailable", { endpoint: "platform_login", error: error instanceof Error ? error.message : "unknown" });
+    return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });
+  }
 
   if (!decision.allowed) {
-    return NextResponse.json(
+    const res = NextResponse.json(
       { error: "Too many failed attempts. Please try again later." },
       { status: 429, headers: { "Retry-After": String(decision.retryAfterSec) } }
     );
+    return setRateLimitHeaders(res, decision);
   }
 
   const user = await authenticatePlatformOwner(email, password);
   if (!user) {
-    return NextResponse.json({ error: "Invalid Platform Owner credentials or unverified account" }, { status: 401 });
+    return setRateLimitHeaders(
+      NextResponse.json({ error: "Invalid Platform Owner credentials or unverified account" }, { status: 401 }),
+      decision
+    );
   }
 
   await recordAuthSuccess(clientIp, email);
 
-  const session = await createPlatformSession(user.userId, user.email);
+  const session = await createPlatformSession(user.userId, user.email, {
+    ipAddress: clientIp,
+    userAgent: req.headers.get("user-agent"),
+  });
 
   void writeAuditEvent({
     tenantId: null,
@@ -52,7 +65,7 @@ export async function POST(req: Request) {
     resourceId: user.userId,
   }).catch((err) => logError("audit_write_failed", { error: err?.message ?? String(err) }));
 
-  return NextResponse.json(
+  const response = NextResponse.json(
     { ok: true, user: { id: user.userId, email: user.email } },
     {
       headers: {
@@ -60,4 +73,7 @@ export async function POST(req: Request) {
       },
     }
   );
+  response.headers.append("Set-Cookie", platformRefreshCookieHeader(session.refreshToken, session.refreshExpiresAt));
+  response.headers.set("Cache-Control", "no-store");
+  return setRateLimitHeaders(response, decision);
 }

@@ -1,8 +1,10 @@
 import { db } from "../db";
-import { tenants, managerSessions } from "../db/schema";
+import { tenants } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { writeAuditEvent, type AuditActor } from "./audit";
 import { runtimeSecret } from "./runtime-secret";
+import { revokeLegacyManagerSessionsForTenantInTransaction } from "./manager-auth";
+import { revokeTenantRefreshFamiliesInTransaction } from "./session-tokens";
 
 export type TenantLifecycleState = "active" | "suspended" | "deleted";
 
@@ -69,6 +71,12 @@ export async function transitionTenantLifecycle(
       throw new TenantLifecycleError("Tenant not found", "TENANT_NOT_FOUND", 404);
     }
     const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID")?.trim();
+    // Layered protection: production startup (server.ts) refuses to boot when
+    // PLATFORM_TENANT_ID is unset or the placeholder, so this guard's fail-open
+    // branch is reachable only in development/test where no platform tenant is
+    // configured yet. Do NOT "fix" this into a hard fail-closed here without
+    // providing a dev bootstrap path — operators would be locked out of all
+    // lifecycle operations in fresh dev databases.
     if (platformTenantId && tenant.id === platformTenantId) {
       throw new TenantLifecycleError(
         "The platform tenant is protected from lifecycle suspension or deletion.",
@@ -93,7 +101,12 @@ export async function transitionTenantLifecycle(
       );
     }
 
-    const now = new Date();
+    const clock = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+    const rawNow = clock.rows[0]?.now;
+    const now = rawNow instanceof Date ? rawNow : new Date(String(rawNow ?? ""));
+    if (!rawNow || Number.isNaN(now.getTime())) {
+      throw new TenantLifecycleError("Database clock is unavailable", "DATABASE_CLOCK_UNAVAILABLE", 503);
+    }
     const updates: Record<string, unknown> = {
       lifecycle: next,
       lifecycleReason: trimmedReason,
@@ -117,7 +130,13 @@ export async function transitionTenantLifecycle(
     }
 
     if (next === "suspended" || next === "deleted") {
-      await tx.delete(managerSessions).where(eq(managerSessions.tenantId, tenantId));
+      // Legacy manager rows are revoked/removed only for the bounded migration path.
+      await revokeLegacyManagerSessionsForTenantInTransaction(tx, tenantId);
+      await revokeTenantRefreshFamiliesInTransaction(
+        tx,
+        tenantId,
+        next === "deleted" ? "tenant_deleted" : "tenant_suspended",
+      );
       await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ tenantId })})`);
     }
 

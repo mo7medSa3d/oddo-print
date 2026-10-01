@@ -20,21 +20,16 @@ class TestPrintGatewayURLTransport(TransactionCase):
         config = self._config('https://gateway.example.com')
         self.assertEqual(config.gateway_url, 'https://gateway.example.com')
 
-    def test_http_gateway_url_is_rejected_by_default(self):
-        with self.assertRaises(ValidationError):
-            PrintGatewayConfig._validate_gateway_url("http://gateway.example.com")
-
-    def test_http_gateway_url_requires_explicit_development_opt_in(self):
-        with patch.dict("os.environ", {"ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP": "1"}, clear=False):
-            for url in (
-                "http://gateway.example.com",
-                "http://192.168.1.50:3000",
-                "http://10.0.0.5:3000",
-            ):
-                with self.subTest(url=url):
-                    self.assertEqual(
-                        PrintGatewayConfig._validate_gateway_url(url), url.rstrip("/")
-                    )
+    def test_http_and_https_gateway_urls_are_accepted_on_staging(self):
+        for url in (
+            "http://gateway.example.com",
+            "http://192.168.1.50:3000",
+            "http://10.0.0.5:3000",
+            "https://gateway.example.com",
+            "https://192.168.1.50:3443",
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(PrintGatewayConfig._validate_gateway_url(url), url.rstrip("/"))
 
     def test_unsupported_gateway_url_scheme_is_rejected(self):
         with self.assertRaises(ValidationError):
@@ -68,3 +63,18 @@ class TestPrintGatewayURLTransport(TransactionCase):
         self.assertIn(url, timeout)
         self.assertIn(url, generic)
         self.assertIn("unexpected transport failure", generic)
+
+    def test_gateway_redirect_message_redacts_sensitive_location(self):
+        from odoo.addons.print_gateway.models.gateway_config import _gateway_redirect_message
+        response = type("Response", (), {
+            "status_code": 307,
+            "headers": {
+                "Location": "https://user:pass@gateway.example.com/login?token=SUPER_SECRET&sig=PRIVATE#fragment"
+            },
+        })()
+        message = _gateway_redirect_message(response, "https://gateway.example.com")
+        self.assertIn("gateway.example.com", message)
+        self.assertNotIn("SUPER_SECRET", message)
+        self.assertNotIn("PRIVATE", message)
+        self.assertNotIn("user:pass", message)
+        self.assertNotIn("/login", message)

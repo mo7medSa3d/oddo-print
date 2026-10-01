@@ -12,7 +12,7 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
 
     company_id = fields.Many2one(
         "res.company", string="Odoo Company", required=True,
-        default=lambda self: self.env.company, ondelete="restrict", index=True,
+        default=lambda self: self.env.company.parent_id or self.env.company, ondelete="restrict", index=True,
         domain="[('parent_id', '=', False)]",
     )
     branch_id = fields.Many2one(
@@ -30,6 +30,10 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
         "UNIQUE(company_id, branch_id, runtime_agent_id)",
         "The same Gateway Runtime Agent cannot be assigned more than once to the same Odoo branch.",
     )
+    _company_wide_agent_unique = models.UniqueIndex(
+        "(company_id, runtime_agent_id) WHERE branch_id IS NULL",
+        "The same Gateway Runtime Agent cannot be assigned more than once to the company-wide Odoo scope.",
+    )
 
     @api.depends("company_id", "branch_id", "runtime_agent_id")
     def _compute_name(self):
@@ -39,6 +43,62 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
                 record.branch_id.display_name if record.branch_id else "Branch",
                 record.runtime_agent_id or "Agent",
             )
+
+    @api.model
+    @api.private
+    def assigned_agent_ids(self, company, branch=False):
+        """Return enabled Gateway Agent IDs assigned to an Odoo scope.
+
+        A Branch scope contains only Agents assigned to that exact Branch. A
+        root/company-wide scope includes every enabled Agent assigned to the
+        company itself or to one of its direct child Branches. This lets a
+        binding created without a Branch use any Agent that belongs to the
+        selected Odoo Company, while a Branch-scoped binding never inherits
+        another scope. This is the single source of truth consumed by the
+        controller, binding validation, and print router.
+        """
+        company = company.exists() if company else company
+        if not company or len(company) != 1:
+            return set()
+        domain = [
+            ("company_id", "=", company.id),
+            ("enabled", "=", True),
+        ]
+        if branch:
+            branch = branch.exists()
+            if not branch or len(branch) != 1:
+                return set()
+            # Branch-scoped bindings are exact: do not inherit company-wide
+            # or other-branch assignments. This rule stays inside the source
+            # of truth so UI and server-side authorization have identical scope
+            # semantics.
+            if branch.parent_id != company:
+                return set()
+            domain.append(("branch_id", "=", branch.id))
+        else:
+            # A Company-only binding is explicitly a company-wide rule. It may
+            # therefore use any enabled Agent assigned to the root Company or
+            # to one of its direct child Branches. The assignment row still
+            # remains owned by the same root Company, so this does not cross a
+            # tenant boundary.
+            domain = [
+                "|",
+                ("branch_id", "=", False),
+                ("branch_id.parent_id", "=", company.id),
+                *domain,
+            ]
+        return {
+            record.runtime_agent_id.strip()
+            for record in self.sudo().search(domain)
+            if isinstance(record.runtime_agent_id, str) and record.runtime_agent_id.strip()
+        }
+
+    @api.model
+    @api.private
+    def is_agent_assigned(self, company, branch, runtime_agent_id):
+        if not isinstance(runtime_agent_id, str) or not runtime_agent_id.strip():
+            return False
+        return runtime_agent_id.strip() in self.assigned_agent_ids(company, branch)
 
     def _check_admin(self):
         if not (self.env.is_superuser or self.env.user.has_group("base.group_system")):
@@ -65,10 +125,14 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
                 raise ValidationError(_("The selected Odoo Company is not available to the current user."))
             if record.company_id.parent_id:
                 raise ValidationError(_("Odoo Company must be a parent Company, not a Branch."))
+            # A root company is a company-wide scope, not a branch scope.
+            # Reject it explicitly because form domains are not an API security boundary.
+            if record.branch_id and record.branch_id == record.company_id:
+                raise ValidationError(_("Odoo Branch must be a child Branch, not the selected root Company."))
             # Standalone organizations without child branches leave branch
             # empty (company-wide assignment). Only a DISTINCT, set branch
             # must belong to the selected company.
-            if record.branch_id and record.branch_id != record.company_id:
+            if record.branch_id:
                 if record.branch_id not in self.env.user.company_ids:
                     raise ValidationError(_("The selected Odoo Branch is not available to the current user."))
                 if not record.branch_id.parent_id or record.branch_id.parent_id != record.company_id:

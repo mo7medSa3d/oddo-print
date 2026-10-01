@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, test/http-server-ready]
   merge_group:
   workflow_dispatch:
 
@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: static-security-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: true
 
 jobs:
   codeql:

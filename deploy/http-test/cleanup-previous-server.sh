@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Destructive cleanup for the previous Yasser/Odoo server test only.
+# Destructive cleanup for the previous Yaseir/Odoo server test only.
 # Intentionally does NOT touch /opt/containerd.
 #
 # What it removes:
@@ -86,5 +86,5 @@ echo
 sudo docker network ls
 echo
 echo "IMPORTANT: /opt/containerd was NOT deleted."
-echo "Next step: from the Yasser repository root run:"
+echo "Next step: from the Yaseir repository root run:"
 echo "  bash deploy/http-test/setup-http-test.sh"

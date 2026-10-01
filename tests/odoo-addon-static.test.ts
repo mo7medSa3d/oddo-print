@@ -53,7 +53,10 @@ describe("Odoo addon static contracts", () => {
     const views = read("views/print_job_views.xml");
     expect(jobs).toContain('job.physical_outcome = "unknown"');
     expect(jobs).toContain('("printed", "Physically verified printed")');
-    expect(jobs).toContain('reprint_candidates = self.filtered(lambda row: row.status in ("partial", "unknown"))');
+    // Reprint candidates are partial/unknown outcomes (plus failed rows whose
+    // physical outcome is still unknown) - never transport-level success.
+    expect(jobs).toContain('row.status in ("partial", "unknown")');
+    expect(jobs).toContain('row.physical_outcome == "unknown"');
     expect(views).toContain('invisible="status not in (\'partial\', \'unknown\')"');
     expect(views).toContain("Print status is unknown - the printer may have received part or all of the document");
     expect(views).toContain("Automatic retry is paused to prevent duplicate printing.");
@@ -103,7 +106,10 @@ describe("Odoo addon static contracts", () => {
     expect(router).toContain("MAX_IMAGE_BYTES = 5 * 1024 * 1024");
     expect(jobs).toContain('"printerId": self.printer_id');
     expect(jobs).toContain('"documentType": self.document_type');
-    expect(jobs).toContain('"idempotencyKey": self.idempotency_key');
+    expect(jobs).toContain('def _gateway_idempotency_key(self)');
+    expect(jobs).toContain('source = f"odoo:{self.company_id.id}:{self.idempotency_key}"');
+    expect(jobs).toContain('"idempotencyKey": self._gateway_idempotency_key()');
+    expect(jobs).not.toContain('"idempotencyKey": self.idempotency_key');
     expect(jobs).not.toContain("pcl");
   });
 
@@ -178,9 +184,13 @@ describe("Odoo addon static contracts", () => {
     const scopeIdx = binding.indexOf("def _check_runtime_scope");
     const bindingIdx = binding.indexOf("def _check_binding");
     const constraintBody = binding.slice(scopeIdx, bindingIdx);
+    const remoteValidationIdx = binding.indexOf("def _validate_runtime_target");
+    const remoteValidationEnd = binding.indexOf("    @api.constrains", remoteValidationIdx);
+    const remoteValidationBody = binding.slice(remoteValidationIdx, remoteValidationEnd);
 
     expect(constraintBody).not.toContain("_validate_runtime_target");
     expect(constraintBody).not.toContain("requests.");
+    expect(remoteValidationBody).toContain("requests.");
     expect(binding).toContain("def action_verify_remote_hardware(self):");
     expect(views).toContain('name="action_verify_remote_hardware"');
   });
@@ -193,11 +203,13 @@ describe("Odoo addon static contracts", () => {
     expect(controller).toContain('["print_gateway.gateway_config"].sudo().search');
   });
 
-  it("guards runtime assignment sync with savepoint and handles IntegrityError for concurrency safety", () => {
+  it("treats explicit Branch → Agent assignment as the binding source of truth", () => {
     const binding = read("models/binding.py");
-    expect(binding).toContain("from psycopg2 import IntegrityError");
-    expect(binding).toContain("with self.env.cr.savepoint():");
-    expect(binding).toContain("except IntegrityError:");
+    expect(binding).toContain("runtime_agent_assignment");
+    expect(binding).toContain("is_agent_assigned");
+    expect(binding).toContain("is not explicitly assigned to");
+    expect(binding).not.toContain("from psycopg2 import IntegrityError");
+    expect(binding).not.toContain("def _ensure_branch_agent_assignment");
   });
 
   it("stops automatic retry of unknown submission outcomes in outbox and restricts cron to queued jobs", () => {
@@ -210,12 +222,15 @@ describe("Odoo addon static contracts", () => {
     expect(jobs).toContain("def action_force_reprint");
   });
 
-  it("ensures branch agent assignment additively and preserves independent assignments on unlink", () => {
+  it("does not create or widen Branch agent assignments from print bindings", () => {
     const binding = read("models/binding.py");
-    expect(binding).toContain("def _ensure_branch_agent_assignment(self):");
-    expect(binding).toContain("records._ensure_branch_agent_assignment()");
-    expect(binding).toContain("def unlink(self):");
-    expect(binding).toContain("return super().unlink()");
+    expect(binding).not.toContain("def _ensure_branch_agent_assignment(self):");
+    expect(binding).not.toContain("records._ensure_branch_agent_assignment()");
+    // 7b0fc61e deliberately removed the pass-through create/write/unlink
+    // overrides (they are inherited from base now); the invariant is that
+    // no override recreates assignment side-effects.
+    expect(binding).not.toContain("_ensure_branch_agent_assignment");
+    expect(binding).toContain("no overrides needed");
   });
 
   it("keeps the Odoo migration tree unambiguous, ordered, and covered by the manifest version", () => {
@@ -235,12 +250,13 @@ describe("Odoo addon static contracts", () => {
       }
       return 0;
     };
-    // Ordering is strict and unambiguous: Odoo executes applicable
-    // migrations in ascending version order, so numeric and lexical order
-    // must agree (readdir order itself is filesystem-dependent and is not
-    // asserted).
+    // Odoo orders migrations by parsed numeric version, not by filesystem
+    // enumeration or lexical directory-name order (e.g. 2.10 comes after 2.8).
+    // Validate the semantic order independently of how the filesystem lists it.
     const sorted = [...versions].sort(compare);
-    expect(sorted).toEqual([...versions].sort());
+    for (let i = 1; i < sorted.length; i += 1) {
+      expect(compare(sorted[i - 1], sorted[i])).toBeLessThan(0);
+    }
     // Every migration step ships exactly one stage script defining migrate().
     for (const version of versions) {
       const pre = path.join(dir, version, "pre-migrate.py");
@@ -288,9 +304,12 @@ describe("Odoo addon static contracts", () => {
 
   it("keeps Odoo raster failover in parity with the Gateway image capability contract", () => {
     const jobs = read("models/print_job.py");
-    const rasterFailover = jobs.match(/elif job\.payload_type == "raster_jpeg":\s*\n\s*protocol_compatible = fallback_proto in \(([^)]+)\)/);
-    expect(rasterFailover).toBeTruthy();
-    const failoverProtos = (rasterFailover as RegExpMatchArray)[1];
+    const branchIdx = jobs.indexOf('elif job.payload_type == "raster_jpeg":');
+    expect(branchIdx).toBeGreaterThan(-1);
+    const branchWindow = jobs.slice(branchIdx, branchIdx + 600);
+    const failoverMatch = branchWindow.match(/protocol_compatible = fallback_proto in \(([^)]+)\)/);
+    expect(failoverMatch).toBeTruthy();
+    const failoverProtos = (failoverMatch as RegExpMatchArray)[1];
     expect(failoverProtos).toContain('"spooler"');
     expect(failoverProtos).toContain('"escpos"');
     expect(failoverProtos).not.toContain("ipp");
@@ -305,5 +324,11 @@ describe("Odoo addon static contracts", () => {
     expect(physicalImage).toContain("escpos");
     expect(physicalImage).not.toContain("ipp");
   });
+  it("uses the Odoo 19 physical table name for report actions in the latest migration", () => {
+    const migration = read("migrations/19.0.2.10.0/post-migrate.py");
+    expect(migration).toContain("FROM ir_act_report_xml AS r");
+    expect(migration).not.toContain("FROM ir_actions_report AS r");
+  });
+
 });
 

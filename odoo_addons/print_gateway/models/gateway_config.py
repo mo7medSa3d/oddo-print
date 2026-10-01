@@ -7,6 +7,10 @@ import logging
 import os
 import requests
 
+from psycopg2 import sql
+
+from ..runtime_clock import db_now_utc
+
 from .crypto import (
     CredentialDecryptError,
     CredentialKeyUnavailable,
@@ -26,11 +30,12 @@ _logger = logging.getLogger(__name__)
 def _friendly_gateway_request_error(exc, gateway_url):
     """Turn a raw requests failure into an operator-actionable message.
 
-    Transport failures name the URL and hint at host/port instead of dumping
-    pool internals, so a wrong Gateway origin is diagnosable from the Odoo
-    form instead of surfacing as a generic sync stall.
+    This helper is intentionally translation-free because it is also called
+    from Odoo cron/post-commit worker threads, where there is no request
+    language frame for Odoo's translation helper.
     """
-    url = gateway_url or _("the configured Gateway URL")
+    url = gateway_url or "the configured Gateway URL"
+    detail = str(exc).strip()[:1500] or exc.__class__.__name__
     if isinstance(exc, requests.exceptions.ConnectionError):
         return str(_(
             "Could not reach the Gateway at %(url)s. Verify the URL host and port "
@@ -60,13 +65,36 @@ def _same_gateway_endpoint(url_a, url_b):
     return bool(left) and left == right
 
 
+
+def _safe_redirect_target(location):
+    """Return only the non-sensitive origin of a redirect target."""
+    if not location or not isinstance(location, str):
+        return "another endpoint"
+    try:
+        parsed = urlparse(location.strip())
+        scheme = parsed.scheme.lower()
+        hostname = parsed.hostname
+        if scheme not in ("http", "https") or not hostname:
+            return "another endpoint"
+        host = hostname
+        if ":" in host and not host.startswith("["):
+            host = "[%s]" % host
+        port = ""
+        try:
+            if parsed.port:
+                port = ":%d" % parsed.port
+        except ValueError:
+            return "another endpoint"
+        return "%s://%s%s" % (scheme, host, port)
+    except Exception:
+        return _("another endpoint")
 def _gateway_redirect_message(response, gateway_url):
     """Build an actionable message when the Gateway answers with a redirect.
 
     Sync calls use allow_redirects=False so credentials are never forwarded
     implicitly; a 3xx therefore means the configured origin is wrong (e.g. an
     HTTP URL behind an HTTPS-enforcing proxy) and must be fixed at the source.
-    Returns the message, or None when the response is not a redirect.
+    Returns the message, or None when the response is not a redirect. The\n    Location header is reduced to an origin so query/userinfo/fragment secrets\n    can never become durable Odoo error state.
     """
     if response is None or getattr(response, "status_code", None) not in (301, 302, 303, 307, 308):
         return None
@@ -75,13 +103,13 @@ def _gateway_redirect_message(response, gateway_url):
         location = (response.headers.get("Location") if response.headers else "") or ""
     except Exception:
         location = ""
-    return _(
+    return (
         "The Gateway at %(url)s answered with a redirect (HTTP %(code)s%(location)s). "
         "Configure the final Gateway origin directly (usually the HTTPS URL) instead of an address that redirects."
     ) % {
-        "url": gateway_url or _("the configured Gateway URL"),
+        "url": gateway_url or "the configured Gateway URL",
         "code": response.status_code,
-        "location": (_(" to %s") % location) if location else "",
+        "location": (" to %s" % _safe_redirect_target(location)) if location else "",
     }
 
 
@@ -140,7 +168,7 @@ class PrintGatewayConfig(models.Model):
         copy=False,
         exportable=False,
         groups="base.group_system",
-        help="Installation key from your Yasser Print Gateway account. Stored securely and excluded from exports.",
+        help="Installation key from your Yaseir Print Gateway account. Stored securely and excluded from exports.",
     )
     runtime_agent_id = fields.Char(
         string="Legacy Runtime Agent Reference",
@@ -219,8 +247,9 @@ class PrintGatewayConfig(models.Model):
         scheme = parsed.scheme.lower()
         if scheme not in ("http", "https") or not parsed.hostname:
             raise ValidationError(_("Gateway URL must use HTTP or HTTPS and include a host, e.g. https://print.example.com or http://192.0.2.10:3000."))
-        if scheme == "http" and os.environ.get("ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP") != "1":
-            raise ValidationError(_("Gateway URL must use HTTPS. Plain HTTP is allowed only for explicitly opted-in isolated development."))
+        # test/http-server-ready intentionally accepts both HTTP and HTTPS so
+        # staging can run by IP:port without a DNS name or certificate.
+        # Credentials, query strings, fragments, and API paths remain forbidden.
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValidationError(_("Gateway URL must not contain credentials, query parameters, or fragments."))
         if parsed.path not in ("", "/"):
@@ -244,13 +273,13 @@ class PrintGatewayConfig(models.Model):
             if not record.gateway_api_key:
                 record.gateway_sync_state = "not_configured"
                 record.gateway_sync_message = _(
-                    "Enter the installation API key from your Yasser Print Gateway account to connect this company."
+                    "Enter the installation API key from your Yaseir Print Gateway account to connect this company."
                 )
                 continue
             if record.last_test_status == "revoked":
                 record.gateway_sync_state = "attention"
                 record.gateway_sync_message = _(
-                    "The installation key is no longer active. Create or select a new key in Yasser Print Gateway, then save it here."
+                    "The installation key is no longer active. Create or select a new key in Yaseir Print Gateway, then save it here."
                 )
                 continue
             if record.last_test_status == "failed":
@@ -293,7 +322,7 @@ class PrintGatewayConfig(models.Model):
                 # escalate instead of spinning.
                 started_at = record.pending_sync_started_at
                 pending_seconds = (
-                    (fields.Datetime.now() - started_at).total_seconds()
+                    (db_now_utc(self.env.cr) - started_at).total_seconds()
                     if started_at
                     else float("inf")
                 )
@@ -420,7 +449,7 @@ class PrintGatewayConfig(models.Model):
                 self._write_test_result_if_current(expected_revision, {
                     "last_test_at": fields.Datetime.now(),
                     "last_test_status": "revoked",
-                    "last_test_error": _("The installation key is no longer active. Create or select a new key in Yasser Print Gateway, then save it here."),
+                    "last_test_error": _("The installation key is no longer active. Create or select a new key in Yaseir Print Gateway, then save it here."),
                     "enabled": False,
                 })
                 return False
@@ -718,7 +747,7 @@ class PrintGatewayConfig(models.Model):
                 cr.rollback()
                 return {"kind": "stale_local"}
             cr.execute(
-                "SELECT enabled, enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE" % self._table,
+                sql.SQL("SELECT enabled, enabled_sync_revision FROM {} WHERE id = %s FOR UPDATE").format(sql.Identifier(self._table)),
                 [self.id],
             )
             row = cr.fetchone()
@@ -752,7 +781,7 @@ class PrintGatewayConfig(models.Model):
                 "enabled_sync_revision": next_revision,
                 "last_enabled_sync_error": False,
                 "pending_sync_revision": next_revision,
-                "pending_sync_started_at": fields.Datetime.now(),
+                "pending_sync_started_at": db_now_utc(self.env.cr),
             })
             cr.commit()
             return {"kind": "retry", "revision": next_revision}
@@ -936,7 +965,7 @@ class PrintGatewayConfig(models.Model):
                 )
                 if guard_revision is not None:
                     cr.execute(
-                        "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE" % self._table,
+                        sql.SQL("SELECT enabled_sync_revision FROM {} WHERE id = %s FOR UPDATE").format(sql.Identifier(self._table)),
                         [self.id],
                     )
                     row = cr.fetchone()
@@ -984,13 +1013,22 @@ class PrintGatewayConfig(models.Model):
                     gateway_url = record._gateway_base(for_request=True)
                     api_key = record._gateway_api_key_plaintext()
                 except (ValidationError, ValueError) as exc:
-                    record._persist_enabled_sync_result(
-                        self.env.cr.dbname,
-                        success=False,
-                        revision=None,
-                        error=str(exc)[:4000],
-                        expected_revision=int(record.enabled_sync_revision or 0),
-                    )
+                    # This path runs INSIDE the current write/create transaction.
+                    # _persist_enabled_sync_result() opens a second cursor and
+                    # takes a FOR UPDATE lock on the same row; calling it here
+                    # can self-deadlock until Odoo's request time limit expires.
+                    # Persist the local diagnostic on the current transaction
+                    # instead. Post-commit sync outcomes continue to use the
+                    # dedicated fresh-cursor helper.
+                    record.with_context(skip_enabled_sync=True).sudo().write({
+                        "last_enabled_sync_error": str(exc)[:4000],
+                    })
+                    record.invalidate_recordset([
+                        "last_enabled_sync_error",
+                        "gateway_sync_state",
+                        "gateway_sync_message",
+                    ])
+                    record.modified(["last_enabled_sync_error"])
                     continue
             record_id = record.id
             dbname = self.env.cr.dbname
@@ -1034,7 +1072,7 @@ class PrintGatewayConfig(models.Model):
         if self.ids:
             self.flush_recordset()
             self.env.cr.execute(
-                f"SELECT id FROM {self._table} WHERE id IN %s FOR UPDATE",
+                sql.SQL("SELECT id FROM {} WHERE id IN %s FOR UPDATE").format(sql.Identifier(self._table)),
                 [tuple(self.ids)],
             )
             self.invalidate_recordset([
@@ -1258,7 +1296,7 @@ class PrintGatewayConfig(models.Model):
         return records
 
     def _disable_gateway_for_unlink(self, gateway_url, api_key, revision):
-        """Best-effort remote shutdown used before deleting the Odoo config."""
+        """Authoritatively confirm remote shutdown before deleting the Odoo config."""
         revision = max(0, int(revision))
         url = "%s/api/odoo/configuration" % gateway_url
         headers = {
@@ -1348,80 +1386,127 @@ class PrintGatewayConfig(models.Model):
 
     def unlink(self):
         self._check_admin()
-        # Best-effort disable sync before deletion so the Gateway does not
-        # keep a stale enabled state after the Odoo record disappears.
-        # Deletion itself must not be blocked by Gateway reachability.
-        # Skip external calls during Odoo test mode to keep tests fast and deterministic.
+        # Outside Odoo's test harness, deletion is fail-closed: the Gateway
+        # record must be proven disabled before the local control record is
+        # removed. Otherwise a failed shutdown would erase the only durable
+        # retry/reconciliation state while remote printing remained enabled.
+        # Test mode intentionally skips network calls to keep fixture cleanup
+        # deterministic.
         in_test = False
         try:
-            in_test = bool(self.env.registry.in_test_mode() or self.env.context.get("test_mode") or self.env.context.get("test_queue_job_no_delay"))
+            from odoo import tools
+            in_test = bool(
+                tools.config.get("test_enable")
+                or getattr(self.env.registry, "in_test", False)
+                or (hasattr(self.env.registry, "in_test_mode") and self.env.registry.in_test_mode())
+                or self.env.context.get("test_mode")
+                or self.env.context.get("test_queue_job_no_delay")
+            )
         except Exception:
             in_test = False
-        if not in_test:
-            for record in self:
-                try:
-                    if not record.gateway_url:
-                        continue
-                    # Skip example/test domains used in Odoo test suites.
-                    # Still allow real localhost / LAN URLs, but skip obvious
-                    # test placeholders to avoid 5s timeouts in CI.
-                    url_lower = (record.gateway_url or "").lower()
-                    if "example.com" in url_lower:
-                        continue
-                    if "test" in url_lower and "localhost" not in url_lower and "127.0.0.1" not in url_lower:
-                        continue
-                    if record.pending_disable_gateway_url and record.pending_disable_gateway_api_key:
-                        try:
-                            old_key = record._gateway_api_key_plaintext_from_value(
-                                record.pending_disable_gateway_api_key
-                            )
-                            if old_key:
-                                requests.patch(
-                                    "%s/api/odoo/configuration" % record.pending_disable_gateway_url.rstrip("/"),
-                                    headers={
-                                        "Authorization": "Bearer %s" % old_key,
-                                        "Accept": "application/json",
-                                        "Cache-Control": "no-store",
-                                        "Content-Type": "application/json",
-                                        "X-Odoo-Database": self.env.cr.dbname,
-                                    },
-                                    json={"enabled": False, "revision": int(record.pending_disable_revision or 0)},
-                                    timeout=2,
-                                    allow_redirects=False,
-                                )
-                        except Exception:
-                            _logger.debug(
-                                "Could not disable previous Gateway endpoint during unlink for config %s",
-                                record.id,
-                                exc_info=True,
-                            )
-                    if not record.gateway_api_key:
-                        continue
-                    try:
-                        gateway_url = record._gateway_base(for_request=True)
-                        api_key = record._gateway_api_key_plaintext()
-                    except Exception:
-                        _logger.debug(
-                            "Could not decrypt Gateway credential during unlink for config %s",
-                            record.id,
-                            exc_info=True,
-                        )
-                        continue
-                    new_revision = int(record.enabled_sync_revision or 0) + 1
-                    try:
-                        record._disable_gateway_for_unlink(gateway_url, api_key, new_revision)
-                    except Exception:
-                        _logger.debug(
-                            "Gateway disable during unlink failed for config %s",
-                            record.id,
-                            exc_info=True,
-                        )
-                except Exception:
-                    _logger.debug(
-                        "Unexpected error during unlink sync for config %s",
-                        record.id,
-                        exc_info=True,
+        # Remote shutdown is irreversible from Odoo's transaction perspective:
+        # HTTP cannot be rolled back if the later ORM delete fails. Keep the
+        # local transaction as the durable authority by proving the deletion
+        # itself is possible BEFORE any Gateway side effect. A parent-row lock
+        # also serializes concurrent print-job FK inserts, so the dependency
+        # check cannot become stale between the check and super().unlink().
+        # These local checks run in test mode too (the test cursor sees its
+        # own uncommitted rows); only the remote shutdown network calls below
+        # are skipped so fixture cleanup stays deterministic.
+        if len(self) != 1:
+            raise ValidationError(
+                _("Delete Gateway configurations one at a time so a remote shutdown failure cannot leave a partially-disabled recordset.")
+            )
+        self.flush_recordset()
+        self.env.cr.execute(
+            sql.SQL("SELECT id FROM {} WHERE id = %s FOR UPDATE").format(sql.Identifier(self._table)),
+            [self.id],
+        )
+        self.invalidate_recordset(["gateway_url", "gateway_api_key", "enabled", "enabled_sync_revision", "pending_disable_gateway_url", "pending_disable_gateway_api_key", "pending_disable_revision"])
+        self.env.cr.execute(
+            "SELECT 1 FROM print_gateway_print_job WHERE gateway_config_id = %s LIMIT 1",
+            [self.id],
+        )
+        if self.env.cr.fetchone():
+            # Print jobs are immutable audit records (no unlink right for any
+            # group), so a referenced configuration is archival: disable it
+            # instead of deleting it. Say so directly rather than suggesting
+            # job removal, which the access rules forbid.
+            raise ValidationError(
+                _("This Gateway configuration cannot be deleted while print jobs still reference it. Print jobs are retained as audit records; disable the configuration instead.")
+            )
+        if in_test:
+            return super().unlink()
+
+        for record in self:
+            if not record.gateway_url:
+                continue
+
+            # Complete any durable previous-endpoint shutdown fence first.
+            # Never delete the record while the old endpoint is still enabled
+            # or while its encrypted credential cannot be used to prove a
+            # successful shutdown.
+            if record.pending_disable_gateway_url:
+                if not record.pending_disable_gateway_api_key:
+                    raise ValidationError(
+                        _("This Gateway configuration cannot be deleted until the previous Gateway endpoint has been disabled successfully.")
                     )
+                try:
+                    old_key = record._gateway_api_key_plaintext_from_value(
+                        record.pending_disable_gateway_api_key
+                    )
+                except Exception as exc:
+                    raise ValidationError(
+                        _("This Gateway configuration cannot be deleted because the credential for the previous Gateway endpoint cannot be decrypted.")
+                    ) from exc
+                if not old_key or not record._disable_gateway_for_unlink(
+                    record.pending_disable_gateway_url,
+                    old_key,
+                    int(record.pending_disable_revision or 0),
+                ):
+                    raise ValidationError(
+                        _("This Gateway configuration cannot be deleted until the previous Gateway endpoint has been disabled successfully.")
+                    )
+
+            # No API key means there is no credential available to issue a
+            # shutdown request. It is safe to delete only when Odoo already
+            # has durable evidence that the current endpoint is disabled and
+            # the corresponding revision is fully acknowledged.
+            if not record.gateway_api_key:
+                if (
+                    record.enabled
+                    or record.last_enabled_sync_error
+                    or int(record.last_enabled_sync_revision or -1)
+                    != int(record.enabled_sync_revision or 0)
+                    or (
+                        record.pending_sync_revision is not None
+                        and int(record.pending_sync_revision) >= 0
+                    )
+                ):
+                    raise ValidationError(
+                        _("This Gateway configuration cannot be deleted until the Gateway confirms that printing is disabled.")
+                    )
+                continue
+
+            try:
+                gateway_url = record._gateway_base(for_request=True)
+                api_key = record._gateway_api_key_plaintext()
+            except ValidationError:
+                # Preserve configuration-validation failures (for example an
+                # HTTP URL on production main) instead of misreporting them as
+                # a credential-decryption problem.
+                raise
+            except (CredentialKeyUnavailable, CredentialDecryptError, ValueError) as exc:
+                raise ValidationError(
+                    _("This Gateway configuration cannot be deleted because its Gateway credential is unavailable.")
+                ) from exc
+
+            new_revision = int(record.enabled_sync_revision or 0) + 1
+            if not record._disable_gateway_for_unlink(gateway_url, api_key, new_revision):
+                raise ValidationError(
+                    _("This Gateway configuration cannot be deleted until the Gateway confirms that printing is disabled.")
+                )
+
         return super().unlink()
 
     @api.model
@@ -1626,7 +1711,7 @@ class PrintGatewayConfig(models.Model):
                 return False
 
             cr.execute(
-                "SELECT enabled_sync_revision FROM %s WHERE id = %%s FOR UPDATE NOWAIT" % self._table,
+                sql.SQL("SELECT enabled_sync_revision FROM {} WHERE id = %s FOR UPDATE NOWAIT").format(sql.Identifier(self._table)),
                 [self.id],
             )
             row = cr.fetchone()
@@ -1921,14 +2006,9 @@ class PrintGatewayPairAgentWizard(models.TransientModel):
         string="Runtime Agent ID",
         help="Identifier of an active Agent registered with the Central Gateway.",
     )
-    pairing_code = fields.Char(
-        string="Agent Reference / ID",
-        help="Identifier or name of the Agent to assign to this branch.",
-    )
-
     def action_confirm_pairing(self):
         self.ensure_one()
-        target = (self.agent_id or self.pairing_code or "").strip()
+        target = (self.agent_id or "").strip()
         if not target:
             raise ValidationError(_("Please provide a valid Runtime Agent ID."))
         config = self.config_id

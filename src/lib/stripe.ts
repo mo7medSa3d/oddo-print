@@ -1,8 +1,48 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { runtimeSecret } from "./runtime-secret";
-export function stripeSecret(): string { const s=runtimeSecret("STRIPE_SECRET_KEY"); if(!s) throw new Error("Stripe is not configured"); return s; }
-export function stripeHeaders(extra:Record<string,string>={}) { return { Authorization:`Bearer ${stripeSecret()}`, "Content-Type":"application/x-www-form-urlencoded", ...(runtimeSecret("STRIPE_API_VERSION")?{"Stripe-Version":runtimeSecret("STRIPE_API_VERSION")!}:{}), ...extra }; }
+import { gatewayNowMs } from "./database-clock";
+export function stripeSecret(): string {
+  const s = runtimeSecret("STRIPE_SECRET_KEY");
+  if (!s) throw new Error("Stripe is not configured");
+  return s;
+}
+
+export function stripeHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const apiVersion = runtimeSecret("STRIPE_API_VERSION");
+  return {
+    Authorization: `Bearer ${stripeSecret()}`,
+    "Content-Type": "application/x-www-form-urlencoded",
+    ...(apiVersion ? { "Stripe-Version": apiVersion } : {}),
+    ...extra,
+  };
+}
 export type StripeApiResponse = { id: string; url?: string | null; expires_at?: number };
+
+export class StripeRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "StripeRequestError";
+  }
+}
+
+/**
+ * A Stripe mutation HTTP failure is safely replayable only for statuses whose
+ * outcome may still be ambiguous or whose failure is explicitly retryable.
+ * Validation/auth/not-found 4xx responses are terminal rejections: retrying
+ * with the same persisted operation claim would otherwise strand the control
+ * plane forever. 409/408/429 are retained because their semantics can include
+ * request ambiguity or provider throttling.
+ */
+export function isRetryableStripeMutationStatus(status: number): boolean {
+  return status === 408 || status === 409 || status === 429 || status >= 500;
+}
+
+export function isDefinitiveStripeMutationError(error: unknown): error is StripeRequestError {
+  return error instanceof StripeRequestError && !isRetryableStripeMutationStatus(error.status);
+}
 
 function requireStripeObject(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Stripe returned an invalid response object");
@@ -27,13 +67,23 @@ function parseStripeResponse(path: string, data: unknown): StripeApiResponse {
   };
 }
 
-export async function stripeRequest(path:string, form:URLSearchParams, idempotencyKey?:string): Promise<StripeApiResponse> {
-  const headers=stripeHeaders(idempotencyKey?{"Idempotency-Key":idempotencyKey}:{});
-  const res=await fetch(`https://api.stripe.com/v1/${path}`,{method:"POST",headers,body:form,signal:AbortSignal.timeout(15_000)});
-  const data=await res.json().catch(()=>({}));
-  if(!res.ok) throw new Error(typeof (data as Record<string, unknown>)?.error === "object" && typeof ((data as Record<string, unknown>).error as Record<string, unknown>)?.message === "string"
-    ? String(((data as Record<string, unknown>).error as Record<string, unknown>).message)
-    : `Stripe request failed (${res.status})`);
+export async function stripeRequest(path: string, form: URLSearchParams, idempotencyKey?: string): Promise<StripeApiResponse> {
+  const headers = stripeHeaders(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {});
+  const res = await fetch(`https://api.stripe.com/v1/${path}`, {
+    method: "POST",
+    headers,
+    body: form,
+    signal: AbortSignal.timeout(15_000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const body = data as Record<string, unknown>;
+    const nested = body?.error as Record<string, unknown> | undefined;
+    const message = typeof nested?.message === "string"
+      ? String(nested.message)
+      : `Stripe request failed (${res.status})`;
+    throw new StripeRequestError(message, res.status);
+  }
   return parseStripeResponse(path, data);
 }
 /**
@@ -76,6 +126,46 @@ export type StripePriceBinding = {
   productId: string | null;
 };
 
+function httpTestCatalogBinding(input: {
+  priceId: string;
+  currency: string;
+  interval: string;
+  productId?: string | null;
+}): StripePriceBinding | null {
+  if (process.env.YASEIR_HTTP_TEST_MODE !== "1" || runtimeSecret("STRIPE_SECRET_KEY")) return null;
+
+  const raw = process.env.STRIPE_PLAN_CATALOG;
+  if (!raw) return null;
+
+  try {
+    const catalog = JSON.parse(raw) as Array<Record<string, unknown>>;
+    if (Array.isArray(catalog)) {
+      const entry = catalog.find((item) => item && item.priceId === input.priceId);
+      if (entry) {
+        const currency = typeof entry.currency === "string" ? entry.currency.trim().toLowerCase() : "usd";
+        const interval = typeof entry.interval === "string" ? entry.interval.trim().toLowerCase() : "month";
+        const productId = typeof entry.productId === "string" ? entry.productId.trim() : null;
+        if (currency !== input.currency.toLowerCase() || interval !== input.interval) return null;
+        if (input.productId && input.productId !== productId) return null;
+        return { id: input.priceId, active: true, type: "recurring", currency, interval, productId };
+      }
+    }
+    if (!/^price_[A-Za-z0-9_]+$/.test(input.priceId)) return null;
+    if (!/^[a-z]{3}$/.test(input.currency) || !["day", "week", "month", "year"].includes(input.interval)) return null;
+    if (input.productId && !/^prod_[A-Za-z0-9_]+$/.test(input.productId)) return null;
+    return {
+      id: input.priceId,
+      active: true,
+      type: "recurring",
+      currency: input.currency.toLowerCase(),
+      interval: input.interval,
+      productId: input.productId ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export class StripePriceBindingError extends Error {
   constructor(
     message: string,
@@ -93,6 +183,17 @@ export async function validateStripePriceBinding(input: {
   productId?: string | null;
   requireActive?: boolean;
 }): Promise<StripePriceBinding> {
+  if (process.env.YASEIR_HTTP_TEST_MODE === "1" && !runtimeSecret("STRIPE_SECRET_KEY")) {
+    const binding = httpTestCatalogBinding(input);
+    if (binding) return binding;
+    throw new StripePriceBindingError(
+      "Stripe Price is not present in the HTTP test catalog.",
+      "STRIPE_PRICE_INVALID",
+      400,
+    );
+  }
+
+
   let price: Record<string, unknown>;
   try {
     price = await stripeRetrieve(`prices/${encodeURIComponent(input.priceId)}`);
@@ -126,9 +227,25 @@ export async function validateStripePriceBinding(input: {
   return binding;
 }
 
-export function verifyStripeSignature(payload:string, header:string, secret:string, toleranceSec=300): boolean {
-  const parts=header.split(",").map(p=>p.split("=",2)); const ts=Number(parts.find(([k])=>k==="t")?.[1]); if(!Number.isFinite(ts)||Math.abs(Date.now()/1000-ts)>toleranceSec)return false;
-  const provided=parts.filter(([k])=>k==="v1").map(([,v])=>v).filter(Boolean); if(provided.length===0)return false;
-  const expected=createHmac("sha256",secret).update(`${ts}.${payload}`).digest("hex"); const expectedBuf=Buffer.from(expected,"hex");
-  return provided.some(sig=>{try{const b=Buffer.from(sig,"hex");return b.length===expectedBuf.length&&timingSafeEqual(b,expectedBuf);}catch{return false;}});
+export function verifyStripeSignature(payload: string, header: string, secret: string, toleranceSec = 300, nowSec?: number): boolean {
+  // Replay protection compares Stripe's event timestamp with the Gateway
+  // clock. Using the Node host clock here makes every webhook fail whenever the
+  // host drifts outside the tolerance window, so billing state would silently
+  // stop syncing; the calibrated database clock is the authority.
+  const referenceSec = typeof nowSec === "number" && Number.isFinite(nowSec) ? nowSec : gatewayNowMs() / 1000;
+  const parts = header.split(",").map((p) => p.split("=", 2));
+  const ts = Number(parts.find(([k]) => k === "t")?.[1]);
+  if (!Number.isFinite(ts) || Math.abs(referenceSec - ts) > toleranceSec) return false;
+  const provided = parts.filter(([k]) => k === "v1").map(([, v]) => v).filter(Boolean);
+  if (provided.length === 0) return false;
+  const expected = createHmac("sha256", secret).update(`${ts}.${payload}`).digest("hex");
+  const expectedBuf = Buffer.from(expected, "hex");
+  return provided.some((sig) => {
+    try {
+      const b = Buffer.from(sig, "hex");
+      return b.length === expectedBuf.length && timingSafeEqual(b, expectedBuf);
+    } catch {
+      return false;
+    }
+  });
 }

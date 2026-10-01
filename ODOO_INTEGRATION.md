@@ -1,10 +1,10 @@
 # Odoo Integration Guide
 
-> Module: `print_gateway` | Version: 19.0.2.4.0 | Odoo: 19 Community Edition
+> Module: `print_gateway` | Version: 19.0.2.10.0 | Odoo: 19 Community Edition
 
 ## Overview
 
-The Yasser Print Gateway Odoo addon enables silent, hardware-level printing from Odoo ERP to physical printers through the central Gateway. Odoo owns all business context (what to print, where to print); the Gateway owns runtime infrastructure (agents, printers, job queue).
+The Yaseir Print Gateway Odoo addon enables silent, hardware-level printing from Odoo ERP to physical printers through the central Gateway. Odoo owns all business context (what to print, where to print); the Gateway owns runtime infrastructure (agents, printers, job queue).
 
 ## Architecture
 
@@ -34,18 +34,18 @@ Odoo 19 ────────────────────────
 | `print_gateway.intent` | Durable outbox for asynchronous dispatch |
 | `print_gateway.print_job` | Odoo-side job tracking |
 | `print_gateway.runtime_agent_assignment` | Branch → Agent mapping |
-| `print_gateway.crypto` | Cryptographic utilities |
+| `print_gateway.pair_agent_wizard` | Guided Gateway agent pairing flow |
+| _`print_gateway.crypto`_ | AES-GCM utility module (not a model) |
 
-## Report Interception (3 Layers)
+## Report Interception (2 Layers)
 
 ### Layer 1: ORM Level (`ir_actions_report.py`)
 Overrides `report_action()` to intercept `ir.actions.report` execution. If a binding exists, the report is dispatched to the Gateway and a notification is shown instead of opening a PDF.
 
-### Layer 2: HTTP Controller (`report_download_override.py`)
-Overrides `/report/download` as defense-in-depth. Catches browser-level PDF download requests that bypass the ORM layer.
+### Layer 2: Client-Side JS (`report_interceptor.js`)
+Uses the supported Odoo 19 client-side report action interception path to stop the native PDF download flow when Gateway printing is selected.
 
-### Layer 3: Client-Side JS (`report_interceptor.js`)
-OWL 3 `ir.actions.report` handler (sequence 5). Catches report actions in the web client before the default PDF dialog opens.
+Odoo's native `/report/download` HTTP controller remains untouched.
 
 **Fail-Closed Policy**: If a binding exists but dispatch fails, the native PDF download is cancelled. The operator sees an error notification with a link to the Print Jobs list.
 
@@ -58,7 +58,7 @@ Patches `PosStore.prototype.printReceipt` to:
 3. Submit the image to `pos.order.action_print_gateway_receipt`
 
 ### Kitchen/Preparation Printing
-Patches `PosStore.prototype.printOrderChanges` to route kitchen tickets through the Gateway with per-printer targeting and idempotency keys.
+Patches `PosStore.prototype.printChanges` so Gateway-enabled POS kitchen tickets preserve Odoo 19's native `pos.printer`/product-category routing; the native `pos.printer` is the logical preparation destination, while the Gateway Runtime Printer is the physical target.
 
 ### Sale Details Report (`pos.py`)
 Intercepts the `/pos/sale_details_report` route for Z-report printing.
@@ -71,7 +71,7 @@ Intercepts the `/pos/sale_details_report` route for Z-report printing.
 Root Company
 ├── Branch A
 │   ├── Binding: POS Counter → Agent-1 / Receipt Printer
-│   └── Binding: Kitchen → Agent-1 / Kitchen Printer
+│   └── Binding: Kitchen → Agent-1 / Gateway Runtime Printer
 └── Branch B
     └── Binding: POS Counter → Agent-2 / Receipt Printer
 ```
@@ -82,31 +82,38 @@ Root Company
 |-------|-------------|
 | `company_id` | Root Odoo company (not a branch) |
 | `branch_id` | Optional Odoo branch (child company) |
-| `destination_type` | POS Config, POS Printer, Operation Type, or Report |
+| `destination_type` | POS Receipt, POS Kitchen / Preparation, Operation Type, or Report |
 | `runtime_agent_id` | Gateway agent ID |
 | `printer_id` | Gateway printer ID |
-| `printer_protocol` | Required: escpos, zpl, tspl, raw, spooler, ipp, ipps, unknown |
-| `report_id` | Odoo report to render (not for kitchen bindings) |
+| `printer_protocol` | Required: escpos, zpl, tspl, raw, spooler, windows_spooler, ipp, ipps, unknown |
+| `report_id` | Single operator-facing Odoo report selector for backend/document bindings; POS Receipt and POS Kitchen / Preparation bindings do not require a report |
 | `fallback_binding_id` | Pre-dispatch failover if primary printer is offline |
 
 ### Validation Rules
 
 - Root company must not be a branch
 - Branch must belong to the selected root company
-- Agent must be assigned to the branch
+- A Branch binding requires an Agent assigned to that exact Branch; a Company-only binding may use any Agent assigned to the Company or one of its direct child Branches
 - Printer must belong to the selected agent
-- POS receipts cannot target laser/inkjet printers
-- Kitchen bindings cannot have a report_id
+- POS Receipt bindings are rendered by the POS client and do not require a PDF report
+- POS Kitchen / Preparation bindings use the native Odoo 19 Preparation Printer as the logical category-aware destination and the Gateway Runtime Printer as the physical target
+- An Odoo 19 `pos.printer` is required when using category-aware Gateway Kitchen / Preparation routing; a POS Shop binding remains available only as a compatibility fallback when no native Preparation Printer binding exists
+- POS receipts and kitchen tickets cannot target laser/inkjet printers
 
 ## Print Policy Automation
 
 Policies fire on business events (e.g., `pos_order_paid`) and create durable intents that are dispatched asynchronously:
 
 ```python
+# Branch-aware lookup: root company + branch scope (see
+# print_policy.resolve_for_record), not the bare order company.
+root_company = order.company_id.parent_id or order.company_id
+branch = order.company_id if order.company_id.parent_id else False
 policies = policy_model.search([
     ("model_id.model", "=", "pos.order"),
     ("event_type", "=", "pos_order_paid"),
-    ("company_id", "=", order.company_id.id),
+    ("company_id", "=", root_company.id),
+    ("branch_id", "in", [False, branch.id] if branch else [False]),
     ("active", "=", True),
 ])
 ```
@@ -117,7 +124,10 @@ Multi-destination fan-out is supported (same order → receipt printer AND kitch
 
 Each root company needs one `gateway_config` record with:
 - `gateway_url`: The Gateway's public URL
-- `api_key`: An API key created in the Gateway dashboard
+- `gateway_api_key`: The installation API key created in the Gateway dashboard
 - `enabled`: Boolean flag
 
 The config is tested via the Gateway's `/api/odoo/health` endpoint during setup.
+
+### Report Destination
+For `destination_type = Report`, the operator selects exactly one `Report`. The legacy `destination_report_id` field is retained only for compatibility with pre-2.10 data and is hidden from the form.

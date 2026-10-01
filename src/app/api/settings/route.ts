@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { tenants, users } from "../../../db/schema";
-import { eq } from "drizzle-orm";
-import { validateManager } from "../../../lib/manager-auth";
+import { eq, sql } from "drizzle-orm";
+import { validateWorkspaceManager } from "../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../lib/authorization";
 import { writeAuditEvent } from "../../../lib/audit";
 
 export async function GET(req: Request) {
-  const claims = await validateManager(req);
-  if (!claims?.userId || !hasManagerPermission(claims, "tenant.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const claims = await validateWorkspaceManager(req);
+  // Repo convention: 401 for missing authentication, 403 only for a
+  // permission failure on an authenticated principal.
+  if (!claims?.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasManagerPermission(claims, "tenant.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const [tenant, user] = await Promise.all([
     db.query.tenants.findFirst({ where: eq(tenants.id, claims.tenantId), columns: { id: true, name: true, createdAt: true, updatedAt: true } }),
     db.query.users.findFirst({ where: eq(users.id, claims.userId), columns: { email: true } }),
@@ -18,14 +21,15 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const claims = await validateManager(req);
-  if (!claims?.userId || !hasManagerPermission(claims, "tenant.update")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const claims = await validateWorkspaceManager(req);
+  if (!claims?.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasManagerPermission(claims, "tenant.update")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let body: { name?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (name.length < 2 || name.length > 120) return NextResponse.json({ error: "Workspace name must be 2-120 characters" }, { status: 400 });
   await db.transaction(async (tx) => {
-    await tx.update(tenants).set({ name, updatedAt: new Date() }).where(eq(tenants.id, claims.tenantId));
+    await tx.update(tenants).set({ name, updatedAt: sql`now()` }).where(eq(tenants.id, claims.tenantId));
     await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "tenant.updated", resourceType: "tenant", resourceId: claims.tenantId }, tx);
   });
   return NextResponse.json({ ok: true, name });

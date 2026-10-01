@@ -13,26 +13,19 @@ class AccountMovePrintGateway(models.Model):
     def action_post(self):
         res = super().action_post()
         policy_model = self.env["print_gateway.policy"].sudo()
-        intent_model = self.env["print_gateway.intent"].sudo()
 
         for move in self:
+            if not move.is_invoice(include_receipts=True) or move.state != "posted":
+                continue
             try:
-                if not move.is_invoice(include_receipts=True) or move.state != "posted":
-                    continue
-                policies = policy_model.resolve_for_record(move, "invoice_posted")
-
-                # Multi-destination fan-out with same-target dedup: distinct
-                # bindings print, but two policies resolving to the identical
-                # target/content fire once.
-                executed_targets = set()
-                for policy in policies:
-                    if policy.matches_record(move):
-                        target_key = policy.effective_target_key(move)
-                        if target_key in executed_targets:
-                            continue
-                        executed_targets.add(target_key)
-                        intent_model.create_and_route(policy, move, "invoice_posted")
+                result = policy_model.dispatch_for_record(move, "invoice_posted")
+                if result.get("failed"):
+                    _logger.error(
+                        "Automated print scheduling completed with %s policy failure(s) for invoice %s",
+                        result["failed"],
+                        move.id,
+                    )
             except Exception as exc:
-                _logger.error("Failed to schedule print intent for invoice %s: %s", move.id, exc)
+                _logger.error("Failed to schedule automated print intents for invoice %s: %s", move.id, exc)
 
         return res

@@ -28,7 +28,7 @@ pub fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
   let status_header = MenuItem::with_id(
     app,
     "status_header",
-    "● Yasser Print Manager • Operational",
+    "● Yaseir Print Manager • Operational",
     false,
     None::<&str>,
   )?;
@@ -65,7 +65,7 @@ pub fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
   };
 
   let _tray = TrayIconBuilder::with_id("main-tray")
-    .tooltip("Yasser Print Manager — Cloud/Agent status: open for details")
+    .tooltip("Yaseir Print Manager — Cloud/Agent status: open for details")
     .icon(icon)
     .menu(&menu)
     .show_menu_on_left_click(false)

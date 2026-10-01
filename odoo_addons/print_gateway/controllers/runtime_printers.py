@@ -46,8 +46,12 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 raise ValidationError("Odoo Branch must belong directly to the selected Odoo Company.")
             company = company.parent_id
 
-        if branch and branch.parent_id and branch.parent_id.id != company.id:
-            raise ValidationError("Odoo Branch must belong directly to the selected Odoo Company.")
+        if branch and branch == company:
+            raise ValidationError("Odoo Branch must be a child Branch, not the selected root Company.")
+
+        if branch:
+            if not branch.parent_id or branch.parent_id.id != company.id:
+                raise ValidationError("Odoo Branch must belong directly to the selected Odoo Company.")
 
         return company, branch
 
@@ -112,7 +116,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             if not isinstance(agent, dict):
                 continue
             agent_id = agent.get('id')
-            lifecycle = agent.get('lifecycle') if isinstance(agent.get('lifecycle'), str) else 'active'
+            lifecycle = agent.get('lifecycle') if isinstance(agent.get('lifecycle'), str) else ''
             if not isinstance(agent_id, str) or not agent_id.strip() or lifecycle != 'active':
                 continue
             raw_name = agent.get('name') if isinstance(agent.get('name'), str) and agent.get('name').strip() else agent_id
@@ -170,13 +174,13 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             if agent_response.status_code != 200:
                 raise ValidationError('Gateway agent discovery failed (HTTP %s).' % agent_response.status_code)
             agent_body = agent_response.json() if agent_response.content else {}
-            active_agents = agent_body.get('agents') if isinstance(agent_body, dict) else None
+            all_agents = agent_body.get('agents') if isinstance(agent_body, dict) else None
         except ValidationError:
             raise
         except (requests.RequestException, ValueError) as exc:
             raise ValidationError('Gateway agent discovery is unavailable.') from exc
         matched_agent = next(
-            (a for a in active_agents or [] if isinstance(a, dict) and a.get('id') == selected_agent_id and a.get('lifecycle') == 'active'),
+            (a for a in all_agents or [] if isinstance(a, dict) and a.get('id') == selected_agent_id and a.get('lifecycle') == 'active'),
             None,
         )
         if not matched_agent:
@@ -206,7 +210,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             printer_id = printer.get('id')
             if not isinstance(printer_id, str) or not printer_id.strip():
                 continue
-            lifecycle = printer.get('lifecycle') if isinstance(printer.get('lifecycle'), str) else 'active'
+            lifecycle = printer.get('lifecycle') if isinstance(printer.get('lifecycle'), str) else ''
             agent = printer.get('agent') if isinstance(printer.get('agent'), dict) else {}
             returned_agent_id = agent.get('id') if isinstance(agent.get('id'), str) else ''
             if lifecycle != 'active' or returned_agent_id != selected_agent_id:

@@ -19,7 +19,7 @@ pub async fn cleanup_local_jobs(app: tauri::AppHandle) -> Result<u64, String> {
             .arg("-config")
             .arg(&config)
             .arg("--json")
-            .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root());
+            .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
         // Suppress the console window that would otherwise flash for each
         // cleanup invocation from the GUI app (Windows only).
         #[cfg(windows)]

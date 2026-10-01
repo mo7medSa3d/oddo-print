@@ -3,6 +3,7 @@ package testutil
 
 import (
 	"io"
+	"log"
 	"net"
 	"sort"
 	"sync"
@@ -75,8 +76,14 @@ func (m *MockTCPPrinter) handle(conn net.Conn, seq int) {
 	if m.delay > 0 {
 		time.Sleep(m.delay)
 	}
-	// read all, capture
-	data, _ := io.ReadAll(conn)
+	// read all, capture. A read failure used to be discarded entirely, which
+	// made a truncated/failed capture look like a legitimately short payload in
+	// assertion failures. The bytes read are still recorded unchanged (tests
+	// rely on partial-capture behaviour); the error is now visible.
+	data, readErr := io.ReadAll(conn)
+	if readErr != nil {
+		log.Printf("mock printer: read from %s failed after %d bytes: %v", conn.RemoteAddr(), len(data), readErr)
+	}
 	if m.disconnectAfter > 0 && len(data) > m.disconnectAfter {
 		data = data[:m.disconnectAfter]
 	}
@@ -134,10 +141,7 @@ func (m *MockTCPPrinter) Reset() {
 	m.mu.Unlock()
 }
 
-func (m *MockTCPPrinter) SetDelay(d time.Duration)  { m.delay = d }
-func (m *MockTCPPrinter) SetAcceptFail(v bool)      { m.acceptFail = v }
-func (m *MockTCPPrinter) SetDisconnectAfter(n int)  { m.disconnectAfter = n }
-func (m *MockTCPPrinter) SetPartialReadLimit(n int) { m.partialReadLimit = n }
+func (m *MockTCPPrinter) SetDelay(d time.Duration) { m.delay = d }
 
 func (m *MockTCPPrinter) Close() error {
 	m.mu.Lock()

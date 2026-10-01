@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
+import { clearCustomerRefreshCookie, clearCustomerSessionCookie } from "../../../../lib/customer-auth";
 import { db } from "../../../../db";
-import { tenantUsers, managerSessions } from "../../../../db/schema";
+import { tenantUsers } from "../../../../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { clearManagerCookieHeader, validateManager } from "../../../../lib/manager-auth";
+import {
+  clearManagerCookieHeader,
+  clearManagerRefreshCookieHeader,
+  validateWorkspaceManager,
+  revokeLegacyManagerSessionsForUserInTransaction,
+} from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { writeAuditEvent } from "../../../../lib/audit";
+import { revokeUserTenantRefreshFamiliesInTransaction } from "../../../../lib/session-tokens";
 
 class OwnershipConflict extends Error {
   readonly status = 409;
@@ -14,7 +21,7 @@ class OwnershipConflict extends Error {
 }
 
 export async function POST(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || claims.role !== "owner" || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Only the workspace owner can transfer ownership" }, { status: 403 });
   const currentUserId = claims.userId;
   let body: { userId?: unknown };
@@ -42,7 +49,7 @@ export async function POST(req: Request) {
       if (target.role === "owner") throw new OwnershipConflict("Target member is already an owner; refresh and try again.");
 
       const demoted = await tx.update(tenantUsers)
-        .set({ role: "admin", updatedAt: new Date() })
+        .set({ role: "admin", updatedAt: sql`now()` })
         .where(and(
           eq(tenantUsers.tenantId, claims.tenantId),
           eq(tenantUsers.userId, currentUserId),
@@ -52,7 +59,7 @@ export async function POST(req: Request) {
       if (demoted.length !== 1) throw new OwnershipConflict("Ownership has already changed. Refresh and try again.");
 
       const promoted = await tx.update(tenantUsers)
-        .set({ role: "owner", updatedAt: new Date() })
+        .set({ role: "owner", updatedAt: sql`now()` })
         .where(and(
           eq(tenantUsers.tenantId, claims.tenantId),
           eq(tenantUsers.userId, newOwnerId),
@@ -61,9 +68,13 @@ export async function POST(req: Request) {
         .returning({ userId: tenantUsers.userId });
       if (promoted.length !== 1) throw new OwnershipConflict("Target membership changed concurrently; no ownership change was committed.");
 
-      await tx.update(managerSessions)
-        .set({ revokedAt: new Date() })
-        .where(and(eq(managerSessions.userId, currentUserId), eq(managerSessions.tenantId, claims.tenantId)));
+      await revokeLegacyManagerSessionsForUserInTransaction(tx, currentUserId, claims.tenantId);
+      await revokeUserTenantRefreshFamiliesInTransaction(
+        tx,
+        currentUserId,
+        claims.tenantId,
+        "ownership_transferred",
+      );
 
       await writeAuditEvent(
         {
@@ -83,6 +94,13 @@ export async function POST(req: Request) {
   }
 
   const res = NextResponse.json({ ok: true, next: "/login" });
+  // Ownership transfer revokes the current user's tenant session family.
+  // Clear both web session cookie pairs so the browser cannot keep presenting
+  // a revoked manager or workspace session after the transfer.
   res.headers.set("Set-Cookie", clearManagerCookieHeader());
+  res.headers.append("Set-Cookie", clearManagerRefreshCookieHeader());
+  res.headers.append("Set-Cookie", clearCustomerSessionCookie());
+  res.headers.append("Set-Cookie", clearCustomerRefreshCookie());
+  res.headers.set("Cache-Control", "no-store");
   return res;
 }

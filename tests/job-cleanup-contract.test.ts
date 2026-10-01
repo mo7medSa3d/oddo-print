@@ -8,9 +8,11 @@ describe("print-job cleanup contract", () => {
   it("protects active Gateway jobs and requires manager authentication", () => {
     const src = read("src/app/api/jobs/route.ts");
     expect(src).toContain("export async function DELETE(req: Request)");
-    expect(src).toContain("const claims = await validateManager(req)");
+    expect(src).toContain("const claims = await validateWorkspaceManager(req)");
     expect(src).toContain('["success", "failed", "expired"]');
     expect(src).toContain("inArray(printJobs.status");
+    expect(src).toContain("PHYSICAL_OUTCOME_UNKNOWN_MARKERS.map");
+    expect(src).toContain("COALESCE(${printJobs.error}, '') NOT LIKE");
     expect(src).not.toContain(".delete(printJobs)\n    .where(inArray(printJobs.status");
     expect(src).toContain("confirm=1");
     expect(src).toContain("MAX_CLEANUP_ROWS = 5000");
@@ -73,3 +75,9 @@ describe("print-job cleanup contract", () => {
     expect(purge).toContain("--include-unknown");
   });
 });
+
+  it("keeps print-job TTL validation on the database clock", async () => {
+    const src = await import("node:fs").then(fs => fs.readFileSync("src/lib/print-job-service.ts", "utf8"));
+    expect(src).toContain("SELECT clock_timestamp() AS now");
+    expect(src).toContain("const effectiveExpiresAt = expiresAt ?? new Date(dbNow.getTime() + 60 * 60 * 1000);");
+  });

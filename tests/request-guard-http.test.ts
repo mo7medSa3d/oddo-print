@@ -1,7 +1,7 @@
 import { createServer, type Server } from "http";
 import { connect, type AddressInfo } from "net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { guardApiRequest, getReservedRequestBytes, isLikelyAuthenticated, MAX_API_BODY_BYTES } from "../src/server/request-guard";
+import { guardApiRequest, getReservedRequestBytes, isLikelyAuthenticated, isCookieAuthenticatedMutation, MAX_API_BODY_BYTES } from "../src/server/request-guard";
 import { parseStrictContentLength } from "../src/lib/request-limits";
 
 /**
@@ -31,6 +31,12 @@ describe("strict Content-Length parser", () => {
 });
 
 describe("request authentication budget classification", () => {
+  it("recognizes all current session cookie names for mutation admission", () => {
+    for (const cookie of ["mgr_session=token", "cust_session=token", "plt_session=token"]) {
+      const req = { headers: { cookie } } as import("http").IncomingMessage;
+      expect(isCookieAuthenticatedMutation(req)).toBe(true);
+    }
+  });
   it("rejects attacker-controlled opaque credential shapes", () => {
     const req = { headers: { authorization: "Bearer odoo_attacker-controlled-key" } } as import("http").IncomingMessage;
     expect(isLikelyAuthenticated(req)).toBe(false);

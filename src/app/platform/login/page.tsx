@@ -18,8 +18,18 @@ export default function PlatformLoginPage() {
     let cancelled = false;
 
     fetch("/api/platform/auth/me", { credentials: "include", cache: "no-store" })
-      .then((res) => {
-        if (!cancelled && res.ok) router.replace("/platform/dashboard");
+      .then(async (res) => {
+        if (cancelled) return;
+        if (res.ok) {
+          router.replace("/platform/dashboard");
+          return;
+        }
+        const refresh = await fetch("/api/platform/auth/refresh", {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!cancelled && refresh.ok) router.replace("/platform/dashboard");
       })
       .catch(() => undefined)
       .finally(() => {

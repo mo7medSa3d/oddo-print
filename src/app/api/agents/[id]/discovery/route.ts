@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { agents, discoverySessions } from "../../../../../db/schema";
-import { validateManager } from "../../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { nanoid } from "../../../../../lib/nanoid";
 import { validateDiscoveryRequest } from "../../../../../lib/discovery";
+import { logError } from "../../../../../lib/log";
 
 export const dynamic = "force-dynamic";
 
 // Discovery is runtime infrastructure only. It never receives or creates Odoo business ownership.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "agents.pair"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   const { id: agentId } = await params;
@@ -59,7 +60,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         status: "running",
         config: v.data,
         stats: {},
-        startedAt: new Date(),
+        startedAt: sql`now()`,
       });
       // Push discovery instantly via Postgres NOTIFY -> WebSocket (10-50ms)
       // instead of waiting for agent's 10s poll fallback. Matches job delivery path.
@@ -78,13 +79,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if ((error as { code?: string })?.code === "23505") {
       return NextResponse.json({ error: "Discovery already running for this agent" }, { status: 409 });
     }
+    logError("agent.discovery.failed", { agentId, error: error instanceof Error ? error.message : String(error) });
     throw error;
   }
   return NextResponse.json({ discoveryId, agentId, status: "running" }, { status: 201 });
 }
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "agents.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   const { id: agentId } = await params;

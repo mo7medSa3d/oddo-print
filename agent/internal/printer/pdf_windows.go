@@ -139,7 +139,7 @@ func deviceCaps(hdc uintptr, index int) int {
 }
 
 func startGDIPrint(hdc uintptr, jobID, printerName string) error {
-	title := "YasserAgent PDF"
+	title := "YaseirAgent PDF"
 	if jobID != "" {
 		title += " " + jobID
 	}

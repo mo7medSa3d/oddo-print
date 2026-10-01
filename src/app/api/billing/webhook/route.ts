@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { billingEvents, plans, tenantSubscriptions } from "../../../../db/schema";
 import { eq, sql } from "drizzle-orm";
+import { parseDbTimeMs } from "../../../../lib/database-clock";
 import { runtimeSecret } from "../../../../lib/runtime-secret";
 import { stripeRetrieve, verifyStripeSignature } from "../../../../lib/stripe";
 import { writeAuditEvent } from "../../../../lib/audit";
@@ -19,25 +20,7 @@ function statusOf(status: string): "trialing" | "active" | "past_due" | "incompl
   return "cancelled";
 }
 
-const INTERNAL_EVENT_KEY = "__yasser";
-
-/**
- * Raw `db.execute()` rows surface naive UTC timestamp strings (node-postgres
- * identity parsers for timestamp OIDs) while typed drizzle rows surface Date.
- * Normalize either form to epoch milliseconds without host-TZ dependence.
- */
-function parseDbTimeMs(value: Date | string | null | undefined): number | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value.getTime();
-  const text = value.trim();
-  if (!text) return null;
-  let iso = text.replace(" ", "T");
-  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
-    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
-  }
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : ms;
-}
+const INTERNAL_EVENT_KEY = "__yaseir";
 
 function parseDbTime(value: Date | string | null | undefined): Date | null {
   const ms = parseDbTimeMs(value);
@@ -64,13 +47,20 @@ export async function POST(req: Request) {
   const raw = await req.text();
   const sig = req.headers.get("stripe-signature") ?? "";
   const secret = runtimeSecret("STRIPE_WEBHOOK_SECRET");
+  // Deliberate 400 (not 401): Stripe's convention is non-2xx for failed
+  // validation, and the integration contract pins 400 + this exact body
+  // (billing-webhook.test.ts "missing/invalid Stripe signature"). A 401
+  // buys nothing here — verification is HMAC, not a brute-forceable
+  // credential — and would churn Stripe's delivery dashboard semantics.
   if (!secret || !verifyStripeSignature(raw, sig, secret)) return NextResponse.json({ error: "Invalid webhook signature" }, { status: 400 });
 
   let event: StripeEvent;
   try { event = JSON.parse(raw) as StripeEvent; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const eventId = typeof event.id === "string" ? event.id : "";
   const eventType = typeof event.type === "string" ? event.type : "";
-  if (!eventId || !eventType) return NextResponse.json({ error: "Invalid event" }, { status: 400 });
+  if (!eventId || !eventType || !Number.isSafeInteger(event.created) || Number(event.created) < 0) {
+    return NextResponse.json({ error: "Invalid event" }, { status: 400 });
+  }
 
   // Duplicate deliveries are normal. Once an event is durably processed,
   // acknowledge it without depending on Stripe API availability. The
@@ -89,23 +79,51 @@ export async function POST(req: Request) {
   // depends on it. Stripe explicitly does not guarantee webhook ordering and
   // snapshot event timestamps are only second-resolution.
   const obj = event.data?.object ?? {};
-  const eventCreatedAt = typeof event.created === "number" ? new Date(event.created * 1000) : new Date();
+  const eventCreatedAt = new Date(Number(event.created) * 1000);
   const eventCreatedUnix = Math.floor(eventCreatedAt.getTime() / 1000);
 
+  // Subscription lifecycle events are authoritative for access state. For all
+  // lifecycle events whose subscription still exists, retrieve the current
+  // Stripe resource instead of trusting the event snapshot: Stripe timestamps
+  // are second-resolution and webhook delivery order is not guaranteed.
+  // A deleted subscription cannot be retrieved after termination, so its
+  // signed event snapshot is the terminal source of truth and gets a special
+  // same-second fence below.
+  const currentSnapshotSubscriptionEvents = new Set([
+    "customer.subscription.created",
+    "customer.subscription.updated",
+    "customer.subscription.paused",
+    "customer.subscription.resumed",
+    "customer.subscription.pending_update_applied",
+    "customer.subscription.pending_update_expired",
+  ]);
+  const subscriptionStateEvent =
+    eventType === "customer.subscription.deleted" || currentSnapshotSubscriptionEvents.has(eventType);
+
   let stateObj: Record<string, unknown> = obj;
-  if (eventType === "customer.subscription.created" || eventType === "customer.subscription.updated") {
+  let staleSnapshotEvent = false;
+  if (currentSnapshotSubscriptionEvents.has(eventType)) {
     const subscriptionId = typeof obj.id === "string" ? obj.id : "";
     if (!subscriptionId) return NextResponse.json({ error: "Subscription event missing subscription id" }, { status: 400 });
-    try {
-      stateObj = await stripeRetrieve(`subscriptions/${encodeURIComponent(subscriptionId)}`);
+    const knownSubscription = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.stripeSubscriptionId, subscriptionId),
+      columns: { stripeLastEventCreatedAt: true },
+    });
+    const knownEventMs = parseDbTimeMs(knownSubscription?.stripeLastEventCreatedAt);
+    const skipStaleSnapshotFetch =
+      knownEventMs !== null && eventCreatedAt.getTime() < knownEventMs;
+    staleSnapshotEvent = skipStaleSnapshotFetch;
+
+    if (!skipStaleSnapshotFetch) {
+      try {
+        stateObj = await stripeRetrieve(`subscriptions/${encodeURIComponent(subscriptionId)}`);
     } catch (error) {
       logError("billing.webhook_latest_subscription_fetch_failed", {
         eventId,
         error: error instanceof Error ? error.message : "unknown",
       });
-      // Do not mark the event processed when the current Stripe object could
-      // not be read. Stripe will retry, and the event remains recoverable.
-      return NextResponse.json({ error: "Unable to verify current Stripe subscription state" }, { status: 502 });
+        return NextResponse.json({ error: "Unable to verify current Stripe subscription state" }, { status: 502 });
+      }
     }
   }
 
@@ -187,7 +205,7 @@ export async function POST(req: Request) {
 
       if (billingIdentityConflict) {
         await tx.update(billingEvents)
-          .set({ tenantId: boundTenantId ?? null, processedAt: new Date() })
+          .set({ tenantId: boundTenantId ?? null, processedAt: sql`clock_timestamp()` })
           .where(eq(billingEvents.eventId, eventId));
         if (boundTenantId) {
           await writeAuditEvent({
@@ -223,7 +241,7 @@ export async function POST(req: Request) {
           const differentSubscription = Boolean(current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId);
           if (differentSubscription && current?.status !== "cancelled") {
             await tx.update(billingEvents)
-              .set({ tenantId, processedAt: new Date() })
+              .set({ tenantId, processedAt: sql`clock_timestamp()` })
               .where(eq(billingEvents.eventId, eventId));
             await writeAuditEvent({
               tenantId,
@@ -241,7 +259,7 @@ export async function POST(req: Request) {
             typeof checkoutSubscription?.status === "string" ? checkoutSubscription.status : undefined;
           if (currentStripeCheckoutCustomer && customerId && currentStripeCheckoutCustomer !== customerId) {
             await tx.update(billingEvents)
-              .set({ tenantId, processedAt: new Date() })
+              .set({ tenantId, processedAt: sql`clock_timestamp()` })
               .where(eq(billingEvents.eventId, eventId));
             await writeAuditEvent({
               tenantId,
@@ -255,7 +273,7 @@ export async function POST(req: Request) {
           }
           if (differentSubscription && current?.status === "cancelled" && currentStripeCheckoutStatus === "canceled") {
             await tx.update(billingEvents)
-              .set({ tenantId, processedAt: new Date() })
+              .set({ tenantId, processedAt: sql`clock_timestamp()` })
               .where(eq(billingEvents.eventId, eventId));
             await writeAuditEvent({
               tenantId,
@@ -269,7 +287,7 @@ export async function POST(req: Request) {
           }
           if (current?.stripeCustomerId && customerId && current.stripeCustomerId !== customerId) {
             await tx.update(billingEvents)
-              .set({ tenantId, processedAt: new Date() })
+              .set({ tenantId, processedAt: sql`clock_timestamp()` })
               .where(eq(billingEvents.eventId, eventId));
             await writeAuditEvent({
               tenantId,
@@ -293,10 +311,10 @@ export async function POST(req: Request) {
             currentPeriodEnd: typeof checkoutSubscription?.current_period_end === "number"
               ? new Date(checkoutSubscription.current_period_end * 1000)
               : undefined,
-            updatedAt: new Date(),
+            updatedAt: sql`clock_timestamp()`,
           }).where(eq(tenantSubscriptions.tenantId, tenantId));
         }
-      } else if (eventType.startsWith("customer.subscription.")) {
+      } else if (subscriptionStateEvent) {
         const subId = typeof stateObj.id === "string" ? stateObj.id : "";
         const items = stateObj.items as { data?: Array<{ price?: { id?: string } }> } | undefined;
         const priceId = items?.data?.[0]?.price?.id;
@@ -312,6 +330,8 @@ export async function POST(req: Request) {
                  current_period_end AS "currentPeriodEnd",
                  cancel_at_period_end AS "cancelAtPeriodEnd",
                  plan_id AS "planId",
+                 entitlement_blocked AS "entitlementBlocked",
+                 entitlement_blocked_reason AS "entitlementBlockedReason",
                  stripe_last_event_created_at AS "stripeLastEventCreatedAt"
           FROM tenant_subscriptions
           WHERE tenant_id = ${tenantId}
@@ -329,9 +349,13 @@ export async function POST(req: Request) {
           currentPeriodEnd?: Date | string | null;
           cancelAtPeriodEnd?: boolean;
           planId?: string;
+          entitlementBlocked?: boolean;
+          entitlementBlockedReason?: string | null;
           stripeLastEventCreatedAt?: Date | string | null;
         } | undefined;
         const plan = priceId ? await tx.query.plans.findFirst({ where: eq(plans.stripePriceId, priceId), columns: { id: true } }) : undefined;
+        const priceMappingAuthoritative = eventType === "customer.subscription.created" || eventType === "customer.subscription.updated";
+        const entitlementBlocked = priceMappingAuthoritative ? !plan : tenantRow?.entitlementBlocked === true;
         if (tenantRow && tenantId) {
           const differentSubscription = Boolean(
             tenantRow.stripeSubscriptionId && tenantRow.stripeSubscriptionId !== subId
@@ -352,13 +376,30 @@ export async function POST(req: Request) {
             differentSubscription &&
             tenantRow.status === "cancelled" &&
             isNewerThanStoredEvent;
-          // Stripe does not guarantee webhook delivery order. Snapshot-only lifecycle
-          // events (paused/resumed/deleted) cannot be refreshed from the API and must
-          // therefore be fenced by the last processed event timestamp too. For
-          // created/updated events we retrieve Stripe's current object, but still use
-          // the event timestamp to prevent a stale snapshot-only event from regressing
-          // the tenant state after a newer lifecycle event has already been applied.
-          if (isNewerThanStoredEvent && (sameOrUnboundSubscription || newerReplacementSubscription)) {
+          // A live Stripe resource is authoritative even when the triggering
+          // event shares a second with another event or arrived much later.
+          // Re-evaluating the resource makes paused/resumed and other lifecycle
+          // events converge on Stripe's current state. Deleted is the exception:
+          // Stripe's terminated resource is no longer retrievable, so the signed
+          // deletion event is a terminal fence and can advance on an equal timestamp.
+          // The Stripe retrieve() happened before this transaction acquired the
+          // tenant row lock. Another webhook may have fetched a newer remote
+          // snapshot and committed it while this request was waiting. Never let
+          // that older fetched snapshot overwrite the newer persisted event fence.
+          // Ties (>=, not >) converge on the live snapshot: same-second
+          // paused/resumed pairs are otherwise order-of-arrival coin flips.
+          // Strictly older events still never overwrite (see the < gate on
+          // the snapshot fetch above and isNewerThanStoredEvent below).
+          const currentSnapshotAuthoritative =
+            currentSnapshotSubscriptionEvents.has(eventType) &&
+            !staleSnapshotEvent &&
+            (storedStripeEventCreatedAtMs === null || eventCreatedAt.getTime() >= storedStripeEventCreatedAtMs);
+          const terminalDelete =
+            eventType === "customer.subscription.deleted";
+          const sameSubscriptionCanUpdate =
+            sameOrUnboundSubscription &&
+            (currentSnapshotAuthoritative || terminalDelete || isNewerThanStoredEvent);
+          if (sameSubscriptionCanUpdate || newerReplacementSubscription) {
             const nextStatus = typeof stateObj.status === "string" ? statusOf(stateObj.status) : tenantRow.status;
             const currentPeriodStart = typeof stateObj.current_period_start === "number"
               ? new Date(stateObj.current_period_start * 1000)
@@ -372,6 +413,10 @@ export async function POST(req: Request) {
               currentPeriodEnd: typeof stateObj.current_period_end === "number" ? new Date(stateObj.current_period_end * 1000) : parseDbTime(tenantRow.currentPeriodEnd),
               cancelAtPeriodEnd: stateObj.cancel_at_period_end === true,
               planId: plan?.id ?? tenantRow.planId,
+              entitlementBlocked,
+              entitlementBlockedReason: priceMappingAuthoritative && entitlementBlocked
+                ? `stripe_price_unmapped:${priceId || "missing"}`
+                : (priceMappingAuthoritative ? null : tenantRow.entitlementBlockedReason),
               ...(nextStatus === "cancelled" || nextStatus === "incomplete_expired"
                 ? {
                     checkoutStatus: "none" as const,
@@ -383,7 +428,7 @@ export async function POST(req: Request) {
                   }
                 : {}),
               stripeLastEventCreatedAt: sql`GREATEST(COALESCE(${tenantSubscriptions.stripeLastEventCreatedAt}, ${eventCreatedAt}), ${eventCreatedAt})`,
-              updatedAt: new Date(),
+              updatedAt: sql`clock_timestamp()`,
             }).where(eq(tenantSubscriptions.tenantId, tenantId));
           }
         }
@@ -397,7 +442,7 @@ export async function POST(req: Request) {
       }
 
       await tx.update(billingEvents)
-        .set({ tenantId: tenantId ?? null, processedAt: new Date() })
+        .set({ tenantId: tenantId ?? null, processedAt: sql`clock_timestamp()` })
         .where(eq(billingEvents.eventId, eventId));
 
       if (tenantId) {

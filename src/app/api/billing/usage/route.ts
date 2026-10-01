@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { agents, printers, plans, tenantSubscriptions } from "../../../../db/schema";
 import { getTenantEntitlements, getTenantPrintUsage, isTenantBillingError } from "../../../../lib/entitlements";
-import { validateManager } from "../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { eq, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const manager = await validateManager(req);
+  const manager = await validateWorkspaceManager(req);
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(manager, "billing.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 

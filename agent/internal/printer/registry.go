@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yasser-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
 // registryMu serializes every read-modify-write of printers.json within this
@@ -93,7 +93,9 @@ func loadRegistryPartitionedLocked(registryPath string) (production, hidden []De
 	if removed > 0 {
 		// Rewrite the cleaned registry (best effort, not fatal). Hidden
 		// records are written back so nothing is destroyed.
-		_ = saveRegistryLocked(registryPath, concatDevices(production, hidden))
+		if err := saveRegistryLocked(registryPath, concatDevices(production, hidden)); err != nil {
+			log.Printf("printer registry cleanup rewrite failed: %v", err)
+		}
 	}
 	return production, hidden, removed, nil
 }
@@ -221,12 +223,43 @@ func UpsertRegistry(registryPath string, discovered []DeviceInfo) ([]DeviceInfo,
 			continue
 		}
 		if idx, ok := byID[d.ID]; ok {
-			// Update existing
-			existing[idx] = d
-		} else {
-			existing = append(existing, d)
-			byID[d.ID] = len(existing) - 1
+			// Merge into the stored row so a bare rediscovery observation
+			// never wipes previously observed capabilities/serials — but
+			// the incoming observation is the freshest display truth (an
+			// OS/spooler rename must win), while mergeDeviceInfo alone
+			// conservatively keeps the stored name for the live-discovery
+			// path where cross-transport flapping is noise.
+			merged := mergeDeviceInfo(existing[idx], d)
+			if d.Name != "" {
+				merged.Name = d.Name
+			}
+			if d.DisplayName != "" {
+				merged.DisplayName = d.DisplayName
+			}
+			existing[idx] = merged
+			continue
 		}
+
+		// Preserve the persisted ID when a stronger physical identity proves
+		// that an observed printer is the same device/queue after an IP or
+		// spooler-name change. This also migrates IDs created by older
+		// name/IP-based implementations without destructive re-registration.
+		if identity, ok := physicalIdentityKey(d); ok {
+			for idx, prior := range existing {
+				if priorIdentity, priorOK := physicalIdentityKey(prior); priorOK && priorIdentity == identity {
+					oldID := prior.ID
+					d.ID = oldID
+					existing[idx] = d
+					byID[oldID] = idx
+					log.Printf("[registry] preserved printer ID %s across identity-preserving endpoint/name change", oldID)
+					goto persisted
+				}
+			}
+		}
+
+		existing = append(existing, d)
+		byID[d.ID] = len(existing) - 1
+	persisted:
 	}
 	// Persist hidden records too: hiding a queue must never delete it.
 	all := concatDevices(existing, hidden)
@@ -243,7 +276,17 @@ func UpsertRegistry(registryPath string, discovered []DeviceInfo) ([]DeviceInfo,
 // (spooler queues, IPP URLs) may derive it.
 func RegisterManual(registryPath string, info DeviceInfo) ([]DeviceInfo, error) {
 	if info.ID == "" {
-		info.ID = StableIDForDevice(info)
+		// Preserve the established manual USB ID namespace so existing operator
+		// registrations remain stable. Automatic discovery can still use the
+		// stronger source-independent identity and UpsertRegistry will migrate
+		// to an existing persisted ID when the physical identity matches.
+		connectionType := strings.ToLower(strings.TrimSpace(info.ConnectionType))
+		if connectionType == "usb" && (info.USBVID != "" || info.USBPID != "" || info.USBSerial != "") {
+			location := capabilityIdentityValue(info, "location", "usb_location", "usbLocation")
+			info.ID = StableIDFromUSB(info.USBVID, info.USBPID, info.USBSerial, location)
+		} else {
+			info.ID = StableIDForDevice(info)
+		}
 	}
 	if info.Status == "" {
 		info.Status = "unknown"

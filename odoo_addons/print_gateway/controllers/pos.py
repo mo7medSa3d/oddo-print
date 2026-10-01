@@ -9,7 +9,14 @@ from odoo.addons.point_of_sale.controllers.main import PosController
 
 
 class PrintGatewayPosController(PosController):
-    """Intercept the verified direct Sale Details report route."""
+    """Intercept the verified direct Sale Details report route.
+
+    NOTE — dual Sale Details paths: this HTTP path resolves the destination
+    from the report action, while action_print_gateway_sale_details resolves
+    explicit_destination=session.config_id (print_router). The same logical
+    report therefore needs a binding for EACH path; a binding covering only
+    one path leaves the other on native behavior.
+    """
 
     @http.route('/pos/sale_details_report', type='http', auth='user')
     def print_sale_details(self, date_start=False, date_stop=False, **kw):
@@ -41,5 +48,6 @@ class PrintGatewayPosController(PosController):
                 ('Cache-Control', 'no-store'),
             ],
         )
-        response.status_code = 202
+        # Use 202 for accepted (queued) jobs, 200 for completed/synchronous results
+        response.status_code = 202 if result.get('status') in ('queued', 'claimed', 'printing') else 200
         return response

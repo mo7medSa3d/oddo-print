@@ -1,18 +1,22 @@
 import { db } from "../db";
 import { apiKeys } from "../db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { requireActiveTenantOrNull } from "./tenant-guard";
+import { logWarn } from "./log";
 
 function hashKey(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
 }
 
 function timingSafeEqualStr(a: string, b: string): boolean {
-  const left = Buffer.from(a, "utf8");
-  const right = Buffer.from(b, "utf8");
-  if (left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
+  // Hash both inputs to fixed-length SHA-256 digests before comparing, so no
+  // code path branches on secret length (matching agent-auth.ts). Both sides
+  // are fixed 64-char hex digests in practice; the hashing keeps the pattern
+  // uniform so the weaker length-branching form is never copied elsewhere.
+  const digestA = createHash("sha256").update(a, "utf8").digest();
+  const digestB = createHash("sha256").update(b, "utf8").digest();
+  return timingSafeEqual(digestA, digestB);
 }
 
 export function generateOdooApiKey(): { raw: string; hashed: string; id: string } {
@@ -38,13 +42,21 @@ export async function validateOdooKey(
   if (!raw.startsWith("odoo_")) return null;
 
   const hashed = hashKey(raw);
-  const row = await db.query.apiKeys.findFirst({ where: eq(apiKeys.hashedKey, hashed) });
-  const now = new Date();
-  const rotationGraceActive = Boolean(
-    row?.revokedAt &&
-    row.readOnlyUntil &&
-    new Date(row.readOnlyUntil).getTime() > now.getTime(),
-  );
+  const row = await db.query.apiKeys.findFirst({
+    where: and(
+      eq(apiKeys.hashedKey, hashed),
+      or(
+        and(isNull(apiKeys.revokedAt), isNull(apiKeys.readOnlyUntil)),
+        and(
+          isNotNull(apiKeys.revokedAt),
+          lte(apiKeys.revokedAt, sql`clock_timestamp()`),
+          isNotNull(apiKeys.readOnlyUntil),
+          gt(apiKeys.readOnlyUntil, sql`clock_timestamp()`),
+        ),
+      ),
+    ),
+  });
+  const rotationGraceActive = Boolean(row?.revokedAt && row.readOnlyUntil);
   if (
     !row ||
     !timingSafeEqualStr(row.hashedKey, hashed) ||
@@ -52,7 +64,15 @@ export async function validateOdooKey(
     (!row.revokedAt && row.readOnlyUntil)
   ) return null;
 
-  await db.update(apiKeys).set({ lastUsedAt: now }).where(and(eq(apiKeys.id, row.id), eq(apiKeys.tenantId, row.tenantId))).catch(() => undefined);
+  await db.update(apiKeys)
+    .set({ lastUsedAt: sql`now()` })
+    .where(and(eq(apiKeys.id, row.id), eq(apiKeys.tenantId, row.tenantId)))
+    .catch((error) => {
+      logWarn("odoo.auth.last_used_update_failed", {
+        apiKeyId: row.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   // Tenant lifecycle gate: suspended/deleted tenants cannot perform normal
   // Odoo operations. Health probes may opt out so the caller can return the
   // correct 403 lifecycle status instead of misclassifying it as bad credentials.

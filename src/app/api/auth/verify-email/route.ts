@@ -5,39 +5,53 @@ import { emailVerificationTokens, tenantUsers, tenants, users } from "../../../.
 import { and, eq, isNull, gt, sql } from "drizzle-orm";
 import { hashToken } from "../../../../lib/password";
 import { nanoid } from "../../../../lib/nanoid";
-import { issueCustomerSession, customerSessionCookie } from "../../../../lib/customer-auth";
+import { issueCustomerSession, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
+import { clientIpFrom, recordAuthSuccess, reserveAuthAttempt, setRateLimitHeaders } from "../../../../lib/auth-rate-limit";
+import { logError, logWarn } from "../../../../lib/log";
 import { writeAuditEvent } from "../../../../lib/audit";
-
-/**
- * Raw `db.execute()` rows surface naive UTC timestamp strings while typed
- * drizzle rows surface Date; normalize either to a Date without host-TZ skew.
- */
-function parseDbTime(value: Date | string | null | undefined): Date | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value;
-  const text = value.trim();
-  if (!text) return null;
-  let iso = text.replace(" ", "T");
-  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
-    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
-  }
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : new Date(ms);
-}
+import type { ManagerRole } from "../../../../lib/manager-auth";
 
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 16 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   let body: { token?: unknown }; try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const token = typeof body.token === "string" ? body.token : "";
   if (!token || token.length > 256) return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
-  const now = new Date();
+  // Token-guessing throttle (mirrors login): no account identity is known
+  // pre-token, so scope by endpoint + IP. Success mints a session, so only
+  // a completed verification clears the budget.
+  const ip = clientIpFrom(req);
+  let rate: Awaited<ReturnType<typeof reserveAuthAttempt>>;
+  try {
+    rate = await reserveAuthAttempt(ip, "verify-email-token");
+  } catch (error) {
+    logError("auth.rate_limit.store_unavailable", { endpoint: "verify_email", error: error instanceof Error ? error.message : "unknown" });
+    return NextResponse.json({ error: "Service temporarily unavailable" }, { status: 503 });
+  }
+  if (!rate.allowed) {
+    const limited = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
+    limited.headers.set("Retry-After", String(rate.retryAfterSec));
+    return setRateLimitHeaders(limited, rate);
+  }
   const tokenHash = await hashToken(token);
-  const row = await db.query.emailVerificationTokens.findFirst({ where: and(eq(emailVerificationTokens.tokenHash, tokenHash), isNull(emailVerificationTokens.consumedAt), gt(emailVerificationTokens.expiresAt, now)) });
+  const row = await db.query.emailVerificationTokens.findFirst({
+    where: and(
+      eq(emailVerificationTokens.tokenHash, tokenHash),
+      isNull(emailVerificationTokens.consumedAt),
+      gt(emailVerificationTokens.expiresAt, sql`clock_timestamp()`),
+    ),
+  });
   if (!row) return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
   const user = await db.query.users.findFirst({ where: eq(users.id, row.userId), columns: { id: true, emailVerifiedAt: true, email: true } });
   if (!user) return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
   let tenantId: string;
-  let role: any = "owner";
+  let role: ManagerRole = "owner";
+  const isManagerRole = (value: string): value is ManagerRole =>
+    value === "owner" ||
+    value === "admin" ||
+    value === "operator" ||
+    value === "viewer" ||
+    value === "integration_admin" ||
+    value === "billing_admin";
   try {
     await db.transaction(async (tx) => {
       // Serialize all verification flows for this user before deciding whether
@@ -52,13 +66,17 @@ export async function POST(req: Request) {
       if (!currentUser?.id || !currentUser.email) throw new Error("USER_NOT_FOUND");
 
       const consumed = await tx.update(emailVerificationTokens)
-        .set({ consumedAt: now })
-        .where(and(eq(emailVerificationTokens.id, row.id), isNull(emailVerificationTokens.consumedAt)))
+        .set({ consumedAt: sql`clock_timestamp()` })
+        .where(and(
+          eq(emailVerificationTokens.id, row.id),
+          isNull(emailVerificationTokens.consumedAt),
+          gt(emailVerificationTokens.expiresAt, sql`clock_timestamp()`),
+        ))
         .returning({ id: emailVerificationTokens.id });
       if (consumed.length !== 1) throw new Error("Verification token already consumed");
 
       await tx.update(users)
-        .set({ emailVerifiedAt: parseDbTime(currentUser.emailVerifiedAt) ?? now, updatedAt: now })
+        .set({ emailVerifiedAt: sql`COALESCE(email_verified_at, clock_timestamp())`, updatedAt: sql`now()` })
         .where(eq(users.id, currentUser.id));
 
       const existing = await tx.select({ tenantId: tenantUsers.tenantId, role: tenantUsers.role })
@@ -67,6 +85,7 @@ export async function POST(req: Request) {
         .limit(1);
       if (existing[0]) {
         tenantId = existing[0].tenantId;
+        if (!isManagerRole(existing[0].role)) throw new Error("INVALID_TENANT_ROLE");
         role = existing[0].role;
       } else {
         tenantId = `ten_${nanoid(18)}`;
@@ -84,11 +103,26 @@ export async function POST(req: Request) {
   } catch (error) {
     if (error instanceof Error && error.message === "Verification token already consumed") return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
     if (error instanceof Error && error.message === "USER_NOT_FOUND") return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
+    if (error instanceof Error && error.message === "INVALID_TENANT_ROLE") return NextResponse.json({ error: "Workspace is unavailable" }, { status: 403 });
     throw error;
   }
-  const session = await issueCustomerSession(user.id, tenantId!, role);
+  const session = await issueCustomerSession(
+    user.id,
+    tenantId!,
+    role,
+    {
+      ipAddress: clientIpFrom(req),
+      userAgent: req.headers.get("user-agent"),
+    },
+    user.email,
+  );
   if (!session) {
     return NextResponse.json({ error: "Workspace is unavailable" }, { status: 403 });
   }
-  return NextResponse.json({ ok: true, next: "/onboarding" }, { headers: { "Set-Cookie": customerSessionCookie(session) } });
+  const response = NextResponse.json({ ok: true, next: "/onboarding" });
+  response.headers.set("Set-Cookie", customerSessionCookie(session));
+  response.headers.append("Set-Cookie", customerRefreshCookie(session));
+  response.headers.set("Cache-Control", "no-store");
+  await recordAuthSuccess(ip, "verify-email-token").catch((error) => logWarn("auth.verify_email.rate_limit_clear_failed", { ip, error: error instanceof Error ? error.message : "unknown" }));
+  return setRateLimitHeaders(response, rate);
 }

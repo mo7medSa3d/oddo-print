@@ -74,7 +74,9 @@ describe("Tenant Lifecycle Unit Tests", () => {
 
   describe("transitionTenantLifecycle", () => {
     const mockTransitionTx = (lifecycle: string) => ({
-      execute: vi.fn().mockResolvedValue({ rows: [{ id: "t1", lifecycle }] }),
+      execute: vi.fn()
+        .mockResolvedValueOnce({ rows: [{ id: "t1", lifecycle }] })
+        .mockResolvedValueOnce({ rows: [{ now: new Date("2026-09-24T00:00:00.000Z") }] }),
       update: vi.fn().mockReturnValue({
         set: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({

@@ -3,13 +3,13 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantSubscriptions } from "../../../../db/schema";
 import { eq } from "drizzle-orm";
-import { validateManager } from "../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { runtimeSecret } from "../../../../lib/runtime-secret";
 import { stripeRequest } from "../../../../lib/stripe";
 
 export async function POST(req: Request) {
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "billing.manage")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

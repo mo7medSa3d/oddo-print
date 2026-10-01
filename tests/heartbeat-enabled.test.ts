@@ -130,6 +130,50 @@ suite("heartbeat validation and lifecycle preservation", () => {
     ]));
   });
 
+  it("syncs agent-owned printer rename, transport, protocol, and config changes", async () => {
+    const before = await pool().query(
+      "SELECT lifecycle, management_source, name, connection_type, protocol, config FROM printers WHERE id = $1",
+      [f.printerId],
+    );
+    expect(before.rows[0].management_source).toBe("agent");
+
+    const res = await heartbeatPOST(new Request("http://gateway.test/api/agent/heartbeat", {
+      method: "POST",
+      headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({
+        status: "online",
+        printers: [{
+          id: f.printerId,
+          name: "Renamed Receipt Printer",
+          printerType: "physical",
+          deviceClass: "thermal",
+          connectionType: "spooler",
+          protocol: "spooler",
+          config: { spooler_name: "Receipt Queue Renamed" },
+          status: "online",
+          capabilities: { supported_protocols: ["spooler", "raw"] },
+        }],
+      }),
+    }));
+    expect(res.status).toBe(200);
+
+    const after = await pool().query(
+      "SELECT lifecycle, management_source, name, printer_type, device_class, connection_type, protocol, config, capabilities FROM printers WHERE id = $1",
+      [f.printerId],
+    );
+    expect(after.rows[0]).toMatchObject({
+      lifecycle: before.rows[0].lifecycle,
+      management_source: "agent",
+      name: "Renamed Receipt Printer",
+      printer_type: "physical",
+      device_class: "thermal",
+      connection_type: "spooler",
+      protocol: "spooler",
+      config: { spooler_name: "Receipt Queue Renamed" },
+      capabilities: { supported_protocols: ["spooler", "raw"] },
+    });
+  });
+
   it("accepts monotonic desired-state acknowledgements and fences them to the authenticated tenant and agent", async () => {
     await pool().query(
       `UPDATE printers
@@ -384,9 +428,17 @@ suite("heartbeat validation and lifecycle preservation", () => {
     expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBe(new Date(staleAt).getTime());
     expect((await beat(f.agentAuth, ["job_hb_fence"])).status).toBe(200);
     expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBe(new Date(staleAt).getTime());
+
+    await pool().query(`UPDATE print_jobs SET claim_token = NULL, updated_at = now() - interval '200 seconds' WHERE id = 'job_hb_fence'`);
+    const legacyStaleAt = (await jobRow("job_hb_fence")).updated_at as Date;
+    expect((await beat(f.agentAuth, ["job_hb_fence"])).status).toBe(200);
+    expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBe(new Date(legacyStaleAt).getTime());
+    await pool().query(`UPDATE print_jobs SET claim_token = $1 WHERE id = 'job_hb_fence'`, [liveToken]);
     const other = await seedFixture();
     expect((await beat(other.agentAuth, [{ jobId: "job_hb_fence", claimToken: liveToken }])).status).toBe(200);
-    expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBe(new Date(staleAt).getTime());
+    // Baseline is legacyStaleAt, not staleAt: the NULL-claim reset above
+    // re-based updated_at, so staleness must be measured from there.
+    expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBe(new Date(legacyStaleAt).getTime());
     expect((await beat(f.agentAuth, [{ jobId: "job_hb_fence", claimToken: liveToken }])).status).toBe(200);
     expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBeGreaterThan(new Date(staleAt).getTime());
   });

@@ -1,3 +1,4 @@
+import { gatewayTestSigningKey } from "./helpers/test-secrets";
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import {
   hasTestDatabase,
@@ -37,7 +38,7 @@ suite("permanent agent deletion lifecycle & invariants", () => {
   const prevTrustProxy = process.env.TRUST_PROXY;
 
   beforeAll(async () => {
-    process.env.GATEWAY_JWT_SECRET = "test-secret-that-is-at-least-32-characters-long";
+    process.env.GATEWAY_JWT_SECRET = gatewayTestSigningKey();
     process.env.MANAGER_USERNAME = "manager";
     process.env.TRUST_PROXY = "1";
     await applyMigrations();
@@ -212,7 +213,9 @@ suite("permanent agent deletion lifecycle & invariants", () => {
   });
 
   it("invalidates credentials: deleted agent cannot authenticate or access endpoints", async () => {
-    const agentId = "agt_auth_invalidation";
+    // Fixture ID must satisfy the production Agent ID contract
+    // (agt_ + 8 chars, enforced by validateAgent via isValidAgentId).
+    const agentId = "agt_authinv0";
     const rawSecret = "my-super-secret-password-123";
     await pool().query(
       `INSERT INTO agents (id, tenant_id, name, secret, status, lifecycle, last_seen_at)

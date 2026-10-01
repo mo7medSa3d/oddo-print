@@ -1,3 +1,4 @@
+import { gatewayTestSigningKey } from "./helpers/test-secrets";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import {
   hasTestDatabase,
@@ -20,7 +21,7 @@ suite("discovery trust and approval flow", () => {
   let f: Fixture;
 
   beforeAll(async () => {
-    process.env.GATEWAY_JWT_SECRET = "test-secret-that-is-at-least-32-characters-long";
+    process.env.GATEWAY_JWT_SECRET = gatewayTestSigningKey();
     await applyMigrations();
   });
 
@@ -221,6 +222,116 @@ suite("discovery trust and approval flow", () => {
   });
 
 
+  it("converges repeated discovery scans on one stable device identity", async () => {
+    const firstDiscovery = await createDiscoverySession("disc-sync-first");
+    const first = await agentRequest(firstDiscovery, [{
+      id: "dev_agent_scoped_1", stableId: "printer_net_abcdef", source: ["raw"], protocol: "raw",
+      ipAddress: "192.168.10.60", port: 9100, deviceName: "Receipt A",
+    }]);
+    expect(first.status).toBe(200);
+    expect((await first.json()).inserted).toBe(1);
+
+    const secondDiscovery = await createDiscoverySession("disc-sync-second");
+    const second = await agentRequest(secondDiscovery, [{
+      id: "dev_agent_scoped_1", stableId: "printer_net_abcdef", source: ["raw", "snmp"], protocol: "raw",
+      ipAddress: "192.168.10.60", port: 9100, deviceName: "Receipt Renamed",
+    }]);
+    expect(second.status).toBe(200);
+    const secondBody = await second.json();
+    expect(secondBody.inserted).toBe(0);
+    expect(secondBody.updated).toBe(1);
+
+    const rows = await pool().query(
+      `SELECT id, discovery_id, identity_key, device_name FROM discovered_devices
+       WHERE tenant_id = $1 AND agent_id = $2`,
+      [f.tenantId, f.agentId],
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toMatchObject({
+      id: "dev_agent_scoped_1",
+      discovery_id: "disc-sync-second",
+      identity_key: "printer_net_abcdef",
+      device_name: "Receipt Renamed",
+    });
+  });
+
+  it("allows two tenants to report the same discovery device id", async () => {
+    const other = await seedFixture();
+    const sharedDeviceId = "dev_shared_net_identity";
+    const discoveryA = await createDiscoverySession("disc-tenant-a-shared");
+    await pool().query(
+      `INSERT INTO discovery_sessions (id, tenant_id, agent_id, status, config, stats)
+       VALUES ($1, $2, $3, 'running', '{}'::jsonb, '{}'::jsonb)`,
+      ["disc-tenant-b-shared", other.tenantId, other.agentId],
+    );
+
+    const resA = await agentRequest(discoveryA, [{
+      id: sharedDeviceId, stableId: "printer_net_shared", protocol: "raw",
+      ipAddress: "192.168.1.50", port: 9100, deviceName: "Tenant A LAN",
+    }]);
+    expect(resA.status).toBe(200);
+
+    const resB = await discoveryReportPOST(new Request("http://gateway.test/api/agent/discovery", {
+      method: "POST",
+      headers: { Authorization: other.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({
+        discoveryId: "disc-tenant-b-shared",
+        status: "completed",
+        devices: [{
+          id: sharedDeviceId, stableId: "printer_net_shared", protocol: "raw",
+          ipAddress: "192.168.1.50", port: 9100, deviceName: "Tenant B LAN",
+        }],
+      }),
+    }));
+    expect(resB.status).toBe(200);
+    expect((await resB.json()).inserted).toBe(1);
+
+    const rows = await pool().query(
+      `SELECT tenant_id, device_name FROM discovered_devices WHERE id = $1 ORDER BY tenant_id`,
+      [sharedDeviceId],
+    );
+    expect(rows.rows).toHaveLength(2);
+    expect(new Set(rows.rows.map((row: { tenant_id: string }) => row.tenant_id))).toEqual(new Set([f.tenantId, other.tenantId]));
+  });
+
+  it("deduplicates repeated device identities inside one discovery report", async () => {
+    const discoveryId = await createDiscoverySession("disc-intra-batch-dedupe");
+    const res = await agentRequest(discoveryId, [
+      { id: "device-dup-a", stableId: "printer_net_same", protocol: "raw", ipAddress: "192.168.10.70", port: 9100, deviceName: "First Observation" },
+      { id: "device-dup-b", stableId: "printer_net_same", protocol: "raw", ipAddress: "192.168.10.70", port: 9100, deviceName: "Last Observation" },
+    ]);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.inserted).toBe(1);
+
+    const rows = await pool().query(
+      `SELECT count(*)::int AS count, identity_key, device_name
+       FROM discovered_devices WHERE tenant_id = $1 AND agent_id = $2
+       GROUP BY identity_key, device_name`,
+      [f.tenantId, f.agentId],
+    );
+    expect(rows.rows).toEqual([{ count: 1, identity_key: "printer_net_same", device_name: "Last Observation" }]);
+  });
+  it("accepts valid discovery devices when another candidate in the same report is invalid", async () => {
+    const discoveryId = await createDiscoverySession("disc-partial-report");
+    const res = await agentRequest(discoveryId, [
+      { id: "device-valid-1", stableId: "printer_net_valid", protocol: "raw", ipAddress: "192.168.10.61", port: 9100, deviceName: "Valid Printer" },
+      { id: "device-invalid-1", protocol: "raw", ipAddress: "8.8.8.8", port: 9100, deviceName: "Rejected Printer" },
+    ]);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.skipped).toHaveLength(1);
+    expect(body.skipped[0]).toMatchObject({ id: "device-invalid-1" });
+
+    const session = await pool().query(`SELECT status, stats FROM discovery_sessions WHERE id = $1`, [discoveryId]);
+    expect(session.rows[0].status).toBe("partial");
+    expect(session.rows[0].stats).toMatchObject({ candidates: 2, inserted: 1, skipped: 1 });
+
+    const devices = await pool().query(`SELECT id FROM discovered_devices WHERE discovery_id = $1`, [discoveryId]);
+    expect(devices.rows).toEqual([{ id: "device-valid-1" }]);
+  });
   it("serializes concurrent provisioning so one candidate cannot create two printers", async () => {
     const discoveryId = await createDiscoverySession();
     await agentRequest(discoveryId, [{

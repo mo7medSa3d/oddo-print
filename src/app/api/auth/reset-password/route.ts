@@ -1,11 +1,15 @@
-import { logError } from "../../../../lib/log";
+import { logError, logWarn } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { db } from "../../../../db";
-import { managerSessions, platformSessions, passwordResetTokens, tenantUsers, users } from "../../../../db/schema";
-import { and, eq, isNull, gt } from "drizzle-orm";
+import { passwordResetTokens, tenantUsers, users } from "../../../../db/schema";
+import { and, eq, isNull, gt, sql } from "drizzle-orm";
 import { hashPassword, hashToken } from "../../../../lib/password";
+import { clientIpFrom, recordAuthSuccess, reserveAuthAttempt, setRateLimitHeaders } from "../../../../lib/auth-rate-limit";
 import { writeAuditEvent } from "../../../../lib/audit";
+import { revokeLegacyManagerSessionsForUserInTransaction } from "../../../../lib/manager-auth";
+import { revokeLegacyPlatformSessionsForUserInTransaction } from "../../../../lib/platform-auth";
+import { revokeUserRefreshFamiliesInTransaction } from "../../../../lib/session-tokens";
 
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
@@ -17,45 +21,62 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid or incomplete reset request" }, { status: 400 });
   }
 
+  // Token-guessing throttle (mirrors forgot-password/login): the limiter key
+  // has no account identity pre-token, so scope by endpoint + IP. Every
+  // guess consumes budget; only a completed reset clears it.
+  const ip = clientIpFrom(req);
+  let rate: Awaited<ReturnType<typeof reserveAuthAttempt>>;
+  try {
+    rate = await reserveAuthAttempt(ip, "reset-password-token");
+  } catch (error) {
+    logError("auth.rate_limit.store_unavailable", { endpoint: "reset_password", error: error instanceof Error ? error.message : "unknown" });
+    return NextResponse.json({ error: "Service temporarily unavailable" }, { status: 503 });
+  }
+  if (!rate.allowed) {
+    const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
+    res.headers.set("Retry-After", String(rate.retryAfterSec));
+    return setRateLimitHeaders(res, rate);
+  }
+
   const row = await db.query.passwordResetTokens.findFirst({
     where: and(
       eq(passwordResetTokens.tokenHash, await hashToken(token)),
       isNull(passwordResetTokens.consumedAt),
-      gt(passwordResetTokens.expiresAt, new Date())
+      gt(passwordResetTokens.expiresAt, sql`clock_timestamp()`)
     ),
   });
   if (!row) return NextResponse.json({ error: "Reset link expired or invalid" }, { status: 400 });
 
   const nextHash = await hashPassword(password);
-  const now = new Date();
 
   try {
     await db.transaction(async (tx) => {
       const consumed = await tx
         .update(passwordResetTokens)
-        .set({ consumedAt: now })
-        .where(and(eq(passwordResetTokens.id, row.id), isNull(passwordResetTokens.consumedAt)))
+        .set({ consumedAt: sql`now()` })
+        .where(and(
+          eq(passwordResetTokens.id, row.id),
+          isNull(passwordResetTokens.consumedAt),
+          gt(passwordResetTokens.expiresAt, sql`clock_timestamp()`),
+        ))
         .returning({ id: passwordResetTokens.id });
 
       if (consumed.length !== 1) throw new Error("Reset token already consumed");
 
       const updatedUser = await tx.update(users)
-        .set({ passwordHash: nextHash, updatedAt: now })
+        .set({ passwordHash: nextHash, updatedAt: sql`now()` })
         .where(eq(users.id, row.userId))
         .returning({ id: users.id });
       if (updatedUser.length !== 1) throw new Error("Reset user missing");
 
-      // Revoke all tenant manager sessions for this user
-      await tx
-        .update(managerSessions)
-        .set({ revokedAt: now })
-        .where(and(eq(managerSessions.userId, row.userId), isNull(managerSessions.revokedAt)));
+      // Revoke pre-cutover legacy sessions as part of the bounded compatibility window.
+      await revokeLegacyManagerSessionsForUserInTransaction(tx, row.userId);
+      await revokeLegacyPlatformSessionsForUserInTransaction(tx, row.userId);
 
-      // Revoke all platform owner sessions for this user
-      await tx
-        .update(platformSessions)
-        .set({ revokedAt: now })
-        .where(and(eq(platformSessions.userId, row.userId), isNull(platformSessions.revokedAt)));
+      // Password reset is a session-boundary event: every v2 refresh family for
+      // the account must be revoked so an attacker holding an old refresh token
+      // cannot mint a new access token after the password changes.
+      await revokeUserRefreshFamiliesInTransaction(tx, row.userId, "password_reset");
 
       const membership = await tx.query.tenantUsers.findFirst({
         where: eq(tenantUsers.userId, row.userId),
@@ -80,5 +101,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Password reset failed" }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true });
+  await recordAuthSuccess(ip, "reset-password-token").catch((error) => logWarn("auth.reset_password.rate_limit_clear_failed", { ip, error: error instanceof Error ? error.message : "unknown" }));
+  return setRateLimitHeaders(NextResponse.json({ ok: true }), rate);
 }

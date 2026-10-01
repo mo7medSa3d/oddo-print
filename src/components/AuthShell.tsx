@@ -16,11 +16,11 @@ export function AuthShell({
       </div>
       <div className="relative z-10 w-full max-w-[420px]">
         <div className="mb-6 flex justify-center">
-          <BrandMark size="lg" title="Yasser" subtitle={subtitle} />
+          <BrandMark size="lg" title="Yaseir" subtitle={subtitle} />
         </div>
         {children}
         <p className="mt-5 text-center text-[11px] text-ink-4">
-          Yasser Cloud Printing Platform
+          Yaseir Cloud Printing Platform
         </p>
       </div>
     </main>

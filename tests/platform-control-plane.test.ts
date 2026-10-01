@@ -1,7 +1,11 @@
+import { gatewayTestSigningKey } from "./helpers/test-secrets";
+import { createHmac } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { sql } from "drizzle-orm";
+import { LEGACY_SESSION_MAX_AGE_SECONDS } from "../src/lib/session-config";
 import {
   createPlatformSession,
-  verifyPlatformToken,
+  verifyPlatformTokenSignature,
   validatePlatformClaims,
   requirePlatformOwner,
   PlatformUnauthorizedError,
@@ -31,7 +35,7 @@ let fixture: Fixture;
 suite("Platform Control Plane & Authorization Boundaries", () => {
   beforeAll(async () => {
     prevSecret = process.env.GATEWAY_JWT_SECRET;
-    process.env.GATEWAY_JWT_SECRET = "test-secret-that-is-at-least-32-characters-long";
+    process.env.GATEWAY_JWT_SECRET = gatewayTestSigningKey();
     await applyMigrations();
   });
 
@@ -74,7 +78,7 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
     expect(session.token).toBeTypeOf("string");
     expect(session.jti).toBeTypeOf("string");
 
-    const claims = verifyPlatformToken(session.token);
+    const claims = verifyPlatformTokenSignature(session.token);
     expect(claims).not.toBeNull();
     expect(claims?.sub).toBe("platform_owner");
     expect(claims?.userId).toBe(user.userId);
@@ -84,14 +88,14 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
   it("refuses platform claims for users where is_platform_owner is false", async () => {
     const user = await createTestUser({ isPlatformOwner: false });
     const session = await createPlatformSession(user.userId, user.email);
-    const validated = await validatePlatformClaims(verifyPlatformToken(session.token));
+    const validated = await validatePlatformClaims(verifyPlatformTokenSignature(session.token));
     expect(validated).toBeNull();
   });
 
   it("validates platform claims when is_platform_owner is true and email is verified", async () => {
     const user = await createTestUser({ isPlatformOwner: true });
     const session = await createPlatformSession(user.userId, user.email);
-    const validated = await validatePlatformClaims(verifyPlatformToken(session.token));
+    const validated = await validatePlatformClaims(verifyPlatformTokenSignature(session.token));
 
     expect(validated).not.toBeNull();
     expect(validated?.userId).toBe(user.userId);
@@ -109,14 +113,50 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
     expect(invalidAuth).toBeNull();
   });
 
-  it("revokes platform session and invalidates claims", async () => {
+  it("rejects a v2 access token immediately after its refresh family is revoked", async () => {
     const user = await createTestUser({ isPlatformOwner: true });
     const session = await createPlatformSession(user.userId, user.email);
-    let validated = await validatePlatformClaims(verifyPlatformToken(session.token));
+
+    expect(await validatePlatformClaims(verifyPlatformTokenSignature(session.token))).not.toBeNull();
+
+    await db.execute(sql`
+      UPDATE refresh_tokens
+      SET revoked_at = clock_timestamp(), revoked_reason = 'logout'
+      WHERE family_id = ${session.familyId}
+        AND kind = 'platform'
+    `);
+
+    expect(await validatePlatformClaims(verifyPlatformTokenSignature(session.token))).toBeNull();
+  });
+
+  it("revokes legacy platform session and invalidates legacy claims", async () => {
+    const user = await createTestUser({ isPlatformOwner: true });
+    const jti = `legacy_platform_${nanoid(18)}`;
+    await db.execute(sql`
+      INSERT INTO platform_sessions (jti, user_id, expires_at)
+      VALUES (${jti}, ${user.userId}, clock_timestamp() + interval '8 hours')
+    `);
+    const createdAt = Number((await db.execute(
+      sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`,
+    )).rows[0]?.now_sec);
+    const legacyHeader = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+    const legacyPayload = Buffer.from(JSON.stringify({
+      jti,
+      iat: createdAt,
+      exp: createdAt + LEGACY_SESSION_MAX_AGE_SECONDS,
+      sub: "platform_owner",
+      userId: user.userId,
+      email: user.email,
+    })).toString("base64url");
+    const data = `${legacyHeader}.${legacyPayload}`;
+    const signature = createHmac("sha256", process.env.GATEWAY_JWT_SECRET!).update(data).digest("base64url");
+    const token = `${data}.${signature}`;
+
+    let validated = await validatePlatformClaims(verifyPlatformTokenSignature(token));
     expect(validated).not.toBeNull();
 
-    await revokePlatformSession(session.jti);
-    validated = await validatePlatformClaims(verifyPlatformToken(session.token));
+    await revokePlatformSession(jti);
+    validated = await validatePlatformClaims(verifyPlatformTokenSignature(token));
     expect(validated).toBeNull();
   });
 

@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
 """Print Policy engine for event-driven automated print dispatch."""
 
+import logging
+
 from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
 from odoo.tools.safe_eval import safe_eval
+
+_logger = logging.getLogger(__name__)
 
 
 EVENT_TYPES = [
@@ -11,6 +15,20 @@ EVENT_TYPES = [
     ("invoice_posted", "Customer Invoice / Bill Posted"),
     ("pos_order_paid", "Point of Sale Order Paid"),
 ]
+
+
+def is_in_test_mode(env):
+    """Return True when Odoo's test harness is active."""
+    try:
+        from odoo import tools
+        return bool(
+            tools.config.get("test_enable")
+            or getattr(env.registry, "in_test", False)
+            or (hasattr(env.registry, "in_test_mode") and env.registry.in_test_mode())
+            or env.context.get("test_mode")
+        )
+    except Exception:
+        return False
 
 
 def sanitize_raw_value(value, protocol):
@@ -35,7 +53,7 @@ class PrintGatewayPolicy(models.Model):
     active = fields.Boolean(default=True)
     company_id = fields.Many2one(
         "res.company", string="Odoo Company", required=True,
-        default=lambda self: self.env.company, ondelete="restrict", index=True,
+        default=lambda self: self.env.company.parent_id or self.env.company, ondelete="restrict",
         domain="[('parent_id', '=', False)]",
     )
     branch_id = fields.Many2one(
@@ -70,6 +88,11 @@ class PrintGatewayPolicy(models.Model):
         ("zpl", "Zebra ZPL-II"),
         ("tspl", "TSC TSPL"),
         ("escpos", "ESC/POS"),
+        # "raw" = opaque byte passthrough (no language framing). It is the
+        # router's fallback for pre-encoded streams; the Gateway accepts it
+        # (route_raw_command allows zpl/tspl/escpos/raw) so the policy
+        # selection must offer it too.
+        ("raw", "Raw passthrough"),
     ], string="Raw Protocol", default="zpl")
     raw_template = fields.Text(
         string="Raw Command Template",
@@ -77,8 +100,8 @@ class PrintGatewayPolicy(models.Model):
     )
     binding_id = fields.Many2one(
         "print_gateway.binding", string="Target Binding", ondelete="restrict",
-        domain="['|', ('company_id', '=', False), ('company_id', '=', effective_company_id)]",
-        help="Explicit print binding to use. If omitted, the standard routing engine will resolve the binding dynamically.",
+        domain="[('company_id', '=', company_id), ('branch_id', '=', branch_id)]",
+        help="Optional explicit Print Rule for this exact Odoo Company and Branch scope.",
     )
     warehouse_id = fields.Many2one(
         "stock.warehouse", string="Warehouse Filter", ondelete="restrict",
@@ -124,7 +147,7 @@ class PrintGatewayPolicy(models.Model):
                 values[field_name] = sanitize_raw_value(rel.display_name if rel else "", protocol)
                 values[f"{field_name}_id"] = sanitize_raw_value(rel.id if rel else "", protocol)
         try:
-            import string
+            import string  # noqa: F401  (imported for clarity; Formatter used below)
             formatter = string.Formatter()
             for literal_text, field_name, format_spec, conversion in formatter.parse(template):
                 self._sanitize_template_field(field_name)
@@ -160,13 +183,22 @@ class PrintGatewayPolicy(models.Model):
         for policy in self:
             policy.effective_company_id = policy.branch_id or policy.company_id
 
-    @api.constrains("company_id", "branch_id")
+    @api.constrains("company_id", "branch_id", "binding_id")
     def _check_hierarchy(self):
         for policy in self:
             if policy.company_id.parent_id:
                 raise ValidationError(_("Odoo Company must be a root company, not a branch."))
             if policy.branch_id and policy.branch_id.parent_id != policy.company_id:
                 raise ValidationError(_("Odoo Branch must belong directly to the selected Odoo Company."))
+            if policy.binding_id:
+                binding = policy.binding_id
+                if binding.company_id != policy.company_id:
+                    raise ValidationError(_("Target Binding must belong to the same Odoo Company as this Automation Rule."))
+                if policy.branch_id:
+                    if binding.branch_id and binding.branch_id != policy.branch_id:
+                        raise ValidationError(_("Target Binding must belong to this Odoo Branch or be a company-wide fallback."))
+                elif binding.branch_id:
+                    raise ValidationError(_("A root-company Automation Rule cannot target a branch-specific Binding."))
 
     VALID_MODEL_EVENTS = {
         "stock.picking": {"picking_validated"},
@@ -174,6 +206,19 @@ class PrintGatewayPolicy(models.Model):
         "pos.order": {"pos_order_paid"},
     }
     
+    @api.onchange("company_id", "branch_id")
+    def _onchange_scope(self):
+        for policy in self:
+            if policy.binding_id:
+                binding = policy.binding_id
+                valid = binding.company_id == policy.company_id
+                if policy.branch_id:
+                    valid = valid and (not binding.branch_id or binding.branch_id == policy.branch_id)
+                else:
+                    valid = valid and not binding.branch_id
+                if not valid:
+                    policy.binding_id = False
+
     @api.onchange("action_type")
     def _onchange_action_type(self):
         """Clear mutually exclusive fields when switching action type to prevent validation lock."""
@@ -185,6 +230,13 @@ class PrintGatewayPolicy(models.Model):
                 policy.report_id = False
 
 
+
+    @api.constrains("company_id", "branch_id", "binding_id")
+    def _check_binding_scope(self):
+        # The hierarchy validator is owned by the policy because it validates
+        # the policy's company/branch scope and its optional target binding.
+        # Keep this compatibility constraint as a single delegation point.
+        self._check_hierarchy()
 
     @api.constrains("action_type", "report_id", "raw_template", "raw_protocol", "domain_filter", "model_id", "event_type", "binding_id")
     def _check_action_configuration(self):
@@ -210,8 +262,8 @@ class PrintGatewayPolicy(models.Model):
                     raise ValidationError(_("Raw command template cannot be empty when action type is 'Raw Command / Label Template'."))
                 if policy.report_id:
                     raise ValidationError(_("Report action must not be configured when action type is 'Raw Command / Label Template'."))
-                if not policy.raw_protocol or policy.raw_protocol not in ("zpl", "tspl", "escpos"):
-                    raise ValidationError(_("A valid raw protocol (ZPL, TSPL, or ESC/POS) must be specified."))
+                if not policy.raw_protocol or policy.raw_protocol not in ("zpl", "tspl", "escpos", "raw"):
+                    raise ValidationError(_("A valid raw protocol (ZPL, TSPL, ESC/POS, or raw passthrough) must be specified."))
 
                 # 3. Binding protocol compatibility: EXACT match only. A raw
                 # binding is not a wildcard for label or receipt languages.
@@ -259,6 +311,42 @@ class PrintGatewayPolicy(models.Model):
             ("branch_id", "in", [False, branch.id] if branch else [False]),
             ("active", "=", True),
         ], order="priority asc, id asc")
+
+    @api.model
+    @api.private
+    def dispatch_for_record(self, record, event_type):
+        """Schedule every applicable automated print policy independently.
+
+        Policy selection is Odoo-owned control-plane data. Each policy is
+        evaluated and scheduled independently so one invalid target cannot
+        prevent other valid policies from printing. Idempotency is enforced
+        by the Intent layer, not by the hooks themselves.
+        """
+        policies = self.resolve_for_record(record, event_type)
+        intent_model = self.env["print_gateway.intent"].sudo()
+        executed_targets = set()
+        scheduled = 0
+        failures = 0
+        for policy in policies:
+            try:
+                if not policy.matches_record(record):
+                    continue
+                target_key = policy.effective_target_key(record)
+                if target_key in executed_targets:
+                    continue
+                executed_targets.add(target_key)
+                intent_model.create_and_route(policy, record, event_type)
+                scheduled += 1
+            except Exception as exc:
+                failures += 1
+                _logger.error(
+                    "Failed to schedule automated print policy '%s' for %s(%s): %s",
+                    policy.name,
+                    record._name,
+                    record.id,
+                    exc,
+                )
+        return {"scheduled": scheduled, "failed": failures}
 
     def effective_target_key(self, record):
         """Return the validated effective target used for policy fan-out dedup."""

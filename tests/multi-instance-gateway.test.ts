@@ -1,3 +1,4 @@
+import { gatewayTestSigningKey } from "./helpers/test-secrets";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import { WebSocket } from "ws";
@@ -11,7 +12,7 @@ function startGateway(workerSchema: string | null): GatewayProcess {
   const env: NodeJS.ProcessEnv = {
     ...process.env, NODE_ENV: "production", PORT: "0", HOSTNAME: "127.0.0.1", TRUST_PROXY: "0",
     APP_BASE_URL: "https://127.0.0.1/",
-    GATEWAY_JWT_SECRET: "test-secret-that-is-at-least-32-characters-long",
+    GATEWAY_JWT_SECRET: gatewayTestSigningKey(),
     PLATFORM_TENANT_ID: "tenant_multi_instance_platform_test",
     MANAGER_USERNAME: "test-manager", MANAGER_PASSWORD_HASH: "",
   };

@@ -62,7 +62,9 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 	// Active preflight on the OPEN connection before normal ESC/POS document
 	// streaming. Test pages deliberately skip this optional status inquiry.
 	if preflight && strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
-		_ = conn.SetDeadline(time.Now().Add(1500 * time.Millisecond))
+		if err := conn.SetDeadline(time.Now().Add(1500 * time.Millisecond)); err != nil {
+			return fmt.Errorf("set printer health deadline: %w", err)
+		}
 		if _, err := QueryHealthStatus(conn); err != nil {
 			var netErr net.Error
 			if errors.Is(err, ErrPrinterStatusUnsupported) || (errors.As(err, &netErr) && netErr.Timeout()) {
@@ -72,47 +74,26 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 			}
 		}
 		// Reset read/write deadline
-		_ = conn.SetDeadline(time.Time{})
+		if err := conn.SetDeadline(time.Time{}); err != nil {
+			return fmt.Errorf("reset printer deadline: %w", err)
+		}
 	}
 
-	written := 0
 	writeStart := time.Now()
-	for written < len(data) {
-		select {
-		case <-ctx.Done():
-			if written > 0 {
-				return MarkUnknown("print cancelled after %d/%d bytes: %v", written, len(data), ctx.Err())
-			}
-			return fmt.Errorf("print cancelled after %d/%d bytes: %w", written, len(data), ctx.Err())
-		default:
-		}
-		chunk := data[written:]
-		if len(chunk) > networkWriteChunkSize {
-			chunk = chunk[:networkWriteChunkSize]
-		}
-		_ = conn.SetWriteDeadline(time.Now().Add(writeStallTimeout))
-		n, err := conn.Write(chunk)
-		written += n
-		if err != nil {
-			if written > 0 {
-				return MarkUnknown("write %d/%d to %s: %v", written, len(data), p.Address, err)
-			}
-			return fmt.Errorf("write %d/%d to %s: %w", written, len(data), p.Address, err)
-		}
-		if n == 0 {
-			if written > 0 {
-				return MarkUnknown("short write 0 bytes after %d/%d to %s", written, len(data), p.Address)
-			}
-			return fmt.Errorf("short write 0 bytes to %s", p.Address)
-		}
+	written, err := writePrintPayload(ctx, conn, data, p.Address)
+	if err != nil {
+		return err
 	}
 
 	// Graceful shutdown: signal EOF after all application bytes have been
 	// accepted by the socket. TCP close semantics provide delivery ordering;
 	// an arbitrary sleep is not a correctness mechanism.
+	// A CloseWrite failure after all bytes were accepted by the kernel does
+	// NOT make the physical outcome unknown — the bytes were already in the
+	// TCP send buffer. Log and treat as success.
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		if err := tcpConn.CloseWrite(); err != nil {
-			return MarkUnknown("failed to half-close print connection after sending %d bytes: %v", written, err)
+			log.Printf("print.trace network_closewrite address=%s bytes=%d error=%v (bytes already accepted by kernel)", p.Address, written, err)
 		}
 	}
 	log.Printf("print.trace network_write address=%s bytes=%d latency_ms=%d", p.Address, written, time.Since(writeStart).Milliseconds())
@@ -141,6 +122,42 @@ func (p *NetworkPrinter) SupportsKind(kind string) bool {
 	}
 }
 
+func writePrintPayload(ctx context.Context, conn net.Conn, data []byte, address string) (int, error) {
+	written := 0
+	for written < len(data) {
+		select {
+		case <-ctx.Done():
+			if written > 0 {
+				return written, MarkUnknown("print cancelled after %d/%d bytes: %v", written, len(data), ctx.Err())
+			}
+			return written, fmt.Errorf("print cancelled after %d/%d bytes: %w", written, len(data), ctx.Err())
+		default:
+		}
+		chunk := data[written:]
+		if len(chunk) > networkWriteChunkSize {
+			chunk = chunk[:networkWriteChunkSize]
+		}
+		if err := conn.SetWriteDeadline(time.Now().Add(writeStallTimeout)); err != nil {
+			return written, fmt.Errorf("set printer write deadline: %w", err)
+		}
+		n, err := conn.Write(chunk)
+		written += n
+		if err != nil {
+			if written > 0 {
+				return written, MarkUnknown("write %d/%d to %s: %v", written, len(data), address, err)
+			}
+			return written, fmt.Errorf("write %d/%d to %s: %w", written, len(data), address, err)
+		}
+		if n == 0 {
+			if written > 0 {
+				return written, MarkUnknown("short write 0 bytes after %d/%d to %s", written, len(data), address)
+			}
+			return written, fmt.Errorf("short write 0 bytes to %s", address)
+		}
+	}
+	return written, nil
+}
+
 func (p *NetworkPrinter) PrintDocument(ctx context.Context, doc Document) error {
 	kind := NormalizeKind(doc.Kind)
 	switch kind {
@@ -166,7 +183,7 @@ func (p *NetworkPrinter) Test(ctx context.Context) error {
 	}
 	testCtx, cancel := context.WithTimeout(ctx, testPrintDialTimeout)
 	defer cancel()
-	return p.printBytes(testCtx, []byte("\x1b\x40Hello from Yasser Agent!\n\n\x1d\x56\x01"), false, testPrintDialTimeout)
+	return p.printBytes(testCtx, []byte("\x1b\x40Hello from Yaseir Agent!\n\n\x1d\x56\x01"), false, testPrintDialTimeout)
 }
 
 // Status differentiates transport reachability from device health:
@@ -189,7 +206,9 @@ func (p *NetworkPrinter) Status() string {
 	if !strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
 		return "online"
 	}
-	_ = conn.SetDeadline(time.Now().Add(1500 * time.Millisecond))
+	if err := conn.SetDeadline(time.Now().Add(1500 * time.Millisecond)); err != nil {
+		return "error"
+	}
 	if _, err := QueryHealthStatus(conn); err != nil {
 		var netErr net.Error
 		if errors.Is(err, ErrPrinterStatusUnsupported) || (errors.As(err, &netErr) && netErr.Timeout()) {

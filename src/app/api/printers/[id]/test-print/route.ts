@@ -10,6 +10,8 @@ import { TenantEntitlementError, TenantPrintQuotaExceededError, TenantSubscripti
 import { buildTestPrintPayloadForPrinter } from "../../../../../lib/payload";
 import { MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../../lib/job-delivery";
 import { logError } from "../../../../../lib/log";
+import { databaseNowMs } from "../../../../../lib/database-clock";
+import { getAgentAvailability } from "../../../../../lib/agent-availability";
 
 export const dynamic = "force-dynamic";
 
@@ -38,8 +40,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!printer) return NextResponse.json({ error: "Printer not found" }, { status: 404 });
 
   const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, tenantId)) });
-  if (!agent) return NextResponse.json({ error: "Printer owner agent missing", code: "AGENT_NOT_FOUND" }, { status: 500 });
+  if (!agent) return NextResponse.json({ error: "Printer owner agent missing", code: "AGENT_NOT_FOUND" }, { status: 404 });
   if (printer.lifecycle !== "active") return NextResponse.json({ error: "printer disabled" }, { status: 409 });
+  // A test print to a printer whose agent is offline will create a queued job
+  // that sits until the agent reconnects. Fail fast with an explicit reason
+  // instead of stranding the user with a silently-queued test.
+  const availability = getAgentAvailability(agent);
+  if (!availability.available) {
+    return NextResponse.json({
+      error: "Agent is offline — test print will be queued until the agent reconnects",
+      code: "AGENT_OFFLINE",
+      retryable: true,
+    }, { status: 503 });
+  }
 
   let payload: ReturnType<typeof buildTestPrintPayloadForPrinter>;
   try {
@@ -70,7 +83,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (e instanceof TenantPrintQuotaExceededError) {
       const headers = new Headers({ "Cache-Control": "no-store" });
       if (e.periodEnd) {
-        headers.set("Retry-After", String(Math.max(1, Math.ceil((e.periodEnd.getTime() - Date.now()) / 1000))));
+        try {
+          const dbNowMs = await databaseNowMs();
+          headers.set("Retry-After", String(Math.max(1, Math.ceil((e.periodEnd.getTime() - dbNowMs) / 1000))));
+        } catch {
+          // The quota decision already succeeded inside PostgreSQL. Do not
+          // fall back to the Node host wall clock when calculating Retry-After.
+          headers.set("Retry-After", "60");
+        }
       }
       return NextResponse.json({
         error: e.message,

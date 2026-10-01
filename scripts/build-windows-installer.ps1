@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  One-shot production build of the Yasser Print Manager Windows installer.
+  One-shot production build of the Yaseir Print Manager Windows installer.
 
 .DESCRIPTION
   Orchestrates the full pipeline on a Windows build host:
@@ -14,8 +14,8 @@
     6. cargo tauri build           (embeds frontend + agent exes -> NSIS/MSI)
 
   Outputs (default target x86_64-pc-windows-msvc):
-    src-tauri\target\<target>\release\bundle\nsis\Yasser Print Manager_<ver>_x64-setup.exe
-    src-tauri\target\<target>\release\bundle\msi\Yasser Print Manager_<ver>_x64_en-US.msi
+    src-tauri\target\<target>\release\bundle\nsis\Yaseir Print Manager_<ver>_x64-setup.exe
+    src-tauri\target\<target>\release\bundle\msi\Yaseir Print Manager_<ver>_x64_en-US.msi
 
   The bundle is fully standalone: customers need no Node.js, Go, Rust or
   Python. WebView2 is fetched at install time via the bootstrapper (see
@@ -56,13 +56,32 @@ function Assert-Command([string]$Name, [string]$InstallHint) {
   Write-Host ("  {0,-8} {1}" -f $Name, (Get-Command $Name).Source)
 }
 
+function Assert-MinVersion([string]$Name, [version]$Required, [string]$ActualText, [string]$InstallHint) {
+  $match = [regex]::Match($ActualText, '\d+(?:\.\d+){1,3}')
+  if (-not $match.Success) {
+    throw "Unable to determine '$Name' version from: $ActualText. $InstallHint"
+  }
+  $actual = [version]$match.Value
+  if ($actual -lt $Required) {
+    throw "'$Name' $actual is unsupported; this repository requires >= $Required. $InstallHint"
+  }
+  Write-Host ("  {0,-8} {1} (minimum {2})" -f $Name, $actual, $Required)
+}
+
 # ── 1. Prerequisites ─────────────────────────────────────────────────────────
 Write-Step "Prerequisite check"
-Assert-Command node   "Install Node.js >= 22 LTS (see .nvmrc)."
-Assert-Command npm    "Install Node.js >= 22 LTS (see .nvmrc)."
-Assert-Command go     "Install Go >= 1.21 from https://go.dev/dl/."
-Assert-Command rustc  "Install Rust stable: https://rustup.rs/."
-Assert-Command cargo  "Install Rust stable: https://rustup.rs/."
+Assert-Command node   "Install Node.js >= 24.15.0 (the repository baseline is pinned by .nvmrc)."
+Assert-Command npm    "Install the npm version bundled with Node.js 24.15.0+ (the repository baseline is pinned by .nvmrc)."
+Assert-Command go     "Install Go 1.26+ from https://go.dev/dl/ (agent/go.mod requires Go 1.26)."
+Assert-Command rustc  "Install the Rust toolchain pinned by src-tauri/rust-toolchain.toml: https://rustup.rs/."
+Assert-Command cargo  "Install the Rust toolchain pinned by src-tauri/rust-toolchain.toml: https://rustup.rs/."
+Assert-MinVersion "node" ([version]"24.15.0") (& node --version) "Install Node.js 24.15.0+; see .nvmrc for the CI baseline."
+Assert-MinVersion "go" ([version]"1.26.0") (& go version) "Install Go 1.26+; agent/go.mod declares Go 1.26."
+$rustToolchain = Get-Content (Join-Path $repoRoot "src-tauri\rust-toolchain.toml") | Select-String -Pattern '^channel\s*=\s*"(?<version>[^"\s]+)"' | ForEach-Object { $_.Matches[0].Groups["version"].Value }
+if ([string]::IsNullOrWhiteSpace($rustToolchain)) { throw "Unable to determine the pinned Rust toolchain from src-tauri/rust-toolchain.toml" }
+Assert-MinVersion "rustc" ([version]$rustToolchain) (& rustc --version) "Install the exact Rust toolchain pinned by src-tauri/rust-toolchain.toml ($rustToolchain)."
+$rustActual = [regex]::Match((& rustc --version), '\d+(?:\.\d+){1,3}').Value
+if ($rustActual -ne $rustToolchain) { throw "rustc $rustActual does not match the pinned repository toolchain $rustToolchain." }
 & cargo tauri --version *> $null
 if ($LASTEXITCODE -ne 0) {
   throw "tauri-cli missing. Install once with: cargo install tauri-cli --version `"^2`" --locked"
@@ -101,12 +120,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "go tests failed with exit code $LASTEXITCODE" }
   }
 
-  Write-Step "Building YasserAgent.exe (release)"
-  go build -trimpath -ldflags "-s -w" -o YasserAgent.exe .\cmd\agent
+  Write-Step "Building YaseirAgent.exe (release)"
+  go build -trimpath -ldflags "-s -w" -o YaseirAgent.exe .\cmd\agent
   if ($LASTEXITCODE -ne 0) { throw "agent build failed with exit code $LASTEXITCODE" }
 
-  Write-Step "Building yasser-agent-cli.exe (release)"
-  go build -trimpath -ldflags "-s -w" -o yasser-agent-cli.exe .\cmd\cli
+  Write-Step "Building yaseir-agent-cli.exe (release)"
+  go build -trimpath -ldflags "-s -w" -o yaseir-agent-cli.exe .\cmd\cli
   if ($LASTEXITCODE -ne 0) { throw "cli build failed with exit code $LASTEXITCODE" }
 } finally {
   Pop-Location
@@ -114,7 +133,7 @@ try {
 
 # Tauri bundles these EXEs as resources — a missing file fails the bundler
 # late; fail early with a clear message instead.
-foreach ($exe in @("YasserAgent.exe", "yasser-agent-cli.exe")) {
+foreach ($exe in @("YaseirAgent.exe", "yaseir-agent-cli.exe")) {
   $exePath = Join-Path $agentDir $exe
   if (-not (Test-Path $exePath)) { throw "Missing build output: $exePath" }
   $size = (Get-Item $exePath).Length
@@ -147,15 +166,15 @@ try {
 Write-Step "Verifying installer artifacts"
 $artifacts = @()
 if ($Bundles -match "nsis") {
-  $nsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\Yasser Print Manager_*-setup.exe") -File -ErrorAction SilentlyContinue)
-  if ($nsis.Count -ne 1) { throw "Expected exactly one Yasser Print Manager NSIS installer under $bundleDir\nsis; found $($nsis.Count)" }
+  $nsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\Yaseir Print Manager_*-setup.exe") -File -ErrorAction SilentlyContinue)
+  if ($nsis.Count -ne 1) { throw "Expected exactly one Yaseir Print Manager NSIS installer under $bundleDir\nsis; found $($nsis.Count)" }
   $unexpectedNsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\*.exe") -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $nsis[0].Name })
   if ($unexpectedNsis.Count -ne 0) { throw "Unexpected extra NSIS executable(s) detected: $($unexpectedNsis.Name -join ', ')" }
   $artifacts += $nsis
 }
 if ($Bundles -match "msi") {
-  $msi = @(Get-ChildItem (Join-Path $bundleDir "msi\Yasser Print Manager_*.msi") -File -ErrorAction SilentlyContinue)
-  if ($msi.Count -ne 1) { throw "Expected exactly one Yasser Print Manager MSI under $bundleDir\msi; found $($msi.Count)" }
+  $msi = @(Get-ChildItem (Join-Path $bundleDir "msi\Yaseir Print Manager_*.msi") -File -ErrorAction SilentlyContinue)
+  if ($msi.Count -ne 1) { throw "Expected exactly one Yaseir Print Manager MSI under $bundleDir\msi; found $($msi.Count)" }
   $unexpectedMsi = @(Get-ChildItem (Join-Path $bundleDir "msi\*.msi") -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $msi[0].Name })
   if ($unexpectedMsi.Count -ne 0) { throw "Unexpected extra MSI package(s) detected: $($unexpectedMsi.Name -join ', ')" }
   $artifacts += $msi

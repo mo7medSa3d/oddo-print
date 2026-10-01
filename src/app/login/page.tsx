@@ -26,8 +26,18 @@ export default function LoginPage() {
   useEffect(() => {
     let cancelled = false;
     fetch("/api/auth/me", { credentials: "include", cache: "no-store" })
-      .then((res) => {
-        if (!cancelled && res.ok) router.replace(postAuthDestination());
+      .then(async (res) => {
+        if (cancelled) return;
+        if (res.ok) {
+          router.replace(postAuthDestination());
+          return;
+        }
+        const refresh = await fetch("/api/auth/refresh", {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!cancelled && refresh.ok) router.replace(postAuthDestination());
       })
       .catch(() => undefined)
       .finally(() => {
@@ -88,7 +98,7 @@ export default function LoginPage() {
 
   if (checkingSession) {
     return (
-      <AuthShell subtitle="Yasser Print Gateway">
+      <AuthShell subtitle="Yaseir Print Gateway">
         <div className="rounded-[14px] border border-edge bg-surface p-8 text-center shadow-card">
           <div className="flex justify-center">
             <BrandMark size="sm" showWordmark={false} />
@@ -100,7 +110,7 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthShell subtitle="Yasser Print Gateway">
+    <AuthShell subtitle="Yaseir Print Gateway">
       <section className="overflow-hidden rounded-[16px] border border-edge-strong bg-surface shadow-lg">
         <div className="border-b border-edge bg-surface-2/55 px-6 py-6 sm:px-7">
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Workspace access</div>

@@ -1,6 +1,6 @@
 import React from "react";
 
-export function YasserGlyph({ className = "", title = "Yasser" }: { className?: string; title?: string }) {
+export function YaseirGlyph({ className = "", title = "Yaseir" }: { className?: string; title?: string }) {
   return (
     <svg className={className} viewBox="0 0 32 32" fill="none" role="img" aria-label={title} xmlns="http://www.w3.org/2000/svg">
       <path d="M7 7.75 14.13 15c1.02 1.04 2.72 1.04 3.74 0L25 7.75" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
@@ -12,7 +12,7 @@ export function YasserGlyph({ className = "", title = "Yasser" }: { className?: 
 export function BrandMark({
   size = "md",
   showWordmark = true,
-  title = "Yasser",
+  title = "Yaseir",
   subtitle = "Print Manager",
   className = "",
   variant = "default",
@@ -35,7 +35,7 @@ export function BrandMark({
   return (
     <span className={`flex items-center gap-2 ${className}`}>
       <span aria-hidden className={`flex shrink-0 items-center justify-center ${tile} ${tileStyle}`}>
-        <YasserGlyph className={glyph} title="" />
+        <YaseirGlyph className={glyph} title="" />
       </span>
       {showWordmark && (
         <span className="min-w-0 leading-[1.08]">
@@ -64,7 +64,7 @@ export function BrandMarkIcon({
   const glyph = size === "lg" ? "h-[20px] w-[20px]" : size === "sm" ? "h-[15px] w-[15px]" : "h-4 w-4";
   return (
     <span aria-hidden className={`flex shrink-0 items-center justify-center bg-brand text-white shadow-sm ring-1 ring-inset ring-white/15 ${tile} ${className}`}>
-      <YasserGlyph className={glyph} title="" />
+      <YaseirGlyph className={glyph} title="" />
     </span>
   );
 }

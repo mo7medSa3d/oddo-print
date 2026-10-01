@@ -41,6 +41,20 @@ func TestUSBWriteCancelledBeforeDispatchIsPlain(t *testing.T) {
 	}
 }
 
+func TestUSBWritePartialBytesThenErrorIsUnknown(t *testing.T) {
+	p := &USBPrinter{ID: "u2b", Name: "U2B", DevicePath: "NUL"}
+	p.writeChunk = func(h windows.Handle, chunk []byte) (uint32, error) {
+		return 3, errors.New("write completed partially then reported an error")
+	}
+	err := p.Print(context.Background(), make([]byte, 20))
+	if err == nil {
+		t.Fatal("expected write failure")
+	}
+	if !HasUnknownOutcomeMarker(err.Error()) {
+		t.Fatalf("bytes reported together with an error are physically ambiguous and must be unknown: %v", err)
+	}
+}
+
 func TestUSBWritePartialThenErrorIsUnknown(t *testing.T) {
 	p := &USBPrinter{ID: "u2", Name: "U2", DevicePath: "NUL"}
 	calls := &atomic.Int32{}

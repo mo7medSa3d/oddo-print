@@ -13,7 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/yasser-agent/agent/internal/storage"
+	"github.com/yaseir-agent/agent/internal/storage"
 )
 
 const secretStoreKey = "agent_secret"
@@ -71,19 +71,23 @@ func validateServerURLWithOptIn(raw string, allowInsecureHTTP bool) error {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return fmt.Errorf("server.url must not contain credentials, query strings, or fragments")
 	}
-	// HTTPS is the production/default transport. Plain HTTP is only permitted
-	// when explicitly opted into for isolated development or test environments.
+	// Isolated staging branch: both transports are accepted directly by the
+	// shared validator (no process env needed), because the Windows service
+	// does not inherit the Manager shell environment. Production/main
+	// retains the HTTPS-only validator contract. The persisted
+	// allow_insecure_http flag is retained for config compatibility.
 	switch strings.ToLower(u.Scheme) {
-	case "https":
+	case "https", "http":
 		return nil
-	case "http":
-		if allowInsecureHTTP || os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
-			return nil
-		}
-		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASSER_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development")
 	default:
 		return fmt.Errorf("server.url scheme must be http or https, got %q", u.Scheme)
 	}
+}
+
+// ValidateServerURL is the exported entry point for CLI and pairing flows.
+// Isolated staging branch: accepts http and https URL shapes directly.
+func ValidateServerURL(raw string) error {
+	return validateServerURLWithOptIn(raw, false)
 }
 
 func defaultConfig() *Config {
@@ -150,7 +154,11 @@ func Ensure(path string) error {
 	if dir == "" {
 		dir = "."
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	// 0700 from the start: the directory holds pairing secrets and the
+	// ACL hardening below only tightens afterwards, so a 0755 transient
+	// would leave a world-readable window (every other secrets path in
+	// storage/registry/queue already uses 0700 directly).
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create config dir %s: %w", dir, err)
 	}
 	if err := EnsureSecureDirectoryACL(dir); err != nil {
@@ -164,9 +172,9 @@ func Ensure(path string) error {
 
 	host, err := os.Hostname()
 	if err != nil || host == "" {
-		host = "yasser-agent"
+		host = "yaseir-agent"
 	}
-	name := "Yasser Agent"
+	name := "Yaseir Agent"
 	if runtime.GOOS == "windows" {
 		name = host
 	}
@@ -188,7 +196,9 @@ func (c *Config) Save(path string) error {
 			dir = d
 		}
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	// 0700 from the start (see Ensure above): never a world-readable window
+	// for the config/secret directory, even transiently.
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create config dir %s: %w", dir, err)
 	}
 	if err := EnsureSecureDirectoryACL(dir); err != nil {
@@ -208,11 +218,19 @@ func (c *Config) Save(path string) error {
 		return fmt.Errorf("encode config %s: %w", path, err)
 	}
 
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	tmpFile, err := os.CreateTemp(filepath.Dir(path), ".config-*.tmp")
 	if err != nil {
-		return fmt.Errorf("create temp config %s: %w", tmp, err)
+		return fmt.Errorf("create temp config for %s: %w", path, err)
 	}
+	tmp := tmpFile.Name()
+	// CreateTemp is 0600; re-assert explicitly since this file carries the
+	// (sealed) agent secret material alongside the config body.
+	if err := tmpFile.Chmod(0600); err != nil {
+		tmpFile.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("secure temp config %s: %w", tmp, err)
+	}
+	f := tmpFile
 	if _, err := f.Write(data); err != nil {
 		f.Close()
 		return fmt.Errorf("write temp config %s: %w", tmp, err)
@@ -252,6 +270,10 @@ func ExecutableDir() (string, error) {
 }
 
 func DefaultConfigPath() string {
+	if override := os.Getenv("YASEIR_AGENT_DATA_DIR"); override != "" {
+		return filepath.Join(override, "config.yaml")
+	}
+	// Legacy fallback: pre-migration environments set YASSER_AGENT_DATA_DIR.
 	if override := os.Getenv("YASSER_AGENT_DATA_DIR"); override != "" {
 		return filepath.Join(override, "config.yaml")
 	}
@@ -259,13 +281,17 @@ func DefaultConfigPath() string {
 		return filepath.Join(override, "config.yaml")
 	}
 	if pd := os.Getenv("PROGRAMDATA"); pd != "" {
-		newPath := filepath.Join(pd, "YasserAgent", "config.yaml")
+		newPath := filepath.Join(pd, "YaseirAgent", "config.yaml")
 		if _, err := os.Stat(newPath); err == nil {
 			return newPath
 		}
-		legacyPath := filepath.Join(pd, "OdooPrintAgent", "config.yaml")
+		legacyPath := filepath.Join(pd, "YasserAgent", "config.yaml")
 		if _, err := os.Stat(legacyPath); err == nil {
 			return legacyPath
+		}
+		veryLegacyPath := filepath.Join(pd, "OdooPrintAgent", "config.yaml")
+		if _, err := os.Stat(veryLegacyPath); err == nil {
+			return veryLegacyPath
 		}
 		return newPath
 	}
@@ -364,20 +390,6 @@ func (p PrinterConfig) NormalizedProtocolOrUnknown() string {
 	return proto
 }
 
-// NormalizedConnectionTypeStrict returns the declared connection type
-// WITHOUT inventing one for the empty case.
-func (p PrinterConfig) NormalizedConnectionTypeStrict() string {
-	t := p.ConnectionType
-	if t == "" {
-		t = p.Type
-	}
-	t = strings.ToLower(strings.TrimSpace(t))
-	if t == "tcp" {
-		return "network"
-	}
-	return t
-}
-
 func (p PrinterConfig) IsEnabled() bool {
 	if p.Enabled != nil {
 		return *p.Enabled
@@ -396,6 +408,15 @@ func isAllowedPrinterIP(ip net.IP) bool {
 	}
 	if strings.EqualFold(ip.String(), "fd00:ec2::254") {
 		return false
+	}
+	// Explicitly reject IPv6 Unique Local Addresses (fd00::/8) in addition to
+	// IsPrivate() which covers fc00::/7. This makes the ULA rejection visible
+	// in the code rather than relying on the Go version's IsPrivate behavior.
+	if ip.To4() == nil {
+		// IPv6: check for ULA prefix (fd00::/8)
+		if len(ip) >= 2 && ip[0] == 0xfd {
+			return false
+		}
 	}
 	return ip.IsPrivate() || ip.IsLinkLocalUnicast()
 }

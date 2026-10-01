@@ -28,7 +28,7 @@ func IsUserDirectory(path string) bool {
 }
 
 // Store saves key/value secrets under Dir (the agent data directory, e.g.
-// C:\ProgramData\YasserAgent).
+// C:\ProgramData\YaseirAgent).
 type Store struct {
 	Dir string
 }
@@ -104,9 +104,30 @@ func (s *Store) SaveSecret(key, secret string) error {
 		b.WriteString(e.Value)
 		b.WriteByte('\n')
 	}
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o600); err != nil {
+	// Unique temp file per save: a fixed "<name>.tmp" path collides when two
+	// saves interleave (the registry and desired-state writers already use
+	// os.CreateTemp for exactly this reason). CreateTemp files are 0600.
+	tmpFile, err := os.CreateTemp(filepath.Dir(p), ".secure-*.tmp")
+	if err != nil {
+		return fmt.Errorf("storage: create temp for %s: %w", p, err)
+	}
+	tmp := tmpFile.Name()
+	if _, err := tmpFile.Write([]byte(b.String())); err != nil {
+		tmpFile.Close()
+		_ = os.Remove(tmp)
 		return fmt.Errorf("storage: write %s: %w", tmp, err)
+	}
+	// Flush to stable storage before the atomic rename: without Sync, a
+	// crash between write and flush can leave an empty/corrupt secrets file
+	// and the agent idles unpaired on next Load.
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("storage: sync temp %s: %w", tmp, err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("storage: close temp %s: %w", tmp, err)
 	}
 	// Protect the transient file before the atomic replace so a pre-existing
 	// Windows DACL can never survive on a security-sensitive child object.

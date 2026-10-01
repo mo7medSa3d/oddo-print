@@ -185,7 +185,10 @@ func (p *SpoolerPrinter) Status() string {
 		case st := <-resCh:
 			return st
 		case <-timer.C:
-			return "spooler_rpc_unresponsive"
+			// Keep the non-Windows stand-in aligned with the Windows spooler
+			// implementation: a spooler RPC timeout proves nothing about the
+			// physical device, so report "unknown" — never a fabricated error.
+			return "unknown"
 		}
 	}
 	if simulatedTransportAllowed() {

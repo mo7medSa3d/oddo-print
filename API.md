@@ -50,7 +50,7 @@ Request:
 
 No Gateway branch ID, Gateway destination ID, Gateway document-type ID, agent provisioning data, or printer-creation data is accepted.
 
-The Gateway validates the Odoo key, payload, expiration and idempotency before queueing the runtime job. The Odoo installation key is a credential for the Odoo integration API surface documented here. It is not a Manager or Platform credential and is not accepted by generic console endpoints. It is not restricted by document type. A created Odoo-originated job is stamped with the authenticated API-key identity. Status lookup is scoped to that API key; idempotency remains tenant-scoped so credential rotation can safely replay an existing logical operation. Internal Manager-created jobs may omit that identity and are not exposed through this Odoo status endpoint.
+The Gateway validates the Odoo key, payload, expiration and idempotency before queueing the runtime job. The Odoo installation key is a credential for the Odoo integration API surface documented here. It is not a Manager or Platform credential and is not accepted by generic console endpoints. It is not restricted by document type. A created Odoo-originated job is stamped with the authenticated API-key identity. Status lookup is scoped to Odoo-originated jobs in the authenticated tenant after successful API-key authentication; `apiKeyId` must be present but is treated as credential provenance rather than an equality check against the current key, so credential rotation does not strand historical jobs. Internal Manager-created jobs without an Odoo API-key provenance remain outside the Odoo integration flow.
 
 `201` means a new job was accepted. `200` means an idempotent retry matched an existing job and returns that job identity. A reused key with different routing/payload data returns `409 IDEMPOTENCY_CONFLICT`.
 
@@ -58,7 +58,23 @@ Typical failures include `400` invalid input, `401` authentication failure, `404
 
 ## `GET /api/print/jobs?id=<jobId>`
 
-Authenticated with the Odoo installation key. Returns the runtime status and routing identifiers only when the requested job was created with that same API key. A job belonging to another installation, or a legacy/internal job without an Odoo API-key identity, is returned as `404 Not found`.
+Authenticated with the Odoo installation key. Returns the runtime status and routing identifiers for Odoo-originated jobs belonging to the authenticated tenant. Internal Manager-created jobs are outside this integration surface. A job belonging to another tenant, or a non-Odoo job in the same tenant, is returned as `404 Not found`. API-key rotation does not hide Odoo jobs created with the previous credential.
+
+## Agent heartbeat pagination
+
+`POST /api/agent/heartbeat` is the Agent runtime inventory and liveness contract. The `500` printer limit is a per-request page ceiling, not a tenant or Agent fleet-size ceiling.
+
+The current Agent sends:
+- `heartbeatPage`: 1-based page number.
+- `heartbeatPageCount`: total number of pages in this heartbeat cycle.
+- `printers`: at most 500 entries per page and no more than 256 KB of serialized printer metadata per page.
+- `desiredStateAcks`: at most 500 entries per page.
+- `gatewayOwnedPrinterIds`: the Gateway-owned IDs represented on that page, used to preserve the manager-owned/deletion fence.
+- `keepAliveJobIds`: the existing bounded execution keep-alive set.
+
+Agents with more than 500 printers send multiple pages. The Gateway accepts legacy heartbeats without page fields as a single page for backward compatibility. On the current contract, the final page is the only page that returns the complete `desiredState` snapshot; the Agent applies that snapshot only after the final page succeeds.
+
+Agent-owned printer registration remains subject to the tenant plan's `max_printers` entitlement. Exceeding that capacity returns `429 MAX_PRINTERS_EXCEEDED`; existing printer observations are not a substitute for entitlement and manager-owned printers remain governed by desired state.
 
 ## Runtime ownership boundary
 
@@ -66,7 +82,7 @@ Gateway APIs for Branches, business destinations, business document catalogs and
 
 ## Reliability contract
 
-The Odoo addon commits a durable outbox row before making the HTTP submission. The same idempotency key is reused for retry attempts of that logical operation. Network timeouts are recorded as an unknown physical outcome instead of a definite failure. Gateway-side Odoo idempotency is tenant-scoped so credential rotation does not strand retries; Odoo status reads remain installation/API-key scoped.
+The Odoo addon commits a durable outbox row before making the HTTP submission. The same logical operation key is reused for retry attempts, but the value sent to Gateway is a deterministic company-namespaced digest because Odoo uniqueness is company-scoped while Gateway uniqueness is tenant-scoped. This prevents two Odoo companies under one Gateway tenant from colliding on the same caller-supplied idempotency key. Network timeouts are recorded as an unknown physical outcome instead of a definite failure. Gateway-side Odoo idempotency is tenant-scoped so credential rotation does not strand retries; Odoo status reads remain tenant-scoped after installation-key authentication so API-key rotation does not strand historical jobs.
 
 ## Customer SaaS authentication and billing
 
@@ -110,4 +126,4 @@ Response:
   ]
 }
 ```
-Only jobs matching the authenticated installation key are returned.
+Only Odoo-originated jobs in the authenticated tenant are returned. The current installation key does not have to equal the key recorded on a historical job, so rotation does not strand status synchronization.

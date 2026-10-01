@@ -6,7 +6,14 @@
  * A correlation id is taken from `x-request-id` / `x-correlation-id` or minted.
  */
 
+import { createHash, randomBytes } from "node:crypto";
+
 const SENSITIVE = /secret|password|passwd|token|authorization|cookie|api[_-]?key|payload|pairing/i;
+
+function redactClaimId(value: unknown): unknown {
+  if (typeof value !== "string" || !value) return value;
+  return "claim_" + createHash("sha256").update(value, "utf8").digest("hex").slice(0, 12);
+}
 
 export type LogFields = Record<string, unknown>;
 
@@ -15,12 +22,16 @@ export function requestIdFrom(req: Request): string {
     req.headers.get("x-request-id")?.trim() ||
     req.headers.get("x-correlation-id")?.trim();
   if (existing && existing.length <= 128) return existing;
-  return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return `req_${Date.now().toString(36)}_${randomBytes(8).toString("hex")}`;
 }
 
 function sanitize(fields: LogFields): LogFields {
   const out: LogFields = {};
   for (const [key, value] of Object.entries(fields)) {
+    if (key === "claimId" || key === "claim_id") {
+      out[key] = redactClaimId(value);
+      continue;
+    }
     if (SENSITIVE.test(key)) {
       out[key] = "[redacted]";
       continue;
@@ -35,7 +46,7 @@ function sanitize(fields: LogFields): LogFields {
   return out;
 }
 
-function emit(level: "info" | "warn" | "error", event: string, fields: LogFields): void {
+function emit(level: "debug" | "info" | "warn" | "error", event: string, fields: LogFields): void {
   let correlation: Record<string, unknown> = {};
   try {
     // Avoid hard import cycle: correlation lives in server/, log lives in lib/
@@ -50,7 +61,7 @@ function emit(level: "info" | "warn" | "error", event: string, fields: LogFields
         agentId: ctx.agentId,
         printerId: ctx.printerId,
         attemptId: ctx.attemptId,
-        claimId: ctx.claimId,
+        claimId: redactClaimId(ctx.claimId),
         spoolerJobId: ctx.spoolerJobId,
       };
       // Remove undefined
@@ -71,6 +82,7 @@ function emit(level: "info" | "warn" | "error", event: string, fields: LogFields
   const text = JSON.stringify(line);
   if (level === "error") console.error(text);
   else if (level === "warn") console.warn(text);
+  else if (level === "debug") console.debug(text);
   else console.info(text);
 }
 
@@ -84,4 +96,8 @@ export function logWarn(event: string, fields: LogFields = {}): void {
 
 export function logError(event: string, fields: LogFields = {}): void {
   emit("error", event, fields);
+}
+
+export function logDebug(event: string, fields: LogFields = {}): void {
+  emit("debug", event, fields);
 }

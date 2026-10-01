@@ -10,6 +10,8 @@ from psycopg2 import IntegrityError
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, ValidationError
 
+from ..runtime_clock import db_now_utc
+
 _logger = logging.getLogger(__name__)
 
 
@@ -88,11 +90,11 @@ class PrintGatewayIntent(models.Model):
         """Atomically claim intent with a unique token in an independent transaction (or provided cursor).
         Returns claim_token if acquired, or None if already claimed, fresh, or non-retryable."""
         claim_token = uuid.uuid4().hex
-        now = fields.Datetime.now()
-        stale_threshold = now - datetime.timedelta(minutes=5)
         manage_cr = cr is None
         try:
             target_cr = env.registry.cursor() if manage_cr else cr
+            now = db_now_utc(target_cr)
+            stale_threshold = now - datetime.timedelta(minutes=5)
             try:
                 target_cr.execute("""
                     UPDATE print_gateway_intent
@@ -181,6 +183,12 @@ class PrintGatewayIntent(models.Model):
             # can only ever restrict access, never widen it.
             record_company = record.company_id if hasattr(record, "company_id") else False
             if record_company and record_company.id != new_env.company.id:
+                # NOTE: Environment has NO with_context (it is Model-only;
+                # calling new_env.with_context(...) raises AttributeError on
+                # Odoo 19). The env-level API is __call__(context=...), which
+                # returns a new Environment with the replaced context, so
+                # env.company resolves from the record's company. Verified
+                # against the Odoo 19 runtime (CI odoo19 job).
                 new_env = new_env(context=dict(new_env.context, allowed_company_ids=[record_company.id]))
                 intent = intent.with_env(new_env)
                 record = record.with_env(new_env)
@@ -210,7 +218,7 @@ class PrintGatewayIntent(models.Model):
                 next_retry = False
                 if intent.attempts < intent.max_attempts:
                     delay_sec = min(300, 15 * (2 ** max(0, intent.attempts - 1)))
-                    next_retry = fields.Datetime.now() + datetime.timedelta(seconds=delay_sec)
+                    next_retry = db_now_utc(cr) + datetime.timedelta(seconds=delay_sec)
                 target_status = "failed" if intent.attempts >= intent.max_attempts else "pending"
                 cls._finalize_intent_state(
                     env, intent_id, claim_token,
@@ -242,7 +250,7 @@ class PrintGatewayIntent(models.Model):
                 _logger.info("Print intent %s already completed (%s) for %s(%s); skipping duplicate dispatch.", key[:12], existing.status, record._name, record.id)
                 return existing
             elif existing.status == "claimed":
-                now = fields.Datetime.now()
+                now = db_now_utc(self.env.cr)
                 if existing.claimed_at and (now - existing.claimed_at).total_seconds() < 300:
                     _logger.info("Print intent %s is actively being processed by another worker; skipping duplicate dispatch.", key[:12])
                     return existing
@@ -302,6 +310,7 @@ class PrintGatewayIntent(models.Model):
                 "last_error": False,
                 "next_retry_at": False,
                 "claim_token": False,
+                "claimed_at": False,
             })
             self.env.cr.postcommit.add(
                 lambda i_id=intent.id, m=intent.res_model, r_id=intent.res_id:
@@ -322,32 +331,63 @@ class PrintGatewayIntent(models.Model):
     @api.private
     def cron_recover_pending_intents(self):
         """Recover stranded or crashed print intents across worker/server restarts."""
-        # Recovery claims intents with raw SQL and dispatches them through
-        # the elevated service boundary; it is reserved for the scheduled
-        # action runner (administrator). An interactive RPC caller must not
-        # be able to trigger a dispatch wave outside the operator paths,
-        # which all enforce the outbox write ACL.
         if not self.env.user.has_group("base.group_system"):
             raise AccessError(_("Only scheduled actions (administrator) may run this method."))
-        now = fields.Datetime.now()
+        now = db_now_utc(self.env.cr)
         stale_threshold = now - datetime.timedelta(minutes=5)
 
-        candidates = self.search([
-            "|",
-            "&", ("status", "=", "pending"), "|", ("next_retry_at", "=", False), ("next_retry_at", "<=", now),
-            "|",
-            "&", ("status", "=", "claimed"), "|", ("claimed_at", "=", False), ("claimed_at", "<=", stale_threshold),
-            "&", ("status", "=", "failed"), "|", ("next_retry_at", "=", False), ("next_retry_at", "<=", now),
-        ], order="id asc", limit=50)
+        # Select exactly the retryable states at the SQL boundary. A domain
+        # cannot compare attempts to max_attempts, so a plain search can fill
+        # the 50-row batch with permanently failed intents and starve newer
+        # retryable work forever. Exclude exhausted failures in SQL itself.
+        self.env.cr.execute("""
+            SELECT id
+            FROM print_gateway_intent
+            WHERE
+                (status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= %s))
+                OR
+                (status = 'claimed' AND (claimed_at IS NULL OR claimed_at <= %s))
+                OR
+                (status = 'failed' AND attempts < max_attempts
+                    AND (next_retry_at IS NULL OR next_retry_at <= %s))
+            ORDER BY id ASC
+            LIMIT 50
+        """, (now, stale_threshold, now))
+        candidate_ids = [row[0] for row in self.env.cr.fetchall()]
+        candidates = self.browse(candidate_ids)
 
+        cron = self.env["ir.cron"]
+        remaining_time = cron._commit_progress(remaining=len(candidates))
         recovered_count = 0
         for candidate in candidates:
-            if candidate.attempts >= candidate.max_attempts:
-                continue
-            claim_token = self._claim_intent(self.env, candidate.id)
-            if not claim_token:
-                continue
-            self._execute_dispatched_route(self.env, candidate.id, candidate.res_model, candidate.res_id, claim_token)
-            recovered_count += 1
+            if remaining_time <= 0:
+                break
 
+            # A crash after the final dispatch claim otherwise leaves the
+            # intent permanently in 'claimed': _claim_intent() rejects it once
+            # attempts reaches max_attempts, so no future worker can recover it.
+            # The candidate is already outside the five-minute lease window;
+            # once the attempt ceiling is exhausted, terminalize it explicitly
+            # and require manual operator re-arm rather than leaving an
+            # automation event wedged forever.
+            if candidate.status == "claimed" and candidate.attempts >= candidate.max_attempts:
+                recovered = candidate.with_context(allow_lease_recovery=True).write({
+                    "status": "failed",
+                    "claimed_at": False,
+                    "claim_token": False,
+                    "next_retry_at": False,
+                    "last_error": "Dispatch lease expired after the final attempt; manual operator re-arm required.",
+                })
+                if recovered:
+                    recovered_count += 1
+                remaining_time = cron._commit_progress(1)
+                continue
+
+            if candidate.attempts < candidate.max_attempts:
+                claim_token = self._claim_intent(self.env, candidate.id)
+                if claim_token:
+                    self._execute_dispatched_route(self.env, candidate.id, candidate.res_model, candidate.res_id, claim_token)
+                    recovered_count += 1
+            remaining_time = cron._commit_progress(1)
         return recovered_count
+

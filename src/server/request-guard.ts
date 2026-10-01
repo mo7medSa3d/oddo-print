@@ -1,7 +1,8 @@
 import { IncomingMessage, type ServerResponse } from "http";
-import { createHash, createHmac, timingSafeEqual } from "crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { parseStrictContentLength } from "../lib/request-limits";
 import { runtimeSecret } from "../lib/runtime-secret";
+import { trustProxyEnabled } from "./trusted-proxy";
 
 /**
  * API body limit. The custom Next server must never consume the IncomingMessage
@@ -14,7 +15,7 @@ export const MAX_UNAUTHENTICATED_CONCURRENT_BYTES = 8 * 1024 * 1024;
 export const MAX_CONCURRENT_CHUNKED_BYTES = MAX_AUTHENTICATED_CONCURRENT_BYTES;
 
 const MUTATING_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
-const SESSION_COOKIE_RE = /(?:^|;\s*)(?:mgr_session|plt_session)=/;
+const SESSION_COOKIE_RE = /(?:^|;\s*)(?:(?:mgr_session|cust_session|plt_session))=/;
 let reservedAuthBytes = 0;
 let reservedUnauthBytes = 0;
 
@@ -83,13 +84,17 @@ export function isCookieMutationSameOrigin(req: IncomingMessage): boolean {
   if (fetchSite === "cross-site") return false;
 
   const host = headerValue(req, "host").toLowerCase().replace(/\.$/, "");
-  if (!host || host.length > 255 || host.includes("/") || host.includes("@")) return false;
+  const forwardedHost = trustProxyEnabled()
+    ? headerValue(req, "x-forwarded-host").toLowerCase().replace(/\.$/, "")
+    : "";
+  const allowedHosts = new Set([host, forwardedHost].filter(Boolean));
+  if (allowedHosts.size === 0 || [...allowedHosts].some((value) => value.length > 255 || value.includes("/") || value.includes("@"))) return false;
 
   const origin = headerValue(req, "origin");
   if (origin) {
     try {
       const parsed = new URL(origin);
-      return parsed.host.toLowerCase() === host;
+      return allowedHosts.has(parsed.host.toLowerCase());
     } catch {
       return false;
     }
@@ -99,12 +104,16 @@ export function isCookieMutationSameOrigin(req: IncomingMessage): boolean {
   if (referer) {
     try {
       const parsed = new URL(referer);
-      return parsed.host.toLowerCase() === host;
+      return allowedHosts.has(parsed.host.toLowerCase());
     } catch {
       return false;
     }
   }
 
+  // When TRUST_PROXY is enabled, the outer proxy must already have been
+  // authenticated by server.ts before this guard runs. That makes the
+  // forwarded host trustworthy for same-origin comparison while preserving
+  // strict Host matching for direct/non-proxied traffic.
   // A browser carrying ambient cookies without the modern fetch-metadata or
   // standard origin signals is ambiguous; fail closed rather than treating
   // SameSite as the sole CSRF boundary.
@@ -126,7 +135,7 @@ export function isLikelyAuthenticated(req: IncomingMessage): boolean {
   const cookie = headers["cookie"];
   const cookieHeader = typeof cookie === "string" ? cookie : Array.isArray(cookie) ? cookie[0] : "";
   if (cookieHeader) {
-    const match = /(?:mgr_session|plt_session)=([^;]+)/.exec(cookieHeader);
+    const match = /(?:(?:mgr_session|cust_session|plt_session))=([^;]+)/.exec(cookieHeader);
     if (match && match[1] && verifyJwtQuick(match[1].trim())) {
       return true;
     }
@@ -169,14 +178,6 @@ export function getReservedRequestBytes(): number {
   return reservedAuthBytes + reservedUnauthBytes;
 }
 
-export function getReservedAuthBytes(): number {
-  return reservedAuthBytes;
-}
-
-export function getReservedUnauthBytes(): number {
-  return reservedUnauthBytes;
-}
-
 /** Payload-bearing endpoints whose bodies reserve the concurrency budget. */
 function isPayloadBearingEndpoint(url: string | undefined): boolean {
   if (!url) return false;
@@ -210,7 +211,7 @@ export async function guardApiRequest(
 ): Promise<IncomingMessage | null> {
   const maxBytes = options.maxBytes ?? MAX_API_BODY_BYTES;
   if (!req.url?.startsWith("/api/")) return req;
-  if (!MUTATING_METHODS.includes(req.method ?? "")) return req;
+  if (!MUTATING_METHODS.includes((req.method ?? "").toUpperCase())) return req;
 
   const payloadBearing = isPayloadBearingEndpoint(req.url);
   const authenticated = isLikelyAuthenticated(req);

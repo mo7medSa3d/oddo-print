@@ -1,9 +1,10 @@
+import { liveTenantSubscriptionPredicate } from "./entitlements";
 import { db } from "../db";
 import { printJobs } from "../db/schema";
-import { sql } from "drizzle-orm";
+import { and, sql } from "drizzle-orm";
 import { fencedDeliveryWrite } from "./job-fencing";
-import { STALE_CLAIM_SECONDS, MAX_DELIVERY_ATTEMPTS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "./job-maintenance";
-import { agentStaleThresholdSeconds } from "./agent-availability";
+import { MAX_DELIVERY_ATTEMPTS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "./job-maintenance";
+import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./agent-availability";
 
 /**
  * Hard ceiling on live (claimed + printing, unexpired) jobs per agent.
@@ -20,9 +21,10 @@ export const MAX_AGENT_IN_FLIGHT_JOBS = 64;
  * Ownership rules for handing a job to an agent.
  *
  * The Gateway owns runtime delivery state. A queued job is eligible only when
- * its owning agent and runtime printer are still active and online at the
- * delivery boundary. Odoo business entities are intentionally not part of
- * this transaction.
+ * its owning agent and runtime printer are still active, fresh, and executable
+ * at the delivery boundary, and the tenant still has an active billing
+ * entitlement. Odoo business entities are intentionally not part of this
+ * transaction.
  *
  * Every claim mints a fresh `claim_token` (see migration 0024). Agents must
  * echo it on status updates so a stale worker — an attempt whose lease
@@ -45,7 +47,6 @@ export const MAX_AGENT_IN_FLIGHT_JOBS = 64;
  * Both ceilings gate BOTH claim paths (WS `claimJobForDelivery` and the poll
  * stale/queued candidates); no path may claim past either.
  */
-export const CLAIM_LEASE_SECONDS = STALE_CLAIM_SECONDS;
 export { MAX_DELIVERY_ATTEMPTS };
 
 export type ClaimedJobRow = {
@@ -112,7 +113,6 @@ export async function claimJobForDelivery(
       SELECT COUNT(*)::int AS count
       FROM print_jobs p
       JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
-      JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
       JOIN tenants t ON t.id = p.tenant_id
       WHERE p.agent_id = ${agentId}
         AND p.status IN ('claimed', 'printing')
@@ -120,10 +120,8 @@ export async function claimJobForDelivery(
         AND a.lifecycle = 'active'
         AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
-        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
-        AND pr.lifecycle = 'active'
-        AND (pr.status = 'online' OR pr.status = 'busy' OR (pr.status = 'unknown' AND (pr.connection_type = 'spooler' OR pr.protocol = 'spooler' OR pr.connection_type IN ('ipp','ipps') OR pr.protocol IN ('ipp','ipps') OR (pr.connection_type IN ('network','usb') AND pr.protocol IN ('raw','escpos','zpl','tspl')))))
-        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
+        AND a.last_seen_at <= now()
+        AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND t.lifecycle = 'active'
     `);
     const inFlight = Number((live.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
@@ -144,11 +142,19 @@ export async function claimJobForDelivery(
         AND a.lifecycle = 'active'
         AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
-        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+        AND a.last_seen_at <= now()
+        AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
         AND (pr.status = 'online' OR pr.status = 'busy' OR (pr.status = 'unknown' AND (pr.connection_type = 'spooler' OR pr.protocol = 'spooler' OR pr.connection_type IN ('ipp','ipps') OR pr.protocol IN ('ipp','ipps') OR (pr.connection_type IN ('network','usb') AND pr.protocol IN ('raw','escpos','zpl','tspl')))))
-        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
+        AND (pr.management_source = 'agent' OR (
+          pr.applied_desired_revision >= pr.desired_revision
+          AND pr.observed_desired_revision >= pr.desired_revision
+        ))
+        AND pr.last_seen_at IS NOT NULL
+        AND pr.last_seen_at <= now()
+        AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
         AND t.lifecycle = 'active'
+        AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
       FOR UPDATE OF p, a, pr, t SKIP LOCKED
     `);
     if (locked.rows.length === 0) return null;
@@ -168,6 +174,7 @@ export async function claimJobForDelivery(
         AND agent_id = ${agentId}
         AND status = 'queued'
         AND expires_at > now()
+        AND ${liveTenantSubscriptionPredicate(sql`print_jobs.tenant_id`)}
       RETURNING ${CLAIM_RETURNING}
     `);
     return (claimed.rows[0] as ClaimedJobRow | undefined) ?? null;
@@ -175,6 +182,7 @@ export async function claimJobForDelivery(
 }
 
 export async function markJobDelivered(jobId: string, tenantId: string, agentId: string, claimToken: string | null): Promise<boolean> {
+  if (!claimToken) return false;
   const res = await db.update(printJobs)
     .set({
       // DB-native now() so delivered_at and updated_at are on the same clock
@@ -204,14 +212,19 @@ export async function markJobDeliveryUnknown(
   jobId: string,
   tenantId: string,
   agentId: string,
-  claimToken: string | null,
+  claimToken: string,
 ): Promise<boolean> {
   const res = await db.update(printJobs)
     .set({
       status: "failed",
-      error: "UNKNOWN_PARTIAL_DELIVERY: WebSocket frame was accepted but delivery evidence could not be persisted; physical output is unknown (manual reconciliation required)",
+      error: "UNKNOWN_PARTIAL_DELIVERY: WebSocket frame was accepted but delivery evidence could not be persisted; physical output is unknown (reconciliation is allowed only for the same fenced attempt)",
+      // Preserve the exact execution fence so an Agent that did receive the
+      // frame can reconcile a late success. Do NOT clear it here: doing so
+      // would make a valid late result permanently unreconcilable while still
+      // preventing any automatic retry. The normal late-success age fence
+      // bounds how long this token remains useful.
       deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
-      claimToken: sql`NULL`,
+      claimedAt: sql`COALESCE(${printJobs.claimedAt}, now())`,
       updatedAt: sql`now()`,
     })
     .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed"]))
@@ -220,11 +233,26 @@ export async function markJobDeliveryUnknown(
 }
 
 export async function recordJobAck(jobId: string, tenantId: string, agentId: string, claimToken?: string | null): Promise<boolean> {
+  if (!claimToken) return false;
   const res = await db.update(printJobs)
     // ACK means the Agent admitted the job into its bounded local executor.
     // Transport delivery evidence is recorded separately by markJobDelivered().
     .set({ ackedAt: sql`COALESCE(${printJobs.ackedAt}, now())`, updatedAt: sql`now()` })
-    .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed", "printing"]))
+    // A WebSocket close notification is an optimisation, not an authority:
+    // PostgreSQL LISTEN/NOTIFY is not a durable queue and a listener can be
+    // disconnected during a lifecycle transition.  Keep the durable Agent
+    // lifecycle as the authorization boundary for agent-originated ACKs, so a
+    // revoked socket cannot mutate delivery state merely because its close
+    // notification was missed or delayed.
+    .where(and(
+      fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed", "printing"]),
+      sql`EXISTS (
+        SELECT 1 FROM agents a
+        WHERE a.id = ${agentId}
+          AND a.tenant_id = ${tenantId}
+          AND a.lifecycle = 'active'
+      )`,
+    ))
     .returning({ id: printJobs.id });
   return res.length > 0;
 }

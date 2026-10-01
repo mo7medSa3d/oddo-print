@@ -81,6 +81,13 @@ func writeSecurePDFTemp(data []byte) (string, func(), error) {
 	if err != nil {
 		return "", func() {}, fmt.Errorf("create temp dir for PDF: %w", err)
 	}
+	// Secure the directory: only the owner can read/write/execute.
+	// MkdirTemp creates with 0700 on POSIX, but be explicit for clarity and
+	// to guard against any future changes to MkdirTemp behavior.
+	if err := os.Chmod(dir, 0o700); err != nil && !isWindowsChmodUnsupported(err) {
+		os.RemoveAll(dir)
+		return "", func() {}, fmt.Errorf("secure temp PDF directory: %w", err)
+	}
 	cleanup := func() {
 		if err := os.RemoveAll(dir); err != nil {
 			log.Printf("WARNING: failed to remove temporary PDF directory %s: %v", dir, err)

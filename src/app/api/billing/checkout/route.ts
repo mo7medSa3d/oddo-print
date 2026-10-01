@@ -3,25 +3,35 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { plans, tenantSubscriptions, tenants } from "../../../../db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { validateManager } from "../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { runtimeSecret } from "../../../../lib/runtime-secret";
-import { stripeRequest } from "../../../../lib/stripe";
+import { isDefinitiveStripeMutationError, stripeRequest } from "../../../../lib/stripe";
+import { gatewayNowMs, refreshClockSkew } from "../../../../lib/database-clock";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due"]);
 const CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES = new Set(["paused", "unpaid", "incomplete"]);
 
+/**
+ * A persisted Checkout Session is expired when Stripe's `expires_at` has
+ * passed. Both sides of the comparison live outside Node's clock (Stripe wrote
+ * the timestamp), so the calibrated Gateway clock is used: with a host clock
+ * running ahead, a still-open session would be treated as expired and the user
+ * would be handed a dead redirect URL — or, worse, a second Stripe Checkout
+ * Session would be opened while the first is still payable.
+ */
 function checkoutIntentExpired(expiresAt: Date | string | null | undefined): boolean {
   if (!expiresAt) return false;
-  if (expiresAt instanceof Date) return expiresAt.getTime() <= Date.now();
+  const nowMs = gatewayNowMs();
+  if (expiresAt instanceof Date) return expiresAt.getTime() <= nowMs;
   // Raw-string fallback: naive PG timestamps parse as UTC, not host-local.
   let iso = expiresAt.replace(" ", "T");
   if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
     iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
   }
   const value = Date.parse(iso);
-  return Number.isFinite(value) && value <= Date.now();
+  return Number.isFinite(value) && value <= nowMs;
 }
 
 export async function POST(req: Request) {
@@ -29,10 +39,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   }
 
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "billing.manage")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  // Subscription-period decisions below compare Stripe/DB timestamps with the
+  // calibrated Gateway clock (cached for 30s; never a per-request round trip).
+  await refreshClockSkew();
 
   let body: { planId?: unknown } = {};
   try {
@@ -155,7 +169,12 @@ export async function POST(req: Request) {
           tenantId: claims.tenantId,
           planId: plan.id,
           status: "cancelled",
-          currentPeriodStart: new Date(),
+          // Stamped by PostgreSQL: this value keys print_usage_periods and is
+          // validated against Stripe's current_period_end (period_end must be
+          // later), so a host clock ahead of the database would make a paying
+          // tenant's period look invalid and block every print with 403.
+          currentPeriodStart: sql`now()`,
+          updatedAt: sql`now()`,
           checkoutStatus: "creating",
           checkoutPlanId: plan.id,
           checkoutIdempotencyKey: idempotencyKey,
@@ -181,7 +200,7 @@ export async function POST(req: Request) {
               checkoutSessionId: null,
               checkoutSessionUrl: null,
               checkoutSessionExpiresAt: null,
-              updatedAt: new Date(),
+              updatedAt: sql`clock_timestamp()`,
             })
             .where(eq(tenantSubscriptions.tenantId, claims.tenantId));
         } else {
@@ -260,7 +279,7 @@ export async function POST(req: Request) {
   try {
     if (!customerId) {
       const customerParams = new URLSearchParams({
-        description: `Yasser Cloud Printing tenant ${claims.tenantId}`,
+        description: `Yaseir Cloud Printing tenant ${claims.tenantId}`,
         "metadata[tenant_id]": claims.tenantId,
       });
       const customer = await stripeRequest(
@@ -289,7 +308,7 @@ export async function POST(req: Request) {
         if (!current) throw new Error("TENANT_SUBSCRIPTION_MISSING");
         if (!current.stripeCustomerId) {
           await tx.update(tenantSubscriptions)
-            .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+            .set({ stripeCustomerId: customerId, updatedAt: sql`clock_timestamp()` })
             .where(eq(tenantSubscriptions.tenantId, claims.tenantId));
         } else {
           customerId = current.stripeCustomerId;
@@ -354,7 +373,7 @@ export async function POST(req: Request) {
           checkoutSessionId: session.id,
           checkoutSessionUrl: session.url,
           checkoutSessionExpiresAt: sessionExpiresAt,
-          updatedAt: new Date(),
+          updatedAt: sql`clock_timestamp()`,
         })
         .where(and(
           eq(tenantSubscriptions.tenantId, claims.tenantId),
@@ -388,10 +407,43 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ ok: true, url: session.url });
   } catch (error) {
-    // Keep the intent in 'creating' with its original idempotency key. If
-    // Stripe accepted the request but the response/DB finalization was lost,
-    // the next retry safely replays the same external operation rather than
-    // minting a second Checkout Session.
+    // Preserve the creating intent for ambiguous/retryable Stripe failures: if
+    // Stripe accepted the request but the response or local finalization was
+    // lost, the next retry must replay the same idempotency key rather than
+    // minting a second Checkout Session. A definitive Stripe 4xx, however,
+    // proves the external mutation was rejected and must release the intent so
+    // the workspace is not stranded on a permanently-invalid checkout.
+    if (isDefinitiveStripeMutationError(error)) {
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`
+          SELECT id
+          FROM tenants
+          WHERE id = ${claims.tenantId}
+          FOR UPDATE
+        `);
+        await tx.update(tenantSubscriptions)
+          .set({
+            checkoutStatus: "none",
+            checkoutPlanId: null,
+            checkoutIdempotencyKey: null,
+            checkoutSessionId: null,
+            checkoutSessionUrl: null,
+            checkoutSessionExpiresAt: null,
+            updatedAt: sql`clock_timestamp()`,
+          })
+          .where(and(
+            eq(tenantSubscriptions.tenantId, claims.tenantId),
+            eq(tenantSubscriptions.checkoutIdempotencyKey, state.idempotencyKey),
+            eq(tenantSubscriptions.checkoutStatus, "creating"),
+          ));
+      });
+      console.error("billing checkout rejected by Stripe", error.status, error.message);
+      return NextResponse.json(
+        { error: "Stripe rejected this checkout request. Correct the billing configuration and try again.", code: "STRIPE_CHECKOUT_REJECTED" },
+        { status: 409 },
+      );
+    }
+
     const message = error instanceof Error ? error.message : "unknown";
     console.error("billing checkout failed", message);
     if (message === "Stripe is not configured") {

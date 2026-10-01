@@ -2,12 +2,13 @@ import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, tenants, authRateLimits } from "../../../../db/schema";
-import { and, eq } from "drizzle-orm";
-import { validateManager, managerCookieHeader } from "../../../../lib/manager-auth";
-import { verifyTenantSelectionToken } from "../../../../lib/customer-auth";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { validateManager, revokeLegacyManagerSessionInTransaction } from "../../../../lib/manager-auth";
+import { verifyTenantSelectionToken, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
+import { issueSessionPairInTransaction, revokeSessionFamilyInTransaction } from "../../../../lib/session-tokens";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
-import { createManagerSessionInTransaction, revokeManagerSessionInTransaction } from "../../../../lib/manager-session-tx";
+import { clientIpFrom } from "../../../../lib/auth-rate-limit";
 
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 16 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
   let tokenJti: string | null = null;
 
   if (selectionToken) {
-    const verified = verifyTenantSelectionToken(selectionToken);
+    const verified = await verifyTenantSelectionToken(selectionToken);
     if (!verified) return NextResponse.json({ error: "Invalid or expired workspace selection token" }, { status: 401 });
     userId = verified.userId;
     isSelectionToken = true;
@@ -40,8 +41,8 @@ export async function POST(req: Request) {
       if (isSelectionToken && tokenJti) {
         const consumed = await tx.insert(authRateLimits).values({
           key: `tsel_used_${tokenJti}`,
-          windowStartedAt: new Date(),
-          updatedAt: new Date(),
+          windowStartedAt: sql`now()`,
+          updatedAt: sql`now()`,
         }).onConflictDoNothing({ target: authRateLimits.key }).returning({ key: authRateLimits.key });
         if (consumed.length !== 1) {
           throw new Error("Selection token already used");
@@ -60,12 +61,25 @@ export async function POST(req: Request) {
       });
       if (!tenant || tenant.lifecycle !== "active") throw new Error("Workspace is suspended or unavailable");
 
-      if (claims?.jti) await revokeManagerSessionInTransaction(tx, claims.jti);
+      if (claims?.familyId) {
+        await revokeSessionFamilyInTransaction(tx, claims.familyId, "tenant_selection");
+      } else if (claims?.jti) {
+        await revokeLegacyManagerSessionInTransaction(tx, claims.jti);
+      }
 
-      const session = await createManagerSessionInTransaction(tx, membership.tenantId, {
-        userId: userId!,
-        role: membership.role as Parameters<typeof createManagerSessionInTransaction>[2]["role"],
-      });
+      const session = await issueSessionPairInTransaction(
+        tx,
+        {
+          kind: "customer",
+          tenantId: membership.tenantId,
+          userId: userId!,
+          role: membership.role as "owner" | "admin" | "operator" | "viewer" | "integration_admin" | "billing_admin",
+        },
+        {
+          ipAddress: clientIpFrom(req),
+          userAgent: req.headers.get("user-agent"),
+        },
+      );
 
       await writeAuditEvent({
         tenantId: membership.tenantId,
@@ -78,11 +92,16 @@ export async function POST(req: Request) {
     });
 
     const res = NextResponse.json({ ok: true, tenantId: result.membership.tenantId, role: result.membership.role });
-    res.headers.set("Set-Cookie", managerCookieHeader(result.session.token, result.session.exp));
+    res.headers.set("Set-Cookie", customerSessionCookie(result.session));
+    res.headers.append("Set-Cookie", customerRefreshCookie(result.session));
+    res.headers.set("Cache-Control", "no-store");
     return res;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Workspace selection failed";
-    if (message === "Selection token already used") return NextResponse.json({ error: "Workspace selection token has already been used" }, { status: 401 });
+    // Single-use-token replay is a client-state conflict, not an
+    // authentication failure: 409 (mirrors agent/register's consumed-code
+    // response) tells the client to restart selection.
+    if (message === "Selection token already used") return NextResponse.json({ error: "Workspace selection token has already been used" }, { status: 409 });
     if (message === "Workspace not available" || message === "Workspace is suspended or unavailable") return NextResponse.json({ error: message }, { status: 403 });
     logError("tenant_selection_failed", { error: message });
     return NextResponse.json({ error: "Workspace selection failed" }, { status: 500 });

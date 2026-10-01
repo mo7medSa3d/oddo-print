@@ -86,8 +86,38 @@ export async function truncateAll(): Promise<void> {
     try {
       if (schema) await client.query(`SET search_path TO ${quoteIdent(schema)}, public`);
       await client.query("BEGIN");
-      for (const table of ["billing_events", "tenant_subscriptions", "plans", "audit_events", "agents", "api_keys", "auth_rate_limits", "discovered_devices", "discovery_sessions", "manager_sessions", "printers", "print_jobs", "print_usage_periods", "print_job_rate_limits", "tenant_domains", "applications", "tenant_users", "users", "tenants"]) {
-        try { await client.query(`TRUNCATE TABLE ${quoteIdent(table)} RESTART IDENTITY CASCADE`); } catch (error: any) { if (error?.code !== "42P01") throw error; }
+      // Use DELETE instead of TRUNCATE CASCADE to avoid heavy DataFileImmediateSync I/O stalls on test environments
+      const orderedTables = [
+        // Delete child tables before their referenced parent rows. This keeps
+        // the cheaper DELETE-based cleanup semantically equivalent to the
+        // previous TRUNCATE ... CASCADE isolation without requiring CASCADE.
+        "job_events",
+        "discovered_devices",
+        "print_jobs",
+        "printers",
+        "discovery_sessions",
+        "manager_sessions",
+        "refresh_tokens",
+        "email_verification_tokens",
+        "password_reset_tokens",
+        "tenant_invitations",
+        "platform_sessions",
+        "tenant_subscriptions",
+        "print_usage_periods",
+        "billing_events",
+        "audit_events",
+        "api_keys",
+        "tenant_users",
+        "tenant_domains",
+        "agents",
+        "auth_rate_limits",
+        "users",
+        "tenants",
+        "plans",
+        "gateway_metrics",
+      ];
+      for (const table of orderedTables) {
+        try { await client.query(`DELETE FROM ${quoteIdent(table)}`); } catch (error: any) { if (error?.code !== "42P01") throw error; }
       }
       await client.query("COMMIT");
     } catch (error) { try { await client.query("ROLLBACK"); } catch {} throw error; }
@@ -100,7 +130,7 @@ export type Fixture = { tenantId: string; agentId: string; agentSecret: string; 
 
 export async function seedFixture(opts?: { printerCapabilities?: unknown }): Promise<Fixture> {
   const suffix = randomBytes(8).toString("hex");
-  const agentId = `agt_${suffix}`;
+  const agentId = `agt_${randomBytes(6).toString("base64url").slice(0, 8)}`;
   const agentSecret = randomBytes(16).toString("base64url");
   const printerId = `printer_${suffix}`;
   const destination = `POS ${suffix}`;
@@ -130,7 +160,7 @@ export async function seedFixture(opts?: { printerCapabilities?: unknown }): Pro
         [tenantId, `plan_${suffix}`],
       );
       await client.query(`INSERT INTO agents (id, tenant_id, name, secret, status, lifecycle, last_seen_at) VALUES ($1, $2, $3, $4, 'online', 'active', now())`, [agentId, tenantId, `Agent ${suffix}`, sha256(agentSecret)]);
-      await client.query(`INSERT INTO printers (id, tenant_id, agent_id, name, printer_type, device_class, connection_type, protocol, status, lifecycle, config, capabilities) VALUES ($1, $2, $3, $4, 'physical', 'other', 'spooler', 'spooler', 'online', 'active', '{}'::jsonb, $5::jsonb)`, [printerId, tenantId, agentId, `Printer ${suffix}`, JSON.stringify(opts?.printerCapabilities ?? { supported_protocols: ["raw", "escpos", "pdf", "image"] })]);
+      await client.query(`INSERT INTO printers (id, tenant_id, agent_id, name, printer_type, device_class, connection_type, protocol, status, lifecycle, config, capabilities, last_seen_at) VALUES ($1, $2, $3, $4, 'physical', 'other', 'spooler', 'spooler', 'online', 'active', '{}'::jsonb, $5::jsonb, now())`, [printerId, tenantId, agentId, `Printer ${suffix}`, JSON.stringify(opts?.printerCapabilities ?? { supported_protocols: ["raw", "escpos", "pdf", "image"] })]);
       await client.query(`INSERT INTO api_keys (id, tenant_id, name, hashed_key, odoo_enabled, odoo_enabled_revision) VALUES ($1, $2, 'test key', $3, true, 0)`, [`key_${suffix}`, tenantId, sha256(odooKey)]);
       await client.query("COMMIT");
     } catch (error) { try { await client.query("ROLLBACK"); } catch {} throw error; }

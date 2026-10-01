@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"golang.org/x/sys/windows/registry"
 	"log"
 	"runtime"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 var (
@@ -228,7 +228,7 @@ func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNo
 	default:
 	}
 
-	docName, err := syscall.UTF16PtrFromString("Yasser Print Job")
+	docName, err := syscall.UTF16PtrFromString("Yaseir Print Job")
 	if err != nil {
 		return spoolerTaskResult{err: fmt.Errorf("invalid document name: %w", err)}
 	}
@@ -291,13 +291,17 @@ func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNo
 
 		var bytesWritten uint32
 		chunk := data[written:]
+		if len(chunk) > networkWriteChunkSize {
+			chunk = chunk[:networkWriteChunkSize]
+		}
 		r, writeErr := sys.writePrinter(hPrinter, unsafe.Pointer(&chunk[0]), len(chunk), &bytesWritten)
 		if r == 0 {
-			if written > 0 {
+			totalWritten := written + bytesWritten
+			if totalWritten > 0 {
 				return spoolerTaskResult{
-					written: written,
+					written: totalWritten,
 					jobID:   jobID,
-					err:     fmt.Errorf("UNKNOWN_PARTIAL_DELIVERY: WritePrinter(%q) failed after %d/%d bytes: %w", spoolerName, written, len(data), writeErr),
+					err:     fmt.Errorf("UNKNOWN_PARTIAL_DELIVERY: WritePrinter(%q) failed after %d/%d bytes: %w", spoolerName, totalWritten, len(data), writeErr),
 				}
 			}
 			return spoolerTaskResult{written: written, jobID: jobID, err: fmt.Errorf("WritePrinter(%q) failed after %d/%d bytes: %w", spoolerName, written, len(data), writeErr)}
@@ -423,21 +427,6 @@ func preFlightSpoolerCheck(spoolerName string) error {
 		return fmt.Errorf("%w: spooler printer %q is out of paper (status 0x%08x)", ErrPrinterPaperOut, spoolerName, pi.Status)
 	}
 	return nil
-}
-
-// Print writes raw byte data directly to the Windows Spooler.
-// Win32 WritePrinter is inherently synchronous: a wedged call blocks until
-// Win32 returns, so caller-side timeouts isolate the CALLER (see the select
-// below) while the per-printer session mutex isolates OTHER printers.
-// tryBeginSession acquires this printer's session slot WITHOUT waiting:
-// it is a pure try-lock. Contention is refused immediately as a plain
-// pre-dispatch failure (no document bytes were ever submitted), so rapid
-// overlap can never accumulate waiters behind a wedged session.
-func (p *SpoolerPrinter) tryBeginSession() error {
-	if p.sessionMu.TryLock() {
-		return nil
-	}
-	return fmt.Errorf("%w: spooler session for %q is already in progress", ErrPrinterNotReady, p.SpoolerName)
 }
 
 // waitBeginSession acquires this printer's session slot with a bounded
@@ -854,6 +843,7 @@ func fallbackRegistryPrinters() ([]DeviceInfo, error) {
 			Protocol:       "spooler",
 			ConnectionType: "spooler",
 			Endpoint:       name,
+			SpoolerName:    name,
 		})
 	}
 	log.Printf("[discovery] registry fallback found %d printers", len(out))
@@ -928,14 +918,28 @@ func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 		offset := uintptr(i) * structSize
 		pi := (*printerInfo2)(unsafe.Pointer(uintptr(unsafe.Pointer(&buf[0])) + offset))
 		name := utf16PtrToString(pi.pPrinterName)
+		portName := utf16PtrToString(pi.pPortName)
+		driverName := utf16PtrToString(pi.pDriverName)
 		if name == "" {
 			continue
 		}
+		if isVirtualSpooler(portName, driverName, name) {
+			log.Printf("[discovery] hiding virtual Windows spooler queue %q (port=%q driver=%q)", name, portName, driverName)
+			continue
+		}
+		printerType, connectionType := classifySpoolerPrinter(portName, driverName, name)
 		out = append(out, DeviceInfo{
 			Name:           name,
 			Protocol:       "spooler",
-			ConnectionType: "spooler",
+			ConnectionType: connectionType,
+			PrinterType:    printerType,
 			Endpoint:       name,
+			SpoolerName:    name,
+			Status:         mapWindowsStatus(pi.Status, pi.Attributes),
+			Capabilities: map[string]interface{}{
+				"port_name":   portName,
+				"driver_name": driverName,
+			},
 		})
 	}
 	runtime.KeepAlive(buf)

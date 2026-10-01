@@ -13,6 +13,8 @@ import { db, queryWithTimeout } from "../db/client";
 import { agents, printers, printJobs } from "../db/schema";
 import { eq, and, count, sql } from "drizzle-orm";
 import { logWarn } from "./log";
+import { gatewayNow, parseDbTimeMs } from "./database-clock";
+import { agentStaleThresholdSeconds } from "./stale-threshold";
 
 export type AgentHealthStatus = "ONLINE" | "DEGRADED" | "OFFLINE" | "STARTING" | "UNKNOWN";
 export type HealthCheckResult = {
@@ -20,7 +22,11 @@ export type HealthCheckResult = {
   status: "ok" | "warn" | "error" | "unknown";
   message: string;
   observed: boolean;
-  lastOk?: Date;
+  // `null` is a real runtime value here: an agent that has never been seen has
+  // agents.last_seen_at IS NULL, and that null is passed through to lastOk and
+  // serialized in the API response. The previous `as any` hid this mismatch;
+  // widening the declaration keeps the emitted JSON byte-identical.
+  lastOk?: Date | null;
   details?: Record<string, unknown>;
 };
 
@@ -41,41 +47,62 @@ export interface AgentHealth {
   uptimeSeconds?: number;
 }
 
-const ONLINE_THRESHOLD_MS = 90_000; // 90s matches claim logic
+// Read the threshold fresh per evaluation (not snapshotted at module load):
+// enforcement (agent-availability.ts) and display must share one value even
+// across tests or a future reloadable config. The snapshot cost is one
+// clamped Number() parse.
+function onlineThresholdMs(): number {
+  return agentStaleThresholdSeconds() * 1000;
+}
 const DEGRADED_THRESHOLD_MS = 5 * 60_000; // 5min
 const STARTING_THRESHOLD_MS = 5 * 60_000;
 
-export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: Date | null, now = new Date()): AgentHealthStatus {
+export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: Date | null, now = gatewayNow(), status = "online"): AgentHealthStatus {
+  if (status === "offline" && lastSeenAt) return "OFFLINE";
   if (!lastSeenAt) {
     if (createdAt) {
-      const ageCreated = now.getTime() - new Date(createdAt).getTime();
+      const createdMs = parseDbTimeMs(createdAt);
+      const ageCreated = createdMs === null ? Number.POSITIVE_INFINITY : now.getTime() - createdMs;
       if (ageCreated <= STARTING_THRESHOLD_MS) return "STARTING";
     }
     return "OFFLINE";
   }
-  const age = now.getTime() - new Date(lastSeenAt).getTime();
-  if (age <= ONLINE_THRESHOLD_MS) return "ONLINE";
+  const seenMs = parseDbTimeMs(lastSeenAt);
+  const age = seenMs === null ? Number.POSITIVE_INFINITY : now.getTime() - seenMs;
+  // A future lastSeenAt (clock skew or bad write) must never read as
+  // ONLINE: the agent is not provably alive. Mirror the availability gate
+  // (agent-availability.ts) and printer health, which both reject age < 0.
+  if (age < 0) return "OFFLINE";
+  if (age <= onlineThresholdMs()) return "ONLINE";
   if (age <= DEGRADED_THRESHOLD_MS) return "DEGRADED";
   return "OFFLINE";
 }
 
 export async function getAgentHealth(tenantId: string, agentId: string): Promise<AgentHealth | null> {
   const agentRows = await queryWithTimeout(
-    db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, agentId))).limit(1),
+    () => db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, agentId))).limit(1),
     3000,
     "getAgentHealth"
   );
   if (agentRows.length === 0) return null;
-  const agent = agentRows[0] as any;
+  // Typed row from the Drizzle select above. The previous `as any` erased the
+  // row type on the health-classification decision below, so a renamed/absent
+  // column would have silently degraded to STATUS "OFFLINE" instead of failing
+  // to compile.
+  const agent = agentRows[0];
 
-  const now = new Date();
-  const baseStatus = computeAgentHealthStatus(agent.lastSeenAt, agent.createdAt, now);
+  const now = gatewayNow();
+  const baseStatus = agent.lifecycle !== "active"
+    ? "OFFLINE"
+    : agent.status === "offline"
+      ? "OFFLINE"
+      : computeAgentHealthStatus(agent.lastSeenAt, agent.createdAt, now, agent.status);
 
   let queueRows: Array<{ cnt: number }> = [];
   let queueDataAvailable = true;
   try {
     queueRows = await queryWithTimeout(
-      db.select({ cnt: count() }).from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.agentId, agentId), sql`${printJobs.status} in ('queued','claimed','printing')`)),
+      () => db.select({ cnt: count() }).from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.agentId, agentId), sql`${printJobs.status} in ('queued','claimed','printing')`)),
       3000,
       "agentQueueDepth"
     );
@@ -89,7 +116,7 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   let printerDataAvailable = true;
   try {
     printerRows = await queryWithTimeout(
-      db.select({ id: printers.id, status: printers.status }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
+      () => db.select({ id: printers.id, status: printers.status }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
       3000,
       "agentPrinters"
     );
@@ -104,14 +131,21 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
 
   // Observed: Gateway heartbeat (direct from DB lastSeenAt)
   if (agent.lastSeenAt) {
-    const ageMs = now.getTime() - new Date(agent.lastSeenAt).getTime();
+    const seenMs = parseDbTimeMs(agent.lastSeenAt);
+    const ageMs = seenMs === null ? Number.POSITIVE_INFINITY : now.getTime() - seenMs;
+    // A future lastSeenAt (clock skew or bad write) is an untrustworthy
+    // observation: never "ok", and worse than merely stale.
+    const onlineMs = onlineThresholdMs();
+    const gatewayStatus = agent.lifecycle !== "active" || agent.status !== "online"
+      ? "error"
+      : ageMs < 0 || ageMs > DEGRADED_THRESHOLD_MS ? "error" : ageMs > onlineMs ? "warn" : "ok";
     checks.push({
       name: "Gateway",
-      status: ageMs <= ONLINE_THRESHOLD_MS ? "ok" : ageMs <= DEGRADED_THRESHOLD_MS ? "warn" : "error",
-      message: ageMs <= ONLINE_THRESHOLD_MS ? `Heartbeat ${Math.round(ageMs / 1000)}s ago (observed)` : `Last seen ${Math.round(ageMs / 1000)}s ago (observed)`,
+      status: gatewayStatus,
+      message: ageMs >= 0 && ageMs <= onlineMs ? `Heartbeat ${Math.round(ageMs / 1000)}s ago (observed)` : `Last seen ${Math.round(ageMs / 1000)}s ago (observed)`,
       observed: true,
       lastOk: agent.lastSeenAt,
-      details: { ageMs, thresholdMs: ONLINE_THRESHOLD_MS, source: "agents.last_seen_at" },
+      details: { ageMs, thresholdMs: onlineMs, source: "agents.last_seen_at" },
     });
   } else {
     checks.push({ name: "Gateway", status: "error", message: "Never seen (observed from DB)", observed: true });
@@ -157,8 +191,10 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
     details: { source: "printers", unavailable: true },
   });
 
-  // Observed: Version from metadata
-  const meta = agent.metadata as any;
+  // Observed: Version from metadata. `agents.metadata` is declared as
+  // jsonb().$type<{ hostname?, os?, osVersion?, version? }>() in src/db/schema.ts,
+  // so the cast to `any` was discarding a precise type that already existed.
+  const meta = agent.metadata;
   checks.push({
     name: "Version",
     status: meta?.version ? "ok" : "unknown",
@@ -191,15 +227,22 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
 }
 
 export async function getAllAgentsHealth(tenantId: string): Promise<AgentHealth[]> {
+  // `db.select().from(agents)` is already typed; the cast only disabled checking.
   const allAgents = await queryWithTimeout(
-    db.select().from(agents).where(eq(agents.tenantId, tenantId)),
+    () => db.select().from(agents).where(eq(agents.tenantId, tenantId)),
     3000,
     "getAllAgentsHealth"
   );
+  // Bounded fan-out (5): the old sequential loop degraded linearly on large
+  // fleets, while an unbounded Promise.all over N agents × 3 queries each
+  // would exhaust the 20-connection pool. Chunks keep latency flat without
+  // stampeding the database.
   const results: AgentHealth[] = [];
-  for (const a of allAgents as any[]) {
-    const h = await getAgentHealth(tenantId, a.id);
-    if (h) results.push(h);
+  for (let i = 0; i < allAgents.length; i += 5) {
+    const chunk = await Promise.all(
+      allAgents.slice(i, i + 5).map((a) => getAgentHealth(tenantId, a.id)),
+    );
+    for (const h of chunk) if (h) results.push(h);
   }
   return results;
 }

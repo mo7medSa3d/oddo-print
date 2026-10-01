@@ -35,6 +35,16 @@ class TestControlPlane(TransactionCase):
         })
         self.env = self.env(context=dict(self.env.context, allowed_company_ids=[self.company.id, self.branch.id]))
 
+        # Branch -> Agent assignments are explicit source-of-truth data for
+        # bindings. Provision the assignment before creating branch bindings;
+        # bindings themselves never create or widen assignments.
+        self.env["print_gateway.runtime_agent_assignment"].create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": "agent-cp-01",
+            "enabled": True,
+        })
+
         ConfigClass = PrintGatewayConfig or type(self.env["print_gateway.gateway_config"])
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None):
             config_model = self.env["print_gateway.gateway_config"]
@@ -173,6 +183,59 @@ class TestControlPlane(TransactionCase):
         intent2 = intent_model.create_and_route(policy, mock_picking, "picking_validated")
         self.assertEqual(intent2.id, intent1.id, "Duplicate trigger must return existing intent and suppress duplicate job creation")
 
+    def test_billing_retry_uses_relative_retry_after_not_gateway_absolute_period_end(self):
+        source = (self.env["print_gateway.print_job"]._original_module_path if False else None)
+        from pathlib import Path
+        print_job_source = (
+            Path(__file__).resolve().parents[1] / "models" / "print_job.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("fields.Datetime.to_datetime(period_end)", print_job_source)
+        self.assertNotIn("candidate > now", print_job_source)
+        self.assertIn('"retryAfterSeconds": retry_after', print_job_source)
+
+    def test_automation_dispatch_continues_after_one_policy_failure(self):
+        """One invalid automated target must not suppress other valid policies."""
+        model = self.env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
+        policy_model = self.env["print_gateway.policy"]
+        first = policy_model.create({
+            "name": "Broken Automation Target",
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "model_id": model.id,
+            "event_type": "picking_validated",
+            "action_type": "raw_template",
+            "raw_template": "^XA^FD{name}^FS^XZ",
+            "raw_protocol": "zpl",
+            "binding_id": self.zpl_binding.id,
+            "active": True,
+            "priority": 1,
+        })
+        second = policy_model.create({
+            "name": "Valid Automation Target",
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "model_id": model.id,
+            "event_type": "picking_validated",
+            "action_type": "raw_template",
+            "raw_template": "^XA^FD{name}^FS^XZ",
+            "raw_protocol": "zpl",
+            "binding_id": self.zpl_binding.id,
+            "active": True,
+            "priority": 2,
+        })
+        mock_picking = MagicMock()
+        mock_picking._name = model.model
+        mock_picking.id = 9910
+        mock_picking.company_id = self.branch
+
+        PolicyClass = type(first)
+        IntentClass = type(self.env["print_gateway.intent"])
+        with patch.object(PolicyClass, "matches_record", return_value=True),              patch.object(PolicyClass, "effective_target_key", side_effect=[ValidationError("broken target"), ("valid-binding", "raw_template", False, "zpl", "template")]),              patch.object(IntentClass, "create_and_route", return_value=second) as create_and_route:
+            result = policy_model.dispatch_for_record(mock_picking, "picking_validated")
+
+        self.assertEqual(result, {"scheduled": 1, "failed": 1})
+        create_and_route.assert_called_once_with(second, mock_picking, "picking_validated")
+
     def test_01b_raw_policy_dedup_identity_includes_resolved_binding_and_protocol(self):
         """Raw fan-out dedup must include the resolved target and language."""
         model = self.env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
@@ -247,7 +310,7 @@ class TestControlPlane(TransactionCase):
             "company_id": self.branch.id,
             "gateway_config_id": self.gateway_config.id,
             "printer_id": self.primary_binding.printer_id,
-            "destination": "Primary Destination",
+            "destination": self.primary_binding.destination_ref.display_name,
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
@@ -345,7 +408,7 @@ class TestControlPlane(TransactionCase):
             "company_id": self.branch.id,
             "gateway_config_id": self.gateway_config.id,
             "printer_id": self.primary_binding.printer_id,
-            "destination": "Primary Destination",
+            "destination": self.primary_binding.destination_ref.display_name,
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
@@ -363,8 +426,13 @@ class TestControlPlane(TransactionCase):
         ConfigClass = type(self.gateway_config)
         persisted_states = []
 
-        def _mock_persist_state(vals):
+        def _mock_persist_state(vals, **kwargs):
+            # Emulate a successful durable write. NOTE: the mock's return
+            # value is this function's return (not return_value=), so it
+            # must be an explicit True: production treats falsy as a lost
+            # lease and exits silently, which the assertions below forbid.
             persisted_states.append(dict(vals))
+            return True
 
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
              patch("requests.post", side_effect=[_refused_connection(), _refused_connection()]), \
@@ -387,7 +455,7 @@ class TestControlPlane(TransactionCase):
             "company_id": self.branch.id,
             "gateway_config_id": self.gateway_config.id,
             "printer_id": self.primary_binding.printer_id,
-            "destination": "Primary Destination",
+            "destination": self.primary_binding.destination_ref.display_name,
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
@@ -427,7 +495,7 @@ class TestControlPlane(TransactionCase):
             self.assertTrue(route_res.get("gateway_enabled"))
             job = self.env["print_gateway.print_job"].browse(route_res.get("job_id"))
             self.assertEqual(job.protocol, "escpos")
-            self.assertIn("YASSER PRINT GATEWAY", job.raw_payload)
+            self.assertIn("YASEIR PRINT GATEWAY", job.raw_payload)
 
     def test_06b_stale_claimed_intent_cannot_exceed_max_attempts(self):
         """A stale claimed intent at its retry ceiling must not be re-claimed.
@@ -491,7 +559,8 @@ class TestControlPlane(TransactionCase):
         })
         IntentClass = type(intent_model)
         with patch.object(IntentClass, "_execute_dispatched_route") as mock_exec, \
-             patch.object(IntentClass, "_claim_intent", return_value="fake_token_123"):
+             patch.object(IntentClass, "_claim_intent", return_value="fake_token_123"), \
+             patch.object(type(self.env["ir.cron"]), "_commit_progress", return_value=30.0):
             recovered = intent_model.cron_recover_pending_intents()
             self.assertGreaterEqual(recovered, 1)
             mock_exec.assert_called()
@@ -690,11 +759,11 @@ class TestControlPlane(TransactionCase):
             "company_id": self.branch.id,
             "gateway_config_id": self.gateway_config.id,
             "printer_id": self.primary_binding.printer_id,
-            "destination": "Chain Destination",
+            "destination": self.primary_binding.destination_ref.display_name,
             "document_type": "invoice",
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
-            "idempotency_key": "test_chain_depth_key_01",
+            "idempotency_key": "idem_test_01",
             "fallback_binding_id": self.backup_binding.id,
         })
         import requests
@@ -863,6 +932,8 @@ class TestControlPlane(TransactionCase):
         intent.action_rearm_intent()
         self.assertEqual(intent.status, "pending")
         self.assertEqual(intent.attempts, 0)
+        self.assertFalse(intent.claimed_at)
+        self.assertFalse(intent.claim_token)
 
     def test_14_intent_single_claim_recovery_and_fencing(self):
         """Verify single-claim intent recovery lifecycle and fencing token lease protection."""
@@ -885,7 +956,7 @@ class TestControlPlane(TransactionCase):
 
         # 1. Pending intent acquires claim token
         intent_pending = intent_model.create({
-            "intent_key": "intent_claim_test_pending_01",
+            "intent_key": "intent_test_01",
             "policy_id": policy.id,
             "res_model": model.model,
             "res_id": 1,
@@ -961,6 +1032,60 @@ class TestControlPlane(TransactionCase):
         self.assertIn("b.branch_id IS NULL", insert_sql, "Migration must check for missing root binding specifically")
         self.assertIn("'unassigned'", insert_sql, "Migration must use 'unassigned' placeholder rather than fake routable printer")
         self.assertIn("FALSE", insert_sql, "Migration placeholder binding must be explicitly disabled")
+
+    def test_raw_automation_root_binding_requires_company_wide_assignment(self):
+        assignment_model = self.env["print_gateway.runtime_agent_assignment"]
+        assignment = assignment_model.create({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "runtime_agent_id": "agent-root-automation",
+            "enabled": True,
+        })
+        report = self.primary_binding.report_id
+        root_binding = self.env["print_gateway.binding"].create({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "destination_type": "report",
+            "destination_report_id": report.id,
+            "report_id": report.id,
+            "runtime_agent_id": "agent-root-automation",
+            "printer_id": "printer-root-automation",
+            "printer_protocol": "zpl",
+            "enabled": True,
+            "priority": 77,
+        })
+        assignment.write({"enabled": False})
+
+        router = self.env["print_gateway.print_router"]
+        with self.assertRaises(ValidationError):
+            router.route_raw_command(
+                "^XA^XZ",
+                protocol="zpl",
+                binding=root_binding,
+                record=False,
+                company=self.company,
+                document_type="label",
+            )
+
+    def test_automation_policy_binding_scope_is_validated_at_write_time(self):
+        second_branch = self.env["res.company"].create({
+            "name": "Control Plane Branch 2",
+            "parent_id": self.company.id,
+        })
+        policy_model = self.env["print_gateway.policy"]
+        model = self.env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
+        report = self.primary_binding.report_id
+        with self.assertRaises(ValidationError):
+            policy_model.create({
+                "name": "Invalid sibling binding policy",
+                "company_id": self.company.id,
+                "branch_id": second_branch.id,
+                "model_id": model.id,
+                "event_type": "picking_validated",
+                "action_type": "report",
+                "report_id": report.id,
+                "binding_id": self.primary_binding.id,
+            })
 
     def test_17_policy_validation_constraints(self):
         """Verify strict policy validation for event/model pairs, mutual exclusivity, and domain fields."""
@@ -1276,6 +1401,178 @@ class TestControlPlane(TransactionCase):
         self.assertEqual(job.gateway_job_id, "gw_operator_123")
         self.assertEqual(job.company_id, self.branch)
 
+    def test_26c_submit_refuses_uncommitted_outbox_without_remote_side_effect(self):
+        """A pre-commit outbox row must never cross the Gateway side-effect boundary.
+
+        If the surrounding Odoo transaction rolls back after a remote POST, the
+        Gateway job would outlive its source row. Submission therefore fails
+        closed before requests.post is reached; production uses the committed
+        durable outbox + post-commit dispatcher instead.
+        """
+        job = self.env["print_gateway.print_job"].create({
+            "company_id": self.branch.id,
+            "gateway_config_id": self.gateway_config.id,
+            "printer_id": self.primary_binding.printer_id,
+            "destination": self.primary_binding.destination_ref.display_name,
+            "document_type": "invoice",
+            "status": "queued",
+            "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
+            "idempotency_key": "test_precommit_submit_boundary_%s" % uuid.uuid4().hex[:8],
+        })
+
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post") as post, \
+             patch.object(type(job), "_claim_submission_lease", return_value="__precommit__"):
+            # The test harness never commits, so the test-mode lease bypass
+            # would grant a token and let submission proceed. Report the
+            # uncommitted row as pre-commit explicitly to exercise the
+            # fail-closed guard (production detects this via the dedicated
+            # cursor visibility check).
+            with self.assertRaises(ValidationError):
+                job._action_submit_trusted(raise_on_failure=True)
+
+        post.assert_not_called()
+        self.assertFalse(job.gateway_job_id)
+        self.assertEqual(job.status, "queued")
+
+    def _submit_test_job(self, idempotency_key):
+        return self.env["print_gateway.print_job"].create({
+            "company_id": self.branch.id,
+            "gateway_config_id": self.gateway_config.id,
+            "printer_id": self.primary_binding.printer_id,
+            "destination": self.primary_binding.destination_ref.display_name,
+            "document_type": "invoice",
+            "status": "queued",
+            "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
+            "idempotency_key": idempotency_key,
+        })
+
+    def test_26e_gateway_503_printer_offline_is_terminal_with_actionable_message(self):
+        """A deterministic Gateway printer-state rejection must terminalize
+        immediately with an actionable ValidationError — never a bare
+        RuntimeError (which the POS frontend can only render as a generic
+        "Odoo Server Error") and never burned backoff retries against a
+        printer the Gateway already proved unusable."""
+        job = self._submit_test_job("test_503_offline_%s" % uuid.uuid4().hex[:8])
+        mock_resp = MagicMock()
+        mock_resp.status_code = 503
+        mock_resp.json.return_value = {"error": "Printer is not executable", "code": "PRINTER_OFFLINE", "retryable": True}
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            with self.assertRaises(ValidationError) as ctx:
+                job._action_submit_trusted(raise_on_failure=True)
+        self.assertIn("offline", str(ctx.exception).lower())
+        self.assertIn(job.printer_id, str(ctx.exception))
+        self.assertNotIsInstance(ctx.exception, RuntimeError)
+
+        # The interactive raise path is asserted above. Verify durable state
+        # through the non-raising/background path, which does not roll back the
+        # surrounding Odoo test transaction after the expected exception.
+        persisted = self._submit_test_job("test_503_offline_persisted_%s" % uuid.uuid4().hex[:8])
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            persisted._action_submit_trusted(raise_on_failure=False)
+        persisted.invalidate_recordset(["status", "last_error", "next_retry_at", "gateway_job_id", "attempts"])
+        self.assertEqual(persisted.status, "failed")
+        self.assertIn("offline", (persisted.last_error or "").lower())
+        self.assertFalse(persisted.gateway_job_id)
+        self.assertFalse(persisted.next_retry_at)
+
+    def test_26e2_gateway_503_offline_marker_survives_background_submit(self):
+        """Without raise_on_failure (cron/background), the same rejection
+        terminalizes with the machine-readable marker intact for forensics."""
+        job = self._submit_test_job("test_503_bg_%s" % uuid.uuid4().hex[:8])
+        mock_resp = MagicMock()
+        mock_resp.status_code = 503
+        mock_resp.json.return_value = {"error": "Printer is not executable", "code": "PRINTER_OFFLINE", "retryable": True}
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            job._action_submit_trusted(raise_on_failure=False)
+        self.assertEqual(job.status, "failed")
+        self.assertIn("GATEWAY_REJECTED_503", job.last_error)
+        self.assertEqual(job.attempts, 1)
+        self.assertFalse(job.gateway_job_id)
+
+    def test_26f_gateway_503_queue_full_requeues_without_terminalizing(self):
+        """Transient 503 capacity rejections stay retryable: the durable
+        outbox remains queued with backoff, and interactive callers learn the
+        job was safely re-queued (not lost, not duplicated)."""
+        job = self._submit_test_job("test_503_full_%s" % uuid.uuid4().hex[:8])
+        mock_resp = MagicMock()
+        mock_resp.status_code = 503
+        mock_resp.json.return_value = {"error": "AGENT_QUEUE_FULL", "code": "AGENT_QUEUE_FULL", "retryable": True}
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            with self.assertRaises(ValidationError) as ctx:
+                job._action_submit_trusted(raise_on_failure=True)
+        self.assertIn("re-queued", str(ctx.exception))
+
+        persisted = self._submit_test_job("test_503_full_persisted_%s" % uuid.uuid4().hex[:8])
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            persisted._action_submit_trusted(raise_on_failure=False)
+        persisted.invalidate_recordset(["status", "last_error", "next_retry_at", "gateway_job_id", "attempts"])
+        self.assertEqual(persisted.status, "queued")
+        self.assertTrue(persisted.next_retry_at)
+        self.assertIn("GATEWAY_BUSY_503", persisted.last_error)
+
+    def test_26g_gateway_500_stays_retryable_and_honest(self):
+        """Genuine infrastructure failures (5xx) must NOT be terminalized and
+        must NOT be hidden: the job stays queued for retry and the interactive
+        error still carries the real Gateway status."""
+        job = self._submit_test_job("test_500_retry_%s" % uuid.uuid4().hex[:8])
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.json.return_value = {}
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            with self.assertRaises(ValidationError) as ctx:
+                job._action_submit_trusted(raise_on_failure=True)
+        self.assertIn("GATEWAY_HTTP_500", str(ctx.exception))
+
+        persisted = self._submit_test_job("test_500_retry_persisted_%s" % uuid.uuid4().hex[:8])
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            persisted._action_submit_trusted(raise_on_failure=False)
+        persisted.invalidate_recordset(["status", "last_error", "next_retry_at", "gateway_job_id", "attempts"])
+        self.assertEqual(persisted.status, "queued")
+        self.assertTrue(persisted.next_retry_at)
+
+    def test_26d_gateway_config_unlink_checks_dependencies_before_remote_shutdown(self):
+        """A config with dependent print jobs must fail before any Gateway shutdown side effect."""
+        config_model = self.env["print_gateway.gateway_config"]
+        job = self.env["print_gateway.print_job"].create({
+            "company_id": self.branch.id,
+            "gateway_config_id": self.gateway_config.id,
+            "printer_id": self.primary_binding.printer_id,
+            "destination": self.primary_binding.destination_ref.display_name,
+            "document_type": "invoice",
+            "status": "queued",
+            "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
+            "idempotency_key": "test_config_unlink_dependency_%s" % uuid.uuid4().hex[:8],
+        })
+        with patch.object(type(self.gateway_config), "_disable_gateway_for_unlink", side_effect=AssertionError("remote shutdown must not run when local deletion is impossible")) as shutdown:
+            with self.assertRaises(ValidationError):
+                self.gateway_config.unlink()
+        shutdown.assert_not_called()
+        self.assertTrue(job.exists())
+        self.assertTrue(self.gateway_config.exists())
+
+        # A second config needs its own root company: configs are unique per
+        # company and branch companies cannot own one.
+        second_company = self.env["res.company"].create({"name": "Control Plane Second Root"})
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None):
+            second_config = config_model.create({
+                "company_id": second_company.id,
+                "gateway_url": "https://gateway-2.example.com",
+                "enabled": False,
+                "gateway_api_key": "test_api_key_control_plane_2",
+            })
+        with self.assertRaises(ValidationError):
+            (self.gateway_config | second_config).unlink()
+        self.assertTrue(self.gateway_config.exists())
+        self.assertTrue(second_config.exists())
+
     def test_26b_persist_refuses_records_invisible_to_its_own_cursor(self):
         """BEHAVIORAL transaction-visibility regression test: the durable
         persist path runs on an independent cursor, so rows created but not
@@ -1339,7 +1636,7 @@ class TestControlPlane(TransactionCase):
                 "document_type": "label",
                 "status": "queued",
                 "payload": json.dumps({"type": "raw", "protocol": "raw", "encoding": "base64", "data": "dGVzdA=="}),
-                "idempotency_key": "test_forged_key_01",
+                "idempotency_key": "idem_test_02",
             })
         job = self.env["print_gateway.print_job"].create({
             "company_id": self.branch.id,
@@ -1464,6 +1761,43 @@ class TestControlPlane(TransactionCase):
             "rolled-back business work must leave no orphan intent",
         )
 
+    def test_04c_billing_403_keeps_outbox_queued_for_recovery(self):
+        """A recoverable Gateway billing block must not strand the Odoo outbox.
+
+        Subscription/entitlement state can change without changing the Odoo
+        print operation, so the same durable idempotency operation should remain
+        queued and become eligible after billing is restored. Other deterministic
+        403 responses still use the terminal path covered by test_04d.
+        """
+        job = self.env["print_gateway.print_job"].create({
+            "company_id": self.branch.id,
+            "gateway_config_id": self.gateway_config.id,
+            "printer_id": self.primary_binding.printer_id,
+            "destination": "Billing Recovery",
+            "document_type": "invoice",
+            "status": "queued",
+            "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
+            "idempotency_key": "test_billing_403_recovery_key_01",
+            "fallback_binding_id": self.backup_binding.id,
+        })
+        response = MagicMock()
+        response.status_code = 403
+        response.headers = {"Retry-After": "45"}
+        response.json.return_value = {
+            "error": "An active subscription is required for this operation",
+            "code": "TENANT_SUBSCRIPTION_REQUIRED",
+        }
+        ConfigClass = type(self.gateway_config)
+        with patch.object(ConfigClass, "_validate_gateway_host", return_value=None),              patch("requests.post", return_value=response) as mock_post:
+            job.action_submit()
+
+        mock_post.assert_called_once()
+        self.assertEqual(job.status, "queued")
+        self.assertEqual(job.attempts, 1)
+        self.assertTrue(job.next_retry_at)
+        self.assertIn("GATEWAY_BILLING_BLOCKED: TENANT_SUBSCRIPTION_REQUIRED", job.last_error or "")
+        self.assertFalse(job.gateway_job_id)
+
     def test_04d_deterministic_failures_terminalize_without_retry(self):
         """Validation/contract failures can never succeed on retry: a
         corrupted persisted payload and a contract-violating Gateway reply
@@ -1530,6 +1864,31 @@ class TestControlPlane(TransactionCase):
         test_companies = [self.company.id, self.branch.id, sibling_branch.id, other_company.id]
         self.env = self.env(context=dict(self.env.context, allowed_company_ids=test_companies))
 
+        # Direct Binding creation is intentionally allowed only for an Agent
+        # that is already assigned to the exact Odoo runtime scope. Provision
+        # the non-primary scopes used by this parity test explicitly; the
+        # Binding model must never create or widen these assignments itself.
+        self.env["print_gateway.runtime_agent_assignment"].create([
+            {
+                "company_id": self.company.id,
+                "branch_id": sibling_branch.id,
+                "runtime_agent_id": "agent-scope-printer-scope-sibling",
+                "enabled": True,
+            },
+            {
+                "company_id": self.company.id,
+                "branch_id": False,
+                "runtime_agent_id": "agent-scope-printer-scope-root",
+                "enabled": True,
+            },
+            {
+                "company_id": other_company.id,
+                "branch_id": False,
+                "runtime_agent_id": "agent-scope-printer-scope-other",
+                "enabled": True,
+            },
+        ])
+
         pri_counter = [50]
 
         def _binding(company, branch, printer, protocol="escpos"):
@@ -1568,6 +1927,34 @@ class TestControlPlane(TransactionCase):
                     idempotency_key="test_scope_%s_%s" % (company.id, binding.id),
                 )
 
+        # A root/company-wide Binding can use any enabled assignment owned by
+        # the Company, including a direct child-Branch assignment. Therefore a
+        # child assignment legitimately keeps the Agent authorized for the
+        # Company-wide binding even when its separate company-wide assignment
+        # is disabled.
+        revocable_printer = "printer-scope-revocable-root"
+        revocable_agent = "agent-scope-%s" % revocable_printer
+        self.env["print_gateway.runtime_agent_assignment"].create({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "runtime_agent_id": revocable_agent,
+            "enabled": True,
+        })
+        revocable_root_binding = _binding(self.company, False, revocable_printer)
+        self.env["print_gateway.runtime_agent_assignment"].search([
+            ("company_id", "=", self.company.id),
+            ("branch_id", "=", False),
+            ("runtime_agent_id", "=", revocable_agent),
+        ]).write({"enabled": False})
+        self.env["print_gateway.runtime_agent_assignment"].create({
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "runtime_agent_id": revocable_agent,
+            "enabled": True,
+        })
+        self.assertTrue(
+            _route(self.branch, revocable_root_binding).get("gateway_enabled")
+        )
         # Same branch: the binding find_for would resolve here.
         self.assertTrue(_route(self.branch, branch_binding).get("gateway_enabled"))
         # Manually supplied binding works the same as a resolved one.
@@ -1576,7 +1963,8 @@ class TestControlPlane(TransactionCase):
         with self.assertRaises(ValidationError):
             _route(self.branch, sibling_binding)
         # Branch operation with a root binding: allowed, mirroring find_for's
-        # documented (company, branch=False) fallback.
+        # documented (company, branch=False) fallback. A child-Branch Agent
+        # assignment is also valid for the Company-wide binding.
         self.assertTrue(_route(self.branch, root_binding).get("gateway_enabled"))
         # Root operation with a branch binding: find_for from the root only
         # searches branch=False, so this is rejected.
@@ -1595,6 +1983,54 @@ class TestControlPlane(TransactionCase):
         # Another company entirely: rejected.
         with self.assertRaises(ValidationError):
             _route(self.branch, other_binding)
+
+    def test_32a_report_group_access_is_enforced_on_gateway_dispatch(self):
+        """Gateway report RPC must preserve ir.actions.report group_ids."""
+        report = self.env["ir.actions.report"].create({
+            "name": "Gateway Restricted Test Report",
+            "model": "stock.picking",
+            "report_type": "qweb-pdf",
+            "report_name": "stock.report_picking",
+            "group_ids": [(6, 0, [self.env.ref("stock.group_stock_user").id])],
+        })
+        user = self._operator_user()
+        self.assertFalse(user.has_group("stock.group_stock_user"))
+
+        with self.assertRaises(AccessError):
+            self.env["print_gateway.binding"].with_user(user).dispatch_report_action(
+                report_id=report.id,
+                res_ids=[],
+            )
+
+    def test_32b_non_pdf_report_cannot_enter_gateway_dispatch(self):
+        """Gateway report RPC must never convert HTML/text reports into PDF jobs."""
+        report = self.env["ir.actions.report"].create({
+            "name": "Gateway HTML Test Report",
+            "model": "stock.picking",
+            "report_type": "qweb-html",
+            "report_name": "stock.report_picking",
+        })
+
+        with self.assertRaisesRegex(ValidationError, "Only QWeb PDF reports"):
+            self.env["print_gateway.binding"].dispatch_report_action(
+                report_id=report.id,
+                res_ids=[],
+            )
+
+    def test_32c_route_report_preserves_report_group_access(self):
+        """The actual Gateway report-routing boundary must preserve group_ids."""
+        report = self.env["ir.actions.report"].create({
+            "name": "Gateway Restricted Route Report",
+            "model": "stock.picking",
+            "report_type": "qweb-pdf",
+            "report_name": "stock.report_picking",
+            "group_ids": [(6, 0, [self.env.ref("stock.group_stock_user").id])],
+        })
+        user = self._operator_user()
+        router = self.env["print_gateway.print_router"].with_user(user)
+
+        with self.assertRaises(AccessError):
+            router.route_report(report.with_user(user), self.env["stock.picking"].browse([]))
 
     def test_32_report_dispatch_requires_record_read_access(self):
         """BEHAVIORAL (P1 IDOR closure): an internal user cannot dispatch a

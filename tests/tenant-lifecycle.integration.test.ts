@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { db } from "../src/db";
 import { tenants } from "../src/db/schema";
+import { issueSessionPair } from "../src/lib/session-tokens";
 import { eq } from "drizzle-orm";
-import { hasTestDatabase, applyMigrations, closePool } from "./helpers/pg";
+import { hasTestDatabase, applyMigrations, closePool, pool } from "./helpers/pg";
 import { transitionTenantLifecycle, TenantLifecycleError } from "../src/lib/tenant-lifecycle";
-import { requireActiveTenant, TenantSuspendedError, TenantDeletedError } from "../src/lib/tenant-guard";
+import { requireActiveTenant, requireActiveTenantInTransaction, TenantSuspendedError, TenantDeletedError } from "../src/lib/tenant-guard";
 import { nanoid } from "../src/lib/nanoid";
 
 const suite = describe.skipIf(!hasTestDatabase);
@@ -19,14 +20,35 @@ async function createTestTenant(id: string, name = "Test Tenant") {
 
 suite("Tenant Lifecycle", () => {
   beforeAll(async () => {
+    vi.stubEnv("GATEWAY_JWT_SECRET", "tenant-lifecycle-test-secret-32-characters");
     await applyMigrations();
   });
 
   afterAll(async () => {
+    vi.unstubAllEnvs();
     await closePool();
   });
 
   describe("transitionTenantLifecycle", () => {
+    it("revokes refresh families when a tenant is suspended", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+      const pair = await issueSessionPair({
+        kind: "manager",
+        tenantId: id,
+        role: "admin",
+      });
+
+      await transitionTenantLifecycle(id, "suspended", "Billing overdue", { type: "platform", id: "admin1" });
+
+      const row = (await pool().query(
+        "SELECT revoked_at, revoked_reason FROM refresh_tokens WHERE family_id = $1",
+        [pair.familyId],
+      )).rows[0];
+      expect(row.revoked_at).not.toBeNull();
+      expect(row.revoked_reason).toBe("tenant_suspended");
+    });
+
     it("suspends an active tenant", async () => {
       const id = tenantId();
       await createTestTenant(id);
@@ -119,6 +141,43 @@ suite("Tenant Lifecycle", () => {
         expect(suspended.value.previousLifecycle).toBe("active");
         expect(suspended.value.lifecycle).toBe("suspended");
       }
+    });
+  });
+
+  describe("transactional runtime fence", () => {
+    it("prevents tenant suspension from committing over an in-flight active runtime write", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+
+      let releaseRuntime!: () => void;
+      const holdRuntime = new Promise<void>((resolve) => { releaseRuntime = resolve; });
+      let fenceAcquired!: () => void;
+      const acquired = new Promise<void>((resolve) => { fenceAcquired = resolve; });
+
+      const runtimeTx = db.transaction(async (tx) => {
+        await requireActiveTenantInTransaction(tx, id);
+        fenceAcquired();
+        await holdRuntime;
+      });
+
+      await acquired;
+      let transitionFinished = false;
+      const transition = transitionTenantLifecycle(
+        id,
+        "suspended",
+        "Concurrent suspension",
+        { type: "platform", id: "suspend" },
+      ).finally(() => {
+        transitionFinished = true;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(transitionFinished).toBe(false);
+
+      releaseRuntime();
+      await runtimeTx;
+      const result = await transition;
+      expect(result.lifecycle).toBe("suspended");
     });
   });
 

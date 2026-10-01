@@ -106,7 +106,7 @@ async function insertQueuedJobAtomically({
   agentId: string;
   tenantId: string;
   validatedPayload: ReturnType<typeof validatePrintJobPayload>;
-  expiresAt: Date;
+  expiresAt?: Date;
   requestedBy: string;
   idempotencyKey?: string | null;
   destination?: string | null;
@@ -118,6 +118,26 @@ async function insertQueuedJobAtomically({
   if (!tenantId || tenantId.length > 128) throw new PrintJobInputError("tenantId is invalid", "INVALID_TENANT", 400);
 
   return await db.transaction(async (tx) => {
+    // PostgreSQL is the authoritative clock for print-job lifetime.
+    const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+    const clockRows = (clockResult as unknown as { rows?: Array<{ now?: Date | string }> }).rows ?? [];
+    const rawNow = clockRows[0]?.now;
+    const dbNow = rawNow instanceof Date
+      ? rawNow
+      : new Date(typeof rawNow === "string"
+        ? rawNow.trim().replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00")
+        : "");
+    if (Number.isNaN(dbNow.getTime())) {
+      throw new PrintJobInputError("Database clock is unavailable", "INTERNAL_ERROR", 500);
+    }
+    const effectiveExpiresAt = expiresAt ?? new Date(dbNow.getTime() + 60 * 60 * 1000);
+    if (!(effectiveExpiresAt instanceof Date) || Number.isNaN(effectiveExpiresAt.getTime()) || effectiveExpiresAt.getTime() <= dbNow.getTime()) {
+      throw new PrintJobInputError("expiresAt must be in the future", "INVALID_REQUEST", 400);
+    }
+    if (effectiveExpiresAt.getTime() - dbNow.getTime() > 24 * 60 * 60 * 1000) {
+      throw new PrintJobInputError("expiresAt exceeds the 24 hour maximum", "INVALID_REQUEST", 400);
+    }
+
     // Serialize admission per tenant so max_jobs_per_minute and
     // max_concurrent_jobs cannot be exceeded by racing requests.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${tenantId}`}))`);
@@ -167,7 +187,7 @@ async function insertQueuedJobAtomically({
     }
 
     if (effectiveIdempotencyKey) {
-      const existing = await tx.execute(sql`SELECT id, printer_id, destination, document_type, payload, agent_id, status FROM print_jobs WHERE tenant_id = ${tenantId} AND idempotency_key = ${effectiveIdempotencyKey} LIMIT 1 FOR UPDATE`);
+      const existing = await tx.execute(sql`SELECT id, printer_id, destination, document_type, payload, agent_id, status, api_key_id FROM print_jobs WHERE tenant_id = ${tenantId} AND idempotency_key = ${effectiveIdempotencyKey} LIMIT 1 FOR UPDATE`);
       if (existing.rows.length > 0) {
         const row = existing.rows[0] as {
           id: string;
@@ -177,7 +197,18 @@ async function insertQueuedJobAtomically({
           payload: unknown;
           agent_id: string;
           status: string;
+          api_key_id: string | null;
         };
+        // Odoo status APIs intentionally exclude internal Manager jobs. The
+        // same boundary must apply to Odoo idempotency: never return an
+        // internal job identity to an Odoo caller. Because the database uses a
+        // tenant-wide idempotency uniqueness constraint, a collision with an
+        // internal key is a deterministic conflict, not a reusable Odoo job.
+        if (rateLimitKeyId && row.api_key_id === null) {
+          const conflictErr = new Error("IDEMPOTENCY_CONFLICT");
+          Object.assign(conflictErr, { code: "IDEMPOTENCY_CONFLICT" });
+          throw conflictErr;
+        }
         const storedFingerprint = idempotencyFingerprint({
           printerId: row.printer_id,
           documentType: row.document_type,
@@ -216,10 +247,11 @@ async function insertQueuedJobAtomically({
     // path's row-lock order to avoid an enqueue-vs-reconfigure deadlock.
     //
     // NOTE: The tenants table is also joined here (not in the original query)
-    // to close a TOCTOU window: if a tenant is suspended/deleted between the
-    // auth check (validateOdooKey / requireActiveTenant) and this INSERT, the
-    // job must be rejected. The poll-claim path already guards on t.lifecycle;
-    // this makes the enqueue path equally strict.
+    // and its row is locked with the Agent and Printer. This closes the TOCTOU
+    // window against a concurrent tenant suspend/delete: the lifecycle read and
+    // the INSERT are now linearized with the authoritative tenant transition.
+    // The poll-claim path already guards on t.lifecycle; this makes enqueue
+    // admission equally strict.
     const runtimeOwner = await tx.execute(sql`
       SELECT
         p.lifecycle AS printer_lifecycle,
@@ -245,7 +277,7 @@ async function insertQueuedJobAtomically({
         AND a.tenant_id = ${tenantId}
         AND p.id = ${printerId}
         AND p.tenant_id = ${tenantId}
-      FOR UPDATE OF a, p
+      FOR UPDATE OF a, p, te
     `);
     const owner = runtimeOwner.rows[0] as {
       printer_lifecycle?: string;
@@ -348,7 +380,14 @@ async function insertQueuedJobAtomically({
       requestedBy,
       requestId: requestId ?? null,
       idempotencyKey: effectiveIdempotencyKey,
-      expiresAt,
+      expiresAt: effectiveExpiresAt,
+      // Stamp creation from the SAME clock read used for the expiry window.
+      // The column default is `now()` (transaction start), which drifts from
+      // the `clock_timestamp()` read above inside a long transaction and makes
+      // `created_at` disagree with `expires_at` and with the per-minute rate
+      // window (`created_at >= now() - interval '1 minute'`).
+      createdAt: dbNow,
+      updatedAt: dbNow,
     });
 
     await tx.execute(sql`SELECT pg_notify('print_gateway_agent_jobs', ${JSON.stringify({ jobId, agentId, requestId: requestId ?? null })})`);
@@ -370,6 +409,7 @@ export async function createPrintJobForPrinter(
 ): Promise<CreatePrintJobResult> {
   const normalizedPrinterId = typeof printerId === "string" ? printerId.trim() : "";
   if (!normalizedPrinterId) throw new PrintJobInputError("printer id is required", "INVALID_REQUEST", 400);
+  if (typeof options.tenantId !== "string" || !options.tenantId.trim()) throw new PrintJobInputError("tenant context is required", "TENANT_CONTEXT_REQUIRED", 400);
   const requestedBy = normalizeRequestedBy(options.requestedBy);
   const printer = await db.query.printers.findFirst({ where: and(eq(printers.id, normalizedPrinterId), eq(printers.tenantId, options.tenantId)) });
   if (!printer) throw new PrintJobInputError("Printer not found", "PRINTER_NOT_FOUND", 404);
@@ -387,12 +427,10 @@ export async function createPrintJobForPrinter(
   if (!ownerAgent) throw new PrintJobInputError("Printer owner agent not found", "AGENT_NOT_FOUND", 404);
   if (ownerAgent.lifecycle !== "active") throw new PrintJobInputError(`Agent is ${ownerAgent.lifecycle}`, "AGENT_UNAVAILABLE", 409);
 
-  if (typeof options.tenantId !== "string" || !options.tenantId.trim()) throw new PrintJobInputError("tenant context is required", "TENANT_CONTEXT_REQUIRED", 500);
-
   const id = `job_${nanoid(12)}`;
-  const expiresAt = options.expiresAt ?? new Date(Date.now() + 60 * 60 * 1000);
-  if (!(expiresAt instanceof Date) || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
-    throw new PrintJobInputError("expiresAt must be in the future", "INVALID_REQUEST", 400);
+  const expiresAt = options.expiresAt;
+  if (expiresAt !== undefined && (!(expiresAt instanceof Date) || Number.isNaN(expiresAt.getTime()))) {
+    throw new PrintJobInputError("expiresAt must be a valid timestamp", "INVALID_REQUEST", 400);
   }
 
   const enqueueStartedAt = Date.now();

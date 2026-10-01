@@ -1,5 +1,7 @@
+import { gatewayNow } from "./database-clock";
 import { isVirtualPrinterRecord, type PrinterLike } from "./printer-virtual";
 import { getAgentAvailability } from "./agent-availability";
+import { PRINTER_PROTOCOLS } from "./printer-model";
 
 export type CapabilityCheckResult = { ok: true } | { ok: false; reason: string };
 
@@ -8,7 +10,11 @@ export interface PayloadSpec {
   protocol?: string | null;
 }
 
-const BYTE_PROTOCOLS = ["raw", "escpos", "zpl", "tspl"] as const;
+// Byte-stream subset of the canonical PRINTER_PROTOCOLS authority: derived,
+// not re-declared, so a new byte protocol cannot silently diverge here.
+const BYTE_PROTOCOLS = PRINTER_PROTOCOLS.filter(
+  (p): p is "raw" | "escpos" | "zpl" | "tspl" => p === "raw" || p === "escpos" || p === "zpl" || p === "tspl",
+);
 
 /**
  * Canonical payload/protocol → printer-capability table. This is the ONE
@@ -35,7 +41,7 @@ export function validatePayloadForPrinter(
     printerType?: string | null;
   },
 ): CapabilityCheckResult {
-  if (!payloadInput) return { ok: true };
+  if (!payloadInput) return { ok: false, reason: "CAPABILITY_MISMATCH: payload is required" };
   const pt = (payloadInput.type ?? "").toLowerCase();
   const payloadProto = payloadInput.protocol ? payloadInput.protocol.toLowerCase() : null;
   const proto = (printer.protocol ?? "").toLowerCase();
@@ -195,7 +201,7 @@ export function isPrinterClaimable(printer: Pick<PrinterAvailability, "status" |
 export function isPrinterAvailableForJob(
   printer: PrinterAvailability,
   agent?: { lifecycle?: string | null; status?: string | null; lastSeenAt?: Date | string | null } | null,
-  now = new Date(),
+  now = gatewayNow(),
 ): boolean {
   if (printer.lifecycle !== "active") return false;
   if (isVirtualPrinterRecord(printer)) return false;
@@ -209,7 +215,7 @@ export function isAgentAvailableForPrinter(
     status?: string | null;
     lastSeenAt?: Date | string | null;
   } | null | undefined,
-  now = new Date(),
+  now = gatewayNow(),
 ): boolean {
   if (!agent || agent.lifecycle !== "active") return false;
   return getAgentAvailability(agent, now).available;

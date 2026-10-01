@@ -47,7 +47,10 @@ pub fn is_running_as_admin() -> bool {
         }
 
         const TOKEN_QUERY: DWORD = 0x0008;
-        const TOKEN_ELEVATION_TYPE: DWORD = 20;
+        // TokenElevation (18) returns a TOKEN_ELEVATION struct with a
+        // TokenIsElevated boolean field. TOKEN_ELEVATION_TYPE (20) returns
+        // a different enum type and must not be used with TOKEN_ELEVATION.
+        const TOKEN_ELEVATION: DWORD = 18;
 
         unsafe extern "system" {
             fn GetCurrentProcess() -> HANDLE;
@@ -71,7 +74,7 @@ pub fn is_running_as_admin() -> bool {
             let mut ret_len: DWORD = 0;
             let ok = GetTokenInformation(
                 token,
-                TOKEN_ELEVATION_TYPE,
+                TOKEN_ELEVATION,
                 &mut elevation as *mut _ as *mut c_void,
                 std::mem::size_of::<TOKEN_ELEVATION>() as DWORD,
                 &mut ret_len,
@@ -93,7 +96,7 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
         .unwrap_or_else(|_| "unknown".into());
     let base = AgentStatus {
         running: false,
-        service: "YasserAgent".into(),
+        service: "YaseirAgent".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         hostname,
         note: String::new(),
@@ -157,11 +160,9 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     if scheme != "https" && scheme != "http" {
         return Err("gateway URL must use http:// or https://".into());
     }
-    // This isolated test branch intentionally accepts remote HTTP so the Azure
-    // HTTP test Gateway can be exercised directly by IP before DNS/TLS exists.
-    if scheme == "http" {
-        return Ok(parsed.as_str().trim_end_matches('/').to_string());
-    }
+    // test/http-server-ready intentionally accepts HTTP or HTTPS for direct
+    // staging by IP:port. Credential, query, and fragment validation remains
+    // mandatory below. Production main is unchanged by this branch.
     if parsed.username() != "" || parsed.password().is_some() {
         return Err("gateway URL cannot include embedded credentials".into());
     }
@@ -209,11 +210,11 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
         .arg(gateway_url)
         .arg("-config")
         .arg(&config)
-        .env("YASSER_AGENT_DATA_DIR", paths::agent_data_root());
+        .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
     // The isolated HTTP-test branch requires explicit insecure-HTTP opt-in in
     // the bundled CLI as well as at Agent runtime. Never set this for HTTPS.
     if gateway_url.starts_with("http://") {
-        cmd.env("YASSER_AGENT_ALLOW_INSECURE_HTTP", "1");
+        cmd.env("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1");
     }
     #[cfg(windows)]
     {
@@ -238,6 +239,7 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
 #[derive(Clone)]
 struct ManagerSession {
     access_token: String,
+    refresh_token: String,
 }
 
 static MANAGER_SESSION: OnceLock<Mutex<Option<ManagerSession>>> = OnceLock::new();
@@ -259,8 +261,21 @@ fn current_manager_token() -> Option<String> {
         .and_then(|guard| guard.as_ref().map(|s| s.access_token.clone()))
 }
 
+fn current_manager_refresh_token() -> Option<String> {
+    manager_session_store()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|s| s.refresh_token.clone()))
+}
+
 fn is_public_gateway_path(path: &str) -> bool {
-    path == "/api/health" || path == "/api/auth/manager/login"
+    path == "/api/health"
+        || path == "/api/auth/manager/login"
+        || path == "/api/auth/manager/refresh"
+}
+
+fn uses_manager_refresh_credential(path: &str) -> bool {
+    path == "/api/auth/manager/refresh" || path == "/api/auth/manager/logout"
 }
 
 #[tauri::command]
@@ -357,6 +372,8 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     for (name, value) in &args.headers {
         if name.eq_ignore_ascii_case("authorization")
             || name.eq_ignore_ascii_case("cookie")
+            || name.eq_ignore_ascii_case("x-refresh-token")
+            || name.eq_ignore_ascii_case("origin")
             || name.eq_ignore_ascii_case("host")
             || name.eq_ignore_ascii_case("content-length")
             || name.eq_ignore_ascii_case("transfer-encoding")
@@ -381,6 +398,17 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     } else {
         current_manager_token()
     };
+    let manager_refresh_token = if uses_manager_refresh_credential(path) {
+        current_manager_refresh_token()
+    } else {
+        None
+    };
+    if uses_manager_refresh_credential(path) && manager_refresh_token.is_none() {
+        return Ok(GatewayResponse {
+            status: 401,
+            body: "{\"error\":\"manager_refresh_authentication_required\"}".into(),
+        });
+    }
     if !is_public_gateway_path(path) && manager_token.is_none() {
         return Ok(GatewayResponse {
             status: 401,
@@ -396,14 +424,17 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
         .build()
         .map_err(|e| format!("build HTTP client: {e}"))?;
     let mut request = client.request(method, target);
+    request = request.header("Origin", "tauri://localhost");
+    // Restricted headers (host/cookie/authorization/...) already return Err
+    // in the allowlist filter above, so they can never reach this loop.
     for (name, value) in args.headers {
-        if name.eq_ignore_ascii_case("host") || name.eq_ignore_ascii_case("cookie") {
-            continue;
-        }
         request = request.header(name, value);
     }
     if let Some(token) = manager_token {
         request = request.bearer_auth(token);
+    }
+    if let Some(refresh_token) = manager_refresh_token {
+        request = request.header("X-Refresh-Token", refresh_token);
     }
     if let Some(body) = args.body {
         if body.len() > 8 * 1024 * 1024 {
@@ -415,24 +446,26 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     let status = response.status().as_u16();
     let body = read_response_body_limited(response, 8 * 1024 * 1024).await?;
 
-    if status == 401 || status == 403 {
+    if path == "/api/auth/manager/refresh" && (status == 401 || status == 403) {
         clear_manager_session_inner();
-    } else if path == "/api/auth/manager/login" && (200..300).contains(&status) {
+    } else if (path == "/api/auth/manager/login" || path == "/api/auth/manager/refresh") && (200..300).contains(&status) {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) {
-            let login_ok = value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
-            let token = value.get("accessToken").and_then(|v| v.as_str()).filter(|v| !v.is_empty());
-            if login_ok {
-                if let Some(access_token) = token {
+            let auth_ok = value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+            let access_token = value.get("accessToken").and_then(|v| v.as_str()).filter(|v| !v.is_empty());
+            let refresh_token = value.get("refreshToken").and_then(|v| v.as_str()).filter(|v| !v.is_empty());
+            if auth_ok {
+                if let (Some(access_token), Some(refresh_token)) = (access_token, refresh_token) {
                     if let Ok(mut guard) = manager_session_store().lock() {
                         *guard = Some(ManagerSession {
                             access_token: access_token.to_string(),
+                            refresh_token: refresh_token.to_string(),
                         });
                     }
                 }
             }
         }
     }
-    let safe_body = if path == "/api/auth/manager/login" && (200..300).contains(&status) {
+    let safe_body = if (path == "/api/auth/manager/login" || path == "/api/auth/manager/refresh") && (200..300).contains(&status) {
         // The manager access token is a Rust-only credential in the packaged
         // desktop app. Store it above, then strip it from the renderer-visible
         // response so JavaScript cannot read or persist the bearer token.
@@ -440,6 +473,7 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
             Ok(mut value) => {
                 if let Some(object) = value.as_object_mut() {
                     object.remove("accessToken");
+                    object.remove("refreshToken");
                 }
                 serde_json::to_string(&value).unwrap_or_else(|_| body.clone())
             }
@@ -503,6 +537,10 @@ fn valid_jobs_query(path: &str) -> bool {
 fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
     let method = method.to_ascii_uppercase();
     match method.as_str() {
+        // Deliberately narrower than the Go CLI allowlist
+        // (gatewayAgentPathRe also permits /api/agents/<id>): the desktop
+        // console proxy exposes only the agent list, while the operator CLI
+        // needs single-agent fetch for diagnostics. Both are read-only.
         "GET" => path == "/api/printers" || valid_jobs_query(path) || path == "/api/agents",
         "POST" => path == "/api/printers"
             || gateway_printer_action_path(path, "test-connection")
@@ -539,7 +577,7 @@ pub async fn gateway_agent_request(args: AgentGatewayRequestArgs, app: tauri::Ap
             .arg(&path)
             .arg("-config")
             .arg(&config)
-            .env("YASSER_AGENT_DATA_DIR", &root);
+            .env("YASEIR_AGENT_DATA_DIR", &root);
         if let Some(body) = args.body {
             request_cmd.arg("-body").arg(body);
         }
@@ -663,7 +701,7 @@ pub struct PrinterInfo {
     pub status: String,
     pub enabled: bool,
     #[serde(rename = "isVirtual", alias = "is_virtual")]
-    pub isVirtual: Option<bool>,
+    pub is_virtual: Option<bool>,
     #[serde(rename = "usbVid")]
     pub usb_vid: Option<String>,
     #[serde(rename = "usbPid")]
@@ -756,7 +794,7 @@ const SESSION_REDIRECT_TOKENS: &[&str] = &[
 ];
 
 fn is_virtual_printer_for_ui(p: &PrinterInfo) -> bool {
-    if p.isVirtual.unwrap_or(false) {
+    if p.is_virtual.unwrap_or(false) {
         return true;
     }
     if let Some(t) = p.printer_type.as_ref() {
@@ -914,7 +952,7 @@ pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, 
             .arg("--json")
             .arg("-config")
             .arg(&config)
-            .env("YASSER_AGENT_DATA_DIR", &root);
+            .env("YASEIR_AGENT_DATA_DIR", &root);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -975,7 +1013,7 @@ pub async fn test_printer(printer_id: String, app: tauri::AppHandle) -> Result<S
             .arg(&pid)
             .arg("-config")
             .arg(&config)
-            .env("YASSER_AGENT_DATA_DIR", &root);
+            .env("YASEIR_AGENT_DATA_DIR", &root);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -1066,7 +1104,7 @@ pub async fn register_printer(request: RegisterPrinterRequest, app: tauri::AppHa
             cmd.arg("--serial").arg(arg_value("USB serial", serial)?);
         }
         cmd.arg("-config").arg(&config);
-        cmd.env("YASSER_AGENT_DATA_DIR", &root);
+        cmd.env("YASEIR_AGENT_DATA_DIR", &root);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -1349,23 +1387,26 @@ mod agent_console_path_tests {
 }
 #[cfg(test)]
 mod security_tests {
-    use super::{is_public_gateway_path, is_valid_code, normalize_gateway_url};
+    use super::{is_public_gateway_path, is_valid_code, normalize_gateway_url, uses_manager_refresh_credential};
 
     #[test]
     fn only_health_and_manager_login_are_public_gateway_paths() {
         assert!(is_public_gateway_path("/api/health"));
         assert!(is_public_gateway_path("/api/auth/manager/login"));
+        assert!(is_public_gateway_path("/api/auth/manager/refresh"));
+        assert!(uses_manager_refresh_credential("/api/auth/manager/refresh"));
         assert!(!is_public_gateway_path("/api/auth/manager/me"));
         assert!(!is_public_gateway_path("/api/jobs"));
     }
 
     #[test]
-    fn remote_http_gateway_is_accepted_only_for_the_explicit_http_test_branch() {
-        // The HTTP test branch intentionally accepts remote HTTP; production
-        // deployment remains HTTPS-only at the reverse-proxy/runtime boundary.
+    fn staging_gateway_accepts_http_and_https() {
         assert!(normalize_gateway_url("http://gateway.example.com").is_ok());
         assert!(normalize_gateway_url("http://127.0.0.1:3000").is_ok());
+        assert!(normalize_gateway_url("http://gateway.example.com:3000").is_ok());
+        assert!(normalize_gateway_url("http://192.168.1.50:3000").is_ok());
         assert!(normalize_gateway_url("https://gateway.example.com").is_ok());
+        assert!(normalize_gateway_url("https://192.168.1.50:3443").is_ok());
     }
 
     #[test]

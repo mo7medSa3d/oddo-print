@@ -51,6 +51,42 @@ export const platformSessions = pgTable("platform_sessions", {
   userIdx: index("platform_sessions_user_idx").on(table.userId),
 }));
 
+export const refreshTokens = pgTable("refresh_tokens", {
+  id: text("id").primaryKey(),
+  familyId: text("family_id").notNull(),
+  kind: text("kind").notNull(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+  role: text("role"),
+  email: text("email"),
+  tokenHash: text("token_hash").notNull().unique(),
+  issuedAt: timestamp("issued_at").notNull(),
+  familyCreatedAt: timestamp("family_created_at").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+  revokedReason: text("revoked_reason"),
+  replacedBy: text("replaced_by"),
+  replacedAt: timestamp("replaced_at"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+}, (table) => ({
+  familyIdx: index("refresh_tokens_family_idx").on(table.familyId),
+  expiresIdx: index("refresh_tokens_expires_idx").on(table.expiresAt),
+  userIdx: index("refresh_tokens_user_idx").on(table.userId),
+  replacedByIdx: index("refresh_tokens_replaced_by_idx").on(table.replacedBy),
+  replacedByFk: foreignKey({
+    name: "refresh_tokens_replaced_by_fk",
+    columns: [table.replacedBy],
+    foreignColumns: [table.id],
+  }).onDelete("set null"),
+  kindScopeCheck: check("refresh_tokens_kind_scope_check", sql`
+    (${table.kind} = 'platform' AND ${table.tenantId} IS NULL AND ${table.userId} IS NOT NULL AND ${table.role} IS NULL)
+    OR
+    (${table.kind} IN ('manager', 'customer') AND ${table.tenantId} IS NOT NULL AND ${table.role} IS NOT NULL)
+  `),
+  timeOrderCheck: check("refresh_tokens_time_order_check", sql`${table.familyCreatedAt} <= ${table.issuedAt} AND ${table.issuedAt} <= ${table.expiresAt}`),
+}));
+
 export const tenantUsers = pgTable("tenant_users", {
   userId: text("user_id").references(() => users.id).notNull(),
   tenantId: text("tenant_id").references(() => tenants.id).notNull(),
@@ -58,20 +94,16 @@ export const tenantUsers = pgTable("tenant_users", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
+  // Deliberately a UNIQUE index, not a composite PRIMARY KEY: tenant_users
+  // rows are addressed via (userId, tenantId) lookups and the single-owner
+  // partial unique below, and no ORM/replication path requires a formal PK
+  // here (cf. the CI-pinned UNIQUE identity boundary on printers /
+  // discovered_devices in migration 0074).
   pk: uniqueIndex("tenant_users_pk").on(table.userId, table.tenantId),
   tenantIdx: index("tenant_users_tenant_idx").on(table.tenantId),
   ownerUnique: uniqueIndex("tenant_users_single_owner_idx").on(table.tenantId).where(sql`${table.role} = 'owner'`),
   roleCheck: check("tenant_users_role_check", sql`${table.role} in ('owner','admin','operator','viewer','integration_admin','billing_admin')`),
 }));
-
-export const applications = pgTable("applications", {
-  id: text("id").primaryKey(),
-  tenantId: text("tenant_id").references(() => tenants.id).notNull(),
-  name: text("name").notNull(),
-  type: text("type").notNull().default("odoo"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
 
 export const agents = pgTable("agents", {
   id: text("id").primaryKey(),
@@ -101,7 +133,10 @@ export const agents = pgTable("agents", {
 }));
 
 export const printers = pgTable("printers", {
-  id: text("id").primaryKey(),
+  // Identity is tenant-scoped. Agent-generated IDs are derived from hardware
+  // or network coordinates (for example printer_net_<hash(ip:port)>), so two
+  // tenants can legitimately observe the same local address.
+  id: text("id").notNull(),
   tenantId: text("tenant_id").references(() => tenants.id).notNull(),
   agentId: text("agent_id").notNull(),
   name: text("name").notNull(),
@@ -123,7 +158,7 @@ export const printers = pgTable("printers", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   tenantIdUnique: unique("printers_tenant_id_unique").on(table.tenantId, table.id),
-  agentFk: foreignKey({ columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
+  agentFk: foreignKey({ name: "printers_tenant_id_agent_id_agents_fk", columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
   agentIdx: index("printers_agent_id_idx").on(table.agentId),
   printerTypeIdx: index("printers_printer_type_idx").on(table.printerType),
   statusIdx: index("printers_status_idx").on(table.status),
@@ -176,7 +211,7 @@ export const managerSessions = pgTable("manager_sessions", {
 
 export const emailVerificationTokens = pgTable("email_verification_tokens", {
   id: text("id").primaryKey(),
-  userId: text("user_id").references(() => users.id).notNull(),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   tokenHash: text("token_hash").notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
   consumedAt: timestamp("consumed_at"),
@@ -188,7 +223,7 @@ export const emailVerificationTokens = pgTable("email_verification_tokens", {
 
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: text("id").primaryKey(),
-  userId: text("user_id").references(() => users.id).notNull(),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   tokenHash: text("token_hash").notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
   consumedAt: timestamp("consumed_at"),
@@ -200,8 +235,8 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
 
 export const tenantInvitations = pgTable("tenant_invitations", {
   id: text("id").primaryKey(),
-  tenantId: text("tenant_id").references(() => tenants.id).notNull(),
-  inviterUserId: text("inviter_user_id").references(() => users.id).notNull(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  inviterUserId: text("inviter_user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   email: text("email").notNull(),
   role: text("role").notNull(),
   tokenHash: text("token_hash").notNull().unique(),
@@ -245,21 +280,25 @@ export const discoverySessions = pgTable("discovery_sessions", {
   agentId: text("agent_id").notNull(),
   status: text("status").notNull().default("running"),
   config: jsonb("config").$type<{ cidr?: string; protocols?: string[]; timeoutMs?: number; concurrency?: number; }>().default({}).notNull(),
-  stats: jsonb("stats").$type<{ candidates?: number; inserted?: number; verified?: number; errors?: number; durationMs?: number; }>().default({}).notNull(),
+  stats: jsonb("stats").$type<{ candidates?: number; inserted?: number; updated?: number; skipped?: number; verified?: number; errors?: number; durationMs?: number; }>().default({}).notNull(),
   startedAt: timestamp("started_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   tenantIdUnique: unique("discovery_sessions_tenant_id_unique").on(table.tenantId, table.id),
-  agentFk: foreignKey({ columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
+  agentFk: foreignKey({ name: "discovery_sessions_tenant_id_agent_id_agents_fk", columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
+  statusCheck: check("discovery_sessions_status_check", sql`${table.status} in ('running','completed','partial','failed','cancelled')`),
   agentIdIdx: index("discovery_sessions_agent_id_idx").on(table.agentId),
   statusIdx: index("discovery_sessions_status_idx").on(table.status),
   activeAgentUnique: uniqueIndex("discovery_sessions_active_agent_unique").on(table.tenantId, table.agentId).where(sql`${table.status} = 'running'`),
 }));
 
 export const discoveredDevices = pgTable("discovered_devices", {
-  id: text("id").primaryKey(),
+  // Observation row identity is tenant-scoped. Agents often reuse the same
+  // stable printer id as the discovery row id; that must not collide across
+  // tenants.
+  id: text("id").notNull(),
   tenantId: text("tenant_id").references(() => tenants.id).notNull(),
   discoveryId: text("discovery_id").notNull(),
   agentId: text("agent_id").notNull(),
@@ -284,6 +323,8 @@ export const discoveredDevices = pgTable("discovered_devices", {
   capabilities: jsonb("capabilities").$type<Record<string, unknown>>(),
   rawMetadata: jsonb("raw_metadata").$type<Record<string, unknown>>(),
   provisionedPrinterId: text("provisioned_printer_id"),
+  // Stable per-agent discovery identity used to converge repeated scans.
+  identityKey: text("identity_key"),
   candidateStatus: text("candidate_status").notNull().default("discovered"),
   discoveredAt: timestamp("discovered_at").defaultNow().notNull(),
   lastSeenAt: timestamp("last_seen_at").defaultNow().notNull(),
@@ -291,13 +332,17 @@ export const discoveredDevices = pgTable("discovered_devices", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   tenantIdUnique: unique("discovered_devices_tenant_id_unique").on(table.tenantId, table.id),
-  discoveryFk: foreignKey({ columns: [table.tenantId, table.discoveryId], foreignColumns: [discoverySessions.tenantId, discoverySessions.id] }),
-  agentFk: foreignKey({ columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
-  provisionedPrinterFk: foreignKey({ columns: [table.tenantId, table.provisionedPrinterId], foreignColumns: [printers.tenantId, printers.id] }),
+  discoveryFk: foreignKey({ name: "discovered_devices_tenant_id_discovery_id_fk", columns: [table.tenantId, table.discoveryId], foreignColumns: [discoverySessions.tenantId, discoverySessions.id] }),
+  agentFk: foreignKey({ name: "discovered_devices_tenant_id_agent_id_agents_fk", columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
+  provisionedPrinterFk: foreignKey({ name: "discovered_devices_tenant_id_provisioned_printer_id_fk", columns: [table.tenantId, table.provisionedPrinterId], foreignColumns: [printers.tenantId, printers.id] }),
   discoveryIdIdx: index("discovered_devices_discovery_id_idx").on(table.discoveryId),
   agentIdIdx: index("discovered_devices_agent_id_idx").on(table.agentId),
   candidateStatusIdx: index("discovered_devices_candidate_status_idx").on(table.candidateStatus),
   confidenceIdx: index("discovered_devices_confidence_idx").on(table.confidence),
+  candidateStatusCheck: check("discovered_devices_candidate_status_check", sql`${table.candidateStatus} in ('discovered','verified','provisioned')`),
+  confidenceCheck: check("discovered_devices_confidence_check", sql`${table.confidence} in ('low','medium','high')`),
+  verificationCheck: check("discovered_devices_verification_check", sql`${table.verification} in ('candidate','verified')`),
+  tenantAgentIdentityUnique: uniqueIndex("discovered_devices_tenant_agent_identity_unique").on(table.tenantId, table.agentId, table.identityKey),
 }));
 
 export const printJobs = pgTable("print_jobs", {
@@ -321,14 +366,19 @@ export const printJobs = pgTable("print_jobs", {
   deliveredAt: timestamp("delivered_at"),
   ackedAt: timestamp("acked_at"),
   expiresAt: timestamp("expires_at").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  // Job lifetime belongs to PostgreSQL's wall clock, not the transaction start
+  // (`now()`): `expires_at` is derived from a `clock_timestamp()` read, and the
+  // per-minute rate window and maintenance sweeps compare these columns against
+  // `now()`. Migration 0067 sets the same defaults in the database; the Gateway
+  // enqueue path stamps both explicitly from that single clock read.
+  createdAt: timestamp("created_at").default(sql`clock_timestamp()`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`clock_timestamp()`).notNull(),
   spoolerJobId: text("spooler_job_id"),
   attemptId: text("attempt_id"),
 }, (table) => ({
-  agentFk: foreignKey({ columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
-  printerFk: foreignKey({ columns: [table.tenantId, table.printerId], foreignColumns: [printers.tenantId, printers.id] }),
-  apiKeyTenantFk: foreignKey({ columns: [table.tenantId, table.apiKeyId], foreignColumns: [apiKeys.tenantId, apiKeys.id] }),
+  agentFk: foreignKey({ name: "print_jobs_tenant_id_agent_id_agents_tenant_id_id_fk", columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
+  printerFk: foreignKey({ name: "print_jobs_tenant_id_printer_id_printers_tenant_id_id_fk", columns: [table.tenantId, table.printerId], foreignColumns: [printers.tenantId, printers.id] }),
+  apiKeyTenantFk: foreignKey({ name: "print_jobs_tenant_id_api_key_id_api_keys_fk", columns: [table.tenantId, table.apiKeyId], foreignColumns: [apiKeys.tenantId, apiKeys.id] }),
   tenantIdUnique: unique("print_jobs_tenant_id_unique").on(table.tenantId, table.id),
   tenantStatusIdx: index("print_jobs_tenant_status_idx").on(table.tenantId, table.status),
   tenantCreatedIdx: index("print_jobs_tenant_created_idx").on(table.tenantId, table.createdAt),
@@ -382,7 +432,7 @@ export const jobEvents = pgTable("job_events", {
     name: "job_events_tenant_id_job_id_print_jobs_fk",
     columns: [table.tenantId, table.jobId],
     foreignColumns: [printJobs.tenantId, printJobs.id],
-  }),
+  }).onDelete("cascade"),
   jobIdIdx: index("job_events_job_id_idx").on(table.jobId),
   tenantJobIdx: index("job_events_tenant_job_idx").on(table.tenantId, table.jobId),
   stageCheck: check("job_events_stage_check", sql`${table.stage} in ('created','queued','claimed','accepted','connection','printing','delivery','success','failed','expired','blocked')`),
@@ -465,6 +515,8 @@ export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   billingOperationType: text("billing_operation_type"),
   billingOperationIdempotencyKey: text("billing_operation_idempotency_key"),
   billingOperationSubscriptionId: text("billing_operation_subscription_id"),
+  entitlementBlocked: boolean("entitlement_blocked").notNull().default(false),
+  entitlementBlockedReason: text("entitlement_blocked_reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
@@ -491,12 +543,3 @@ export const printUsagePeriods = pgTable("print_usage_periods", {
   usedCheck: check("print_usage_periods_used_check", sql`${table.usedPrints} >= 0`),
   periodCheck: check("print_usage_periods_period_check", sql`${table.periodEnd} IS NULL OR ${table.periodEnd} > ${table.periodStart}`),
 }));
-
-export const printJobRateLimits = pgTable("print_job_rate_limits", {
-  apiKeyId: text("api_key_id").references(() => apiKeys.id).primaryKey(),
-  minuteWindowStartedAt: timestamp("minute_window_started_at").notNull(),
-  minuteCount: integer("minute_count").notNull().default(0),
-  hourWindowStartedAt: timestamp("hour_window_started_at").notNull(),
-  hourCount: integer("hour_count").notNull().default(0),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});

@@ -101,14 +101,14 @@ export default function UpgradeLimitDialog({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-10 items-center justify-center rounded-full border border-edge-strong bg-surface-2 px-4 text-[13px] font-semibold text-ink-2 transition hover:bg-surface-3 hover:text-ink"
+            className="inline-flex h-10 items-center justify-center rounded-[8px] border border-edge-strong bg-surface-2 px-4 text-[13px] font-semibold text-ink-2 transition hover:bg-surface-3 hover:text-ink"
           >
             Close
           </button>
           <Link
             href="/billing"
             onClick={onClose}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-brand px-4 text-[13px] font-semibold text-brand-contrast transition hover:bg-brand-hover"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-[8px] bg-brand px-4 text-[13px] font-semibold text-brand-contrast transition hover:bg-brand-hover"
           >
             Upgrade plan
             <ArrowUpRight className="h-4 w-4" />

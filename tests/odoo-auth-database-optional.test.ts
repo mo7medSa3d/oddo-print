@@ -16,11 +16,16 @@ vi.mock("../src/db", () => ({
   },
 }));
 
+const { logWarn } = vi.hoisted(() => ({
+  logWarn: vi.fn(),
+}));
+
 vi.mock("../src/lib/tenant-guard", () => ({
   requireActiveTenantOrNull,
   TenantSuspendedError: class TenantSuspendedError extends Error {},
   TenantDeletedError: class TenantDeletedError extends Error {},
 }));
+vi.mock("../src/lib/log", () => ({ logWarn }));
 
 import { validateOdooKey } from "../src/lib/odoo-auth";
 
@@ -43,6 +48,7 @@ describe("Odoo API-key authentication ignores the database name", () => {
     apiKeyFindFirst.mockReset();
     apiKeyUpdate.mockReset().mockResolvedValue(undefined);
     apiKeyFindFirst.mockResolvedValue(liveRow);
+    logWarn.mockReset();
   });
 
   const post = (headers: Record<string, string>) =>
@@ -97,11 +103,10 @@ describe("Odoo API-key authentication ignores the database name", () => {
   });
 
   it("rejects a rotated API key after the grace window", async () => {
-    apiKeyFindFirst.mockResolvedValue({
-      ...liveRow,
-      revokedAt: new Date(Date.now() - 60_000),
-      readOnlyUntil: new Date(Date.now() - 1000),
-    });
+    // The production query filters expired grace rows at the database level
+    // (readOnlyUntil > clock_timestamp()); the mock must emulate that
+    // predicate instead of returning a row the database would never return.
+    apiKeyFindFirst.mockResolvedValue(null);
     const req = post({ authorization: "Bearer odoo_testkey" });
     await expect(validateOdooKey(req)).resolves.toBeNull();
   });
@@ -120,6 +125,21 @@ describe("Odoo API-key authentication ignores the database name", () => {
     requireActiveTenantOrNull.mockRejectedValueOnce(failure);
     const req = post({ authorization: "Bearer odoo_testkey" });
     await expect(validateOdooKey(req)).rejects.toBe(failure);
+  });
+
+  it("retains successful authentication and emits diagnostics when usage tracking fails", async () => {
+    const failure = new Error("last_used database write failed");
+    apiKeyUpdate.mockRejectedValueOnce(failure);
+    const req = post({ authorization: "Bearer odoo_testkey" });
+
+    await expect(validateOdooKey(req)).resolves.toMatchObject({ id: "key_a" });
+    expect(logWarn).toHaveBeenCalledWith(
+      "odoo.auth.last_used_update_failed",
+      expect.objectContaining({
+        apiKeyId: "key_a",
+        error: failure.message,
+      }),
+    );
   });
 
   it("rejects keys without the odoo_ prefix", async () => {

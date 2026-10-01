@@ -1,8 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { checkGateway } from "../src/lib/system-health";
+import { checkGateway, CURRENT_SCHEMA_VERSION } from "../src/lib/system-health";
 import * as fs from "fs";
 
 describe("system-health", () => {
+  it("derives schema version from the latest Drizzle migration", async () => {
+    const journal = await import("../drizzle/meta/_journal.json");
+    expect(CURRENT_SCHEMA_VERSION).toBe(Number(journal.default.entries.at(-1)?.tag?.slice(0, 4)));
+    expect(CURRENT_SCHEMA_VERSION).toBe(75);
+  });
   it("gateway check returns ok with heap and uptime", () => {
     const check = checkGateway();
     expect(check.name).toBe("Gateway");
@@ -36,6 +41,16 @@ describe("system-health", () => {
     expect(source).toContain("Billing health NOT VERIFIED");
     // Overall cannot be OK when external UNKNOWN
     expect(source).toContain("external");
+  });
+
+  it("intentionally unverified externals cap overall at WARN, never OK or UNKNOWN", () => {
+    const source = fs.readFileSync("src/lib/system-health.ts", "utf8");
+    // The external branch must not force overall UNKNOWN any more: an
+    // unverified optional external degrades the dashboard to WARN while
+    // the measured dependencies keep their ok/warn/error signal.
+    expect(source).toContain("cap overall at WARN");
+    expect(source).toContain("intentionally unverified externals cap overall at WARN");
+    expect(source).not.toContain("if (external.some(c => c.state === \"unknown\")) return \"unknown\"");
   });
 
   it("system health includes all required components with tenant scoping", () => {

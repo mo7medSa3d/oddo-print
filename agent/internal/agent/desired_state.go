@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yasser-agent/agent/internal/config"
-	"github.com/yasser-agent/agent/internal/printer"
+	"github.com/yaseir-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/printer"
 )
 
 type desiredPrinterWire struct {
@@ -114,7 +114,9 @@ func (a *Agent) loadDesiredState() error {
 
 		if row.Desired.Lifecycle == "active" && row.ApplyError == "" {
 			if err := a.applyDesiredPrinter(row); err != nil {
-				_ = a.recordDesiredError(row.Desired.ID, err)
+				if recordErr := a.recordDesiredError(row.Desired.ID, err); recordErr != nil {
+					log.Printf("failed to persist desired-state error for %s: %v", row.Desired.ID, recordErr)
+				}
 			} else {
 				row.AppliedDesiredRevision = row.Desired.DesiredRevision
 				row.ObservedDesiredRevision = 0
@@ -242,6 +244,17 @@ func (a *Agent) isPrinterExecutionAllowed(id string) bool {
 	row, managed := a.desiredStates[id]
 	synced := a.desiredStateSynced
 	a.desiredStateMu.Unlock()
+
+	// Before the first successful full Gateway desired-state snapshot, every
+	// non-YAML runtime printer is ambiguous: it may be a stale/tampered local
+	// registry entry for a Gateway-managed printer whose ownership/configuration
+	// has not yet been restored. Fail closed for that class. YAML printers are
+	// explicitly local operator configuration and retain their existing startup
+	// behavior for backward compatibility.
+	if !a.isYAMLOwnedPrinter(id) && !synced {
+		return false
+	}
+
 	if !managed {
 		return true
 	}
@@ -250,6 +263,18 @@ func (a *Agent) isPrinterExecutionAllowed(id string) bool {
 		row.Desired.Lifecycle == "active" &&
 		row.AppliedDesiredRevision >= row.Desired.DesiredRevision &&
 		row.ObservedDesiredRevision >= row.Desired.DesiredRevision
+}
+
+func (a *Agent) isYAMLOwnedPrinter(id string) bool {
+	if a.cfg == nil {
+		return false
+	}
+	for _, pc := range a.cfg.Printers {
+		if pc.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Agent) desiredStateAcksPayload() []map[string]interface{} {
@@ -339,6 +364,10 @@ func validateDesiredNetworkDestination(c map[string]interface{}) error {
 	}
 	if host == "169.254.169.254" || strings.EqualFold(host, "fd00:ec2::254") {
 		return fmt.Errorf("network printer destination must not be a metadata endpoint")
+	}
+	// Explicitly reject IPv6 Unique Local Addresses (fd00::/8)
+	if ip.To4() == nil && len(ip) >= 2 && ip[0] == 0xfd {
+		return fmt.Errorf("network printer destination must not be a ULA address")
 	}
 	canonical := net.JoinHostPort(host, strconv.Itoa(port))
 	if supplied := desiredStringValue(c, "address"); supplied != "" {
@@ -462,7 +491,9 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 		}
 
 		if err := a.applyDesiredPrinter(row); err != nil {
-			_ = a.recordDesiredError(id, err)
+			if recordErr := a.recordDesiredError(id, err); recordErr != nil {
+				log.Printf("failed to persist desired-state error for %s: %v", id, recordErr)
+			}
 			continue
 		}
 

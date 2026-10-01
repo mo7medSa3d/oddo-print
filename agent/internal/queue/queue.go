@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,11 @@ import (
 // "this job already has a durable physical outcome; re-report it" and must
 // NOT confuse it with ledger unavailability (which requeues).
 var ErrTerminalState = errors.New("local ledger state is terminal; refusing to reopen for printing")
+
+// ErrAlreadyPrinting means this exact claim token already owns a local printing
+// attempt. A duplicate delivery must be ignored, not treated as a new physical
+// print attempt.
+var ErrAlreadyPrinting = errors.New("local ledger already printing this claim; duplicate dispatch suppressed")
 
 // Queue is the Agent's local durable delivery queue. It is distinct from the
 // Gateway's PostgreSQL job table:
@@ -34,7 +40,7 @@ func New(dbPath string) (*Queue, error) {
 	if dbPath == "" {
 		return nil, fmt.Errorf("queue db path is empty")
 	}
-	// A completely fresh Windows installation has no C:\ProgramData\YasserAgent
+	// A completely fresh Windows installation has no C:\ProgramData\YaseirAgent
 	// directory. Always create it before SQLite opens the database file.
 	dir := filepath.Dir(dbPath)
 	if dir == "" || dir == "." {
@@ -58,10 +64,17 @@ func New(dbPath string) (*Queue, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	// Ensure WAL is actually on (some sqlite builds ignore dsn params).
-	// Non-fatal: the queue still works in rollback-journal mode.
-	_, _ = db.Exec(`PRAGMA journal_mode=WAL`)
-	_, _ = db.Exec(`PRAGMA synchronous=NORMAL`)
-	_, _ = db.Exec(`PRAGMA busy_timeout=5000`)
+	// Non-fatal: the queue still works in rollback-journal mode, but a failed
+	// PRAGMA must remain visible for diagnosis rather than becoming silent.
+	for _, pragma := range []string{
+		`PRAGMA journal_mode=WAL`,
+		`PRAGMA synchronous=NORMAL`,
+		`PRAGMA busy_timeout=5000`,
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			log.Printf("queue SQLite pragma failed (%s): %v", pragma, err)
+		}
+	}
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS print_jobs (
@@ -91,7 +104,12 @@ func New(dbPath string) (*Queue, error) {
 		`ALTER TABLE print_jobs ADD COLUMN claimed_at DATETIME`,
 		`ALTER TABLE print_jobs ADD COLUMN claim_token TEXT`,
 	} {
-		_, _ = db.Exec(col)
+		if _, err := db.Exec(col); err != nil {
+			message := strings.ToLower(err.Error())
+			if !strings.Contains(message, "duplicate column name") {
+				log.Printf("queue SQLite legacy migration failed (%s): %v", col, err)
+			}
+		}
 	}
 
 	return &Queue{db: db}, nil
@@ -123,20 +141,25 @@ func (q *Queue) Push(id, printerID string, payload []byte) error {
 // UpdateStatus sets a simple status (queued/printing/success/failed) and bumps updated_at.
 func (q *Queue) UpdateStatus(id, status string) error {
 	if status == "success" || status == "failed" {
-		_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, claim_token = NULL, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, id)
+		// Keep the execution claim token until the Gateway acknowledges the
+		// terminal report. Clearing it here creates a crash window where the
+		// local ledger durably knows the physical outcome but the restarted
+		// Agent can no longer prove which Gateway attempt produced it.
+		_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, id)
 		return err
 	}
 	_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, id)
 	return err
 }
 
-// UpdateStatusWithError also records last_error. Terminal local outcomes no
-// longer need the Gateway execution credential: clear it at the same durable
-// state transition. MarkInterrupted reads the token before calling this
-// helper, so crash recovery can still report the preserved token to Gateway.
+// UpdateStatusWithError also records last_error. The terminal state is a
+// durable outbox record for the Gateway status report. Preserve claim_token
+// until that report receives a 2xx response (see ClearClaimToken).
 func (q *Queue) UpdateStatusWithError(id, status, lastErr string) error {
 	if status == "success" || status == "failed" {
-		_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, last_error = ?, claim_token = NULL, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, lastErr, id)
+		// The terminal state is a durable outbox record for the Gateway status
+		// report. Preserve claim_token until that report receives a 2xx response.
+		_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, last_error = ?, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, lastErr, id)
 		return err
 	}
 	_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, lastErr, id)
@@ -224,12 +247,17 @@ func (q *Queue) BeginPrint(id, printerID string, payload []byte, claimToken stri
 	}
 
 	if status == "printing" {
-		// A live physical attempt owns this row. Re-entry is idempotent only for
-		// the same non-empty token. A legacy tokenless row may only be re-entered
-		// by a tokenless legacy caller; a new tokened claimant can never steal it.
+		// A live physical attempt owns this row. Even when the duplicate delivery
+		// carries the exact same claim token, the local ledger is already in the
+		// physical-execution phase. Returning nil here would let the caller enter
+		// the printer path a second time. Duplicate delivery is therefore an
+		// explicit no-op signal, not successful admission.
 		stored := storedToken.String
 		if (stored != "" && stored == claimToken) || (stored == "" && claimToken == "") {
-			return tx.Commit()
+			if err := tx.Commit(); err != nil {
+				return err
+			}
+			return ErrAlreadyPrinting
 		}
 		return ErrTerminalState
 	}
@@ -251,13 +279,15 @@ func (q *Queue) BeginPrint(id, printerID string, payload []byte, claimToken stri
 
 	// Only queued and retryable failed rows may enter printing. The UPDATE is
 	// intentionally simple: there is exactly one placeholder for each value.
-	// A fresh token becomes durable at the same transaction boundary.
+	// A fresh token becomes durable at the same transaction boundary, but a
+	// tokenless redelivery must never clear the stored claim: that token is
+	// the execution fence and the outbox evidence, so COALESCE preserves it.
 	var updateToken interface{} = nil
 	if claimToken != "" {
 		updateToken = claimToken
 	}
 	updated, err := tx.Exec(
-		`UPDATE print_jobs SET status = 'printing', claim_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('queued','failed')`,
+		`UPDATE print_jobs SET status = 'printing', claim_token = COALESCE(?, claim_token), updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('queued','failed')`,
 		updateToken, id,
 	)
 	if err != nil {
@@ -281,6 +311,57 @@ func (q *Queue) ClaimTokenFor(id string) string {
 		return ""
 	}
 	return tok.String
+}
+
+// ClearClaimToken acknowledges that the Gateway accepted a terminal status
+// for this local execution attempt. The token is cleared only after the
+// remote 2xx response, so a process crash between local terminalization and
+// remote acknowledgement leaves a durable retryable report in SQLite.
+func (q *Queue) ClearClaimToken(id string) error {
+	_, err := q.db.Exec(`UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('success', 'failed')`, id)
+	return err
+}
+
+type TerminalReport struct {
+	ID         string
+	Status     string
+	LastError  string
+	ClaimToken string
+}
+
+// PendingTerminalReports returns durable terminal outcomes whose Gateway
+// acknowledgement has not yet been observed. These rows are a tiny local
+// outbox: they allow Agent restart recovery to re-report a proven outcome
+// without ever re-running the physical printer side effect.
+func (q *Queue) PendingTerminalReports(limit int) ([]TerminalReport, error) {
+	if limit <= 0 {
+		limit = 32
+	}
+	rows, err := q.db.Query(`
+		SELECT id, status, COALESCE(last_error, ''), claim_token
+		FROM print_jobs
+		WHERE status IN ('success', 'failed')
+		  AND claim_token IS NOT NULL
+		  AND claim_token <> ''
+		ORDER BY updated_at ASC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]TerminalReport, 0)
+	for rows.Next() {
+		var report TerminalReport
+		if err := rows.Scan(&report.ID, &report.Status, &report.LastError, &report.ClaimToken); err != nil {
+			return nil, err
+		}
+		result = append(result, report)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // Get returns the local record for a gateway job id, if present.
@@ -335,13 +416,15 @@ func (q *Queue) MarkInterrupted() ([]InterruptedJob, error) {
 	}
 	rows.Close()
 
+	var marked []InterruptedJob
 	for _, j := range found {
 		msg := InterruptedMarker + ": the agent stopped while this job was printing; the physical output is unknown (it may have printed fully, partially, or not at all)"
 		if err := q.UpdateStatusWithError(j.ID, "failed", msg); err != nil {
-			return found, err
+			return marked, err
 		}
+		marked = append(marked, j)
 	}
-	return found, nil
+	return marked, nil
 }
 
 // UnknownOutcomeMarkers lists the local last_error prefixes whose physical
@@ -393,15 +476,15 @@ func (q *Queue) WasInterrupted(id string) bool {
 }
 
 // CountByStatus is a small diagnostic helper for the Tauri/desktop health view.
+// Unused in production code but kept for potential future diagnostic endpoints.
 func (q *Queue) CountByStatus(status string) (int, error) {
 	var n int
 	err := q.db.QueryRow(`SELECT COUNT(*) FROM print_jobs WHERE status = ?`, status).Scan(&n)
 	return n, err
 }
 
-// LastError returns the recorded failure reason for a job, if any. It is used
-// when a duplicate delivery of an already-failed job must be re-reported to
-// the gateway with its real terminal error instead of being printed again.
+// LastError returns the recorded failure reason for a job, if any.
+// Unused in production code but kept for potential future diagnostic endpoints.
 func (q *Queue) LastError(id string) string {
 	var lastErr sql.NullString
 	if err := q.db.QueryRow(`SELECT last_error FROM print_jobs WHERE id = ?`, id).Scan(&lastErr); err != nil {

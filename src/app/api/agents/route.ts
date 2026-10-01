@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { agents } from "../../../db/schema";
-import { validateManager } from "../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../lib/manager-auth";
 import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
 import { and, desc, eq } from "drizzle-orm";
+import { clampListLimit } from "../../../lib/request-limits";
 import { z } from "zod";
-import { createAgent } from "../../actions";
+import { createAgentForManager } from "../../../lib/agent-control";
 import { ActionError } from "../../../lib/action-error";
 import { logError } from "../../../lib/log";
 import { isAgentAvailableForJob } from "../../../lib/agent-availability";
+import { gatewayNow, refreshClockSkew } from "../../../lib/database-clock";
 
 export const dynamic = "force-dynamic";
 const createAgentSchema = z.object({ name: z.string().trim().min(1).max(200) }).strict();
@@ -27,32 +29,34 @@ export async function GET(req: Request) {
   // cap the row count per tenant (max_agents), so a well-formed fleet never
   // approaches this; 1000 is far above any valid plan and purely defensive.
   const { searchParams } = new URL(req.url);
-  const limit = Math.min(parseInt(searchParams.get("limit") ?? "1000", 10) || 1000, 1000);
-  const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10) || 0, 0);
+  const limit = clampListLimit(searchParams.get("limit"), 1000, MAX_AGENTS_LIST);
+  const offsetRaw = parseInt(searchParams.get("offset") ?? "0", 10);
+  const offset = Number.isNaN(offsetRaw) ? 0 : Math.max(0, offsetRaw);
   if (offset > MAX_AGENTS_OFFSET) {
     return NextResponse.json({ error: `offset must be <= ${MAX_AGENTS_OFFSET}` }, { status: 400 });
   }
   const where = auth.kind === "agent"
     ? and(eq(agents.tenantId, tenantId), eq(agents.id, auth.agent.id))
     : eq(agents.tenantId, tenantId);
+  await refreshClockSkew();
+  const now = gatewayNow();
   const rows = await db.select({
     id: agents.id, name: agents.name, status: agents.status, lifecycle: agents.lifecycle,
     metadata: agents.metadata, lastSeenAt: agents.lastSeenAt, createdAt: agents.createdAt,
   }).from(agents).where(where).orderBy(desc(agents.createdAt)).limit(limit).offset(offset);
-  const now = new Date();
   return NextResponse.json(rows.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" })));
 }
 
 export async function POST(req: Request) {
-  const claims = await validateManager(req);
-  if (claims) { try { requireManagerPermission(claims, "agents.pair"); } catch { return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { "content-type": "application/json" } }); } }
+  const claims = await validateWorkspaceManager(req);
+  if (claims) { try { requireManagerPermission(claims, "agents.pair"); } catch { const e = new ActionError("Forbidden", 403, "FORBIDDEN"); return NextResponse.json({ error: e.message, code: e.code, ...(e.details ?? {}) }, { status: e.status }); } }
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const parsed = createAgentSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "agent name is required" }, { status: 400 });
   try {
-    return NextResponse.json(await createAgent(parsed.data.name), { status: 201 });
+    return NextResponse.json(await createAgentForManager(parsed.data.name, claims), { status: 201 });
   } catch (error) {
     if (error instanceof ActionError) {
       return NextResponse.json({ error: error.message, code: error.code ?? "ACTION_ERROR", ...(error.details ?? {}) }, { status: error.status });

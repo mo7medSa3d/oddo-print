@@ -12,6 +12,12 @@ export const PAIRING_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export const PAIRING_CODE_LENGTH = 6;
 export const PAIRING_CODE_PATTERN = new RegExp(`^[${PAIRING_CODE_ALPHABET}]{${PAIRING_CODE_LENGTH}}$`);
 
+export const AGENT_ID_PATTERN = /^agt_[A-Za-z0-9_-]{8}$/;
+
+export function isValidAgentId(value: unknown): value is string {
+  return typeof value === "string" && AGENT_ID_PATTERN.test(value);
+}
+
 export function hashSecret(secret: string): string {
   return createHash("sha256").update(secret).digest("hex");
 }
@@ -43,11 +49,6 @@ export function isValidPairingCode(value: unknown): value is string {
 }
 
 function timingSafeStringEqual(a: string, b: string): boolean {
-  // Length-oracle hardening: hash both inputs to fixed 32-byte digests
-  // before comparing, so no code path branches on secret length and
-  // timingSafeEqual never receives mismatched buffers (the old
-  // length-mismatch branch compared a buffer to itself, leaking length
-  // via response-time differences).
   const digestA = createHash("sha256").update(a, "utf8").digest();
   const digestB = createHash("sha256").update(b, "utf8").digest();
   return timingSafeEqual(digestA, digestB);
@@ -63,6 +64,8 @@ export async function validateAgent(authHeader: string | null) {
   const agentId = token.slice(0, separatorIndex);
   const secret = token.slice(separatorIndex + 1);
   if (!agentId || !secret) return null;
+  // Validate canonical Gateway Agent ID format: agt_ prefix plus 8 Base64URL characters.
+  if (!isValidAgentId(agentId)) return null;
 
   const agent = await db.query.agents.findFirst({ where: eq(agents.id, agentId) });
   if (!agent || !agent.secret || agent.lifecycle !== "active") return null;

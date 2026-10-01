@@ -61,6 +61,7 @@ import { getPrinterLanguageBadges } from "../../lib/printer-capability";
 import PrintCertificationWizard from "../../components/PrintCertificationWizard";
 import JobTimeline from "../../components/JobTimeline";
 import UpgradeLimitDialog, { type UpgradeLimitResource } from "../../components/UpgradeLimitDialog";
+import { isLimitSignalResult } from "../../lib/limit-signal";
 
 export type Agent = {
   id: string;
@@ -228,6 +229,36 @@ function upgradeLimitFromApiError(error: DashboardApiError): {
   };
 }
 
+/**
+ * Server actions cannot transport thrown error details across the RSC boundary
+ * (Next.js sanitizes them in a production build), so limit trips are returned as
+ * a serializable signal. This maps that signal onto the same dialog state the
+ * HTTP-error path uses, keeping one rendering contract for every surface.
+ */
+function upgradeLimitFromLimitSignal(limit: {
+  entitlement: string;
+  used?: number | null;
+  limit?: number | "unlimited" | null;
+  periodEnd?: string | null;
+  retryAfterSeconds?: number | null;
+}): {
+  resource: UpgradeLimitResource;
+  used?: number | null;
+  limit?: number | "unlimited" | null;
+  periodEnd?: string | null;
+  retryAfterSeconds?: number | null;
+} | null {
+  const resource = upgradeLimitResourceForEntitlement(limit.entitlement);
+  if (!resource) return null;
+  return {
+    resource,
+    used: typeof limit.used === "number" ? limit.used : null,
+    limit: typeof limit.limit === "number" || limit.limit === "unlimited" ? limit.limit : null,
+    periodEnd: typeof limit.periodEnd === "string" ? limit.periodEnd : null,
+    retryAfterSeconds: typeof limit.retryAfterSeconds === "number" ? limit.retryAfterSeconds : null,
+  };
+}
+
 async function sendGatewayTestPage(printerId: string): Promise<{ jobId?: string; status?: string }> {
   const response = await fetch(`/api/printers/${encodeURIComponent(printerId)}/test-print`, {
     method: "POST",
@@ -268,7 +299,66 @@ export default function DashboardClient({
   const [kpiJobs, setKpiJobs] = useState<Job[]>(initialJobs);
   const [jobs, setJobs] = useState<Job[]>(initialJobs);
   const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsError, setJobsError] = useState<string | null>(null);
+  const [jobsRetryTick, setJobsRetryTick] = useState(0);
   const router = useRouter();
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleRefresh = () => {
+      timer = setTimeout(() => {
+        void refreshSession();
+      }, 13 * 60 * 1000);
+    };
+
+    async function refreshSession() {
+      try {
+        const response = await fetch("/api/auth/refresh", {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          if (!cancelled) router.push("/login");
+          return;
+        }
+        const data = await response.json().catch(() => null) as { expiresAt?: unknown } | null;
+        if (!cancelled && typeof data?.expiresAt === "string") {
+          scheduleRefresh();
+        }
+      } catch {
+        if (!cancelled) router.push("/login");
+      }
+    }
+
+    async function bootstrap() {
+      try {
+        const response = await fetch("/api/auth/me", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (cancelled) return;
+        if (response.ok) {
+          const data = await response.json().catch(() => null) as { exp?: unknown } | null;
+          if (typeof data?.exp === "number") {
+            scheduleRefresh();
+            return;
+          }
+        }
+        await refreshSession();
+      } catch {
+        if (!cancelled) router.push("/login");
+      }
+    }
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [router]);
 
   const [prevAgents, setPrevAgents] = useState(initialAgents);
   if (prevAgents !== initialAgents) {
@@ -358,6 +448,7 @@ export default function DashboardClient({
     let cancelled = false;
     async function loadFilteredJobs() {
       setJobsLoading(true);
+      setJobsError(null);
       try {
         const res = await getDashboardJobs({
           status: jobStatusFilter,
@@ -368,7 +459,12 @@ export default function DashboardClient({
           setJobs(res as unknown as Job[]);
         }
       } catch (err) {
+        // Surface the failure: a stale job list with no error state is
+        // indistinguishable from "no jobs" for an operator.
         console.error("Dashboard jobs query failed:", err);
+        if (!cancelled) {
+          setJobsError("Could not load jobs. Please retry.");
+        }
       } finally {
         if (!cancelled) {
           setJobsLoading(false);
@@ -379,7 +475,7 @@ export default function DashboardClient({
     return () => {
       cancelled = true;
     };
-  }, [jobStatusFilter, debouncedJobSearch]);
+  }, [jobStatusFilter, debouncedJobSearch, jobsRetryTick]);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -524,6 +620,13 @@ export default function DashboardClient({
     setMessage(null);
     try {
       const result = await operation();
+      if (isLimitSignalResult(result)) {
+        const limit = upgradeLimitFromLimitSignal(result.limit);
+        setMessage(null);
+        if (limit) setUpgradeLimit(limit);
+        else setMessage({ text: result.limit.message, type: "err" });
+        return undefined;
+      }
       if (successMsg) setMessage({ text: successMsg, type: "ok" });
       void refreshData();
       return result;
@@ -567,6 +670,51 @@ export default function DashboardClient({
       }
     } finally {
       setTestingPrinterId(null);
+    }
+  };
+
+  /**
+   * Reprint is the ONE mutation that deliberately creates a NEW physical
+   * print, so it must be double-submit guarded at the UI boundary.
+   *
+   * The server already converges concurrent reprints of the same job onto
+   * one row (print-job-service reuses an active reprint job), so this guard
+   * is about state/UX correctness, not a duplicate-print hole.
+   */
+  const confirmReprint = async () => {
+    const job = reprintCandidate;
+    if (!job || busy) return;
+    setReprintCandidate(null);
+    setMessage(null);
+    setBusy(true);
+    try {
+      const result = await sendGatewayReprint(job.id);
+      setMessage({
+        text: result.jobId
+          ? `Reprint queued for ${job.printerId} (job ${result.jobId.slice(0, 12)})`
+          : `Reprint queued for ${job.printerId}`,
+        type: "ok",
+      });
+      void refreshData();
+    } catch (error) {
+      if (error instanceof DashboardApiError) {
+        const limit = upgradeLimitFromApiError(error);
+        if (limit) {
+          setUpgradeLimit(limit);
+          return;
+        }
+        setMessage({
+          text: error instanceof Error ? error.message : "Reprint request failed.",
+          type: "err",
+        });
+      } else {
+        setMessage({
+          text: error instanceof Error ? error.message : "Reprint request failed.",
+          type: "err",
+        });
+      }
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -701,7 +849,7 @@ export default function DashboardClient({
         <div className="flex items-center gap-3">
           <div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-4">Workspace</div><h1 className="mt-1.5 text-[30px] font-bold tracking-[-0.035em] text-ink">Print console</h1><p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-ink-3">See what’s connected, what’s printing, and what needs attention.</p></div>
           <span
-            className={`inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
+            className={`inline-flex h-6 items-center gap-1.5 rounded-[8px] border px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
               databaseError ? "border-bad-edge bg-bad-bg text-bad" : "border-ok-edge bg-ok-bg text-ok"
             }`}
           >
@@ -769,9 +917,9 @@ export default function DashboardClient({
             </div>
             {billingUsage.resources.prints.limit !== "unlimited" && (
               <div className="min-w-[220px]">
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
+                <div className="h-1.5 w-full overflow-hidden rounded-[8px] bg-surface-3">
                   <div
-                    className={`h-full rounded-full transition-all ${billingUsage.resources.prints.remaining === 0 ? "bg-bad-solid" : "bg-brand"}`}
+                    className={`h-full rounded-[8px] transition-all ${billingUsage.resources.prints.remaining === 0 ? "bg-bad-solid" : "bg-brand"}`}
                     style={{ width: `${Math.min(100, Math.max(0, (billingUsage.resources.prints.used / Math.max(1, billingUsage.resources.prints.limit)) * 100))}%` }}
                   />
                 </div>
@@ -790,7 +938,7 @@ export default function DashboardClient({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2.5">
                 <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand">Agent pairing</span>
-                <span className="inline-flex items-center rounded-full border border-edge bg-surface px-2.5 py-1 text-[10px] font-semibold tabular-nums text-ink-3">
+                <span className="inline-flex items-center rounded-[8px] border border-edge bg-surface px-2.5 py-1 text-[10px] font-semibold tabular-nums text-ink-3">
                   Expires in {countdownText}
                 </span>
               </div>
@@ -920,7 +1068,7 @@ export default function DashboardClient({
             subtitle={`${kpis.onlinePrinters} online • ${filteredPrinters.length} shown`}
             icon={<PrinterIcon className="h-4 w-4 text-brand" />}
             actions={
-              <div className="flex items-center gap-1 rounded-full border border-edge bg-surface-2 p-0.5">
+              <div className="flex items-center gap-1 rounded-[8px] border border-edge bg-surface-2 p-0.5">
                 <button type="button" aria-pressed={printerViewMode === "grid"} onClick={() => setPrinterViewMode("grid")} className={`rounded-[7px] p-1.5 transition ${printerViewMode === "grid" ? "bg-surface text-brand shadow-xs" : "text-ink-3 hover:text-ink"}`}>
                   <LayoutGrid className="h-4 w-4" />
                 </button>
@@ -1085,7 +1233,7 @@ export default function DashboardClient({
                 <button
                   key={tab.id}
                   onClick={() => setJobStatusFilter(tab.id)}
-                  className={`rounded-full px-3 py-1.5 text-[12px] font-semibold transition ${jobStatusFilter === tab.id ? "bg-brand text-white shadow-sm" : "bg-surface-2 text-ink-3 hover:text-ink hover:bg-surface-3 border border-edge"}`}
+                  className={`rounded-[8px] px-3 py-1.5 text-[12px] font-semibold transition ${jobStatusFilter === tab.id ? "bg-brand text-white shadow-sm" : "bg-surface-2 text-ink-3 hover:text-ink hover:bg-surface-3 border border-edge"}`}
                 >
                   {tab.label}
                 </button>
@@ -1093,7 +1241,22 @@ export default function DashboardClient({
             </div>
           </div>
 
-          {jobsLoading && filteredJobs.length === 0 ? (
+          {jobsError ? (
+            <div className="rounded-[12px] border border-bad-edge bg-bad-bg p-6 text-center" role="alert">
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] text-bad">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div className="mt-3 text-[13px] font-semibold text-bad">{jobsError}</div>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="mt-3"
+                onClick={() => setJobsRetryTick((tick) => tick + 1)}
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Retry
+              </Button>
+            </div>
+          ) : jobsLoading && filteredJobs.length === 0 ? (
             <div className="rounded-[12px] border border-dashed border-edge p-10 text-center text-[13px] text-ink-3">Loading jobs…</div>
           ) : filteredJobs.length === 0 ? (
             <div className="rounded-[12px] border border-dashed border-edge p-10 text-center">
@@ -1141,7 +1304,7 @@ export default function DashboardClient({
         </div>
       </Card>
 
-      <Drawer open={selectedJob !== null} onClose={() => setSelectedJob(null)} title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : "Job Details"} description="Delivery details">
+      <Modal open={selectedJob !== null} onClose={() => setSelectedJob(null)} title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : "Job Details"} description="Delivery details" wide>
         {selectedJob && (() => {
           const outcome = deriveOutcome(selectedJob.status, selectedJob.error);
           const isTerminal = ["success", "failed", "expired"].includes(selectedJob.status.toLowerCase());
@@ -1156,7 +1319,7 @@ export default function DashboardClient({
                 <StatusBadge label={jobLabel(selectedJob.status, outcome)} tone={sharedJobTone(selectedJob.status, outcome)} pulse={["printing", "claimed"].includes(selectedJob.status.toLowerCase())} />
               </div>
 
-              {outcome === "unknown" && isTerminal && (
+              {outcome === "unknown" && isTerminal && selectedJob.status.toLowerCase() !== "success" && (
                 <div className="rounded-[12px] border border-warn-edge bg-warn-bg p-4 space-y-3">
                   <div className="flex items-start gap-2.5 text-warn">
                     <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -1209,19 +1372,19 @@ export default function DashboardClient({
             </div>
           );
         })()}
-      </Drawer>
+      </Modal>
 
-      <Drawer
+      <Modal
         open={certifyPrinter !== null}
         onClose={() => setCertifyPrinter(null)}
         title={certifyPrinter ? `Certify ${certifyPrinter.name}` : "Printer Certification"}
-        description="Verify this printer with a real print test"
+        description="Run a controlled real-print certification and review every stage of the delivery path."
+        wide
       >
-        <h3 className="sr-only">Certification</h3>
         {certifyPrinter && (
           <PrintCertificationWizard key={certifyPrinter.id} printerId={certifyPrinter.id} />
         )}
-      </Drawer>
+      </Modal>
 
       <UpgradeLimitDialog
         open={upgradeLimit !== null}
@@ -1242,22 +1405,7 @@ export default function DashboardClient({
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setReprintCandidate(null)} disabled={busy}>Cancel</Button>
-          <Button variant="danger" disabled={busy} loading={busy} onClick={async () => { const job = reprintCandidate; setReprintCandidate(null); if (!job) return; try {
-          await sendGatewayReprint(job.id);
-          setMessage({ text: `Reprint queued for ${job.printerId}`, type: "ok" });
-          void refreshData();
-        } catch (error) {
-          if (error instanceof DashboardApiError) {
-            const limit = upgradeLimitFromApiError(error);
-            if (limit) {
-              setUpgradeLimit(limit);
-              return;
-            }
-            setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
-          } else {
-            setMessage({ text: error instanceof Error ? error.message : "Reprint request failed.", type: "err" });
-          }
-        } }} icon={<RotateCcw className="h-4 w-4" />}>Reprint</Button>
+          <Button variant="danger" disabled={busy} loading={busy} onClick={() => void confirmReprint()} icon={<RotateCcw className="h-4 w-4" />}>Reprint</Button>
         </div>
       </Modal>
 

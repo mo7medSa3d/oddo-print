@@ -1,18 +1,19 @@
 import { db } from "../../../../db";
 import { printJobs } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { isJobStatus, canTransition, isTerminal, isLateSuccessAllowed, isExpiredLateSuccessAllowed, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, LATE_SUCCESS_POST_EXPIRATION_MARKER, type JobStatus } from "../../../../lib/job-status";
+import { isJobStatus, canTransition, isTerminal, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, AGENT_REPRINT_AFTER_CRASH_REASON, LATE_SUCCESS_POST_EXPIRATION_MARKER, LATE_SUCCESS_ERROR_MARKERS, LATE_SUCCESS_MAX_AGE_MS, EXPIRED_LATE_SUCCESS_GRACE_MS, type JobStatus } from "../../../../lib/job-status";
 import { logInfo, logWarn, requestIdFrom } from "../../../../lib/log";
 import { incrementMetric } from "../../../../lib/metrics";
-import { STALE_CLAIM_SECONDS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "../../../../lib/job-maintenance";
+import { MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "../../../../lib/job-maintenance";
 import { CLAIM_RETURNING, MAX_DELIVERY_ATTEMPTS, MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../lib/job-delivery";
 import { fencedJobWrite } from "../../../../lib/job-fencing";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
-import { agentStaleThresholdSeconds } from "../../../../lib/agent-availability";
+import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "../../../../lib/agent-availability";
+import { refreshClockSkew } from "../../../../lib/database-clock";
+import { liveTenantSubscriptionPredicate } from "../../../../lib/entitlements";
 import { recordJobEvent } from "../../../../lib/job-timeline";
-import { getCorrelationContext, generateAttemptId } from "../../../../server/correlation";
 
 export const dynamic = "force-dynamic";
 const MAX_CLAIM_BATCH = 20;
@@ -58,25 +59,46 @@ export async function GET(req: Request) {
   const agent = await validateAgent(req.headers.get("Authorization"));
   if (!agent) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  // The presence gates below compare `a.last_seen_at` against PostgreSQL `now()`.
+  // Calibrate the JS clock (used for Retry-After and availability edges) so both
+  // sides agree even when the host clock drifts from the database clock.
+  await refreshClockSkew();
+
   const claimJobs = async (tx: { execute: typeof db.execute }) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:agent:${agent.id}`}))`);
 
+    // Capacity accounting must include all unexpired claimed/printing jobs owned
+    // by this Agent — EXCEPT stale claims that this very poll is about to
+    // reclaim. A stale no-evidence claim reuses its own executor slot when
+    // reclaimed (it never left the agent's budget), so counting it as
+    // occupied would permanently starve reclaims whenever the fleet sits at
+    // the cap. Everything else (fresh claims, printing, delivered) counts:
+    // printer health and billing are claim-eligibility gates, not capacity
+    // gates; otherwise stale/offline printers can disappear from the count
+    // and a recovered Agent can exceed its bounded local executor limit.
+    // The exclusion predicate mirrors stale_candidates below exactly.
     const countResult = await tx.execute(sql`
       SELECT COUNT(*)::int AS count
       FROM print_jobs p
       JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
-      JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
       JOIN tenants t ON t.id = p.tenant_id
       WHERE p.agent_id = ${agent.id}
         AND p.status IN ('claimed', 'printing')
         AND p.expires_at > now()
+        AND NOT (
+          p.status = 'claimed'
+          AND p.delivered_at IS NULL
+          AND p.acked_at IS NULL
+          AND COALESCE(p.error, '') <> ${DELIVERY_EVIDENCE_PENDING}
+          AND p.updated_at < now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+          AND p.retries < ${MAX_RETRIES}
+          AND p.delivery_attempts < ${MAX_DELIVERY_ATTEMPTS}
+        )
         AND a.lifecycle = 'active'
         AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
-        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
-        AND pr.lifecycle = 'active'
-        AND (pr.status = 'online' OR pr.status = 'busy' OR (pr.status = 'unknown' AND (pr.connection_type = 'spooler' OR pr.protocol = 'spooler' OR pr.connection_type IN ('ipp','ipps') OR pr.protocol IN ('ipp','ipps') OR (pr.connection_type IN ('network','usb') AND pr.protocol IN ('raw','escpos','zpl','tspl')))))
-        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
+        AND a.last_seen_at <= now()
+        AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND t.lifecycle = 'active'
     `);
     const inFlight = Number((countResult.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
@@ -96,19 +118,27 @@ export async function GET(req: Request) {
           AND p.delivered_at IS NULL
           AND p.acked_at IS NULL
           AND COALESCE(p.error, '') <> ${DELIVERY_EVIDENCE_PENDING}
-          AND p.updated_at < now() - make_interval(secs => ${STALE_CLAIM_SECONDS})
+          AND p.updated_at < now() - make_interval(secs => ${agentStaleThresholdSeconds()})
           AND p.retries < ${MAX_RETRIES}
           AND p.delivery_attempts < ${MAX_DELIVERY_ATTEMPTS}
           AND a.lifecycle = 'active'
           AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
-        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+        AND a.last_seen_at <= now()
+        AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
           AND pr.lifecycle = 'active'
           AND (pr.status = 'online' OR pr.status = 'busy' OR (pr.status = 'unknown' AND (pr.connection_type = 'spooler' OR pr.protocol = 'spooler' OR pr.connection_type IN ('ipp','ipps') OR pr.protocol IN ('ipp','ipps') OR (pr.connection_type IN ('network','usb') AND pr.protocol IN ('raw','escpos','zpl','tspl')))))
-        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
+        AND (pr.management_source = 'agent' OR (
+          pr.applied_desired_revision >= pr.desired_revision
+          AND pr.observed_desired_revision >= pr.desired_revision
+        ))
+        AND pr.last_seen_at IS NOT NULL
+        AND pr.last_seen_at <= now()
+        AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
+        AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
-        LIMIT ${MAX_CLAIM_BATCH}
+        LIMIT ${queuedLimit}
       ),
       queued_candidates AS (
         SELECT p.id, p.created_at, 1 AS priority
@@ -125,10 +155,18 @@ export async function GET(req: Request) {
           AND a.lifecycle = 'active'
           AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
-        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+        AND a.last_seen_at <= now()
+        AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
           AND pr.lifecycle = 'active'
           AND (pr.status = 'online' OR pr.status = 'busy' OR (pr.status = 'unknown' AND (pr.connection_type = 'spooler' OR pr.protocol = 'spooler' OR pr.connection_type IN ('ipp','ipps') OR pr.protocol IN ('ipp','ipps') OR (pr.connection_type IN ('network','usb') AND pr.protocol IN ('raw','escpos','zpl','tspl')))))
-        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
+        AND (pr.management_source = 'agent' OR (
+          pr.applied_desired_revision >= pr.desired_revision
+          AND pr.observed_desired_revision >= pr.desired_revision
+        ))
+        AND pr.last_seen_at IS NOT NULL
+        AND pr.last_seen_at <= now()
+        AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
+        AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${queuedLimit}
@@ -148,13 +186,21 @@ export async function GET(req: Request) {
         WHERE a.lifecycle = 'active'
           AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
-        AND a.last_seen_at > now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+        AND a.last_seen_at <= now()
+        AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
           AND pr.lifecycle = 'active'
           AND (pr.status = 'online' OR pr.status = 'busy' OR (pr.status = 'unknown' AND (pr.connection_type = 'spooler' OR pr.protocol = 'spooler' OR pr.connection_type IN ('ipp','ipps') OR pr.protocol IN ('ipp','ipps') OR (pr.connection_type IN ('network','usb') AND pr.protocol IN ('raw','escpos','zpl','tspl')))))
-        AND (pr.management_source = 'agent' OR pr.applied_desired_revision >= pr.desired_revision)
+        AND (pr.management_source = 'agent' OR (
+          pr.applied_desired_revision >= pr.desired_revision
+          AND pr.observed_desired_revision >= pr.desired_revision
+        ))
+        AND pr.last_seen_at IS NOT NULL
+        AND pr.last_seen_at <= now()
+        AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
+        AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC
-        LIMIT ${MAX_CLAIM_BATCH}
+        LIMIT ${queuedLimit}
         FOR UPDATE OF p, a, pr, t SKIP LOCKED
       )
       UPDATE print_jobs
@@ -172,6 +218,7 @@ export async function GET(req: Request) {
                        ELSE print_jobs.retries END
       FROM claimable
       WHERE print_jobs.id = claimable.id
+        AND ${liveTenantSubscriptionPredicate(sql`print_jobs.tenant_id`)}
       RETURNING ${CLAIM_RETURNING}
     `);
 
@@ -197,6 +244,10 @@ function stageForStatus(status: string): "printing" | "success" | "failed" | "ex
     case "success": return "success";
     case "failed": return "failed";
     case "expired": return "expired";
+    case "blocked": return "blocked";
+    case "delivery": return "delivery";
+    case "accepted": return "accepted";
+    case "connection": return "connection";
     default: return "printing";
   }
 }
@@ -228,9 +279,16 @@ export async function PATCH(req: Request) {
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
   const currentStatus = job.status as JobStatus;
-  if (requestedStatus !== "expired" && job.claimToken && claimToken !== job.claimToken) {
-    logWarn("job.status.stale_claim", { requestId, jobId, agentId: agent.id });
-    return NextResponse.json({ error: "Stale claim token: this attempt was superseded by a newer claim", code: "STALE_CLAIM", status: currentStatus }, { status: 409 });
+  if (requestedStatus !== "expired") {
+    // Every non-expiry lifecycle report must prove ownership of an actual
+    // Gateway claim. A tokenless queued/legacy row is never a valid basis for
+    // printing, success, failure, or pre-execution requeue: otherwise any
+    // authenticated Agent that knows a queued job id could manufacture a
+    // terminal state without ever receiving the claim.
+    if (!job.claimToken || !claimToken || claimToken !== job.claimToken) {
+      logWarn("job.status.stale_or_missing_claim", { requestId, jobId, agentId: agent.id, currentStatus });
+      return NextResponse.json({ error: "A valid claim token is required for this status transition", code: "CLAIM_REQUIRED", status: currentStatus }, { status: 409 });
+    }
   }
 
   if (requestedStatus === "expired") {
@@ -257,7 +315,14 @@ export async function PATCH(req: Request) {
         // Use DB-native now() to match the sweeper's clock (updated_at < now() - interval).
         // JS new Date() is the app-server clock and can drift from the DB host.
         updatedAt: sql`now()`,
-        deliveredAt: sql`CASE WHEN ${printJobs.status} IN ('claimed', 'printing') THEN COALESCE(${printJobs.deliveredAt}, now()) ELSE ${printJobs.deliveredAt} END`,
+        // Same delivery-evidence rule as the status-transition path below:
+        // only a printing expiry may stamp deliveredAt (the agent provably
+        // holds the job). A claimed-but-undelivered expiry keeps error=null
+        // (honest not_printed) and must not gain delivery proof, or the row
+        // would later look reconcilable/partially-delivered without basis.
+        ...(currentStatus === "printing"
+          ? { deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())` }
+          : {}),
       })
       .where(and(
         fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
@@ -288,6 +353,60 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Job has not expired or the worker claim is stale", code: "JOB_NOT_EXPIRED_OR_STALE" }, { status: 409 });
   }
 
+  if (requestedStatus === "queued" && currentStatus === "printing") {
+    if (reason !== AGENT_REPRINT_AFTER_CRASH_REASON) {
+      return NextResponse.json({ error: "Invalid status transition: printing -> queued is reserved for explicit crash-reprint recovery" }, { status: 409 });
+    }
+
+    // This is an explicit opt-in at-least-once recovery policy. The prior
+    // attempt already crossed the physical boundary, so never refund
+    // deliveryAttempts and never allow this path after the business TTL.
+    const updated = await db.update(printJobs)
+      .set({
+        status: "queued",
+        claimToken: null,
+        claimedAt: null,
+        deliveredAt: null,
+        ackedAt: null,
+        error: "AGENT_RESTART_DURING_PRINT: operator-enabled at-least-once crash recovery; prior physical outcome is unknown and a new delivery may duplicate output",
+        retries: sql`${printJobs.retries} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(and(
+        fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
+        sql`${printJobs.expiresAt} > now()`,
+        sql`${printJobs.retries} < ${MAX_RETRIES}`,
+      ))
+      .returning({ status: printJobs.status, retries: printJobs.retries });
+
+    if (updated.length !== 1) {
+      return NextResponse.json({ error: "Crash requeue rejected: claim is stale, job expired, or retry budget is exhausted", code: "CRASH_REQUEUE_REJECTED" }, { status: 409 });
+    }
+
+    incrementMetric("print_jobs_requeued_total");
+    logWarn("print.job.crash_requeued_at_least_once", { requestId, jobId, agentId: agent.id });
+    try {
+      await recordJobEvent({
+        jobId,
+        tenantId: agent.tenantId,
+        stage: "queued",
+        status: "error",
+        message: "Agent restart recovery requeued a physically ambiguous attempt under explicit at-least-once policy",
+        agentId: agent.id,
+        printerId: job.printerId,
+        requestId,
+        metadata: {
+          reason: AGENT_REPRINT_AFTER_CRASH_REASON,
+          priorDeliveredAt: job.deliveredAt ? String(job.deliveredAt) : null,
+          priorAckedAt: job.ackedAt ? String(job.ackedAt) : null,
+        },
+      });
+    } catch (error) {
+      logWarn("print.job.event_persist_failed", { requestId, jobId, stage: "queued", error: error instanceof Error ? error.message : "unknown" });
+    }
+    return NextResponse.json({ success: true, status: "queued", physicalOutcome: "unknown", requeuedAfterCrash: true });
+  }
+
   if (requestedStatus === "queued" && currentStatus === "claimed") {
     if (!AGENT_REQUEUE_REASONS.includes(reason as (typeof AGENT_REQUEUE_REASONS)[number])) {
       return NextResponse.json({ error: "Invalid status transition: claimed -> queued requires an explicit pre-execution rejection reason" }, { status: 409 });
@@ -308,7 +427,11 @@ export async function PATCH(req: Request) {
         deliveryAttempts: sql`GREATEST(${printJobs.deliveryAttempts} - 1, 0)`,
         retries: sql`${printJobs.retries} + 1`,
       })
-      .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
+      .where(and(
+        fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
+        isNull(printJobs.deliveredAt),
+        isNull(printJobs.ackedAt),
+      ))
       .returning({ status: printJobs.status, error: printJobs.error });
     if (updated.length !== 1) {
       const winner = await db.query.printJobs.findFirst({ where: whereClause });
@@ -337,16 +460,46 @@ export async function PATCH(req: Request) {
 
   let lateSuccess = false;
   if (currentStatus === "failed" && requestedStatus === "success") {
-    if (!isLateSuccessAllowed({ status: currentStatus, error: job.error, updatedAt: job.updatedAt }, Date.now())) {
+    const executionTimeoutLateSuccess = job.error?.startsWith("AGENT_EXECUTION_TIMEOUT")
+      || job.error?.startsWith("AGENT_RESTART_DURING_PRINT");
+    const deliveryUnknownLateSuccess = job.error?.startsWith("UNKNOWN_PARTIAL_DELIVERY")
+      && Boolean(job.deliveredAt || job.ackedAt);
+    if (!executionTimeoutLateSuccess && !deliveryUnknownLateSuccess) {
       return NextResponse.json({ error: "Invalid status transition: failed -> success (late success not allowed for this job)" }, { status: 409 });
     }
+    // For delivery ambiguity, insist on the same persisted claim fence and
+    // durable delivery evidence. The top-level claim-token check already
+    // enforces exact token ownership; this additional evidence gate prevents
+    // a stale/legacy failed row from becoming successful merely because an
+    // Agent knows its job id.
+    if (deliveryUnknownLateSuccess && (!job.claimedAt || !job.claimToken || !claimToken || claimToken !== job.claimToken)) {
+      return NextResponse.json({
+        error: "Unknown delivery outcome lacks a matching fenced execution attempt",
+        code: "DELIVERY_RECONCILIATION_NOT_POSSIBLE",
+        status: currentStatus,
+      }, { status: 409 });
+    }
+    // The age window is enforced atomically by PostgreSQL below, so the Gateway
+    // database clock is authoritative even when the app host clock drifts.
     lateSuccess = true;
   }
 
   if (currentStatus === "expired" && requestedStatus === "success") {
-    if (!isExpiredLateSuccessAllowed({ status: currentStatus, expiresAt: job.expiresAt, updatedAt: job.updatedAt }, Date.now())) {
-      return NextResponse.json({ error: "Invalid status transition: expired -> success (outside physical grace window)", status: currentStatus }, { status: 409 });
+    // Late success is only a physical-outcome reconciliation path for an
+    // execution that was actually handed to the Agent. Require the original
+    // claim token plus delivery evidence, and require an ambiguity marker; a
+    // stale Agent must never promote an expired queued row merely because it
+    // knows the job id.
+    const expiredLateSuccessMarker = (job.error ?? "").startsWith("JOB_EXPIRED_DURING_PRINT")
+      || (job.error ?? "").startsWith("UNKNOWN_PARTIAL_DELIVERY");
+    if (!job.claimedAt || !job.claimToken || !claimToken || claimToken !== job.claimToken || !job.deliveredAt || !expiredLateSuccessMarker) {
+      return NextResponse.json({
+        error: "Expired job lacks a matching delivered execution attempt; late success is not allowed",
+        code: "EXPIRED_JOB_ATTEMPT_NOT_RECONCILIABLE",
+        status: currentStatus,
+      }, { status: 409 });
     }
+    // The five-minute grace window is enforced atomically by PostgreSQL below.
     const postExpiryError = `${LATE_SUCCESS_POST_EXPIRATION_MARKER}: print execution completed after TTL expiry${errorMessage ? ` (${errorMessage})` : ""}`.slice(0, MAX_ERROR_LENGTH);
     const postExpired = await db.update(printJobs)
       .set({
@@ -359,7 +512,12 @@ export async function PATCH(req: Request) {
         updatedAt: sql`now()`,
         deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
       })
-      .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
+      .where(and(
+        fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
+        sql`${printJobs.expiresAt} <= now()`,
+        // Bound by EXPIRED_LATE_SUCCESS_GRACE_MS (single source in job-status.ts).
+        sql`${printJobs.expiresAt} > now() - make_interval(secs => ${Math.floor(EXPIRED_LATE_SUCCESS_GRACE_MS / 1000)})`,
+      ))
       .returning({ status: printJobs.status, error: printJobs.error });
     if (postExpired.length !== 1) {
       const winner = await db.query.printJobs.findFirst({ where: whereClause });
@@ -378,18 +536,34 @@ export async function PATCH(req: Request) {
   }
 
   const nextError = lateSuccess ? `LATE_SUCCESS: ${job.error ?? "AGENT_EXECUTION_TIMEOUT"}` : errorMessage;
+  const retainsLateSuccessFence = requestedStatus === "failed"
+    && LATE_SUCCESS_ERROR_MARKERS.some((marker) => nextError?.startsWith(marker));
   const updated = await db.update(printJobs)
     .set({
       status: requestedStatus,
       error: nextError,
-      // Invalidate the claim token when the job reaches a terminal state
-      // (success, failed). A completed job must never retain a live token.
-      ...(isTerminal(requestedStatus) ? { claimToken: sql`NULL` } : {}),
-      // DB-native now() to match the sweeper's clock (updated_at < now() - interval).
+      ...(isTerminal(requestedStatus) && !retainsLateSuccessFence ? { claimToken: sql`NULL` } : {}),
       updatedAt: sql`now()`,
-      deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
+      // deliveredAt is delivery EVIDENCE: it must only be stamped when the
+      // agent provably received the job (entering printing/success, or a
+      // printing->failed report where delivery already happened at the
+      // printing step). Stamping it on claimed->failed pre-execution or
+      // claimed->queued rejection fabricates evidence: the expiry sweeper
+      // treats delivered_at as proof of delivery and marks the job
+      // UNKNOWN_PARTIAL_DELIVERY, blocking auto-retry and forcing
+      // unknown-outcome handling for a job that provably never dispatched.
+      ...((requestedStatus === "printing" || requestedStatus === "success" || (requestedStatus === "failed" && currentStatus === "printing"))
+        ? { deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())` }
+        : {}),
+      // Spooler linkage is part of the same claim-fenced status transition.
+      // A second id+tenant-only UPDATE here could let a stale attempt overwrite
+      // current-attempt spooler evidence after this lifecycle UPDATE commits.
+      ...(spoolerJobId ? { spoolerJobId } : {}),
     })
-    .where(fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken))
+    .where(and(
+      fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
+      lateSuccess ? sql`${printJobs.updatedAt} >= now() - make_interval(secs => ${Math.floor(LATE_SUCCESS_MAX_AGE_MS / 1000)}) AND ${printJobs.updatedAt} <= now()` : requestedStatus === "printing" ? sql`${printJobs.expiresAt} > now()` : sql`TRUE`,
+    ))
     .returning({ status: printJobs.status, error: printJobs.error });
 
   if (updated.length !== 1) {

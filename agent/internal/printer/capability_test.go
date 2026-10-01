@@ -103,3 +103,16 @@ func TestSupportedProtocolsForUnknownDevices(t *testing.T) {
 	mustContain(TransportFacts{Protocol: "unknown", Connection: "spooler"}, "pdf")
 	mustContain(TransportFacts{Protocol: "unknown", Connection: "ipp"}, "pdf")
 }
+
+func TestSupportedProtocolsForSpoolerIsDocumentOnly(t *testing.T) {
+	got := SupportedProtocolsForDevice(TransportFacts{Protocol: "spooler", Connection: "spooler"})
+	want := map[string]bool{"pdf": true, "image": true}
+	if len(got) != 2 {
+		t.Fatalf("spooler must derive exactly [pdf image], got %v", got)
+	}
+	for _, p := range got {
+		if !want[p] {
+			t.Fatalf("spooler must not derive raw passthrough %q (got %v)", p, got)
+		}
+	}
+}

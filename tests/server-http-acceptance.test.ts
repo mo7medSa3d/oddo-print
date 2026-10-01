@@ -68,13 +68,17 @@ suite("production server HTTP acceptance (real Next.js + guard)", () => {
     });
 
     it("POST /api/auth/manager/login returns the handler's JSON response (not a 500 ISE page)", async () => {
+      // Keep this acceptance test independent of the PostgreSQL-backed
+      // authentication rate limiter. The unit stage intentionally runs before
+      // migrations, so a valid-shaped login would otherwise hit auth_rate_limits
+      // and generate a misleading database error in CI logs.
       const res = await fetch(`http://127.0.0.1:${PORT}/api/auth/manager/login`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: "probe", password: "probe" }),
+        body: JSON.stringify({ username: "probe" }),
       });
       expect(isNextInternalErrorPage(res)).toBe(false);
-      expect([401, 423, 429, 500, 503]).toContain(res.status);
+      expect(res.status).toBe(400);
       const type = res.headers.get("content-type") ?? "";
       expect(type).toContain("application/json");
     });

@@ -5,13 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"strings"
 
-	"github.com/yasser-agent/agent/internal/agent"
-	"github.com/yasser-agent/agent/internal/config"
-	"github.com/yasser-agent/agent/internal/printer"
+	"github.com/yaseir-agent/agent/internal/agent"
+	"github.com/yaseir-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/printer"
 )
 
 func main() {
@@ -50,7 +49,7 @@ func main() {
 		if strings.TrimSpace(*serverURL) == "" {
 			log.Fatal("-server is required when pairing (e.g. -server https://gateway.example.com)")
 		}
-		if err := validateServerURL(*serverURL); err != nil {
+		if err := config.ValidateServerURL(*serverURL); err != nil {
 			log.Fatalf("Invalid -server: %v", err)
 		}
 		if strings.TrimSpace(*pairingCode) == "" {
@@ -75,54 +74,30 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("Yasser Agent CLI")
+	fmt.Println("Yaseir Agent CLI")
 	fmt.Println("")
 	fmt.Println("Pairing (one-time):")
-	fmt.Println("  yasser-agent-cli.exe -pair <code> -server <url> [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe -pair <code> -server <url> [-config <path>]")
 	fmt.Println("  -server is required for pairing and must be http(s).")
 	fmt.Println("  Default config path:", config.DefaultConfigPath())
 	fmt.Println("")
 	fmt.Println("Gateway console (Agent-authenticated):")
-	fmt.Println("  yasser-agent-cli.exe gateway-request -method GET -path /api/printers [-config <path>]")
-	fmt.Println("  yasser-agent-cli.exe gateway-request -method GET -path /api/jobs?limit=50 [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe gateway-request -method GET -path /api/printers [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe gateway-request -method GET -path /api/jobs?limit=50 [-config <path>]")
 	fmt.Println("")
 	fmt.Println("Printer management:")
-	fmt.Println("  yasser-agent-cli.exe printers list [--json] [-config <path>]")
-	fmt.Println("  yasser-agent-cli.exe printers discover [--json] [-config <path>]")
-	fmt.Println("  yasser-agent-cli.exe printers test <printer-id> [-config <path>]")
-	fmt.Println("  yasser-agent-cli.exe printers add --name <name> --type <network|usb|spooler|ipp> --endpoint <ip:port|spooler_name> [--protocol raw|escpos|ipp|spooler] [--spooler-name <name>] [--id <id>] [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers list [--json] [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers discover [--json] [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers test <printer-id> [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers add --name <name> --type <network|usb|spooler|ipp> --endpoint <ip:port|spooler_name> [--protocol raw|escpos|ipp|spooler] [--spooler-name <name>] [--id <id>] [-config <path>]")
 	fmt.Println("    Optional: --device-class <thermal|laser|inkjet|label|unknown> --vid <hex> --pid <hex> --serial <serial> --enabled <true|false> --capabilities <json>")
-	fmt.Println("  yasser-agent-cli.exe printers remove <printer-id> [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers remove <printer-id> [-config <path>]")
 	fmt.Println("")
 	fmt.Println("Gateway inventory fields: id, name, printerType, deviceClass, connectionType, protocol, endpoint, spoolerName, status, capabilities")
 	fmt.Println("Examples:")
 	fmt.Println("  printers add --name \"Kitchen\" --type network --endpoint 192.168.1.50:9100 --protocol escpos")
 	fmt.Println("  printers add --name \"HP LaserJet\" --type spooler --spooler-name \"HP LaserJet\"")
 	fmt.Println("  printers add --name \"Label USB\" --type usb --vid 03f0 --pid 0c17 --serial CN123 --spooler-name \"Zebra\"")
-}
-
-func validateServerURL(raw string) error {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return fmt.Errorf("parse url: %w", err)
-	}
-	if u.Hostname() == "" {
-		return fmt.Errorf("host is required")
-	}
-	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return fmt.Errorf("server URL must not contain credentials, query strings, or fragments")
-	}
-	switch strings.ToLower(u.Scheme) {
-	case "https":
-		return nil
-	case "http":
-		if os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1" || os.Getenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP") == "1" {
-			return nil
-		}
-		return fmt.Errorf("server URL must use HTTPS; plain HTTP requires an explicit development-only insecure-HTTP opt-in")
-	default:
-		return fmt.Errorf("scheme must be https or http")
-	}
 }
 
 func handlePrintersSubcommand(args []string, defaultConfigPath string) {
@@ -206,8 +181,13 @@ func handlePrintersList(configPath string, jsonOutput bool) {
 		log.Fatalf("List failed: %v", err)
 	}
 	if jsonOutput {
-		out, _ := json.Marshal(infos)
-		fmt.Println(string(out))
+		out, err := json.Marshal(infos)
+		if err != nil {
+			log.Fatalf("Failed to encode printer inventory: %v", err)
+		}
+		if _, err := fmt.Fprintln(os.Stdout, string(out)); err != nil {
+			log.Fatalf("Failed to write printer inventory: %v", err)
+		}
 		return
 	}
 	if len(infos) == 0 {
@@ -255,7 +235,7 @@ func handlePrintersDiscover(configPath string, jsonOutput bool) {
 	}
 	if len(printers) == 0 {
 		fmt.Println("No printers discovered. Try manual registration:")
-		fmt.Println("  yasser-agent-cli.exe printers add --name \"My Printer\" --type spooler --spooler-name \"HP LaserJet\"")
+		fmt.Println("  yaseir-agent-cli.exe printers add --name \"My Printer\" --type spooler --spooler-name \"HP LaserJet\"")
 	}
 }
 
@@ -302,16 +282,20 @@ func handlePrintersAdd(configPath string, args []string) {
 	serial := fs.String("serial", "", "USB serial number")
 	enabledStr := fs.String("enabled", "true", "Enabled true/false")
 	capsJSON := fs.String("capabilities", "", "Capabilities JSON e.g., '{\"paper_widths\":[58,80]}'")
-	_ = fs.String("connection-type", "", "Alias for --type")
+	connectionTypeAlias := fs.String("connection-type", "", "Alias for --type")
 	fs.Parse(args)
 
+	// Both alias flags are read from the parsed flag set. The connection-type
+	// alias used to be handled by scanning the raw argument slice for the exact
+	// token "--connection-type", which silently ignored the equally valid
+	// "--connection-type=spooler" form: the flag was registered (so Parse
+	// accepted it and no error was raised) but its value was never applied, and
+	// the printer was stored with the --type default instead.
+	if *connectionTypeAlias != "" {
+		*typ = *connectionTypeAlias
+	}
 	if *printerTypeAlias != "" && (*printerType == "unknown" || *printerType == "") {
 		*printerType = *printerTypeAlias
-	}
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--connection-type" && i+1 < len(args) {
-			*typ = args[i+1]
-		}
 	}
 	if strings.TrimSpace(*name) == "" {
 		log.Fatal("--name is required for printers add")
@@ -367,7 +351,6 @@ func handlePrintersAdd(configPath string, args []string) {
 	if strings.ToLower(info.ConnectionType) == "usb" && info.SpoolerName == "" {
 		fmt.Println("NOTE: direct USB uses the Windows device interface path from --endpoint; --vid/--pid identify the device but do not replace the required device path.")
 	}
-	_ = registryPath
 }
 
 func handlePrintersRemove(configPath, printerID string) {
