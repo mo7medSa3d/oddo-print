@@ -16,6 +16,35 @@ import { liveTenantSubscriptionPredicate } from "../../../../lib/entitlements";
 import { recordJobEvent } from "../../../../lib/job-timeline";
 
 export const dynamic = "force-dynamic";
+const printerEligibilityPredicate = sql\`
+  pr.lifecycle = 'active'
+  AND (
+    pr.status = 'online'
+    OR pr.status = 'busy'
+    OR (
+      pr.status = 'unknown'
+      AND (
+        pr.connection_type = 'spooler'
+        OR pr.protocol = 'spooler'
+        OR pr.connection_type IN ('ipp','ipps')
+        OR pr.protocol IN ('ipp','ipps')
+        OR (pr.connection_type IN ('network','usb') AND pr.protocol IN ('raw','escpos','zpl','tspl'))
+      )
+    )
+  )
+  AND (
+    pr.management_source = 'agent'
+    OR (
+      pr.applied_desired_revision >= pr.desired_revision
+      AND pr.observed_desired_revision >= pr.desired_revision
+    )
+  )
+  AND pr.last_seen_at IS NOT NULL
+  AND pr.last_seen_at <= now()
+  AND pr.last_seen_at >= now() - make_interval(secs => \${printerStaleThresholdSeconds()})
+  AND \${liveTenantSubscriptionPredicate(sql\`p.tenant_id\`)}
+\`;
+
 const MAX_CLAIM_BATCH = 20;
 const MAX_ERROR_LENGTH = 2000;
 
@@ -126,16 +155,7 @@ export async function GET(req: Request) {
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at <= now()
         AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
-          AND pr.lifecycle = 'active'
-          AND (pr.status = 'online' OR pr.status = 'busy' OR (pr.status = 'unknown' AND (pr.connection_type = 'spooler' OR pr.protocol = 'spooler' OR pr.connection_type IN ('ipp','ipps') OR pr.protocol IN ('ipp','ipps') OR (pr.connection_type IN ('network','usb') AND pr.protocol IN ('raw','escpos','zpl','tspl')))))
-        AND (pr.management_source = 'agent' OR (
-          pr.applied_desired_revision >= pr.desired_revision
-          AND pr.observed_desired_revision >= pr.desired_revision
-        ))
-        AND pr.last_seen_at IS NOT NULL
-        AND pr.last_seen_at <= now()
-        AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
-        AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
+          AND ${printerEligibilityPredicate}
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${queuedLimit}
@@ -157,16 +177,7 @@ export async function GET(req: Request) {
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at <= now()
         AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
-          AND pr.lifecycle = 'active'
-          AND (pr.status = 'online' OR pr.status = 'busy' OR (pr.status = 'unknown' AND (pr.connection_type = 'spooler' OR pr.protocol = 'spooler' OR pr.connection_type IN ('ipp','ipps') OR pr.protocol IN ('ipp','ipps') OR (pr.connection_type IN ('network','usb') AND pr.protocol IN ('raw','escpos','zpl','tspl')))))
-        AND (pr.management_source = 'agent' OR (
-          pr.applied_desired_revision >= pr.desired_revision
-          AND pr.observed_desired_revision >= pr.desired_revision
-        ))
-        AND pr.last_seen_at IS NOT NULL
-        AND pr.last_seen_at <= now()
-        AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
-        AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
+          AND ${printerEligibilityPredicate}
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${queuedLimit}
@@ -188,16 +199,7 @@ export async function GET(req: Request) {
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at <= now()
         AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
-          AND pr.lifecycle = 'active'
-          AND (pr.status = 'online' OR pr.status = 'busy' OR (pr.status = 'unknown' AND (pr.connection_type = 'spooler' OR pr.protocol = 'spooler' OR pr.connection_type IN ('ipp','ipps') OR pr.protocol IN ('ipp','ipps') OR (pr.connection_type IN ('network','usb') AND pr.protocol IN ('raw','escpos','zpl','tspl')))))
-        AND (pr.management_source = 'agent' OR (
-          pr.applied_desired_revision >= pr.desired_revision
-          AND pr.observed_desired_revision >= pr.desired_revision
-        ))
-        AND pr.last_seen_at IS NOT NULL
-        AND pr.last_seen_at <= now()
-        AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
-        AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
+          AND ${printerEligibilityPredicate}
           AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC
         LIMIT ${queuedLimit}
@@ -217,8 +219,7 @@ export async function GET(req: Request) {
                        THEN print_jobs.retries + 1
                        ELSE print_jobs.retries END
       FROM claimable
-      WHERE print_jobs.id = claimable.id
-        AND ${liveTenantSubscriptionPredicate(sql`print_jobs.tenant_id`)}
+      WHERE print_jobs.id = claimable.id        AND ${liveTenantSubscriptionPredicate(sql`print_jobs.tenant_id`)}
       RETURNING ${CLAIM_RETURNING}
     `);
 
@@ -437,8 +438,7 @@ export async function PATCH(req: Request) {
       const winner = await db.query.printJobs.findFirst({ where: whereClause });
       const winnerStatus = winner?.status as JobStatus | undefined;
       return NextResponse.json({ error: `Concurrent status transition rejected${winnerStatus ? `; current status is ${winnerStatus}` : ""}`, status: winnerStatus ?? "unknown" }, { status: 409 });
-    }
-    incrementMetric("print_jobs_rejected_total");
+    }    incrementMetric("print_jobs_rejected_total");
     logInfo("print.job.rejected", { requestId, jobId, agentId: agent.id, reason, physicalOutcome: "not_printed" });
     try {
       await recordJobEvent({
