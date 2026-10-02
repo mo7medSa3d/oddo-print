@@ -97,6 +97,12 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npm run lint
+      - name: i18n catalog check (en/ar parity, tc() bases)
+        run: npm run i18n:check
+      - name: Odoo translation catalog check
+        run: npm run i18n:odoo:check
+      - name: DB schema/migration/docs drift check
+        run: npm run db:docs:check
       - name: Phase 0 architecture hardening test
         run: npm run test tests/architecture-hardening.test.ts
 
