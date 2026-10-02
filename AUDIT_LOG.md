@@ -937,3 +937,163 @@ Evidence: lint 1 error -> 0 errors; typecheck 0; test 0 failures; i18n:check OK.
 ### Commit
 - `f3c7a35` fix(i18n): read the stored locale with useSyncExternalStore instead
   of setState in an effect
+
+## 2026-10-02 — Supported-runtime gate, cross-system contract, lease floor
+
+### Phase 1 — Gateway verified on the SUPPORTED Node version (was Node 22)
+
+Required version, established from every source rather than assumed:
+
+| Source | Value |
+| --- | --- |
+| `.nvmrc` (used by all 3 CI workflows via `node-version-file`) | **24.21.0** |
+| `Dockerfile` (all 4 stages, pinned by digest) | **24.21.0-alpine** |
+| `README.md:64` | "Node.js 24.21.0 is the project runtime baseline." |
+| `package.json` / `package-lock.json` `engines` | `>=24.15.0` |
+
+Every Node binary mirror is blocked in this sandbox
+(`nodejs.org`, `dl.google.com`, `deb.nodesource.com`, npmmirror, TUNA,
+`objects.githubusercontent.com` all HTTP 000). Only `registry.npmjs.org`
+responds. That registry — the same one already used for `node_modules` —
+publishes **`node-linux-x64@24.21.0`, which bundles the binary in the tarball**
+(188 MB unpacked), so the exact pinned version was obtained without any new
+network dependency or trust boundary. npm 11.21.0 was bootstrapped from the
+same registry into that prefix.
+
+Installed to `/home/user/node24` (outside the repo; git untouched).
+
+Results on **Node v24.21.0 / npm 11.21.0**, with `.npmrc`'s `engine-strict=true`
+honoured and **no `--engine-strict=false`**:
+
+```
+npm ci                  exit 0, 467 packages, 0 vulnerabilities
+npm run typecheck       0 errors
+npm run lint            0 errors, 14 warnings
+npm test                717 passed / 325 skipped / 0 failed (139 files)
+npm run build           exit 0
+npm run i18n:check      OK  (en 2106 / ar 2106)
+npm run i18n:odoo:check OK  (453/453)
+npm run db:docs:check   OK  (24 tables, 76 migrations)
+```
+
+**Node 24 exposed zero new failures.** The v22 results carry over.
+
+`git diff -- package-lock.json` = **0 bytes**; `git status --short` = **0 entries**.
+
+Note: the sandbox re-cloned again mid-session (HEAD reset to base `b3459da`
+while the working tree kept all work). Recovered with the proven
+`git reset --mixed origin/arena/01a0f87e-oddo-print`; nothing lost.
+
+### Phase 3 — Go toolchain is NOT obtainable (proven, not assumed)
+
+`go.mod` requires **go 1.26**; all four CI workflows use
+`go-version-file: agent/go.mod`.
+
+```
+go / gofmt / gopls         ABSENT, GOROOT empty
+go.dev, dl.google.com/go,  HTTP 000
+proxy.golang.org,
+golang.org, mirrors.aliyun,
+golang.google.cn           HTTP 000
+```
+
+Unlike Node, **no npm package bundles a Go toolchain**:
+`golang` (0.1.5-stable, no binary), `go` (unrelated boilerplate tool),
+`go-bin` ("Get Go binaries by version tag" — a downloader that would hit the
+blocked hosts). `golang-go`, `@golang/go`, `go-toolchain`, `go-linux-x64`
+all 404.
+
+**Conclusion: `go vet`, `go test`, `go test -race` and `go build` cannot be
+executed here.** Nothing Go-side in this audit is claimed as verified.
+
+### Phase 7 — Gateway ↔ Agent contract audit
+
+Verified consistent (no defect):
+- Agent WS path `/api/agent/ws` is **not** an App Router route; it is served by
+  the custom server at `src/server/ws.ts:905`. Initially looked missing —
+  resolved by finding the real layer, not by assuming.
+- Job claim payload: Gateway `CLAIM_RETURNING` (`src/lib/job-delivery.ts:69`)
+  emits camelCase `id / tenantId / agentId / printerId / documentType / status /
+  payload / expiresAt / retries / deliveryAttempts / claimToken / error /
+  createdAt / requestId`. The Agent's `decodeJobFields`
+  (`agent/internal/agent/agent.go:1145`) requires exactly
+  `id / printerId / agentId / status (=="claimed") / requestId(optional) /
+  claimToken`. **All match.**
+- Status update: the Agent sends `jobId / status / error / claimToken / reason`;
+  the Gateway PATCH reads those plus optional fields. **All match.**
+
+**Finding 7.1 — spooler job ID is captured but never reaches the Gateway.**
+`StartDocPrinterW` returns the Windows spooler job ID; the Agent captures it
+(`spooler_windows.go:287`), stores it in `spoolerTaskResult.jobID` (line 160)
+and logs it locally (line 711: `Spooler printed %d bytes to %s (job %d)`).
+But the public surface — `Print(ctx, data) error` and
+`PrintDocument(ctx, doc) error` — returns only `error`, so the value **cannot
+escape the printer package**. Consequently the Agent never sends `spoolerJobId`,
+even though the Gateway accepts it, persists it to a column, stores it on
+`job_events`, and renders a timeline stage "Linked to Windows Spooler Job ID
+{id}". The same applies to `attemptId` (0 non-test references in the Agent) and
+`transport` (sent only by discovery, never by job status).
+
+Impact: the one piece of evidence that could disambiguate "print occurred but
+response lost" / unknown physical outcome is logged on the Windows box and
+thrown away. It is never available to an operator investigating a job.
+
+**Not fixed** — the repair means changing `Print`/`PrintDocument` to surface the
+job ID across `document.go`, `ipp.go`, `network.go`, `spooler_stub.go`,
+`spooler_windows.go`, `usb_other.go`, `usb_windows.go`, plus the Agent call
+sites and existing tests. That cannot be compiled or tested here, so it is
+documented rather than marked fixed.
+
+### Phase 8 — queue/lease interval math
+
+Constants: heartbeat 30s and poll 5s (hardcoded, `agent.go:680/685`);
+heartbeat attempt timeout 15s (`agent.go:2208`); `MAX_RETRIES` 5,
+`MAX_DELIVERY_ATTEMPTS` 5, `MAX_AGENT_IN_FLIGHT_JOBS` 64,
+`MAX_AGENT_QUEUED_JOBS` 256; Agent `staleClaimSafetyWindow` 90s.
+
+**Fixed:** `agentStaleThresholdSeconds()` accepted values >= 10s. Two defects:
+1. At 10s with a 30s heartbeat a healthy agent is stale ~2/3 of the time and
+   job claiming nearly always fails.
+2. `job-maintenance.ts` moved claim-lease staleness onto this env var, while
+   the Agent hardcodes 90s. Any value < 90 lets the Gateway reclaim a job the
+   Agent still believes it owns → duplicate physical print. The Go comment
+   says "both sides must be changed together".
+Floor raised to 60s; out-of-range values fall back to the default. Docs
+(`PRINTERS.md`) stated the old 10–3600 range and were corrected. 6 new tests.
+
+**Not fixed (documented):** the Agent still hardcodes 90s rather than learning
+the lease from the Gateway, so divergence remains possible for values > 90
+(safe direction: spurious refusals, no duplicate print).
+
+Verified equal, no bug: `STALE_CLAIM_SECONDS` (90) == Agent
+`staleClaimSafetyWindow` (90s) at the default.
+
+### Phase 11 — API error contract resolved
+
+Contract determined from `src/lib/api-error-keys.ts`'s own header: routes return
+a stable machine `code` next to a log-only English `error` string; clients map
+the code to a translated key. `printers/route.ts` obeys this.
+
+The invitations route did not: `team/page.tsx:157` already calls
+`codeMessageKey(data.code)` but the route sent no `code`, so that branch was
+dead and every failure showed a generic "Invitation failed". For the 503 that
+is actively misleading — the invitation row is created and deliberately never
+revoked, so "failed" invites sending a second one. Fixed by attaching
+`code: "INVITATION_DELIVERY_UNAVAILABLE"` and adding `errors.invitationDelivery
+Unavailable` (en + ar) whose copy says the invitation exists, delivery is
+unconfirmed, and not to send another. 6 new tests, including one that asserts
+every `CODE_KEYS` entry resolves to a real catalog key.
+
+### Commits
+- `7ef40ec` docs(audit): record pre-push gate results and lint fix
+- `6318efd` fix(api): give the ambiguous invitation-delivery 503 a machine-readable code
+- `bcc59ae` fix(config): floor STALE_AGENT_THRESHOLD_SECONDS above one heartbeat cycle
+
+### UNVERIFIED (cumulative)
+- **Go: nothing is verified.** No compile, vet, test, race or gofmt — toolchain
+  unobtainable (proven above). All 115 Go files are source-reading only.
+- Odoo module: no runtime, no pytest run. Phases 2 and 10 not executed.
+- Phases 4 (lifecycle/races), 5 (printer identity), 6 (discovery protocols),
+  9 (integration) and 10 (runtime smoke) are Go- and/or hardware-dependent and
+  were not executed.
+- No smoke test against a live server or database; `next build` is compile-only.
