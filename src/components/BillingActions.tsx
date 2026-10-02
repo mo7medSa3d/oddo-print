@@ -6,6 +6,7 @@ import { ArrowRight, CreditCard, ExternalLink, RotateCcw } from "lucide-react";
 import { Button, Callout, ConfirmDialog, StatusBadge } from "./ui";
 import { useI18n } from "../i18n/react";
 import type { MessageKey } from "../i18n/messages/en";
+import type { Translator } from "../i18n/translate";
 
 type PlanOption = {
   id: string;
@@ -15,7 +16,6 @@ type PlanOption = {
   entitlements?: Record<string, unknown> | null;
 };
 
-type Translator = (key: MessageKey, vars?: Record<string, string | number>) => string;
 
 async function post(path: string, body: Record<string, unknown> | undefined, t: Translator) {
   const res = await fetch(path, {

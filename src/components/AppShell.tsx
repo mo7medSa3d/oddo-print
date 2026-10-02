@@ -27,6 +27,7 @@ import { CommandHint, CommandPalette, type CommandItem } from "./CommandPalette"
 import { ThemeToggle, toggleTheme } from "./ThemeToggle";
 import { BrandMark } from "./brand";
 import { useI18n } from "../i18n/react";
+import type { Translator } from "../i18n/translate";
 import { LOCALES, LOCALE_LABELS, type Locale } from "../i18n/config";
 import type { MessageKey } from "../i18n/messages/en";
 
@@ -65,12 +66,12 @@ function ConsoleBrand({ brandSubtitle, showWordmark = true }: { brandSubtitle: s
   );
 }
 
-function navLabel(item: TopNavItem, t: (key: MessageKey) => string): string {
+function navLabel(item: TopNavItem, t: Translator): string {
   if (item.labelKey) return t(item.labelKey);
   return item.label ?? item.href;
 }
 
-function navSection(item: TopNavItem, t: (key: MessageKey) => string): string {
+function navSection(item: TopNavItem, t: Translator): string {
   if (item.sectionKey) return t(item.sectionKey);
   return item.section ?? t("nav.section.workspace");
 }

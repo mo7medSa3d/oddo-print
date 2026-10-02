@@ -87,7 +87,10 @@ export function formatRelativeTime(
   if (diffSec < 0) return translate(locale, "time.justNow");
   if (diffSec < 45) return translate(locale, "time.justNow");
 
-  const rel = (amount: number, unit: Intl.RelativeTimeFormatUnit, key: MessageKey) => {
+  // `key` is a plural BASE key (e.g. "time.minutesAgo"), not a leaf
+    // MessageKey: translateCount appends the plural category itself, so
+    // the base is deliberately a plain string.
+    const rel = (amount: number, unit: Intl.RelativeTimeFormatUnit, key: string) => {
     try {
       return new Intl.RelativeTimeFormat(intlLocale(locale), { numeric: "auto" }).format(-amount, unit);
     } catch {

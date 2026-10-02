@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n/react";
+import type { Translator } from "../../i18n/translate";
 import type { MessageKey } from "../../i18n/messages/en";
 import { useRouter } from "next/navigation";
 import {
@@ -37,7 +38,7 @@ import {
   type MenuItemSpec,
 } from "../../components/ui";
 import { shortId } from "../../lib/utils";
-import { codeMessageKey } from "../lib/api-error-keys";
+import { codeMessageKey } from "../../lib/api-error-keys";
 
 type Member = { userId: string; email: string; role: string };
 type Invitation = { id: string; email: string; role: string; expiresAt: string };
@@ -45,7 +46,7 @@ type Invitation = { id: string; email: string; role: string; expiresAt: string }
 const ROLE_VALUES = ["viewer", "operator", "admin", "integration_admin", "billing_admin"] as const;
 
 /** Built per render so role names follow the active language. */
-function roleOptions(t: (key: MessageKey) => string) {
+function roleOptions(t: Translator) {
   return [
     { value: "viewer", label: t("team.role.viewer"), desc: t("team.role.viewerDesc") },
     { value: "operator", label: t("team.role.operator"), desc: t("team.role.operatorDesc") },
@@ -70,7 +71,7 @@ function roleLabel(role: string) {
   return role.replace(/_/g, " ");
 }
 
-function expiryLabel(expiresAt: string, t: (key: MessageKey) => string) {
+function expiryLabel(expiresAt: string, t: Translator) {
   const ms = new Date(expiresAt).getTime() - Date.now();
   if (Number.isNaN(ms)) return "—";
   const hours = Math.round(ms / 3_600_000);

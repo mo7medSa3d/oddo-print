@@ -31,6 +31,7 @@ export function JobCleanupButton() {
       const data = (await response.json().catch(() => ({}))) as {
         deleted?: number;
         error?: string;
+        code?: string;
       };
       if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "jobs.cleanup.failed"));
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock, Loader2, MinusCircle } from "lucide-react";
 import { Mono, Skeleton, StatusBadge, type Tone } from "./ui";
 import { useI18n } from "../i18n/react";
+import type { Translator } from "../i18n/translate";
 import type { MessageKey } from "../i18n/messages/en";
 import { statusMessageKey } from "../lib/api-error-keys";
 
@@ -42,7 +43,7 @@ const STAGE_KEYS: Record<string, MessageKey> = {
   blocked: "timeline.blocked",
 };
 
-export function stageText(stage: string, t: (key: MessageKey) => string): string {
+export function stageText(stage: string, t: Translator): string {
   const key = STAGE_KEYS[stage];
   return key ? t(key) : stage;
 }
@@ -66,7 +67,7 @@ function stageLabelKeys(status: string): MessageKey | null {
   }
 }
 
-function stageLabel(status: string, t: (key: MessageKey) => string): string {
+function stageLabel(status: string, t: Translator): string {
   const key = stageLabelKeys(status);
   return key ? t(key) : status;
 }
@@ -82,7 +83,7 @@ function formatWhen(value: string | undefined, formatDateTime: (v: string) => st
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return formatDateTime(date);
+  return formatDateTime(value);
 }
 
 /**

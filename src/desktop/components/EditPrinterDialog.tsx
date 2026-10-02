@@ -3,6 +3,7 @@ import { Button, Field, Input, Modal, Select } from "../../components/ui";
 import { friendlyGatewayError } from "../lib/printers";
 import { updateGatewayPrinter, type PrinterInfo } from "../lib/ipc";
 import { useI18n } from "../../i18n/react";
+import type { Translator } from "../../i18n/translate";
 import type { MessageKey } from "../../i18n/messages/en";
 
 type ConnectionType = "network" | "spooler" | "usb" | "ipp" | "ipps";
@@ -25,7 +26,7 @@ function defaultProtocol(connectionType: ConnectionType): string {
   }
 }
 
-function protocolOptions(connectionType: ConnectionType, t: (key: MessageKey) => string): Array<{ value: string; label: string }> {
+function protocolOptions(connectionType: ConnectionType, t: Translator): Array<{ value: string; label: string }> {
   switch (connectionType) {
     case "spooler":
       return [{ value: "spooler", label: t("desktop.connection.spooler") }, { value: "unknown", label: t("desktop.edit.deviceUnknown") }];

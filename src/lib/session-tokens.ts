@@ -5,8 +5,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { sessionCookieSecure } from "./session-config";
 import { sendTransactionalEmail } from "./email";
-import { DEFAULT_LOCALE, type Locale } from "./i18n/config";
-import { translate } from "./i18n/translate";
+import { DEFAULT_LOCALE, type Locale } from "../i18n/config";
+import { translate } from "../i18n/translate";
 import { writeAuditEvent } from "./audit";
 import { logError, logWarn } from "./log";
 

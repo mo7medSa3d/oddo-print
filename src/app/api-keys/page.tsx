@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n/react";
+import type { Translator } from "../../i18n/translate";
 import type { MessageKey } from "../../i18n/messages/en";
 import Link from "next/link";
 import {
@@ -47,7 +48,7 @@ type ApiKey = {
   odooEnabledUpdatedAt: string | null;
 };
 
-function rotationMeta(key: ApiKey, t: (key: MessageKey) => string): { label: string; tone: Tone } {
+function rotationMeta(key: ApiKey, t: Translator): { label: string; tone: Tone } {
   // Defensive: older API payloads may omit rotationState — a key that is not
   // revoked is active. Never render an undefined badge.
   if (key.revokedAt || key.rotationState === "revoked") return { label: t("apiKeys.revoked"), tone: "neutral" };

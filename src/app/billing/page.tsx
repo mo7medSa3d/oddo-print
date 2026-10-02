@@ -25,13 +25,13 @@ import {
 } from "../../components/ui";
 import { getTenantPrintUsage } from "../../lib/entitlements";
 import { logWarn } from "../../lib/log";
+import type { Translator } from "../../i18n/translate";
 
 export const dynamic = "force-dynamic";
 
 type SearchParams = Promise<{ checkout?: string | string[]; plan?: string | string[] }>;
 type SubscriptionRow = typeof tenantSubscriptions.$inferSelect;
 
-type Translator = (key: MessageKey, vars?: Record<string, string | number>) => string;
 
 function entitlementLabel(value: string, t: Translator) {
   if (value === "max_prints_per_period") return t("billing.printJobsPerPeriod");
@@ -47,7 +47,7 @@ function entitlementValue(value: unknown, t: Translator, locale: Locale) {
 
 function planStatus(
   sub: SubscriptionRow,
-  t: (key: MessageKey) => string,
+  t: Translator,
   formatDate: (value: Date) => string,
 ) {
   const end = sub.currentPeriodEnd ? formatDate(sub.currentPeriodEnd) : null;
@@ -330,7 +330,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                       printUsage.limit !== "unlimited" ? (
                         <StatusBadge
                           tone={usageTone}
-                          label={printUsage.remaining === 0 ? t("billing.limitReached") : t("billing.remaining", { count: formatNumber(printUsage.remaining, locale) })}
+                          label={printUsage.remaining === 0 ? t("billing.limitReached") : typeof printUsage.remaining === "number" ? t("billing.remaining", { count: formatNumber(printUsage.remaining, locale) }) : t("billing.unlimited")}
                         />
                       ) : (
                         <StatusBadge tone="ok" label={t("billing.unlimited")} />

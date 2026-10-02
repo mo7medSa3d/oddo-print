@@ -331,12 +331,12 @@ export async function getDashboardState() {
 }
 
 export async function getDashboardJobs(options?: {
-  const t = makeT(await getServerLocale());
   status?: string;
   search?: string;
   limit?: number;
   offset?: number;
 }) {
+  const t = makeT(await getServerLocale());
   const manager = await requireManager();
   requireManagerPermission(manager, "jobs.read");
   const statusParam = options?.status?.trim().toLowerCase();

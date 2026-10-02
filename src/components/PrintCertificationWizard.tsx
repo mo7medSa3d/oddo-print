@@ -11,6 +11,7 @@ import {
   type Tone,
 } from "./ui";
 import { useI18n } from "../i18n/react";
+import type { Translator } from "../i18n/translate";
 import type { MessageKey } from "../i18n/messages/en";
 import {
   CheckCircle2,
@@ -68,12 +69,12 @@ const STEP_KEYS: Record<string, { label: MessageKey; description: MessageKey }> 
   final: { label: "cert.step.final", description: "cert.step.final.desc" },
 };
 
-function stepLabel(step: CertificationStep, t: (key: MessageKey) => string): string {
+function stepLabel(step: CertificationStep, t: Translator): string {
   const keys = STEP_KEYS[step.id];
   return keys ? t(keys.label) : step.label;
 }
 
-function stepDescription(step: CertificationStep, t: (key: MessageKey) => string): string {
+function stepDescription(step: CertificationStep, t: Translator): string {
   const keys = STEP_KEYS[step.id];
   return keys ? t(keys.description) : step.description;
 }

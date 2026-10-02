@@ -241,6 +241,23 @@ export function jobPrinterId(j: Record<string, unknown>): string {
 export function jobDestination(j: Record<string, unknown>): string {
   return String(j.destination ?? "");
 }
+/**
+ * Read a timestamp field off a job record.
+ *
+ * JobRecord is `Record<string, unknown>` — the desktop consumes the Gateway's
+ * JSON without a generated schema — so `unknown` must be narrowed before it
+ * can reach a date formatter. Anything that is not a string or number is
+ * reported as absent so the caller renders its placeholder instead of
+ * formatting "undefined".
+ */
+export function jobTimestamp(
+  j: Record<string, unknown>,
+  key: "createdAt" | "updatedAt",
+): string | number | undefined {
+  const raw = j[key] ?? (key === "createdAt" ? j.created_at : j.updated_at);
+  if (typeof raw === "string" || typeof raw === "number") return raw;
+  return undefined;
+}
 export function jobStatus(j: Record<string, unknown>): string {
   return String(j.status ?? "");
 }

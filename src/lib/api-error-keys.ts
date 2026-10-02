@@ -78,11 +78,26 @@ export function statusMessageKey(status: number): MessageKey | null {
  * whose failure has a more specific meaning than the status alone conveys —
  * a failed sign-in should not claim the session expired.
  */
+/**
+ * Resolve the message key for one error code, or `null` when the code is
+ * unknown.
+ *
+ * This is the code-only half of `apiMessageKey`: callers in the auth and
+ * onboarding flows have a more specific fallback than an HTTP status can
+ * convey ("a failed sign-in should not claim the session expired"), so they
+ * need to distinguish "no key for this code" from "use a generic one".
+ */
+export function codeMessageKey(code: string | undefined): MessageKey | null {
+  if (code && code in CODE_KEYS) return CODE_KEYS[code];
+  return null;
+}
+
 export function apiMessageKey(
   code: string | undefined,
   status: number,
   fallback: MessageKey = "errors.operationFailed",
 ): MessageKey {
-  if (code && code in CODE_KEYS) return CODE_KEYS[code];
+  const byCode = codeMessageKey(code);
+  if (byCode) return byCode;
   return statusMessageKey(status) ?? fallback;
 }

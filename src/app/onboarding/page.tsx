@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../../i18n/react";
+import type { Translator } from "../../i18n/translate";
 import {
   AlertTriangle,
   ArrowRight,
@@ -14,8 +15,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { codeMessageKey } from "../../lib/api-error-keys";
 import {
-import { codeMessageKey } from "../lib/api-error-keys";
   Button,
   Callout,
   Card,
@@ -36,23 +37,29 @@ type Plan = {
   entitlements: Record<string, unknown>;
 };
 
-const NEXT_STEPS = [
-  {
-    icon: Server,
-    title: t("onboarding.step.agent"),
-    text: t("onboarding.step.agentText"),
-  },
-  {
-    icon: KeyRound,
-    title: t("onboarding.step.odoo"),
-    text: t("onboarding.step.odooText"),
-  },
-  {
-    icon: Printer,
-    title: t("onboarding.step.job"),
-    text: t("onboarding.step.jobText"),
-  },
-];
+// Built per render, not at module scope: `t` comes from the useI18n hook and
+// does not exist until the component runs. A module-level constant would also
+// freeze these strings at first evaluation, so they would never follow a
+// language switch.
+function nextSteps(t: Translator) {
+  return [
+    {
+      icon: Server,
+      title: t("onboarding.step.agent"),
+      text: t("onboarding.step.agentText"),
+    },
+    {
+      icon: KeyRound,
+      title: t("onboarding.step.odoo"),
+      text: t("onboarding.step.odooText"),
+    },
+    {
+      icon: Printer,
+      title: t("onboarding.step.job"),
+      text: t("onboarding.step.jobText"),
+    },
+  ];
+}
 
 export default function Onboarding() {
   const [name, setName] = useState("");
@@ -355,7 +362,7 @@ export default function Onboarding() {
                 icon={<Sparkles className="h-4 w-4" />}
               />
               <ol className="space-y-4 px-5 py-5">
-                {NEXT_STEPS.map((step, index) => (
+                {nextSteps(t).map((step, index) => (
                   <li key={step.title} className="flex gap-3">
                     <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-edge bg-surface-2 text-ink-3">
                       <step.icon className="h-3.5 w-3.5" aria-hidden />

@@ -40,10 +40,10 @@ import {
   Info,
   ArrowUpRight,
 } from "lucide-react";
-import {
 import { apiMessageKey } from "../../lib/api-error-keys";
 import type { MessageKey } from "../../i18n/messages/en";
 import type { Translator } from "../../i18n/translate";
+import {
   Button,
   Card,
   CardHeader,
@@ -165,7 +165,7 @@ type BillingUsage = {
 
 const MAX_DIAGNOSTIC_PREVIEW_CHARS = 64 * 1024;
 
-function stringifyDiagnosticPayload(payload: unknown): string {
+function stringifyDiagnosticPayload(payload: unknown, t: Translator): string {
   if (payload === undefined) return t("loading.payload");
   if (payload === null) return t("job.noPayload");
   try {
@@ -1963,12 +1963,12 @@ export default function DashboardClient({
               </summary>
               <div className="border-t border-edge-subtle p-3">
                 <div className="mb-2 flex justify-end">
-                  <CopyButton value={stringifyDiagnosticPayload(selectedJobPayload ?? selectedJob.payload)} label={t("job.copyPayload")} />
+                  <CopyButton value={stringifyDiagnosticPayload(selectedJobPayload ?? selectedJob.payload, t)} label={t("job.copyPayload")} />
                 </div>
                 <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-2xs leading-relaxed text-ink-2">
                   {selectedJobPayloadLoading
                     ? t("loading.payload")
-                    : diagnosticPayloadPreview(stringifyDiagnosticPayload(selectedJobPayload ?? selectedJob.payload), t)}
+                    : diagnosticPayloadPreview(stringifyDiagnosticPayload(selectedJobPayload ?? selectedJob.payload, t), t)}
                 </pre>
               </div>
             </details>

@@ -12,6 +12,7 @@ import { logError } from "../../lib/log";
 import { getServerLocale, makeT } from "../../i18n/server";
 import type { MessageKey } from "../../i18n/messages/en";
 import { formatNumber as formatNumberFor } from "../../i18n/format";
+import type { Translator } from "../../i18n/translate";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,7 @@ const ENTITLEMENT_KEYS: Record<string, MessageKey> = {
 
 function entitlementLabel(
   value: string,
-  t: (key: MessageKey) => string,
+  t: Translator,
 ): string {
   const key = ENTITLEMENT_KEYS[value];
   if (key) return t(key);
@@ -34,7 +35,7 @@ function entitlementLabel(
 
 function entitlementValue(
   value: unknown,
-  t: (key: MessageKey) => string,
+  t: Translator,
   formatNumber: (value: number) => string,
 ): string {
   if (value === "unlimited") return t("pricing.unlimited");

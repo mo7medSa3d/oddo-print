@@ -84,6 +84,7 @@ import {
   labelPrinter,
   printerEndpoint,
   printerTone,
+  jobTimestamp,
 } from "./lib/printers";
 import type {
   AgentStatusView,
@@ -95,7 +96,7 @@ import type {
   ToastMessage,
 } from "./types";
 import "../app/globals.css";
-import { I18nProvider } from "../i18n/react";
+import { I18nProvider, useI18n } from "../i18n/react";
 import { DEFAULT_LOCALE, LOCALE_STORAGE_KEY, resolveLocale, type Locale } from "../i18n/config";
 /* Desktop Manager uses the shared light/dark theme tokens. */
 import "./theme-light.css";
@@ -1080,10 +1081,10 @@ export default function App() {
               </MetaRow>
               <MetaRow label={t("desktop.drawer.retries")}>{String(selectedJob.retries ?? 0)}</MetaRow>
               <MetaRow label={t("desktop.drawer.created")}>
-                {selectedJob.createdAt ? formatDateTime(selectedJob.createdAt) : "—"}
+                {formatDateTime(jobTimestamp(selectedJob, "createdAt"))}
               </MetaRow>
               <MetaRow label={t("desktop.drawer.updated")}>
-                {selectedJob.updatedAt ? formatDateTime(selectedJob.updatedAt) : "—"}
+                {formatDateTime(jobTimestamp(selectedJob, "updatedAt"))}
               </MetaRow>
             </div>
             {selectedJob.error ? (

@@ -31,10 +31,10 @@ import { getServerLocale, makeT } from "../i18n/server";
 import type { MessageKey } from "../i18n/messages/en";
 import { formatDate } from "../i18n/format";
 import type { Locale } from "../i18n/config";
+import type { Translator } from "../i18n/translate";
 
 export const dynamic = "force-dynamic";
 
-type Translator = (key: MessageKey, vars?: Record<string, string | number>) => string;
 
 export default async function Home() {
   const locale = await getServerLocale();

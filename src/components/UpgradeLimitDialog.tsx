@@ -67,7 +67,7 @@ export default function UpgradeLimitDialog({
     <Modal
       open={open}
       onClose={onClose}
-      title={copy.title}
+      title={t(copy.title)}
       description={t("limit.modalDescription")}
     >
       <div className="space-y-5">

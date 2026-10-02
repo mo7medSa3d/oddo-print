@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../../i18n/react";
+import type { Translator } from "../../i18n/translate";
 import type { MessageKey } from "../../i18n/messages/en";
 import {
   Activity,
@@ -70,7 +71,7 @@ const STATE_TONE: Record<HealthState, Tone> = {
 };
 
 /** Built per render so status names follow the active language. */
-function stateLabel(state: HealthState, t: (key: MessageKey) => string): string {
+function stateLabel(state: HealthState, t: Translator): string {
   if (state === "ok") return t("health.state.ok");
   if (state === "warn") return t("health.state.warn");
   if (state === "error") return t("health.state.error");

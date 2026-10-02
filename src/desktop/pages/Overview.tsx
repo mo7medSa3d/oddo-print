@@ -5,7 +5,7 @@ import { DetailList, StatCard, StatusNotice, ViewAllButton, PrinterAvatar } from
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
 import { getPrinterLanguageBadges } from "../../lib/printer-capability";
-import { humanConnection, humanType, isProductionPrinter, jobDocType, jobId, jobPrinterId, jobStatus, labelJob, toneJob, labelPrinter, printerEndpoint, printerTone } from "../lib/printers";
+import { humanConnection, humanType, isProductionPrinter, jobDocType, jobId, jobPrinterId, jobStatus, jobTimestamp, labelJob, toneJob, labelPrinter, printerEndpoint, printerTone } from "../lib/printers";
 
 export function OverviewPage({ s }: { s: DesktopState }) {
   const { t, tc, locale, formatTime, formatDateTime } = useI18n();
@@ -104,7 +104,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="border-y border-edge bg-surface-2 text-start text-2xs uppercase tracking-wide text-ink-3"><th className="px-5 py-2.5">{t("desktop.overview.colDocument")}</th><th className="px-4 py-2.5">{t("desktop.overview.colPrinter")}</th><th className="px-4 py-2.5">{t("desktop.overview.colStatus")}</th><th className="px-5 py-2.5 text-end">{t("desktop.overview.colUpdated")}</th></tr></thead>
-              <tbody>{s.jobs.slice(0, 5).map((j) => (<tr key={jobId(j)} className="border-b border-edge last:border-0 hover:bg-surface-2/50"><td className="px-5 py-3"><div className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</div><div className="font-mono text-2xs text-ink-3">{jobId(j)}</div></td><td className="px-4 py-3 text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td className="px-4 py-3"><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} /></td><td className="px-5 py-3 text-end text-2xs text-ink-3">{j.updatedAt ? formatDateTime(j.updatedAt) : "—"}</td></tr>))}</tbody>
+              <tbody>{s.jobs.slice(0, 5).map((j) => (<tr key={jobId(j)} className="border-b border-edge last:border-0 hover:bg-surface-2/50"><td className="px-5 py-3"><div className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</div><div className="font-mono text-2xs text-ink-3">{jobId(j)}</div></td><td className="px-4 py-3 text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td className="px-4 py-3"><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} /></td><td className="px-5 py-3 text-end text-2xs text-ink-3">{formatDateTime(jobTimestamp(j, "updatedAt"))}</td></tr>))}</tbody>
             </table>
           </div>
         )}
