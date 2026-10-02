@@ -540,6 +540,8 @@ export const ar: Catalog = {
   "billing.currentPeriod": "فترة الفوترة الحالية",
   "billing.printCreditUsage": "استخدام رصيد الطباعة",
   "billing.usageUnavailable": "بيانات الاستخدام غير متاحة حاليًا",
+  "billing.usageUnavailableBody": "تعذّر تحميل الاستخدام الحالي. تبقى عناصر التحكّم في الفوترة والطباعة متاحة؛ حدِّث الصفحة للمحاولة مجددًا.",
+  "billing.usageUnavailableDashboardBody": "تعذّر تحميل الأرصدة وحدود الخطة. لا تتأثر الطباعة.",
   "billing.limitReachedTitle": "تم الوصول إلى حد رصيد الطباعة",
   "errors.operationFailed": "تعذّرت العملية. أعد المحاولة، وراجع سجلات الـ Gateway إذا استمر الخطأ.",
   "errors.testPageFailed": "تعذّرت طباعة الصفحة التجريبية. تحقّق من حالة الـ Agent والطابعة.",

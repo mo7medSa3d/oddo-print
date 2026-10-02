@@ -119,7 +119,7 @@ export default function SystemHealthClient() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void fetchHealth("initial");

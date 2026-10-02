@@ -1203,6 +1203,11 @@ msgstr "يستخدم القالب الخام للقاعدة '%s' العنصر ا
 
 #. module: print_gateway
 #: models/print_policy.py
+msgid "The raw template for rule '%s' uses a forbidden construct: %s"
+msgstr "يستخدم القالب الخام للقاعدة '%s' بنية محظورة: %s"
+
+#. module: print_gateway
+#: models/print_policy.py
 msgid "Could not build the raw payload for rule '%s'. Check that the template only uses placeholders this document provides."
 msgstr "تعذّر بناء الحمولة الخام للقاعدة '%s'. تحقّق من أن القالب يستخدم فقط العناصر النائبة التي يوفّرها هذا المستند."
 

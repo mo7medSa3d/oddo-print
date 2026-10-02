@@ -128,7 +128,7 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
       }
     })();
     return () => controller.abort();
-  }, [jobId, reloadKey]);
+  }, [jobId, reloadKey, t]);
 
   if (loading) {
     return (

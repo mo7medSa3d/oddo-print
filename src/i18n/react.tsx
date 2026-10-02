@@ -205,7 +205,7 @@ export function useI18n(): I18nValue {
       formatDurationMs: (v) => formatDurationMs(v, locale),
       formatBytes: (v) => formatBytes(v, locale),
     };
-  }, [context, locale, setLocale]);
+  }, [locale, setLocale]);
 }
 
 /** Convenience hook for components that only need `t`. */

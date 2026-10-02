@@ -75,7 +75,7 @@ function VerifyEmailContent() {
       controller.abort();
       if (redirectTimer !== undefined) clearTimeout(redirectTimer);
     };
-  }, [token, planId, router]);
+  }, [token, planId, router, t]);
 
   async function handleResend(event: React.FormEvent) {
     event.preventDefault();

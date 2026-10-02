@@ -186,7 +186,7 @@ export default function ReleaseReadinessClient() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   const overall = rows.some((r) => r.status === "FAIL")
     ? "FAIL"

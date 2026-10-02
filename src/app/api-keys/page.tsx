@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../../i18n/react";
 import type { Translator } from "../../i18n/translate";
 import type { MessageKey } from "../../i18n/messages/en";
@@ -68,11 +68,11 @@ export default function ApiKeysPage() {
   const [pending, setPending] = useState<{ kind: "revoke" | "remove"; id: string; name: string } | null>(null);
   const [hasSubscription, setHasSubscription] = useState<boolean | null>(null);
 
-  async function loadKeys() {
+  const loadKeys = useCallback(async () => {
     const r = await fetch("/api/odoo/keys", { cache: "no-store", credentials: "include" });
     if (!r.ok) throw new Error(t("apiKeys.loadFailed"));
     return (await r.json()) as ApiKey[];
-  }
+  }, [t]);
 
   useEffect(() => {
     let cancel = false;
@@ -95,7 +95,7 @@ export default function ApiKeysPage() {
     void tick(true);
     const id = setInterval(() => void tick(false), 5000);
     return () => { cancel = true; clearInterval(id); };
-  }, []);
+  }, [loadKeys]);
 
   useEffect(() => {
     fetch("/api/billing/status", { cache: "no-store", credentials: "include" })

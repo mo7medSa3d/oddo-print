@@ -82,7 +82,7 @@ export default function Onboarding() {
       throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "onboarding.plansUnavailable"));
     }
     return Array.isArray(data.plans) ? data.plans : [];
-  }, []);
+  }, [t]);
 
   const loadPlans = useCallback(async () => {
     setPlansLoading(true);
@@ -103,7 +103,7 @@ export default function Onboarding() {
     } finally {
       setPlansLoading(false);
     }
-  }, [fetchPlans]);
+  }, [fetchPlans, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,7 +130,7 @@ export default function Onboarding() {
     return () => {
       cancelled = true;
     };
-  }, [fetchPlans]);
+  }, [fetchPlans, t]);
 
   async function submit(trial: boolean) {
     setErr("");

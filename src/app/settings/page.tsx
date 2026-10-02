@@ -53,7 +53,7 @@ export default function SettingsPage() {
       })
       .catch((e) => setMessage({ text: e instanceof Error ? e.message : t("settings.loadFailed"), type: "err" }))
       .finally(() => setLoading(false));
-  }, []);
+  }, [t]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();

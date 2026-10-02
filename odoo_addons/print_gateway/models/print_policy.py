@@ -180,6 +180,16 @@ class PrintGatewayPolicy(models.Model):
                 _("The raw template for rule '%s' uses the placeholder {%s}, but this document does not provide it. Remove the placeholder or replace it with a field this record has.")
                 % (self.name, exc.args[0] if exc.args else "?")
             ) from exc
+        except ValueError as exc:
+            # The template sanitizer rejected a forbidden construct
+            # (attribute/index access, nested replacement fields). Surface
+            # the reason to the operator instead of the generic build
+            # failure below: a template that *cannot* render must be told
+            # apart from one that merely references a missing field.
+            raise ValidationError(
+                _("The raw template for rule '%s' uses a forbidden construct: %s")
+                % (self.name, exc)
+            ) from exc
         except Exception as exc:
             _logger.debug("raw template render failed for rule '%s'", self.name, exc_info=True)
             raise ValidationError(

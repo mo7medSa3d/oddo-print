@@ -2,7 +2,7 @@
 import requests
 from werkzeug.exceptions import Forbidden
 
-from odoo import http, _
+from odoo import http
 from odoo.http import request
 from odoo.exceptions import ValidationError
 
@@ -15,6 +15,16 @@ class PrintGatewayRuntimePrinterController(http.Controller):
 
     def _scope(self, company_id=None, branch_id=None, env=None):
         env = env if env is not None else request.env
+        # NOTE: the errors below are deliberately NOT wrapped in _(). Odoo 19
+        # resolves _() by walking the call stack for self.env
+        # (odoo/tools/translate.py _get_uid); a controller instance carries
+        # env=None outside a request, so _() raises
+        # AttributeError: 'NoneType' object has no attribute 'uid' instead of
+        # the intended ValidationError. This broke
+        # test_controller_rejects_root_company_as_branch and
+        # test_runtime_printer_scope_rejects_root_company_branch_parameter
+        # on Odoo 19 (CI run 37014129056). Model code keeps _() — recordsets
+        # always carry a real env.
         if company_id:
             try:
                 company = env["res.company"].browse(int(company_id)).exists()
@@ -43,15 +53,15 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             if not branch:
                 branch = company
             elif branch.id != company.id and branch.parent_id.id != company.id:
-                raise ValidationError(_("Odoo Branch must belong directly to the selected Odoo Company."))
+                raise ValidationError("Odoo Branch must belong directly to the selected Odoo Company.")
             company = company.parent_id
 
         if branch and branch == company:
-            raise ValidationError(_("Odoo Branch must be a child Branch, not the selected root Company."))
+            raise ValidationError("Odoo Branch must be a child Branch, not the selected root Company.")
 
         if branch:
             if not branch.parent_id or branch.parent_id.id != company.id:
-                raise ValidationError(_("Odoo Branch must belong directly to the selected Odoo Company."))
+                raise ValidationError("Odoo Branch must belong directly to the selected Odoo Company.")
 
         return company, branch
 

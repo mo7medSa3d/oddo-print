@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n/react";
 import type { Translator } from "../../i18n/translate";
 import type { MessageKey } from "../../i18n/messages/en";
@@ -100,7 +100,7 @@ export default function TeamPage() {
     requestAnimationFrame(() => feedbackRef.current?.focus());
   }
 
-  async function load() {
+  const load = useCallback(async () => {
     // NOTE: no optimistic setLoadError(null) here — this function runs
     // inside the mount effect, where synchronous setState is a lint error
     // (cascading renders). Retry buttons clear the error in their own
@@ -126,7 +126,7 @@ export default function TeamPage() {
     } finally {
       setLoaded(true);
     }
-  }
+  }, [t]);
 
   useEffect(() => {
     // Single implementation of the initial fetch — load() is the same block,
@@ -140,7 +140,7 @@ export default function TeamPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [load]);
 
   async function invite(event: React.FormEvent) {
     event.preventDefault();

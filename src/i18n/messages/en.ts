@@ -535,6 +535,8 @@ export const en = {
   "billing.currentPeriod": "Current billing period",
   "billing.printCreditUsage": "Print credit usage",
   "billing.usageUnavailable": "Print usage is temporarily unavailable",
+  "billing.usageUnavailableBody": "Current usage could not be loaded. Billing and printing controls remain available; refresh this page to try again.",
+  "billing.usageUnavailableDashboardBody": "Print credits and plan limits could not be loaded. Printing is unaffected.",
   "billing.limitReachedTitle": "Print credit limit reached",
   "errors.operationFailed": "Operation failed. Try again, and check the Gateway logs if it keeps happening.",
   "errors.testPageFailed": "Test page failed. Check the agent and printer status.",

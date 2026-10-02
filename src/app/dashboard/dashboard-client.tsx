@@ -564,7 +564,7 @@ export default function DashboardClient({
     return () => {
       cancelled = true;
     };
-  }, [jobStatusFilter, debouncedJobSearch, jobsRetryTick]);
+  }, [jobStatusFilter, debouncedJobSearch, jobsRetryTick, t]);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -662,7 +662,7 @@ export default function DashboardClient({
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [activePairing]);
+  }, [activePairing, t]);
 
   const kpis = useMemo(() => {
     const totalAgents = agents.length;
@@ -702,7 +702,7 @@ export default function DashboardClient({
       expiredJobs,
       successRate,
     };
-  }, [agents, printers, kpiJobs, nowMs]);
+  }, [agents, printers, kpiJobs, nowMs, locale]);
 
   const runAction = async (operation: () => Promise<unknown>, successMsg?: string) => {
     setBusy(true);
@@ -1182,7 +1182,7 @@ export default function DashboardClient({
             </Button>
           }
         >
-          Print credits and plan limits could not be loaded. Printing is unaffected.
+          {t("billing.usageUnavailableDashboardBody")}
         </Callout>
       )}
 

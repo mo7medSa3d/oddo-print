@@ -2,7 +2,7 @@
  * Localization entry point.
  *
  * One import surface for the whole product (Next console, Vite desktop):
- *   import { useI18n } from "@/i18n"; // or a relative path in app code
+ *   import { useI18n } from "../../i18n/react"; // always a relative path
  */
 export {
   DEFAULT_LOCALE,

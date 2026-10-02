@@ -224,8 +224,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
           )}
           {printUsageUnavailable && (
             <Callout tone="warn" title={t("billing.usageUnavailable")}>
-              Current usage could not be loaded. Billing and printing controls remain available;
-              refresh this page to try again.
+              {t("billing.usageUnavailableBody")}
             </Callout>
           )}
 
