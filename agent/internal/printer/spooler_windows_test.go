@@ -544,3 +544,42 @@ func TestSpoolerStatusUnreadableQueueIsNotOnline(t *testing.T) {
 	}
 	restore()
 }
+
+// A completed session's StartDocPrinterW identity must be recorded for
+// Gateway evidence linkage: after a successful Print the printer reports
+// the fake job ID, and after a failed Print it reports none (a failure
+// must never publish a stale success's identity).
+func TestPrintRecordsSpoolerJobIDOnSuccess(t *testing.T) {
+	withFakeQueue(t, 0, 0)
+	prev := currentExecuteSpoolerSession
+	currentExecuteSpoolerSession = func(spoolerName string, data []byte, cancelNotice <-chan struct{}) spoolerTaskResult {
+		return spoolerTaskResult{jobID: 456, written: 16}
+	}
+	t.Cleanup(func() { currentExecuteSpoolerSession = prev })
+	p := NewSpooler("EvidencePrinter", "")
+	if err := p.Print(context.Background(), []byte("evidence payload")); err != nil {
+		t.Fatalf("fake session must succeed, got %v", err)
+	}
+	if got := p.LastSpoolerJobID(); got != "456" {
+		t.Fatalf("successful session must record spooler job ID 456, got %q", got)
+	}
+	if got := SpoolerJobIDOf(p); got != "456" {
+		t.Fatalf("SpoolerJobIDOf must surface the recorded ID, got %q", got)
+	}
+}
+
+func TestPrintLeavesNoSpoolerJobIDOnFailure(t *testing.T) {
+	withFakeQueue(t, 0, 0)
+	prev := currentExecuteSpoolerSession
+	currentExecuteSpoolerSession = func(spoolerName string, data []byte, cancelNotice <-chan struct{}) spoolerTaskResult {
+		return spoolerTaskResult{err: errors.New("simulated session failure")}
+	}
+	t.Cleanup(func() { currentExecuteSpoolerSession = prev })
+	p := NewSpooler("EvidencePrinter", "")
+	if err := p.Print(context.Background(), []byte("evidence payload")); err == nil {
+		t.Fatal("fake session must fail")
+	}
+	if got := p.LastSpoolerJobID(); got != "" {
+		t.Fatalf("failed session must record no spooler job ID, got %q", got)
+	}
+}

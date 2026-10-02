@@ -11,6 +11,28 @@ type Printer interface {
 	Status() string
 }
 
+// SpoolerJobIDReporter is an OPTIONAL interface for printers that receive
+// a platform job identity for completed submissions (Windows spooler
+// StartDocPrinterW return value). It is deliberately optional — not part
+// of Printer — so network/USB/IPP backends (which have no such identity)
+// do not change. Use SpoolerJobIDOf to read it without a type switch at
+// every call site.
+type SpoolerJobIDReporter interface {
+	// LastSpoolerJobID returns the platform job ID of the most recent
+	// successfully completed session on this printer, or "" when none
+	// (never completed, or backend has no platform identity).
+	LastSpoolerJobID() string
+}
+
+// SpoolerJobIDOf returns the printer's last platform job ID, or "" when
+// the printer does not report one. Safe to call on any Printer.
+func SpoolerJobIDOf(p Printer) string {
+	if r, ok := p.(SpoolerJobIDReporter); ok {
+		return r.LastSpoolerJobID()
+	}
+	return ""
+}
+
 // DeviceInfo is the discovery-time description of a physical printer.
 // It is used for listing, manual registration, stable-ID persistence, and
 // reporting to the Gateway via heartbeat.
