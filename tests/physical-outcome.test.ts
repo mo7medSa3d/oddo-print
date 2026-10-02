@@ -5,6 +5,7 @@ import {
   PHYSICAL_OUTCOMES,
 } from "../src/lib/job-status";
 import { jobLabel, jobGuidance } from "../src/shared/job-vocabulary";
+import { translate } from "../src/i18n/translate";
 
 describe("physical print outcome semantics", () => {
   it("defines the three physical outcome values", () => {
@@ -14,7 +15,10 @@ describe("physical print outcome semantics", () => {
   it("does not treat transport success as proof of physical paper output", () => {
     expect(derivePhysicalOutcome("success", null)).toBe("unknown");
     expect(jobLabel("success", "unknown")).toBe("Delivered to printer");
-    expect(jobGuidance("success", "unknown")).toContain("Physical paper output is not independently verified");
+    // The copy is localized now, so assert against the resolved guidance. The
+  // invariant is unchanged: a Gateway "success" means the Agent handed the
+  // document to the printer transport, NOT that paper physically emerged.
+  expect(jobGuidance("success", "unknown")).toBe(translate("en", "job.guidance.success"));
   });
 
   it("does not confuse an ordinary failed job with an unknown physical result", () => {

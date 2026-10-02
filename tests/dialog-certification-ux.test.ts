@@ -18,7 +18,7 @@ describe("dialog and printer certification UX contracts", () => {
 
   it("opens printer certification in the same centered modal primitive as other inspectors", () => {
     expect(dashboard).toContain("title={certifyPrinter ?");
-    expect(dashboard).toContain('description="Run a controlled real-print certification');
+    expect(dashboard).toContain('description={t("printer.certifyDescription")}');
     expect(dashboard).toContain("wide");
     expect(dashboard).not.toContain("<Drawer\n        open={certifyPrinter");
   });
@@ -30,9 +30,9 @@ describe("dialog and printer certification UX contracts", () => {
   });
 
   it("keeps certification content readable and structured", () => {
-    expect(certification).toContain("Certification stages");
-    expect(certification).toContain("Overall result");
-    expect(certification).toContain("Physical print verification");
+    expect(certification).toContain('t("cert.stagesHeading")');
+    expect(certification).toContain('t("cert.overallResult")');
+    expect(certification).toContain('t("cert.physicalTitle")');
     expect(certification).toContain("text-[14px] leading-relaxed");
     expect(certification).not.toContain("text-[10px]");
     expect(certification).not.toContain("text-[11px] text-ink-4");

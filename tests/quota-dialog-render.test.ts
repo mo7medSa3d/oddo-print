@@ -141,7 +141,12 @@ describe("quota-exhausted upgrade dialog", () => {
   it("closes through the modal action", () => {
     const onClose = vi.fn();
     const body = renderDialog({ open: true, used: 10, limit: 10, onClose });
-    const closeButton = Array.from(body.querySelectorAll("button")).find((b) => (b.textContent ?? "").trim() === "Close");
+    // The dismiss control is an icon-only button, so it carries no text
+    // content — it is identified by its accessible name (aria-label), which is
+    // what assistive tech and the a11y contract actually depend on.
+    const closeButton = Array.from(body.querySelectorAll('[role="dialog"] button')).find(
+      (b) => (b.getAttribute("aria-label") ?? "").trim() === "Close dialog",
+    );
     expect(closeButton).toBeDefined();
     act(() => {
       closeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildTimelineFromJobRow } from "../src/lib/job-timeline";
+import { translate } from "../src/i18n/translate";
 
 // The timeline builder takes the full `print_jobs` row type. Fixtures are
 // built through this helper so every required column is present and typed;
@@ -37,6 +38,9 @@ function makeJob(overrides: Partial<PrintJobRow> = {}): PrintJobRow {
   };
 }
 
+const SUCCESS_UNVERIFIED_KEY = "job.timeline.successUnverified" as const;
+const t = (key: typeof SUCCESS_UNVERIFIED_KEY) => translate("en", key);
+
 describe("job-timeline", () => {
   it("builds timeline from job row with all stages", () => {
     const job = makeJob({
@@ -59,8 +63,13 @@ describe("job-timeline", () => {
     expect(stages).toContain("queued");
     expect(stages).toContain("claimed");
     expect(stages).toContain("success");
+    // The timeline carries a message KEY (resolved by the client for the
+    // active locale), not a pre-rendered English sentence. The invariant this
+    // guards is that a successful delivery still does NOT claim physical paper
+    // output was verified, so assert on the resolved text of that key.
     const successStage = timeline.find(t => t.stage === "success");
-    expect(successStage?.message).toContain("physical paper output is not independently verified");
+    expect(successStage?.messageKey).toBe("job.timeline.successUnverified");
+    expect(t(SUCCESS_UNVERIFIED_KEY)).toContain("physical paper output is not independently verified");
   });
 
   it("includes spoolerJobId linking in timeline when present", () => {
@@ -77,7 +86,10 @@ describe("job-timeline", () => {
     const timeline = buildTimelineFromJobRow(job);
     const connectionStage = timeline.find(t => t.stage === "connection");
     expect(connectionStage).toBeDefined();
-    expect(connectionStage?.message).toContain("99");
+    // The spooler id travels as an interpolation variable, not baked into the
+    // message, so the identifier is never translated or reordered.
+    expect(connectionStage?.messageKey).toBe("job.timeline.spoolerLink");
+    expect(connectionStage?.messageVars?.id).toBe("99");
   });
 
   it("preserves null timestamps when a job has no execution timestamp", () => {
