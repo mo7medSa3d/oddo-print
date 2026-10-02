@@ -5,6 +5,7 @@ import { db } from "../db";
 import { agents, printers, printJobs, discoverySessions, discoveredDevices } from "../db/schema";
 import { eq, count, or, and, inArray, sql, desc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { lifecycleLabel } from "../lib/lifecycle-labels";
 import { cookies } from "next/headers";
 import { generatePairingCode } from "../lib/agent-auth";
 import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../lib/manager-auth";
@@ -19,6 +20,7 @@ import {
 import { canTransitionLifecycle } from "../lib/lifecycle";
 import { transitionAgentLifecycle, LifecycleConflict } from "../lib/agent-lifecycle";
 import { ActionError } from "../lib/action-error";
+import { getServerLocale, makeT } from "../i18n/server";
 import { writeAuditEvent } from "../lib/audit";
 import { requireManagerPermission } from "../lib/authorization";
 import { entitlementLimitSignal, isTenantBillingError } from "../lib/entitlements";
@@ -29,12 +31,13 @@ import { gatewayNow } from "../lib/database-clock";
 import { createAgentForManager } from "../lib/agent-control";
 
 async function requireManager() {
+  const t = makeT(await getServerLocale());
   const cookieStore = await cookies();
   const claims = await verifyWorkspaceTokenFromCookieValues(
     cookieStore.get("cust_session")?.value ?? null,
     cookieStore.get(getManagerCookieName())?.value ?? null,
   );
-  if (!claims) throw new ActionError("Your manager session has expired. Sign in again.", 401);
+  if (!claims) throw new ActionError(t("errors.sessionExpired"), 401);
   return claims;
 }
 
@@ -46,9 +49,10 @@ export async function createAgent(name: string) {
 }
 
 export async function deleteAgent(id: string) {
+  const t = makeT(await getServerLocale());
   const manager = await requireManager();
   requireManagerPermission(manager, "agents.retire");
-  if (typeof id !== "string" || !id.trim()) throw new ActionError("agent id is required", 400);
+  if (typeof id !== "string" || !id.trim()) throw new ActionError(t("errors.agentIdRequired"), 400);
   const agentId = id.trim();
 
   await db.transaction(async (tx) => {
@@ -60,13 +64,13 @@ export async function deleteAgent(id: string) {
       FOR UPDATE
     `);
     const agent = (locked as unknown as { rows?: { id: string; status: string; lifecycle: string; last_seen_at?: Date | string | null }[] }).rows?.[0];
-    if (!agent) throw new ActionError("Agent not found", 404);
+    if (!agent) throw new ActionError(t("errors.agentNotFound"), 404);
     await requireActiveTenantInTransaction(tx, manager.tenantId);
     if (isAgentAvailableForJob({ lifecycle: agent.lifecycle, status: agent.status, lastSeenAt: agent.last_seen_at })) {
-      throw new ActionError("This agent is still connected. Stop the agent service first, then delete it.", 409);
+      throw new ActionError(t("errors.agentStillConnected"), 409);
     }
     if (agent.lifecycle === "retired") {
-      throw new ActionError("Retired agents are kept for audit history and cannot be deleted.", 409);
+      throw new ActionError(t("errors.agentRetiredUndeletable"), 409);
     }
 
     // Referential integrity: check if this agent or any of its printers have historical print jobs
@@ -82,7 +86,7 @@ export async function deleteAgent(id: string) {
       .where(or(...jobConditions));
 
     if (Number(jobCount ?? 0) > 0) {
-      throw new ActionError("This agent has print history and cannot be deleted. Choose Retire instead to preserve the audit history.", 409);
+      throw new ActionError(t("errors.agentHasHistory"), 409);
     }
 
     // Clean removable transient discovery runtime records
@@ -105,6 +109,7 @@ export async function deleteAgent(id: string) {
 }
 
 export async function createPrintJob(printerId: string, payload: unknown) {
+  const t = makeT(await getServerLocale());
   const manager = await requireManager();
   requireManagerPermission(manager, "jobs.create");
   try {
@@ -119,7 +124,7 @@ export async function createPrintJob(printerId: string, payload: unknown) {
     // a 429/403 body server-side.
     const limit = entitlementLimitSignal(error);
     if (limit) return { ok: false as const, limit } satisfies LimitSignalResult;
-    if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
+    if (isTenantBillingError(error)) throw new ActionError(t("errors.billingBlocked"), 403, error.code);
     throw error;
   }
 }
@@ -134,16 +139,17 @@ export async function createPrintJob(printerId: string, payload: unknown) {
  * unknown outcomes are always an explicit operator action.
  */
 export async function reprintJob(jobId: string) {
+  const t = makeT(await getServerLocale());
   const manager = await requireManager();
   requireManagerPermission(manager, "jobs.retry");
-  if (typeof jobId !== "string" || !jobId.trim()) throw new ActionError("job id is required", 400);
+  if (typeof jobId !== "string" || !jobId.trim()) throw new ActionError(t("errors.jobIdRequired"), 400);
   const job = await db.query.printJobs.findFirst({ where: and(eq(printJobs.id, jobId.trim()), eq(printJobs.tenantId, manager.tenantId)) });
-  if (!job) throw new ActionError("Job not found", 404);
+  if (!job) throw new ActionError(t("errors.jobNotFound"), 404);
   if (!isTerminal(job.status as JobStatus)) {
-    throw new ActionError("Only finished, failed, or expired jobs can be reprinted. The current job is still in progress.", 409);
+    throw new ActionError(t("errors.jobStillInProgress"), 409);
   }
   if (job.status === "success") {
-    throw new ActionError("Successful jobs are not eligible for operator reprint; create a new intentional print instead.", 409);
+    throw new ActionError(t("errors.jobNotEligibleForReprint"), 409);
   }
   try {
     // Reprint sequence allocation happens inside createPrintJobForPrinter's
@@ -163,12 +169,13 @@ export async function reprintJob(jobId: string) {
     // server-action boundary, so it is returned instead of thrown.
     const limit = entitlementLimitSignal(error);
     if (limit) return { ok: false as const, limit } satisfies LimitSignalResult;
-    if (isTenantBillingError(error)) throw new ActionError(error.message, 403, error.code);
+    if (isTenantBillingError(error)) throw new ActionError(t("errors.billingBlocked"), 403, error.code);
     throw error;
   }
 }
 
 export async function setPrinterLifecycle(id: string, lifecycle: "active" | "disabled" | "retired") {
+  const t = makeT(await getServerLocale());
   const manager = await requireManager();
   requireManagerPermission(manager, "printers.manage");
 
@@ -186,7 +193,7 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
       WHERE id = ${id} AND tenant_id = ${manager.tenantId}
     `);
     const ownerAgentId = (owner.rows[0] as { agent_id?: string } | undefined)?.agent_id;
-    if (!ownerAgentId) throw new ActionError("Printer not found", 404);
+    if (!ownerAgentId) throw new ActionError(t("errors.printerNotFound"), 404);
 
     if (lifecycle === "active") {
       const agent = await tx.execute(sql`
@@ -196,9 +203,10 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
         FOR UPDATE
       `);
       const agentLifecycle = (agent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
-      if (!agentLifecycle) throw new ActionError("The agent that owns this printer no longer exists.", 404);
+      if (!agentLifecycle) throw new ActionError(t("errors.printerOwnerMissing"), 404);
       if (agentLifecycle !== "active") {
-        throw new ActionError(`The agent owning this printer is ${agentLifecycle}; reactivate the agent first.`, 409);
+                // Translate the stored enum: it is a database identifier, not copy.
+        throw new ActionError(t("errors.printerOwnerLifecycle", { state: lifecycleLabel(t, agentLifecycle) }), 409);
       }
     }
 
@@ -209,14 +217,14 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
       FOR UPDATE
     `);
     const printer = locked.rows[0] as { id?: string; agent_id?: string; lifecycle?: unknown } | undefined;
-    if (!printer?.id) throw new ActionError("Printer not found", 404);
-    if (typeof printer.lifecycle !== "string") throw new ActionError("Printer has an invalid lifecycle.", 500);
+    if (!printer?.id) throw new ActionError(t("errors.printerNotFound"), 404);
+    if (typeof printer.lifecycle !== "string") throw new ActionError(t("errors.printerInvalidLifecycle"), 500);
 
     const current = printer.lifecycle as "active" | "disabled" | "retired";
     if (current === lifecycle) return;
 
     if (!canTransitionLifecycle(current, lifecycle)) {
-      throw new ActionError(`This printer cannot go from ${current} to ${lifecycle}.`, 409);
+      throw new ActionError(t("errors.printerTransitionBlocked", { current, next: lifecycle }), 409);
     }
 
     const [updated] = await tx.update(printers)
@@ -229,7 +237,7 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
       .where(and(eq(printers.id, id), eq(printers.tenantId, manager.tenantId), eq(printers.lifecycle, current)))
       .returning({ id: printers.id, lifecycle: printers.lifecycle, desiredRevision: printers.desiredRevision });
 
-    if (!updated) throw new ActionError("Printer lifecycle changed concurrently; refresh and try again.", 409);
+    if (!updated) throw new ActionError(t("errors.printerLifecycleConcurrent"), 409);
 
     await writeAuditEvent({
       tenantId: manager.tenantId,
@@ -245,6 +253,7 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
 }
 
 export async function setAgentLifecycle(id: string, lifecycle: "active" | "disabled" | "retired") {
+  const t = makeT(await getServerLocale());
   const manager = await requireManager();
   requireManagerPermission(manager, "agents.disable");
   try {
@@ -252,13 +261,13 @@ export async function setAgentLifecycle(id: string, lifecycle: "active" | "disab
       type: manager.userId ? "user" : "system",
       id: manager.userId ?? "legacy-manager",
     });
-    if (!result) throw new ActionError("Agent not found", 404);
+    if (!result) throw new ActionError(t("errors.agentNotFound"), 404);
     // transitionAgentLifecycle persists the single authoritative lifecycle
     // audit event inside the same transaction as the state change.
     revalidatePath("/dashboard");
     return { lifecycle: result.lifecycle, pairingCode: result.pairingCode };
   } catch (error) {
-    if (error instanceof LifecycleConflict) throw new ActionError(error.message, 409);
+    if (error instanceof LifecycleConflict) throw new ActionError(t("errors.lifecycleConflict"), 409);
     throw error;
   }
 }
@@ -327,6 +336,7 @@ export async function getDashboardJobs(options?: {
   limit?: number;
   offset?: number;
 }) {
+  const t = makeT(await getServerLocale());
   const manager = await requireManager();
   requireManagerPermission(manager, "jobs.read");
   const statusParam = options?.status?.trim().toLowerCase();
@@ -335,7 +345,7 @@ export async function getDashboardJobs(options?: {
   const offset = Math.max(options?.offset ?? 0, 0);
 
   if (statusParam && !isJobFilterStatus(statusParam)) {
-    throw new ActionError("Invalid status filter", 400);
+    throw new ActionError(t("errors.invalidStatusFilter"), 400);
   }
 
   const conditions = [eq(printJobs.tenantId, manager.tenantId)];

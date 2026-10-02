@@ -39,6 +39,25 @@ func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
 		return nil, fmt.Errorf("set WSD read deadline: %w", err)
 	}
 
+	// SetReadDeadline is a single absolute time: a cancellation that arrives
+	// afterwards is invisible to a goroutine already blocked in ReadFromUDP, so
+	// a service stop could stall for the whole 2.5s discovery window. Unblock
+	// the read by pulling the deadline to "now" when the context ends.
+	//
+	// The watchdog terminates on either ctx.Done or the deferred close(done),
+	// so it cannot outlive this function.
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			// Best effort: if the read already returned, this is a no-op on a
+			// socket that is about to be closed anyway.
+			_ = conn.SetReadDeadline(time.Now())
+		case <-done:
+		}
+	}()
+
 	buf := make([]byte, 65535)
 	var allFound []DeviceInfo
 	seenIP := make(map[string]bool)

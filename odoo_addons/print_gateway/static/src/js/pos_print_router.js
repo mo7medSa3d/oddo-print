@@ -1,6 +1,7 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
+import { _t } from "@web/core/l10n/translation";
 import { gatewayServerMessage, showGatewayBillingLimitDialog } from "./gateway_limit_dialog";
 import { PosStore } from "@point_of_sale/app/services/pos_store";
 import { changesToOrder } from "@point_of_sale/app/models/utils/order_change";
@@ -141,7 +142,7 @@ patch(PosStore.prototype, {
     async printReceipt({ order, basic = false, printBillActionTriggered = false } = {}) {
         const currentOrder = order || this.getOrder();
         if (!currentOrder) {
-            this.notification.add("No POS order is available for printing.", { type: "danger" });
+            this.notification.add(_t("No POS order is available for printing."), { type: "danger" });
             return false;
         }
 
@@ -185,17 +186,17 @@ patch(PosStore.prototype, {
             // printed; "unknown" means the outcome cannot be trusted.
             if (["unknown", "partial"].includes(result?.status)) {
                 this.notification.add(
-                    "Print status is unknown. Check the printer before trying again.",
+                    _t("Print status is unknown. Check the printer before trying again."),
                     { type: "warning", sticky: true }
                 );
             } else if (result?.status === "failed") {
                 this.notification.add(
-                    result?.message || "The receipt could not be accepted for printing. Check Print Activity for details.",
+                    result?.message || _t("The receipt could not be accepted for printing. Check Print Activity for details."),
                     { type: "danger" }
                 );
             } else {
                 this.notification.add(
-                    result?.message || "Receipt sent to the printing service. Check Print Activity for the final status.",
+                    result?.message || _t("Receipt sent to the printing service. Check Print Activity for the final status."),
                     { type: "success" }
                 );
             }
@@ -231,7 +232,7 @@ patch(PosStore.prototype, {
             // Read the server-side message (error.data.message), not the
             // generic RPC title (error.message is "Odoo Server Error" for
             // every deterministic printer failure).
-            this.notification.add(gatewayServerMessage(error) || "Receipt printing failed.", { type: "danger" });
+            this.notification.add(gatewayServerMessage(error) || _t("Receipt printing failed."), { type: "danger" });
             return false;
         }
     },
@@ -412,7 +413,7 @@ patch(PosStore.prototype, {
                 );
                 if (uncovered.length) {
                     this.notification.add(
-                        "Gateway Kitchen routing is incomplete for one or more Odoo Preparation Printers. Printing was cancelled to prevent silently losing kitchen tickets.",
+                        _t("Gateway Kitchen routing is incomplete for one or more Odoo Preparation Printers. Printing was cancelled to prevent silently losing kitchen tickets."),
                         { type: "danger", sticky: true }
                     );
                     return false;
@@ -422,8 +423,8 @@ patch(PosStore.prototype, {
             if (!routes.length) {
                 this.notification.add(
                     retryAttempt
-                        ? "The previously failed kitchen printer is no longer available in the current POS configuration."
-                        : "Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for an Odoo preparation printer.",
+                        ? _t("The previously failed kitchen printer is no longer available in the current POS configuration.")
+                        : _t("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for an Odoo preparation printer."),
                     { type: "danger", sticky: true }
                 );
                 return false;
@@ -478,7 +479,7 @@ patch(PosStore.prototype, {
                         if (result?.gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial") {
                             this.notification.add(
                                 result.message?.body ||
-                                    "Kitchen print status is unknown. Check the printer before trying again.",
+                                    _t("Kitchen print status is unknown. Check the printer before trying again."),
                                 { type: "warning", sticky: true }
                             );
                             continue;
@@ -493,7 +494,7 @@ patch(PosStore.prototype, {
                             unsuccessfulPrints.push(
                                 printer?.config?.name ||
                                     ("Odoo Preparation Printer " + String(route.pos_printer_id) + ": " +
-                                        (result.message?.body || "print failed"))
+                                        (result.message?.body || _t("print failed")))
                             );
                             if (result.message?.body && printer?.config?.name) {
                                 unsuccessfulPrints[unsuccessfulPrints.length - 1] =
@@ -504,7 +505,7 @@ patch(PosStore.prototype, {
                         if (result.successful && result.warningCode) {
                             this.displayPrinterWarning(
                                 result,
-                                printer?.config?.name || "Gateway Kitchen"
+                                printer?.config?.name || _t("Gateway Kitchen")
                             );
                         }
                     }
@@ -531,7 +532,7 @@ patch(PosStore.prototype, {
             if (showGatewayBillingLimitDialog(this.env, error)) {
                 return false;
             }
-            this.notification.add(gatewayServerMessage(error) || "Kitchen / Preparation printing failed.", {
+            this.notification.add(gatewayServerMessage(error) || _t("Kitchen / Preparation printing failed."), {
                 type: "danger",
             });
             return false;
@@ -601,14 +602,14 @@ patch(PosStore.prototype, {
                 return {
                     successful: false,
                     canRetry: false,
-                    message: { title: "Printing Service", body: "The Gateway plan limit has been reached." },
+                    message: { title: _t("Printing Service"), body: _t("The Gateway plan limit has been reached.") },
                 };
             }
-            this.notification.add(gatewayServerMessage(error) || "Kitchen / Preparation printing failed.", { type: "danger" });
+            this.notification.add(gatewayServerMessage(error) || _t("Kitchen / Preparation printing failed."), { type: "danger" });
             return {
                 successful: false,
                 canRetry: true,
-                message: { title: "Printing Service", body: gatewayServerMessage(error) || "Kitchen / Preparation printing failed." },
+                message: { title: _t("Printing Service"), body: gatewayServerMessage(error) || _t("Kitchen / Preparation printing failed.") },
             };
         }
     },

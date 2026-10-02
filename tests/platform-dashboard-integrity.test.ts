@@ -35,7 +35,7 @@ describe("platform dashboard visual/data integrity", () => {
     expect(platformLogin).toContain('Field');
     expect(platformLogin).toContain('Input');
     expect(platformLogin).toContain('ErrorState');
-    expect(platformLogin).toContain('<AuthShell subtitle="Platform Administration">');
+    expect(platformLogin).toContain('subtitle={t("auth.shell.platformAdmin")}');
     expect(platformLogin).toContain("border-edge-strong bg-surface");
     expect(platformLogin).not.toContain("var(--platform-bg)");
     expect(platformLogin).not.toContain("var(--platform-surface)");

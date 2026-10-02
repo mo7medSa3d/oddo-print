@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useI18n } from "../../i18n/react";
 import {
   Building2,
   User,
@@ -32,6 +33,7 @@ type SettingsPayload = {
 
 export default function SettingsPage() {
   const [name, setName] = useState("");
+  const { t, formatDate } = useI18n();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
   const [tenantCreatedAt, setTenantCreatedAt] = useState<string | null>(null);
@@ -42,14 +44,14 @@ export default function SettingsPage() {
   useEffect(() => {
     fetch("/api/settings", { credentials: "include", cache: "no-store" })
       .then(async (r) => {
-        if (!r.ok) throw new Error("Unable to load settings");
+        if (!r.ok) throw new Error(t("settings.loadFailed"));
         const d = (await r.json()) as SettingsPayload;
         setName(d.tenant?.name ?? "");
         setEmail(d.email ?? "");
         setRole(d.role ?? "");
         setTenantCreatedAt(d.tenant?.createdAt ?? null);
       })
-      .catch((e) => setMessage({ text: e instanceof Error ? e.message : "Unable to load settings", type: "err" }))
+      .catch((e) => setMessage({ text: e instanceof Error ? e.message : t("settings.loadFailed"), type: "err" }))
       .finally(() => setLoading(false));
   }, []);
 
@@ -65,10 +67,10 @@ export default function SettingsPage() {
         body: JSON.stringify({ name }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Unable to save settings");
-      setMessage({ text: "Workspace name updated.", type: "ok" });
+      if (!r.ok) throw new Error(d.error ?? t("settings.saveFailed"));
+      setMessage({ text: t("settings.nameUpdated"), type: "ok" });
     } catch (e) {
-      setMessage({ text: e instanceof Error ? e.message : "Unable to save settings", type: "err" });
+      setMessage({ text: e instanceof Error ? e.message : t("settings.saveFailed"), type: "err" });
     } finally {
       setBusy(false);
     }
@@ -79,33 +81,33 @@ export default function SettingsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Administration"
+        eyebrow={t("nav.section.administration")}
         icon={<SettingsIcon className="h-4 w-4" />}
-        title="Settings"
+        title={t("nav.settings")}
         width="narrow"
-        description="Workspace identity and the account access attached to it."
+        description={t("settings.pageDescription")}
       />
 
       <PageContainer width="narrow">
         {loading ? (
-          <div className="space-y-5" role="status" aria-label="Loading settings">
+          <div className="space-y-5" role="status" aria-label={t("settings.loadingAria")}>
             <Skeleton className="h-[240px] rounded-2xl" />
             <Skeleton className="h-[160px] rounded-2xl" />
-            <span className="sr-only">Loading settings…</span>
+            <span className="sr-only">{t("settings.loadingShort")}</span>
           </div>
         ) : (
           <div className="space-y-5">
             <Card>
               <CardHeader
-                title="Workspace identity"
-                subtitle="Shown to your team, in billing records, and in audit history."
+                title={t("settings.identityTitle")}
+                subtitle={t("settings.identitySubtitle")}
                 icon={<Building2 className="h-4 w-4" />}
               />
               <form onSubmit={save} className="space-y-5 px-5 py-5">
                 <Field
-                  label="Workspace name"
+                  label={t("onboarding.workspaceName")}
                   htmlFor="workspace-name"
-                  hint="2–120 characters. Appears on invoices and in the Odoo sync record."
+                  hint={t("settings.workspaceNameHint")}
                   required
                 >
                   <Input
@@ -115,7 +117,7 @@ export default function SettingsPage() {
                     minLength={2}
                     maxLength={120}
                     required
-                    placeholder="Acme Inc."
+                    placeholder={t("settings.namePlaceholder")}
                     disabled={busy || !dirty}
                   />
                 </Field>
@@ -124,7 +126,7 @@ export default function SettingsPage() {
                   <Callout
                     tone={message.type === "ok" ? "ok" : "bad"}
                     icon={message.type === "ok" ? <CheckCircle2 className="h-4 w-4" /> : undefined}
-                    title={message.type === "ok" ? "Saved" : "Couldn’t save"}
+                    title={message.type === "ok" ? t("settings.saved") : t("settings.saveFailed")}
                   >
                     {message.text}
                   </Callout>
@@ -132,7 +134,7 @@ export default function SettingsPage() {
 
                 <div className="flex items-center justify-end gap-2 border-t border-edge-subtle pt-4">
                   <Button type="submit" variant="primary" disabled={busy} loading={busy} icon={<Save className="h-4 w-4" />}>
-                    {busy ? "Saving…" : "Save changes"}
+                    {busy ? t("common.saving") : t("common.saveChanges")}
                   </Button>
                 </div>
               </form>
@@ -140,23 +142,23 @@ export default function SettingsPage() {
 
             <Card>
               <CardHeader
-                title="Your access"
-                subtitle="Derived from the workspace role on your account."
+                title={t("settings.yourAccess")}
+                subtitle={t("settings.yourAccessSubtitle")}
                 icon={<User className="h-4 w-4" />}
               />
               <div className="px-5 py-4">
                 <KeyValueList
                   rows={[
-                    { label: "Signed in as", value: email || "—" },
-                    { label: "Role", value: <span className="capitalize">{role || "—"}</span> },
-                    { label: "Workspace ID", value: <code className="font-mono text-xs">{name ? "•••" : "—"}</code> },
+                    { label: t("settings.signedInAs"), value: email || "—" },
+                    { label: t("settings.role"), value: <span className="capitalize">{role || "—"}</span> },
+                    { label: t("settings.workspaceId"), value: <code className="font-mono text-xs">{name ? "•••" : "—"}</code> },
                     {
-                      label: "Workspace created",
-                      value: tenantCreatedAt ? new Date(tenantCreatedAt).toLocaleDateString() : "—",
+                      label: t("settings.workspaceCreated"),
+                      value: tenantCreatedAt ? formatDate(tenantCreatedAt) : "—",
                     },
                   ]}
                 />
-                <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-edge-subtle bg-surface-2 px-3.5 py-3">
+                <div className="mt-3 flex items-start gap-2.5 rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-3">
                   <Shield className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
                   <p className="text-sm leading-relaxed text-ink-3">
                     Permissions are enforced server-side per request. Changing a member’s role takes
@@ -168,19 +170,17 @@ export default function SettingsPage() {
 
             <Card>
               <CardHeader
-                title="Danger zone"
-                subtitle="Actions that cannot be undone."
+                title={t("settings.dangerZone")}
+                subtitle={t("settings.dangerZoneSubtitle")}
                 icon={<AlertTriangle className="h-4 w-4" />}
               />
               <div className="px-5 py-4">
-                <div className="flex items-start gap-3 rounded-lg border border-bad-edge bg-bad-bg px-4 py-3.5">
+                <div className="flex items-start gap-3 rounded-sg border border-bad-edge bg-bad-bg px-4 py-3.5">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-bad" aria-hidden />
                   <div className="min-w-0">
-                    <h3 className="text-sm font-[600] text-bad">Delete this workspace</h3>
+                    <h3 className="text-sm font-[600] text-bad">{t("settings.deleteWorkspaceTitle")}</h3>
                     <p className="mt-0.5 text-sm leading-relaxed text-ink-2">
-                      Workspace deletion is controlled by Platform Administration, so print history
-                      and billing records stay auditable. Contact your platform administrator to
-                      request deletion.
+                      {t("settings.deleteWorkspaceBody")}
                     </p>
                   </div>
                 </div>

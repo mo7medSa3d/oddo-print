@@ -15,6 +15,8 @@ import {
   TableSkeleton,
   type Tone,
 } from "../../../components/ui";
+import { useI18n } from "../../../i18n/react";
+import type { MessageKey } from "../../../i18n/messages/en";
 
 type SubscriptionStatus = "trialing" | "active" | "past_due" | "paused" | "cancelled";
 
@@ -33,21 +35,23 @@ type Subscription = {
   createdAt: string;
 };
 
-const STATUS_META: Record<SubscriptionStatus, { tone: Tone; label: string }> = {
-  active: { tone: "ok", label: "Active" },
-  trialing: { tone: "brand", label: "Trialing" },
-  past_due: { tone: "bad", label: "Past due" },
-  paused: { tone: "warn", label: "Paused" },
-  cancelled: { tone: "neutral", label: "Cancelled" },
+const STATUS_META: Record<SubscriptionStatus, { tone: Tone; key: MessageKey }> = {
+  active: { tone: "ok", key: "platform.subs.status.active" },
+  trialing: { tone: "brand", key: "platform.subs.status.trialing" },
+  past_due: { tone: "bad", key: "platform.subs.status.past_due" },
+  paused: { tone: "warn", key: "platform.subs.status.paused" },
+  cancelled: { tone: "neutral", key: "platform.subs.status.cancelled" },
 };
 
-function statusMeta(status: string): { tone: Tone; label: string } {
-  return STATUS_META[status as SubscriptionStatus] ?? { tone: "neutral", label: status };
+function statusMeta(status: string): { tone: Tone; key: MessageKey | null; raw: string } {
+  const meta = STATUS_META[status as SubscriptionStatus];
+  return meta ? { tone: meta.tone, key: meta.key, raw: status } : { tone: "neutral", key: null, raw: status };
 }
 
 type Filter = "all" | "active" | "attention" | "other";
 
 export default function PlatformSubscriptionsPage() {
+  const { t, formatNumber, formatDate } = useI18n();
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -61,16 +65,16 @@ export default function PlatformSubscriptionsPage() {
       try {
         const res = await fetch("/api/platform/subscriptions");
         if (ignore) return;
-        if (!res.ok) throw new Error("Failed to fetch platform subscriptions");
+        if (!res.ok) throw new Error(t("platform.subs.loadFailed"));
         const data = await res.json();
         if (!ignore) { setSubscriptions(data.subscriptions || []); setError(null); }
-      } catch (err: unknown) {
-        if (!ignore) setError(err instanceof Error ? err.message : "Error loading subscriptions");
+      } catch {
+        if (!ignore) setError(t("platform.subs.loadError"));
       } finally { if (!ignore) setLoading(false); }
     }
     load();
     return () => { ignore = true; };
-  }, [reloadKey]);
+  }, [reloadKey, t]);
 
   function handleRefresh() { setLoading(true); setReloadKey((k) => k + 1); }
 
@@ -106,14 +110,14 @@ export default function PlatformSubscriptionsPage() {
     <div className="space-y-5">
       <PageHeader
         variant="inline"
-        eyebrow="Control plane · Billing"
+        eyebrow={t("platform.subs.eyebrow")}
         icon={<CreditCard className="h-4 w-4" aria-hidden />}
-        title="Subscriptions"
-        description="Stripe lifecycle state for every tenant on this Gateway."
+        title={t("platform.subs.title")}
+        description={t("platform.subs.description")}
         actions={
           <>
             {counts.attention > 0 && (
-              <StatusBadge tone="bad" label={`${counts.attention} need attention`} />
+              <StatusBadge tone="bad" label={t("platform.subs.needAttention", { count: formatNumber(counts.attention) })} />
             )}
             <Button
               variant="secondary"
@@ -122,7 +126,7 @@ export default function PlatformSubscriptionsPage() {
               loading={loading}
               icon={loading ? undefined : <RefreshCw className="h-4 w-4" aria-hidden />}
             >
-              {loading ? "Refreshing…" : "Refresh"}
+              {loading ? t("platform.subs.refreshing") : t("platform.subs.refresh")}
             </Button>
           </>
         }
@@ -130,7 +134,7 @@ export default function PlatformSubscriptionsPage() {
 
       {error && (
         <ErrorState
-          title="Subscriptions unavailable"
+          title={t("platform.subs.unavailable")}
           message={error}
           retry={handleRefresh}
         />
@@ -138,19 +142,19 @@ export default function PlatformSubscriptionsPage() {
 
       <Card className="overflow-hidden">
         <CardHeader
-          title="All subscriptions"
-          subtitle={`${filtered.length} of ${subscriptions.length} shown`}
+          title={t("platform.subs.all")}
+          subtitle={t("platform.subs.shown", { filtered: formatNumber(filtered.length), total: formatNumber(subscriptions.length) })}
           actions={
             <SegmentedControl
-              label="Filter by subscription status"
+              label={t("platform.subs.filterLabel")}
               value={filter}
               onChange={setFilter}
               size="sm"
               options={[
-                { value: "all", label: `All (${counts.all})` },
-                { value: "active", label: `Active (${counts.active})` },
-                { value: "attention", label: `Attention (${counts.attention})` },
-                { value: "other", label: `Cancelled (${counts.other})` },
+                { value: "all", label: t("platform.subs.filter.all", { count: formatNumber(counts.all) }) },
+                { value: "active", label: t("platform.subs.filter.active", { count: formatNumber(counts.active) }) },
+                { value: "attention", label: t("platform.subs.filter.attention", { count: formatNumber(counts.attention) }) },
+                { value: "other", label: t("platform.subs.filter.other", { count: formatNumber(counts.other) }) },
               ]}
             />
           }
@@ -158,14 +162,14 @@ export default function PlatformSubscriptionsPage() {
 
         <div className="border-b border-edge-subtle px-5 py-3">
           <div className="relative max-w-md">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
+            <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
             <Input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter by tenant name, ID or Stripe customer…"
-              aria-label="Filter subscriptions"
-              className="pl-9"
+              placeholder={t("platform.subs.searchPlaceholder")}
+              aria-label={t("platform.subs.searchLabel")}
+              className="ps-9"
             />
           </div>
         </div>
@@ -175,25 +179,25 @@ export default function PlatformSubscriptionsPage() {
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={<Inbox className="h-5 w-5" />}
-            title={subscriptions.length === 0 ? "No subscriptions yet" : "No matching subscriptions"}
+            title={subscriptions.length === 0 ? t("platform.subs.emptyTitle") : t("platform.subs.noMatchesTitle")}
             description={
               subscriptions.length === 0
-                ? "Subscriptions appear here as soon as a tenant completes Stripe checkout."
-                : "Adjust the search term or switch the status filter to see more results."
+                ? t("platform.subs.emptyBody")
+                : t("platform.subs.noMatchesBody")
             }
           />
         ) : (
           <div className="overflow-x-auto">
             <table className="data-table min-w-[860px]">
-              <caption className="sr-only">Platform subscriptions</caption>
+              <caption className="sr-only">{t("platform.subs.tableCaption")}</caption>
               <thead>
                 <tr>
-                  <th scope="col">Tenant</th>
-                  <th scope="col">Plan</th>
-                  <th scope="col">Billing status</th>
-                  <th scope="col">Stripe customer</th>
-                  <th scope="col">Period end</th>
-                  <th scope="col" className="text-right">Created</th>
+                  <th scope="col">{t("platform.subs.tenant")}</th>
+                  <th scope="col">{t("platform.subs.plan")}</th>
+                  <th scope="col">{t("platform.subs.billingStatus")}</th>
+                  <th scope="col">{t("platform.subs.stripeCustomer")}</th>
+                  <th scope="col">{t("platform.subs.periodEnd")}</th>
+                  <th scope="col" className="text-end">{t("platform.subs.created")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -208,16 +212,16 @@ export default function PlatformSubscriptionsPage() {
                       <td className="text-sm text-ink-2">{s.planName}</td>
                       <td>
                         <div className="flex flex-wrap items-center gap-2">
-                          <StatusBadge tone={meta.tone} label={meta.label} size="sm" />
-                          {s.cancelAtPeriodEnd && <StatusBadge tone="warn" label="Cancels at period end" size="sm" />}
+                          <StatusBadge tone={meta.tone} label={meta.key ? t(meta.key) : meta.raw} size="sm" />
+                          {s.cancelAtPeriodEnd && <StatusBadge tone="warn" label={t("platform.subs.cancelsAtPeriodEnd")} size="sm" />}
                         </div>
                       </td>
-                      <td className="font-mono text-2xs text-ink-3">{s.stripeCustomerId || "Unlinked (trial)"}</td>
+                      <td className="font-mono text-2xs text-ink-3">{s.stripeCustomerId || t("platform.subs.unlinkedTrial")}</td>
                       <td className="text-sm text-ink-3">
-                        {s.currentPeriodEnd ? new Date(s.currentPeriodEnd).toLocaleDateString() : "—"}
+                        {s.currentPeriodEnd ? formatDate(s.currentPeriodEnd) : t("common.notAvailable")}
                       </td>
-                      <td className="text-right text-sm text-ink-3">
-                        {new Date(s.createdAt).toLocaleDateString()}
+                      <td className="text-end text-sm text-ink-3">
+                        {formatDate(s.createdAt)}
                       </td>
                     </tr>
                   );

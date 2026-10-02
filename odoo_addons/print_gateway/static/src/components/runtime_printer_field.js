@@ -3,6 +3,7 @@
 import { Component, onWillStart, useEffect, useState, xml } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { rpc } from "@web/core/network/rpc";
+import { _t } from "@web/core/l10n/translation";
 
 function relationalId(value) {
     if (!value) return false;
@@ -20,19 +21,19 @@ export class RuntimePrinterField extends Component {
                 <span t-esc="props.record.data[props.name] || ''"/>
             </t>
             <t t-else="">
-                <select class="o_input" aria-label="Printer" t-att-value="props.record.data[props.name] || ''" t-att-disabled="state.loading || !state.agentId" t-att-aria-invalid="state.error ? 'true' : undefined" t-att-aria-describedby="state.error ? 'o_pg_printer_error' : undefined" t-on-change="onChange">
-                    <option value=""><t t-esc="state.loading ? 'Loading printers…' : (!state.agentId ? 'Select Print Agent first' : 'Select Printer')"/></option>
+                <select class="o_input" t-att-aria-label="labels.printer" t-att-value="props.record.data[props.name] || ''" t-att-disabled="state.loading || !state.agentId" t-att-aria-invalid="state.error ? 'true' : undefined" t-att-aria-describedby="state.error ? 'o_pg_printer_error' : undefined" t-on-change="onChange">
+                    <option value=""><t t-esc="placeholderText"/></option>
                     <option t-if="configuredPrinterMissing" t-att-value="props.record.data[props.name]" selected="selected">
-                        <t t-esc="props.record.data[props.name]"/> (saved / currently unavailable)
+                        <t t-esc="props.record.data[props.name]"/> (<t t-esc="labels.savedUnavailable"/>)
                     </option>
                     <option t-foreach="filteredPrinters" t-as="printer" t-key="printer.id" t-att-value="printer.id" t-att-selected="printer.id === props.record.data[props.name]">
-                        <t t-esc="printer.name"/> [<t t-esc="printer.deviceClass || 'generic'"/>] — <t t-esc="printer.status"/>
+                        <t t-esc="printer.name"/> [<t t-esc="printer.deviceClass || labels.genericClass"/>] — <t t-esc="printer.status"/>
                     </option>
                     <option t-if="!state.loading &amp;&amp; !state.error &amp;&amp; state.agentId &amp;&amp; !filteredPrinters.length &amp;&amp; !configuredPrinterMissing" value="" disabled="disabled"><t t-esc="emptyMessage"/></option>
                 </select>
                 <div t-if="state.error" class="mt-1 d-flex align-items-center gap-2">
-                    <small id="o_pg_printer_error" class="text-danger">Could not load printers. Check the Print Agent connection, then retry.</small>
-                    <button type="button" class="btn btn-link btn-sm p-0" t-on-click="retryLoad">Retry</button>
+                    <small id="o_pg_printer_error" class="text-danger"><t t-esc="labels.loadError"/></small>
+                    <button type="button" class="btn btn-link btn-sm p-0" t-on-click="retryLoad"><t t-esc="labels.retry"/></button>
                 </div>
             </t>
         </div>`;
@@ -43,6 +44,19 @@ export class RuntimePrinterField extends Component {
         this.loadedScopeKey = null;
         this.loadedAgentId = null;
         this.state = useState({ loading: false, printers: [], agentId: false, destinationType: false, enabled: true, error: null });
+        // Inline `xml` templates are not scanned for translations (Odoo only
+        // translates templates defined in XML files), so the strings live here
+        // where `_t` is in scope and the export can see them.
+        this.labels = {
+            printer: _t("Printer"),
+            loadingPrinters: _t("Loading printers…"),
+            selectPrintAgentFirst: _t("Select Print Agent first"),
+            selectPrinter: _t("Select Printer"),
+            loadError: _t("Could not load printers. Check the Print Agent connection, then retry."),
+            retry: _t("Retry"),
+            savedUnavailable: _t("saved / currently unavailable"),
+            genericClass: _t("generic"),
+        };
 
         // Print Agent is not the field this widget renders: a prop-based reload
         // never fires when the operator picks another Agent, so the printer list
@@ -92,10 +106,16 @@ export class RuntimePrinterField extends Component {
         return this.state.printers;
     }
 
+    get placeholderText() {
+        if (this.state.loading) return this.labels.loadingPrinters;
+        if (!this.state.agentId) return this.labels.selectPrintAgentFirst;
+        return this.labels.selectPrinter;
+    }
+
     get emptyMessage() {
         return this.state.enabled
-            ? "No printers found for this Print Agent — check the printer or workstation"
-            : "The printing service is disabled or unreachable for this company — check Connection & Printing";
+            ? _t("No printers found for this Print Agent — check the printer or workstation")
+            : _t("The printing service is disabled or unreachable for this company — check Connection & Printing");
     }
 
     get configuredPrinterMissing() {

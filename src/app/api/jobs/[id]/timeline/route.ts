@@ -18,6 +18,9 @@ type TimelineEntry = {
   status: string;
   at?: Date | null;
   message?: string | null;
+  /** Translation key for the detail line; absent for persisted audit text. */
+  messageKey?: string | null;
+  messageVars?: Record<string, string | number> | null;
   errorCode?: string | null;
   attemptId?: string | null;
   claimId?: string | null;
@@ -83,6 +86,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         status: t.status,
         at: t.at,
         message: t.message,
+        messageKey: t.messageKey,
+        messageVars: t.messageVars,
         attemptId: job.attemptId,
         // Redact claimToken — never raw
         claimId: redactClaimToken(job.claimToken),

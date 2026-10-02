@@ -26,6 +26,7 @@ vi.mock("next/cache", () => ({
 
 // Import actions after mocks
 import { deleteAgent, createAgent } from "../src/app/actions";
+import { translate } from "../src/i18n/translate";
 
 // Tenant contract (migrations 0028-0031): every runtime row is tenant-owned
 // and agents/printers/jobs require tenant_id (NOT NULL). Fixtures carry the
@@ -68,21 +69,21 @@ suite("permanent agent deletion lifecycle & invariants", () => {
 
   it("rejects deletion when unauthenticated or called with invalid manager token", async () => {
     currentManagerToken = null;
-    await expect(deleteAgent("agt_offline_1")).rejects.toThrow("manager session has expired");
+    await expect(deleteAgent("agt_offline_1")).rejects.toThrow(translate("en", "errors.sessionExpired"));
 
     currentManagerToken = "tampered.jwt.token";
-    await expect(deleteAgent("agt_offline_1")).rejects.toThrow("manager session has expired");
+    await expect(deleteAgent("agt_offline_1")).rejects.toThrow(translate("en", "errors.sessionExpired"));
   });
 
   it("rejects empty or whitespace agent ID", async () => {
-    await expect(deleteAgent("")).rejects.toThrow("agent id is required");
-    await expect(deleteAgent("   ")).rejects.toThrow("agent id is required");
+    await expect(deleteAgent("")).rejects.toThrow(translate("en", "errors.agentIdRequired"));
+    await expect(deleteAgent("   ")).rejects.toThrow(translate("en", "errors.agentIdRequired"));
     // @ts-expect-error test non-string input
-    await expect(deleteAgent(null)).rejects.toThrow("agent id is required");
+    await expect(deleteAgent(null)).rejects.toThrow(translate("en", "errors.agentIdRequired"));
   });
 
   it("rejects deletion of a non-existent agent", async () => {
-    await expect(deleteAgent("agt_non_existent")).rejects.toThrow("Agent not found");
+    await expect(deleteAgent("agt_non_existent")).rejects.toThrow(translate("en", "errors.agentNotFound"));
   });
 
   it("rejects deletion of an online agent", async () => {
@@ -93,9 +94,7 @@ suite("permanent agent deletion lifecycle & invariants", () => {
       [agentId, TENANT_ID, sha256("secret123")],
     );
 
-    await expect(deleteAgent(agentId)).rejects.toThrow(
-      "This agent is still connected. Stop the agent service first, then delete it.",
-    );
+    await expect(deleteAgent(agentId)).rejects.toThrow(translate("en", "errors.agentStillConnected"));
 
     // Verify agent was NOT deleted
     const row = (await pool().query(`SELECT id FROM agents WHERE id = $1`, [agentId])).rows[0];
@@ -153,9 +152,7 @@ suite("permanent agent deletion lifecycle & invariants", () => {
       [jobId, TENANT_ID, agentId, printerId],
     );
 
-    await expect(deleteAgent(agentId)).rejects.toThrow(
-      "This agent has print history and cannot be deleted. Choose Retire instead to preserve the audit history.",
-    );
+    await expect(deleteAgent(agentId)).rejects.toThrow(translate("en", "errors.agentHasHistory"));
 
     // Verify neither agent, printer, nor print job was deleted
     const a = (await pool().query(`SELECT id FROM agents WHERE id = $1`, [agentId])).rows[0];
@@ -318,6 +315,6 @@ suite("permanent agent deletion lifecycle & invariants", () => {
     await deleteAgent(agentId);
 
     // Second delete immediately throws "Agent not found"
-    await expect(deleteAgent(agentId)).rejects.toThrow("Agent not found");
+    await expect(deleteAgent(agentId)).rejects.toThrow(translate("en", "errors.agentNotFound"));
   });
 });

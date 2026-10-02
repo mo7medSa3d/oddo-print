@@ -37,6 +37,13 @@ export interface HealthCheck {
   name: string;
   state: HealthState;
   message: string;
+  /**
+   * Translation key for the detail line. Raw exception text and internal ids
+   * used to be interpolated straight into `message`, which put log output on
+   * an operator-facing card; they now belong in `details`.
+   */
+  messageKey?: string;
+  messageVars?: Record<string, string | number>;
   latencyMs?: number;
   details?: Record<string, unknown>;
   critical?: boolean;
@@ -63,9 +70,9 @@ export async function checkDatabase(): Promise<HealthCheck> {
   const start = Date.now();
   try {
     await queryWithTimeout(() => db.execute(sql`SELECT 1`), 2000, "systemHealthDB");
-    return { name: "Database", state: "ok", message: "Postgres reachable", latencyMs: Date.now() - start, critical: true };
+    return { name: "Database", state: "ok", messageKey: "health.dbOk", message: "Postgres reachable", latencyMs: Date.now() - start, critical: true };
   } catch (e) {
-    return { name: "Database", state: "error", message: `DB unreachable: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start, critical: true };
+    return { name: "Database", state: "error", messageKey: "health.dbUnreachable", message: `DB unreachable: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start, critical: true };
   }
 }
 
@@ -74,7 +81,7 @@ export async function checkQueue(tenantId?: string): Promise<HealthCheck> {
   try {
     // Tenant-safe: MUST scope by tenantId when provided, otherwise warn about cross-tenant leak
     if (!tenantId) {
-      return { name: "Queue", state: "unknown", message: "Queue check requires tenant context (tenant-safe enforcement)", latencyMs: Date.now() - start, critical: false };
+      return { name: "Queue", state: "unknown", messageKey: "health.queueNeedsTenant", message: "Queue check requires tenant context", latencyMs: Date.now() - start, critical: false };
     }
     const result = await queryWithTimeout(
       () => db.execute(sql`SELECT COUNT(*)::int as stuck FROM print_jobs WHERE tenant_id=${tenantId} AND status='claimed' AND claimed_at < NOW() - INTERVAL '5 minutes'`),
@@ -83,11 +90,11 @@ export async function checkQueue(tenantId?: string): Promise<HealthCheck> {
     );
     const stuck = Number((result.rows?.[0] as { stuck?: number | string } | undefined)?.stuck ?? 0);
     if (stuck > 10) {
-      return { name: "Queue", state: "warn", message: `${stuck} stuck jobs (claimed >5m) for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { stuck, tenantId }, critical: false };
+      return { name: "Queue", state: "warn", messageKey: "health.queueStuck", messageVars: { count: stuck }, message: `${stuck} stuck jobs (claimed >5m)`, latencyMs: Date.now() - start, details: { stuck, tenantId }, critical: false };
     }
-    return { name: "Queue", state: "ok", message: `Queue healthy for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { stuck, tenantId }, critical: false };
+    return { name: "Queue", state: "ok", messageKey: "health.queueOk", message: "Queue healthy", latencyMs: Date.now() - start, details: { stuck, tenantId }, critical: false };
   } catch (e) {
-    return { name: "Queue", state: "unknown", message: `Queue check failed: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start, critical: false };
+    return { name: "Queue", state: "unknown", messageKey: "health.queueFailed", message: `Queue check failed: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start, critical: false };
   }
 }
 
@@ -95,7 +102,7 @@ export async function checkAgents(tenantId?: string): Promise<HealthCheck> {
   const start = Date.now();
   try {
     if (!tenantId) {
-      return { name: "Agents", state: "unknown", message: "Agents check requires tenant context", latencyMs: Date.now() - start };
+      return { name: "Agents", state: "unknown", messageKey: "health.agentsNeedsTenant", message: "Agents check requires tenant context", latencyMs: Date.now() - start };
     }
     // Freshness uses the shared claim-gate threshold (not a hardcoded
     // interval) so the display can never diverge from enforcement when
@@ -109,12 +116,12 @@ export async function checkAgents(tenantId?: string): Promise<HealthCheck> {
     const row = result.rows?.[0] as { total?: number | string; online?: number | string } | undefined;
     const total = Number(row?.total ?? 0);
     const online = Number(row?.online ?? 0);
-    if (total === 0) return { name: "Agents", state: "warn", message: `No agents registered for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
-    if (online === 0) return { name: "Agents", state: "error", message: `${total} agents but none online for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
-    if (online < total) return { name: "Agents", state: "warn", message: `${online}/${total} agents online for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
-    return { name: "Agents", state: "ok", message: `${online}/${total} agents online for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
+    if (total === 0) return { name: "Agents", state: "warn", messageKey: "health.agentsNone", message: "No agents registered", latencyMs: Date.now() - start, details: { total, online, tenantId } };
+    if (online === 0) return { name: "Agents", state: "error", messageKey: "health.agentsNoneOnline", messageVars: { total }, message: `${total} agents but none online`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
+    if (online < total) return { name: "Agents", state: "warn", messageKey: "health.agentsPartial", messageVars: { online, total }, message: `${online}/${total} agents online`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
+    return { name: "Agents", state: "ok", messageKey: "health.agentsPartial", messageVars: { online, total }, message: `${online}/${total} agents online`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
   } catch (e) {
-    return { name: "Agents", state: "unknown", message: `Agent check failed: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start };
+    return { name: "Agents", state: "unknown", messageKey: "health.agentsFailed", message: `Agent check failed: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start };
   }
 }
 
@@ -122,7 +129,7 @@ export async function checkPrinters(tenantId?: string): Promise<HealthCheck> {
   const start = Date.now();
   try {
     if (!tenantId) {
-      return { name: "Printers", state: "unknown", message: "Printers check requires tenant context", latencyMs: Date.now() - start };
+      return { name: "Printers", state: "unknown", messageKey: "health.printersNeedsTenant", message: "Printers check requires tenant context", latencyMs: Date.now() - start };
     }
     const result = await queryWithTimeout(
       () => db.execute(sql`SELECT COUNT(*) FILTER (WHERE p.lifecycle = 'active')::int as total, COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status = 'online' AND p.last_seen_at IS NOT NULL AND p.last_seen_at <= NOW() AND p.last_seen_at >= NOW() - make_interval(secs => ${printerStaleThresholdSeconds()}) AND a.lifecycle = 'active' AND a.status = 'online' AND a.last_seen_at IS NOT NULL AND a.last_seen_at <= NOW() AND a.last_seen_at >= NOW() - make_interval(secs => ${agentStaleThresholdSeconds()}))::int as online FROM printers p LEFT JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id WHERE p.tenant_id=${tenantId}`),
@@ -132,10 +139,10 @@ export async function checkPrinters(tenantId?: string): Promise<HealthCheck> {
     const row = result.rows?.[0] as { total?: number | string; online?: number | string } | undefined;
     const total = Number(row?.total ?? 0);
     const online = Number(row?.online ?? 0);
-    if (total === 0) return { name: "Printers", state: "warn", message: `No printers registered for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
-    return { name: "Printers", state: online > 0 ? "ok" : "warn", message: `${online}/${total} printers online for tenant ${tenantId}`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
+    if (total === 0) return { name: "Printers", state: "warn", messageKey: "health.printersNone", message: "No printers registered", latencyMs: Date.now() - start, details: { total, online, tenantId } };
+    return { name: "Printers", state: online > 0 ? "ok" : "warn", messageKey: "health.printersOnline", messageVars: { online, total }, message: `${online}/${total} printers online`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
   } catch (e) {
-    return { name: "Printers", state: "unknown", message: `Printer check failed: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start };
+    return { name: "Printers", state: "unknown", messageKey: "health.printersFailed", message: `Printer check failed: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start };
   }
 }
 
@@ -145,7 +152,7 @@ export function checkGateway(): HealthCheck {
   return {
     name: "Gateway",
     state: heapUsedMb > 500 ? "warn" : "ok",
-    message: `Gateway running, heap ${heapUsedMb}MB`,
+    messageKey: "health.gatewayRunning", messageVars: { heap: heapUsedMb }, message: `Gateway running, heap ${heapUsedMb}MB`,
     details: { heapUsedMb, uptimeSec: Math.round(process.uptime()), nodeVersion: process.version },
     critical: true,
   };
@@ -187,8 +194,8 @@ export async function getSystemHealth(tenantId?: string): Promise<SystemHealth> 
   ]);
   const gateway = checkGateway();
   // Honest: Odoo and Billing are NOT runtime-checked in this endpoint, so UNKNOWN
-  const odoo: HealthCheck = { name: "Odoo", state: "unknown", message: "Odoo health NOT VERIFIED — requires runtime check via /api/odoo/health (BLOCKED without Odoo deployment)" };
-  const billing: HealthCheck = { name: "Billing", state: "unknown", message: "Billing health NOT VERIFIED — requires Stripe connectivity check (BLOCKED without Stripe config)" };
+  const odoo: HealthCheck = { name: "Odoo", state: "unknown", messageKey: "health.odooNotVerified", message: "Odoo health NOT VERIFIED" };
+  const billing: HealthCheck = { name: "Billing", state: "unknown", messageKey: "health.billingNotVerified", message: "Billing health NOT VERIFIED" };
 
   const checks = [gateway, database, queue, agents, printers, odoo, billing];
   const overall = computeOverall(checks);

@@ -9,12 +9,22 @@ import { BrandMark } from "./brand";
 import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "./ui";
 import { isNavItemActive } from "../lib/nav";
+import { useI18n } from "../i18n/react";
+import type { MessageKey } from "../i18n/messages/en";
 
 export type TopNavItem = {
   href: string;
-  label: string;
+  /** English fallback for items that carry no `labelKey`. */
+  label?: string;
   icon?: ComponentType<{ className?: string }>;
   section?: string;
+  /** Semantic i18n key for the label. Falls back to `label` when absent. */
+  labelKey?: MessageKey;
+  /** Semantic i18n key for the section heading. Falls back to `section`. */
+  sectionKey?: MessageKey;
+  /** Lower-case search keywords; indexed in both locales so operators can type
+   *  either the English or the translated name and still find the screen. */
+  keywords?: string;
 };
 
 type TopNavbarProps = {
@@ -47,6 +57,7 @@ export function TopNavbar({
   brandIcon,
 }: TopNavbarProps) {
   const pathname = usePathname();
+  const { t } = useI18n();
   const isPlatform = variant === "platform";
   const [menuOpen, setMenuOpen] = useState(false);
   const [renderedPath, setRenderedPath] = useState(pathname);
@@ -91,40 +102,42 @@ export function TopNavbar({
         {isPlatform && (
           <span className="hidden shrink-0 items-center gap-1.5 rounded-sm border border-edge bg-surface-2 px-2 py-0.5 text-2xs font-[600] text-ink-3 sm:inline-flex">
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--platform-accent)" }} aria-hidden />
-            Control plane
+            {t("nav.controlPlaneBadge")}
           </span>
         )}
 
         <button
           type="button"
-          aria-label={menuOpen ? "Close navigation" : "Open navigation"}
+          aria-label={menuOpen ? t("nav.closeNavigation") : t("nav.openNavigation")}
           aria-expanded={menuOpen}
           aria-controls={panelId}
           onClick={() => setMenuOpen((value) => !value)}
-          className="ml-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
+          className="ms-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
         >
           {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
         </button>
 
         <nav
           id={panelId}
-          aria-label="Main"
+          aria-label={t("nav.consoleNavigation")}
           className={[
             menuOpen ? "flex" : "hidden",
-            "pg-scale-in absolute left-3 right-3 top-[60px] z-50 flex-col gap-1 rounded-xl border border-edge-strong bg-surface p-2 shadow-xl",
+            "pg-scale-in absolute inset-inline-3 top-[60px] z-50 flex-col gap-1 rounded-xl border border-edge-strong bg-surface p-2 shadow-xl",
             "lg:static lg:flex lg:min-w-0 lg:flex-1 lg:flex-row lg:items-center lg:gap-1 lg:overflow-x-auto lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none",
           ].join(" ")}
         >
           {items.map((item, index) => {
             const active = isNavItemActive(pathname, item.href);
             const Icon = item.icon;
-            const showSection = item.section && item.section !== items[index - 1]?.section;
+            const label = item.labelKey ? t(item.labelKey) : item.label;
+            const section = item.sectionKey ? t(item.sectionKey) : item.section;
+            const showSection = section && section !== (items[index - 1]?.sectionKey ? t(items[index - 1]!.sectionKey!) : items[index - 1]?.section);
 
             return (
               <div key={item.href} className="flex items-center gap-1">
                 {showSection && (
                   <span className="hidden px-2 text-2xs font-[600] uppercase tracking-[0.1em] text-ink-4 xl:inline">
-                    {item.section}
+                    {section}
                   </span>
                 )}
 
@@ -144,14 +157,14 @@ export function TopNavbar({
                       className={active ? "h-4 w-4 shrink-0 text-brand" : "h-4 w-4 shrink-0 text-ink-3"}
                     />
                   )}
-                  <span>{item.label}</span>
+                  <span>{label}</span>
                 </Link>
               </div>
             );
           })}
         </nav>
 
-        <div className="ml-auto flex shrink-0 items-center gap-1 lg:ml-0">
+        <div className="ms-auto flex shrink-0 items-center gap-1 lg:ms-0">
           <ThemeToggle />
           <Button
             variant="ghost"
@@ -160,10 +173,10 @@ export function TopNavbar({
             disabled={loggingOut}
             icon={<LogOut className="h-4 w-4" />}
             className="text-ink-2"
-            aria-label="Sign out"
-            title="Sign out"
+            aria-label={t("nav.signOut")}
+            title={t("nav.signOut")}
           >
-            <span className="hidden xl:inline">{loggingOut ? "Signing out…" : "Sign out"}</span>
+            <span className="hidden xl:inline">{loggingOut ? t("nav.signingOut") : t("nav.signOut")}</span>
           </Button>
         </div>
       </div>
@@ -171,7 +184,7 @@ export function TopNavbar({
       {menuOpen && (
         <button
           type="button"
-          aria-label="Close navigation menu"
+          aria-label={t("nav.closeNavigation")}
           className="fixed inset-0 z-30 bg-[var(--overlay-soft)] lg:hidden"
           onClick={() => setMenuOpen(false)}
         />

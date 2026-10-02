@@ -21,7 +21,12 @@ describe("system-health", () => {
     expect(source).toContain("tenantId");
     expect(source).toContain("tenant_id=");
     expect(source).toContain("requires tenant context");
-    expect(source).toContain("tenant-safe");
+    // Each tenant-scoped check degrades to an explicit "needs tenant" result
+    // rather than scanning across tenants, and carries a messageKey so the
+    // reason is translatable instead of a bare English literal.
+    expect(source).toContain('messageKey: "health.queueNeedsTenant"');
+    expect(source).toContain('messageKey: "health.agentsNeedsTenant"');
+    expect(source).toContain('messageKey: "health.printersNeedsTenant"');
   });
 
   it("overall policy prevents false OK when critical UNKNOWN", () => {

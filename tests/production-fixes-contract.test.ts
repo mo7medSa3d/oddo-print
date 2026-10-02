@@ -126,8 +126,8 @@ describe("production fixes contracts (2026-09)", () => {
     const dashboard = read("src/app/dashboard/dashboard-client.tsx");
     const agentRoute = read("src/app/api/agents/route.ts");
     expect(dialog).toContain('href="/billing"');
-    expect(dialog).toContain("Upgrade plan");
-    expect(dialog).toContain("Metering unit: 1 admitted Gateway print job = 1 print credit.");
+    expect(dialog).toContain('t("limit.upgradePlan")');
+    expect(dialog).toContain('t("limit.note.prints")');
     expect(dashboard).toContain('case "max_agents": return "agents"');
     expect(dashboard).toContain('case "max_prints_per_period": return "prints"');
     expect(dashboard).toContain("<UpgradeLimitDialog");
@@ -241,7 +241,7 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
     expect(source).toContain('credentials: "same-origin"');
     expect(source).toMatch(/Idempotency-Key.*generateIdempotencyKey|crypto\.randomUUID/);
     expect(source).toContain('testingPrinterId === printer.id');
-    expect(source).toContain('"Sending…" : "Send Test Page"');
+    expect(source).toContain('testingPrinterId === printer.id ? t("printer.sending") : t("printer.sendTestPage")');
     expect(source).not.toContain("createTestPrintJob(printer.id)");
   });
 

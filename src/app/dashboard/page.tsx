@@ -11,10 +11,12 @@ import { JobCleanupButton } from "../../components/JobCleanupButton";
 import { isAgentAvailableForJob } from "../../lib/agent-availability";
 import { Activity, Database, LifeBuoy } from "lucide-react";
 import { Button, Callout, PageContainer, PageHeader, StatusBadge } from "../../components/ui";
+import { getServerLocale, makeT } from "../../i18n/server";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  const t = makeT(await getServerLocale());
   const cookieStore = await cookies();
   const claims = await verifyWorkspaceTokenFromCookieValues(
     cookieStore.get("cust_session")?.value ?? null,
@@ -116,7 +118,7 @@ export default async function DashboardPage() {
     // Dotted event name (aggregation-safe) and a string message — a live
     // Error would serialize as {} and lose the failure reason.
     logError("dashboard.database_load_failed", { error: error instanceof Error ? error.message : String(error) });
-    databaseError = "PostgreSQL unavailable";
+    databaseError = t("dashboard.page.databaseLoadFailedLog");
   }
 
   const now = new Date();
@@ -126,21 +128,21 @@ export default async function DashboardPage() {
     <>
       <PageHeader
         width="wide"
-        eyebrow="Operations"
+        eyebrow={t("dashboard.page.eyebrow")}
         icon={<Activity className="h-4 w-4" />}
-        title="Print console"
-        description="What’s connected, what’s printing, and what needs attention right now."
+        title={t("dashboard.page.title")}
+        description={t("dashboard.page.description")}
         meta={
           <StatusBadge
             tone={databaseError ? "bad" : "ok"}
             pulse={!databaseError}
-            label={databaseError ? "Database unavailable" : "Live"}
+            label={databaseError ? t("dashboard.page.dbUnavailableBadge") : t("dashboard.page.live")}
           />
         }
         actions={
           <>
             <Button variant="ghost" size="sm" href="/system-health" icon={<LifeBuoy className="h-4 w-4" />}>
-              System health
+              {t("dashboard.page.systemHealth")}
             </Button>
             {!databaseError ? <JobCleanupButton /> : null}
           </>
@@ -151,16 +153,15 @@ export default async function DashboardPage() {
         {databaseError ? (
           <Callout
             tone="bad"
-            title="The database is unreachable"
+            title={t("dashboard.page.dbUnavailableTitle")}
             icon={<Database className="h-4 w-4" />}
             action={
               <Button variant="secondary" size="sm" href="/system-health">
-                Run diagnostics
+                {t("dashboard.page.runDiagnostics")}
               </Button>
             }
           >
-            PostgreSQL did not answer, so agents, printers and jobs cannot be listed. The Gateway
-            keeps accepting nothing new until the connection recovers — no queued job was discarded.
+            {t("dashboard.page.dbUnavailableBody")}
           </Callout>
         ) : (
           <DashboardClient

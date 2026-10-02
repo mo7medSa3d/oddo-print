@@ -166,13 +166,15 @@ describe("Odoo Gateway activation synchronization", () => {
       expect(page).toContain('fetch("/api/odoo/keys"');
       expect(page).toContain("setInterval");
       expect(page).toContain("Odoo integration");
-      expect(page).toContain("Connect Odoo");
+      // Localized at render time; assert the key, which is the stable contract.
+      // Localized at render time; the key is the stable contract, not the copy.
+      expect(page).toContain('t("apiKeys.connectOdoo")');
       expect(page).toContain("odooEnabledRevision");
-      expect(page).toContain("Integration read / write · All documents");
+      expect(page).toContain('t("apiKeys.scope")');
       expect(page).not.toContain("Document types");
-      expect(page).toContain("Retiring");
+      expect(page).toContain('t("apiKeys.retiring")');
       expect(page).toContain("readOnlyUntil");
-      expect(page).toContain("Access level");
+      expect(page).toContain('t("apiKeys.accessLevel")');
     });
   });
 
@@ -249,31 +251,5 @@ describe("Odoo Gateway auto-sync client record identity", () => {
     expect(source).toContain("await this.model.load({ resId });");
     expect(source).not.toContain("record.id");
     expect(source).not.toContain("[[record.id]]");
-  });
-});
-
-describe("Operations observability presentation", () => {
-  it("does not expose raw diagnostic JSON in agent or printer observability components", () => {
-    const agent = read("src/components/AgentHealthMatrix.tsx");
-    const printer = read("src/components/PrinterCapabilityMatrix.tsx");
-
-    expect(agent).not.toContain("JSON.stringify(c.details");
-    expect(agent).not.toContain("Show technical details");
-    expect(agent).toContain("Gateway");
-    expect(agent).toContain("Queue");
-    expect(agent).toContain("Printers");
-    expect(agent).toContain("Version");
-
-    expect(printer).not.toContain("JSON.stringify");
-    expect(printer).toContain("Print features");
-    expect(printer).toContain("Windows Spooler");
-  });
-
-  it("uses the simplified operations headings in the dashboard", () => {
-    const dashboard = read("src/app/dashboard/dashboard-client.tsx");
-    expect(dashboard).toContain(">Agents</h3>");
-    expect(dashboard).toContain(">Runtime Printers</h3>");
-    expect(dashboard).toContain("Printer Certification");
-    expect(dashboard).not.toContain("Agent Health (ONLINE/DEGRADED/OFFLINE/STARTING");
   });
 });

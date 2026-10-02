@@ -1,5 +1,6 @@
 import React from "react";
 import { deriveOutcome, jobLabel } from "../lib/printers";
+import { useI18n } from "../../i18n/react";
 
 type TimelineProps = {
   status: string;
@@ -16,6 +17,7 @@ type TimelineProps = {
  * job that really printed.
  */
 export function JobTimeline({ status, error = null, claimedAt = null }: TimelineProps) {
+  const { t, locale } = useI18n();
   const s = String(status).toLowerCase();
   const outcome = deriveOutcome(s, error);
   const done = s === "success";
@@ -26,14 +28,16 @@ export function JobTimeline({ status, error = null, claimedAt = null }: Timeline
   const reachedClaimed = Boolean(claimedAt) || ["claimed", "printing", "success"].includes(s) || (failed && unknown);
   const reachedPrinting = ["printing", "success"].includes(s) || (failed && unknown);
 
+  // `id` is the stable identity the logic compares against; `label` is what
+  // the operator reads, so it follows the active language.
   const steps = [
-    { label: "Queued", reached: reachedQueued },
-    { label: "Claimed", reached: reachedClaimed },
-    { label: "Printing", reached: reachedPrinting },
+    { id: "queued", label: t("desktop.timeline.queued"), reached: reachedQueued },
+    { id: "claimed", label: t("desktop.timeline.claimed"), reached: reachedClaimed },
+    { id: "printing", label: t("desktop.timeline.printing"), reached: reachedPrinting },
   ].map((step, i) => {
     const current =
-      (step.label === "Claimed" && s === "claimed") ||
-      (step.label === "Printing" && s === "printing");
+      (step.id === "claimed" && s === "claimed") ||
+      (step.id === "printing" && s === "printing");
     return {
       ...step,
       current,
@@ -42,7 +46,7 @@ export function JobTimeline({ status, error = null, claimedAt = null }: Timeline
     } as const;
   });
 
-  const terminalLabel = done || failed || unknown ? jobLabel(s, outcome) : "Outcome";
+  const terminalLabel = done || failed || unknown ? jobLabel(s, outcome, locale) : t("desktop.timeline.outcome");
   const terminalTone = done ? "ok" : unknown ? "warn" : failed ? "bad" : "todo";
 
   const fullSteps = [
@@ -53,11 +57,20 @@ export function JobTimeline({ status, error = null, claimedAt = null }: Timeline
     { label: terminalLabel, state: terminalTone === "todo" ? "todo" : terminalTone === "ok" ? "done" : "attention" },
   ];
   const srSummary = fullSteps
-    .map(
-      (step, i) =>
-        `Step ${i + 1} of ${fullSteps.length}: ${step.label} — ${
-          step.state === "done" ? "completed" : step.state === "current" ? "in progress" : step.state === "todo" ? "not reached" : "needs attention"
-        }`
+    .map((step, i) =>
+      t("desktop.timeline.step", {
+        index: i + 1,
+        total: fullSteps.length,
+        label: step.label,
+        state:
+          step.state === "done"
+            ? t("desktop.timeline.state.completed")
+            : step.state === "current"
+              ? t("desktop.timeline.state.inProgress")
+              : step.state === "todo"
+                ? t("desktop.timeline.state.notReached")
+                : t("desktop.timeline.state.needsAttention"),
+      }),
     )
     .join(". ");
 
@@ -65,7 +78,7 @@ export function JobTimeline({ status, error = null, claimedAt = null }: Timeline
     <div
       className="rounded-xl border border-edge-accent bg-surface-accent px-5 py-4"
       role="group"
-      aria-label={`Job progress. ${srSummary}`}
+      aria-label={t("desktop.timeline.aria", { summary: srSummary })}
     >
       <ol className="flex items-start" aria-hidden="true">
         {steps.map((step, i) => (

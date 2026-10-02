@@ -50,8 +50,16 @@ func probeSNMPPrinterWithPort(ctx context.Context, ip string, snmpPort int, prin
 		printerPort = 9100
 	}
 
-	timeout := 600 * time.Millisecond
-	probeCtx, cancel := context.WithTimeout(ctx, timeout)
+	// gosnmp waits up to Timeout per attempt and then retries, so the context
+	// budget must cover every attempt. Sizing the context to a single attempt
+	// meant the retry was always cancelled mid-flight: Retries was silently
+	// dead configuration and the real probe budget was smaller than intended.
+	const (
+		snmpProbeTimeout = 600 * time.Millisecond
+		snmpProbeRetries = 1
+	)
+	probeBudget := snmpProbeTimeout * (snmpProbeRetries + 1)
+	probeCtx, cancel := context.WithTimeout(ctx, probeBudget)
 	defer cancel()
 
 	params := &gosnmp.GoSNMP{
@@ -59,8 +67,8 @@ func probeSNMPPrinterWithPort(ctx context.Context, ip string, snmpPort int, prin
 		Port:      uint16(snmpPort),
 		Community: "public",
 		Version:   gosnmp.Version2c,
-		Timeout:   timeout,
-		Retries:   1,
+		Timeout:   snmpProbeTimeout,
+		Retries:   snmpProbeRetries,
 		Context:   probeCtx,
 	}
 
@@ -143,8 +151,25 @@ func probeSNMPPrinterWithPort(ctx context.Context, ip string, snmpPort int, prin
 		caps["verification"] = "device_detected_only"
 	}
 
+	// The identity must be derived from the device, not from what happened to
+	// be reachable at probe time.
+	//
+	// `printEndpointVerified` is a live TCP observation: a printer that is
+	// asleep, busy, or behind a filtered port fails it. Previously the ID was
+	// built from `endpoint`/`Port`, which differ across that flap — reachable
+	// gave "ip:9100"/9100 (StableIDFromNetwork) and unreachable gave bare
+	// "ip"/0, which falls through to StableIDFromEndpoint. One physical printer
+	// therefore produced two IDs and was inventoried twice, with duplicates
+	// accumulating every time the port flapped. The intended print port is
+	// known regardless, so pin the identity to it.
+	idInput := DeviceInfo{
+		NetworkAddress: ip,
+		Port:           printerPort, // non-zero in both branches: keeps one namespace
+		Endpoint:       endpoint,
+		Name:           name,
+	}
 	di := DeviceInfo{
-		ID:             StableIDForDevice(DeviceInfo{NetworkAddress: ip, Endpoint: endpoint, Name: name}),
+		ID:             StableIDForDevice(idInput),
 		Name:           name,
 		DisplayName:    name,
 		PrinterType:    "unknown",

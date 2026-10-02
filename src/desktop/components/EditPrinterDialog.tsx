@@ -2,6 +2,9 @@ import React, { useMemo, useState } from "react";
 import { Button, Field, Input, Modal, Select } from "../../components/ui";
 import { friendlyGatewayError } from "../lib/printers";
 import { updateGatewayPrinter, type PrinterInfo } from "../lib/ipc";
+import { useI18n } from "../../i18n/react";
+import type { Translator } from "../../i18n/translate";
+import type { MessageKey } from "../../i18n/messages/en";
 
 type ConnectionType = "network" | "spooler" | "usb" | "ipp" | "ipps";
 
@@ -23,12 +26,12 @@ function defaultProtocol(connectionType: ConnectionType): string {
   }
 }
 
-function protocolOptions(connectionType: ConnectionType): Array<{ value: string; label: string }> {
+function protocolOptions(connectionType: ConnectionType, t: Translator): Array<{ value: string; label: string }> {
   switch (connectionType) {
     case "spooler":
-      return [{ value: "spooler", label: "Spooler" }, { value: "unknown", label: "Unknown" }];
+      return [{ value: "spooler", label: t("desktop.connection.spooler") }, { value: "unknown", label: t("desktop.edit.deviceUnknown") }];
     case "ipp":
-      return [{ value: "ipp", label: "IPP" }, { value: "unknown", label: "Unknown" }];
+      return [{ value: "ipp", label: t("desktop.connection.ipp") }, { value: "unknown", label: t("desktop.edit.deviceUnknown") }];
     case "ipps":
       return [{ value: "ipps", label: "IPPS" }, { value: "unknown", label: "Unknown" }];
     case "usb":
@@ -37,7 +40,7 @@ function protocolOptions(connectionType: ConnectionType): Array<{ value: string;
         { value: "escpos", label: "ESC/POS" },
         { value: "zpl", label: "ZPL" },
         { value: "tspl", label: "TSPL" },
-        { value: "unknown", label: "Unknown" },
+        { value: "unknown", label: t("desktop.edit.deviceUnknown") },
       ];
     default:
       return [
@@ -45,8 +48,8 @@ function protocolOptions(connectionType: ConnectionType): Array<{ value: string;
         { value: "escpos", label: "ESC/POS" },
         { value: "zpl", label: "ZPL" },
         { value: "tspl", label: "TSPL" },
-        { value: "ipp", label: "IPP" },
-        { value: "unknown", label: "Unknown" },
+        { value: "ipp", label: t("desktop.connection.ipp") },
+        { value: "unknown", label: t("desktop.edit.deviceUnknown") },
       ];
   }
 }
@@ -72,6 +75,7 @@ export function EditPrinterDialog({
     status: "unknown",
     enabled: false,
   }), [printer]);
+  const { t, locale } = useI18n();
   const [name, setName] = useState(() => printer?.name ?? "");
   const [connectionType, setConnectionType] = useState<ConnectionType>(() =>
     (printer?.connectionType || printer?.connection_type || "network") as ConnectionType
@@ -103,11 +107,11 @@ export function EditPrinterDialog({
   async function save() {
     if (!printer) return;
     if (!gatewayUrl) {
-      onError("Gateway URL is not configured.");
+      onError(t("desktop.add.gatewayUrlMissing"));
       return;
     }
     if (!name.trim()) {
-      onError("Printer name is required.");
+      onError(t("desktop.add.nameRequired"));
       return;
     }
 
@@ -122,16 +126,16 @@ export function EditPrinterDialog({
       const ippPorts = new Set([80, 443, 631]);
       const validPort = protocol === "ipp" ? ippPorts.has(n) : n === 9100;
       if (!host.trim() || !Number.isInteger(n) || !validPort) {
-        onError(protocol === "ipp"
-          ? "Network IPP printers require a private host and TCP port 80, 443, or 631."
-          : "Network printers require a private host and TCP port 9100.");
+        onError(
+          protocol === "ipp" ? t("desktop.edit.ippNetworkRule") : t("desktop.edit.networkRule"),
+        );
         return;
       }
       nextConfig.ip = host.trim();
       nextConfig.port = n;
     } else if (connectionType === "spooler") {
       if (!spoolerName.trim()) {
-        onError("Windows spooler printer name is required.");
+        onError(t("desktop.edit.spoolerRequired"));
         return;
       }
       nextConfig.spooler_name = spoolerName.trim();
@@ -140,15 +144,15 @@ export function EditPrinterDialog({
       const vid = Number(usbVid);
       const pid = Number(usbPid);
       if (!usbVid.trim() || !Number.isInteger(vid) || vid < 0 || vid > 65535) {
-        onError("USB printers require a valid VID.");
+        onError(t("desktop.edit.usbVidRequired"));
         return;
       }
       if (!usbPid.trim() || !Number.isInteger(pid) || pid < 0 || pid > 65535) {
-        onError("USB printers require a valid PID.");
+        onError(t("desktop.edit.usbPidRequired"));
         return;
       }
       if (!address.trim()) {
-        onError("Direct USB printers require a Windows device path.");
+        onError(t("desktop.edit.usbPathRequired"));
         return;
       }
       nextConfig.vid = vid;
@@ -157,11 +161,11 @@ export function EditPrinterDialog({
       nextConfig.address = address.trim();
     } else {
       if (!address.trim()) {
-        onError("IPP printer URL is required.");
+        onError(t("desktop.edit.ippUrlRequired"));
         return;
       }
       if (!/^(ipp|ipps|http|https):\/\//i.test(address.trim())) {
-        onError("IPP address must be an ipp://, ipps://, http:// or https:// URL.");
+        onError(t("desktop.edit.ippUrlInvalid"));
         return;
       }
       nextConfig.address = address.trim();
@@ -180,7 +184,7 @@ export function EditPrinterDialog({
       await onSaved();
       onClose();
     } catch (e) {
-      onError(friendlyGatewayError(e instanceof Error ? e.message : "Could not update printer."));
+      onError(friendlyGatewayError(e instanceof Error ? e.message : t("desktop.edit.saveFailed"), locale));
     } finally {
       setBusy(false);
     }
@@ -190,21 +194,21 @@ export function EditPrinterDialog({
     <Modal
       open={open}
       onClose={busy ? () => undefined : onClose}
-      title="Edit printer"
-      description="Changes here update Gateway desired state. The Agent applies them asynchronously and reports the applied revision."
+      title={t("desktop.edit.title")}
+      description={t("desktop.edit.description")}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button variant="primary" onClick={save} loading={busy}>Save changes</Button>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>{t("common.cancel")}</Button>
+          <Button variant="primary" onClick={save} loading={busy}>{t("desktop.edit.saveChanges")}</Button>
         </>
       }
     >
       {printer && (
         <div className="space-y-5">
-          <Field label="Printer name" htmlFor="edit-printer-name">
+          <Field label={t("desktop.edit.printerName")} htmlFor="edit-printer-name">
             <Input id="edit-printer-name" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
-          <Field label="Connection" htmlFor="edit-printer-connection">
+          <Field label={t("desktop.edit.connection")} htmlFor="edit-printer-connection">
             <Select
               id="edit-printer-connection"
               value={connectionType}
@@ -214,49 +218,49 @@ export function EditPrinterDialog({
                 setProtocol(defaultProtocol(nextConnection));
               }}
             >
-              <option value="network">Network TCP</option>
-              <option value="spooler">Windows spooler</option>
-              <option value="usb">USB</option>
-              <option value="ipp">IPP</option>
+              <option value="network">{t("desktop.edit.networkTcp")}</option>
+              <option value="spooler">{t("desktop.connection.spooler")}</option>
+              <option value="usb">{t("desktop.connection.usb")}</option>
+              <option value="ipp">{t("desktop.connection.ipp")}</option>
               <option value="ipps">IPPS</option>
             </Select>
           </Field>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Protocol" htmlFor="edit-printer-protocol">
+            <Field label={t("desktop.edit.protocol")} htmlFor="edit-printer-protocol">
               <Select id="edit-printer-protocol" value={protocol} onChange={(e) => setProtocol(e.target.value)}>
-                {protocolOptions(connectionType).map((item) => (
+                {protocolOptions(connectionType, t).map((item) => (
                   <option key={item.value} value={item.value}>{item.label}</option>
                 ))}
               </Select>
             </Field>
-            <Field label="Device class" htmlFor="edit-printer-class">
+            <Field label={t("desktop.edit.deviceClass")} htmlFor="edit-printer-class">
               <Select id="edit-printer-class" value={deviceClass} onChange={(e) => setDeviceClass(e.target.value)}>
-                <option value="unknown">Unknown</option>
-                <option value="thermal">Thermal</option>
-                <option value="laser">Laser</option>
-                <option value="inkjet">Inkjet</option>
-                <option value="label">Label</option>
-                <option value="other">Other</option>
+                <option value="unknown">{t("desktop.edit.deviceUnknown")}</option>
+                <option value="thermal">{t("desktop.edit.deviceThermal")}</option>
+                <option value="laser">{t("desktop.edit.deviceLaser")}</option>
+                <option value="inkjet">{t("desktop.edit.deviceInkjet")}</option>
+                <option value="label">{t("desktop.edit.deviceLabel")}</option>
+                <option value="other">{t("desktop.edit.deviceOther")}</option>
               </Select>
             </Field>
           </div>
           {connectionType === "network" && (
             <div className="grid grid-cols-[1.6fr_1fr] gap-4">
-              <Field label="Host" htmlFor="edit-printer-host">
+              <Field label={t("desktop.edit.host")} htmlFor="edit-printer-host">
                 <Input id="edit-printer-host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" />
               </Field>
-              <Field label="Port" htmlFor="edit-printer-port">
+              <Field label={t("desktop.edit.port")} htmlFor="edit-printer-port">
                 <Input id="edit-printer-port" value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" />
               </Field>
             </div>
           )}
           {connectionType === "spooler" && (
-            <Field label="Windows printer name" htmlFor="edit-printer-spooler">
+            <Field label={t("desktop.edit.windowsPrinterName")} htmlFor="edit-printer-spooler">
               <Input id="edit-printer-spooler" value={spoolerName} onChange={(e) => setSpoolerName(e.target.value)} />
             </Field>
           )}
           {(connectionType === "ipp" || connectionType === "ipps") && (
-            <Field label="Printer URL" htmlFor="edit-printer-address">
+            <Field label={t("desktop.edit.printerUrl")} htmlFor="edit-printer-address">
               <Input id="edit-printer-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="ipp://192.168.1.50/ipp/print" />
             </Field>
           )}

@@ -1,27 +1,30 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
+import { useI18n } from "../../i18n/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, MailCheck, ShieldAlert } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Callout, Field, Input, Skeleton } from "../../components/ui";
+import { codeMessageKey } from "../../lib/api-error-keys";
 
 function VerifyEmailContent() {
   const params = useSearchParams();
   const token = params.get("token");
   const initialEmail = params.get("email") ?? "";
   const planId = params.get("plan") ?? "";
+  const { t } = useI18n();
   const router = useRouter();
   const [state, setState] = useState<"loading" | "ok" | "error" | "pending">(
     token ? "loading" : initialEmail ? "pending" : "error",
   );
   const [msg, setMsg] = useState(
     token
-      ? "Verifying your email…"
+      ? t("auth.verify.verifying")
       : initialEmail
-        ? `Check your inbox (${initialEmail}) for a verification link.`
-        : "Verification link is missing or invalid.",
+        ? t("auth.verify.checkInbox", { email: initialEmail })
+        : t("auth.verify.missingLink"),
   );
   const [resendEmail, setResendEmail] = useState(initialEmail);
   const [resending, setResending] = useState(false);
@@ -29,23 +32,49 @@ function VerifyEmailContent() {
 
   useEffect(() => {
     if (!token) return;
-    fetch("/api/auth/verify-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    }).then(async (response) => {
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Verification failed");
-      setState("ok");
-      setMsg("Email verified. Redirecting to workspace setup…");
-      setTimeout(() => {
-        const next = planId ? `/onboarding?plan=${encodeURIComponent(planId)}` : "/onboarding";
-        router.replace(next);
-      }, 500);
-    }).catch((error) => {
-      setState("error");
-      setMsg(error instanceof Error ? error.message : "Verification failed");
-    });
+    // The request and the redirect both outlive a fast navigation if they are
+    // not owned by this effect: an in-flight verification could overwrite the
+    // state of a later render, and a pending redirect could yank the user back
+    // to onboarding after they had already moved on. Both are cancelled here.
+    const controller = new AbortController();
+    let cancelled = false;
+    let redirectTimer: ReturnType<typeof setTimeout> | undefined;
+
+    (async () => {
+      try {
+        const response = await fetch("/api/auth/verify-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+          signal: controller.signal,
+        });
+        let payload: { error?: string } = {};
+        try {
+          payload = (await response.json()) as { error?: string };
+        } catch {
+          payload = {};
+        }
+        if (cancelled) return;
+        if (!response.ok) throw new Error(payload.error ?? t("auth.verify.failed"));
+        setState("ok");
+        setMsg(t("auth.verify.verifiedBody"));
+        redirectTimer = setTimeout(() => {
+          if (cancelled) return;
+          const next = planId ? `/onboarding?plan=${encodeURIComponent(planId)}` : "/onboarding";
+          router.replace(next);
+        }, 500);
+      } catch (error) {
+        if (cancelled || controller.signal.aborted) return;
+        setState("error");
+        setMsg(error instanceof Error ? error.message : t("auth.verify.failed"));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (redirectTimer !== undefined) clearTimeout(redirectTimer);
+    };
   }, [token, planId, router]);
 
   async function handleResend(event: React.FormEvent) {
@@ -60,23 +89,28 @@ function VerifyEmailContent() {
         body: JSON.stringify({ email: resendEmail, planId }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Failed to resend verification email");
-      setResendMsg("A new verification link has been sent if the account exists.");
+      if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "auth.verify.resendFailed"));
+      setResendMsg(t("auth.verify.resendSent"));
     } catch (error) {
-      setResendMsg(error instanceof Error ? error.message : "Failed to resend verification email");
+      setResendMsg(error instanceof Error ? error.message : t("auth.verify.resendFailed"));
     } finally {
       setResending(false);
     }
   }
 
-  const title = state === "loading" ? "Verify your email" : state === "ok" ? "Email verified" : state === "pending" ? "Check your email" : "Verification failed";
-  const eyebrow = state === "ok" ? "Verified" : state === "error" ? "Action needed" : "Email verification";
+  const title =
+    state === "loading" || state === "pending"
+      ? t("auth.verify.checkEmail")
+      : state === "ok"
+        ? t("auth.verify.verified")
+        : t("auth.verify.failed");
+  const eyebrow = state === "ok" ? t("auth.verify.eyebrowDone") : state === "error" ? t("auth.verify.eyebrowError") : t("auth.verify.eyebrowPending");
 
   return (
-    <AuthShell subtitle="Email verification" eyebrow={eyebrow} title={title} description={msg}>
+    <AuthShell subtitle={t("auth.verify.eyebrowPending")} eyebrow={eyebrow} title={title} description={msg}>
       {state === "ok" ? (
-        <Callout tone="ok" icon={<CheckCircle2 className="h-4 w-4" aria-hidden />} title="You’re all set">
-          Continuing to workspace setup…
+        <Callout tone="ok" icon={<CheckCircle2 className="h-4 w-4" aria-hidden />} title={t("auth.verify.allSetTitle")}>
+          {t("auth.verify.continuing")}
         </Callout>
       ) : (
         <div className="space-y-5">
@@ -89,21 +123,21 @@ function VerifyEmailContent() {
                 <MailCheck className="h-4 w-4" aria-hidden />
               )
             }
-            title={state === "error" ? "This link can’t be used" : "Links expire after a short time"}
+            title={state === "error" ? t("auth.verify.linkUnusable") : t("auth.verify.linksExpire")}
           >
             {state === "error"
-              ? "Request a new verification link below, or sign in if you already verified this address."
-              : "If it doesn’t arrive within a few minutes, check spam or resend it below."}
+              ? t("auth.verify.linkUnusableBody")
+              : t("auth.verify.linksExpireBody")}
           </Callout>
 
           <form onSubmit={handleResend} className="space-y-4">
-            <Field label="Email address" htmlFor="resend-email" hint="We only send a link if the account exists.">
+            <Field label={t("auth.verify.emailAddress")} htmlFor="resend-email" hint={t("auth.verify.hint")}>
               <Input
                 id="resend-email"
                 type="email"
                 value={resendEmail}
                 onChange={(e) => setResendEmail(e.target.value)}
-                placeholder="name@example.com"
+                placeholder={t("auth.emailPlaceholder")}
                 autoComplete="email"
                 required
               />
@@ -112,7 +146,7 @@ function VerifyEmailContent() {
             {resendMsg && (
               <p
                 role="status"
-                className="rounded-lg border border-edge-subtle bg-surface-2 px-3.5 py-2.5 text-sm leading-relaxed text-ink-2"
+                className="rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-2.5 text-sm leading-relaxed text-ink-2"
               >
                 {resendMsg}
               </p>
@@ -126,13 +160,13 @@ function VerifyEmailContent() {
               loading={resending}
               disabled={resending || !resendEmail}
             >
-              {resending ? "Sending…" : "Resend verification email"}
+              {resending ? t("auth.verify.resending") : t("auth.verify.resend")}
             </Button>
           </form>
 
           <div className="text-center">
             <Link href="/login" className="text-sm font-[550] text-brand hover:underline">
-              Back to sign in
+              {t("auth.verify.backToSignIn")}
             </Link>
           </div>
         </div>
@@ -142,15 +176,16 @@ function VerifyEmailContent() {
 }
 
 export default function VerifyEmail() {
+  const { t } = useI18n();
   return (
     <Suspense
       fallback={
-        <AuthShell subtitle="Email verification">
-          <div className="space-y-4" role="status" aria-label="Loading">
+        <AuthShell subtitle={t("auth.verify.eyebrowPending")}>
+          <div className="space-y-4" role="status" aria-label={t("common.loading")}>
             <Skeleton className="h-7 w-48" />
             <Skeleton className="h-4 w-full" />
             <Skeleton className="mt-6 h-20 w-full" />
-            <span className="sr-only">Loading…</span>
+            <span className="sr-only">{t("common.loading")}</span>
           </div>
         </AuthShell>
       }

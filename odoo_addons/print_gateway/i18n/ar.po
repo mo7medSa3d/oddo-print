@@ -1,0 +1,2284 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+#	* print_gateway
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 19.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-02 00:00+0000\n"
+"PO-Revision-Date: 2026-10-02 00:00+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Language: ar\n"
+"Plural-Forms: nplurals=6; plural=(n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 && n%100<=99 ? 4 : 5);\n"
+
+#. module: print_gateway
+#: controllers/runtime_printers.py
+msgid "Odoo Branch must belong directly to the selected Odoo Company."
+msgstr "يجب أن يتبع فرع Odoo شركة Odoo المحددة مباشرةً."
+
+#. module: print_gateway
+#: controllers/runtime_printers.py
+msgid "Odoo Branch must be a child Branch, not the selected root Company."
+msgstr "يجب أن يكون فرع Odoo فرعًا تابعًا، لا الشركة الجذر المحددة."
+
+#. module: print_gateway
+#: controllers/runtime_printers.py
+msgid "Gateway agent discovery failed (HTTP %s)."
+msgstr "تعذّر اكتشاف الـ Agents في الـ Gateway (HTTP %s)."
+
+#. module: print_gateway
+#: controllers/runtime_printers.py
+msgid "Gateway agent discovery is unavailable."
+msgstr "اكتشاف الـ Agents في الـ Gateway غير متاح."
+
+#. module: print_gateway
+#: controllers/runtime_printers.py
+msgid "Gateway returned an invalid agent discovery response."
+msgstr "أعاد الـ Gateway استجابة غير صالحة لاكتشاف الـ Agents."
+
+#. module: print_gateway
+#: controllers/runtime_printers.py
+msgid "Gateway printer discovery failed (HTTP %s)."
+msgstr "تعذّر اكتشاف الطابعات في الـ Gateway (HTTP %s)."
+
+#. module: print_gateway
+#: controllers/runtime_printers.py
+msgid "Gateway printer discovery is unavailable."
+msgstr "اكتشاف الطابعات في الـ Gateway غير متاح."
+
+#. module: print_gateway
+#: controllers/runtime_printers.py
+msgid "Gateway returned an invalid printer discovery response."
+msgstr "أعاد الـ Gateway استجابة غير صالحة لاكتشاف الطابعات."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The requested report is unavailable."
+msgstr "التقرير المطلوب غير متاح."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Only QWeb PDF reports can be sent to the Print Gateway."
+msgstr "يمكن إرسال تقارير QWeb PDF فقط إلى الـ Gateway."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "You are not allowed to view or use this report."
+msgstr "لا يحق لك عرض هذا التقرير أو استخدامه."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "A Print Binding cannot use itself as its failover target."
+msgstr "لا يمكن لربط الطباعة أن يستخدم نفسه كوجهة تجاوز فشل."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The failover binding must use the same Odoo Company and Branch as the primary binding."
+msgstr "يجب أن يستخدم ربط تجاوز الفشل شركة Odoo وفرعها نفسهما المستخدمين في الربط الأساسي."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The failover binding must target the same destination as the primary binding."
+msgstr "يجب أن يستهدف ربط تجاوز الفشل الوجهة نفسها التي يستهدفها الربط الأساسي."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The failover binding must use the same document type as the primary binding."
+msgstr "يجب أن يستخدم ربط تجاوز الفشل نوع المستند نفسه المستخدم في الربط الأساسي."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "An enabled Print Gateway configuration is required for this Odoo Company."
+msgstr "يلزم إعداد Gateway طباعة مُفعّل لهذه الشركة في Odoo."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The selected Gateway Runtime Agent is not assigned to the current Odoo Branch."
+msgstr "الـ Agent المحدَّد غير مُعيَّن لفرع Odoo الحالي."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Gateway runtime agent discovery is unavailable."
+msgstr "اكتشاف الـ Agents في الـ Gateway غير متاح."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The selected Gateway Runtime Agent is not found."
+msgstr "الـ Agent المحدَّد غير موجود."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Agent '%s' cannot be assigned because its lifecycle is '%s'. Only agents with lifecycle 'active' may receive print jobs."
+msgstr "لا يمكن تعيين الـ Agent '%s' لأن دورة حياته '%s'. يمكن فقط للـ Agents التي تكون دورة حياتها 'active' تلقّي مهام الطباعة."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Gateway runtime printer discovery is unavailable."
+msgstr "اكتشاف طابعات الـ Gateway غير متاح."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The selected Gateway Runtime Printer is not found."
+msgstr "طابعة الـ Gateway المحدَّدة غير موجودة."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Printer '%s' cannot be assigned because its lifecycle is '%s'. Only printers with lifecycle 'active' may receive print jobs."
+msgstr "لا يمكن تعيين الطابعة '%s' لأن دورة حياتها '%s'. يمكن فقط للطابعات التي تكون دورة حياتها 'active' تلقّي مهام الطباعة."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Gateway Runtime Printer does not belong to the selected Runtime Agent."
+msgstr "طابعة الـ Gateway لا تتبع الـ Agent المحدَّد."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "POS receipts require a thermal receipt printer, not a document/laser printer."
+msgstr "إيصالات POS تتطلب طابعة إيصالات حرارية، لا طابعة مستندات أو ليزر."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "POS Kitchen / Preparation printing requires a thermal printer, not a document/laser printer."
+msgstr "طباعة مطبخ POS / التحضير تتطلب طابعة حرارية، لا طابعة مستندات أو ليزر."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Direct inventory/warehouse operations require a label or thermal printer."
+msgstr "عمليات المخزون/المستودع المباشرة تتطلب طابعة ملصقات أو طابعة حرارية."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Odoo Company must be a root Company, not a Branch."
+msgstr "يجب أن تكون شركة Odoo شركة جذر، لا فرعًا."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The selected Odoo Company is not available to the current user."
+msgstr "شركة Odoo المحدَّدة غير متاحة للمستخدم الحالي."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Odoo Branch is not available to the current user."
+msgstr "فرع Odoo غير متاح للمستخدم الحالي."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "A Gateway Runtime Agent is required for a branch binding."
+msgstr "يلزم وجود Agent للـ Gateway عند الربط على مستوى الفرع."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Gateway Runtime Agent '%s' is not explicitly assigned to '%s'. Assign the Agent to this exact Odoo scope before creating the binding."
+msgstr "الـ Agent '%s' غير مُعيَّن صراحةً إلى '%s'. عيّن الـ Agent على نطاق Odoo هذا تحديدًا قبل إنشاء الربط."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "A valid Odoo Destination is required."
+msgstr "يلزم تحديد وجهة صالحة في Odoo."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Odoo Destination belongs to another company/branch context."
+msgstr "وجهة Odoo تتبع سياق شركة/فرع آخر."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Document / Report belongs to another company/branch context."
+msgstr "المستند/التقرير يتبع سياق شركة/فرع آخر."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "A POS Shop is required for a POS Receipt binding."
+msgstr "يلزم تحديد متجر POS لربط إيصالات POS."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "POS Receipt bindings must not select an Odoo Kitchen Printer."
+msgstr "يجب ألا تختار روابط إيصالات POS طابعة مطبخ في Odoo."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "POS Receipt bindings must not select an Odoo Report; the receipt is rendered by the POS client."
+msgstr "يجب ألا تختار روابط إيصالات POS تقريرًا في Odoo؛ فعميل POS هو مَن يُنشئ الإيصال."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "An Odoo Preparation Printer or POS Shop is required for a POS Kitchen / Preparation binding."
+msgstr "يلزم تحديد طابعة تحضير في Odoo أو متجر POS لربط مطبخ POS / التحضير."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Odoo Preparation Printer must belong to an Odoo POS Preparation Printer configuration."
+msgstr "يجب أن تتبع طابعة التحضير في Odoo إعداد طابعة تحضير POS في Odoo."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Odoo Preparation Printer is not available to the selected Odoo Branch."
+msgstr "طابعة التحضير في Odoo غير متاحة لفرع Odoo المحدَّد."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "POS Kitchen / Preparation bindings must not select an Odoo Report."
+msgstr "يجب ألا تختار روابط مطبخ POS / التحضير تقريرًا في Odoo."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "A Report must be selected for this Destination Type."
+msgstr "يجب اختيار تقرير لهذا النوع من الوجهات."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Report destination and report document must be the same record."
+msgstr "يجب أن تكون وجهة التقرير ومستند التقرير السجل نفسه."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "A real Odoo report must be selected for this Destination Type."
+msgstr "يجب اختيار تقرير حقيقي من Odoo لهذا النوع من الوجهات."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "POS receipts must use a POS or report destination."
+msgstr "يجب أن تستخدم إيصالات POS وجهة من نوع POS أو تقرير."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Stock reports must use an operation type or report destination."
+msgstr "يجب أن تستخدم تقارير المخزون وجهة من نوع عملية أو تقرير."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "A Gateway Runtime Printer must be selected."
+msgstr "يجب اختيار طابعة من طابعات الـ Gateway."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Only Odoo system administrators can dispatch test pages."
+msgstr "يمكن لمسؤولي نظام Odoo فقط إرسال صفحات الاختبار."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Test Print Dispatched"
+msgstr "تم إرسال الطباعة التجريبية"
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Diagnostic test page sent to printer '%s'."
+msgstr "تم إرسال صفحة الاختبار التشخيصية إلى الطابعة '%s'."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Only Odoo system administrators can validate hardware registration."
+msgstr "يمكن لمسؤولي نظام Odoo فقط اعتماد تسجيل الأجهزة."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Registration Validated"
+msgstr "تم اعتماد التسجيل"
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Gateway registration is consistent: agent '%s' and printer '%s' are registered and active. This is a control-plane check, not a live hardware test - use Send Test Page to validate the physical path."
+msgstr "تسجيل الـ Gateway متسق: الـ Agent '%s' والطابعة '%s' مُسجَّلان ونشطان. هذا فحص على مستوى الإدارة، وليس اختبارًا فعليًا للأجهزة — استخدم «إرسال صفحة اختبار» للتحقق من المسار الفعلي."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "POS order has no POS configuration for print routing."
+msgstr "طلب POS لا يحتوي على إعداد POS لتوجيه الطباعة."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Delivery has no operation type for print routing."
+msgstr "التسليم لا يحتوي على نوع عملية لتوجيه الطباعة."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "A deterministic Odoo print destination is required."
+msgstr "يلزم تحديد وجهة طباعة محددة في Odoo."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The explicitly selected print binding no longer exists."
+msgstr "ربط الطباعة المحدَّد صراحةً لم يعد موجودًا."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The explicitly selected print binding is disabled."
+msgstr "ربط الطباعة المحدَّد صراحةً معطَّل."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The explicitly selected print binding is not scoped to the current company and branch."
+msgstr "ربط الطباعة المحدَّد صراحةً نطاقه لا يغطي الشركة والفرع الحاليين."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The explicitly selected print binding does not match this destination and document type."
+msgstr "ربط الطباعة المحدَّد صراحةً لا يطابق هذه الوجهة وهذا النوع من المستندات."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The explicitly selected print binding does not match this report action."
+msgstr "ربط الطباعة المحدَّد صراحةً لا يطابق إجراء التقرير هذا."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The explicitly selected print binding has no routable runtime and printer."
+msgstr "ربط الطباعة المحدَّد صراحةً لا يحتوي على Agent وطابعة قابلين للتوجيه."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The explicitly selected print binding does not support protocol '%s'."
+msgstr "ربط الطباعة المحدَّد صراحةً لا يدعم البروتوكول '%s'."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "The explicitly selected print binding is not capable of document printing."
+msgstr "ربط الطباعة المحدَّد صراحةً غير قادر على طباعة المستندات."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Print document type is required."
+msgstr "نوع مستند الطباعة مطلوب."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Print destination belongs to another Odoo company/branch context."
+msgstr "وجهة الطباعة تتبع سياق شركة/فرع آخر في Odoo."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "Sent silently to printer."
+msgstr "تم الإرسال بصمت إلى الطابعة."
+
+#. module: print_gateway
+#: models/binding.py
+msgid "This print operation is blocked by the current Gateway plan limit."
+msgstr "عملية الطباعة هذه محجوبة بسبب حد خطة الـ Gateway الحالية."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "another endpoint"
+msgstr "نقطة نهاية أخرى"
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The Gateway at %(url)s answered with a redirect (HTTP %(code)s%(location)s). Configure the final Gateway origin directly (usually the HTTPS URL) instead of an address that redirects."
+msgstr "ردّ الـ Gateway على العنوان %(url)s بتحويل (HTTP %(code)s%(location)s). اضبط أصل الـ Gateway النهائي مباشرةً (عادةً عنوان HTTPS) بدلًا من عنوان يُجري تحويلًا."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway synchronization has not completed within %d minutes. The next automatic check will retry it."
+msgstr "لم تكتمل مزامنة الـ Gateway خلال %d دقيقة. سيعيد الفحص التلقائي التالي المحاولة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway URL is required."
+msgstr "عنوان URL للـ Gateway مطلوب."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway URL is invalid."
+msgstr "عنوان URL للـ Gateway غير صالح."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway URL must use HTTP or HTTPS and include a host, e.g. https://print.example.com or http://192.0.2.10:3000."
+msgstr "يجب أن يستخدم عنوان URL للـ Gateway بروتوكول HTTP أو HTTPS وأن يتضمن اسم مضيف، مثل https://print.example.com أو http://192.0.2.10:3000."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway URL must use HTTPS."
+msgstr "يجب أن يستخدم عنوان URL للـ Gateway بروتوكول HTTPS."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway URL must not contain credentials, query parameters, or fragments."
+msgstr "يجب ألا يحتوي عنوان URL للـ Gateway على بيانات اعتماد أو معاملات استعلام أو أجزاء."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway URL must be the Gateway origin, without an API path (include the port when the Gateway does not listen on 80/443)."
+msgstr "يجب أن يكون عنوان URL للـ Gateway هو أصل الـ Gateway بدون مسار API (مع ذكر المنفذ إذا كان الـ Gateway لا يستمع على 80/443)."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Enter the installation API key from your Yaseir Print Gateway account to connect this company."
+msgstr "أدخل مفتاح API للتثبيت من حساب Yaseir Print Gateway لربط هذه الشركة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The installation key is no longer active. Create or select a new key in Yaseir Print Gateway, then save it here."
+msgstr "مفتاح التثبيت لم يعد نشطًا. أنشئ مفتاحًا جديدًا أو اختره في Yaseir Print Gateway، ثم احفظه هنا."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The Gateway could not be reached. Check the Gateway URL and network connection."
+msgstr "تعذّر الوصول إلى الـ Gateway. تحقّق من عنوان URL للـ Gateway ومن الاتصال بالشبكة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Your printing settings are being updated in the printing service."
+msgstr "جارٍ تحديث إعدادات الطباعة في خدمة الطباعة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The previous Gateway endpoint (%(url)s) could not be disabled: %(error)s Fix the previous endpoint or replace the Gateway key, then save again."
+msgstr "تعذّر تعطيل نقطة نهاية الـ Gateway السابقة (%(url)s): %(error)s أصلح نقطة النهاية السابقة أو استبدل مفتاح الـ Gateway، ثم احفظ مرة أخرى."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Saving your current printing settings."
+msgstr "جارٍ حفظ إعدادات الطباعة الحالية."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Printing is enabled and the service is connected."
+msgstr "الطباعة مُفعّلة والخدمة متصلة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Printing is disabled and the service is connected."
+msgstr "الطباعة معطَّلة والخدمة متصلة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway Configuration can only be created for parent companies, not branches (%s)."
+msgstr "يمكن إنشاء إعداد الـ Gateway للشركات الأم فقط، لا للفروع (%s)."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Legacy Runtime Agent must be a non-empty Gateway agent ID."
+msgstr "يجب أن يكون الـ Agent القديم معرّف Agent غير فارغ في الـ Gateway."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway credential protection is unavailable or invalid."
+msgstr "حماية بيانات اعتماد الـ Gateway غير متاحة أو غير صالحة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway API key is not configured."
+msgstr "مفتاح API للـ Gateway غير مُعدّ."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway credential protection is unavailable or invalid. Configure the deployment-managed credential encryption key before using Gateway printing."
+msgstr "حماية بيانات اعتماد الـ Gateway غير متاحة أو غير صالحة. اضبط مفتاح تشفير بيانات الاعتماد المُدار من النشر قبل استخدام طباعة الـ Gateway."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The Gateway workspace is not available for printing."
+msgstr "مساحة عمل الـ Gateway غير متاحة للطباعة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway health check failed (HTTP %s)."
+msgstr "تعذّر فحص صحة الـ Gateway (HTTP %s)."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The previous Gateway rejected shutdown synchronization because its stored API key is unauthorized."
+msgstr "رفض الـ Gateway السابق مزامنة الإيقاف لأن مفتاح API المخزَّن غير مصرَّح به."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The previous Gateway did not confirm that Odoo integration was disabled (HTTP %s)."
+msgstr "لم يؤكد الـ Gateway السابق تعطيل تكامل Odoo (HTTP %s)."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The previous Gateway returned an invalid migration revision."
+msgstr "أعاد الـ Gateway السابق رقم مراجعة ترحيل غير صالح."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway endpoint shutdown/migration state is incomplete; automatic reconciliation is blocked until it is repaired."
+msgstr "حالة إيقاف/ترحيل نقطة نهاية الـ Gateway غير مكتملة؛ وتسوية الحالة تلقائيًا محجوبة إلى أن تُصلَح."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway activation synchronization was rejected because the API key is unauthorized."
+msgstr "رُفضت مزامنة تفعيل الـ Gateway لأن مفتاح API غير مصرَّح به."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway activation synchronization returned an invalid response."
+msgstr "أعادت مزامنة تفعيل الـ Gateway استجابة غير صالحة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The Gateway rejected the printing-service setting (HTTP %s). Check the Gateway URL and installation API key, then try again."
+msgstr "رفض الـ Gateway إعداد خدمة الطباعة (HTTP %s). تحقّق من عنوان URL للـ Gateway ومن مفتاح API للتثبيت، ثم حاول مرة أخرى."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The Gateway did not confirm the printing-service setting. Check the Gateway URL and installation API key, then try again."
+msgstr "لم يؤكد الـ Gateway إعداد خدمة الطباعة. تحقّق من عنوان URL للـ Gateway ومن مفتاح API للتثبيت، ثم حاول مرة أخرى."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway activation synchronization did not acknowledge the requested revision/state."
+msgstr "لم تُقرّ مزامنة تفعيل الـ Gateway برقم المراجعة/الحالة المطلوبة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway activation synchronization could not converge after several fenced retries."
+msgstr "تعذّر على مزامنة تفعيل الـ Gateway الاستقرار بعد عدة محاولات مقيدة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Only Odoo system administrators can change Gateway configuration."
+msgstr "يمكن لمسؤولي نظام Odoo فقط تغيير إعداد الـ Gateway."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The API key cannot be removed while a previous Gateway migration is still pending."
+msgstr "لا يمكن إزالة مفتاح API بينما لا يزال ترحيل سابق للـ Gateway معلَّقًا."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The existing Gateway API key cannot be decrypted, so Odoo will not remove it while the Gateway may still be active."
+msgstr "لا يمكن فك تشفير مفتاح API الحالي للـ Gateway، لذلك لن يزيله Odoo بينما قد يكون الـ Gateway لا يزال نشطًا."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway URL cannot be changed again until the previous Gateway endpoint has been successfully disabled."
+msgstr "لا يمكن تغيير عنوان URL للـ Gateway مرة أخرى إلى أن يتم تعطيل نقطة نهاية الـ Gateway السابقة بنجاح."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Cannot change the Gateway URL while the previous Gateway state may still be active without a stored API key."
+msgstr "لا يمكن تغيير عنوان URL للـ Gateway بينما قد تكون حالة الـ Gateway السابقة لا تزال نشطة بدون مفتاح API مخزَّن."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Cannot change the Gateway URL until the previous Gateway credential can be decrypted and protected for migration."
+msgstr "لا يمكن تغيير عنوان URL للـ Gateway إلى أن يمكن فك تشفير بيانات اعتماد الـ Gateway السابقة وحمايتها من أجل الترحيل."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway credential protection is unavailable. Configure the deployment-managed credential encryption key before saving an API key."
+msgstr "حماية بيانات اعتماد الـ Gateway غير متاحة. اضبط مفتاح تشفير بيانات الاعتماد المُدار من النشر قبل حفظ مفتاح API."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Disable Gateway printing before removing its installation API key."
+msgstr "عطّل طباعة الـ Gateway قبل إزالة مفتاح API للتثبيت."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The previous Gateway API key was already revoked, so Odoo could not confirm the remote Gateway was disabled. Add a new key and test the connection to finish synchronization."
+msgstr "مفتاح API للـ Gateway السابق كان قد أُلغي مسبقًا، لذلك تعذّر على Odoo تأكيد تعطيل الـ Gateway البعيد. أضف مفتاحًا جديدًا واختبر الاتصال لإكمال المزامنة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway credential protection is unavailable. Configure the deployment-managed credential encryption key before creating a Gateway configuration."
+msgstr "حماية بيانات اعتماد الـ Gateway غير متاحة. اضبط مفتاح تشفير بيانات الاعتماد المُدار من النشر قبل إنشاء إعداد للـ Gateway."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The Gateway rejected the deletion shutdown because the stored API key is unauthorized."
+msgstr "رفض الـ Gateway إيقاف الحذف لأن مفتاح API المخزَّن غير مصرَّح به."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The Gateway rejected the deletion shutdown because the API key is unauthorized."
+msgstr "رفض الـ Gateway إيقاف الحذف لأن مفتاح API غير مصرَّح به."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Delete Gateway configurations one at a time so a remote shutdown failure cannot leave a partially-disabled recordset."
+msgstr "احذف إعدادات الـ Gateway واحدًا تلو الآخر، حتى لا يترك فشل الإيقاف البعيد مجموعة سجلات معطَّلة جزئيًا."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "This Gateway configuration cannot be deleted while print jobs still reference it. Print jobs are retained as audit records; disable the configuration instead."
+msgstr "لا يمكن حذف إعداد الـ Gateway هذا بينما لا تزال مهام الطباعة تشير إليه. تُحفظ مهام الطباعة كسجلات تدقيق؛ فعطّل الإعداد بدلًا من حذفه."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "This Gateway configuration cannot be deleted until the previous Gateway endpoint has been disabled successfully."
+msgstr "لا يمكن حذف إعداد الـ Gateway هذا إلى أن يتم تعطيل نقطة نهاية الـ Gateway السابقة بنجاح."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "This Gateway configuration cannot be deleted because the credential for the previous Gateway endpoint cannot be decrypted."
+msgstr "لا يمكن حذف إعداد الـ Gateway هذا لأن بيانات اعتماد نقطة نهاية الـ Gateway السابقة لا يمكن فك تشفيرها."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "This Gateway configuration cannot be deleted until the Gateway confirms that printing is disabled."
+msgstr "لا يمكن حذف إعداد الـ Gateway هذا إلى أن يؤكد الـ Gateway تعطيل الطباعة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "This Gateway configuration cannot be deleted because its Gateway credential is unavailable."
+msgstr "لا يمكن حذف إعداد الـ Gateway هذا لأن بيانات اعتماده غير متاحة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Add an installation API key before synchronizing."
+msgstr "أضف مفتاح API للتثبيت قبل المزامنة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway Connection"
+msgstr "اتصال الـ Gateway"
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The Gateway rejected the API key. Replace the key and test the connection again."
+msgstr "رفض الـ Gateway مفتاح API. استبدل المفتاح واختبر الاتصال مرة أخرى."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway connection test failed (HTTP %s)."
+msgstr "تعذّر اختبار اتصال الـ Gateway (HTTP %s)."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway returned an invalid health response."
+msgstr "أعاد الـ Gateway استجابة صحة غير صالحة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Pair New Agent"
+msgstr "ربط Agent جديد"
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Branch Agent Assignments"
+msgstr "تعيينات الـ Agents للفروع"
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Please provide a valid Runtime Agent ID."
+msgstr "يرجى تقديم معرّف Agent صالح."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Gateway authentication failed (HTTP %s). Check the Gateway API key and that the workspace has an active subscription."
+msgstr "تعذّرت مصادقة الـ Gateway (HTTP %s). تحقّق من مفتاح API للـ Gateway ومن أن مساحة العمل لديها اشتراك نشط."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Agent '%s' not found on Central Gateway. Registered active agents: %s"
+msgstr "الـ Agent '%s' غير موجود على الـ Gateway المركزي. الـ Agents النشطة المسجَّلة: %s"
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "none"
+msgstr "لا شيء"
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Agent '%s' cannot be assigned because its status is '%s'. Only active agents are allowed."
+msgstr "لا يمكن تعيين الـ Agent '%s' لأن حالته '%s'. يُسمح بالـ Agents النشطة فقط."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The selected Target Branch must belong directly to the configured Odoo Company."
+msgstr "يجب أن يتبع الفرع المستهدف المحدَّد شركة Odoo المُعدَّة مباشرةً."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Agent Assigned Successfully"
+msgstr "تم تعيين الـ Agent بنجاح"
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "Agent %s assigned to %s."
+msgstr "تم تعيين الـ Agent %s إلى %s."
+
+#. module: print_gateway
+#: models/pos_order.py
+msgid "The rendered POS receipt image is required."
+msgstr "صورة إيصال POS المُنشأة مطلوبة."
+
+#. module: print_gateway
+#: models/pos_order.py
+msgid "The rendered POS Kitchen / Preparation image is required."
+msgstr "صورة مطبخ POS / التحضير المُنشأة مطلوبة."
+
+#. module: print_gateway
+#: models/pos_order.py
+msgid "The selected Odoo Preparation Printer does not belong to this POS."
+msgstr "طابعة التحضير المحدَّدة في Odoo لا تتبع نقطة البيع هذه."
+
+#. module: print_gateway
+#: models/pos_session.py
+msgid "Gateway printing must use the active Odoo company."
+msgstr "يجب أن تستخدم طباعة الـ Gateway شركة Odoo النشطة."
+
+#. module: print_gateway
+#: models/pos_session.py
+msgid "The rendered Sale Details image is required."
+msgstr "صورة تفاصيل المبيعات المُنشأة مطلوبة."
+
+#. module: print_gateway
+#: models/print_intent.py
+msgid "Invalid intent state transition from '%s' to '%s'."
+msgstr "انتقال غير صالح لحالة الطلب من '%s' إلى '%s'."
+
+#. module: print_gateway
+#: models/print_intent.py
+msgid "Transition from 'claimed' to 'pending' requires valid claim ownership or lease recovery context."
+msgstr "الانتقال من 'claimed' إلى 'pending' يتطلب ملكية حجز صالحة أو سياق استرداد مدة الحجز."
+
+#. module: print_gateway
+#: models/print_intent.py
+msgid "No Intents Re-armed"
+msgstr "لم يُعَد تجهيز أي طلب"
+
+#. module: print_gateway
+#: models/print_intent.py
+msgid "No eligible failed intents were selected for re-arming."
+msgstr "لم يُختر أي طلب فاشل مؤهل لإعادة التجهيز."
+
+#. module: print_gateway
+#: models/print_intent.py
+msgid "Intents Re-armed"
+msgstr "تمت إعادة تجهيز الطلبات"
+
+#. module: print_gateway
+#: models/print_intent.py
+msgid "%d failed intent(s) re-armed for immediate dispatch."
+msgstr "تمت إعادة تجهيز %d طلب/طلبات فاشلة للإرسال الفوري."
+
+#. module: print_gateway
+#: models/print_intent.py
+msgid "Only scheduled actions (administrator) may run this method."
+msgstr "يمكن للإجراءات المجدولة (المسؤول) فقط تشغيل هذا الأسلوب."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Print job no longer exists."
+msgstr "مهمة الطباعة لم تعد موجودة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Invalid print job state transition from '%s' to '%s'."
+msgstr "انتقال غير صالح لحالة مهمة الطباعة من '%s' إلى '%s'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Invalid terminal print job transition from '%s' to '%s'."
+msgstr "انتقال نهائي غير صالح لمهمة الطباعة من '%s' إلى '%s'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Print payload is not valid JSON: %s"
+msgstr "حمولة الطباعة ليست JSON صالحًا: %s"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Print payload must be a JSON object."
+msgstr "يجب أن تكون حمولة الطباعة كائن JSON."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Unsupported payload type '%s'. Expected one of: %s."
+msgstr "نوع الحمولة '%s' غير مدعوم. المتوقع أحد: %s."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "A print job requires a payload."
+msgstr "مهمة الطباعة تتطلب حمولة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Native command payloads require an explicit protocol (raw, escpos, zpl, or tspl); none was declared."
+msgstr "حمولات الأوامر الأصلية تتطلب بروتوكولًا صريحًا (raw أو escpos أو zpl أو tspl)؛ ولم يُعلن أي بروتوكول."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Payload protocol '%s' contradicts job protocol '%s'."
+msgstr "بروتوكول الحمولة '%s' يتعارض مع بروتوكول المهمة '%s'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Payload content (type '%s') contradicts the declared payload_type '%s'."
+msgstr "محتوى الحمولة (النوع '%s') يتعارض مع payload_type المُعلن '%s'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "PDF and Raster payloads cannot specify a printer protocol."
+msgstr "لا يمكن لحمولات PDF وRaster تحديد بروتوكول طابعة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Payload content (type '%s') contradicts the declared payload_type 'raw_cmd'."
+msgstr "محتوى الحمولة (النوع '%s') يتعارض مع payload_type المُعلن 'raw_cmd'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Native command payloads require a valid printer protocol."
+msgstr "حمولات الأوامر الأصلية تتطلب بروتوكول طابعة صالحًا."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "New payload content (type '%s') contradicts this job's payload_type '%s'."
+msgstr "محتوى الحمولة الجديد (النوع '%s') يتعارض مع payload_type '%s' لهذه المهمة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Native command payloads require an explicit protocol in the payload."
+msgstr "حمولات الأوامر الأصلية تتطلب بروتوكولًا صريحًا داخل الحمولة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Gateway configuration is missing."
+msgstr "إعداد الـ Gateway مفقود."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Print operations must be created in the active Odoo company."
+msgstr "يجب إنشاء عمليات الطباعة في شركة Odoo النشطة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Gateway configuration does not belong to the company hierarchy of the active Odoo company."
+msgstr "إعداد الـ Gateway لا يتبع التسلسل الهرمي لشركة Odoo النشطة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Printer is required."
+msgstr "الطابعة مطلوبة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Destination is required."
+msgstr "الوجهة مطلوبة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Document type is required."
+msgstr "نوع المستند مطلوب."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Print payload is not JSON serializable."
+msgstr "لا يمكن تحويل حمولة الطباعة إلى JSON."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Print payload exceeds the 8 MiB safety limit."
+msgstr "حمولة الطباعة تتجاوز حد الأمان البالغ 8 MiB."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Protocol argument '%s' contradicts the payload's own protocol '%s'."
+msgstr "معامل البروتوكول '%s' يتعارض مع بروتوكول الحمولة نفسها '%s'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Native command payloads require an explicit printer protocol; none was declared (protocol is never inferred from the payload type)."
+msgstr "حمولات الأوامر الأصلية تتطلب بروتوكول طابعة صريحًا؛ ولم يُعلن أي بروتوكول (لا يُستنتج البروتوكول أبدًا من نوع الحمولة)."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "The idempotency key is already used for a different print operation."
+msgstr "مفتاح التكرار الآمن مستخدم بالفعل لعملية طباعة أخرى."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Stored print payload must be a dictionary."
+msgstr "يجب أن تكون حمولة الطباعة المخزَّنة قاموسًا."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Stored print payload is missing 'type'."
+msgstr "حمولة الطباعة المخزَّنة تفتقد الحقل 'type'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Stored print payload must declare encoding 'base64', got '%s'."
+msgstr "يجب أن تُعلن حمولة الطباعة المخزَّنة الترميز 'base64'، ولكن وُجد '%s'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Payload type mismatch: expected 'pdf', got '%s'."
+msgstr "عدم تطابق نوع الحمولة: المتوقع 'pdf' ولكن وُجد '%s'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "PDF payloads cannot specify a printer protocol."
+msgstr "لا يمكن لحمولات PDF تحديد بروتوكول طابعة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Payload type mismatch: expected 'image', got '%s'."
+msgstr "عدم تطابق نوع الحمولة: المتوقع 'image' ولكن وُجد '%s'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Raster payloads cannot specify a printer protocol."
+msgstr "لا يمكن لحمولات Raster تحديد بروتوكول طابعة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Payload type mismatch: expected raw/escpos, got '%s'."
+msgstr "عدم تطابق نوع الحمولة: المتوقع raw/escpos ولكن وُجد '%s'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Raw/escpos payloads must declare their protocol inside the payload."
+msgstr "يجب أن تُعلن حمولات raw/escpos بروتوكولها داخل الحمولة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "ESC/POS payloads require protocol 'escpos', got '%s'."
+msgstr "حمولات ESC/POS تتطلب البروتوكول 'escpos'، ولكن وُجد '%s'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Unsupported payload protocol '%s'."
+msgstr "بروتوكول الحمولة '%s' غير مدعوم."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Payload protocol mismatch: expected '%s', got '%s'."
+msgstr "عدم تطابق بروتوكول الحمولة: المتوقع '%s' ولكن وُجد '%s'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Unknown payload type column '%s'."
+msgstr "عمود نوع الحمولة '%s' غير معروف."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Stored print payload data must be a non-empty string."
+msgstr "يجب أن تكون بيانات حمولة الطباعة المخزَّنة نصًا غير فارغ."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Stored print payload decoded to empty content."
+msgstr "أفرز فك ترميز حمولة الطباعة المخزَّنة محتوى فارغًا."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Stored print payload data is not valid base64."
+msgstr "بيانات حمولة الطباعة المخزَّنة ليست base64 صالحًا."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Stored print payload exceeds the 5 MiB Gateway/Agent safety limit."
+msgstr "حمولة الطباعة المخزَّنة تتجاوز حد الأمان البالغ 5 MiB في الـ Gateway والـ Agent."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "PDF payload must start with the %%PDF- signature."
+msgstr "يجب أن تبدأ حمولة PDF بالتوقيع %%PDF-."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Raster payload must be a JPEG."
+msgstr "يجب أن تكون حمولة Raster بصيغة JPEG."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "PDF bytes cannot be labeled as raw/escpos; the Gateway would reject this submission."
+msgstr "لا يمكن وسم بايتات PDF كـ raw/escpos؛ فالـ Gateway سيرفض هذا الإرسال."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Payload peripherals must be a dictionary."
+msgstr "يجب أن تكون ملحقات الحمولة قاموسًا."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Peripherals are only supported for ESC/POS protocol."
+msgstr "الملحقات مدعومة لبروتوكول ESC/POS فقط."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Stored print payload is corrupted."
+msgstr "حمولة الطباعة المخزَّنة تالفة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "WARNING: Print Job #%s submission outcome is unknown on '%s'."
+msgstr "تحذير: نتيجة إرسال مهمة الطباعة رقم %s غير معروفة على '%s'."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Gateway submission outcome is unknown; physical outcome is ambiguous. Automated retries are paused to prevent duplicate prints. Operator reprint required."
+msgstr "نتيجة الإرسال إلى الـ Gateway غير معروفة؛ والنتيجة الفعلية غير مؤكدة. تم إيقاف المحاولات التلقائية مؤقتًا لمنع الطباعة المكررة. يلزم تدخّل المشغّل لإعادة الطباعة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Primary printer offline. Failover engaged: routed to backup printer '%s'"
+msgstr "الطابعة الأساسية غير متصلة. تم تفعيل تجاوز الفشل: تم التوجيه إلى الطابعة الاحتياطية '%s'"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Gateway connection failed: %s"
+msgstr "تعذّر الاتصال بالـ Gateway: %s"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Print submission must occur after the Odoo outbox transaction commits; use the durable post-commit dispatcher."
+msgstr "يجب أن يتم إرسال الطباعة بعد تأكيد معاملة صادر Odoo؛ استخدم المُرسِل الدائم بعد التأكيد."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Your Gateway plan has reached its Agent limit."
+msgstr "بلغت خطة الـ Gateway الحد الأقصى لعدد الـ Agents."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Your Gateway plan has reached its Printer limit."
+msgstr "بلغت خطة الـ Gateway الحد الأقصى لعدد الطابعات."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Your Gateway plan has reached its print rate limit."
+msgstr "بلغت خطة الـ Gateway الحد الأقصى لمعدل الطباعة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Your Gateway plan has reached its concurrent print-job limit."
+msgstr "بلغت خطة الـ Gateway الحد الأقصى لمهام الطباعة المتزامنة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Your Gateway plan has used all included print jobs for this billing period."
+msgstr "استهلكت خطة الـ Gateway جميع مهام الطباعة المضمّنة في فترة الفوترة هذه."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Gateway is temporarily rate-limiting print submissions. The job was safely re-queued for retry."
+msgstr "الـ Gateway يقيّد معدل إرسال الطباعة مؤقتًا. تمت إعادة المهمة إلى قائمة الانتظار بأمان لإعادة المحاولة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Gateway billing access is temporarily unavailable. The job was safely re-queued for retry."
+msgstr "الوصول إلى فوترة الـ Gateway غير متاح مؤقتًا. تمت إعادة المهمة إلى قائمة الانتظار بأمان لإعادة المحاولة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "The printing service agent is unavailable. The receipt was not sent."
+msgstr "خدمة الطباعة غير متاحة. لم يتم إرسال الإيصال."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Printer '%s' is offline or unavailable (%s). The receipt was not sent."
+msgstr "الطابعة '%s' غير متصلة أو غير متاحة (%s). لم يتم إرسال الإيصال."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "The Gateway rejected this print job: %s"
+msgstr "رفض الـ Gateway مهمة الطباعة هذه: %s"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "The printer is temporarily busy. The job was safely re-queued for retry."
+msgstr "الطابعة مشغولة مؤقتًا. تمت إعادة المهمة إلى قائمة الانتظار بأمان لإعادة المحاولة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Print Job #%s expired at the Gateway (%s)."
+msgstr "انتهت صلاحية مهمة الطباعة رقم %s لدى الـ Gateway (%s)."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Print Job #%s queued to Gateway for '%s'"
+msgstr "تم إدراج مهمة الطباعة رقم %s في قائمة انتظار الـ Gateway للطابعة '%s'"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Gateway submission failed: %s"
+msgstr "تعذّر الإرسال إلى الـ Gateway: %s"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Gateway late success is only valid for an unknown-outcome failed job."
+msgstr "النجاح المتأخر من الـ Gateway صالح فقط لمهمة فاشلة ذات نتيجة غير معروفة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Gateway post-expiration success requires its explicit marker."
+msgstr "النجاح بعد انتهاء الصلاحية من الـ Gateway يتطلب علامته الصريحة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Gateway late success is not valid for this terminal state."
+msgstr "النجاح المتأخر من الـ Gateway غير صالح لهذه الحالة النهائية."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Print Job #%s completed by Gateway agent on '%s'"
+msgstr "أكمل وكيل الـ Gateway مهمة الطباعة رقم %s على '%s'"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "WARNING: Print Job #%s interrupted or ambiguous on '%s'. Manual check required."
+msgstr "تحذير: مهمة الطباعة رقم %s متوقفة أو غامضة على '%s'. يلزم فحص يدوي."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Status Sync"
+msgstr "مزامنة الحالة"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "No active in-flight print jobs found to synchronize."
+msgstr "لا توجد مهام طباعة نشطة قيد التنفيذ لمزامنتها."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Print Job #%s is no longer known to the Gateway; outcome marked UNKNOWN for manual reconciliation."
+msgstr "لم يعد الـ Gateway يعرف مهمة الطباعة رقم %s؛ وتم وضع علامة «غير معروفة» على النتيجة للتسوية اليدوية."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "%d print job(s) synchronized successfully."
+msgstr "تمت مزامنة %d مهمة/مهام طباعة بنجاح."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "%d print job(s) synchronized, %d failed."
+msgstr "تمت مزامنة %d مهمة/مهام طباعة، وتعذّرت %d."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Status synchronization failed for all %d job(s)."
+msgstr "تعذّرت مزامنة الحالة لجميع المهام (%d)."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Status Synchronized"
+msgstr "تمت مزامنة الحالة"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "No Eligible Jobs"
+msgstr "لا توجد مهام مؤهلة"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "No eligible failed print jobs (with confirmed non-printed outcome) found to retry."
+msgstr "لا توجد مهام طباعة فاشلة مؤهلة (بنتيجة مؤكدة بعدم الطباعة) لإعادة المحاولة."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Print Job Retried"
+msgstr "تمت إعادة محاولة مهمة الطباعة"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Retried %d print job(s) with new operation ID(s): %s"
+msgstr "تمت إعادة محاولة %d مهمة/مهام طباعة بمعرفات عمليات جديدة: %s"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "No eligible partial or unknown outcome print jobs found for force reprint."
+msgstr "لا توجد مهام طباعة مؤهلة ذات نتيجة جزئية أو غير معروفة لإعادة الطباعة الإجبارية."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Force Reprint Dispatched"
+msgstr "تم إرسال إعادة الطباعة الإجبارية"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Operator force reprint dispatched for %d job(s)."
+msgstr "تم إرسال إعادة طباعة إجبارية من المشغّل لـ %d مهمة/مهام."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Raw template is empty for policy %s."
+msgstr "القالب الخام فارغ للقاعدة %s."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "The raw template for rule '%s' uses the placeholder {%s}, but this document does not provide it. Remove the placeholder or replace it with a field this record has."
+msgstr "يستخدم القالب الخام للقاعدة '%s' العنصر النائب {%s}، وهذا المستند لا يوفّره. أزل العنصر النائب أو استبدله بحقل موجود في هذا السجل."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Could not build the raw payload for rule '%s'. Check that the template only uses placeholders this document provides."
+msgstr "تعذّر بناء الحمولة الخام للقاعدة '%s'. تحقّق من أن القالب يستخدم فقط العناصر النائبة التي يوفّرها هذا المستند."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Odoo Company must be a root company, not a branch."
+msgstr "يجب أن تكون شركة Odoo شركة جذر، لا فرعًا."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Target Binding must belong to the same Odoo Company as this Automation Rule."
+msgstr "يجب أن يتبع الربط المستهدف شركة Odoo نفسها التي تتبعها قاعدة الأتمتة هذه."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Target Binding must belong to this Odoo Branch or be a company-wide fallback."
+msgstr "يجب أن يتبع الربط المستهدف فرع Odoo هذا أو أن يكون بديلًا على مستوى الشركة."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "A root-company Automation Rule cannot target a branch-specific Binding."
+msgstr "لا يمكن لقاعدة أتمتة على مستوى الشركة الجذر أن تستهدف ربطًا خاصًا بفرع."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Invalid trigger event '%s' for model '%s'. Allowed: %s"
+msgstr "حدث تشغيل '%s' غير صالح للنموذج '%s'. المسموح: %s"
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "A report must be selected when action type is 'QWeb PDF Report'."
+msgstr "يجب اختيار تقرير عندما يكون نوع الإجراء 'QWeb PDF Report'."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Selected report model '%s' does not match policy target model '%s'."
+msgstr "نموذج التقرير المحدَّد '%s' لا يطابق النموذج المستهدف للقاعدة '%s'."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Raw template must not be configured when action type is 'QWeb PDF Report'."
+msgstr "يجب عدم إعداد قالب خام عندما يكون نوع الإجراء 'QWeb PDF Report'."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Raw command template cannot be empty when action type is 'Raw Command / Label Template'."
+msgstr "لا يمكن أن يكون قالب الأوامر الخام فارغًا عندما يكون نوع الإجراء 'Raw Command / Label Template'."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Report action must not be configured when action type is 'Raw Command / Label Template'."
+msgstr "يجب عدم إعداد إجراء تقرير عندما يكون نوع الإجراء 'Raw Command / Label Template'."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "A valid raw protocol (ZPL, TSPL, ESC/POS, or raw passthrough) must be specified."
+msgstr "يجب تحديد بروتوكول خام صالح (ZPL أو TSPL أو ESC/POS أو تمرير خام)."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Target binding '%s' protocol '%s' is incompatible with policy raw protocol '%s' (protocols must match exactly)."
+msgstr "بروتوكول الربط المستهدف '%s' وهو '%s' غير متوافق مع البروتوكول الخام للقاعدة '%s' (يجب أن يتطابق البروتوكولان تمامًا)."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Domain filter must evaluate to a list of criteria."
+msgstr "يجب أن تُفرز عامل تصفية النطاق قائمة من المعايير."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Invalid domain operator '%s'."
+msgstr "معامل النطاق '%s' غير صالح."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Domain leaves must have exactly 3 elements: %s"
+msgstr "يجب أن تحتوي أوراق النطاق على 3 عناصر بالضبط: %s"
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Field '%s' in domain filter does not exist on model '%s'."
+msgstr "الحقل '%s' في عامل تصفية النطاق غير موجود في النموذج '%s'."
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Invalid element in domain filter: %s"
+msgstr "عنصر غير صالح في عامل تصفية النطاق: %s"
+
+#. module: print_gateway
+#: models/print_policy.py
+msgid "Invalid domain filter expression for policy '%s': %s"
+msgstr "تعبير عامل تصفية النطاق غير صالح للقاعدة '%s': %s"
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Print routing must use the active Odoo company/branch (%s)."
+msgstr "يجب أن يستخدم توجيه الطباعة شركة/فرع Odoo النشط (%s)."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "The printable document belongs to %s, but the active Odoo company/branch is %s."
+msgstr "المستند القابل للطباعة يتبع %s، ولكن شركة/فرع Odoo النشط هو %s."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Print document type cannot be determined for this print action."
+msgstr "تعذّر تحديد نوع مستند الطباعة لإجراء الطباعة هذا."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Gateway Runtime Agent '%s' is not assigned to the current Odoo Branch."
+msgstr "الـ Agent '%s' غير مُعيَّن لفرع Odoo الحالي."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Gateway printing is enabled, but no Print Binding exists for %s (%s) in %s."
+msgstr "طباعة الـ Gateway مُفعّلة، ولكن لا يوجد ربط طباعة لـ %s (%s) في %s."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "The rendered report %s is not a valid PDF."
+msgstr "التقرير المُنشأ %s ليس PDF صالحًا."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "The POS print image is missing."
+msgstr "صورة طباعة POS مفقودة."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "The POS print image is not valid base64."
+msgstr "صورة طباعة POS ليست base64 صالحًا."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "The POS print image is not a valid JPEG or exceeds the 5 MiB safety limit."
+msgstr "صورة طباعة POS ليست JPEG صالحًا أو تتجاوز حد الأمان البالغ 5 MiB."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Cannot print an empty report."
+msgstr "لا يمكن طباعة تقرير فارغ."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Failed to render %s for Gateway printing."
+msgstr "تعذّر إنشاء %s لطباعة الـ Gateway."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "The durable print operation references a record that is no longer available."
+msgstr "عملية الطباعة الدائمة تشير إلى سجل لم يعد متاحًا."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "The durable print job is no longer available."
+msgstr "مهمة الطباعة الدائمة لم تعد متاحة."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Print job %s accepted by the Gateway."
+msgstr "قَبِل الـ Gateway مهمة الطباعة %s."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Gateway printing requires at least one report record."
+msgstr "طباعة الـ Gateway تتطلب سجل تقرير واحدًا على الأقل."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Selected records belong to conflicting routing scopes."
+msgstr "السجلات المحدَّدة تتبع نطاقات توجيه متعارضة."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "The selected records resolve to different Print Bindings. Print them separately."
+msgstr "تُحَل السجلات المحدَّدة إلى روابط طباعة مختلفة. اطبعها كلًا على حدة."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Gateway printing is enabled for this POS, but no Gateway Receipt binding is configured for the current branch/POS."
+msgstr "طباعة الـ Gateway مُفعّلة لنقطة البيع هذه، ولكن لا يوجد ربط إيصالات مُعدّ للفرع/نقطة البيع الحالية."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for the selected preparation printer."
+msgstr "طباعة الـ Gateway مُفعّلة لنقطة البيع هذه، ولكن لا يوجد ربط مطبخ مُعدّ لطابعة التحضير المحدَّدة."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Gateway printing is enabled for this POS, but no Gateway Sale Details binding is configured."
+msgstr "طباعة الـ Gateway مُفعّلة لنقطة البيع هذه، ولكن لا يوجد ربط لتفاصيل المبيعات مُعدّ."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Source record no longer exists."
+msgstr "السجل المصدر لم يعد موجودًا."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Gateway printing is not enabled for company %s"
+msgstr "طباعة الـ Gateway غير مُفعّلة للشركة %s"
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Policy '%s' is configured for report action but has no report selected."
+msgstr "القاعدة '%s' مُعدّة لإجراء تقرير ولكن لم يُختر لها تقرير."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Policy resolved to native print."
+msgstr "حُلّت القاعدة إلى الطباعة الأصلية."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Policy '%s' raw protocol is required."
+msgstr "البروتوكول الخام للقاعدة '%s' مطلوب."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "No valid action configured for policy %s (action_type: %s)"
+msgstr "لا يوجد إجراء صالح مُعدّ للقاعدة %s (نوع الإجراء: %s)"
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Unsupported raw protocol '%s'. Expected zpl, tspl, escpos, or raw."
+msgstr "البروتوكول الخام '%s' غير مدعوم. المتوقع zpl أو tspl أو escpos أو raw."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "The specified print binding '%s' is disabled."
+msgstr "ربط الطباعة المحدَّد '%s' معطَّل."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Print binding '%s' belongs to company '%s', but current operation is for '%s'."
+msgstr "ربط الطباعة '%s' يتبع الشركة '%s'، ولكن العملية الحالية للشركة '%s'."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Print binding '%s' is scoped to branch '%s' and cannot be used from '%s'."
+msgstr "نطاق ربط الطباعة '%s' مقتصر على الفرع '%s' ولا يمكن استخدامه من '%s'."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Print binding '%s' has no Gateway Runtime Printer assigned."
+msgstr "لا توجد طابعة من طابعات الـ Gateway مُعيَّنة لربط الطباعة '%s'."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Print binding '%s' has no Gateway Runtime Agent assigned."
+msgstr "لا يوجد Agent من الـ Gateway مُعيَّن لربط الطباعة '%s'."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Protocol mismatch: Binding '%s' is declared %s but this job is %s; protocols must match exactly (there is no wildcard)."
+msgstr "عدم تطابق البروتوكول: الربط '%s' مُعلن كـ %s ولكن هذه المهمة %s؛ يجب أن يتطابق البروتوكولان تمامًا (لا يوجد بدل شامل)."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Raw %s print job %s accepted."
+msgstr "تم قبول مهمة الطباعة الخام %s %s."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Print Gateway is disabled for company %s."
+msgstr "طباعة الـ Gateway معطَّلة للشركة %s."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Printer protocol is required on binding '%s' to send a diagnostic test ticket."
+msgstr "يلزم تحديد بروتوكول الطابعة على الربط '%s' لإرسال تذكرة اختبار تشخيصية."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "No canned diagnostic ticket exists for protocol '%s'. Declare an escpos/zpl/tspl/raw/spooler/ipp protocol on the printer, or print a real report through the Gateway."
+msgstr "لا توجد تذكرة اختبار جاهزة للبروتوكول '%s'. حدّد بروتوكولًا من escpos/zpl/tspl/raw/spooler/ipp على الطابعة، أو اطبع تقريرًا حقيقيًا عبر الـ Gateway."
+
+#. module: print_gateway
+#: models/print_router.py
+msgid "Gateway printing is enabled, but the binding resolved to native print. Check the binding configuration."
+msgstr "طباعة الـ Gateway مُفعّلة، ولكن الربط حُلّ إلى الطباعة الأصلية. تحقّق من إعداد الربط."
+
+#. module: print_gateway
+#: models/runtime_assignment.py
+msgid "Only Odoo system administrators can change runtime agent assignments."
+msgstr "يمكن لمسؤولي نظام Odoo فقط تغيير تعيينات الـ Agents."
+
+#. module: print_gateway
+#: models/runtime_assignment.py
+msgid "Odoo Company must be a parent Company, not a Branch."
+msgstr "يجب أن تكون شركة Odoo شركة أم، لا فرعًا."
+
+#. module: print_gateway
+#: models/runtime_assignment.py
+msgid "The selected Odoo Branch is not available to the current user."
+msgstr "فرع Odoo المحدَّد غير متاح للمستخدم الحالي."
+
+#. module: print_gateway
+#: models/runtime_assignment.py
+msgid "A non-empty Gateway runtime agent ID is required."
+msgstr "يلزم معرّف Agent غير فارغ من الـ Gateway."
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Print Rules"
+msgstr "قواعد الطباعة"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Company"
+msgstr "الشركة"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Branch"
+msgstr "الفرع"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Print Area"
+msgstr "منطقة الطباعة"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Document / Destination"
+msgstr "المستند / الوجهة"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Document Type"
+msgstr "نوع المستند"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Print Agent"
+msgstr "Agent طباعة"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Printer"
+msgstr "الطابعة"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Print Rule"
+msgstr "قاعدة طباعة"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Test Print"
+msgstr "طباعة تجريبية"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Check Setup"
+msgstr "فحص الإعداد"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Rule"
+msgstr "القاعدة"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Scope"
+msgstr "النطاق"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Document &amp; Destination"
+msgstr "المستند والوجهة"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "POS Shop"
+msgstr "متجر POS"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Odoo Preparation Printer"
+msgstr "طابعة التحضير في Odoo"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Operation Type"
+msgstr "نوع العملية"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Report"
+msgstr "التقرير"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Printer Setup"
+msgstr "إعداد الطابعة"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Runtime Printer"
+msgstr "طابعة الـ Gateway"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Advanced"
+msgstr "متقدم"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Printer Protocol"
+msgstr "بروتوكول الطابعة"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Backup Rule"
+msgstr "قاعدة احتياطية"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Printer Options"
+msgstr "خيارات الطابعة"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Cash Drawer"
+msgstr "درج النقد"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Paper Cutter"
+msgstr "قاطع الورق"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Kitchen Chime"
+msgstr "جرس المطبخ"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Empty means this binding applies to the whole company as the default route."
+msgstr "إذا تُرك فارغًا، ينطبق هذا الربط على الشركة بأكملها كمسار افتراضي."
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "Odoo 19 Preparation Printer. Its Printed Product Categories determine which kitchen lines reach this Gateway runtime printer."
+msgstr "طابعة تحضير في Odoo 19. تحدد فئات المنتجات المطبوعة الخاصة بها أي سطور المطبخ تصل إلى طابعة الـ Gateway هذه."
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "All Branches / Root Default"
+msgstr "جميع الفروع / الافتراضي للجذر"
+
+#. module: print_gateway
+#: views/binding_views.xml
+msgid "A test receipt will be printed on the selected printer. Continue?"
+msgstr "ستتم طباعة إيصال تجريبي على الطابعة المحدَّدة. هل تريد المتابعة؟"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Connection &amp; Printing"
+msgstr "الاتصال والطباعة"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Connection"
+msgstr "الاتصال"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Printing"
+msgstr "الطباعة"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Enable Printing Service"
+msgstr "تفعيل خدمة الطباعة"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Connected"
+msgstr "متصل"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Not connected"
+msgstr "غير متصل"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "API key revoked"
+msgstr "تم إلغاء مفتاح API"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Not checked"
+msgstr "لم يُفحص"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Printing enabled"
+msgstr "الطباعة مُفعّلة"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Printing disabled"
+msgstr "الطباعة معطَّلة"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Connect Print Agent"
+msgstr "ربط Agent طباعة"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Connect Agent"
+msgstr "ربط Agent"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Cancel"
+msgstr "إلغاء"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Choose a connected Print Agent for this branch."
+msgstr "اختر Agent طباعة متصل لهذا الفرع."
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "https://print.example.com"
+msgstr "https://print.example.com"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Enter the installation API key"
+msgstr "أدخل مفتاح API للتثبيت"
+
+#. module: print_gateway
+#: views/gateway_config_views.xml
+msgid "Select a connected Print Agent"
+msgstr "اختر Agent طباعة متصلًا"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Automation Activity"
+msgstr "نشاط الأتمتة"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Created"
+msgstr "تاريخ الإنشاء"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Record Type"
+msgstr "نوع السجل"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Record"
+msgstr "السجل"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Attempts"
+msgstr "المحاولات"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Retry Print"
+msgstr "إعادة محاولة الطباعة"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Business Event"
+msgstr "حدث أعمال"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Activity"
+msgstr "النشاط"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Issue"
+msgstr "المشكلة"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Search Automation Activity"
+msgstr "بحث في نشاط الأتمتة"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Failed - Needs Attention"
+msgstr "فاشل — يحتاج انتباهًا"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "In Progress"
+msgstr "قيد التنفيذ"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Completed"
+msgstr "مكتمل"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Status"
+msgstr "الحالة"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Policy"
+msgstr "القاعدة"
+
+#. module: print_gateway
+#: views/print_intent_views.xml
+msgid "Retry this failed print activity. Check the printer first because the previous attempt may already have produced a page."
+msgstr "أعد محاولة نشاط الطباعة الفاشل هذا. تحقّق من الطابعة أولًا لأن المحاولة السابقة قد تكون أنتجت صفحة بالفعل."
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Search Print Activity"
+msgstr "بحث في نشاط الطباعة"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Reference"
+msgstr "المرجع"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Destination"
+msgstr "الوجهة"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Gateway Job ID"
+msgstr "معرّف المهمة في الـ Gateway"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Needs Attention - Print May Have Completed"
+msgstr "يحتاج انتباهًا — قد تكون الطباعة اكتملت"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Failed"
+msgstr "فاشل"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Print Activity"
+msgstr "نشاط الطباعة"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Document"
+msgstr "المستند"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Reprints"
+msgstr "عمليات إعادة الطباعة"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Reprint"
+msgstr "إعادة الطباعة"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Refresh"
+msgstr "تحديث"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Print Details"
+msgstr "تفاصيل الطباعة"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Delivery"
+msgstr "التسليم"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Issue Details"
+msgstr "تفاصيل المشكلة"
+
+#. module: print_gateway
+#: views/print_job_views.xml
+msgid "Reprint this document only after checking the printer. This creates a new print attempt."
+msgstr "أعد طباعة هذا المستند بعد التحقق من الطابعة فقط. سيؤدي ذلك إلى إنشاء محاولة طباعة جديدة."
+
+#. module: print_gateway
+#: views/print_policy_views.xml
+msgid "Automation Rules"
+msgstr "قواعد الأتمتة"
+
+#. module: print_gateway
+#: views/print_policy_views.xml
+msgid "Rule Name"
+msgstr "اسم القاعدة"
+
+#. module: print_gateway
+#: views/print_policy_views.xml
+msgid "When"
+msgstr "متى"
+
+#. module: print_gateway
+#: views/print_policy_views.xml
+msgid "Automation Rule"
+msgstr "قاعدة أتمتة"
+
+#. module: print_gateway
+#: views/print_policy_views.xml
+msgid "When this happens"
+msgstr "عند حدوث ذلك"
+
+#. module: print_gateway
+#: views/print_policy_views.xml
+msgid "What to print"
+msgstr "ما الذي تتم طباعته"
+
+#. module: print_gateway
+#: views/print_policy_views.xml
+msgid "Advanced Printer Command"
+msgstr "أمر طابعة متقدم"
+
+#. module: print_gateway
+#: views/print_policy_views.xml
+msgid "Conditions"
+msgstr "الشروط"
+
+#. module: print_gateway
+#: views/print_policy_views.xml
+msgid "Optional explicit Print Rule for this exact Company and Branch scope."
+msgstr "قاعدة طباعة صريحة اختيارية لنطاق هذه الشركة وهذا الفرع تحديدًا."
+
+#. module: print_gateway
+#: views/print_policy_views.xml
+msgid "e.g. Auto-print delivery slip on validate"
+msgstr "مثال: طباعة إيصال التسليم تلقائيًا عند التأكيد"
+
+#. module: print_gateway
+#: views/print_policy_views.xml
+msgid "e.g. ^XA^FO50,50^ADN,36,20^FD{name}^FS^XZ"
+msgstr "مثال: ^XA^FO50,50^ADN,36,20^FD{name}^FS^XZ"
+
+#. module: print_gateway
+#: views/print_policy_views.xml
+msgid "e.g. [('state', '=', 'done')]"
+msgstr "مثال: [('state', '=', 'done')]"
+
+#. module: print_gateway
+#: views/print_policy_views.xml
+msgid "Archived"
+msgstr "مؤرشف"
+
+#. module: print_gateway
+#: views/runtime_assignment_views.xml
+msgid "Branch Devices"
+msgstr "أجهزة الفروع"
+
+#. module: print_gateway
+#: views/runtime_assignment_views.xml
+msgid "Branch Device"
+msgstr "جهاز الفرع"
+
+#. module: print_gateway
+#: views/runtime_assignment_views.xml
+msgid "Details"
+msgstr "التفاصيل"
+
+#. module: print_gateway
+#: views/runtime_assignment_views.xml
+msgid "Summary"
+msgstr "الملخص"
+
+#. module: print_gateway
+#: views/runtime_assignment_views.xml
+msgid "Empty means this assignment applies to the whole company."
+msgstr "إذا تُرك فارغًا، ينطبق هذا التعيين على الشركة بأكملها."
+
+#. module: print_gateway
+#: views/runtime_assignment_views.xml
+msgid "Choose an active Print Agent connected to this account."
+msgstr "اختر Agent طباعة نشطًا متصلًا بهذا الحساب."
+
+#. module: print_gateway
+#: static/src/components/runtime_agent_field.js
+msgid "Loading agents…"
+msgstr "جارٍ تحميل الـ Agents…"
+
+#. module: print_gateway
+#: static/src/components/runtime_agent_field.js
+msgid "Select a company first"
+msgstr "اختر الشركة أولًا"
+
+#. module: print_gateway
+#: static/src/components/runtime_agent_field.js
+msgid "Select Print Agent"
+msgstr "اختر Agent طباعة"
+
+#. module: print_gateway
+#: static/src/components/runtime_agent_field.js
+msgid "Could not load connected Print Agents. Check the printing service connection, then retry."
+msgstr "تعذّر تحميل الـ Agents المتصلة. تحقّق من اتصال خدمة الطباعة، ثم أعد المحاولة."
+
+#. module: print_gateway
+#: static/src/components/runtime_agent_field.js
+msgid "Retry"
+msgstr "إعادة المحاولة"
+
+#. module: print_gateway
+#: static/src/components/runtime_agent_field.js
+msgid "The printing service is not configured or unreachable for this company — check Connection & Printing"
+msgstr "خدمة الطباعة غير مُعدّة أو لا يمكن الوصول إليها لهذه الشركة — تحقّق من «الاتصال والطباعة»"
+
+#. module: print_gateway
+#: static/src/components/runtime_agent_field.js
+msgid "No Print Agent is assigned to this company/branch — assign one under Branch Devices first"
+msgstr "لا يوجد Agent طباعة مُعيَّن لهذه الشركة/هذا الفرع — عيّن واحدًا من «أجهزة الفروع» أولًا"
+
+#. module: print_gateway
+#: static/src/components/runtime_agent_field.js
+msgid "No connected Print Agents found — connect one from Connection & Printing"
+msgstr "لا توجد Agents طباعة متصلة — اربط واحدة من «الاتصال والطباعة»"
+
+#. module: print_gateway
+#: static/src/components/runtime_agent_field.js
+msgid "Restrict agents to explicit Branch assignment"
+msgstr "قصر الـ Agents على التعيين الصريح للفرع"
+
+#. module: print_gateway
+#: static/src/components/runtime_printer_field.js
+msgid "Loading printers…"
+msgstr "جارٍ تحميل الطابعات…"
+
+#. module: print_gateway
+#: static/src/components/runtime_printer_field.js
+msgid "Select Print Agent first"
+msgstr "اختر Agent طباعة أولًا"
+
+#. module: print_gateway
+#: static/src/components/runtime_printer_field.js
+msgid "Select Printer"
+msgstr "اختر طابعة"
+
+#. module: print_gateway
+#: static/src/components/runtime_printer_field.js
+msgid "Could not load printers. Check the Print Agent connection, then retry."
+msgstr "تعذّر تحميل الطابعات. تحقّق من اتصال Agent الطباعة، ثم أعد المحاولة."
+
+#. module: print_gateway
+#: static/src/components/runtime_printer_field.js
+msgid "saved / currently unavailable"
+msgstr "محفوظة / غير متاحة حاليًا"
+
+#. module: print_gateway
+#: static/src/components/runtime_printer_field.js
+msgid "No printers found for this Print Agent — check the printer or workstation"
+msgstr "لا توجد طابعات لهذا الـ Agent — تحقّق من الطابعة أو جهاز العمل"
+
+#. module: print_gateway
+#: static/src/components/runtime_printer_field.js
+msgid "The printing service is disabled or unreachable for this company — check Connection & Printing"
+msgstr "خدمة الطباعة معطَّلة أو لا يمكن الوصول إليها لهذه الشركة — تحقّق من «الاتصال والطباعة»"
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Agent limit reached"
+msgstr "تم بلوغ حد الـ Agents"
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Your organization's Gateway plan has reached its Agent limit."
+msgstr "بلغت خطة الـ Gateway لمؤسستك الحد الأقصى لعدد الـ Agents."
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Printer limit reached"
+msgstr "تم بلوغ حد الطابعات"
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Your organization's Gateway plan has reached its Printer limit."
+msgstr "بلغت خطة الـ Gateway لمؤسستك الحد الأقصى لعدد الطابعات."
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Print rate limit reached"
+msgstr "تم بلوغ حد معدل الطباعة"
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Your organization's Gateway plan has reached its print throughput limit."
+msgstr "بلغت خطة الـ Gateway لمؤسستك الحد الأقصى لمعدل إنتاجية الطباعة."
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Concurrent print limit reached"
+msgstr "تم بلوغ حد مهام الطباعة المتزامنة"
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Your organization's Gateway plan has reached its active print-job capacity."
+msgstr "بلغت خطة الـ Gateway لمؤسستك الحد الأقصى لسعة مهام الطباعة النشطة."
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Print allowance reached"
+msgstr "تم استنفاد رصيد الطباعة"
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Your organization's Gateway plan has used all included print jobs for this billing period."
+msgstr "استهلكت خطة الـ Gateway لمؤسستك جميع مهام الطباعة المضمّنة في فترة الفوترة هذه."
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Try again in about %s minute(s)."
+msgstr "حاول مرة أخرى بعد نحو %s دقيقة/دقائق."
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Used: %s"
+msgstr "المستخدم: %s"
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Plan limit: %s"
+msgstr "حد الخطة: %s"
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Billing period ends: %s"
+msgstr "تنتهي فترة الفوترة: %s"
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "No new print was sent to the printer."
+msgstr "لم يتم إرسال طباعة جديدة إلى الطابعة."
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Upgrade the Gateway plan to continue printing before the next billing period."
+msgstr "رقِّ خطة الـ Gateway لمتابعة الطباعة قبل فترة الفوترة التالية."
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Upgrade the Gateway plan or wait for capacity to become available."
+msgstr "رقِّ خطة الـ Gateway أو انتظر حتى تتوفر سعة."
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Open Print Activity"
+msgstr "فتح نشاط الطباعة"
+
+#. module: print_gateway
+#: static/src/js/gateway_limit_dialog.js
+msgid "Close"
+msgstr "إغلاق"
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "No POS order is available for printing."
+msgstr "لا يوجد طلب POS متاح للطباعة."
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "Print status is unknown. Check the printer before trying again."
+msgstr "حالة الطباعة غير معروفة. تحقّق من الطابعة قبل المحاولة مرة أخرى."
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "The receipt could not be accepted for printing. Check Print Activity for details."
+msgstr "تعذّر قبول الإيصال للطباعة. تحقّق من نشاط الطباعة للتفاصيل."
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "Receipt sent to the printing service. Check Print Activity for the final status."
+msgstr "تم إرسال الإيصال إلى خدمة الطباعة. تحقّق من نشاط الطباعة لمعرفة الحالة النهائية."
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "Receipt printing failed."
+msgstr "تعذّرت طباعة الإيصال."
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "Gateway Kitchen routing is incomplete for one or more Odoo Preparation Printers. Printing was cancelled to prevent silently losing kitchen tickets."
+msgstr "توجيه مطبخ الـ Gateway غير مكتمل لطابعة تحضير واحدة أو أكثر في Odoo. تم إلغاء الطباعة لتجنّب ضياع تذاكر المطبخ بصمت."
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "The previously failed kitchen printer is no longer available in the current POS configuration."
+msgstr "طابعة المطبخ التي فشلت سابقًا لم تعد متاحة في إعداد POS الحالي."
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for an Odoo preparation printer."
+msgstr "طباعة الـ Gateway مُفعّلة لنقطة البيع هذه، ولكن لا يوجد ربط مطبخ مُعدّ لطابعة تحضير في Odoo."
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "Kitchen print status is unknown. Check the printer before trying again."
+msgstr "حالة طباعة المطبخ غير معروفة. تحقّق من الطابعة قبل المحاولة مرة أخرى."
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "print failed"
+msgstr "تعذّرت الطباعة"
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "Gateway Kitchen"
+msgstr "مطبخ الـ Gateway"
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "Kitchen / Preparation printing failed."
+msgstr "تعذّرت طباعة المطبخ / التحضير."
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "Printing Service"
+msgstr "خدمة الطباعة"
+
+#. module: print_gateway
+#: static/src/js/pos_print_router.js
+msgid "The Gateway plan limit has been reached."
+msgstr "تم بلوغ حد خطة الـ Gateway."
+
+#. module: print_gateway
+#: static/src/js/pos_sale_details_router.js
+msgid "Sales Details sent to the printing service."
+msgstr "تم إرسال تفاصيل المبيعات إلى خدمة الطباعة."
+
+#. module: print_gateway
+#: static/src/js/pos_sale_details_router.js
+msgid "Sales Details could not be printed."
+msgstr "تعذّرت طباعة تفاصيل المبيعات."
+
+#. module: print_gateway
+#: static/src/js/report_interceptor.js
+msgid "We couldn't complete this print request. Native PDF download cancelled. Check Print Activity for details."
+msgstr "تعذّر إكمال طلب الطباعة هذا. تم إلغاء تنزيل PDF الأصلي. تحقّق من نشاط الطباعة للتفاصيل."
+
+#. module: print_gateway
+#: static/src/js/report_interceptor.js
+msgid "Gateway print failed for bound printer. Native download cancelled."
+msgstr "تعذّرت طباعة الـ Gateway للطابعة المربوطة. تم إلغاء التنزيل الأصلي."
+
+#. module: print_gateway
+#: static/src/js/report_interceptor.js
+msgid "Document sent to %s. Check Print Activity for the final status."
+msgstr "تم إرسال المستند إلى %s. تحقّق من نشاط الطباعة لمعرفة الحالة النهائية."
+
+#. module: print_gateway
+#: static/src/js/report_interceptor.js
+msgid "Printing service error: %s"
+msgstr "خطأ في خدمة الطباعة: %s"
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/runtime_printer_field.js
+msgid "generic"
+msgstr "عام"
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/runtime_agent_field.js
+msgid "offline"
+msgstr "غير متصل"

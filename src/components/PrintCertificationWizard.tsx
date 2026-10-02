@@ -10,6 +10,9 @@ import {
   StatusBadge,
   type Tone,
 } from "./ui";
+import { useI18n } from "../i18n/react";
+import type { Translator } from "../i18n/translate";
+import type { MessageKey } from "../i18n/messages/en";
 import {
   CheckCircle2,
   CircleAlert,
@@ -33,13 +36,48 @@ type CertificationStep = {
   evidence?: string;
 };
 
-const STEP_META: Record<StepStatus, { label: string; tone: Tone }> = {
-  ok: { label: "Passed", tone: "ok" },
-  error: { label: "Failed", tone: "bad" },
-  blocked: { label: "Blocked", tone: "warn" },
-  running: { label: "Running", tone: "info" },
-  pending: { label: "Pending", tone: "neutral" },
+const STEP_STATUS_KEYS: Record<StepStatus, MessageKey> = {
+  ok: "cert.status.passed",
+  error: "cert.status.failed",
+  blocked: "cert.status.blocked",
+  running: "cert.status.running",
+  pending: "cert.status.pending",
 };
+
+const STEP_TONES: Record<StepStatus, Tone> = {
+  ok: "ok",
+  error: "bad",
+  blocked: "warn",
+  running: "info",
+  pending: "neutral",
+};
+
+/**
+ * The certification API keeps sending human-readable `label`/`description`
+ * fields (contract preserved); the UI renders the semantic copy for the step
+ * id instead and only falls back to the payload for unknown steps.
+ */
+const STEP_KEYS: Record<string, { label: MessageKey; description: MessageKey }> = {
+  gateway: { label: "cert.step.gateway", description: "cert.step.gateway.desc" },
+  auth: { label: "cert.step.auth", description: "cert.step.auth.desc" },
+  queue: { label: "cert.step.queue", description: "cert.step.queue.desc" },
+  claim: { label: "cert.step.claim", description: "cert.step.claim.desc" },
+  agent: { label: "cert.step.agent", description: "cert.step.agent.desc" },
+  transport: { label: "cert.step.transport", description: "cert.step.transport.desc" },
+  physical: { label: "cert.step.physical", description: "cert.step.physical.desc" },
+  ack: { label: "cert.step.ack", description: "cert.step.ack.desc" },
+  final: { label: "cert.step.final", description: "cert.step.final.desc" },
+};
+
+function stepLabel(step: CertificationStep, t: Translator): string {
+  const keys = STEP_KEYS[step.id];
+  return keys ? t(keys.label) : step.label;
+}
+
+function stepDescription(step: CertificationStep, t: Translator): string {
+  const keys = STEP_KEYS[step.id];
+  return keys ? t(keys.description) : step.description;
+}
 
 function StepStatusIcon({ status }: { status: StepStatus }) {
   if (status === "ok") return <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />;
@@ -49,10 +87,10 @@ function StepStatusIcon({ status }: { status: StepStatus }) {
   return <Clock className="h-3.5 w-3.5" aria-hidden />;
 }
 
-function formatTime(value?: string | null): string | null {
+function toDateOrNull(value?: string | null): Date | null {
   if (!value) return null;
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toLocaleTimeString();
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 /**
@@ -63,6 +101,7 @@ function formatTime(value?: string | null): string | null {
  * distinguishable from a failed transport step. Status is always icon + label.
  */
 export default function PrintCertificationWizard({ printerId }: { printerId: string }) {
+  const { t, formatNumber, formatTime } = useI18n();
   const [steps, setSteps] = useState<CertificationStep[] | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -82,7 +121,7 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
         body: JSON.stringify({ testPage: true }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (!res.ok) throw new Error(t("cert.failedBody"));
       setSteps(data.steps);
       setJobId(data.jobId);
       setRequestId(data.requestId);
@@ -90,7 +129,7 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
       setBlocked(data.blocked);
       setTimelineUrl(data.timelineUrl ?? (data.jobId ? `/api/jobs/${data.jobId}/timeline` : null));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e instanceof Error ? e.message : t("cert.failedBody"));
     } finally {
       setLoading(false);
     }
@@ -103,19 +142,18 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
 
   return (
     <div className="space-y-4">
-      <section className="rounded-lg border border-edge bg-surface-2 px-4 py-4">
+      <section className="rounded-sg border border-edge bg-surface-2 px-4 py-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="label-caps flex items-center gap-2">
               <Printer className="h-3.5 w-3.5" aria-hidden />
-              Printer certification
+              {t("cert.eyebrow")}
             </div>
             <h3 className="mt-2 text-xl font-[640] tracking-[-0.02em] text-ink">
-              Verify the complete print path
+              {t("cert.heading")}
             </h3>
             <p className="mt-1.5 max-w-2xl text-base leading-relaxed text-ink-2">
-              Yaseir sends a controlled test page and reports the result of each stage — Gateway
-              authentication, queueing, agent transport and physical printing.
+              {t("cert.intro")}
             </p>
           </div>
           <Button
@@ -126,32 +164,31 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
             icon={<Printer className="h-4 w-4" aria-hidden />}
             className="shrink-0"
           >
-            {loading ? "Running certification…" : steps ? "Run again" : "Run certification"}
+            {loading ? t("cert.runningCta") : steps ? t("cert.runAgain") : t("cert.run")}
           </Button>
         </div>
 
         {error && (
-          <Callout tone="bad" title="Certification could not be completed" className="mt-4">
+          <Callout tone="bad" title={t("cert.failedTitle")} className="mt-4">
             <span role="alert" className="break-words">{error}</span>
           </Callout>
         )}
       </section>
 
       {!steps && !loading && (
-        <section className="rounded-lg border border-dashed border-edge-strong bg-surface px-5 py-8 text-center">
+        <section className="rounded-sg border border-dashed border-edge-strong bg-surface px-5 py-8 text-center">
           <span aria-hidden className="mx-auto flex h-9 w-9 items-center justify-center rounded-md border border-edge bg-surface-2 text-ink-3">
             <ShieldCheck className="h-4 w-4" />
           </span>
-          <p className="mt-3 text-base font-[600] text-ink">Not certified yet</p>
+          <p className="mt-3 text-base font-[600] text-ink">{t("cert.emptyTitle")}</p>
           <p className="mx-auto mt-1 max-w-md text-sm leading-relaxed text-ink-3">
-            Run certification to send a test page through this printer and record the result of every
-            stage. Nothing is printed until you start.
+            {t("cert.emptyBody")}
           </p>
         </section>
       )}
 
       {loading && !steps && (
-        <section className="space-y-2.5 rounded-lg border border-edge bg-surface px-5 py-5" role="status" aria-label="Running certification">
+        <section className="space-y-2.5 rounded-sg border border-edge bg-surface px-5 py-5" role="status" aria-label={t("cert.loadingAria")}>
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="flex items-center gap-3">
               <Skeleton className="h-7 w-7 rounded-full" />
@@ -161,68 +198,68 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
               </div>
             </div>
           ))}
-          <span className="sr-only">Running certification…</span>
+          <span className="sr-only">{t("cert.runningCta")}</span>
         </section>
       )}
 
       {steps && (
         <>
           <section
-            aria-label="Certification summary"
-            className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-edge bg-edge sm:grid-cols-3"
+            aria-label={t("cert.summaryAria")}
+            className="grid grid-cols-1 gap-px overflow-hidden rounded-sg border border-edge bg-edge sm:grid-cols-3"
           >
             <div className="bg-surface px-4 py-3.5">
-              <div className="label-caps">Overall result</div>
+              <div className="label-caps">{t("cert.overallResult")}</div>
               <div className="mt-1.5 flex items-center gap-2">
                 <StatusBadge
                   tone={overallTone}
-                  label={certified ? "Certified" : blocked ? "Blocked" : "Review required"}
+                  label={certified ? t("cert.result.certified") : blocked ? t("cert.result.blocked") : t("cert.result.review")}
                 />
               </div>
               <div className="mt-1.5 text-sm text-ink-3">
                 {certified
-                  ? "All stages passed."
+                  ? t("cert.allStagesPassed")
                   : blocked
-                    ? `${blockedCount} blocked · ${failedCount} failed`
-                    : `${failedCount} failed · ${blockedCount} blocked`}
+                    ? t("cert.blockedSummary", { blocked: formatNumber(blockedCount), failed: formatNumber(failedCount) })
+                    : t("cert.failedSummary", { failed: formatNumber(failedCount), blocked: formatNumber(blockedCount) })}
               </div>
             </div>
             <div className="bg-surface px-4 py-3.5">
-              <div className="label-caps">Stages passed</div>
+              <div className="label-caps">{t("cert.stagesPassed")}</div>
               <div className="mt-1.5 text-md font-[600] tabular-nums text-ink">
-                {completedCount} <span className="text-sm font-normal text-ink-3">of {steps.length}</span>
+                {formatNumber(completedCount)} <span className="text-sm font-normal text-ink-3">{t("cert.ofTotal", { total: formatNumber(steps.length) })}</span>
               </div>
               <Progress
                 className="mt-2"
                 value={steps.length ? Math.round((completedCount / steps.length) * 100) : 0}
                 tone={certified ? "ok" : failedCount > 0 ? "bad" : blockedCount > 0 ? "warn" : "brand"}
-                label={`${completedCount} of ${steps.length} stages passed`}
+                label={t("cert.progressLabel", { done: formatNumber(completedCount), total: formatNumber(steps.length) })}
               />
             </div>
             <div className="bg-surface px-4 py-3.5">
-              <div className="label-caps">Print job</div>
+              <div className="label-caps">{t("cert.printJob")}</div>
               <div className="mt-1.5">
-                {jobId ? <Mono className="block truncate">{jobId}</Mono> : <span className="text-sm text-ink-3">Not created</span>}
+                {jobId ? <Mono className="block truncate">{jobId}</Mono> : <span className="text-sm text-ink-3">{t("cert.jobNotCreated")}</span>}
               </div>
               <div className="mt-1 truncate text-sm text-ink-3" title={requestId ?? undefined}>
-                {requestId ? `Request ${requestId.slice(0, 12)}…` : "No request recorded"}
+                {requestId ? t("cert.requestShort", { id: requestId.slice(0, 12) }) : t("cert.noRequestRecorded")}
               </div>
             </div>
           </section>
 
-          <section className="overflow-hidden rounded-lg border border-edge bg-surface">
+          <section className="overflow-hidden rounded-sg border border-edge bg-surface">
             <div className="border-b border-edge-subtle bg-surface-2 px-4 py-3">
-              <h4 className="text-base font-[600] text-ink">Certification stages</h4>
+              <h4 className="text-base font-[600] text-ink">{t("cert.stagesHeading")}</h4>
               <p className="mt-0.5 text-sm leading-relaxed text-ink-3">
-                Each stage is reported independently so failures and blocked physical steps are
-                unambiguous.
+                {t("cert.stagesBody")}
               </p>
             </div>
 
             <ol className="divide-y divide-edge-subtle">
               {steps.map((step, index) => {
-                const meta = STEP_META[step.status] ?? STEP_META.pending;
-                const time = formatTime(step.at);
+                const tone = STEP_TONES[step.status] ?? STEP_TONES.pending;
+                const at = toDateOrNull(step.at);
+                const time = at ? formatTime(at) : null;
                 return (
                   <li key={step.id} className="px-4 py-4">
                     <div className="flex gap-3.5">
@@ -243,14 +280,14 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div className="min-w-0">
-                            <h5 className="text-base font-[600] leading-snug text-ink">{step.label}</h5>
-                            <p className="mt-0.5 text-sm leading-relaxed text-ink-3">{step.description}</p>
+                            <h5 className="text-base font-[600] leading-snug text-ink">{stepLabel(step, t)}</h5>
+                            <p className="mt-0.5 text-sm leading-relaxed text-ink-3">{stepDescription(step, t)}</p>
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
                             <StatusBadge
                               size="sm"
-                              tone={meta.tone}
-                              label={meta.label}
+                              tone={tone}
+                              label={t(STEP_STATUS_KEYS[step.status] ?? STEP_STATUS_KEYS.pending)}
                               icon={<StepStatusIcon status={step.status} />}
                             />
                             {time && <span className="text-xs tabular-nums text-ink-3">{time}</span>}
@@ -265,7 +302,7 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
 
                         {step.evidence && (
                           <div className="mt-2.5 overflow-hidden rounded-sm border border-edge bg-app">
-                            <div className="label-caps border-b border-edge-subtle px-3.5 py-2">Evidence</div>
+                            <div className="label-caps border-b border-edge-subtle px-3.5 py-2">{t("cert.evidence")}</div>
                             <code className="block max-h-48 overflow-auto whitespace-pre-wrap break-words px-3.5 py-2.5 font-mono text-xs leading-relaxed text-ink-2">
                               {step.evidence}
                             </code>
@@ -279,27 +316,25 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
             </ol>
           </section>
 
-          <Callout tone="warn" title="Physical print verification">
-            In staging without a physical printer, the Physical stage may be blocked by design. On real
-            hardware, confirm the YASEIR test page reaches paper output and that the Gateway job links to
-            the Windows spooler result before treating certification as complete.
+          <Callout tone="warn" title={t("cert.physicalTitle")}>
+            {t("cert.physicalBody")}
           </Callout>
 
           {(requestId || timelineUrl || failedCount > 0) && (
-            <section aria-label="Certification references" className="rounded-lg border border-edge bg-surface px-4 py-3.5">
+            <section aria-label={t("cert.referencesAria")} className="rounded-sg border border-edge bg-surface px-4 py-3.5">
               <dl className="grid gap-3 sm:grid-cols-2">
                 {requestId && (
                   <div className="min-w-0">
-                    <dt className="label-caps">Request ID</dt>
+                    <dt className="label-caps">{t("cert.requestId")}</dt>
                     <dd className="mt-1 break-all">
                       <Mono>{requestId}</Mono>
                     </dd>
                   </div>
                 )}
                 <div>
-                  <dt className="label-caps">Failed stages</dt>
+                  <dt className="label-caps">{t("cert.failedStages")}</dt>
                   <dd className={`mt-1 text-base font-[600] tabular-nums ${failedCount > 0 ? "text-bad" : "text-ink"}`}>
-                    {failedCount}
+                    {formatNumber(failedCount)}
                   </dd>
                 </div>
               </dl>
@@ -310,7 +345,7 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
                   rel="noopener noreferrer"
                   className="mt-3 inline-flex items-center gap-1.5 rounded-xs text-sm font-[550] text-brand transition-colors duration-[140ms] hover:text-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
                 >
-                  View job timeline
+                  {t("cert.viewTimeline")}
                   <ExternalLink className="h-3.5 w-3.5" aria-hidden />
                 </a>
               )}

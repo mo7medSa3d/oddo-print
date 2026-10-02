@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kardianos/service"
@@ -22,10 +23,35 @@ import (
 
 type program struct {
 	configPath string
-	agent      *agent.Agent
-	ctx        context.Context
-	cancel     context.CancelFunc
-	runDone    chan struct{} // closed exactly once when the Start-owned runtime exits
+
+	// mu guards agent.
+	//
+	// The agent instance is written by the Start-owned runtime goroutine (on
+	// every restart-loop iteration) and read by Stop, which the service manager
+	// invokes on a different goroutine. Without a mutex those accesses are
+	// unsynchronised: Stop could observe a stale nil and skip closing the
+	// SQLite queue, or observe a half-published pointer. go test -race would
+	// flag it.
+	mu    sync.Mutex
+	agent *agent.Agent
+
+	ctx     context.Context
+	cancel  context.CancelFunc
+	runDone chan struct{} // closed exactly once when the Start-owned runtime exits
+}
+
+// setAgent publishes the current agent instance.
+func (p *program) setAgent(a *agent.Agent) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.agent = a
+}
+
+// getAgent returns the current agent instance, if one has been created.
+func (p *program) getAgent() *agent.Agent {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.agent
 }
 
 func (p *program) Start(s service.Service) error {
@@ -113,9 +139,9 @@ func (p *program) Start(s service.Service) error {
 				}
 				continue
 			}
-			p.agent = app
+			p.setAgent(app)
 
-			if err := p.agent.Run(p.ctx); err != nil {
+			if err := app.Run(p.ctx); err != nil {
 				log.Printf("Agent error: %v — restarting in %s...", err, restartBackoff)
 			} else {
 				log.Printf("Agent exited cleanly")
@@ -152,8 +178,8 @@ func (p *program) Stop(s service.Service) error {
 	}
 	select {
 	case <-p.runDone:
-		if p.agent != nil {
-			if err := p.agent.Close(); err != nil {
+		if ag := p.getAgent(); ag != nil {
+			if err := ag.Close(); err != nil {
 				return fmt.Errorf("close local queue: %w", err)
 			}
 		}

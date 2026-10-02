@@ -3,6 +3,7 @@
 import { Component, onWillStart, useEffect, useState, xml } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { rpc } from "@web/core/network/rpc";
+import { _t } from "@web/core/l10n/translation";
 
 function relationalId(value) {
     if (!value) return false;
@@ -20,20 +21,20 @@ export class RuntimeAgentField extends Component {
                 <t t-set="selectedAgent" t-value="this.selectedAgent"/>
                 <span>
                     <t t-esc="selectedAgent?.name || props.record.data[props.name] || ''"/>
-                    <t t-if="selectedAgent"> — <t t-esc="selectedAgent.status || 'offline'"/></t>
+                    <t t-if="selectedAgent"> — <t t-esc="selectedAgent.status || labels.statusOffline"/></t>
                 </span>
             </t>
             <t t-else="">
-                <select class="o_input" aria-label="Print Agent" t-att-value="props.record.data[props.name] || ''" t-att-disabled="state.loading || !state.companyId" t-att-aria-invalid="state.error ? 'true' : undefined" t-att-aria-describedby="state.error ? 'o_pg_agent_error' : undefined" t-on-change="onChange">
-                    <option value=""><t t-esc="state.loading ? 'Loading agents…' : (!state.companyId ? 'Select a company first' : 'Select Print Agent')"/></option>
+                <select class="o_input" t-att-aria-label="labels.printAgent" t-att-value="props.record.data[props.name] || ''" t-att-disabled="state.loading || !state.companyId" t-att-aria-invalid="state.error ? 'true' : undefined" t-att-aria-describedby="state.error ? 'o_pg_agent_error' : undefined" t-on-change="onChange">
+                    <option value=""><t t-esc="placeholderText"/></option>
                     <option t-foreach="state.agents" t-as="agent" t-key="agent.id" t-att-value="agent.id" t-att-selected="agent.id === props.record.data[props.name]">
-                        <t t-esc="agent.name"/> — <t t-esc="agent.id"/> · <t t-esc="agent.status || 'offline'"/>
+                        <t t-esc="agent.name"/> — <t t-esc="agent.id"/> · <t t-esc="agent.status || labels.statusOffline"/>
                     </option>
                     <option t-if="!state.loading &amp;&amp; !state.error &amp;&amp; state.companyId &amp;&amp; !state.agents.length" value="" disabled="disabled"><t t-esc="emptyMessage"/></option>
                 </select>
                 <div t-if="state.error" class="mt-1 d-flex align-items-center gap-2">
-                    <small id="o_pg_agent_error" class="text-danger">Could not load connected Print Agents. Check the printing service connection, then retry.</small>
-                    <button type="button" class="btn btn-link btn-sm p-0" t-on-click="retryLoad">Retry</button>
+                    <small id="o_pg_agent_error" class="text-danger"><t t-esc="labels.loadError"/></small>
+                    <button type="button" class="btn btn-link btn-sm p-0" t-on-click="retryLoad"><t t-esc="labels.retry"/></button>
                 </div>
             </t>
         </div>`;
@@ -43,6 +44,18 @@ export class RuntimeAgentField extends Component {
         this.currentRequestId = 0;
         this.loadedScopeKey = null;
         this.state = useState({ loading: false, agents: [], companyId: false, branchId: false, enabled: true, error: null });
+        // Inline `xml` templates are not scanned for translations (Odoo only
+        // translates templates defined in XML files), so the strings live here
+        // where `_t` is in scope and the export can see them.
+        this.labels = {
+            printAgent: _t("Print Agent"),
+            loadingAgents: _t("Loading agents…"),
+            selectCompanyFirst: _t("Select a company first"),
+            selectPrintAgent: _t("Select Print Agent"),
+            loadError: _t("Could not load connected Print Agents. Check the printing service connection, then retry."),
+            retry: _t("Retry"),
+            statusOffline: _t("offline"),
+        };
 
         // Company and Branch are NOT the field this widget renders. Odoo only
         // re-renders a field component when a value it actually read changes, so
@@ -75,6 +88,12 @@ export class RuntimeAgentField extends Component {
         return Boolean(this.props.assignmentOnly);
     }
 
+    get placeholderText() {
+        if (this.state.loading) return this.labels.loadingAgents;
+        if (!this.state.companyId) return this.labels.selectCompanyFirst;
+        return this.labels.selectPrintAgent;
+    }
+
     get selectedAgent() {
         const agentId = this.props.record?.data?.[this.props.name];
         return this.state.agents.find((agent) => agent.id === agentId) || null;
@@ -86,11 +105,11 @@ export class RuntimeAgentField extends Component {
         // send the operator to the wrong screen. An empty assignment list and a
         // missing print service are two different problems.
         if (!this.state.enabled) {
-            return "The printing service is not configured or unreachable for this company — check Connection & Printing";
+            return _t("The printing service is not configured or unreachable for this company — check Connection & Printing");
         }
         return this.assignmentOnly
-            ? "No Print Agent is assigned to this company/branch — assign one under Branch Devices first"
-            : "No connected Print Agents found — connect one from Connection & Printing";
+            ? _t("No Print Agent is assigned to this company/branch — assign one under Branch Devices first")
+            : _t("No connected Print Agents found — connect one from Connection & Printing");
     }
 
     scopeKey(companyId, branchId, assignmentOnly) {
@@ -173,7 +192,7 @@ const runtimeAgentField = {
     supportedTypes: ["char"],
     supportedOptions: [
         {
-            label: "Restrict agents to explicit Branch assignment",
+            label: _t("Restrict agents to explicit Branch assignment"),
             name: "assignment_only",
             type: "boolean",
         },

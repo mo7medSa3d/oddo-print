@@ -2,9 +2,12 @@
  * Route-level loading state: the same page geometry the console renders, so
  * navigation never flashes an empty screen or a layout jump.
  */
-export default function Loading() {
+import { getServerLocale, makeT } from "../i18n/server";
+
+export default async function Loading() {
+  const t = makeT(await getServerLocale());
   return (
-    <div className="mx-auto w-full max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8" role="status" aria-label="Loading">
+    <div className="mx-auto w-full max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8" role="status" aria-label={t("loading.routeAria")}>
       <div className="space-y-3">
         <div className="skeleton h-7 w-56" />
         <div className="skeleton h-4 w-full max-w-lg" />
@@ -35,7 +38,7 @@ export default function Loading() {
           </div>
         ))}
       </div>
-      <span className="sr-only">Loading…</span>
+      <span className="sr-only">{t("loading.routeText")}</span>
     </div>
   );
 }

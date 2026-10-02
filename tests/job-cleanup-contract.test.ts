@@ -31,7 +31,7 @@ describe("print-job cleanup contract", () => {
     const page = read("src/app/dashboard/page.tsx");
     const button = read("src/components/JobCleanupButton.tsx");
     expect(page).toContain("<JobCleanupButton />");
-    expect(button).toContain("Clean jobs");
+    expect(button).toContain('t("jobs.cleanup.action")');
     expect(button).toContain('method: "DELETE"');
     expect(button).toContain("RETENTION_DAYS = 30");
     expect(button).toContain("limit=5000&confirm=1");

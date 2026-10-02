@@ -17,6 +17,17 @@ import {
   jobTone as jobToneImpl,
   printerLabel as printerLabelImpl,
 } from "../../shared/job-vocabulary";
+import { DEFAULT_LOCALE, type Locale } from "../../i18n/config";
+import { translate, type MessageKey } from "../../i18n/translate";
+
+/**
+ * All operator-facing text in this module goes through the shared catalog so
+ * the desktop app speaks the same language as the web console. Every helper
+ * takes an optional locale; existing call sites keep working unchanged.
+ */
+function tr(locale: Locale, key: MessageKey): string {
+  return translate(locale, key);
+}
 
 /* ============================================================
    Desktop presentation helpers for printers
@@ -62,12 +73,12 @@ export function isProductionPrinter(p: PrinterInfo): boolean {
 
 // printerTone/jobTone/printerLabel/jobLabel now come from the SHARED
 // vocabulary module (single source of truth with the web console).
-export function labelPrinter(status: string): string {
-  return printerLabelImpl(status);
+export function labelPrinter(status: string, locale: Locale = DEFAULT_LOCALE): string {
+  return printerLabelImpl(status, locale);
 }
 
-export function labelJob(status: string, error?: unknown): string {
-  return jobLabelImpl(status, deriveOutcomeImpl(status, error == null ? "" : String(error)));
+export function labelJob(status: string, error?: unknown, locale: Locale = DEFAULT_LOCALE): string {
+  return jobLabelImpl(status, deriveOutcomeImpl(status, error == null ? "" : String(error)), locale);
 }
 
 export function toneJob(status: string, error?: unknown): Tone {
@@ -76,27 +87,27 @@ export function toneJob(status: string, error?: unknown): Tone {
 
 /* ---------- Human-friendly descriptions ---------- */
 
-export function humanType(p: PrinterInfo): string {
+export function humanType(p: PrinterInfo, locale: Locale = DEFAULT_LOCALE): string {
   // Device class (thermal/laser/inkjet/label/other/unknown) — NOT printer_type,
   // which is physical/virtual/redirected. Reading printer_type here made the
   // thermal/label/laser/inkjet branches dead code.
   const deviceClass = (p.device_class || p.deviceClass || "").toLowerCase();
-  if (deviceClass === "thermal" || deviceClass === "label") return "Thermal";
-  if (deviceClass === "laser") return "Laser";
-  if (deviceClass === "inkjet") return "Inkjet";
-  if ((p.connection_type || p.connectionType || "").toLowerCase() === "usb") return "USB device";
+  if (deviceClass === "thermal" || deviceClass === "label") return tr(locale, "desktop.type.thermal");
+  if (deviceClass === "laser") return tr(locale, "desktop.type.laser");
+  if (deviceClass === "inkjet") return tr(locale, "desktop.type.inkjet");
+  if ((p.connection_type || p.connectionType || "").toLowerCase() === "usb") return tr(locale, "desktop.type.usb");
   if (deviceClass && deviceClass !== "unknown") return deviceClass.charAt(0).toUpperCase() + deviceClass.slice(1);
-  return "Printer";
+  return tr(locale, "desktop.type.printer");
 }
 
-export function humanConnection(p: PrinterInfo): string {
+export function humanConnection(p: PrinterInfo, locale: Locale = DEFAULT_LOCALE): string {
   const c = (p.connection_type || p.connectionType || "").toLowerCase();
   const proto = (p.protocol || "").toLowerCase();
-  if (c === "spooler" || proto === "spooler") return "Windows spooler";
-  if (c === "usb") return "USB";
-  if (c === "ipp" || c === "ipps" || proto === "ipp" || proto === "ipps") return "IPP";
-  if (c === "network" || c === "tcp") return "Network (TCP)";
-  return "Printer";
+  if (c === "spooler" || proto === "spooler") return tr(locale, "desktop.connection.spooler");
+  if (c === "usb") return tr(locale, "desktop.connection.usb");
+  if (c === "ipp" || c === "ipps" || proto === "ipp" || proto === "ipps") return tr(locale, "desktop.connection.ipp");
+  if (c === "network" || c === "tcp") return tr(locale, "desktop.connection.network");
+  return tr(locale, "desktop.connection.printer");
 }
 
 export function printerEndpoint(p: PrinterInfo): string {
@@ -107,7 +118,7 @@ export function printerEndpoint(p: PrinterInfo): string {
 
 /* ---------- Errors ---------- */
 
-export function errMsg(e: unknown): string {
+export function errMsg(e: unknown, locale: Locale = DEFAULT_LOCALE): string {
   if (e instanceof Error) return e.message;
   if (typeof e === "string") return e;
   if (e && typeof e === "object") {
@@ -118,13 +129,13 @@ export function errMsg(e: unknown): string {
     try {
       return JSON.stringify(e);
     } catch {
-      return "Unknown error";
+      return tr(DEFAULT_LOCALE, "desktop.unknownError");
     }
   }
   return String(e);
 }
 
-export function friendlyAgentError(raw: string): string {
+export function friendlyAgentError(raw: string, locale: Locale = DEFAULT_LOCALE): string {
   const lower = raw.toLowerCase();
 
   if (
@@ -134,31 +145,31 @@ export function friendlyAgentError(raw: string): string {
     lower.includes("permission denied") ||
     lower.includes("administrator privilege")
   ) {
-    return "Administrator permission is required to access the local Agent. Reopen Yaseir Print Manager as Administrator and try again.";
+    return tr(locale, "desktop.agent.adminRequired");
   }
   if (lower.includes("requires elevation") || lower.includes("elevation required")) {
-    return "Administrator permission is required for this operation. Reopen Yaseir Print Manager as Administrator and try again.";
+    return tr(locale, "desktop.agent.elevationRequired");
   }
   if (lower.includes("pairing code")) {
-    return "Pairing could not be completed. Check the pairing code and make sure it has not expired.";
+    return tr(locale, "desktop.agent.pairingFailed");
   }
   if (lower.includes("timeout") || lower.includes("timed out") || lower.includes("deadline")) {
-    return "The local Agent did not respond in time. Try again.";
+    return tr(locale, "desktop.agent.timeout");
   }
   if (lower.includes("connection refused") || lower.includes("failed to connect")) {
-    return "The local Agent service is unavailable. Start or restart the Agent, then try again.";
+    return tr(locale, "desktop.agent.unavailable");
   }
   if (lower.includes("not found") || lower.includes("cannot find the file") || lower.includes("no such file")) {
-    return "The local Agent configuration or service is unavailable. Start the Agent service and try again.";
+    return tr(locale, "desktop.agent.configUnavailable");
   }
-  return "The local Agent could not complete the operation. Try again.";
+  return tr(locale, "desktop.agent.failed");
 }
 
-export function friendlyGatewayError(raw: string): string {
+export function friendlyGatewayError(raw: string, locale: Locale = DEFAULT_LOCALE): string {
   const lower = raw.toLowerCase();
 
   if (lower.includes("401") || lower.includes("403") || lower.includes("unauthorized") || lower.includes("forbidden")) {
-    return "Gateway access is unavailable. Pair this PC with the Gateway and verify the connection.";
+    return tr(locale, "desktop.gateway.unauthorized");
   }
   if (
     lower.includes("connection refused") ||
@@ -166,23 +177,23 @@ export function friendlyGatewayError(raw: string): string {
     lower.includes("network is unreachable") ||
     lower.includes("econnrefused")
   ) {
-    return "The Gateway could not be reached. Check the Gateway URL and network connection, then try again.";
+    return tr(locale, "desktop.gateway.unreachable");
   }
   if (lower.includes("timeout") || lower.includes("timed out") || lower.includes("deadline")) {
-    return "The Gateway did not respond in time. Check the connection and try again.";
+    return tr(locale, "desktop.gateway.timeout");
   }
   if (lower.includes("pairing code")) {
-    return "Pairing could not be completed. Check the pairing code and make sure it has not expired.";
+    return tr(locale, "desktop.gateway.pairingFailed");
   }
-  return "The Gateway could not complete the request. Check the connection and try again.";
+  return tr(locale, "desktop.gateway.failed");
 }
 
-export function friendlyPrinterError(raw: string): string {
+export function friendlyPrinterError(raw: string, locale: Locale = DEFAULT_LOCALE): string {
   // SAFETY-CRITICAL: an unknown physical outcome must never be reworded into
   // "did not respond" - that phrasing makes operators reprint and
   // double-print. These markers always win, and are never truncated.
   if (/^(AGENT_EXECUTION_TIMEOUT|AGENT_RESTART_DURING_PRINT|JOB_EXPIRED_DURING_PRINT|UNKNOWN_PARTIAL_DELIVERY|UNKNOWN_SUBMISSION_OUTCOME)/.test(raw)) {
-    return "Print status is unknown. The printer may have received part or all of the job. Automatic retry is paused to prevent duplicate printing - check the printer before reprinting.";
+    return tr(locale, "desktop.printer.unknownOutcome");
   }
   const lower = raw.toLowerCase();
 
@@ -190,17 +201,17 @@ export function friendlyPrinterError(raw: string): string {
   // because the Tauri Gateway transport reads the local Agent config first.
   // Never expose the config path or Windows error text to operators.
   if (lower.includes("load agent config failed") || lower.includes("config.yaml")) {
-    return "Administrator permission is required to access the local Agent. Reopen Yaseir Print Manager as Administrator and try again.";
+    return tr(locale, "desktop.printer.adminRequired");
   }
   if (lower.includes("connection refused") || lower.includes("dial tcp"))
-    return "Could not connect to the printer.";
+    return tr(locale, "desktop.printer.cannotConnect");
   if (lower.includes("timeout") || lower.includes("deadline"))
-    return "Printer did not respond in time.";
-  if (lower.includes("offline")) return "Printer is offline.";
+    return tr(locale, "desktop.printer.noResponse");
+  if (lower.includes("offline")) return tr(locale, "desktop.printer.offline");
   if (lower.includes("not found") || lower.includes("no such"))
-    return "Printer not found.";
+    return tr(locale, "desktop.printer.notFound");
   if (lower.includes("access denied") || lower.includes("access is denied") || lower.includes("permission"))
-    return "Windows denied access to the printer. Check printer permissions and try again.";
+    return tr(locale, "desktop.printer.accessDenied");
 
   // Keep unexpected runtime failures operator-safe when they contain a local
   // filesystem path or other backend diagnostics.
@@ -209,7 +220,7 @@ export function friendlyPrinterError(raw: string): string {
     lower.includes("stack backtrace") ||
     lower.includes("panic")
   ) {
-    return "The printer operation could not be completed. Check the printer and try again.";
+    return tr(locale, "desktop.printer.operationFailed");
   }
 
   return raw.length > 140 ? raw.slice(0, 140) + "…" : raw;
@@ -220,14 +231,32 @@ export function friendlyPrinterError(raw: string): string {
 export function jobId(j: Record<string, unknown>): string {
   return String(j.id ?? j.jobId ?? "");
 }
-export function jobDocType(j: Record<string, unknown>): string {
-  return String(j.documentType ?? j.document_type ?? "Document");
+export function jobDocType(j: Record<string, unknown>, locale: Locale = DEFAULT_LOCALE): string {
+  const raw = j.documentType ?? j.document_type;
+  return raw ? String(raw) : tr(locale, "desktop.job.document");
 }
 export function jobPrinterId(j: Record<string, unknown>): string {
   return String(j.printerId ?? "");
 }
 export function jobDestination(j: Record<string, unknown>): string {
   return String(j.destination ?? "");
+}
+/**
+ * Read a timestamp field off a job record.
+ *
+ * JobRecord is `Record<string, unknown>` — the desktop consumes the Gateway's
+ * JSON without a generated schema — so `unknown` must be narrowed before it
+ * can reach a date formatter. Anything that is not a string or number is
+ * reported as absent so the caller renders its placeholder instead of
+ * formatting "undefined".
+ */
+export function jobTimestamp(
+  j: Record<string, unknown>,
+  key: "createdAt" | "updatedAt",
+): string | number | undefined {
+  const raw = j[key] ?? (key === "createdAt" ? j.created_at : j.updated_at);
+  if (typeof raw === "string" || typeof raw === "number") return raw;
+  return undefined;
 }
 export function jobStatus(j: Record<string, unknown>): string {
   return String(j.status ?? "");

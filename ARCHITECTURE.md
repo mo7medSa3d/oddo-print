@@ -1,6 +1,6 @@
 # Yaseir Cloud Printing Platform — Architecture
 
-> **Version**: 19.0.2.10.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
+> **Version**: 19.0.2.11.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
 
 ## 1. System Overview
 

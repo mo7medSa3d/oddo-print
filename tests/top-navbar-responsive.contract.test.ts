@@ -9,7 +9,7 @@ describe("Gateway TopNavbar responsive contract", () => {
     const navEnd = source.indexOf(">", navStart);
     const navOpenTag = navStart >= 0 && navEnd >= 0 ? source.slice(navStart, navEnd + 1) : "";
 
-    expect(navOpenTag).toContain('aria-label="Main"');
+    expect(navOpenTag).toContain('aria-label={t("nav.consoleNavigation")}');
 
     expect(navOpenTag).toContain("lg:flex");
     expect(navOpenTag).not.toContain("lg:hidden");

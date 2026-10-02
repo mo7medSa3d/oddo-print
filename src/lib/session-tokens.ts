@@ -5,6 +5,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { sessionCookieSecure } from "./session-config";
 import { sendTransactionalEmail } from "./email";
+import { DEFAULT_LOCALE, type Locale } from "../i18n/config";
+import { translate } from "../i18n/translate";
 import { writeAuditEvent } from "./audit";
 import { logError, logWarn } from "./log";
 
@@ -54,6 +56,11 @@ export type SharedSessionPrincipal = {
 export type SessionRequestContext = {
   ipAddress?: string | null;
   userAgent?: string | null;
+  /**
+   * Language for any email this session flow sends. Optional: callers outside
+   * a request (tests, scripts) simply get the default.
+   */
+  locale?: Locale | null;
 };
 
 export type SharedSessionClaims = {
@@ -526,6 +533,9 @@ export async function rotateRefreshToken(
   context?: SessionRequestContext,
 ): Promise<RefreshResult> {
   const tokenHash = hashRefreshToken(token);
+  const locale = context?.locale ?? DEFAULT_LOCALE;
+  const t = (key: Parameters<typeof translate>[1], vars?: Parameters<typeof translate>[2]) =>
+    translate(locale, key, vars);
 
   const outcome = await db.transaction(async (tx) => {
     const result = await tx.execute(sql`
@@ -677,9 +687,9 @@ export async function rotateRefreshToken(
       try {
         await sendTransactionalEmail({
           to: outcome.notificationEmail,
-          subject: "Yaseir security alert: refresh token reuse detected",
-          html: "<p>A refresh token reuse was detected on your Yaseir session. All tokens in that session family were revoked. Sign in again to create a new session.</p>",
-          text: "A refresh token reuse was detected on your Yaseir session. All tokens in that session family were revoked. Sign in again to create a new session.",
+          subject: t("mail.tokenReuse.subject"),
+          html: `<p>${t("mail.tokenReuse.body")}</p>`,
+          text: t("mail.tokenReuse.body"),
         });
       } catch (error) {
         logError("auth.refresh.reuse_notification_failed", {

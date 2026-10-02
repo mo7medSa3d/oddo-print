@@ -172,10 +172,19 @@ class PrintGatewayPolicy(models.Model):
                                     stack.append(ns)
             rendered = template.format(**values)
             return rendered
-        except Exception as exc:
+        except KeyError as exc:
+            # The by-far most common failure: the template asks for a field the
+            # document does not have. Say which placeholder, so the fix is
+            # obvious without reading a Python traceback.
             raise ValidationError(
-                _("Failed to render raw template for policy '%s': %s")
-                % (self.name, exc)
+                _("The raw template for rule '%s' uses the placeholder {%s}, but this document does not provide it. Remove the placeholder or replace it with a field this record has.")
+                % (self.name, exc.args[0] if exc.args else "?")
+            ) from exc
+        except Exception as exc:
+            _logger.debug("raw template render failed for rule '%s'", self.name, exc_info=True)
+            raise ValidationError(
+                _("Could not build the raw payload for rule '%s'. Check that the template only uses placeholders this document provides.")
+                % self.name
             ) from exc
 
     @api.depends("company_id", "branch_id")
