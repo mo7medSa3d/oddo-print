@@ -1154,3 +1154,12 @@ every `CODE_KEYS` entry resolves to a real catalog key.
 - **Component:** all · **File:** —
 - **Change:** No change — verified nothing to do. Root `*.md` are one topical doc each (ADR/ARCHITECTURE/DEPLOYMENT/…); stale audit reports already live in `archive/`. Open PRs are all fresh dependabot bumps (2026-09-30, codeql/vite/vitest/ws/tauri/drizzle/types/eslint) — none stale or superseded. No dead code introduced this pass (`embeddedPDFPrintMu` fully removed, 0 references; controller `_` import removed with its last use).
 - **Evidence:** `ls archive/`, `ls *.md`, `gh pr list` output recorded above.
+
+---
+
+## 2026-10-02 — P5 push protocol complete: all CI green on main (Audit Pass 2)
+
+- **Component:** CI · **File:** —
+- **Change:** 5 commits pushed to `main` (no force-push): `ddf9cc3` CI timeouts+checks, `39e0c51` agent fixes, `d0c1ffd` gateway/odoo fixes, `0ca3238` audit records, `8091994` alias-grep prose exclusion. No merge needed (working branch is `main`, the established pattern).
+- **Reason:** Push protocol: fix, push, watch, repeat until green.
+- **Evidence (gh):** push `8091994` — `CI` success (incl. `ci` + `odoo19` jobs), `Build Windows Installer` success, `Docker` success, `Static Security Gates` success, `Security and Resilience Gates` success. Intermediate push `0ca3238` proved the fixes incrementally: `odoo19` flipped failure→success (controller/policy fixes verified on real Odoo 19), `ci` still failed only on the self-referential alias-grep hit, fixed by `8091994`.

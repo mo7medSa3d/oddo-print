@@ -166,16 +166,38 @@ Go is absent, so none of the 11 tests have ever been executed.
 - Not re-audited in depth: `snmp_discovery.go`, `wsd_discovery.go`, `ipp*.go`,
   `pdf_windows.go`, `registry.go`, `cmd/agent/main.go` service wiring.
 
-## RESUME HERE (Audit Pass 2 — in progress)
-P0 CI review underway. New environment facts: Go 1.26.8, cargo 1.98.1,
-pytest 8.3.3, gh, docker all present; node v22.23.1 with node_modules
-installed. Prior "UNVERIFIED: no Go toolchain" is now lifted for
-Linux-side checks (real Windows hardware still UNVERIFIED).
-Prior deferred item `team/invitations 503` is NOT deferred — it was fixed
-on main (`INVITATION_DELIVERY_UNAVAILABLE`, commit 6318efd); verified in
-current source 2026-10-02.
-Next: P0 CI fixes (missing i18n/db-docs jobs, missing timeouts), then P1
-deep audit of remaining Go files, then P2/P3/P4, then push protocol.
+## RESUME HERE (Audit Pass 2 — COMPLETE, all CI green 2026-10-02)
+
+5 commits on `main` (`ddf9cc3`, `39e0c51`, `d0c1ffd`, `0ca3238`, `8091994`),
+pushed, all five workflows success on `8091994` (CI incl. odoo19,
+Windows installer, Docker, both security gates).
+
+What was fixed vs the previous state: CI red→green (alias-grep self-hits
++ 3 Odoo runtime failures); Go lifecycle races/Fatal/PDF slot/WSD cap;
+14 lint warnings → 0; 5 stale pytest assertions; 2 leftover English bodies
+keyed. Full detail in AUDIT_LOG.md (Pass 2 entries).
+
+Verified by EVIDENCE (local command or CI run — nothing claimed otherwise):
+- Local: go build/vet (linux + GOOS=windows), gofmt, go test 9 pkgs ok,
+  go test -race printer ok; tsc 0; eslint 0/0; vitest 722 passed/0 failed;
+  next build ok; i18n/db-docs/odoo checks ok; py_compile 47/0; XML 9/0;
+  pytest 136/136; yaml.safe_load all workflows; alias-grep gate clean.
+- CI (push 8091994): all 5 workflows success — incl. windows-latest
+  go build/vet/race + cargo check/build/test + MSI/NSIS smoke, Odoo 19
+  runtime suite (199 tests), Postgres integration + migration on empty DB,
+  Docker compose + WS smoke. (Local Node v22.23.1 vs required 24; CI ran 24.)
+
+Remains UNVERIFIED and why:
+  1. Real Windows service/printing hardware (spooler output, USB discovery,
+     SNMP/WSD against physical devices, SCM stop) — no Windows host or
+     printers here; covered only by CI's windows-latest job without hardware.
+  2. Live Stripe (webhook e2e, past_due/unpaid transitions) — no live keys.
+  3. Live Odoo 19 production behavior beyond the CI suite.
+  4. PostgreSQL E2E beyond CI (no local server).
+  5. Visual/RTL browser check (no browser here).
+
+Next session: pick up any new CI failures or start from the UNVERIFIED list
+with hardware access. Re-read this file + AUDIT_LOG.md after compaction.
 
 ---
 
@@ -202,7 +224,7 @@ caveat. Nothing installed (all tools pre-existing).
 | P2-4 | Security/billing/DB passes | **DONE** — verified clean, no change |
 | P3 | Odoo addon (py_compile/XML/pytest) | **DONE** — 136/136 pytest; 3 CI-red fixes |
 | P4 | Cleanup (dead code, md collapse, PR triage) | **DONE** — verified nothing to do |
-| P5 | Push + watch CI to green | **DOING** |
+| P5 | Push + watch CI to green | **DONE** — all 5 workflows success |
 
 ### Pass 2 evidence so far (Go — FIRST local execution ever)
 - `go build ./...` (linux): exit 0
