@@ -1163,3 +1163,12 @@ every `CODE_KEYS` entry resolves to a real catalog key.
 - **Change:** 5 commits pushed to `main` (no force-push): `ddf9cc3` CI timeouts+checks, `39e0c51` agent fixes, `d0c1ffd` gateway/odoo fixes, `0ca3238` audit records, `8091994` alias-grep prose exclusion. No merge needed (working branch is `main`, the established pattern).
 - **Reason:** Push protocol: fix, push, watch, repeat until green.
 - **Evidence (gh):** push `8091994` — `CI` success (incl. `ci` + `odoo19` jobs), `Build Windows Installer` success, `Docker` success, `Static Security Gates` success, `Security and Resilience Gates` success. Intermediate push `0ca3238` proved the fixes incrementally: `odoo19` flipped failure→success (controller/policy fixes verified on real Odoo 19), `ci` still failed only on the self-referential alias-grep hit, fixed by `8091994`.
+
+---
+
+## 2026-10-02 — Flaky integration test diagnosed + de-flaked (post-Pass 2)
+
+- **Component:** Gateway tests · **File:** `tests/platform-control-plane.test.ts`
+- **Change:** "revokes legacy platform session and invalidates legacy claims" now derives token `iat`/`exp` from the single stored `platform_sessions.expires_at` instead of a second independent `clock_timestamp()` read. Test-only change; revocation invariant untouched.
+- **Reason:** CI run 37024331707 (docs-only commit) failed `ci` in integration tests: `expected null not to be null` at the pre-revocation assertion. Mechanism: the test wrote `expires_at = T0 + 8h` (INSERT) then read `createdAt = floor(clock at T1)`; when a second boundary falls between T0 and T1, `claims.exp = floor(T0)+1+8h` while `floor(expires_at) = floor(T0)+8h`, so `validatePlatformClaims`' exact-equality fence (`platform-auth.ts`, legacy path) returns null. Proved causally unrelated to Pass 2 code: the failing commit changed only `AUDIT_*.md`, and the prior code-identical run 37021271916 was green. Sibling legacy tests (`session-legacy-fallback`, `manager-auth`) use one clock read for both write and assert — self-consistent, no race; verified by reading.
+- **Evidence:** first failure log (`FAIL tests/platform-control-plane.test.ts ... expected null not to be null`); rerun of the failed run triggered to corroborate flakiness; deterministic fix committed as `de161f4`; `tsc --noEmit` clean. Runtime proof left to the new CI run.
