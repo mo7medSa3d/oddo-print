@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   DEFAULT_LOCALE,
   LOCALE_COOKIE_KEY,
@@ -39,6 +47,68 @@ export type I18nValue = {
 
 const I18nContext = createContext<I18nValue | null>(null);
 
+/* --------------------------------------------------------------------------
+ * Stored-preference store.
+ *
+ * The active locale lives in localStorage, which is an external system React
+ * cannot read during the server render. `useSyncExternalStore` is the
+ * supported way to subscribe to one: the server snapshot is null, so hydration
+ * renders the server's locale, and React adopts the stored value in the same
+ * post-hydration pass instead of waiting for an effect.
+ *
+ * This replaces reading storage inside an effect and calling setState there,
+ * which forced an extra render on every mount (and was rejected by
+ * `react-hooks/set-state-in-effect`). It also makes a preference change in one
+ * tab propagate to the others.
+ * ------------------------------------------------------------------------ */
+const listeners = new Set<() => void>();
+
+/**
+ * Cache keyed on the raw stored value. `getSnapshot` must return a stable
+ * result between calls or React re-renders forever, so the read is memoised
+ * rather than hitting storage on every render.
+ */
+let cachedRaw: string | null | undefined;
+let cachedLocale: Locale | null = null;
+/** Fallback for when storage is unavailable (private mode, blocked cookies). */
+let sessionLocale: Locale | null = null;
+
+function readStoredLocale(): Locale {
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+  } catch {
+    /* storage unavailable — fall through to the session fallback */
+  }
+  if (raw === null && sessionLocale) return sessionLocale;
+  if (raw === cachedRaw && cachedLocale) return cachedLocale;
+  cachedRaw = raw;
+  cachedLocale = resolveLocale(raw);
+  return cachedLocale;
+}
+
+function emitLocaleChange() {
+  cachedRaw = undefined;
+  cachedLocale = null;
+  for (const listener of listeners) listener();
+}
+
+function subscribeToLocale(listener: () => void) {
+  listeners.add(listener);
+  const onStorage = (event: StorageEvent) => {
+    // Another tab changed the preference; a null key means the store was cleared.
+    if (event.key === null || event.key === LOCALE_STORAGE_KEY) emitLocaleChange();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    listeners.delete(listener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+/** Server snapshot: no stored preference is readable yet. */
+const noStoredLocale = () => null;
+
 /**
  * Locale provider.
  *
@@ -50,27 +120,17 @@ const I18nContext = createContext<I18nValue | null>(null);
  * own form controls all follow in one place.
  */
 export function I18nProvider({ children, initialLocale = DEFAULT_LOCALE }: { children: ReactNode; initialLocale?: Locale }) {
-  const [locale, setLocaleState] = useState<Locale>(initialLocale);
+  // `null` during the hydration pass only; the stored preference afterwards.
+  // Server and client both start from `initialLocale`, so hydration matches
+  // even when the two disagree with storage, and React adopts the stored value
+  // in the same pass instead of via a follow-up effect.
+  const storedLocale = useSyncExternalStore(subscribeToLocale, readStoredLocale, noStoredLocale);
+  const locale = storedLocale ?? initialLocale;
   // False until the stored preference has been read. The pre-paint script in
   // the document head has already set `lang`/`dir` from the same storage key,
   // so nothing may write to the document element before this flips — doing so
   // would undo the script and show one left-to-right frame to an Arabic user.
-  const [resolved, setResolved] = useState(false);
-
-  // Adopt the stored preference after mount. Server and client both start from
-  // `initialLocale`, so hydration matches even when the two disagree with
-  // storage; the correction lands in the first effect pass.
-  useEffect(() => {
-    let stored: string | null = null;
-    try {
-      stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-    } catch {
-      /* storage unavailable — stay on the default locale */
-    }
-    const next = resolveLocale(stored);
-    if (next !== initialLocale) setLocaleState(next);
-    setResolved(true);
-  }, [initialLocale]);
+  const resolved = storedLocale !== null;
 
   useEffect(() => {
     if (!resolved) return;
@@ -80,15 +140,17 @@ export function I18nProvider({ children, initialLocale = DEFAULT_LOCALE }: { chi
   }, [locale, resolved]);
 
   const setLocale = useCallback((next: Locale) => {
-    setLocaleState(next);
     try {
       window.localStorage.setItem(LOCALE_STORAGE_KEY, next);
       // One year, Lax: the server can read it on the next navigation without
       // ever sending it cross-site.
       document.cookie = `${LOCALE_COOKIE_KEY}=${next}; path=/; max-age=31536000; samesite=lax`;
     } catch {
-      /* storage unavailable — the choice still applies for this session */
+      // Storage unavailable — remember it for this session so the choice still
+      // applies instead of snapping back on the next read.
+      sessionLocale = next;
     }
+    emitLocaleChange();
   }, []);
 
   const value = useMemo<I18nValue>(() => {
