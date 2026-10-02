@@ -166,13 +166,15 @@ describe("Odoo Gateway activation synchronization", () => {
       expect(page).toContain('fetch("/api/odoo/keys"');
       expect(page).toContain("setInterval");
       expect(page).toContain("Odoo integration");
-      expect(page).toContain("Connect Odoo");
+      // Localized at render time; assert the key, which is the stable contract.
+      // Localized at render time; the key is the stable contract, not the copy.
+      expect(page).toContain('t("apiKeys.connectOdoo")');
       expect(page).toContain("odooEnabledRevision");
-      expect(page).toContain("Integration read / write · All documents");
+      expect(page).toContain('t("apiKeys.scope")');
       expect(page).not.toContain("Document types");
-      expect(page).toContain("Retiring");
+      expect(page).toContain('t("apiKeys.retiring")');
       expect(page).toContain("readOnlyUntil");
-      expect(page).toContain("Access level");
+      expect(page).toContain('t("apiKeys.accessLevel")');
     });
   });
 
