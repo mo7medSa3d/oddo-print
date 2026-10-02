@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -81,6 +82,12 @@ type SpoolerPrinter struct {
 	// sync.Mutex is safe as a zero value, so struct literals in tests and
 	// all constructors behave identically.
 	sessionMu sync.Mutex
+	// lastJobID holds the StartDocPrinterW return value of the most recent
+	// SUCCESSFULLY completed session, for Gateway evidence linkage. It is
+	// only read on the success path (sessions are serialized by sessionMu,
+	// so no failed session can interleave), and only written on success —
+	// a failed session never overwrites a previous success's identity.
+	lastJobID atomic.Uint64
 }
 
 func NewSpooler(spoolerName, displayName string) *SpoolerPrinter {
@@ -253,6 +260,12 @@ func finishSpoolerDoc(sys spoolerSyscalls, hPrinter syscall.Handle, spoolerName 
 func executeSpoolerSession(spoolerName string, data []byte, cancelNotice <-chan struct{}) spoolerTaskResult {
 	return executeSpoolerSessionWithSyscalls(spoolerName, data, cancelNotice, defaultSpoolerSyscalls)
 }
+
+// currentExecuteSpoolerSession runs the Win32 session for Print. It is a
+// package variable (defaulting to the real session) solely so tests can
+// fake a complete session — including the StartDocPrinterW job identity —
+// without real Win32 handles. Production never reassigns it.
+var currentExecuteSpoolerSession = executeSpoolerSession
 
 func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNotice <-chan struct{}, sys spoolerSyscalls) spoolerTaskResult {
 	printerNamePtr, err := syscall.UTF16PtrFromString(spoolerName)
@@ -684,7 +697,7 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 
 	go func() {
 		defer p.endSession()
-		resultCh <- executeSpoolerSession(p.SpoolerName, data, cancelNotice)
+		resultCh <- currentExecuteSpoolerSession(p.SpoolerName, data, cancelNotice)
 	}()
 
 	select {
@@ -707,10 +720,26 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 			log.Printf("print.trace spooler_session printer=%s latency_ms=%d success=false", p.SpoolerName, time.Since(printStart).Milliseconds())
 			return res.err
 		}
+		// Record the Windows spooler job ID BEFORE reporting success: it is
+		// the one piece of evidence that disambiguates "print occurred but
+		// the status report was lost" during later investigation. A zero ID
+		// means the platform assigned none and is reported as "".
+		if res.jobID != 0 {
+			p.lastJobID.Store(uint64(res.jobID))
+		}
 		log.Printf("print.trace spooler_session printer=%s latency_ms=%d success=true", p.SpoolerName, time.Since(printStart).Milliseconds())
 		log.Printf("Spooler printed %d bytes to %s (job %d)", res.written, p.SpoolerName, res.jobID)
 		return nil
 	}
+}
+
+// LastSpoolerJobID implements SpoolerJobIDReporter: the StartDocPrinterW
+// return value of the most recent successful session, "" when none.
+func (p *SpoolerPrinter) LastSpoolerJobID() string {
+	if id := p.lastJobID.Load(); id != 0 {
+		return strconv.FormatUint(id, 10)
+	}
+	return ""
 }
 
 func (p *SpoolerPrinter) SupportsKind(kind string) bool {

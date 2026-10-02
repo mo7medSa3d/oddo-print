@@ -1309,7 +1309,7 @@ func TestUpdateJobStatusRedactsClaimTokenOverride(t *testing.T) {
 		log.SetOutput(previousWriter)
 	})
 
-	if err := ag.updateJobStatus(context.Background(), jobID, "printing", "", passed); err != nil {
+	if err := ag.updateJobStatus(context.Background(), jobID, "printing", "", passed, ""); err != nil {
 		t.Fatalf("updateJobStatus: %v", err)
 	}
 

@@ -2111,3 +2111,112 @@ class TestControlPlane(TransactionCase):
         self.assertTrue(callable(get_public_method(self.env["print_gateway.intent"], "action_rearm_intent")))
         self.assertTrue(callable(get_public_method(self.env["print_gateway.print_job"], "action_retry")))
         self.assertTrue(callable(get_public_method(self.env["print_gateway.print_job"], "action_submit")))
+
+    def _make_requeue_probe_job(self, key):
+        return self.env["print_gateway.print_job"].create({
+            "company_id": self.branch.id,
+            "gateway_config_id": self.gateway_config.id,
+            "printer_id": self.primary_binding.printer_id,
+            "destination": "Primary Destination",
+            "document_type": "invoice",
+            "status": "queued",
+            "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
+            "idempotency_key": key,
+        })
+
+    @staticmethod
+    def _mock_gateway_response(status_code, body):
+        mock_resp = MagicMock()
+        mock_resp.status_code = status_code
+        mock_resp.content = json.dumps(body).encode("utf-8")
+        mock_resp.json.return_value = body
+        mock_resp.headers = {}
+        return mock_resp
+
+    def test_11_rotation_grace_409_requeues_instead_of_terminal(self):
+        """A 409 API_KEY_READ_ONLY during rotation grace must re-queue, never terminal-fail."""
+        job = self._make_requeue_probe_job("test_rotation_grace_requeue_key_01")
+        ConfigClass = type(self.gateway_config)
+        grace = self._mock_gateway_response(409, {"error": "API key is in its rotation grace period and is read-only.", "code": "API_KEY_READ_ONLY", "retryable": False})
+        with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=grace):
+            job.action_submit()
+        self.assertEqual(job.status, "queued")
+        self.assertFalse(job.gateway_job_id)
+        self.assertIn("GATEWAY_KEY_ROTATION_GRACE", job.last_error or "")
+        self.assertTrue(job.next_retry_at, "re-queued job must carry a future retry timestamp")
+
+    def test_12_recoverable_401_requeues_instead_of_terminal(self):
+        """Every Gateway 401 (revoked key, disabled integration, suspended tenant) is operator-recoverable."""
+        job = self._make_requeue_probe_job("test_recoverable_401_requeue_key_01")
+        ConfigClass = type(self.gateway_config)
+        denied = self._mock_gateway_response(401, {"error": "Unauthorized"})
+        with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=denied):
+            job.action_submit()
+        self.assertEqual(job.status, "queued")
+        self.assertFalse(job.gateway_job_id)
+        self.assertIn("GATEWAY_AUTH_RECOVERABLE_401", job.last_error or "")
+        self.assertTrue(job.next_retry_at, "re-queued job must carry a future retry timestamp")
+
+    def test_13_tenant_suspended_403_requeues(self):
+        """TENANT_SUSPENDED/TENANT_DELETED ride the same recoverable 403 path as the billing codes."""
+        job = self._make_requeue_probe_job("test_suspended_403_requeue_key_01")
+        ConfigClass = type(self.gateway_config)
+        suspended = self._mock_gateway_response(403, {"error": "Tenant suspended", "code": "TENANT_SUSPENDED"})
+        with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=suspended):
+            job.action_submit()
+        self.assertEqual(job.status, "queued")
+        self.assertIn("GATEWAY_BILLING_BLOCKED: TENANT_SUSPENDED", job.last_error or "")
+
+    def test_14_disabled_integration_freezes_outbox_without_post(self):
+        """Disabling printing must freeze queued rows (no POST, no state destruction)."""
+        job = self._make_requeue_probe_job("test_disabled_freeze_key_01")
+        self.gateway_config.enabled = False
+
+        def _must_not_post(*args, **kwargs):
+            raise AssertionError("no Gateway POST may occur while the integration is disabled")
+
+        ConfigClass = type(self.gateway_config)
+        with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
+             patch("requests.post", side_effect=_must_not_post):
+            job.action_submit()
+        self.assertEqual(job.status, "queued")
+        self.assertFalse(job.gateway_job_id)
+        self.assertTrue(job.next_retry_at, "frozen job must be pushed back, not left hot")
+
+    def test_15_unlink_409_conflict_converges_with_fenced_retry(self):
+        """A 409 revision tie during deletion shutdown converges instead of blocking unlink."""
+        tie = self._mock_gateway_response(409, {"error": "Conflicting Odoo gateway activation update for the same revision", "current": {"enabled": True, "revision": 5}})
+        converged = self._mock_gateway_response(200, {"ok": True, "enabled": False, "revision": 6})
+        with patch("requests.patch", side_effect=[tie, converged]) as mock_patch:
+            result = self.gateway_config._disable_gateway_for_unlink("https://gateway.example.com", "test_api_key_control_plane", 5)
+        self.assertTrue(result)
+        self.assertEqual(mock_patch.call_count, 2)
+        retry_call = mock_patch.call_args_list[1]
+        retry_json = retry_call.kwargs.get("json")
+        self.assertIsInstance(retry_json, dict, "fenced retry must resend a JSON body")
+        self.assertEqual(retry_json.get("revision"), 6, "fenced retry must target current.revision + 1")
+        self.assertEqual(retry_json.get("enabled"), False, "fenced retry must keep enabled=False")
+
+    def test_16_creation_rejects_payload_over_5mib_decoded(self):
+        """Creation enforces the same 5 MiB decoded wire limit as submit/Gateway/Agent.
+
+        The old 8 MiB serialized-JSON acceptance persisted jobs that could
+        never be submitted (decoded content over the wire ceiling). Regression
+        test for the unified contract.
+        """
+        import base64
+        big = base64.b64encode(b"\x00" * (6 * 1024 * 1024)).decode("ascii")
+        model = self.env["print_gateway.print_job"].with_company(self.branch)
+        with self.assertRaisesRegex(ValidationError, "5 MiB"):
+            model.create_operation(
+                company=self.branch,
+                gateway_config=self.gateway_config,
+                printer_id="printer-primary",
+                destination="Primary Destination",
+                document_type="invoice",
+                payload={"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": big},
+                idempotency_key="test_oversize_5mib_key_01",
+            )

@@ -126,6 +126,10 @@ export async function claimJobForDelivery(
     `);
     const inFlight = Number((live.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
     if (inFlight >= MAX_AGENT_IN_FLIGHT_JOBS) return null;
+    // Claim eligibility (status/transport part) mirrors isPrinterClaimable()
+    // in src/lib/routing.ts: online/busy, or unknown with a fully declared
+    // spooler/ipp/direct transport. offline/error fail fast. Kept IN SQL so
+    // the eligibility check and the row lock are atomic.
     const locked = await tx.execute(sql`
       SELECT p.id
       FROM print_jobs p

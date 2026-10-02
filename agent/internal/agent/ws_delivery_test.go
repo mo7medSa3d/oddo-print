@@ -937,7 +937,7 @@ func TestUpdateJobStatusDetectsFenceRejection(t *testing.T) {
 	gw.rejectPrinting = true
 	p := &fakePrinter{}
 	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
-	err := ag.updateJobStatus(context.Background(), "job_x", "printing", "", "claim-dead")
+	err := ag.updateJobStatus(context.Background(), "job_x", "printing", "", "claim-dead", "")
 	if err == nil {
 		t.Fatalf("expected ErrStaleClaim, got nil")
 	}
@@ -946,7 +946,7 @@ func TestUpdateJobStatusDetectsFenceRejection(t *testing.T) {
 	}
 	// Non-fence statuses still report normally through the same path.
 	gw.rejectPrinting = false
-	if err := ag.updateJobStatus(context.Background(), "job_x", "printing", "", "claim-live"); err != nil {
+	if err := ag.updateJobStatus(context.Background(), "job_x", "printing", "", "claim-live", ""); err != nil {
 		t.Fatalf("expected nil error once the fence accepts, got %v", err)
 	}
 }
