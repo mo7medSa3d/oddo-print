@@ -442,4 +442,33 @@ suite("heartbeat validation and lifecycle preservation", () => {
     expect((await beat(f.agentAuth, [{ jobId: "job_hb_fence", claimToken: liveToken }])).status).toBe(200);
     expect(new Date((await jobRow("job_hb_fence")).updated_at).getTime()).toBeGreaterThan(new Date(staleAt).getTime());
   });
+  it("inventories unknown-protocol printers without making them executable", async () => {
+    // An honestly undeclared protocol must converge into inventory
+    // (visible, protocol preserved) while staying unroutable: UNKNOWN
+    // semantics preserved, never executable. Regression pin for the
+    // "silently disappears" class of defect.
+    const res = await heartbeatPOST(new Request("http://gateway.test/api/agent/heartbeat", {
+      method: "POST",
+      headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({
+        status: "online",
+        printers: [{
+          id: "printer_unknown_proto_01",
+          name: "Undeclared Device",
+          printerType: "physical",
+          deviceClass: "laser",
+          connectionType: "network",
+          protocol: "unknown",
+          status: "online",
+          config: { ip: "192.0.2.44", port: 9100 },
+        }],
+      }),
+    }));
+    expect(res.status).toBe(200);
+    const row = await pool().query(
+      `SELECT protocol, status, lifecycle FROM printers WHERE id = 'printer_unknown_proto_01'`,
+    );
+    expect(row.rows[0]?.protocol).toBe("unknown");
+    expect(row.rows[0]?.lifecycle).toBe("active");
+  });
 });
