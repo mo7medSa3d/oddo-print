@@ -136,9 +136,17 @@ suite("Platform Control Plane & Authorization Boundaries", () => {
       INSERT INTO platform_sessions (jti, user_id, expires_at)
       VALUES (${jti}, ${user.userId}, clock_timestamp() + interval '8 hours')
     `);
-    const createdAt = Number((await db.execute(
-      sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`,
-    )).rows[0]?.now_sec);
+    // Derive both claims from the single stored expires_at: an independent
+    // second clock read can straddle a second boundary (INSERT at T0, SELECT
+    // at T1 with floor(T1) = floor(T0) + 1), producing exp off by one second
+    // and a spurious null. Reading back the row keeps iat/exp consistent
+    // with what validatePlatformClaims compares against.
+    const stored = (await db.execute(
+      sql`SELECT FLOOR(EXTRACT(EPOCH FROM expires_at))::bigint AS exp_sec FROM platform_sessions WHERE jti = ${jti}`,
+    )).rows[0] as { exp_sec: string } | undefined;
+    const expSec = Number(stored?.exp_sec);
+    expect(Number.isSafeInteger(expSec)).toBe(true);
+    const createdAt = expSec - LEGACY_SESSION_MAX_AGE_SECONDS;
     const legacyHeader = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
     const legacyPayload = Buffer.from(JSON.stringify({
       jti,
